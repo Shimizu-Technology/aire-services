@@ -75,21 +75,6 @@ module ClerkAuthenticatable
     end
   end
 
-  def require_client!
-    authenticate_user! unless @current_user
-    return if performed?
-
-    unless @current_user&.client?
-      render_forbidden("Client access required")
-      return
-    end
-
-    unless @current_user&.client_id.present?
-      render_forbidden("No client profile linked to this account")
-      return
-    end
-  end
-
   def find_or_create_user(clerk_id:, email:, first_name:, last_name:)
     return nil if clerk_id.blank?
 

@@ -7,8 +7,7 @@ interface AuthContextType {
   isClerkEnabled: boolean
   isSignedIn: boolean
   isLoading: boolean
-  userRole: 'admin' | 'employee' | 'client' | null
-  isClient: boolean
+  userRole: 'admin' | 'employee' | null
   isStaff: boolean
 }
 
@@ -17,7 +16,6 @@ const AuthContext = createContext<AuthContextType>({
   isSignedIn: false,
   isLoading: true,
   userRole: null,
-  isClient: false,
   isStaff: false,
 })
 
@@ -32,7 +30,7 @@ interface AuthProviderProps {
 
 const ROLE_CACHE_PREFIX = 'aire_role_'
 const ROLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
-type UserRole = 'admin' | 'employee' | 'client' | null
+type UserRole = 'admin' | 'employee' | null
 
 function getCachedRole(clerkId: string | undefined): UserRole {
   if (!clerkId) return null
@@ -44,7 +42,7 @@ function getCachedRole(clerkId: string | undefined): UserRole {
       localStorage.removeItem(`${ROLE_CACHE_PREFIX}${clerkId}`)
       return null
     }
-    if (role === 'admin' || role === 'employee' || role === 'client') return role
+    if (role === 'admin' || role === 'employee') return role
   } catch { /* corrupted entry */ }
   localStorage.removeItem(`${ROLE_CACHE_PREFIX}${clerkId}`)
   return null
@@ -62,7 +60,7 @@ function setCachedRole(clerkId: string | undefined, role: UserRole) {
 function ClerkAuthProvider({ children }: { children: ReactNode }) {
   const { getToken, isLoaded, isSignedIn } = useAuth()
   const { user: clerkUser } = useUser()
-  const [userRole, setUserRole] = useState<'admin' | 'employee' | 'client' | null>(null)
+  const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null)
   const [roleFetched, setRoleFetched] = useState(false)
   const fetchedRef = useRef(false)
   const fetchRoleRef = useRef<((retryCount?: number) => Promise<void>) | undefined>(undefined)
@@ -150,7 +148,6 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
       isSignedIn: isSignedIn ?? false,
       isLoading: !isLoaded || (isSignedIn === true && !roleFetched),
       userRole,
-      isClient: userRole === 'client',
       isStaff: userRole === 'admin' || userRole === 'employee',
     }}>
       {children}
@@ -169,7 +166,6 @@ function NoAuthProvider({ children }: { children: ReactNode }) {
       isSignedIn: false,
       isLoading: false,
       userRole: null,
-      isClient: false,
       isStaff: false,
     }}>
       {children}

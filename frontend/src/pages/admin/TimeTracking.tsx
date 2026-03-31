@@ -55,14 +55,6 @@ interface TimeEntryItem {
     hourly_rate_cents?: number | null
     hourly_rate?: number | null
   } | null
-  client: {
-    id: number
-    name: string
-  } | null
-  tax_return: {
-    id: number
-    tax_year: number
-  } | null
   locked_at: string | null
   created_at: string
   updated_at: string

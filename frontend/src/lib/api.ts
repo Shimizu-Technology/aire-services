@@ -109,11 +109,9 @@ export interface CurrentUser {
   first_name: string | null;
   last_name: string | null;
   full_name: string;
-  role: 'admin' | 'employee' | 'client';
+  role: 'admin' | 'employee';
   is_admin: boolean;
   is_staff: boolean;
-  is_client: boolean;
-  client_id: number | null;
   created_at: string;
 }
 
@@ -134,9 +132,7 @@ export interface AdminUser {
   last_name: string | null;
   display_name: string;
   full_name: string;
-  role: 'admin' | 'employee' | 'client';
-  client_id: number | null;
-  client_name: string | null;
+  role: 'admin' | 'employee';
   is_active: boolean;
   is_pending: boolean;
   kiosk_enabled?: boolean;

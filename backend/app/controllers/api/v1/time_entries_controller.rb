@@ -11,7 +11,7 @@ module Api
       # GET /api/v1/time_entries
       def index
         @time_entries = current_user.admin? ? TimeEntry.all : TimeEntry.for_user(current_user)
-        @time_entries = @time_entries.includes(:user, :client, :tax_return, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :service_type, :service_task)
+        @time_entries = @time_entries.includes(:user, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks)
 
         if params[:user_id].present? && current_user.admin?
           @time_entries = @time_entries.where(user_id: params[:user_id])
@@ -29,10 +29,6 @@ module Api
 
         if params[:time_category_id].present?
           @time_entries = @time_entries.where(time_category_id: params[:time_category_id])
-        end
-
-        if params[:client_id].present?
-          @time_entries = @time_entries.where(client_id: params[:client_id])
         end
 
         if params[:approval_status].present?
@@ -280,7 +276,7 @@ module Api
         return render json: { error: "Admin access required" }, status: :forbidden unless current_user.admin?
 
         entries = TimeEntry.includes(:user, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks,
-                                        :time_category, :client, :tax_return, :service_type, :service_task)
+                                        :time_category)
           .where(approval_status: "pending")
           .or(TimeEntry.where(overtime_status: "pending"))
           .order(created_at: :desc)
@@ -451,8 +447,6 @@ module Api
           :hours,
           :description,
           :time_category_id,
-          :client_id,
-          :tax_return_id,
           :break_minutes,
           :user_id
         )
@@ -557,23 +551,6 @@ module Api
             name: entry.time_category.name,
             hourly_rate_cents: entry.time_category.hourly_rate_cents,
             hourly_rate: entry.time_category.hourly_rate
-          } : nil,
-          client: entry.client ? {
-            id: entry.client.id,
-            name: "#{entry.client.first_name} #{entry.client.last_name}"
-          } : nil,
-          tax_return: entry.tax_return ? {
-            id: entry.tax_return.id,
-            tax_year: entry.tax_return.tax_year
-          } : nil,
-          service_type: entry.service_type ? {
-            id: entry.service_type.id,
-            name: entry.service_type.name,
-            color: entry.service_type.color
-          } : nil,
-          service_task: entry.service_task ? {
-            id: entry.service_task.id,
-            name: entry.service_task.name
           } : nil,
           locked_at: entry.locked_at&.iso8601,
           created_at: entry.created_at.iso8601,
