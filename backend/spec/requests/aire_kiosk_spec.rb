@@ -24,8 +24,8 @@ RSpec.describe "AIRE kiosk", type: :request do
   before do
     guam_now = Time.current.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
     guam_today = guam_now.to_date
-    start_hour = [guam_now.hour - 1, 0].max
-    end_hour = [guam_now.hour + 2, 23].min
+    start_hour = [ guam_now.hour - 1, 0 ].max
+    end_hour = [ guam_now.hour + 2, 23 ].min
 
     Schedule.create!(
       user: employee,

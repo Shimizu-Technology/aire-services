@@ -13,7 +13,7 @@ class TimePeriodLock < ApplicationRecord
     d = date.to_date
     week_start = d.beginning_of_week(:sunday)
     week_end = week_start + 6.days
-    [week_start, week_end]
+    [ week_start, week_end ]
   end
 
   def self.locked_for_date?(date)

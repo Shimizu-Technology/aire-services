@@ -37,7 +37,7 @@ module ClerkAuthenticatable
 
     unless @current_user
       render_unauthorized("Unable to authenticate user")
-      return
+      nil
     end
   end
 
@@ -80,14 +80,14 @@ module ClerkAuthenticatable
 
     # First try to find by clerk_id - this is the primary key from Clerk
     user = User.find_by(clerk_id: clerk_id)
-    
+
     if user
       # Only update if we have new info and it's different
       updates = {}
       updates[:email] = email if email.present? && email != user.email && !user.email.include?("@placeholder.local")
       updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
       updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
-      
+
       user.update(updates) if updates.any?
       return user
     end

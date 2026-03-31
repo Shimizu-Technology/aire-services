@@ -14,6 +14,6 @@ class CreateSchedules < ActiveRecord::Migration[8.1]
     # Index for quick lookups by date range
     add_index :schedules, :work_date
     # Composite index for user + date queries
-    add_index :schedules, [:user_id, :work_date]
+    add_index :schedules, [ :user_id, :work_date ]
   end
 end

@@ -5,8 +5,8 @@ module Api
     class TimeEntriesController < BaseController
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :set_time_entry, only: [:show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime]
-      before_action :require_admin!, only: [:approve, :deny, :approve_overtime, :deny_overtime]
+      before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
+      before_action :require_admin!, only: [ :approve, :deny, :approve_overtime, :deny_overtime ]
 
       # GET /api/v1/time_entries
       def index
@@ -124,7 +124,7 @@ module Api
         unless current_user.admin?
           # Intentional: any employee edit to an approved/denied entry OR any manual entry
           # requires re-approval. Clock entries with nil status (legacy) are left as-is.
-          if @time_entry.approval_status.in?(["approved", "denied"]) || @time_entry.entry_method == "manual"
+          if @time_entry.approval_status.in?([ "approved", "denied" ]) || @time_entry.entry_method == "manual"
             update_params[:approval_status] = "pending"
             update_params[:approval_note] = "Employee edited time entry — awaiting admin review" unless @time_entry.approval_status == "pending"
           end
@@ -132,7 +132,7 @@ module Api
 
         if @time_entry.update(update_params)
           if @time_entry.status == "completed" &&
-             @time_entry.overtime_status.in?([nil, "none", "pending"]) &&
+             @time_entry.overtime_status.in?([ nil, "none", "pending" ]) &&
              (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
             new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry, include_entry_hours: false)
             @time_entry.update!(overtime_status: new_overtime)
@@ -358,13 +358,13 @@ module Api
                            completed_break_hours = (active_entry.total_break_minutes || 0) / 60.0
                            active_break_hours = if active_break_record&.start_time
                                                   (Time.current - active_break_record.start_time) / 3600.0
-                                                else
+                           else
                                                   0.0
-                                                end
+                           end
                            (elapsed - completed_break_hours - active_break_hours).clamp(0, Float::INFINITY).round(2)
-                         else
+          else
                            0.0
-                         end
+          end
 
           {
             user: {
@@ -459,7 +459,7 @@ module Api
         val = params_hash[field]
         return unless val.present? && val.is_a?(String) && val.match?(/\A\d{1,2}:\d{2}\z/)
 
-        h, m = val.split(':').map(&:to_i)
+        h, m = val.split(":").map(&:to_i)
         return unless h.between?(0, 23) && m.between?(0, 59)
 
         tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]

@@ -37,7 +37,7 @@ class TimeEntry < ApplicationRecord
   scope :recent, -> { order(work_date: :desc, created_at: :desc) }
   scope :clocked_in, -> { where(status: %w[clocked_in on_break]) }
   scope :pending_approval, -> { where(approval_status: "pending") }
-  scope :approved, -> { where(approval_status: ["approved", nil]) }
+  scope :approved, -> { where(approval_status: [ "approved", nil ]) }
   scope :denied, -> { where(approval_status: "denied") }
   scope :clock_entries, -> { where(entry_method: "clock") }
   scope :manual_entries, -> { where(entry_method: "manual") }
@@ -115,7 +115,7 @@ class TimeEntry < ApplicationRecord
       duration_hours -= (break_minutes / 60.0)
     end
 
-    self.hours = [duration_hours, 0].max.round(2)
+    self.hours = [ duration_hours, 0 ].max.round(2)
   end
 
   def formatted_start_time

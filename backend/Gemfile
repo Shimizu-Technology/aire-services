@@ -37,7 +37,7 @@ gem "rack-cors"
 gem "rack-attack"
 
 # Environment variables
-gem "dotenv-rails", groups: [:development, :test]
+gem "dotenv-rails", groups: [ :development, :test ]
 
 # JWT for Clerk authentication
 gem "jwt"

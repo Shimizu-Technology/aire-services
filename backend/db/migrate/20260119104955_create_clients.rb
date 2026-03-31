@@ -34,6 +34,6 @@ class CreateClients < ActiveRecord::Migration[8.1]
     end
 
     add_index :clients, :email
-    add_index :clients, [:last_name, :first_name]
+    add_index :clients, [ :last_name, :first_name ]
   end
 end

@@ -35,8 +35,8 @@ class CreateOperationsTables < ActiveRecord::Migration[8.1]
         t.timestamps
       end
 
-      add_index :operation_template_tasks, [:operation_template_id, :position], name: "index_operation_template_tasks_order"
-      add_index :operation_template_tasks, [:operation_template_id, :title], name: "index_operation_template_tasks_unique_title", unique: true
+      add_index :operation_template_tasks, [ :operation_template_id, :position ], name: "index_operation_template_tasks_order"
+      add_index :operation_template_tasks, [ :operation_template_id, :title ], name: "index_operation_template_tasks_unique_title", unique: true
       add_index :operation_template_tasks, :is_active
     end
 
@@ -55,9 +55,9 @@ class CreateOperationsTables < ActiveRecord::Migration[8.1]
         t.timestamps
       end
 
-      add_index :client_operation_assignments, [:client_id, :operation_template_id], name: "index_client_operation_assignments_unique", unique: true
+      add_index :client_operation_assignments, [ :client_id, :operation_template_id ], name: "index_client_operation_assignments_unique", unique: true
       add_index :client_operation_assignments, :assignment_status
-      add_index :client_operation_assignments, [:assignment_status, :auto_generate, :starts_on, :ends_on], name: "index_client_operation_assignments_auto_window"
+      add_index :client_operation_assignments, [ :assignment_status, :auto_generate, :starts_on, :ends_on ], name: "index_client_operation_assignments_auto_window"
     end
 
     unless table_exists?(:operation_cycles)
@@ -75,9 +75,9 @@ class CreateOperationsTables < ActiveRecord::Migration[8.1]
         t.timestamps
       end
 
-      add_index :operation_cycles, [:client_id, :operation_template_id, :period_start, :period_end], name: "index_operation_cycles_unique_period", unique: true
-      add_index :operation_cycles, [:client_id, :status]
-      add_index :operation_cycles, [:client_id, :period_start, :created_at], name: "index_operation_cycles_client_recent", order: { period_start: :desc, created_at: :desc }
+      add_index :operation_cycles, [ :client_id, :operation_template_id, :period_start, :period_end ], name: "index_operation_cycles_unique_period", unique: true
+      add_index :operation_cycles, [ :client_id, :status ]
+      add_index :operation_cycles, [ :client_id, :period_start, :created_at ], name: "index_operation_cycles_client_recent", order: { period_start: :desc, created_at: :desc }
       add_index :operation_cycles, :status
     end
 
@@ -102,12 +102,12 @@ class CreateOperationsTables < ActiveRecord::Migration[8.1]
         t.timestamps
       end
 
-      add_index :operation_tasks, [:operation_cycle_id, :position], name: "index_operation_tasks_order"
-      add_index :operation_tasks, [:client_id, :status]
-      add_index :operation_tasks, [:assigned_to_id, :status]
+      add_index :operation_tasks, [ :operation_cycle_id, :position ], name: "index_operation_tasks_order"
+      add_index :operation_tasks, [ :client_id, :status ]
+      add_index :operation_tasks, [ :assigned_to_id, :status ]
       add_index :operation_tasks, :status
       add_index :operation_tasks, :due_at
-      add_index :operation_tasks, [:status, :due_at], name: "index_operation_tasks_active_status_due", where: "status <> 'done'"
+      add_index :operation_tasks, [ :status, :due_at ], name: "index_operation_tasks_active_status_due", where: "status <> 'done'"
       add_index :operation_tasks, :linked_time_entry_id, name: "index_operation_tasks_on_linked_time_entry_unique", unique: true, where: "linked_time_entry_id IS NOT NULL"
     end
   end

@@ -37,7 +37,7 @@ module Api
         # If not found by clerk_id, try email (for invited users)
         if user.nil? && email.present?
           user = User.find_by("LOWER(email) = ?", email.downcase)
-          
+
           if user
             # Link the clerk_id to this invited user
             user.update(clerk_id: clerk_id)
@@ -55,8 +55,8 @@ module Api
 
         # User not found and not first user = not invited
         if user.nil?
-          return render json: { 
-            error: "Access denied. You haven't been invited to this system. Please contact an administrator." 
+          return render json: {
+            error: "Access denied. You haven't been invited to this system. Please contact an administrator."
           }, status: :forbidden
         end
 

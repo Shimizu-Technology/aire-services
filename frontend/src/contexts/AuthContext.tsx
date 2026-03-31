@@ -19,6 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   isStaff: false,
 })
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuthContext() {
   return useContext(AuthContext)
 }

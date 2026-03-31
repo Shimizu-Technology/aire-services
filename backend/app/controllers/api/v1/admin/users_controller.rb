@@ -6,7 +6,7 @@ module Api
       class UsersController < BaseController
         before_action :authenticate_user!
         before_action :require_admin!
-        before_action :set_user, only: [:show, :update, :destroy, :resend_invite, :reset_kiosk_pin]
+        before_action :set_user, only: [ :show, :update, :destroy, :resend_invite, :reset_kiosk_pin ]
 
         def index
           @users = User.order(created_at: :desc)
@@ -48,7 +48,7 @@ module Api
             return render json: { error: "Invalid email format" }, status: :unprocessable_entity
           end
 
-          if User.exists?(["LOWER(email) = ?", email])
+          if User.exists?([ "LOWER(email) = ?", email ])
             return render json: { error: "A user with this email already exists" }, status: :unprocessable_entity
           end
 

@@ -19,10 +19,10 @@ class Schedule < ApplicationRecord
   # Calculate hours for this shift
   def hours
     return 0 unless start_time && end_time
-    
+
     start_seconds = start_time.utc.seconds_since_midnight
     end_seconds = end_time.utc.seconds_since_midnight
-    
+
     ((end_seconds - start_seconds) / 3600.0).round(2)
   end
 
@@ -43,7 +43,7 @@ class Schedule < ApplicationRecord
 
   def end_time_after_start_time
     return unless start_time && end_time
-    
+
     if end_time.utc <= start_time.utc
       errors.add(:end_time, "must be after start time")
     end

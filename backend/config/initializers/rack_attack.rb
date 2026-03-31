@@ -31,6 +31,6 @@ class Rack::Attack
       retry_after: headers["Retry-After"].to_i
     }.to_json
 
-    [429, headers, [body]]
+    [ 429, headers, [ body ] ]
   end
 end

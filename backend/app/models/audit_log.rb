@@ -26,17 +26,17 @@ class AuditLog < ApplicationRecord
 
   def description
     entity_name = case auditable_type
-                  when "TimeEntry"
+    when "TimeEntry"
                     if auditable
                       "time entry (#{auditable.hours}h on #{auditable.work_date})"
                     else
                       "time entry ##{auditable_id}"
                     end
-                  when "TimePeriodLock"
+    when "TimePeriodLock"
                     "time period lock ##{auditable_id}"
-                  else
+    else
                     "#{auditable_type.underscore.humanize.downcase} ##{auditable_id}"
-                  end
+    end
 
     case action
     when "created"
