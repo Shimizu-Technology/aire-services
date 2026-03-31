@@ -1,0 +1,63 @@
+Rails.application.routes.draw do
+  get "up" => "rails/health#show", as: :rails_health_check
+
+  namespace :api do
+    namespace :v1 do
+      # Auth
+      get "auth/me", to: "auth#me"
+      post "auth/me", to: "auth#me"
+
+      # Public marketing/contact
+      post "contact", to: "contact#create"
+
+      # Public kiosk endpoints
+      namespace :aire do
+        post "kiosk/verify", to: "kiosk#verify"
+        post "kiosk/clock_in", to: "kiosk#clock_in"
+        post "kiosk/clock_out", to: "kiosk#clock_out"
+        post "kiosk/start_break", to: "kiosk#start_break"
+        post "kiosk/end_break", to: "kiosk#end_break"
+      end
+
+      # Staff/admin routes
+      resources :users, only: [:index]
+      resources :time_entries, only: [:index, :show, :create, :update, :destroy] do
+        collection do
+          post :clock_in
+          post :clock_out
+          post :start_break
+          post :end_break
+          get :current_status
+          get :pending_approvals
+          get :whos_working
+        end
+        member do
+          post :approve
+          post :deny
+          post :approve_overtime
+          post :deny_overtime
+        end
+      end
+      resources :time_categories, only: [:index]
+      resources :time_period_locks, only: [:index]
+      resources :schedules, only: [:index, :show, :create, :update, :destroy] do
+        collection do
+          get :my_schedule
+          post :bulk_create
+          delete :clear_week
+        end
+      end
+
+      namespace :admin do
+        resources :users, only: [:index, :show, :create, :update, :destroy] do
+          member do
+            post :resend_invite
+            post :reset_kiosk_pin
+          end
+        end
+        resources :time_categories, only: [:index, :show, :create, :update, :destroy]
+        resources :time_period_locks, only: [:create, :destroy]
+      end
+    end
+  end
+end

@@ -1,0 +1,54 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Ignore bundler config.
+/.bundle
+
+# Ignore all environment files (except examples).
+/.env*
+!/.env*.example
+
+# Ignore all logfiles and tempfiles.
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+
+# Ignore pidfiles, but keep the directory.
+/tmp/pids/*
+!/tmp/pids/
+!/tmp/pids/.keep
+
+# Ignore storage (for active storage, action cable, etc).
+/storage/*
+!/storage/.keep
+/tmp/storage/*
+!/tmp/storage/
+!/tmp/storage/.keep
+
+# Ignore master key for decrypting credentials and more.
+/config/master.key
+/config/credentials/*.key
+
+# Ignore bootsnap cache
+/tmp/cache/bootsnap*
+
+# Ignore node_modules (if using webpacker/jsbundling)
+/node_modules
+
+# Ignore public uploads (if using carrierwave, etc)
+/public/uploads
+
+# Ignore coverage reports
+/coverage/
+
+# Ignore byebug history
+.byebug_history
+
+# Ignore vendor bundle
+/vendor/bundle
+
+# OS files
+.DS_Store
