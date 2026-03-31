@@ -1,0 +1,32 @@
+# Repo-level hygiene
+.DS_Store
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Node / frontend build artifacts
+frontend/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+frontend/blob-report
+frontend/.env
+frontend/.env.local
+frontend/.env.test
+
+# Ruby / backend runtime artifacts
+backend/log/*
+!backend/log/.keep
+backend/tmp/*
+!backend/tmp/.keep
+!backend/tmp/pids/
+!backend/tmp/pids/.keep
+backend/storage/*
+!backend/storage/.keep
+backend/.env
+backend/.env.local
+backend/config/master.key
+backend/.kamal/secrets
+backend/vendor/bundle
