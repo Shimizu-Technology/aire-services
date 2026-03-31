@@ -1,0 +1,19 @@
+# Cornerstone Accounting & Business Services
+# https://cornerstone-accounting.tax
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://cornerstone-accounting.tax/sitemap.xml
+
+# Disallow admin and private areas
+Disallow: /admin
+Disallow: /admin/*
+Disallow: /intake
+
+# Allow search engines to crawl public pages
+Allow: /
+Allow: /about
+Allow: /services
+Allow: /contact
