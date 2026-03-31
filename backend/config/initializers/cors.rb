@@ -7,7 +7,6 @@
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
-    # CST-15: Only allow configured origins; fail-safe in production
     frontend_url = ENV["FRONTEND_URL"]
 
     if frontend_url.blank? && !(Rails.env.development? || Rails.env.test?)

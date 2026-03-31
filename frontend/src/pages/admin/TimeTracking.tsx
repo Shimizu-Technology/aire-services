@@ -204,7 +204,6 @@ export default function TimeTracking() {
   const [reportSummary, setReportSummary] = useState({ total_hours: 0, total_break_hours: 0, entry_count: 0 })
   const [reportTruncated, setReportTruncated] = useState(false)
   
-  // Period lock state (CST-43)
   const [currentWeekLocked, setCurrentWeekLocked] = useState(false)
   const [currentWeekLockId, setCurrentWeekLockId] = useState<number | null>(null)
   const [lockingWeek, setLockingWeek] = useState(false)

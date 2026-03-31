@@ -30,7 +30,7 @@ interface AuthProviderProps {
   isClerkEnabled: boolean
 }
 
-const ROLE_CACHE_PREFIX = 'cst_role_'
+const ROLE_CACHE_PREFIX = 'aire_role_'
 const ROLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 type UserRole = 'admin' | 'employee' | 'client' | null
 

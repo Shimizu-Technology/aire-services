@@ -3,14 +3,6 @@
 module Api
   module V1
     class AuthController < BaseController
-      # POST /api/v1/auth/me
-      # Returns the current authenticated user
-      # Used by frontend to verify authentication and get user info
-      # Handles linking invited users via email from Clerk
-      
-      # Skip the standard authenticate_user! - we handle it custom here
-      skip_before_action :authenticate_user!, only: [:me], raise: false
-
       def me
         header = request.headers["Authorization"]
 
