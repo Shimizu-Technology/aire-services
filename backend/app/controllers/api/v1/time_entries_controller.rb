@@ -354,16 +354,16 @@ module Api
           active_break_record = active_entry&.active_break
 
           elapsed_hours = if active_entry && active_entry.clock_in_at
-                           elapsed = (Time.current - active_entry.clock_in_at) / 3600.0
-                           completed_break_hours = (active_entry.total_break_minutes || 0) / 60.0
-                           active_break_hours = if active_break_record&.start_time
-                                                  (Time.current - active_break_record.start_time) / 3600.0
-                           else
-                                                  0.0
-                           end
-                           (elapsed - completed_break_hours - active_break_hours).clamp(0, Float::INFINITY).round(2)
+            elapsed = (Time.current - active_entry.clock_in_at) / 3600.0
+            completed_break_hours = (active_entry.total_break_minutes || 0) / 60.0
+            active_break_hours = if active_break_record&.start_time
+              (Time.current - active_break_record.start_time) / 3600.0
+            else
+              0.0
+            end
+            (elapsed - completed_break_hours - active_break_hours).clamp(0, Float::INFINITY).round(2)
           else
-                           0.0
+            0.0
           end
 
           {

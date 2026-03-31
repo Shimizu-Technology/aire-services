@@ -37,7 +37,7 @@ module ClerkAuthenticatable
 
     unless @current_user
       render_unauthorized("Unable to authenticate user")
-      nil
+      return # rubocop:disable Style/RedundantReturn -- consistent with other early-exits in this method
     end
   end
 
