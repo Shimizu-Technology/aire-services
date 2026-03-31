@@ -10,10 +10,15 @@ Standalone product for AIRE Services Guam.
 - Payroll-oriented summaries/export
 
 ## Status
-Scaffold + extraction planning in progress.
+Initial standalone foundation has been built and pushed.
+See:
+- `docs/PROJECT-STATUS-2026-03-31.md`
+- `docs/FINAL-PR-SUMMARY.md`
+- `docs/PUSH-AND-PR-CHECKLIST.md`
 
-## Source of truth for extraction
+## Source of truth for extraction/planning
 - `docs/PROJECT-OVERVIEW.md`
 - `docs/PORTING-CHECKLIST.md`
 - `docs/ROUTE-AND-DOMAIN-PLAN.md`
+- `docs/PRUNE-PASS.md`
 - `../cornerstone-tax/docs/AIRE-PORT-MAP.md`
