@@ -102,7 +102,7 @@ export default function AirePrograms() {
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">First Flight</p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Discovery Flight</h2>
                 <p className="mt-4 text-sm leading-relaxed text-slate-600">
-                  The live public site uses discovery flights as the easiest first step into aviation. Students fly with a certified instructor,
+                  Discovery flights are the easiest first step into aviation. Students fly with a certified instructor,
                   get a left-seat experience, and can bring 1–2 additional passengers subject to weight and balance limits.
                 </p>
                 <div className="mt-6 flex flex-wrap gap-3">

@@ -11,9 +11,9 @@ const instructors = [
 ]
 
 const teamNotes = [
-  'AIRE’s live public team page already does one important thing right: it names the instructors directly.',
-  'That makes the school feel more trustworthy than a generic training page with no people attached to it.',
-  'This polished page keeps the same names visible while giving the roster a cleaner, more modern presentation.',
+  'AIRE names the instructors directly, which makes the school feel more personal and trustworthy.',
+  'Seeing the crew helps future students connect the training experience to real people instead of a generic brand.',
+  'A stronger team page gives prospective students more confidence before they ever book a discovery flight.',
 ]
 
 export default function AireTeam() {
@@ -28,7 +28,7 @@ export default function AireTeam() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Meet the Crew</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">The instructor roster students already see on AIRE’s live public site</h1>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Meet the instructors behind AIRE’s training experience</h1>
             <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
               AIRE’s strongest public trust signal is simple: it names the instructors. This page keeps that same public roster in a cleaner format so prospective students can quickly understand who is behind the training experience.
             </p>
@@ -61,7 +61,7 @@ export default function AireTeam() {
                 ))}
               </div>
               <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-relaxed text-slate-700">
-                Next content pass later: add approved headshots, bios, and role-specific personality once AIRE has the official media/assets ready.
+                Flight training is personal. Knowing who is teaching, guiding, and supporting you makes it easier to take the next step with confidence.
               </div>
             </section>
           </div>

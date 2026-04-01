@@ -23,7 +23,7 @@ const programs = [
 
 const highlights = [
   'Guam-based flight training and discovery flights',
-  'Certified flight instructors listed on the live public team page',
+  'Certified flight instructors featured clearly on the team page',
   'Private Pilot Certificate positioned as the core training path',
   'Direct contact, hiring, and social links already active online',
 ]
@@ -106,7 +106,7 @@ export default function AireHome() {
               </h1>
               <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-200 md:text-lg">
                 AIRE Services Guam helps future pilots start with confidence — from introductory discovery flights to the
-                Private Pilot Certificate — with a public footprint that already emphasizes local instructors, direct contact, and a practical training path.
+                Private Pilot Certificate — with local instructors, direct contact, and a practical path into aviation.
               </p>
               <div className="mt-10 flex flex-wrap gap-3">
                 <Link to="/discovery-flight" className="rounded-xl bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
@@ -178,7 +178,7 @@ export default function AireHome() {
           <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Training Path</p>
-              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">A public story that now matches how students actually start</h2>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">A training path that matches how students actually start</h2>
             </div>
 
             <div className="mt-10 grid gap-5 md:grid-cols-3">
