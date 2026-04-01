@@ -96,7 +96,7 @@ export default function Seo({
     return () => {
       if (script) script.remove()
     }
-  }, [description, image, jsonLd, path, robots, themeColor, title])
+  }, [description, image, jsonLd, path, robots, themeColor, title, type])
 
   return null
 }
