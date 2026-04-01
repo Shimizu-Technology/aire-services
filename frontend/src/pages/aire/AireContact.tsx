@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import Seo from '../../components/seo/Seo'
 import { api } from '../../lib/api'
 
 const contactPoints = [
@@ -58,7 +59,13 @@ export default function AireContact() {
   }
 
   return (
-    <div className="bg-white py-14 md:py-20">
+    <>
+      <Seo
+        title="Contact | AIRE Services Guam"
+        description="Contact AIRE Services Guam about discovery flights, private pilot training, aircraft rental, or general aviation questions."
+        path="/contact"
+      />
+      <div className="bg-white py-14 md:py-20">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Contact</p>
@@ -189,5 +196,6 @@ export default function AireContact() {
         </div>
       </div>
     </div>
+    </>
   )
 }

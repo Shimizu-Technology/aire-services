@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Seo from '../../components/seo/Seo'
 import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockStatus, type TimeCategory } from '../../lib/api'
 
 type KioskAction = 'clock_in' | 'clock_out' | 'start_break' | 'end_break'
@@ -221,7 +222,14 @@ export default function AireKiosk() {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <>
+      <Seo
+        title="Staff Kiosk | AIRE Services Guam"
+        description="Secure staff kiosk for AIRE Services Guam team time tracking."
+        path="/kiosk"
+        robots="noindex,nofollow"
+      />
+      <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto grid min-h-screen w-full max-w-6xl gap-8 px-4 py-8 md:grid-cols-[1.15fr_1fr] md:px-6">
         <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -368,5 +376,6 @@ export default function AireKiosk() {
         </section>
       </div>
     </div>
+    </>
   )
 }

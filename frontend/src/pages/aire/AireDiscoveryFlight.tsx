@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import Seo from '../../components/seo/Seo'
 
 const details = [
   'Introductory flight with a certified flight instructor',
@@ -15,7 +16,13 @@ const reasons = [
 
 export default function AireDiscoveryFlight() {
   return (
-    <div className="bg-white">
+    <>
+      <Seo
+        title="Discovery Flight | AIRE Services Guam"
+        description="Take a discovery flight with AIRE Services Guam and get a real first look at aviation training on Guam."
+        path="/discovery-flight"
+      />
+      <div className="bg-white">
       <section className="relative overflow-hidden bg-slate-950 py-16 text-white md:py-24">
         <div className="absolute inset-0">
           <img src="/assets/aire/hero.jpg" alt="Discovery flight with AIRE Services" className="h-full w-full object-cover opacity-25" />
@@ -69,5 +76,6 @@ export default function AireDiscoveryFlight() {
         </div>
       </section>
     </div>
+    </>
   )
 }

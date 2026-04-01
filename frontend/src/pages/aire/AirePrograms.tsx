@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import Seo from '../../components/seo/Seo'
 
 const certificateRequirements = [
   'Be at least 16 years old to solo and 17 years old to earn the certificate',
@@ -27,7 +28,13 @@ const rentalRequirements = [
 
 export default function AirePrograms() {
   return (
-    <div className="bg-white py-14 md:py-20">
+    <>
+      <Seo
+        title="Programs | AIRE Services Guam"
+        description="Review AIRE Services Guam training programs, discovery flights, private pilot certificate details, and aircraft rental requirements."
+        path="/programs"
+      />
+      <div className="bg-white py-14 md:py-20">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Programs & Services</p>
@@ -112,5 +119,6 @@ export default function AirePrograms() {
         </section>
       </div>
     </div>
+    </>
   )
 }

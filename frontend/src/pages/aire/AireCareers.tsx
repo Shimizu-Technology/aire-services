@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import Seo from '../../components/seo/Seo'
 
 const responsibilities = [
   'Safely transport customers between designated locations in the Tumon Bay area and AIRE’s main office in Barrigada.',
@@ -15,7 +16,13 @@ const requirements = [
 
 export default function AireCareers() {
   return (
-    <div className="bg-white">
+    <>
+      <Seo
+        title="Careers | AIRE Services Guam"
+        description="Review current hiring information and career opportunities with AIRE Services Guam."
+        path="/careers"
+      />
+      <div className="bg-white">
       <section className="relative overflow-hidden bg-slate-950 py-16 text-white md:py-24">
         <div className="absolute inset-0">
           <img src="/assets/aire/careers.jpg" alt="AIRE Services hiring" className="h-full w-full object-cover opacity-30" />
@@ -83,5 +90,6 @@ export default function AireCareers() {
         </div>
       </section>
     </div>
+    </>
   )
 }

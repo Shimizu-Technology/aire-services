@@ -38,7 +38,7 @@ export default function ClerkProtectedContent({ children, requiredRole }: ClerkP
   }
 
   if (authStatus === 'unauthorized' || !isSignedIn) {
-    return <RedirectToSignIn signInForceRedirectUrl={window.location.href} />
+    return <RedirectToSignIn signInForceRedirectUrl={window.location.href} signInFallbackRedirectUrl={window.location.href} />
   }
 
   if (authStatus === 'access_denied') {
