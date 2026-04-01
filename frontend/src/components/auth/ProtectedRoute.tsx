@@ -3,7 +3,7 @@ import { useAuthContext } from '../../contexts/AuthContext'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
-  requiredRole?: 'admin' | 'employee' | 'staff' | 'client'
+  requiredRole?: 'admin' | 'employee' | 'staff'
 }
 
 // Lazy load the Clerk-protected component to avoid importing Clerk hooks when not needed

@@ -1,11 +1,11 @@
 {
-  "name": "Cornerstone Accounting & Business Services",
-  "short_name": "Cornerstone",
-  "description": "Professional tax preparation, bookkeeping, and business services in Hagatna, Guam.",
+  "name": "AIRE Services Guam",
+  "short_name": "AIRE",
+  "description": "Aviation services, flight training, and team operations in Guam.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f3ef",
-  "theme_color": "#2d2a26",
+  "background_color": "#f0f4f8",
+  "theme_color": "#1e3a5f",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [
@@ -64,6 +64,6 @@
       "purpose": "any"
     }
   ],
-  "categories": ["business", "finance"],
+  "categories": ["business"],
   "lang": "en-US"
 }

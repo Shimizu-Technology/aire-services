@@ -3,14 +3,6 @@
 module Api
   module V1
     class AuthController < BaseController
-      # POST /api/v1/auth/me
-      # Returns the current authenticated user
-      # Used by frontend to verify authentication and get user info
-      # Handles linking invited users via email from Clerk
-      
-      # Skip the standard authenticate_user! - we handle it custom here
-      skip_before_action :authenticate_user!, only: [:me], raise: false
-
       def me
         header = request.headers["Authorization"]
 
@@ -45,7 +37,7 @@ module Api
         # If not found by clerk_id, try email (for invited users)
         if user.nil? && email.present?
           user = User.find_by("LOWER(email) = ?", email.downcase)
-          
+
           if user
             # Link the clerk_id to this invited user
             user.update(clerk_id: clerk_id)
@@ -63,8 +55,8 @@ module Api
 
         # User not found and not first user = not invited
         if user.nil?
-          return render json: { 
-            error: "Access denied. You haven't been invited to this system. Please contact an administrator." 
+          return render json: {
+            error: "Access denied. You haven't been invited to this system. Please contact an administrator."
           }, status: :forbidden
         end
 
@@ -83,8 +75,6 @@ module Api
             role: user.role,
             is_admin: user.admin?,
             is_staff: user.staff?,
-            is_client: user.client?,
-            client_id: user.client_id,
             created_at: user.created_at
           }
         }

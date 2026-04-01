@@ -9,16 +9,11 @@ class TimeEntry < ApplicationRecord
   OVERTIME_STATUSES = %w[none pending approved denied].freeze
 
   belongs_to :user, optional: true
-  belongs_to :client, optional: true
-  belongs_to :tax_return, optional: true
   belongs_to :time_category, optional: true
-  belongs_to :service_type, optional: true
-  belongs_to :service_task, optional: true
   belongs_to :schedule, optional: true
-  belongs_to :approved_by, class_name: "User", optional: true # stores acting admin for both approvals and denials; check approval_status for action type
+  belongs_to :approved_by, class_name: "User", optional: true
   belongs_to :overtime_approved_by, class_name: "User", optional: true
   has_many :time_entry_breaks, dependent: :destroy
-  has_many :linked_operation_tasks, class_name: "OperationTask", foreign_key: "linked_time_entry_id", dependent: :nullify
 
   validates :work_date, presence: true
   validates :hours, presence: true, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 24 }
@@ -32,7 +27,6 @@ class TimeEntry < ApplicationRecord
   validates :start_time, presence: true, if: -> { status == "completed" }
   validates :end_time, presence: true, if: -> { status == "completed" }
   validate :end_time_after_start_time
-  validate :service_task_matches_service_type
 
   before_validation :calculate_hours_from_times, if: -> { start_time.present? && end_time.present? }
   before_validation :set_zero_hours_if_clocked_in, if: -> { status.in?(%w[clocked_in on_break]) }
@@ -43,7 +37,7 @@ class TimeEntry < ApplicationRecord
   scope :recent, -> { order(work_date: :desc, created_at: :desc) }
   scope :clocked_in, -> { where(status: %w[clocked_in on_break]) }
   scope :pending_approval, -> { where(approval_status: "pending") }
-  scope :approved, -> { where(approval_status: ["approved", nil]) }
+  scope :approved, -> { where(approval_status: [ "approved", nil ]) }
   scope :denied, -> { where(approval_status: "denied") }
   scope :clock_entries, -> { where(entry_method: "clock") }
   scope :manual_entries, -> { where(entry_method: "manual") }
@@ -100,7 +94,6 @@ class TimeEntry < ApplicationRecord
     end
   end
 
-  # hours already has break time deducted via calculate_hours_from_times
   def net_hours
     return 0 unless hours.present?
     hours.round(2)
@@ -122,7 +115,7 @@ class TimeEntry < ApplicationRecord
       duration_hours -= (break_minutes / 60.0)
     end
 
-    self.hours = [duration_hours, 0].max.round(2)
+    self.hours = [ duration_hours, 0 ].max.round(2)
   end
 
   def formatted_start_time
@@ -148,14 +141,6 @@ class TimeEntry < ApplicationRecord
 
     if end_local <= start_local
       errors.add(:end_time, "must be after start time")
-    end
-  end
-
-  def service_task_matches_service_type
-    return unless service_task_id.present? && service_type_id.present?
-
-    unless service_task&.service_type_id == service_type_id
-      errors.add(:service_task, "must belong to the selected service type")
     end
   end
 

@@ -1,19 +1,18 @@
 # AIRE Ops Web — AGENTS.md
 
 ## Project
-AIRE Services Ops frontend (React + TypeScript + Tailwind). Forked from cornerstone-tax frontend.
+AIRE Services Ops frontend (React + TypeScript + Tailwind).
 
 ## Tech Stack
 - React 19, TypeScript, Tailwind v4, Vite
 - Clerk auth (for manager/admin roles)
 - Deployed on Netlify
-- Singapore region preferred
 
 ## Key Features (Phase 1 MVP)
-- **iPad PIN kiosk** — shared device clock in/out (no Clerk login, static API token + bcrypt PIN)
+- **iPad PIN kiosk** — shared device clock in/out (no Clerk login, kiosk token + bcrypt PIN)
 - **Employee dashboard** — view own shifts, time entries, schedule
 - **Manager dashboard** — approve time entries, manage schedules, who's working
-- **Payroll admin** — export CSV, lock pay periods, audit log
+- **Payroll admin** — export CSV, lock pay periods
 
 ## Color Palette (AIRE Brand Direction)
 - Navy blue primary (`#1e3a5f`) — aviation / professional
@@ -29,16 +28,18 @@ AIRE Services Ops frontend (React + TypeScript + Tailwind). Forked from cornerst
 ## Repo Structure
 ```
 src/
-  components/        # Shared UI components
+  components/
+    auth/              # ProtectedRoute, ClerkProtectedContent
+    layouts/           # PublicLayout, AdminLayout, Header, Footer
+    time-tracking/     # WhosWorking, ClockInOutCard, ApprovalQueue
+    ui/                # Skeleton, FadeIn, MotionComponents
+  contexts/            # AuthContext
+  lib/                 # api.ts, dateUtils.ts
   pages/
-    kiosk/           # iPad PIN kiosk screens (no auth)
-    employee/        # Employee-facing views
-    manager/         # Manager views (Clerk-protected)
-    admin/           # Payroll admin views (Clerk-protected)
-    public/          # Public marketing pages (TODO: replace with AIRE website)
-  hooks/
-  lib/
-  types/
+    aire/              # Public marketing pages + Kiosk
+    admin/             # Dashboard, TimeTracking, Schedule, Users
+  providers/           # PostHogProvider
+  test/                # Vitest setup
 ```
 
 ## Ticket Prefix: AIR
@@ -49,14 +50,3 @@ src/
 - User management
 - Clerk auth integration
 - Dashboard layout
-
-## What Needs to Be Built (New for AIRE)
-- `/kiosk` — PIN-based clock in/out (no Clerk)
-- iPad PWA manifest + Safari Guided Access setup
-- AIRE-specific branding/colors throughout
-
-## What to Remove (Phase 2)
-- Tax return / client portal pages
-- Intake form components
-- Billing/invoice UI
-- Cornerstone-specific public pages (About, Home → replace with AIRE versions)

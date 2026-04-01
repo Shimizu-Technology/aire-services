@@ -16,7 +16,7 @@ class AddForeignKeysAndIndexesForServices < ActiveRecord::Migration[8.1]
     unless foreign_key_exists?(:client_service_types, :service_types)
       add_foreign_key :client_service_types, :service_types, on_delete: :cascade
     end
-    
+
     # Foreign keys for time_entries (nullify on delete since these are optional)
     unless foreign_key_exists?(:time_entries, :service_types)
       add_foreign_key :time_entries, :service_types, on_delete: :nullify

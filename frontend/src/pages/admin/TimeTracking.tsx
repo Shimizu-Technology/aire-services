@@ -55,14 +55,6 @@ interface TimeEntryItem {
     hourly_rate_cents?: number | null
     hourly_rate?: number | null
   } | null
-  client: {
-    id: number
-    name: string
-  } | null
-  tax_return: {
-    id: number
-    tax_year: number
-  } | null
   locked_at: string | null
   created_at: string
   updated_at: string
@@ -204,7 +196,6 @@ export default function TimeTracking() {
   const [reportSummary, setReportSummary] = useState({ total_hours: 0, total_break_hours: 0, entry_count: 0 })
   const [reportTruncated, setReportTruncated] = useState(false)
   
-  // Period lock state (CST-43)
   const [currentWeekLocked, setCurrentWeekLocked] = useState(false)
   const [currentWeekLockId, setCurrentWeekLockId] = useState<number | null>(null)
   const [lockingWeek, setLockingWeek] = useState(false)

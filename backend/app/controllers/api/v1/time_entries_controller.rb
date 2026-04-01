@@ -5,13 +5,13 @@ module Api
     class TimeEntriesController < BaseController
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :set_time_entry, only: [:show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime]
-      before_action :require_admin!, only: [:approve, :deny, :approve_overtime, :deny_overtime]
+      before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
+      before_action :require_admin!, only: [ :approve, :deny, :approve_overtime, :deny_overtime ]
 
       # GET /api/v1/time_entries
       def index
         @time_entries = current_user.admin? ? TimeEntry.all : TimeEntry.for_user(current_user)
-        @time_entries = @time_entries.includes(:user, :client, :tax_return, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :service_type, :service_task)
+        @time_entries = @time_entries.includes(:user, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks)
 
         if params[:user_id].present? && current_user.admin?
           @time_entries = @time_entries.where(user_id: params[:user_id])
@@ -29,10 +29,6 @@ module Api
 
         if params[:time_category_id].present?
           @time_entries = @time_entries.where(time_category_id: params[:time_category_id])
-        end
-
-        if params[:client_id].present?
-          @time_entries = @time_entries.where(client_id: params[:client_id])
         end
 
         if params[:approval_status].present?
@@ -128,7 +124,7 @@ module Api
         unless current_user.admin?
           # Intentional: any employee edit to an approved/denied entry OR any manual entry
           # requires re-approval. Clock entries with nil status (legacy) are left as-is.
-          if @time_entry.approval_status.in?(["approved", "denied"]) || @time_entry.entry_method == "manual"
+          if @time_entry.approval_status.in?([ "approved", "denied" ]) || @time_entry.entry_method == "manual"
             update_params[:approval_status] = "pending"
             update_params[:approval_note] = "Employee edited time entry — awaiting admin review" unless @time_entry.approval_status == "pending"
           end
@@ -136,7 +132,7 @@ module Api
 
         if @time_entry.update(update_params)
           if @time_entry.status == "completed" &&
-             @time_entry.overtime_status.in?([nil, "none", "pending"]) &&
+             @time_entry.overtime_status.in?([ nil, "none", "pending" ]) &&
              (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
             new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry, include_entry_hours: false)
             @time_entry.update!(overtime_status: new_overtime)
@@ -280,7 +276,7 @@ module Api
         return render json: { error: "Admin access required" }, status: :forbidden unless current_user.admin?
 
         entries = TimeEntry.includes(:user, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks,
-                                        :time_category, :client, :tax_return, :service_type, :service_task)
+                                        :time_category)
           .where(approval_status: "pending")
           .or(TimeEntry.where(overtime_status: "pending"))
           .order(created_at: :desc)
@@ -358,17 +354,17 @@ module Api
           active_break_record = active_entry&.active_break
 
           elapsed_hours = if active_entry && active_entry.clock_in_at
-                           elapsed = (Time.current - active_entry.clock_in_at) / 3600.0
-                           completed_break_hours = (active_entry.total_break_minutes || 0) / 60.0
-                           active_break_hours = if active_break_record&.start_time
-                                                  (Time.current - active_break_record.start_time) / 3600.0
-                                                else
-                                                  0.0
-                                                end
-                           (elapsed - completed_break_hours - active_break_hours).clamp(0, Float::INFINITY).round(2)
-                         else
-                           0.0
-                         end
+            elapsed = (Time.current - active_entry.clock_in_at) / 3600.0
+            completed_break_hours = (active_entry.total_break_minutes || 0) / 60.0
+            active_break_hours = if active_break_record&.start_time
+              (Time.current - active_break_record.start_time) / 3600.0
+            else
+              0.0
+            end
+            (elapsed - completed_break_hours - active_break_hours).clamp(0, Float::INFINITY).round(2)
+          else
+            0.0
+          end
 
           {
             user: {
@@ -451,8 +447,6 @@ module Api
           :hours,
           :description,
           :time_category_id,
-          :client_id,
-          :tax_return_id,
           :break_minutes,
           :user_id
         )
@@ -465,7 +459,7 @@ module Api
         val = params_hash[field]
         return unless val.present? && val.is_a?(String) && val.match?(/\A\d{1,2}:\d{2}\z/)
 
-        h, m = val.split(':').map(&:to_i)
+        h, m = val.split(":").map(&:to_i)
         return unless h.between?(0, 23) && m.between?(0, 59)
 
         tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
@@ -557,23 +551,6 @@ module Api
             name: entry.time_category.name,
             hourly_rate_cents: entry.time_category.hourly_rate_cents,
             hourly_rate: entry.time_category.hourly_rate
-          } : nil,
-          client: entry.client ? {
-            id: entry.client.id,
-            name: "#{entry.client.first_name} #{entry.client.last_name}"
-          } : nil,
-          tax_return: entry.tax_return ? {
-            id: entry.tax_return.id,
-            tax_year: entry.tax_return.tax_year
-          } : nil,
-          service_type: entry.service_type ? {
-            id: entry.service_type.id,
-            name: entry.service_type.name,
-            color: entry.service_type.color
-          } : nil,
-          service_task: entry.service_task ? {
-            id: entry.service_task.id,
-            name: entry.service_task.name
           } : nil,
           locked_at: entry.locked_at&.iso8601,
           created_at: entry.created_at.iso8601,

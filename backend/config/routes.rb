@@ -20,8 +20,8 @@ Rails.application.routes.draw do
       end
 
       # Staff/admin routes
-      resources :users, only: [:index]
-      resources :time_entries, only: [:index, :show, :create, :update, :destroy] do
+      resources :users, only: [ :index ]
+      resources :time_entries, only: [ :index, :show, :create, :update, :destroy ] do
         collection do
           post :clock_in
           post :clock_out
@@ -38,9 +38,9 @@ Rails.application.routes.draw do
           post :deny_overtime
         end
       end
-      resources :time_categories, only: [:index]
-      resources :time_period_locks, only: [:index]
-      resources :schedules, only: [:index, :show, :create, :update, :destroy] do
+      resources :time_categories, only: [ :index ]
+      resources :time_period_locks, only: [ :index ]
+      resources :schedules, only: [ :index, :show, :create, :update, :destroy ] do
         collection do
           get :my_schedule
           post :bulk_create
@@ -49,14 +49,14 @@ Rails.application.routes.draw do
       end
 
       namespace :admin do
-        resources :users, only: [:index, :show, :create, :update, :destroy] do
+        resources :users, only: [ :index, :show, :create, :update, :destroy ] do
           member do
             post :resend_invite
             post :reset_kiosk_pin
           end
         end
-        resources :time_categories, only: [:index, :show, :create, :update, :destroy]
-        resources :time_period_locks, only: [:create, :destroy]
+        resources :time_categories, only: [ :index, :show, :create, :update, :destroy ]
+        resources :time_period_locks, only: [ :create, :destroy ]
       end
     end
   end

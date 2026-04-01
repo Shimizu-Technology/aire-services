@@ -62,5 +62,5 @@ export function PostHogProvider({ children }: PostHogProviderProps) {
   )
 }
 
-// Export for use in components
+// eslint-disable-next-line react-refresh/only-export-components
 export { usePostHog, isPostHogEnabled }

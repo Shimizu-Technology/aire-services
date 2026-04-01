@@ -530,7 +530,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
                 <textarea
                   value={clockOutDescription}
                   onChange={e => setClockOutDescription(e.target.value)}
-                  placeholder="e.g. Worked on Ms. Tajalle's 1040, filed Mr. Cruz's extension..."
+                  placeholder="e.g. Flight instruction with student, ground school briefing, aircraft preflight..."
                   rows={3}
                   className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none placeholder:text-gray-400"
                   autoFocus

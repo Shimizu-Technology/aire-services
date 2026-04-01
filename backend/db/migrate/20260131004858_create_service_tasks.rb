@@ -11,6 +11,6 @@ class CreateServiceTasks < ActiveRecord::Migration[8.1]
     end
 
     add_index :service_tasks, :is_active
-    add_index :service_tasks, [:service_type_id, :position]
+    add_index :service_tasks, [ :service_type_id, :position ]
   end
 end
