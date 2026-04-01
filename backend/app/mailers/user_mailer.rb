@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "cgi"
+
 class UserMailer < ApplicationMailer
   def invitation_email(user:, invited_by:)
     @user = user
@@ -11,7 +13,7 @@ class UserMailer < ApplicationMailer
     Resend::Emails.send({
       from: from_email,
       to: @user.email,
-      subject: "You've been invited to AIRE Services",
+      subject: "You've been invited to AIRE Services Guam",
       html: invitation_html
     })
   end
@@ -25,7 +27,7 @@ class UserMailer < ApplicationMailer
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Welcome to AIRE Services</title>
+        <title>Welcome to AIRE Services Guam</title>
       </head>
       <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f4f8;">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
@@ -46,17 +48,17 @@ class UserMailer < ApplicationMailer
                     <h2 style="color: #1e3a5f; margin: 0 0 20px 0; font-size: 22px;">You're Invited!</h2>
 
                     <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-                      #{@invited_by&.email || "An administrator"} has invited you to join the AIRE Services team.
+                      #{CGI.escapeHTML((@invited_by&.email || "An administrator").to_s)} has invited you to join the AIRE Services Guam team.
                     </p>
 
                     <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
-                      You've been granted <strong>#{@user.role}</strong> access. Click the button below to create your account and get started.
+                      You've been granted <strong>#{CGI.escapeHTML(@user.role.to_s)}</strong> access. Click the button below to create your account and get started.
                     </p>
 
                     <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 0 auto 30px auto;">
                       <tr>
                         <td style="background-color: #1e3a5f; border-radius: 8px;">
-                          <a href="#{@sign_up_url}" target="_blank" style="display: inline-block; padding: 16px 32px; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600;">
+                          <a href="#{CGI.escapeHTML(@sign_up_url.to_s)}" target="_blank" style="display: inline-block; padding: 16px 32px; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600;">
                             Create Your Account
                           </a>
                         </td>
@@ -67,13 +69,13 @@ class UserMailer < ApplicationMailer
                       Or copy and paste this link into your browser:
                     </p>
                     <p style="color: #1e3a5f; font-size: 14px; word-break: break-all; margin: 0 0 30px 0;">
-                      #{@sign_up_url}
+                      #{CGI.escapeHTML(@sign_up_url.to_s)}
                     </p>
 
                     <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 30px 0;">
 
                     <p style="color: #888888; font-size: 14px; line-height: 1.6; margin: 0;">
-                      <strong>Important:</strong> Make sure to sign up using this email address (<strong>#{@user.email}</strong>) to gain access.
+                      <strong>Important:</strong> Make sure to sign up using this email address (<strong>#{CGI.escapeHTML(@user.email.to_s)}</strong>) to gain access.
                     </p>
                   </td>
                 </tr>
@@ -83,7 +85,7 @@ class UserMailer < ApplicationMailer
                 <tr>
                   <td align="center">
                     <p style="color: #888888; font-size: 12px; margin: 0;">
-                      AIRE Services<br>
+                      AIRE Services Guam<br>
                       Guam
                     </p>
                   </td>

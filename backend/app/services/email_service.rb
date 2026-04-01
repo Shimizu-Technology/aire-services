@@ -13,7 +13,7 @@ class EmailService
       response = Resend::Emails.send({
         from: from_email,
         to: user.email,
-        subject: "You've been invited to AIRE Services",
+        subject: "You've been invited to AIRE Services Guam",
         html: invitation_html(user: user, invited_by: invited_by, sign_up_url: sign_up_url)
       })
 
@@ -42,7 +42,7 @@ class EmailService
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Welcome to AIRE Services</title>
+          <title>Welcome to AIRE Services Guam</title>
         </head>
         <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f4f8;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
@@ -63,7 +63,7 @@ class EmailService
                       <h2 style="color: #1e3a5f; margin: 0 0 20px 0; font-size: 22px;">You're Invited!</h2>
 
                       <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-                        #{CGI.escapeHTML((invited_by&.email || "An administrator").to_s)} has invited you to join the AIRE Services team.
+                        #{CGI.escapeHTML((invited_by&.email || "An administrator").to_s)} has invited you to join the AIRE Services Guam team.
                       </p>
 
                       <p style="color: #555555; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
@@ -100,7 +100,7 @@ class EmailService
                   <tr>
                     <td align="center">
                       <p style="color: #888888; font-size: 12px; margin: 0;">
-                        AIRE Services<br>
+                        AIRE Services Guam<br>
                         Guam
                       </p>
                     </td>

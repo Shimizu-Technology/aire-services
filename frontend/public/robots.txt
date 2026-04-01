@@ -1,4 +1,5 @@
 # AIRE Services Guam
+# https://aireservicesguam.com
 
 User-agent: *
 Allow: /
@@ -13,3 +14,5 @@ Allow: /team
 Allow: /discovery-flight
 Allow: /careers
 Allow: /contact
+
+Sitemap: https://aireservicesguam.com/sitemap.xml
