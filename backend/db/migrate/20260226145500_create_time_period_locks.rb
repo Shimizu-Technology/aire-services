@@ -10,6 +10,6 @@ class CreateTimePeriodLocks < ActiveRecord::Migration[8.1]
       t.timestamps
     end
 
-    add_index :time_period_locks, [:start_date, :end_date], unique: true
+    add_index :time_period_locks, [ :start_date, :end_date ], unique: true
   end
 end

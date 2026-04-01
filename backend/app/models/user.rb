@@ -5,39 +5,21 @@ class User < ApplicationRecord
   KIOSK_MAX_FAILED_ATTEMPTS = 5
   KIOSK_LOCKOUT_DURATION = 15.minutes
 
-  belongs_to :client, optional: true
-
   has_secure_password :kiosk_pin, validations: false
 
-  has_many :assigned_tax_returns, class_name: "TaxReturn", foreign_key: "assigned_to_id", dependent: :nullify
-  has_many :reviewed_tax_returns, class_name: "TaxReturn", foreign_key: "reviewed_by_id", dependent: :nullify
-  has_many :workflow_events, dependent: :nullify
   has_many :audit_logs, dependent: :nullify
   has_many :time_entries, dependent: :nullify
   has_many :approved_time_entries, class_name: "TimeEntry", foreign_key: "approved_by_id", dependent: :nullify
   has_many :overtime_approved_time_entries, class_name: "TimeEntry", foreign_key: "overtime_approved_by_id", dependent: :nullify
   has_many :schedules, dependent: :nullify
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
-  has_many :uploaded_documents, class_name: "Document", foreign_key: "uploaded_by_id", dependent: :nullify
-  has_many :created_transmittals, class_name: "Transmittal", foreign_key: "created_by_id", dependent: :nullify
   has_many :time_period_locks, foreign_key: "locked_by_id", dependent: :nullify
-  has_many :client_operation_assignments, foreign_key: "created_by_id", dependent: :nullify
-  has_many :generated_operation_cycles, class_name: "OperationCycle", foreign_key: "generated_by_id", dependent: :nullify
-  has_many :assigned_operation_tasks, class_name: "OperationTask", foreign_key: "assigned_to_id", dependent: :nullify
-  has_many :completed_operation_tasks, class_name: "OperationTask", foreign_key: "completed_by_id", dependent: :nullify
-  has_many :default_operation_template_tasks, class_name: "OperationTemplateTask", foreign_key: "default_assignee_id", dependent: :nullify
-  has_many :created_operation_templates, class_name: "OperationTemplate", foreign_key: "created_by_id", dependent: :nullify
-  has_many :assigned_daily_tasks, class_name: "DailyTask", foreign_key: "assigned_to_id", dependent: :nullify
-  has_many :reviewed_daily_tasks, class_name: "DailyTask", foreign_key: "reviewed_by_id", dependent: :nullify
-  has_many :created_daily_tasks, class_name: "DailyTask", foreign_key: "created_by_id", dependent: :nullify
-  has_many :completed_daily_tasks, class_name: "DailyTask", foreign_key: "completed_by_id", dependent: :nullify
-  has_many :status_changed_daily_tasks, class_name: "DailyTask", foreign_key: "status_changed_by_id", dependent: :nullify
 
   attr_accessor :skip_kiosk_pin_presence_validation
 
   validates :clerk_id, presence: true, uniqueness: true
   validates :email, presence: true
-  validates :role, inclusion: { in: %w[admin employee client] }
+  validates :role, inclusion: { in: %w[admin employee] }
   validates :kiosk_pin_lookup_hash, uniqueness: true, allow_nil: true
   validate :kiosk_pin_format_if_present
   validate :staff_requires_pin_when_kiosk_enabled
@@ -47,7 +29,6 @@ class User < ApplicationRecord
 
   scope :admins, -> { where(role: "admin") }
   scope :employees, -> { where(role: "employee") }
-  scope :clients, -> { where(role: "client") }
   scope :staff, -> { where(role: %w[admin employee]) }
   scope :kiosk_enabled, -> { staff.where(kiosk_enabled: true) }
 
@@ -72,7 +53,6 @@ class User < ApplicationRecord
     end
   end
 
-  # Short display name for UI (first name or email prefix)
   def display_name
     if first_name.present?
       first_name
@@ -89,20 +69,8 @@ class User < ApplicationRecord
     role == "employee"
   end
 
-  def client?
-    role == "client"
-  end
-
   def staff?
     admin? || employee?
-  end
-
-  def portal_active?
-    client? && clerk_id.present? && !clerk_id.start_with?("pending_")
-  end
-
-  def portal_invite_pending?
-    client? && clerk_id.present? && clerk_id.start_with?("pending_")
   end
 
   def kiosk_locked?
@@ -155,7 +123,6 @@ class User < ApplicationRecord
 
   def set_default_kiosk_enabled
     self.kiosk_enabled = false if kiosk_enabled.nil?
-    self.kiosk_enabled = false if client?
   end
 
   def sync_kiosk_pin_lookup_hash

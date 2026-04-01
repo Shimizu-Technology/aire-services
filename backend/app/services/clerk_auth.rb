@@ -22,7 +22,7 @@ class ClerkAuth
       return nil if jwks.nil?
 
       decoded = JWT.decode(token, nil, true, {
-        algorithms: ["RS256"],
+        algorithms: [ "RS256" ],
         jwks: jwks
       })
 
@@ -109,7 +109,7 @@ class ClerkAuth
       # For testing: test_token_<user_id> returns that user's info
       user_id = token.gsub("test_token_", "")
       user = User.find_by(id: user_id)
-      
+
       if user
         {
           "sub" => user.clerk_id || "test_clerk_#{user.id}",

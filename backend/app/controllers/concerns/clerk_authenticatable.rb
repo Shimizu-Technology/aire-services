@@ -37,7 +37,7 @@ module ClerkAuthenticatable
 
     unless @current_user
       render_unauthorized("Unable to authenticate user")
-      return
+      return # rubocop:disable Style/RedundantReturn -- consistent with other early-exits in this method
     end
   end
 
@@ -75,34 +75,19 @@ module ClerkAuthenticatable
     end
   end
 
-  def require_client!
-    authenticate_user! unless @current_user
-    return if performed?
-
-    unless @current_user&.client?
-      render_forbidden("Client access required")
-      return
-    end
-
-    unless @current_user&.client_id.present?
-      render_forbidden("No client profile linked to this account")
-      return
-    end
-  end
-
   def find_or_create_user(clerk_id:, email:, first_name:, last_name:)
     return nil if clerk_id.blank?
 
     # First try to find by clerk_id - this is the primary key from Clerk
     user = User.find_by(clerk_id: clerk_id)
-    
+
     if user
       # Only update if we have new info and it's different
       updates = {}
       updates[:email] = email if email.present? && email != user.email && !user.email.include?("@placeholder.local")
       updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
       updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
-      
+
       user.update(updates) if updates.any?
       return user
     end

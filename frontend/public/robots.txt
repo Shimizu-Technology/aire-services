@@ -1,13 +1,18 @@
 # AIRE Services Guam
-# https://www.aireservicesguam.com
+# https://aireservicesguam.com
 
 User-agent: *
 Allow: /
 
-# Sitemap location
-Sitemap: https://www.aireservicesguam.com/sitemap.xml
-
-# Disallow admin and private areas
 Disallow: /admin
 Disallow: /admin/*
 Disallow: /kiosk
+
+Allow: /
+Allow: /programs
+Allow: /team
+Allow: /discovery-flight
+Allow: /careers
+Allow: /contact
+
+Sitemap: https://aireservicesguam.com/sitemap.xml

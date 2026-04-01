@@ -214,7 +214,7 @@ export default function Schedule() {
       }
       setShowModal(false)
       loadSchedules()
-    } catch (err) {
+    } catch {
       setError('Failed to save schedule')
     } finally {
       setSaving(false)
@@ -230,7 +230,7 @@ export default function Schedule() {
       await api.deleteSchedule(editingSchedule.id)
       setShowModal(false)
       loadSchedules()
-    } catch (err) {
+    } catch {
       setError('Failed to delete schedule')
     }
   }

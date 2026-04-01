@@ -1,11 +1,11 @@
 {
   "name": "AIRE Services Guam",
   "short_name": "AIRE",
-  "description": "AIRE Services Guam flight training and operations portal.",
+  "description": "Aviation services, flight training, and team operations in Guam.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f3ef",
-  "theme_color": "#2d2a26",
+  "background_color": "#f0f4f8",
+  "theme_color": "#1e3a5f",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [

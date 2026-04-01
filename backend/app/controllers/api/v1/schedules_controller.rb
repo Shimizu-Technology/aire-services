@@ -5,8 +5,8 @@ module Api
     class SchedulesController < BaseController
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :require_admin!, only: [:create, :update, :destroy, :bulk_create]
-      before_action :set_schedule, only: [:show, :update, :destroy]
+      before_action :require_admin!, only: [ :create, :update, :destroy, :bulk_create ]
+      before_action :set_schedule, only: [ :show, :update, :destroy ]
 
       # GET /api/v1/schedules
       # All staff can view schedules
@@ -137,7 +137,7 @@ module Api
         week_end = week_start + 6.days
 
         schedules = Schedule.for_date_range(week_start, week_end)
-        
+
         if params[:user_id].present?
           schedules = schedules.for_user(params[:user_id])
         end
@@ -176,7 +176,7 @@ module Api
 
       def parse_time_as_utc(val)
         return nil unless val.present? && val.is_a?(String) && val.match?(/\A\d{1,2}:\d{2}\z/)
-        h, m = val.split(':').map(&:to_i)
+        h, m = val.split(":").map(&:to_i)
         return nil unless h.between?(0, 23) && m.between?(0, 59)
         Time.utc(2000, 1, 1, h, m, 0)
       end

@@ -1,4 +1,3 @@
-/// <reference types="vitest/config" />
 import { defineConfig } from "vitest/config"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
@@ -9,7 +8,6 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // CST-12: Vendor chunk splitting for better caching
         manualChunks: {
           "vendor-react": ["react", "react-dom", "react-router-dom"],
           "vendor-clerk": ["@clerk/clerk-react"],

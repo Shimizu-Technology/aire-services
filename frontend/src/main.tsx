@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ClerkProvider } from '@clerk/clerk-react'
@@ -9,9 +10,15 @@ import { PostHogProvider } from './providers/PostHogProvider'
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 const isClerkEnabled = Boolean(PUBLISHABLE_KEY && PUBLISHABLE_KEY !== 'YOUR_PUBLISHABLE_KEY')
 
-// Log warning if Clerk is not configured
-if (!isClerkEnabled) {
-  console.warn('⚠️ Clerk not configured - running without authentication. Add VITE_CLERK_PUBLISHABLE_KEY to .env.local')
+if (!isClerkEnabled && import.meta.env.PROD) {
+  console.error(
+    'VITE_CLERK_PUBLISHABLE_KEY is not set — admin routes are unprotected. ' +
+    'Set this variable in your Netlify/hosting environment.'
+  )
+}
+
+if (!isClerkEnabled && import.meta.env.DEV) {
+  console.warn('Clerk not configured — running without authentication. Add VITE_CLERK_PUBLISHABLE_KEY to .env.local')
 }
 
 function Root() {

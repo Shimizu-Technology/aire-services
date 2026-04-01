@@ -182,7 +182,7 @@ class TimeClockService
           approval_note: note
         }
 
-        if entry.status == "completed" && entry.overtime_status.in?([nil, "none"])
+        if entry.status == "completed" && entry.overtime_status.in?([ nil, "none" ])
           attrs[:overtime_status] = check_overtime_status(entry.user, entry)
         end
 
@@ -339,7 +339,7 @@ class TimeClockService
     def validate_clock_in_time(now, schedule)
       buffer = (Setting.get("early_clock_in_buffer_minutes") || "5").to_i
 
-      earliest_allowed = [schedule.start_time.utc.seconds_since_midnight - (buffer * 60), 0].max
+      earliest_allowed = [ schedule.start_time.utc.seconds_since_midnight - (buffer * 60), 0 ].max
       latest_allowed = schedule.end_time.utc.seconds_since_midnight
       current_seconds = now.in_time_zone(business_timezone).seconds_since_midnight
 
@@ -375,7 +375,7 @@ class TimeClockService
       return { allowed: false, reason: "no_schedule" } unless schedule
 
       buffer = (Setting.get("early_clock_in_buffer_minutes") || "5").to_i
-      earliest_allowed = [schedule.start_time.utc.seconds_since_midnight - (buffer * 60), 0].max
+      earliest_allowed = [ schedule.start_time.utc.seconds_since_midnight - (buffer * 60), 0 ].max
       latest_allowed = schedule.end_time.utc.seconds_since_midnight
       current_seconds = local_seconds_since_midnight
 

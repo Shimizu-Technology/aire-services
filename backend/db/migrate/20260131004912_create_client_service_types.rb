@@ -8,6 +8,6 @@ class CreateClientServiceTypes < ActiveRecord::Migration[8.1]
     end
 
     # Prevent duplicate client-service associations
-    add_index :client_service_types, [:client_id, :service_type_id], unique: true
+    add_index :client_service_types, [ :client_id, :service_type_id ], unique: true
   end
 end

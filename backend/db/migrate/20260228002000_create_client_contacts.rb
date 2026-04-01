@@ -12,7 +12,7 @@ class CreateClientContacts < ActiveRecord::Migration[8.1]
         t.timestamps
       end
 
-      add_index :client_contacts, [:client_id, :is_primary], name: "index_client_contacts_primary_unique", unique: true, where: "is_primary"
+      add_index :client_contacts, [ :client_id, :is_primary ], name: "index_client_contacts_primary_unique", unique: true, where: "is_primary"
     end
   end
 end

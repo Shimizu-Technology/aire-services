@@ -110,6 +110,6 @@ class ContactMailer < ApplicationMailer
   def phone_row
     return "" if @phone.blank?
 
-    field_row('Phone', %(<a href="tel:#{@phone}" style="color: #0f766e; text-decoration: none;">#{@phone}</a>))
+    field_row("Phone", %(<a href="tel:#{@phone}" style="color: #0f766e; text-decoration: none;">#{@phone}</a>))
   end
 end
