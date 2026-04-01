@@ -33,7 +33,7 @@ export default function AireDiscoveryFlight() {
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Discovery Flight</p>
               <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">The easiest real first step into aviation</h1>
               <p className="mt-4 text-base leading-relaxed text-slate-200 md:text-lg">
-                AIRE’s live public site treats the discovery flight as the cleanest on-ramp for future students. It moves people from curiosity into an actual aircraft experience with an instructor — not just more reading.
+                A discovery flight moves you from curiosity into a real aircraft with an instructor. It is the simplest way to see what flying feels like before committing to full training.
               </p>
             </div>
           </div>

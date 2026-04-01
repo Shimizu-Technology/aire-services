@@ -51,16 +51,16 @@ const stats = [
 
 const publicSignals = [
   {
-    title: 'Live public team roster',
-    text: 'The current site names multiple instructors directly, which gives prospective students a clearer sense of the people behind the training experience.',
+    title: 'Named instructors you can actually look up',
+    text: 'See the crew behind the training experience so you know who is teaching, supporting, and guiding your path into aviation.',
   },
   {
-    title: 'Discovery-flight-first positioning',
-    text: 'The live public site still leads with discovery flights as the easiest way into aviation, so the new site should keep that front and center.',
+    title: 'A clear first step into flying',
+    text: 'Start with a discovery flight if you want a low-pressure way to experience the aircraft, the instructor, and the feeling of flying on Guam.',
   },
   {
-    title: 'Hiring and contact details online',
-    text: 'AIRE already publishes active hiring information, email, phone, address, and social links — all of which should stay easy to find.',
+    title: 'Direct ways to stay connected',
+    text: 'Call, email, or follow AIRE on social media to stay close to the latest updates, hiring, and training opportunities.',
   },
 ]
 
@@ -70,12 +70,12 @@ const faqs = [
     answer: 'A discovery flight is the clearest first step. It lets you experience the aircraft, instructor, and overall training environment before committing to full lessons.',
   },
   {
-    question: 'What program is AIRE centered around publicly?',
-    answer: 'The live public site positions the Private Pilot Certificate as the main training path and the first major goal for new pilots.',
+    question: 'What program is AIRE centered around?',
+    answer: 'The Private Pilot Certificate is the main training path and the first major milestone for most new students starting with AIRE.',
   },
   {
     question: 'Can I follow AIRE online before reaching out?',
-    answer: 'Yes. AIRE’s live public site links directly to Instagram and Facebook, which helps prospective students stay familiar with the brand and activity online.',
+    answer: 'Yes. You can follow AIRE on Instagram and Facebook to stay close to the team, updates, and public activity before you contact them directly.',
   },
 ]
 
@@ -130,8 +130,8 @@ export default function AireHome() {
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm lg:mt-10">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">What the live site already tells us</p>
-              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-white">AIRE is strongest when it stays concrete and local</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Why AIRE</p>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-white">Built for Guam, with a clear and local path into flight training</h2>
               <div className="mt-6 space-y-4">
                 {highlights.map((item) => (
                   <div key={item} className="flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-900/35 px-4 py-4">
@@ -149,9 +149,9 @@ export default function AireHome() {
             <div className="mb-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Programs & Opportunities</p>
-                <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">What people can actually do with AIRE right now</h2>
+                <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Choose the next step that fits where you are</h2>
                 <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600 md:text-base">
-                  The current public presence is not generic. It clearly points people toward flight training, discovery flights, and an active hiring opportunity.
+                  Whether you want to test the waters, begin formal training, or explore an open role with the team, AIRE gives you a direct path forward.
                 </p>
               </div>
               <Link to="/programs" className="text-sm font-semibold text-cyan-700 hover:text-cyan-900">
@@ -196,8 +196,8 @@ export default function AireHome() {
         <section className="py-16 md:py-24">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Public Presence Audit</p>
-              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">What should remain visible because it’s already live online</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Why Students Reach Out</p>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">The signals that make AIRE easier to trust</h2>
             </div>
             <div className="mt-10 grid gap-5 md:grid-cols-3">
               {publicSignals.map((item) => (

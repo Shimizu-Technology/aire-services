@@ -61,10 +61,10 @@ export default function AirePrograms() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Programs & Services</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Flight training details grounded in AIRE’s live public program pages</h1>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Discovery flights, private pilot training, and aircraft rental</h1>
             <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-              This page now mirrors the public AIRE positioning more directly: discovery flights as the on-ramp, the Private Pilot Certificate as the core training path,
-              and aircraft rental requirements for current pilots who need checkout and currency alignment.
+              Whether you want a first flight, a structured path toward your Private Pilot Certificate, or rental access as a current pilot,
+              AIRE gives you a clear place to start and a practical path forward.
             </p>
           </div>
 

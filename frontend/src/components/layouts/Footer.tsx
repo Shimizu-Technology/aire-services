@@ -1,9 +1,5 @@
 import { Link } from 'react-router-dom'
-
-const socialLinks = [
-  { label: 'Instagram', href: 'https://www.instagram.com/aire.services/' },
-  { label: 'Facebook', href: 'https://www.facebook.com/AireServicesGuam/' },
-]
+import { socialLinks } from '../../lib/socialLinks'
 
 export default function Footer() {
   const year = new Date().getFullYear()

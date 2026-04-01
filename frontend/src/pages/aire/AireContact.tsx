@@ -2,16 +2,12 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
 import { api } from '../../lib/api'
+import { socialLinks } from '../../lib/socialLinks'
 
 const contactPoints = [
   { label: 'Phone', value: '(671) 477-4243' },
   { label: 'Email', value: 'admin@aireservicesguam.com' },
   { label: 'Location', value: '1780 Admiral Sherman Boulevard, Tiyan / Barrigada, Guam 96913' },
-]
-
-const socialLinks = [
-  { label: 'Instagram', href: 'https://www.instagram.com/aire.services/' },
-  { label: 'Facebook', href: 'https://www.facebook.com/AireServicesGuam/' },
 ]
 
 const reasons = [
@@ -76,7 +72,7 @@ export default function AireContact() {
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Contact</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Talk with AIRE about training, discovery flights, rentals, or careers</h1>
             <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-              The current public footprint already makes AIRE easy to contact. This page keeps the same public phone, email, address, and social channels visible while making the inquiry flow cleaner.
+              Ready to start? Reach out to the AIRE team and get help with discovery flights, private pilot training, aircraft rental questions, or the best next step for your goals.
             </p>
           </div>
 
