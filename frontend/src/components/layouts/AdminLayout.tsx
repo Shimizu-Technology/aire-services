@@ -6,6 +6,7 @@ import Seo from '../seo/Seo'
 const navigation = [
   { name: 'Dashboard', href: '/admin' },
   { name: 'Time Tracking', href: '/admin/time' },
+  { name: 'Reports', href: '/admin/reports' },
   { name: 'Schedule', href: '/admin/schedule' },
   { name: 'Users', href: '/admin/users' },
 ]
@@ -17,6 +18,7 @@ export default function AdminLayout() {
   const isActive = (href: string) => (href === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(href))
   const pageTitle = useMemo(() => {
     if (location.pathname.startsWith('/admin/time')) return 'Time Tracking | AIRE Admin'
+    if (location.pathname.startsWith('/admin/reports')) return 'Reports | AIRE Admin'
     if (location.pathname.startsWith('/admin/schedule')) return 'Schedule | AIRE Admin'
     if (location.pathname.startsWith('/admin/users')) return 'Users | AIRE Admin'
     return 'AIRE Admin Dashboard'

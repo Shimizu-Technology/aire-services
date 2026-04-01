@@ -61,6 +61,7 @@ export default function Schedule() {
   const [loading, setLoading] = useState(true)
   const [currentWeekStart, setCurrentWeekStart] = useState(() => getWeekStart(new Date()))
   const [viewMode, setViewMode] = useState<ViewMode>('list')
+  const [teamFilter, setTeamFilter] = useState('')
   
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -77,6 +78,15 @@ export default function Schedule() {
   const [error, setError] = useState<string | null>(null)
 
   const weekDates = getWeekDates(currentWeekStart)
+  const normalizedTeamFilter = teamFilter.trim().toLowerCase()
+  const visibleUsers = normalizedTeamFilter
+    ? users.filter((user) => {
+        const label = `${user.display_name || ''} ${user.full_name || ''} ${user.email}`.toLowerCase()
+        return label.includes(normalizedTeamFilter)
+      })
+    : users
+  const visibleUserIds = new Set(visibleUsers.map((user) => user.id))
+  const visibleSchedules = schedules.filter((schedule) => visibleUserIds.has(schedule.user_id))
 
   const loadSchedules = useCallback(async () => {
     setLoading(true)
@@ -138,7 +148,7 @@ export default function Schedule() {
   // Get schedules for a specific user and date
   const getSchedulesForCell = (userId: number, date: Date): ScheduleType[] => {
     const dateStr = formatDateISO(date)
-    return schedules.filter(s => s.user_id === userId && s.work_date === dateStr)
+    return visibleSchedules.filter(s => s.user_id === userId && s.work_date === dateStr)
   }
 
   // Group schedules by date for list view
@@ -146,7 +156,7 @@ export default function Schedule() {
     const byDate = new Map<string, ScheduleType[]>()
     weekDates.forEach(date => {
       const dateStr = formatDateISO(date)
-      const daySchedules = schedules.filter(s => s.work_date === dateStr)
+      const daySchedules = visibleSchedules.filter(s => s.work_date === dateStr)
       if (daySchedules.length > 0) {
         byDate.set(dateStr, daySchedules)
       }
@@ -255,26 +265,38 @@ export default function Schedule() {
 
   // Calculate weekly hours for a user
   const getWeeklyHours = (userId: number): number => {
-    return schedules
+    return visibleSchedules
       .filter(s => s.user_id === userId)
       .reduce((sum, s) => sum + s.hours, 0)
   }
 
   // Calculate total scheduled hours for the week
   const getTotalWeeklyHours = (): number => {
-    return schedules.reduce((sum, s) => sum + s.hours, 0)
+    return visibleSchedules.reduce((sum, s) => sum + s.hours, 0)
   }
+
+  const scheduledStaffCount = visibleUsers.filter((user) => getWeeklyHours(user.id) > 0).length
+  const totalShifts = visibleSchedules.length
+  const avgHoursPerScheduledStaff = scheduledStaffCount > 0 ? getTotalWeeklyHours() / scheduledStaffCount : 0
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <FadeUp>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary-dark tracking-tight">Employee Schedule</h1>
-          <p className="text-text-muted mt-1">Plan and manage employee work schedules</p>
+          <p className="text-text-muted mt-1">Plan shifts, review staffing coverage, and move directly into time tracking when schedules turn into actual work.</p>
         </div>
         
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+            placeholder="Filter by team member"
+            className="w-full rounded-xl border border-neutral-warm px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 sm:w-64"
+          />
+
         {/* View Mode Toggle */}
         <div className="flex items-center gap-1 bg-neutral-warm rounded-lg p-1">
           <button
@@ -308,8 +330,32 @@ export default function Schedule() {
             </span>
           </button>
         </div>
+        </div>
       </div>
       </FadeUp>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
+          <div className="text-sm text-text-muted">Scheduled Hours</div>
+          <div className="mt-2 text-3xl font-bold text-primary-dark">{getTotalWeeklyHours().toFixed(1)}h</div>
+          <div className="mt-2 text-sm text-text-muted">Visible week total for the current staffing view</div>
+        </div>
+        <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
+          <div className="text-sm text-text-muted">Scheduled Staff</div>
+          <div className="mt-2 text-3xl font-bold text-primary">{scheduledStaffCount}</div>
+          <div className="mt-2 text-sm text-text-muted">Team members with at least one assigned shift this week</div>
+        </div>
+        <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
+          <div className="text-sm text-text-muted">Assigned Shifts</div>
+          <div className="mt-2 text-3xl font-bold text-primary-dark">{totalShifts}</div>
+          <div className="mt-2 text-sm text-text-muted">Shift blocks currently scheduled in the visible view</div>
+        </div>
+        <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
+          <div className="text-sm text-text-muted">Avg Hours / Staff</div>
+          <div className="mt-2 text-3xl font-bold text-primary">{avgHoursPerScheduledStaff.toFixed(1)}h</div>
+          <div className="mt-2 text-sm text-text-muted">Useful for spotting overloaded or underused staffing weeks</div>
+        </div>
+      </div>
 
       {/* Week Navigation */}
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-3 sm:p-4 hover:shadow-md transition-shadow duration-300">
@@ -335,7 +381,7 @@ export default function Schedule() {
               >
                 Go to current week
               </button>
-              {schedules.length > 0 && (
+              {visibleSchedules.length > 0 && (
                 <span className="text-xs sm:text-sm text-text-muted">
                   {getTotalWeeklyHours().toFixed(1)}h scheduled
                 </span>
@@ -363,7 +409,7 @@ export default function Schedule() {
       ) : viewMode === 'list' ? (
         /* List View */
         <div className="space-y-4">
-          {schedules.length === 0 ? (
+          {visibleSchedules.length === 0 ? (
             <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-12 text-center">
               <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
@@ -460,7 +506,7 @@ export default function Schedule() {
       ) : (
         /* Grid View */
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
-          {users.length === 0 ? (
+          {visibleUsers.length === 0 ? (
             <div className="p-12 text-center">
               <p className="text-text-muted">No employees found</p>
             </div>
@@ -492,7 +538,7 @@ export default function Schedule() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-warm">
-                  {users.map(user => (
+                  {visibleUsers.map(user => (
                     <tr key={user.id} className="hover:bg-secondary/20 transition-colors">
                       <td className="px-4 py-3">
                         <div className="font-medium text-primary-dark text-sm">
