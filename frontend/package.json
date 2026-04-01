@@ -20,7 +20,7 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.59.4",
     "framer-motion": "^12.29.2",
-    "posthog-js": "^1.332.0",
+    "posthog-js": "^1.364.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.12.0"
