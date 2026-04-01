@@ -21,6 +21,7 @@ const quickLinks = [
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true)
+  const [snapshotError, setSnapshotError] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<Snapshot>({
     activeWorkers: 0,
     scheduledToday: 0,
@@ -31,6 +32,7 @@ export default function Dashboard() {
 
   const loadSnapshot = useCallback(async () => {
     setLoading(true)
+    setSnapshotError(null)
     try {
       const today = formatDateISO(new Date())
       const weekStart = new Date()
@@ -54,6 +56,8 @@ export default function Dashboard() {
         totalTeamMembers: users.filter((user) => user.role === 'admin' || user.role === 'employee').length,
         weeklyScheduledHours: schedules.reduce((sum, schedule) => sum + schedule.hours, 0),
       })
+    } catch {
+      setSnapshotError('Could not refresh the dashboard snapshot right now. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -109,6 +113,12 @@ export default function Dashboard() {
           </Link>
         </div>
       </div>
+
+      {snapshotError && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {snapshotError}
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (

@@ -438,9 +438,16 @@ export default function TimeTracking() {
 
   useEffect(() => {
     const requestedTab = searchParams.get('tab')
-    if (requestedTab === 'reports' && isAdmin) {
-      setActiveTab('reports')
-    } else if (requestedTab === 'entries') {
+    if (requestedTab === 'reports') {
+      if (isAdmin) {
+        setActiveTab('reports')
+      } else {
+        setActiveTab('entries')
+      }
+      return
+    }
+
+    if (requestedTab === 'entries') {
       setActiveTab('entries')
     }
   }, [isAdmin, searchParams])

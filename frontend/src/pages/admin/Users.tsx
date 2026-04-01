@@ -264,6 +264,8 @@ export default function Users() {
 
         {loading ? (
           <div className="px-5 py-10 text-center text-sm text-slate-500">Loading team members...</div>
+        ) : users.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-slate-500">No team members yet. Invite your first admin or employee to get AIRE Ops started.</div>
         ) : visibleUsers.length === 0 ? (
           <div className="px-5 py-10 text-center text-sm text-slate-500">No team members match the current filters.</div>
         ) : (
