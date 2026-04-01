@@ -11,9 +11,9 @@ const instructors = [
 ]
 
 const teamNotes = [
-  'Seeing the instructors by name makes the school feel more personal and approachable.',
-  'Seeing the crew helps future students connect the training experience to real people instead of a generic brand.',
-  'A clear team page helps future students feel more confident before they book a discovery flight.',
+  'Get to know the instructors who could guide your first flight and training journey.',
+  'See the people behind the aircraft, lessons, and day-to-day support that make training feel personal.',
+  'Take the next step with more confidence when you know who you will be learning from.',
 ]
 
 export default function AireTeam() {

@@ -23,10 +23,10 @@ const programs = [
 ]
 
 const highlights = [
-  'Guam-based flight training and discovery flights',
-  'Certified flight instructors clearly introduced on the team page',
-  'Private Pilot Certificate positioned as the core training path',
-  'Direct contact, hiring, and social links already active online',
+  'Start locally with discovery flights and Guam-based training',
+  'Meet the certified flight instructors who guide the training experience',
+  'Follow a clear path from first flight to Private Pilot Certificate',
+  'Reach AIRE directly by phone, email, or social media',
 ]
 
 const steps = [
@@ -45,9 +45,9 @@ const steps = [
 ]
 
 const stats = [
-  { label: 'Public phone', value: '(671) 477-4243' },
-  { label: 'Core path', value: 'Private Pilot' },
-  { label: 'Follow AIRE', value: 'Instagram + Facebook' },
+  { label: 'Call AIRE', value: '(671) 477-4243' },
+  { label: 'Core training path', value: 'Private Pilot' },
+  { label: 'Follow online', value: 'Instagram + Facebook' },
 ]
 
 const trustSignals = [
