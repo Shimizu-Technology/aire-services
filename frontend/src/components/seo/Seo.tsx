@@ -62,7 +62,7 @@ export default function Seo({
     upsertMeta('meta[name="author"]', { name: 'author', content: 'AIRE Services Guam' })
     upsertMeta('meta[name="robots"]', { name: 'robots', content: robots })
     upsertMeta('meta[name="theme-color"]', { name: 'theme-color', content: themeColor })
-    upsertMeta('meta[name="apple-mobile-web-app-title"]', { name: 'apple-mobile-web-app-title', content: 'AIRE Ops' })
+    upsertMeta('meta[name="apple-mobile-web-app-title"]', { name: 'apple-mobile-web-app-title', content: 'AIRE Guam' })
     upsertMeta('meta[name="apple-mobile-web-app-capable"]', { name: 'apple-mobile-web-app-capable', content: 'yes' })
     upsertMeta('meta[name="apple-mobile-web-app-status-bar-style"]', { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' })
     upsertMeta('meta[name="msapplication-TileColor"]', { name: 'msapplication-TileColor', content: themeColor })
