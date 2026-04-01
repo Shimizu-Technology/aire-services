@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
 import { buildLocalBusinessSchema, buildWebsiteSchema } from '../../components/seo/seoSchemas'
+import { socialLinks } from '../../lib/socialLinks'
 
 const programs = [
   {
@@ -81,6 +82,7 @@ const faqs = [
 
 export default function AireHome() {
   const jsonLd = useMemo(() => [buildWebsiteSchema(), buildLocalBusinessSchema()], [])
+  const instagramLink = socialLinks.find((link) => link.label === 'Instagram')?.href || 'https://www.instagram.com/aire.services/'
 
   return (
     <>
@@ -240,7 +242,7 @@ export default function AireHome() {
               <Link to="/contact" className="rounded-xl bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
                 Contact AIRE
               </Link>
-              <a href="https://www.instagram.com/aire.services/" target="_blank" rel="noreferrer" className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
+              <a href={instagramLink} target="_blank" rel="noreferrer" className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
                 Follow on Instagram
               </a>
             </div>
