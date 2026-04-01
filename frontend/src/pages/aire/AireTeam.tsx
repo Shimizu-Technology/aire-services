@@ -11,9 +11,9 @@ const instructors = [
 ]
 
 const teamNotes = [
-  'AIRE names the instructors directly, which makes the school feel more personal and trustworthy.',
+  'Seeing the instructors by name makes the school feel more personal and approachable.',
   'Seeing the crew helps future students connect the training experience to real people instead of a generic brand.',
-  'A stronger team page gives prospective students more confidence before they ever book a discovery flight.',
+  'A clear team page helps future students feel more confident before they book a discovery flight.',
 ]
 
 export default function AireTeam() {
@@ -30,13 +30,13 @@ export default function AireTeam() {
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Meet the Crew</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Meet the instructors behind AIRE’s training experience</h1>
             <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-              AIRE’s strongest public trust signal is simple: it names the instructors. This page keeps that same public roster in a cleaner format so prospective students can quickly understand who is behind the training experience.
+              Flight training is personal. Meeting the instructors helps future students understand who will be teaching, guiding, and supporting them from the first lesson forward.
             </p>
           </div>
 
           <div className="mt-10 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
             <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-7">
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Current public instructor roster</h2>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Instructor roster</h2>
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 {instructors.map((instructor) => (
                   <div key={instructor.name} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

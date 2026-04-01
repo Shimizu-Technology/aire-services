@@ -16,14 +16,14 @@ const programs = [
   },
   {
     title: 'Current Open Role',
-    description: 'AIRE is publicly hiring for an on-demand driver role supporting customer transportation and operations.',
+    description: 'AIRE is hiring for an on-demand driver role supporting customer transportation and operations.',
     href: '/careers',
   },
 ]
 
 const highlights = [
   'Guam-based flight training and discovery flights',
-  'Certified flight instructors featured clearly on the team page',
+  'Certified flight instructors clearly introduced on the team page',
   'Private Pilot Certificate positioned as the core training path',
   'Direct contact, hiring, and social links already active online',
 ]
@@ -46,10 +46,10 @@ const steps = [
 const stats = [
   { label: 'Public phone', value: '(671) 477-4243' },
   { label: 'Core path', value: 'Private Pilot' },
-  { label: 'Public socials', value: 'Instagram + Facebook' },
+  { label: 'Follow AIRE', value: 'Instagram + Facebook' },
 ]
 
-const publicSignals = [
+const trustSignals = [
   {
     title: 'Named instructors you can actually look up',
     text: 'See the crew behind the training experience so you know who is teaching, supporting, and guiding your path into aviation.',
@@ -75,7 +75,7 @@ const faqs = [
   },
   {
     question: 'Can I follow AIRE online before reaching out?',
-    answer: 'Yes. You can follow AIRE on Instagram and Facebook to stay close to the team, updates, and public activity before you contact them directly.',
+    answer: 'Yes. You can follow AIRE on Instagram and Facebook to stay close to the team, updates, and training opportunities before you contact them directly.',
   },
 ]
 
@@ -155,7 +155,7 @@ export default function AireHome() {
                 </p>
               </div>
               <Link to="/programs" className="text-sm font-semibold text-cyan-700 hover:text-cyan-900">
-                View all public details →
+                View program details →
               </Link>
             </div>
 
@@ -197,10 +197,10 @@ export default function AireHome() {
           <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Why Students Reach Out</p>
-              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">The signals that make AIRE easier to trust</h2>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">The details that help future students feel confident reaching out</h2>
             </div>
             <div className="mt-10 grid gap-5 md:grid-cols-3">
-              {publicSignals.map((item) => (
+              {trustSignals.map((item) => (
                 <div key={item.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <h3 className="text-lg font-semibold tracking-tight text-slate-900">{item.title}</h3>
                   <p className="mt-3 text-sm leading-relaxed text-slate-600">{item.text}</p>
