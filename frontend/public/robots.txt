@@ -1,5 +1,5 @@
 # AIRE Services Guam
-# https://aireservicesguam.com
+# https://aire-services-guam.netlify.app
 
 User-agent: *
 Allow: /
@@ -15,4 +15,4 @@ Allow: /discovery-flight
 Allow: /careers
 Allow: /contact
 
-Sitemap: https://aireservicesguam.com/sitemap.xml
+Sitemap: https://aire-services-guam.netlify.app/sitemap.xml

@@ -1,3 +1,5 @@
+import Seo from '../../components/seo/Seo'
+
 const instructors = [
   'Mindy Wilson — Certified Flight Instructor',
   'Addison “AJ” Weldy — Certified Flight Instructor, Instrument / Multi Engine',
@@ -16,7 +18,13 @@ const credibilityPoints = [
 
 export default function AireTeam() {
   return (
-    <div className="bg-white py-14 md:py-20">
+    <>
+      <Seo
+        title="Team | AIRE Services Guam"
+        description="Meet the instructors and flight crew behind AIRE Services Guam’s local training experience."
+        path="/team"
+      />
+      <div className="bg-white py-14 md:py-20">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Meet the Crew</p>
@@ -54,5 +62,6 @@ export default function AireTeam() {
         </div>
       </div>
     </div>
+    </>
   )
 }

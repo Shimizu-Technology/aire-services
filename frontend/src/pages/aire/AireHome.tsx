@@ -1,4 +1,7 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import Seo from '../../components/seo/Seo'
+import { buildLocalBusinessSchema, buildWebsiteSchema } from '../../components/seo/seoSchemas'
 
 const programs = [
   {
@@ -77,8 +80,17 @@ const faqs = [
 ]
 
 export default function AireHome() {
+  const jsonLd = useMemo(() => [buildWebsiteSchema(), buildLocalBusinessSchema()], [])
+
   return (
-    <div className="bg-white text-slate-900">
+    <>
+      <Seo
+        title="AIRE Services Guam | Discovery Flights and Flight Training"
+        description="Explore discovery flights, private pilot training, and local aviation opportunities with AIRE Services Guam."
+        path="/"
+        jsonLd={jsonLd}
+      />
+      <div className="bg-white text-slate-900">
       <section className="relative overflow-hidden bg-slate-950 text-white">
         <div className="absolute inset-0">
           <img src="/assets/aire/hero.jpg" alt="AIRE Services aircraft and training" className="h-full w-full object-cover opacity-30" />
@@ -236,5 +248,6 @@ export default function AireHome() {
         </div>
       </section>
     </div>
+    </>
   )
 }
