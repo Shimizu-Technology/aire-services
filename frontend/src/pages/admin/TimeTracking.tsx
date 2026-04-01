@@ -447,9 +447,7 @@ export default function TimeTracking() {
       return
     }
 
-    if (requestedTab === 'entries') {
-      setActiveTab('entries')
-    }
+    setActiveTab('entries')
   }, [isAdmin, searchParams])
 
   // Handle prefill from schedule
