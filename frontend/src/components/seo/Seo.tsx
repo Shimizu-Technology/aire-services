@@ -81,7 +81,7 @@ export default function Seo({
     upsertMeta('meta[name="twitter:url"]', { name: 'twitter:url', content: canonicalUrl })
 
     upsertLink('link[rel="canonical"]', { rel: 'canonical', href: canonicalUrl })
-    upsertLink('link[rel="apple-touch-icon"]', { rel: 'apple-touch-icon', href: getAbsoluteUrl('/assets/aire/logo.png') })
+    upsertLink('link[rel="apple-touch-icon"]', { rel: 'apple-touch-icon', href: getAbsoluteUrl('/assets/aire/icon-180.png') })
 
     let script: HTMLScriptElement | null = null
 
