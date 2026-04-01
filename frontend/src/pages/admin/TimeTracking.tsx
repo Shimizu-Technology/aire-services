@@ -768,7 +768,14 @@ export default function TimeTracking() {
         <div className="flex flex-wrap gap-2">
           {activeTab === 'entries' && isAdmin && (
             <button
-              onClick={() => setActiveTab('reports')}
+              onClick={() => {
+                setActiveTab('reports')
+                setSearchParams((prev) => {
+                  const next = new URLSearchParams(prev)
+                  next.set('tab', 'reports')
+                  return next
+                })
+              }}
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-warm px-4 py-2 text-sm font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
             >
               <ChartIcon />
