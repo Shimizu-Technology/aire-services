@@ -1872,16 +1872,6 @@ export const api = {
       body: JSON.stringify({ positions }),
     }),
 
-  // Admin: System Settings
-  getSystemSettings: () =>
-    fetchApi<Record<string, string>>('/api/v1/admin/settings'),
-
-  updateSystemSettings: (settings: Record<string, string>) =>
-    fetchApi<Record<string, string>>('/api/v1/admin/settings', {
-      method: 'PUT',
-      body: JSON.stringify(settings),
-    }),
-
   // Documents
   getDocuments: (taxReturnId: number) =>
     fetchApi<Document[]>(`/api/v1/tax_returns/${taxReturnId}/documents`),

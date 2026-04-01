@@ -1,7 +1,7 @@
 # AIRE Ops Web — AGENTS.md
 
 ## Project
-AIRE Services Ops frontend (React + TypeScript + Tailwind). Forked from cornerstone-tax frontend.
+AIRE Services Ops frontend (React + TypeScript + Tailwind). Standalone AIRE codebase with donor-app residue actively being removed.
 
 ## Tech Stack
 - React 19, TypeScript, Tailwind v4, Vite

@@ -1,25 +1,81 @@
 # frozen_string_literal: true
 
-# This file should ensure the existence of records required to run the application in every environment (production,
-# development, test). The code here should be idempotent so that it can be executed at any point in every environment.
-# The data can then be loaded with the bin/rails db:seed command (or created alongside the database with db:setup).
+# This file should ensure the existence of records required to run the application in every environment
+# (development, test, production). Keep it idempotent.
 
-puts "Seeding database..."
+puts "Seeding AIRE Services data..."
 
 # ============================================
-# Workflow Stages (Configurable)
+# Workflow Stages (legacy scaffold, renamed for AIRE)
+# Keep the established slugs stable for any code paths that still reference them.
 # ============================================
 puts "Creating workflow stages..."
 
 workflow_stages = [
-  { name: "Intake Received", slug: "intake_received", position: 1, color: "#6B7280", notify_client: false, description: "Client submitted intake form" },
-  { name: "Documents Pending", slug: "documents_pending", position: 2, color: "#F59E0B", notify_client: true, description: "Waiting for client documents (W-2s, 1099s, etc.)" },
-  { name: "In Preparation", slug: "in_preparation", position: 3, color: "#3B82F6", notify_client: false, description: "Tax preparer is working on the return" },
-  { name: "In Review", slug: "in_review", position: 4, color: "#8B5CF6", notify_client: false, description: "Return is being reviewed by supervisor" },
-  { name: "Ready to Sign", slug: "ready_to_sign", position: 5, color: "#10B981", notify_client: true, description: "Return is ready for client signature" },
-  { name: "Filing", slug: "filing", position: 6, color: "#06B6D4", notify_client: false, description: "Return is being submitted to IRS/Guam DRT" },
-  { name: "Ready for Pickup", slug: "ready_for_pickup", position: 7, color: "#22C55E", notify_client: true, description: "Return is complete and ready for client pickup" },
-  { name: "Complete", slug: "complete", position: 8, color: "#64748B", notify_client: false, description: "Return has been picked up, case closed" }
+  {
+    name: "Inquiry Received",
+    slug: "intake_received",
+    position: 1,
+    color: "#64748B",
+    notify_client: false,
+    description: "A new student, renter, or operations request has been captured."
+  },
+  {
+    name: "Details Needed",
+    slug: "documents_pending",
+    position: 2,
+    color: "#F59E0B",
+    notify_client: true,
+    description: "Waiting on required onboarding details, scheduling info, or follow-up materials."
+  },
+  {
+    name: "In Progress",
+    slug: "in_preparation",
+    position: 3,
+    color: "#3B82F6",
+    notify_client: false,
+    description: "The AIRE team is actively working the request or student workflow."
+  },
+  {
+    name: "Internal Review",
+    slug: "in_review",
+    position: 4,
+    color: "#8B5CF6",
+    notify_client: false,
+    description: "An internal review or approval step is in progress."
+  },
+  {
+    name: "Ready for Confirmation",
+    slug: "ready_to_sign",
+    position: 5,
+    color: "#10B981",
+    notify_client: true,
+    description: "Ready for student/staff confirmation or next-step acknowledgement."
+  },
+  {
+    name: "Final Processing",
+    slug: "filing",
+    position: 6,
+    color: "#06B6D4",
+    notify_client: false,
+    description: "The final internal processing step is underway."
+  },
+  {
+    name: "Ready for Next Step",
+    slug: "ready_for_pickup",
+    position: 7,
+    color: "#22C55E",
+    notify_client: true,
+    description: "The request is ready for the student, renter, or staff member to act on."
+  },
+  {
+    name: "Complete",
+    slug: "complete",
+    position: 8,
+    color: "#475569",
+    notify_client: false,
+    description: "The workflow is complete."
+  }
 ]
 
 workflow_stages.each do |attrs|
@@ -30,16 +86,18 @@ workflow_stages.each do |attrs|
 end
 
 # ============================================
-# Time Categories (Configurable)
+# Time Categories
 # ============================================
 puts "Creating time categories..."
 
 time_categories = [
-  { name: "Tax Preparation", description: "Preparing individual or business tax returns" },
-  { name: "Client Consultation", description: "Meetings, calls, and emails with clients" },
-  { name: "Document Review", description: "Reviewing client-submitted documents" },
-  { name: "Administrative", description: "General office and administrative tasks" },
-  { name: "Training", description: "Professional development and training" }
+  { name: "Flight Instruction", description: "Instructor-led flight training time." },
+  { name: "Ground School", description: "Classroom, briefing, or academic instruction." },
+  { name: "Discovery Flight", description: "Introductory flight experiences for prospective students." },
+  { name: "Aircraft Prep", description: "Preflight setup, turnaround, and aircraft readiness work." },
+  { name: "Student Support", description: "Student scheduling, check-ins, and support communication." },
+  { name: "Administrative", description: "General office and operations administration." },
+  { name: "Training", description: "Internal staff training and professional development." }
 ]
 
 time_categories.each do |attrs|
@@ -50,7 +108,7 @@ time_categories.each do |attrs|
 end
 
 # ============================================
-# Schedule Time Presets (Configurable)
+# Schedule Time Presets
 # ============================================
 puts "Creating schedule time presets..."
 
@@ -71,99 +129,73 @@ schedule_presets.each do |attrs|
 end
 
 # ============================================
-# Service Types (Configurable)
+# Service Types
 # ============================================
 puts "Creating service types..."
 
 service_types_data = [
   {
-    name: "Tax Preparation & Planning",
-    description: "Expert tax preparation for individuals and businesses",
-    color: "#3B82F6",
+    name: "Discovery Flights",
+    description: "First-flight experiences for prospective pilots.",
+    color: "#06B6D4",
     position: 1,
     tasks: [
-      "Individual tax returns (Form 1040)",
-      "Business tax returns (1120, 1120S, 1065)",
-      "Guam and federal tax filing",
-      "Tax planning and strategy",
-      "Prior year returns and amendments"
+      "Inquiry follow-up",
+      "Flight scheduling",
+      "Pre-flight briefing",
+      "Discovery flight execution",
+      "Post-flight follow-up"
     ]
   },
   {
-    name: "Accounting & Bookkeeping",
-    description: "Comprehensive accounting services for your business",
-    color: "#10B981",
+    name: "Private Pilot Training",
+    description: "Core flight and ground instruction for certificate-track students.",
+    color: "#3B82F6",
     position: 2,
     tasks: [
-      "Monthly bookkeeping",
-      "Account reconciliation",
-      "General ledger maintenance",
-      "Chart of accounts setup",
-      "Clean-up and catch-up services"
+      "Ground instruction",
+      "Flight lesson",
+      "Student progress review",
+      "Checkride preparation",
+      "Lesson debrief"
     ]
   },
   {
-    name: "Payroll & Compliance",
-    description: "Reliable payroll processing and compliance support",
-    color: "#F59E0B",
+    name: "Aircraft Rental Support",
+    description: "Operational support for approved renter activity.",
+    color: "#22C55E",
     position: 3,
     tasks: [
-      "Payroll processing",
-      "Payroll tax filings",
-      "W-2 and 1099 preparation",
-      "New hire reporting",
-      "Compliance monitoring"
+      "Checkout coordination",
+      "Scheduling and dispatch",
+      "Aircraft readiness check",
+      "Rental documentation review",
+      "Post-flight wrap-up"
     ]
   },
   {
-    name: "Financial Statement Preparation",
-    description: "Clear, accurate financial statements for your business",
+    name: "Student Success & Scheduling",
+    description: "Communication, onboarding, and schedule coordination for active students.",
     color: "#8B5CF6",
     position: 4,
     tasks: [
-      "Balance sheets",
-      "Income statements",
-      "Cash flow statements",
-      "Custom financial reports",
-      "Trend analysis"
+      "New student onboarding",
+      "Scheduling updates",
+      "Student communications",
+      "Attendance follow-up",
+      "Progress check-in"
     ]
   },
   {
-    name: "Business Advisory & Consulting",
-    description: "Strategic guidance to help you achieve your business goals",
-    color: "#EC4899",
+    name: "Operations & Admin",
+    description: "Internal operations, staffing, and admin support.",
+    color: "#64748B",
     position: 5,
     tasks: [
-      "Business entity selection",
-      "Financial planning",
-      "Cash flow management",
-      "Growth strategy",
-      "Exit planning"
-    ]
-  },
-  {
-    name: "QuickBooks & Cloud Accounting",
-    description: "Expert setup and support for cloud-based accounting",
-    color: "#06B6D4",
-    position: 6,
-    tasks: [
-      "QuickBooks setup and training",
-      "Data migration",
-      "Cloud accounting solutions",
-      "Software integration",
-      "Ongoing support"
-    ]
-  },
-  {
-    name: "General/Administrative",
-    description: "Internal work, meetings, and administrative tasks",
-    color: "#6B7280",
-    position: 7,
-    tasks: [
       "Team meeting",
-      "Training",
       "Administrative work",
-      "Client communication",
+      "Operations planning",
+      "Internal training",
       "Other"
     ]
   }
@@ -180,7 +212,6 @@ service_types_data.each do |st_data|
   service_type.save!
   puts "  ✓ #{service_type.name}"
 
-  # Create tasks for this service type
   st_data[:tasks].each_with_index do |task_name, index|
     task = ServiceTask.find_or_initialize_by(
       service_type: service_type,
@@ -196,54 +227,49 @@ service_types_data.each do |st_data|
 end
 
 # ============================================
-# Operation Templates (Configurable)
+# Operation Templates
 # ============================================
 puts "Creating operation templates..."
 
 operation_templates_data = [
   {
-    name: "Biweekly Payroll Processing",
-    description: "Standard payroll operations cycle for biweekly payroll clients.",
-    category: "payroll",
-    recurrence_type: "biweekly",
+    name: "Weekly Flight Schedule Review",
+    description: "Review instructor coverage, aircraft availability, and student lessons for the upcoming week.",
+    category: "general",
+    recurrence_type: "weekly",
     auto_generate: true,
     tasks: [
-      { title: "Receive hours/input from client", evidence_required: false },
-      { title: "Validate hours/overtime/adjustments", evidence_required: false },
-      { title: "Process payroll", evidence_required: false },
-      { title: "Internal review/approval", evidence_required: false },
-      { title: "Deliver checks / confirm disbursement", evidence_required: true },
-      { title: "Drop FIT and related checks to Treasurer of Guam", evidence_required: true },
-      { title: "Confirm filing/payment receipts recorded", evidence_required: true },
-      { title: "Send payroll completion update to client", evidence_required: false }
+      { title: "Review active student lesson cadence", evidence_required: false },
+      { title: "Confirm instructor availability", evidence_required: false },
+      { title: "Check aircraft scheduling conflicts", evidence_required: false },
+      { title: "Publish schedule updates", evidence_required: true }
     ]
   },
   {
-    name: "Monthly Bookkeeping Close",
-    description: "Recurring month-end bookkeeping and reporting checklist.",
-    category: "bookkeeping",
+    name: "Discovery Flight Follow-Up",
+    description: "Standard follow-up flow after discovery flight inquiries and completed intro flights.",
+    category: "general",
+    recurrence_type: "custom",
+    recurrence_interval: 1,
+    auto_generate: false,
+    tasks: [
+      { title: "Confirm inquiry details", evidence_required: false },
+      { title: "Schedule or confirm intro flight", evidence_required: false },
+      { title: "Send follow-up message after flight", evidence_required: true },
+      { title: "Record next-step interest", evidence_required: false }
+    ]
+  },
+  {
+    name: "Monthly Ops Admin Review",
+    description: "Recurring monthly admin review for staffing, attendance, and operations housekeeping.",
+    category: "general",
     recurrence_type: "monthly",
     auto_generate: true,
     tasks: [
-      { title: "Collect missing documents/transactions", evidence_required: false },
-      { title: "Reconcile bank and credit card accounts", evidence_required: false },
-      { title: "Post adjusting entries", evidence_required: false },
-      { title: "Review financial reports internally", evidence_required: false },
-      { title: "Deliver monthly summary to client", evidence_required: true }
-    ]
-  },
-  {
-    name: "Quarterly Compliance Checklist",
-    description: "Quarterly filing and compliance operational checklist.",
-    category: "compliance",
-    recurrence_type: "quarterly",
-    auto_generate: true,
-    tasks: [
-      { title: "Compile quarterly data package", evidence_required: false },
-      { title: "Validate filing/payment obligations", evidence_required: false },
-      { title: "Submit required filings", evidence_required: true },
-      { title: "Record confirmation numbers/receipts", evidence_required: true },
-      { title: "Send compliance update to client", evidence_required: false }
+      { title: "Review attendance and time-entry exceptions", evidence_required: false },
+      { title: "Review kiosk PIN and staff access changes", evidence_required: false },
+      { title: "Confirm schedule preset and staffing needs", evidence_required: false },
+      { title: "Document action items for next month", evidence_required: true }
     ]
   }
 ]
@@ -254,6 +280,7 @@ operation_templates_data.each do |template_data|
     description: template_data[:description],
     category: template_data[:category],
     recurrence_type: template_data[:recurrence_type],
+    recurrence_interval: template_data[:recurrence_interval],
     auto_generate: template_data[:auto_generate],
     is_active: true
   )
@@ -276,7 +303,7 @@ operation_templates_data.each do |template_data|
 end
 
 # ============================================
-# Staff Users (Development only)
+# Staff Users (development / test only)
 # ============================================
 if Rails.env.development? || Rails.env.test?
   puts "Creating staff users for development..."
@@ -293,12 +320,11 @@ if Rails.env.development? || Rails.env.test?
 
   staff_users.each do |attrs|
     user = User.find_or_initialize_by(email: attrs[:email])
-    # Only update if new record or if first_name is blank
     if user.new_record?
       user.assign_attributes(
         first_name: attrs[:first_name],
         role: attrs[:role],
-        clerk_id: "dev_#{SecureRandom.hex(8)}" # Placeholder for dev
+        clerk_id: "dev_#{SecureRandom.hex(8)}"
       )
       user.save!
       puts "  ✓ Created #{attrs[:first_name]} (#{attrs[:email]})"
@@ -311,7 +337,9 @@ if Rails.env.development? || Rails.env.test?
   end
 end
 
-# ── Time Clock Settings ──
+# ============================================
+# Time Clock Settings
+# ============================================
 puts ""
 puts "Creating time clock settings..."
 {
