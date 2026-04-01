@@ -436,6 +436,20 @@ export default function TimeTracking() {
     }
   }, [activeTab, loadReport])
 
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab')
+    if (requestedTab === 'reports') {
+      if (isAdmin) {
+        setActiveTab('reports')
+      } else {
+        setActiveTab('entries')
+      }
+      return
+    }
+
+    setActiveTab('entries')
+  }, [isAdmin, searchParams])
+
   // Handle prefill from schedule
   useEffect(() => {
     const prefill = searchParams.get('prefill')
@@ -680,6 +694,42 @@ export default function TimeTracking() {
     return acc
   }, {} as Record<string, number>)
 
+  const applyReportRange = (kind: 'this_week' | 'this_month' | 'last_14_days') => {
+    const today = new Date()
+
+    if (kind === 'this_week') {
+      const weekStart = new Date(today)
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay())
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekEnd.getDate() + 6)
+      setReportFilters((prev) => ({
+        ...prev,
+        start_date: formatDateISO(weekStart),
+        end_date: formatDateISO(weekEnd),
+      }))
+      return
+    }
+
+    if (kind === 'this_month') {
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+      setReportFilters((prev) => ({
+        ...prev,
+        start_date: formatDateISO(monthStart),
+        end_date: formatDateISO(monthEnd),
+      }))
+      return
+    }
+
+    const start = new Date(today)
+    start.setDate(today.getDate() - 13)
+    setReportFilters((prev) => ({
+      ...prev,
+      start_date: formatDateISO(start),
+      end_date: formatDateISO(today),
+    }))
+  }
+
   const exportPayrollCsv = () => {
     const headers = ['Employee','Category','Hours','Rate','Estimated Gross','Clock Source','Date Range Start','Date Range End']
     const rows = payrollRows.map(row => [
@@ -708,22 +758,40 @@ export default function TimeTracking() {
     <div className="space-y-6">
       {/* Header */}
       <FadeUp>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary-dark tracking-tight">Time Tracking</h1>
-          <p className="text-text-muted mt-1">Track your hours by work category, source, and pay period.</p>
+          <p className="text-text-muted mt-1">Track work, review approvals, and turn completed hours into payroll-ready reporting.</p>
         </div>
-        {activeTab === 'entries' && (
-          <button
-            onClick={() => openNewEntry()}
-            disabled={currentWeekLocked}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
-            title={currentWeekLocked ? 'This week is locked' : 'Log Time'}
-          >
-            <PlusIcon />
-            <span>Log Time</span>
-          </button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {activeTab === 'entries' && isAdmin && (
+            <button
+              onClick={() => {
+                setActiveTab('reports')
+                setSearchParams((prev) => {
+                  const next = new URLSearchParams(prev)
+                  next.set('tab', 'reports')
+                  return next
+                })
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-warm px-4 py-2 text-sm font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
+            >
+              <ChartIcon />
+              <span>Open Reports</span>
+            </button>
+          )}
+          {activeTab === 'entries' && (
+            <button
+              onClick={() => openNewEntry()}
+              disabled={currentWeekLocked}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
+              title={currentWeekLocked ? 'This week is locked' : 'Log Time'}
+            >
+              <PlusIcon />
+              <span>Log Time</span>
+            </button>
+          )}
+        </div>
       </div>
       </FadeUp>
 
@@ -742,7 +810,14 @@ export default function TimeTracking() {
       <div className="border-b border-neutral-warm">
         <nav className="flex gap-4">
           <button
-            onClick={() => setActiveTab('entries')}
+            onClick={() => {
+              setActiveTab('entries')
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev)
+                next.set('tab', 'entries')
+                return next
+              })
+            }}
             className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
               activeTab === 'entries'
                 ? 'border-primary text-primary'
@@ -754,7 +829,14 @@ export default function TimeTracking() {
           </button>
           {isAdmin && (
             <button
-              onClick={() => setActiveTab('reports')}
+              onClick={() => {
+                setActiveTab('reports')
+                setSearchParams((prev) => {
+                  const next = new URLSearchParams(prev)
+                  next.set('tab', 'reports')
+                  return next
+                })
+              }}
               className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
                 activeTab === 'reports'
                   ? 'border-primary text-primary'
@@ -1504,7 +1586,10 @@ export default function TimeTracking() {
           {/* Report Filters */}
           <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-              <h3 className="text-sm font-medium text-primary-dark">Filter Report</h3>
+              <div>
+                <h3 className="text-sm font-medium text-primary-dark">Report Filters</h3>
+                <p className="mt-1 text-xs text-text-muted">Use quick ranges to jump to payroll periods, then narrow by employee or category.</p>
+              </div>
               <div className="flex flex-wrap items-center gap-3">
                 <label className="inline-flex items-center gap-2 text-sm text-text-muted">
                   <input
@@ -1523,6 +1608,11 @@ export default function TimeTracking() {
                   Export Payroll CSV
                 </button>
               </div>
+            </div>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button onClick={() => applyReportRange('this_week')} className="rounded-full border border-neutral-warm px-3 py-1.5 text-sm text-primary-dark transition hover:bg-neutral-warm">This week</button>
+              <button onClick={() => applyReportRange('last_14_days')} className="rounded-full border border-neutral-warm px-3 py-1.5 text-sm text-primary-dark transition hover:bg-neutral-warm">Last 14 days</button>
+              <button onClick={() => applyReportRange('this_month')} className="rounded-full border border-neutral-warm px-3 py-1.5 text-sm text-primary-dark transition hover:bg-neutral-warm">This month</button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>

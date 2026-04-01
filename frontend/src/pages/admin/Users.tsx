@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminUser } from '../../lib/api'
 import { formatDateTime } from '../../lib/dateUtils'
 import { FadeUp } from '../../components/ui/MotionComponents'
+
+type StatusFilter = 'all' | 'active' | 'pending'
+type RoleFilter = 'all' | 'admin' | 'employee'
 
 export default function Users() {
   useEffect(() => {
@@ -22,6 +25,9 @@ export default function Users() {
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [updatingRoleIds, setUpdatingRoleIds] = useState<Set<number>>(new Set())
   const [resettingPinIds, setResettingPinIds] = useState<Set<number>>(new Set())
+  const [searchQuery, setSearchQuery] = useState('')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -167,35 +173,86 @@ export default function Users() {
     }
   }
 
+  const visibleUsers = useMemo(() => {
+    return users.filter((user) => {
+      const matchesSearch = `${user.full_name || ''} ${user.display_name || ''} ${user.email}`.toLowerCase().includes(searchQuery.trim().toLowerCase())
+      const matchesRole = roleFilter === 'all' ? true : user.role === roleFilter
+      const matchesStatus = statusFilter === 'all'
+        ? true
+        : statusFilter === 'pending'
+          ? user.is_pending
+          : !user.is_pending
+
+      return matchesSearch && matchesRole && matchesStatus
+    })
+  }, [roleFilter, searchQuery, statusFilter, users])
+
+  const totalAdmins = users.filter((u) => u.role === 'admin').length
+  const pendingInvites = users.filter((u) => u.is_pending).length
+  const kioskConfigured = users.filter((u) => u.kiosk_pin_configured).length
+
   return (
     <div className="space-y-6">
       <FadeUp>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Team Access</h1>
-            <p className="mt-1 text-sm text-slate-600">Manage staff roles, invitations, and kiosk PIN access for AIRE Ops.</p>
+            <p className="mt-1 text-sm text-slate-600">Manage staff roles, invitation state, and kiosk access so the AIRE ops side stays secure and usable.</p>
           </div>
           <button
             onClick={() => setShowInviteModal(true)}
-            className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+            className="inline-flex items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
             Invite Team Member
           </button>
         </div>
       </FadeUp>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-sm text-slate-500">Total Team Members</div>
           <div className="mt-2 text-3xl font-bold text-slate-900">{users.length}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-sm text-slate-500">Admins</div>
-          <div className="mt-2 text-3xl font-bold text-cyan-700">{users.filter((u) => u.role === 'admin').length}</div>
+          <div className="mt-2 text-3xl font-bold text-cyan-700">{totalAdmins}</div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-sm text-slate-500">Pending Invites</div>
+          <div className="mt-2 text-3xl font-bold text-amber-600">{pendingInvites}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-sm text-slate-500">Kiosk PIN Configured</div>
-          <div className="mt-2 text-3xl font-bold text-slate-900">{users.filter((u) => u.kiosk_pin_configured).length}</div>
+          <div className="mt-2 text-3xl font-bold text-slate-900">{kioskConfigured}</div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 lg:grid-cols-[1.4fr,0.8fr,0.8fr]">
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name or email"
+            className="rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          />
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
+            className="rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          >
+            <option value="all">All roles</option>
+            <option value="admin">Admins only</option>
+            <option value="employee">Employees only</option>
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          >
+            <option value="all">All access states</option>
+            <option value="active">Active only</option>
+            <option value="pending">Pending invites only</option>
+          </select>
         </div>
       </div>
 
@@ -208,7 +265,9 @@ export default function Users() {
         {loading ? (
           <div className="px-5 py-10 text-center text-sm text-slate-500">Loading team members...</div>
         ) : users.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-slate-500">No team members yet.</div>
+          <div className="px-5 py-10 text-center text-sm text-slate-500">No team members yet. Invite your first admin or employee to get AIRE Ops started.</div>
+        ) : visibleUsers.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-slate-500">No team members match the current filters.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px]">
@@ -223,7 +282,7 @@ export default function Users() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {users.map((user) => (
+                {visibleUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-slate-50/80">
                     <td className="px-5 py-4">
                       <div className="font-medium text-slate-900">{user.full_name || user.display_name || user.email}</div>

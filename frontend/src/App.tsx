@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 
 import { PostHogPageView } from './providers/PostHogProvider'
 import PublicLayout from './components/layouts/PublicLayout'
@@ -56,6 +56,7 @@ function App() {
         >
           <Route index element={<Suspense fallback={<AdminLoadingFallback />}><Dashboard /></Suspense>} />
           <Route path="time" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking /></Suspense>} />
+          <Route path="reports" element={<Navigate to="/admin/time?tab=reports" replace />} />
           <Route path="schedule" element={<Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense>} />
           <Route
             path="users"

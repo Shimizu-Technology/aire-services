@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
 import Seo from '../seo/Seo'
@@ -6,6 +6,7 @@ import Seo from '../seo/Seo'
 const navigation = [
   { name: 'Dashboard', href: '/admin' },
   { name: 'Time Tracking', href: '/admin/time' },
+  { name: 'Reports', href: '/admin/reports' },
   { name: 'Schedule', href: '/admin/schedule' },
   { name: 'Users', href: '/admin/users' },
 ]
@@ -14,13 +15,18 @@ export default function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
 
-  const isActive = (href: string) => (href === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(href))
-  const pageTitle = useMemo(() => {
-    if (location.pathname.startsWith('/admin/time')) return 'Time Tracking | AIRE Admin'
-    if (location.pathname.startsWith('/admin/schedule')) return 'Schedule | AIRE Admin'
-    if (location.pathname.startsWith('/admin/users')) return 'Users | AIRE Admin'
-    return 'AIRE Admin Dashboard'
-  }, [location.pathname])
+  const reportsActive = location.pathname.startsWith('/admin/time') && new URLSearchParams(location.search).get('tab') === 'reports'
+  const isActive = (href: string) => {
+    if (href === '/admin') return location.pathname === '/admin'
+    if (href === '/admin/reports') return reportsActive
+    if (href === '/admin/time') return location.pathname.startsWith('/admin/time') && !reportsActive
+    return location.pathname.startsWith(href)
+  }
+  let pageTitle = 'AIRE Admin Dashboard'
+  if (reportsActive) pageTitle = 'Reports | AIRE Admin'
+  else if (location.pathname.startsWith('/admin/time')) pageTitle = 'Time Tracking | AIRE Admin'
+  else if (location.pathname.startsWith('/admin/schedule')) pageTitle = 'Schedule | AIRE Admin'
+  else if (location.pathname.startsWith('/admin/users')) pageTitle = 'Users | AIRE Admin'
 
   return (
     <div className="min-h-screen bg-slate-50">
