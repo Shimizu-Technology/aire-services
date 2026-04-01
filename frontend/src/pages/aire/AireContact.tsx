@@ -14,6 +14,7 @@ const reasons = [
   'Private Pilot Certificate training',
   'Discovery flight questions',
   'Aircraft rental requirements',
+  'Career opportunities',
   'General training path guidance',
 ]
 
@@ -21,6 +22,7 @@ const subjects = [
   'Private Pilot Certificate',
   'Discovery Flight',
   'Aircraft Rental',
+  'Careers',
   'General Inquiry',
 ]
 
