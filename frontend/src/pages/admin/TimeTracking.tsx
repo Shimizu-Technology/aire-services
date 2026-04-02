@@ -55,6 +55,8 @@ interface TimeEntryItem {
     hourly_rate_cents?: number | null
     hourly_rate?: number | null
   } | null
+  effective_rate_cents?: number | null
+  effective_rate?: number | null
   locked_at: string | null
   created_at: string
   updated_at: string
@@ -659,7 +661,7 @@ export default function TimeTracking() {
   const payrollSummaryByEmployeeCategory = reportData.reduce((acc, entry) => {
     const employeeName = entry.user.full_name || entry.user.display_name || entry.user.email.split('@')[0]
     const categoryName = entry.time_category?.name || 'Uncategorized'
-    const rate = entry.time_category?.hourly_rate || 0
+    const rate = entry.effective_rate ?? entry.time_category?.hourly_rate ?? 0
     const key = `${employeeName}__${categoryName}`
     if (!acc[key]) {
       acc[key] = {

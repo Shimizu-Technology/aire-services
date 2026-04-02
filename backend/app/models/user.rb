@@ -14,6 +14,7 @@ class User < ApplicationRecord
   has_many :schedules, dependent: :nullify
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
   has_many :time_period_locks, foreign_key: "locked_by_id", dependent: :nullify
+  has_many :employee_pay_rates, dependent: :destroy
 
   attr_accessor :skip_kiosk_pin_presence_validation
 

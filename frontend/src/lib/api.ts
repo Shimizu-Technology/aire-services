@@ -172,6 +172,38 @@ export interface AdminTimeCategory extends TimeCategory {
   updated_at: string;
 }
 
+export interface EmployeePayRate {
+  id: number;
+  user_id: number;
+  user_name: string;
+  time_category_id: number;
+  time_category_name: string;
+  time_category_key: string | null;
+  hourly_rate_cents: number;
+  hourly_rate: number;
+  default_rate_cents: number | null;
+  default_rate: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EffectiveRate {
+  time_category_id: number;
+  time_category_name: string;
+  time_category_key: string | null;
+  default_rate_cents: number | null;
+  default_rate: number | null;
+  override_rate_cents: number | null;
+  override_rate: number | null;
+  effective_rate_cents: number | null;
+  effective_rate: number | null;
+  override_id: number | null;
+}
+
+export interface SettingsHash {
+  [key: string]: string;
+}
+
 export interface TimeEntry {
   id: number;
   work_date: string;
@@ -228,6 +260,8 @@ export interface TimeEntry {
     hourly_rate_cents?: number | null;
     hourly_rate?: number | null;
   } | null;
+  effective_rate_cents?: number | null;
+  effective_rate?: number | null;
   locked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -631,13 +665,13 @@ export const api = {
   getAdminTimeCategories: () =>
     fetchApi<{ time_categories: AdminTimeCategory[] }>('/api/v1/admin/time_categories'),
 
-  createTimeCategory: (data: { name: string; description?: string }) =>
+  createTimeCategory: (data: { name: string; key?: string; description?: string; hourly_rate_cents?: number | null }) =>
     fetchApi<{ time_category: AdminTimeCategory }>('/api/v1/admin/time_categories', {
       method: 'POST',
       body: JSON.stringify({ time_category: data }),
     }),
 
-  updateTimeCategory: (id: number, data: Partial<{ name: string; description: string; is_active: boolean }>) =>
+  updateTimeCategory: (id: number, data: Partial<{ name: string; key: string; description: string; is_active: boolean; hourly_rate_cents: number | null }>) =>
     fetchApi<{ time_category: AdminTimeCategory }>(`/api/v1/admin/time_categories/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ time_category: data }),
@@ -735,4 +769,42 @@ export const api = {
   // Schedule Time Presets
   getScheduleTimePresets: () =>
     fetchApi<ScheduleTimePresetsResponse>('/api/v1/schedule_time_presets'),
+
+  // Admin: Settings
+  getSettings: () =>
+    fetchApi<{ settings: SettingsHash }>('/api/v1/admin/settings'),
+
+  updateSettings: (settings: Record<string, string>) =>
+    fetchApi<{ settings: SettingsHash; message: string }>('/api/v1/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ settings }),
+    }),
+
+  // Admin: Employee Pay Rates
+  getEmployeePayRates: (userId?: number) => {
+    const query = userId ? `?user_id=${userId}` : '';
+    return fetchApi<{ employee_pay_rates: EmployeePayRate[] }>(`/api/v1/admin/employee_pay_rates${query}`);
+  },
+
+  getEffectiveRatesForUser: (userId: number) =>
+    fetchApi<{ user: { id: number; full_name: string; display_name: string }; effective_rates: EffectiveRate[] }>(
+      `/api/v1/admin/employee_pay_rates/for_user/${userId}`
+    ),
+
+  createEmployeePayRate: (data: { user_id: number; time_category_id: number; hourly_rate_cents: number }) =>
+    fetchApi<{ employee_pay_rate: EmployeePayRate }>('/api/v1/admin/employee_pay_rates', {
+      method: 'POST',
+      body: JSON.stringify({ employee_pay_rate: data }),
+    }),
+
+  updateEmployeePayRate: (id: number, data: { hourly_rate_cents: number }) =>
+    fetchApi<{ employee_pay_rate: EmployeePayRate }>(`/api/v1/admin/employee_pay_rates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ employee_pay_rate: data }),
+    }),
+
+  deleteEmployeePayRate: (id: number) =>
+    fetchApi<void>(`/api/v1/admin/employee_pay_rates/${id}`, {
+      method: 'DELETE',
+    }),
 };

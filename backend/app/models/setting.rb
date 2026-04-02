@@ -6,7 +6,8 @@ class Setting < ApplicationRecord
   DEFAULTS = {
     "overtime_daily_threshold_hours" => "8",
     "overtime_weekly_threshold_hours" => "40",
-    "early_clock_in_buffer_minutes" => "5"
+    "early_clock_in_buffer_minutes" => "5",
+    "schedule_required_for_clock_in" => "false"
   }.freeze
 
   def self.get(key)

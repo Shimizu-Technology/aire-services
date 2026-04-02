@@ -552,6 +552,8 @@ module Api
             hourly_rate_cents: entry.time_category.hourly_rate_cents,
             hourly_rate: entry.time_category.hourly_rate
           } : nil,
+          effective_rate_cents: entry.time_category ? EmployeePayRate.effective_rate_cents(entry.user_id, entry.time_category_id) : nil,
+          effective_rate: entry.time_category ? EmployeePayRate.effective_rate(entry.user_id, entry.time_category_id) : nil,
           locked_at: entry.locked_at&.iso8601,
           created_at: entry.created_at.iso8601,
           updated_at: entry.updated_at.iso8601

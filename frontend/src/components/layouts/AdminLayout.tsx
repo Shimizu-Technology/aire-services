@@ -9,6 +9,7 @@ const navigation = [
   { name: 'Reports', href: '/admin/reports' },
   { name: 'Schedule', href: '/admin/schedule' },
   { name: 'Users', href: '/admin/users' },
+  { name: 'Settings', href: '/admin/settings' },
 ]
 
 export default function AdminLayout() {
@@ -27,6 +28,7 @@ export default function AdminLayout() {
   else if (location.pathname.startsWith('/admin/time')) pageTitle = 'Time Tracking | AIRE Admin'
   else if (location.pathname.startsWith('/admin/schedule')) pageTitle = 'Schedule | AIRE Admin'
   else if (location.pathname.startsWith('/admin/users')) pageTitle = 'Users | AIRE Admin'
+  else if (location.pathname.startsWith('/admin/settings')) pageTitle = 'Settings | AIRE Admin'
 
   return (
     <div className="min-h-screen bg-slate-50">

@@ -2,6 +2,7 @@
 
 class TimeCategory < ApplicationRecord
   has_many :time_entries, dependent: :nullify
+  has_many :employee_pay_rates, dependent: :destroy
 
   validates :name, presence: true
   validates :key, uniqueness: true, allow_nil: true
