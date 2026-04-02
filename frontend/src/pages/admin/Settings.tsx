@@ -536,7 +536,11 @@ function PayRatesTab() {
                             {rate.override_id && (
                               <button
                                 onClick={async () => {
-                                  await api.deleteEmployeePayRate(rate.override_id!)
+                                  const res = await api.deleteEmployeePayRate(rate.override_id!)
+                                  if (res.error) {
+                                    setError(res.error)
+                                    return
+                                  }
                                   loadRatesForUser(selectedUserId)
                                 }}
                                 className="text-xs font-medium text-red-500 hover:text-red-700"
