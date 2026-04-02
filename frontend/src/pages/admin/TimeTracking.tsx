@@ -661,8 +661,9 @@ export default function TimeTracking() {
   const payrollSummaryByEmployeeCategory = reportData.reduce((acc, entry) => {
     const employeeName = entry.user.full_name || entry.user.display_name || entry.user.email.split('@')[0]
     const categoryName = entry.time_category?.name || 'Uncategorized'
+    const source = entry.clock_source || 'legacy'
     const rate = entry.effective_rate ?? entry.time_category?.hourly_rate ?? 0
-    const key = `${employeeName}__${categoryName}`
+    const key = `${employeeName}__${categoryName}__${source}__${rate}`
     if (!acc[key]) {
       acc[key] = {
         employeeName,
@@ -670,7 +671,7 @@ export default function TimeTracking() {
         hours: 0,
         rate,
         estimatedGross: 0,
-        source: entry.clock_source || 'legacy',
+        source,
       }
     }
     acc[key].hours += entry.hours
@@ -1876,7 +1877,7 @@ export default function TimeTracking() {
                         <td className="px-4 py-3 text-sm text-text-muted">{entry.time_category?.name || '-'}</td>
                         <td className="px-4 py-3 text-sm text-text-muted uppercase">{entry.clock_source || 'legacy'}</td>
                         <td className="px-4 py-3 text-sm text-primary font-semibold text-right">{entry.hours.toFixed(1)}</td>
-                        <td className="px-4 py-3 text-sm text-text-muted text-right">{entry.time_category?.hourly_rate != null ? `$${entry.time_category.hourly_rate.toFixed(2)}` : '-'}</td>
+                        <td className="px-4 py-3 text-sm text-text-muted text-right">{entry.effective_rate != null ? `$${entry.effective_rate.toFixed(2)}` : entry.time_category?.hourly_rate != null ? `$${entry.time_category.hourly_rate.toFixed(2)}` : '-'}</td>
                         <td className="px-4 py-3 text-sm text-text-muted truncate max-w-[200px]">{entry.description || '-'}</td>
                       </tr>
                     ))

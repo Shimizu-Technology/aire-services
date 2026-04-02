@@ -11,17 +11,21 @@ function SettingsTab() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadSettings()
-  }, [])
-
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     setLoading(true)
     const res = await api.getSettings()
     if (res.data) setSettings(res.data.settings)
     else setError(res.error || 'Failed to load settings')
     setLoading(false)
-  }
+  }, [])
+
+  useEffect(() => {
+    const run = async () => {
+      await loadSettings()
+    }
+
+    void run()
+  }, [loadSettings])
 
   const handleSave = async () => {
     setSaving(true)
@@ -145,7 +149,13 @@ function TimeCategoriesTab() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadCategories() }, [loadCategories])
+  useEffect(() => {
+    const run = async () => {
+      await loadCategories()
+    }
+
+    void run()
+  }, [loadCategories])
 
   const openNew = () => {
     setEditingId(null)

@@ -239,6 +239,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   const isClockedIn = status?.clocked_in
   const isOnBreak = status?.status === 'on_break'
   const isAdmin = status?.is_admin ?? false
+  const scheduleRequired = status?.schedule_required_for_clock_in ?? false
   const blockedReason = status?.clock_in_blocked_reason
   const isAdminOverridable = isAdmin && (blockedReason === 'too_early' || blockedReason === 'no_schedule' || blockedReason === 'shift_ended')
   const canClockIn = status?.can_clock_in || isAdminOverridable
@@ -318,7 +319,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
             <div className="text-xs text-text-muted mt-0.5">{status.schedule.hours} hours</div>
           </div>
         )}
-        {!isClockedIn && !status?.schedule && <NoScheduleMsg isAdmin={isAdmin} />}
+        {!isClockedIn && !status?.schedule && <NoScheduleMsg isAdmin={isAdmin} scheduleRequired={scheduleRequired} />}
         {!isClockedIn && blockedReason === 'too_early' && <TooEarlyMsg isAdmin={isAdmin} minutesUntil={status?.minutes_until} />}
         {!isClockedIn && blockedReason === 'shift_ended' && <ShiftEndedMsg isAdmin={isAdmin} />}
 
@@ -389,7 +390,9 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
                 </span>
               )}
               {!status?.schedule && !isClockedIn && (
-                <span className="text-xs text-red-500">No shift scheduled today</span>
+                <span className={`text-xs ${scheduleRequired ? 'text-red-500' : 'text-text-muted'}`}>
+                  {scheduleRequired ? 'No shift scheduled today' : 'No shift scheduled today — scheduling is optional'}
+                </span>
               )}
               {isClockedIn && status?.time_category && (
                 <div className="text-xs text-text-muted mt-1">Category: <span className="font-medium text-primary-dark">{status.time_category.name}</span></div>
@@ -656,18 +659,32 @@ function ErrorMsg({ error }: { error: string | null }) {
   )
 }
 
-function NoScheduleMsg({ isAdmin }: { isAdmin: boolean }) {
+function NoScheduleMsg({ isAdmin, scheduleRequired }: { isAdmin: boolean; scheduleRequired: boolean }) {
+  const tone = scheduleRequired
+    ? {
+        wrapper: 'bg-red-50 border-red-100',
+        icon: 'text-red-400',
+        title: 'text-red-700',
+        body: 'text-red-500',
+        message: isAdmin ? 'No shift scheduled, but you can use admin override.' : 'Contact your manager if you need to work today.',
+      }
+    : {
+        wrapper: 'bg-secondary/60 border-neutral-warm/60',
+        icon: 'text-text-muted',
+        title: 'text-primary-dark',
+        body: 'text-text-muted',
+        message: 'No shift scheduled right now. Scheduling is optional, so you can still clock in and log time.',
+      }
+
   return (
-    <div className="mb-4 p-3.5 bg-red-50 rounded-xl border border-red-100">
+    <div className={`mb-4 p-3.5 rounded-xl border ${tone.wrapper}`}>
       <div className="flex items-start gap-2">
-        <svg className="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={`w-4 h-4 mt-0.5 shrink-0 ${tone.icon}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
         </svg>
         <div>
-          <div className="text-sm font-medium text-red-700">No shift scheduled</div>
-          <div className="text-xs text-red-500 mt-0.5">
-            {isAdmin ? 'No shift scheduled, but you can use admin override.' : 'Contact your manager if you need to work today.'}
-          </div>
+          <div className={`text-sm font-medium ${tone.title}`}>No shift scheduled</div>
+          <div className={`text-xs mt-0.5 ${tone.body}`}>{tone.message}</div>
         </div>
       </div>
     </div>

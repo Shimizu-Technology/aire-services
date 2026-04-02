@@ -164,6 +164,7 @@ class TimeClockService
           end_time: schedule.formatted_end_time,
           hours: schedule.hours
         } : nil,
+        schedule_required_for_clock_in: Setting.get("schedule_required_for_clock_in") == "true",
         can_clock_in: clock_in_info[:allowed],
         clock_in_blocked_reason: clock_in_info[:reason],
         minutes_until: clock_in_info[:minutes_until]

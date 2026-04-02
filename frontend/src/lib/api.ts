@@ -288,6 +288,7 @@ export interface ClockStatus {
     end_time: string;
     hours: number;
   } | null;
+  schedule_required_for_clock_in?: boolean;
   can_clock_in: boolean;
   clock_in_blocked_reason: 'already_clocked_in' | 'no_schedule' | 'too_early' | 'shift_ended' | null;
   minutes_until?: number;
