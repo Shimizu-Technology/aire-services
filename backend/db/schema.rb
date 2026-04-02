@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_03_31_224854) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_02_183000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -27,6 +27,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_31_224854) do
     t.index ["auditable_type", "auditable_id"], name: "index_audit_logs_on_auditable_type_and_auditable_id"
     t.index ["created_at"], name: "index_audit_logs_on_created_at"
     t.index ["user_id"], name: "index_audit_logs_on_user_id"
+  end
+
+  create_table "employee_pay_rates", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "hourly_rate_cents", null: false
+    t.bigint "time_category_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["time_category_id"], name: "index_employee_pay_rates_on_time_category_id"
+    t.index ["user_id", "time_category_id"], name: "idx_employee_pay_rates_user_category", unique: true
+    t.index ["user_id"], name: "index_employee_pay_rates_on_user_id"
   end
 
   create_table "schedule_time_presets", force: :cascade do |t|
@@ -89,6 +100,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_31_224854) do
     t.string "clock_source"
     t.datetime "created_at", null: false
     t.text "description"
+    t.integer "effective_rate_cents_snapshot"
     t.time "end_time"
     t.string "entry_method", default: "manual", null: false
     t.decimal "hours", precision: 4, scale: 2, null: false
@@ -166,6 +178,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_31_224854) do
   end
 
   add_foreign_key "audit_logs", "users"
+  add_foreign_key "employee_pay_rates", "time_categories"
+  add_foreign_key "employee_pay_rates", "users"
   add_foreign_key "schedules", "users"
   add_foreign_key "schedules", "users", column: "created_by_id"
   add_foreign_key "time_entries", "schedules"

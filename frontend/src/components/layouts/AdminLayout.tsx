@@ -2,18 +2,22 @@ import { useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
 import Seo from '../seo/Seo'
+import { useAuthContext } from '../../contexts/AuthContext'
 
 const navigation = [
   { name: 'Dashboard', href: '/admin' },
   { name: 'Time Tracking', href: '/admin/time' },
   { name: 'Reports', href: '/admin/reports' },
   { name: 'Schedule', href: '/admin/schedule' },
-  { name: 'Users', href: '/admin/users' },
+  { name: 'Users', href: '/admin/users', adminOnly: true },
+  { name: 'Settings', href: '/admin/settings', adminOnly: true },
 ]
 
 export default function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
+  const { userRole } = useAuthContext()
+  const visibleNavigation = navigation.filter((item) => !item.adminOnly || userRole === 'admin')
 
   const reportsActive = location.pathname.startsWith('/admin/time') && new URLSearchParams(location.search).get('tab') === 'reports'
   const isActive = (href: string) => {
@@ -27,6 +31,7 @@ export default function AdminLayout() {
   else if (location.pathname.startsWith('/admin/time')) pageTitle = 'Time Tracking | AIRE Admin'
   else if (location.pathname.startsWith('/admin/schedule')) pageTitle = 'Schedule | AIRE Admin'
   else if (location.pathname.startsWith('/admin/users')) pageTitle = 'Users | AIRE Admin'
+  else if (location.pathname.startsWith('/admin/settings')) pageTitle = 'Settings | AIRE Admin'
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -65,7 +70,7 @@ export default function AdminLayout() {
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Admin Navigation</p>
           </div>
           <nav className="space-y-2">
-            {navigation.map((item) => (
+            {visibleNavigation.map((item) => (
               <Link
                 key={item.href}
                 to={item.href}

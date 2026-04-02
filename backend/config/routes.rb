@@ -56,8 +56,15 @@ Rails.application.routes.draw do
           end
         end
         resource :contact_settings, only: [ :show, :update ], controller: "contact_settings"
+        get "settings", to: "settings#index"
+        patch "settings", to: "settings#update"
         resources :time_categories, only: [ :index, :show, :create, :update, :destroy ]
         resources :time_period_locks, only: [ :create, :destroy ]
+        resources :employee_pay_rates, only: [ :index, :create, :update, :destroy ] do
+          collection do
+            get "for_user/:user_id", action: :for_user, as: :for_user
+          end
+        end
       end
     end
   end
