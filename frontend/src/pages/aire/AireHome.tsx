@@ -47,7 +47,7 @@ const steps = [
 const stats = [
   { label: 'Call AIRE', value: '(671) 477-4243', href: 'tel:+16714774243' },
   { label: 'Core training path', value: 'Private Pilot' },
-  { label: 'Follow online', value: 'Instagram + Facebook' },
+  { label: 'Follow online', value: 'Instagram + Facebook', href: INSTAGRAM_URL },
 ]
 
 const trustSignals = [

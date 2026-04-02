@@ -30,7 +30,7 @@ export default function AireTeam() {
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Meet the Crew</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Meet the instructors behind AIRE’s training experience</h1>
             <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-              Flight training is personal. Meeting the instructors helps future students understand who will be teaching, guiding, and supporting them from the first lesson forward.
+              Meeting the instructors helps future students understand who will be teaching, guiding, and supporting them from the first lesson forward.
             </p>
           </div>
 
@@ -61,7 +61,7 @@ export default function AireTeam() {
                 ))}
               </div>
               <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-relaxed text-slate-700">
-                Flight training is personal. Knowing who is teaching, guiding, and supporting you makes it easier to take the next step with confidence.
+                Knowing who is teaching, guiding, and supporting you makes it easier to take the next step with confidence.
               </div>
             </section>
           </div>
