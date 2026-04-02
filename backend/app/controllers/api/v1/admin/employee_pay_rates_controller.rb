@@ -52,9 +52,10 @@ module Api
         def for_user
           user = User.find(params[:user_id])
           categories = TimeCategory.active.order(:name)
+          overrides_by_category = EmployeePayRate.where(user_id: user.id).index_by(&:time_category_id)
 
           effective_rates = categories.map do |cat|
-            override = EmployeePayRate.find_by(user_id: user.id, time_category_id: cat.id)
+            override = overrides_by_category[cat.id]
             {
               time_category_id: cat.id,
               time_category_name: cat.name,

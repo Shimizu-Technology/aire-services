@@ -196,7 +196,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   }
 
   const handleAction = async (action: 'clock_in' | 'start_break' | 'end_break', adminOverride = false) => {
-    if (action === 'clock_in' && !selectedCategoryId) {
+    if (action === 'clock_in' && categories.length > 0 && !selectedCategoryId) {
       setError('Choose a work category before clocking in.')
       return
     }

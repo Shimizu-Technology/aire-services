@@ -29,8 +29,10 @@ module Api
             end
           end
 
-          updates.each do |key, value|
-            Setting.set(key, value.to_s)
+          ActiveRecord::Base.transaction do
+            updates.each do |key, value|
+              Setting.set(key, value.to_s)
+            end
           end
 
           render json: { settings: Setting.all_as_hash, message: "Settings updated" }

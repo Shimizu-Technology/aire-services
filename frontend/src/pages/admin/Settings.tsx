@@ -396,16 +396,31 @@ function PayRatesTab() {
 
     // If clearing rate and override exists, delete it
     if (newCents === null && rate.override_id) {
-      await api.deleteEmployeePayRate(rate.override_id)
+      const res = await api.deleteEmployeePayRate(rate.override_id)
+      if (res.error) {
+        setError(res.error)
+        setSaving(false)
+        return
+      }
     }
     // If setting rate same as default and override exists, delete the override
     else if (newCents === rate.default_rate_cents && rate.override_id) {
-      await api.deleteEmployeePayRate(rate.override_id)
+      const res = await api.deleteEmployeePayRate(rate.override_id)
+      if (res.error) {
+        setError(res.error)
+        setSaving(false)
+        return
+      }
     }
     // If setting rate different from default
     else if (newCents !== null && newCents !== rate.default_rate_cents) {
       if (rate.override_id) {
-        await api.updateEmployeePayRate(rate.override_id, { hourly_rate_cents: newCents })
+        const res = await api.updateEmployeePayRate(rate.override_id, { hourly_rate_cents: newCents })
+        if (res.error) {
+          setError(res.error)
+          setSaving(false)
+          return
+        }
       } else {
         const res = await api.createEmployeePayRate({
           user_id: selectedUserId,
