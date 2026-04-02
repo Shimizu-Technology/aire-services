@@ -11,16 +11,17 @@ class ContactMailer < ApplicationMailer
     @message = CGI.escapeHTML(message.to_s)
 
     from_email = ENV.fetch("MAILER_FROM_EMAIL", "noreply@example.com")
-    to_email = Setting.get("contact_email") || "admin@aireservicesguam.com"
+    to_emails = normalized_recipient_emails(Setting.get("contact_email"))
+    to_emails = [ "admin@aireservicesguam.com" ] if to_emails.empty?
 
     safe_reply_to = email.to_s.delete("\r\n")
     safe_subject = subject.to_s.delete("\r\n")
 
-    Rails.logger.info "📧 Sending AIRE contact form email to: #{to_email}"
+    Rails.logger.info "📧 Sending AIRE contact form email to: #{to_emails.join(', ')}"
 
     Resend::Emails.send({
       from: from_email,
-      to: to_email,
+      to: to_emails,
       reply_to: safe_reply_to,
       subject: "AIRE Website Inquiry: #{safe_subject}",
       html: contact_form_html
@@ -111,5 +112,13 @@ class ContactMailer < ApplicationMailer
     return "" if @phone.blank?
 
     field_row("Phone", %(<a href="tel:#{@phone}" style="color: #0f766e; text-decoration: none;">#{@phone}</a>))
+  end
+
+  def normalized_recipient_emails(value)
+    value.to_s
+      .split(/[\n,;]+/)
+      .map(&:strip)
+      .reject(&:blank?)
+      .uniq
   end
 end

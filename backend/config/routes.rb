@@ -55,6 +55,7 @@ Rails.application.routes.draw do
             post :reset_kiosk_pin
           end
         end
+        resource :contact_settings, only: [ :show, :update ], controller: "contact_settings"
         resources :time_categories, only: [ :index, :show, :create, :update, :destroy ]
         resources :time_period_locks, only: [ :create, :destroy ]
       end
