@@ -305,7 +305,8 @@ export default function Users() {
           <div
             className={`mt-3 rounded-xl border px-4 py-3 text-sm ${
               contactSettingsMessage.toLowerCase().includes('invalid') ||
-              contactSettingsMessage.toLowerCase().includes('error')
+              contactSettingsMessage.toLowerCase().includes('error') ||
+              contactSettingsMessage.toLowerCase().includes('required')
                 ? 'border-red-200 bg-red-50 text-red-700'
                 : 'border-emerald-200 bg-emerald-50 text-emerald-700'
             }`}
