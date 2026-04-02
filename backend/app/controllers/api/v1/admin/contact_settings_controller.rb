@@ -12,7 +12,12 @@ module Api
         end
 
         def update
-          emails = normalized_emails(params[:contact_notification_emails])
+          raw_emails = params[:contact_notification_emails]
+          emails = if raw_emails.is_a?(Array)
+            raw_emails.map { |email| email.to_s.strip }.reject(&:blank?).uniq
+          else
+            normalized_emails(raw_emails)
+          end
 
           if emails.empty?
             return render json: { error: "At least one notification email is required" }, status: :unprocessable_entity

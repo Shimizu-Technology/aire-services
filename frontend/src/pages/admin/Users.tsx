@@ -63,6 +63,8 @@ export default function Users() {
       const response = await api.getContactSettings()
       if (response.data) {
         setContactEmailsInput(response.data.contact_notification_emails.join(', '))
+      } else if (response.error) {
+        setContactSettingsMessage(response.error)
       }
     } finally {
       setContactSettingsLoading(false)
@@ -300,7 +302,14 @@ export default function Users() {
         </div>
 
         {contactSettingsMessage && (
-          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <div
+            className={`mt-3 rounded-xl border px-4 py-3 text-sm ${
+              contactSettingsMessage.toLowerCase().includes('invalid') ||
+              contactSettingsMessage.toLowerCase().includes('error')
+                ? 'border-red-200 bg-red-50 text-red-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+          >
             {contactSettingsMessage}
           </div>
         )}
