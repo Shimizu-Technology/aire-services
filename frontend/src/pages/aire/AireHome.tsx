@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
 import { buildLocalBusinessSchema, buildWebsiteSchema } from '../../components/seo/seoSchemas'
-import { socialLinks } from '../../lib/socialLinks'
+import { INSTAGRAM_URL } from '../../lib/socialLinks'
 
 const programs = [
   {
@@ -45,7 +45,7 @@ const steps = [
 ]
 
 const stats = [
-  { label: 'Call AIRE', value: '(671) 477-4243' },
+  { label: 'Call AIRE', value: '(671) 477-4243', href: 'tel:+16714774243' },
   { label: 'Core training path', value: 'Private Pilot' },
   { label: 'Follow online', value: 'Instagram + Facebook' },
 ]
@@ -82,7 +82,6 @@ const faqs = [
 
 export default function AireHome() {
   const jsonLd = useMemo(() => [buildWebsiteSchema(), buildLocalBusinessSchema()], [])
-  const instagramLink = socialLinks.find((link) => link.label === 'Instagram')?.href
 
   return (
     <>
@@ -124,7 +123,13 @@ export default function AireHome() {
               <div className="mt-10 grid gap-4 sm:grid-cols-3">
                 {stats.map((stat) => (
                   <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 backdrop-blur-sm">
-                    <div className="text-2xl font-bold text-white">{stat.value}</div>
+                    {stat.href ? (
+                      <a href={stat.href} className="text-2xl font-bold text-white underline-offset-4 transition hover:text-cyan-200 hover:underline">
+                        {stat.value}
+                      </a>
+                    ) : (
+                      <div className="text-2xl font-bold text-white">{stat.value}</div>
+                    )}
                     <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-300">{stat.label}</div>
                   </div>
                 ))}
@@ -242,11 +247,9 @@ export default function AireHome() {
               <Link to="/contact" className="rounded-xl bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
                 Contact AIRE
               </Link>
-              {instagramLink && (
-                <a href={instagramLink} target="_blank" rel="noreferrer" className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
-                  Follow on Instagram
-                </a>
-              )}
+              <a href={INSTAGRAM_URL} target="_blank" rel="noreferrer" className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
+                Follow on Instagram
+              </a>
             </div>
           </div>
         </section>
