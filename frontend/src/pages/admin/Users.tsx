@@ -28,6 +28,10 @@ export default function Users() {
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [contactEmailsInput, setContactEmailsInput] = useState('')
+  const [contactSettingsLoading, setContactSettingsLoading] = useState(true)
+  const [contactSettingsSaving, setContactSettingsSaving] = useState(false)
+  const [contactSettingsMessage, setContactSettingsMessage] = useState<string | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -52,6 +56,22 @@ export default function Users() {
   useEffect(() => {
     fetchUsers()
   }, [fetchUsers])
+
+  const fetchContactSettings = useCallback(async () => {
+    setContactSettingsLoading(true)
+    try {
+      const response = await api.getContactSettings()
+      if (response.data) {
+        setContactEmailsInput(response.data.contact_notification_emails.join(', '))
+      }
+    } finally {
+      setContactSettingsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchContactSettings()
+  }, [fetchContactSettings])
 
   const resetInviteForm = () => {
     setInviteFirstName('')
@@ -173,6 +193,28 @@ export default function Users() {
     }
   }
 
+  const handleSaveContactSettings = async () => {
+    const emails = contactEmailsInput
+      .split(/[\n,;]+/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+
+    setContactSettingsSaving(true)
+    setContactSettingsMessage(null)
+
+    try {
+      const response = await api.updateContactSettings(emails)
+      if (response.error) {
+        setContactSettingsMessage(response.error)
+      } else if (response.data) {
+        setContactEmailsInput(response.data.contact_notification_emails.join(', '))
+        setContactSettingsMessage(response.data.message || 'Notification recipients updated')
+      }
+    } finally {
+      setContactSettingsSaving(false)
+    }
+  }
+
   const visibleUsers = useMemo(() => {
     return users.filter((user) => {
       const matchesSearch = `${user.full_name || ''} ${user.display_name || ''} ${user.email}`.toLowerCase().includes(searchQuery.trim().toLowerCase())
@@ -225,6 +267,43 @@ export default function Users() {
           <div className="text-sm text-slate-500">Kiosk PIN Configured</div>
           <div className="mt-2 text-3xl font-bold text-slate-900">{kioskConfigured}</div>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Website Inquiry Notifications</h2>
+            <p className="mt-1 max-w-2xl text-sm text-slate-600">
+              Public contact-form submissions are emailed immediately. They are not stored in an admin inbox yet, so add the recipient emails here to make sure the right people get notified.
+            </p>
+          </div>
+          <button
+            onClick={handleSaveContactSettings}
+            disabled={contactSettingsSaving || contactSettingsLoading}
+            className="inline-flex items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+          >
+            {contactSettingsSaving ? 'Saving...' : 'Save Notification Emails'}
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1.4fr_auto] lg:items-start">
+          <textarea
+            value={contactEmailsInput}
+            onChange={(e) => setContactEmailsInput(e.target.value)}
+            rows={3}
+            placeholder="admin@aireservicesguam.com, ops@aireservicesguam.com"
+            className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          />
+          <div className="rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm text-cyan-800">
+            Separate multiple recipients with commas, semicolons, or new lines.
+          </div>
+        </div>
+
+        {contactSettingsMessage && (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            {contactSettingsMessage}
+          </div>
+        )}
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

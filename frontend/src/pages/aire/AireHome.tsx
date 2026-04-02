@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
 import { buildLocalBusinessSchema, buildWebsiteSchema } from '../../components/seo/seoSchemas'
-import { INSTAGRAM_URL } from '../../lib/socialLinks'
+import { FACEBOOK_URL, INSTAGRAM_URL } from '../../lib/socialLinks'
 
 const programs = [
   {
@@ -48,6 +48,7 @@ const stats = [
   { label: 'Call AIRE', value: '(671) 477-4243', href: 'tel:+16714774243' },
   { label: 'Core training path', value: 'Private Pilot' },
   { label: 'Follow on Instagram', value: 'Instagram', href: INSTAGRAM_URL },
+  { label: 'Follow on Facebook', value: 'Facebook', href: FACEBOOK_URL },
 ]
 
 const trustSignals = [
@@ -120,17 +121,17 @@ export default function AireHome() {
                   See Hiring
                 </Link>
               </div>
-              <div className="mt-10 grid gap-4 sm:grid-cols-3">
+              <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {stats.map((stat) => (
-                  <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 backdrop-blur-sm">
+                  <div key={stat.label} className="flex min-h-[124px] flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-center backdrop-blur-sm">
                     {stat.href ? (
-                      <a href={stat.href} className="text-2xl font-bold text-white underline-offset-4 transition hover:text-cyan-200 hover:underline">
+                      <a href={stat.href} className="inline-flex min-h-[2.25rem] items-center justify-center whitespace-nowrap text-lg font-bold text-white underline-offset-4 transition hover:text-cyan-200 hover:underline sm:text-xl xl:text-[1.65rem]">
                         {stat.value}
                       </a>
                     ) : (
-                      <div className="text-2xl font-bold text-white">{stat.value}</div>
+                      <div className="inline-flex min-h-[2.25rem] items-center justify-center whitespace-nowrap text-lg font-bold text-white sm:text-xl xl:text-[1.65rem]">{stat.value}</div>
                     )}
-                    <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-300">{stat.label}</div>
+                    <div className="mt-2 text-xs uppercase tracking-[0.12em] text-slate-300">{stat.label}</div>
                   </div>
                 ))}
               </div>
@@ -249,6 +250,9 @@ export default function AireHome() {
               </Link>
               <a href={INSTAGRAM_URL} target="_blank" rel="noreferrer" className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
                 Follow on Instagram
+              </a>
+              <a href={FACEBOOK_URL} target="_blank" rel="noreferrer" className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
+                Follow on Facebook
               </a>
             </div>
           </div>

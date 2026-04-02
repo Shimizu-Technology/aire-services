@@ -14,7 +14,7 @@ export default function Footer() {
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             {socialLinks.map((link) => (
-              <a key={link.label} href={link.href} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400 hover:text-white">
+              <a key={link.label} href={link.href} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400 hover:text-white">
                 {link.label}
               </a>
             ))}

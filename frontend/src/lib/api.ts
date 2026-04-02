@@ -149,6 +149,11 @@ export interface ResetKioskPinResponse {
   message: string;
 }
 
+export interface ContactSettingsResponse {
+  contact_notification_emails: string[];
+  message?: string;
+}
+
 // Time Tracking Types
 
 export interface TimeCategory {
@@ -485,6 +490,15 @@ export const api = {
     fetchApi<ResetKioskPinResponse>(`/api/v1/admin/users/${id}/reset_kiosk_pin`, {
       method: 'POST',
       ...(pin ? { body: JSON.stringify({ pin }) } : {}),
+    }),
+
+  getContactSettings: () =>
+    fetchApi<ContactSettingsResponse>('/api/v1/admin/contact_settings'),
+
+  updateContactSettings: (contactNotificationEmails: string[]) =>
+    fetchApi<ContactSettingsResponse>('/api/v1/admin/contact_settings', {
+      method: 'PUT',
+      body: JSON.stringify({ contact_notification_emails: contactNotificationEmails }),
     }),
 
   // Time Entries
