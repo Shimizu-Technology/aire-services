@@ -1724,7 +1724,7 @@ export default function TimeTracking() {
             <div className="px-4 py-3 border-b border-neutral-warm bg-neutral-warm/30 flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-primary-dark">AIRE Payroll Summary</h3>
-                <p className="text-xs text-text-muted mt-0.5">Grouped by employee and work category using configured hourly rates</p>
+                <p className="text-xs text-text-muted mt-0.5">Grouped by employee and work category using each entry’s snapshotted effective hourly rate</p>
               </div>
               <div className="text-right">
                 <div className="text-xs text-text-muted">Estimated Gross</div>

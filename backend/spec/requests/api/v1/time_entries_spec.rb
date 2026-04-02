@@ -6,6 +6,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
   let(:admin) { create(:user, :admin) }
   let(:employee) { create(:user, :employee, first_name: "Alice", last_name: "Smith") }
   let(:other_employee) { create(:user, :employee, first_name: "Bob", last_name: "Jones") }
+  let(:time_category) { create(:time_category, hourly_rate_cents: 4200) }
 
   let(:auth_headers_for) do
     ->(user) { { "Authorization" => "Bearer test_token_#{user.id}" } }
@@ -24,7 +25,8 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
           work_date: Date.current.iso8601,
           start_time: "09:00",
           end_time: "17:00",
-          description: "Created from spec"
+          description: "Created from spec",
+          time_category_id: time_category.id
         }
       }
     end
@@ -34,6 +36,37 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
       expect(response).to have_http_status(:created)
       expect(json.dig(:time_entry, :user, :id)).to eq(employee.id)
+      expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
+      expect(json.dig(:time_entry, :effective_rate)).to eq(42.0)
+    end
+
+    it "keeps the manual entry rate stable after rates change later" do
+      post "/api/v1/time_entries", params: valid_params, headers: auth_headers_for[employee]
+
+      entry_id = json.dig(:time_entry, :id)
+      create(:employee_pay_rate, user: employee, time_category: time_category, hourly_rate_cents: 6500)
+      time_category.update!(hourly_rate_cents: 9000)
+
+      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
+      expect(json.dig(:time_entry, :effective_rate)).to eq(42.0)
+    end
+
+    it "does not drift during approval updates after the snapshot is captured" do
+      post "/api/v1/time_entries", params: valid_params, headers: auth_headers_for[employee]
+
+      entry_id = json.dig(:time_entry, :id)
+      create(:employee_pay_rate, user: employee, time_category: time_category, hourly_rate_cents: 6500)
+      time_category.update!(hourly_rate_cents: 9000)
+
+      post "/api/v1/time_entries/#{entry_id}/approve", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:time_entry, :approval_status)).to eq("approved")
+      expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
+      expect(json.dig(:time_entry, :effective_rate)).to eq(42.0)
     end
 
     it "allows admin to create entry for another staff user" do

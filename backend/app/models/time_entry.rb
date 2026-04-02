@@ -30,6 +30,7 @@ class TimeEntry < ApplicationRecord
 
   before_validation :calculate_hours_from_times, if: -> { start_time.present? && end_time.present? }
   before_validation :set_zero_hours_if_clocked_in, if: -> { status.in?(%w[clocked_in on_break]) }
+  before_validation :capture_effective_rate_snapshot, if: :should_capture_effective_rate_snapshot?
 
   scope :for_date, ->(date) { where(work_date: date) }
   scope :for_week, ->(date) { where(work_date: date.beginning_of_week(:sunday)..date.end_of_week(:sunday)) }
@@ -99,6 +100,15 @@ class TimeEntry < ApplicationRecord
     hours.round(2)
   end
 
+  def effective_rate_cents
+    effective_rate_cents_snapshot || EmployeePayRate.effective_rate_cents(user_id, time_category_id)
+  end
+
+  def effective_rate
+    cents = effective_rate_cents
+    cents ? (cents / 100.0) : nil
+  end
+
   def calculate_hours_from_times
     return unless start_time.present? && end_time.present?
 
@@ -130,6 +140,24 @@ class TimeEntry < ApplicationRecord
 
   def set_zero_hours_if_clocked_in
     self.hours = 0 if hours.blank?
+  end
+
+  def should_capture_effective_rate_snapshot?
+    status == "completed" && (
+      new_record? ||
+      will_save_change_to_status? ||
+      will_save_change_to_user_id? ||
+      will_save_change_to_time_category_id? ||
+      effective_rate_cents_snapshot.nil?
+    )
+  end
+
+  def capture_effective_rate_snapshot
+    self.effective_rate_cents_snapshot = if user_id.present? && time_category_id.present?
+      EmployeePayRate.effective_rate_cents(user_id, time_category_id)
+    else
+      nil
+    end
   end
 
   def end_time_after_start_time
