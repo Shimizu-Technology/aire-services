@@ -47,6 +47,12 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
     async function setupCable() {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined }
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe()
+        subscriptionRef.current = null
+      }
+
       try {
         const consumer = await getOrCreateConsumer(getAuthTokenValue)
         if (!consumer || !mounted) return
