@@ -367,11 +367,9 @@ module Api
 
       def set_time_entry
         @time_entry = TimeEntry.find(params[:id])
+        return if current_user.admin? || @time_entry.user_id == current_user.id
 
-        unless current_user.admin? || @time_entry.user_id == current_user.id
-          render json: { error: "You can only access your own time entries" }, status: :forbidden
-          return
-        end
+        render json: { error: "You can only access your own time entries" }, status: :forbidden
       rescue ActiveRecord::RecordNotFound
         render json: { error: "Time entry not found" }, status: :not_found
       end
