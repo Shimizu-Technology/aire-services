@@ -9,7 +9,7 @@ module Api
         before_action :set_user, only: [ :show, :update, :destroy, :resend_invite, :reset_kiosk_pin ]
 
         def index
-          @users = User.order(created_at: :desc)
+          @users = User.includes(user_time_categories: :time_category).order(created_at: :desc)
 
           if params[:role].present?
             @users = @users.where(role: params[:role])

@@ -79,7 +79,8 @@ class AireKioskService
     end
 
     def available_categories_for(user)
-      user.assigned_time_categories.active.order(:name)
+      assigned = user.assigned_time_categories.active.order(:name)
+      assigned.any? ? assigned : TimeCategory.active.order(:name)
     end
 
     def validate_pin!(pin)

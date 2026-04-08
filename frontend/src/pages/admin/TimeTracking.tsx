@@ -472,7 +472,7 @@ export default function TimeTracking() {
       // Clear the URL params
       setSearchParams({})
     }
-  }, [searchParams, setSearchParams])
+  }, [searchParams, setSearchParams, currentUserId])
 
   // Navigation
   const goToToday = () => setCurrentDate(new Date())

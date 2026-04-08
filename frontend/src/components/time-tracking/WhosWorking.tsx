@@ -170,7 +170,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
   const sourceLabel = (source?: string | null) =>
     ({ kiosk: 'Kiosk', mobile: 'Mobile', admin: 'Admin', legacy: 'Legacy' }[source || ''] || '—')
 
-  const isExpandable = (_w: WorkerStatus) => true
+  const isExpandable = () => true
 
   return (
     <div className={cardClass}>
@@ -205,7 +205,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
           <AnimatePresence initial={false}>
             {relevantWorkers.map(worker => {
               const config = statusConfig[worker.status] || statusConfig.no_schedule
-              const canExpand = isExpandable(worker)
+              const canExpand = isExpandable()
               const isExpanded = expandedId === worker.user.id && canExpand
 
               return (

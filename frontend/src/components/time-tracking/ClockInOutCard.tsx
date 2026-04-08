@@ -318,7 +318,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
             <div className="text-xs text-text-muted mt-0.5">{status.schedule.hours} hours</div>
           </div>
         )}
-        {!isClockedIn && !status?.schedule && <NoScheduleMsg isAdmin={isAdmin} />}
+        {!isClockedIn && !status?.schedule && <NoScheduleMsg />}
         {!isClockedIn && blockedReason === 'too_early' && <TooEarlyMsg isAdmin={isAdmin} minutesUntil={status?.minutes_until} />}
         {!isClockedIn && blockedReason === 'shift_ended' && <ShiftEndedMsg isAdmin={isAdmin} />}
 
@@ -693,7 +693,7 @@ function ErrorMsg({ error }: { error: string | null }) {
   )
 }
 
-function NoScheduleMsg({ isAdmin: _isAdmin }: { isAdmin: boolean }) {
+function NoScheduleMsg() {
   return (
     <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
       <div className="flex items-start gap-2">

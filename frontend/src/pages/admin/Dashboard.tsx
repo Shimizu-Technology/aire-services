@@ -78,7 +78,9 @@ export default function Dashboard() {
     }
   }, [])
 
+  // Initial data fetch on mount
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- data-fetch pattern; setState is in async callback
     loadStats()
   }, [loadStats])
 
