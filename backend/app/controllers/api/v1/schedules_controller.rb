@@ -133,6 +133,10 @@ module Api
       # DELETE /api/v1/schedules/clear
       # Clear all schedules for a specific week (admin only)
       def clear_week
+        unless params[:week].present?
+          return render json: { error: "week parameter is required" }, status: :bad_request
+        end
+
         week_start = Date.parse(params[:week])
         week_end = week_start + 6.days
 
@@ -146,6 +150,8 @@ module Api
         schedules.destroy_all
 
         render json: { message: "Cleared #{count} schedule(s)" }
+      rescue Date::Error
+        render json: { error: "Invalid week date format" }, status: :bad_request
       end
 
       private

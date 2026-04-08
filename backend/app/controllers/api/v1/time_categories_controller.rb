@@ -13,8 +13,7 @@ module Api
         @categories = if current_user.admin?
           TimeCategory.active.order(:name)
         else
-          assigned = current_user.assigned_time_categories.active.order(:name)
-          assigned.any? ? assigned : TimeCategory.active.order(:name)
+          current_user.assigned_time_categories.active.order(:name)
         end
 
         render json: {
