@@ -1,18 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import Seo from '../../components/seo/Seo'
+import { Link } from 'react-router-dom'
 import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockStatus, type TimeCategory } from '../../lib/api'
 
-type KioskAction = 'clock_in' | 'clock_out' | 'start_break' | 'end_break'
+type KioskAction = 'clock_in' | 'clock_out' | 'start_break' | 'end_break' | 'switch_category'
 
 const keypad = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'CLR']
 const PIN_LENGTH = 6
 const IDLE_RESET_MS = 30_000
 const SUCCESS_RESET_MS = 8_000
-
-function formatCurrency(category: TimeCategory) {
-  if (category.hourly_rate == null) return null
-  return `$${category.hourly_rate.toFixed(2)}/hr`
-}
 
 function formatActionLabel(action: KioskAction) {
   switch (action) {
@@ -24,6 +19,8 @@ function formatActionLabel(action: KioskAction) {
       return 'Start Break'
     case 'end_break':
       return 'End Break'
+    case 'switch_category':
+      return 'Switch Category'
   }
 }
 
@@ -37,6 +34,8 @@ function formatSuccessMessage(action: KioskAction, employee: AireKioskEmployee, 
       return `${employee.display_name} is now on break.`
     case 'end_break':
       return `${employee.display_name} is back from break.`
+    case 'switch_category':
+      return `${employee.display_name} switched to ${category?.name ?? 'new category'}.`
   }
 }
 
@@ -113,11 +112,15 @@ export default function AireKiosk() {
     }
   }, [success])
 
-  const applyResponse = (response: AireKioskActionResponse) => {
+  const applyResponse = (response: AireKioskActionResponse, forceCategory = false) => {
     setEmployee(response.employee)
     setStatus(response.current_status)
     setCategories(response.available_categories)
-    setSelectedCategoryId((current) => current ?? response.time_entry.time_category?.id ?? response.current_status.time_category?.id ?? null)
+    if (forceCategory) {
+      setSelectedCategoryId(response.time_entry.time_category?.id ?? response.current_status.time_category?.id ?? null)
+    } else {
+      setSelectedCategoryId((current) => current ?? response.time_entry.time_category?.id ?? response.current_status.time_category?.id ?? null)
+    }
   }
 
   const press = (key: string) => {
@@ -171,7 +174,7 @@ export default function AireKiosk() {
       return
     }
 
-    if (action === 'clock_in' && !selectedCategoryId) {
+    if (action === 'clock_in' && categories.length > 0 && !selectedCategoryId) {
       setError('Choose a work category before clocking in.')
       return
     }
@@ -183,13 +186,15 @@ export default function AireKiosk() {
     const request = (() => {
       switch (action) {
         case 'clock_in':
-          return api.aireKioskClockIn(kioskToken, selectedCategoryId as number)
+          return api.aireKioskClockIn(kioskToken, selectedCategoryId)
         case 'clock_out':
           return api.aireKioskClockOut(kioskToken)
         case 'start_break':
           return api.aireKioskStartBreak(kioskToken)
         case 'end_break':
           return api.aireKioskEndBreak(kioskToken)
+        case 'switch_category':
+          return api.aireKioskSwitchCategory(kioskToken, selectedCategoryId!)
       }
     })()
 
@@ -201,7 +206,7 @@ export default function AireKiosk() {
     }
 
     const data = result.data
-    applyResponse(data)
+    applyResponse(data, action === 'switch_category')
     const responseCategory = data.time_entry.time_category
       ? categories.find((category) => category.id === data.time_entry.time_category?.id) ?? selectedCategory
       : selectedCategory
@@ -214,23 +219,26 @@ export default function AireKiosk() {
   const canStartBreak = !!employee && status?.status === 'clocked_in'
   const canEndBreak = !!employee && status?.status === 'on_break'
 
+  const currentCategoryId = status?.time_category?.id ?? null
+  const canSwitchCategory = !!employee && !!status?.clocked_in && categories.length > 1
+    && selectedCategoryId !== null && selectedCategoryId !== currentCategoryId
+
   const primaryActions: Array<{ action: KioskAction; enabled: boolean; className: string }> = [
-    { action: 'clock_in', enabled: canClockIn, className: 'bg-emerald-500 text-emerald-950 hover:bg-emerald-400' },
+    ...(canSwitchCategory
+      ? [{ action: 'switch_category' as KioskAction, enabled: true, className: 'bg-cyan-400 text-cyan-950 hover:bg-cyan-300' }]
+      : [{ action: 'clock_in' as KioskAction, enabled: canClockIn, className: 'bg-emerald-500 text-emerald-950 hover:bg-emerald-400' }]),
     { action: 'clock_out', enabled: canClockOut, className: 'bg-amber-400 text-amber-950 hover:bg-amber-300' },
     { action: 'start_break', enabled: canStartBreak, className: 'bg-indigo-400 text-indigo-950 hover:bg-indigo-300' },
     { action: 'end_break', enabled: canEndBreak, className: 'bg-fuchsia-400 text-fuchsia-950 hover:bg-fuchsia-300' },
   ]
 
   return (
-    <>
-      <Seo
-        title="Staff Kiosk | AIRE Services Guam"
-        description="Secure staff kiosk for AIRE Services Guam team time tracking."
-        path="/kiosk"
-        robots="noindex,nofollow"
-      />
-      <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto grid min-h-screen w-full max-w-6xl gap-8 px-4 py-8 md:grid-cols-[1.15fr_1fr] md:px-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="mx-auto flex max-w-6xl items-center justify-end gap-4 px-4 pt-3 text-xs md:px-6">
+        <Link to="/admin" className="text-slate-500 transition hover:text-slate-300">Admin</Link>
+        <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
+      </div>
+      <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-8 pt-4 md:grid-cols-[1.15fr_1fr] md:px-6">
         <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -249,7 +257,7 @@ export default function AireKiosk() {
           </div>
 
           <p className="mt-3 max-w-xl text-sm text-slate-300 md:text-base">
-            Enter your staff PIN, verify your identity, choose your work type, then clock in or out on this shared kiosk.
+            Enter your staff PIN, verify your identity, then clock in or out on this shared kiosk.
           </p>
 
           <div className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
@@ -282,36 +290,44 @@ export default function AireKiosk() {
             )}
           </div>
 
-          <div className="mt-8 space-y-3">
-            {categories.length === 0 && !employee ? (
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-400">
-                Verify a PIN to load available work categories.
-              </div>
-            ) : (
-              categories.map((category) => {
+          {!employee ? (
+            <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-400">
+              Verify a PIN to get started.
+            </div>
+          ) : categories.length > 0 ? (
+            <div className="mt-8 space-y-3">
+              {status?.clocked_in && categories.length > 1 && (
+                <p className="text-xs text-slate-400">Tap a different category to switch your current work type.</p>
+              )}
+              {categories.map((category) => {
                 const selected = selectedCategoryId === category.id
-                const disabled = !canClockIn
+                const isCurrent = currentCategoryId === category.id && status?.clocked_in
                 return (
                   <button
                     key={category.id}
                     onClick={() => setSelectedCategoryId(category.id)}
-                    disabled={disabled}
                     className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
                       selected
                         ? 'border-cyan-300 bg-cyan-400/15 text-white'
                         : 'border-slate-700 bg-slate-900/40 text-slate-200 hover:border-slate-500'
-                    } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                    }`}
                   >
                     <span>
                       <span className="block font-medium">{category.name}</span>
                       {category.description && <span className="mt-1 block text-xs text-slate-400">{category.description}</span>}
                     </span>
-                    <span className="text-sm font-semibold text-cyan-200">{formatCurrency(category) ?? '—'}</span>
+                    {isCurrent && (
+                      <span className="ml-2 rounded-full bg-cyan-500/20 px-2.5 py-0.5 text-xs font-semibold text-cyan-200">Current</span>
+                    )}
                   </button>
                 )
-              })
-            )}
-          </div>
+              })}
+            </div>
+          ) : (
+            <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-300">
+              No work categories assigned. You can still clock in and out. Ask an admin to assign your categories.
+            </div>
+          )}
 
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
             {primaryActions.map(({ action, enabled, className }) => (
@@ -376,6 +392,5 @@ export default function AireKiosk() {
         </section>
       </div>
     </div>
-    </>
   )
 }

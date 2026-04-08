@@ -196,7 +196,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   }
 
   const handleAction = async (action: 'clock_in' | 'start_break' | 'end_break', adminOverride = false) => {
-    if (action === 'clock_in' && categories.length > 0 && !selectedCategoryId) {
+    if (action === 'clock_in' && !selectedCategoryId) {
       setError('Choose a work category before clocking in.')
       return
     }
@@ -239,9 +239,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   const isClockedIn = status?.clocked_in
   const isOnBreak = status?.status === 'on_break'
   const isAdmin = status?.is_admin ?? false
-  const scheduleRequired = status?.schedule_required_for_clock_in ?? false
   const blockedReason = status?.clock_in_blocked_reason
-  const isAdminOverridable = isAdmin && (blockedReason === 'too_early' || blockedReason === 'no_schedule' || blockedReason === 'shift_ended')
+  const isAdminOverridable = isAdmin && (blockedReason === 'too_early' || blockedReason === 'shift_ended')
   const canClockIn = status?.can_clock_in || isAdminOverridable
   const netWorkSeconds = isClockedIn ? elapsedSeconds - (status?.break_minutes || 0) * 60 - (isOnBreak ? breakElapsed : 0) : 0
 
@@ -319,7 +318,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
             <div className="text-xs text-text-muted mt-0.5">{status.schedule.hours} hours</div>
           </div>
         )}
-        {!isClockedIn && !status?.schedule && <NoScheduleMsg isAdmin={isAdmin} scheduleRequired={scheduleRequired} />}
+        {!isClockedIn && !status?.schedule && <NoScheduleMsg />}
         {!isClockedIn && blockedReason === 'too_early' && <TooEarlyMsg isAdmin={isAdmin} minutesUntil={status?.minutes_until} />}
         {!isClockedIn && blockedReason === 'shift_ended' && <ShiftEndedMsg isAdmin={isAdmin} />}
 
@@ -339,9 +338,27 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
           </div>
         )}
 
-        {isClockedIn && status?.time_category && (
-          <div className="mb-4 p-3.5 bg-secondary/40 rounded-xl border border-neutral-warm/50 text-sm text-text-muted">
-            Current work category: <span className="font-semibold text-primary-dark">{status.time_category.name}</span>
+        {isClockedIn && categories.length > 0 && (
+          <div className="mb-4 p-3.5 bg-secondary/40 rounded-xl border border-neutral-warm/50">
+            <div className="text-sm text-text-muted">
+              Current work category: <span className="font-semibold text-primary-dark">{status?.time_category?.name ?? '—'}</span>
+            </div>
+            {categories.length > 1 && (
+              <SwitchCategoryInline
+                categories={categories}
+                currentCategoryId={status?.time_category?.id ?? null}
+                onSwitch={async (catId) => {
+                  setActionLoading(true)
+                  setError(null)
+                  try {
+                    const result = await api.switchCategory(catId)
+                    if (result?.error) { setError(result.error) } else { await fetchStatus(); onStatusChange?.() }
+                  } catch { setError('Switch failed.') }
+                  finally { setActionLoading(false) }
+                }}
+                disabled={actionLoading}
+              />
+            )}
           </div>
         )}
 
@@ -390,12 +407,12 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
                 </span>
               )}
               {!status?.schedule && !isClockedIn && (
-                <span className={`text-xs ${scheduleRequired ? 'text-red-500' : 'text-text-muted'}`}>
-                  {scheduleRequired ? 'No shift scheduled today' : 'No shift scheduled today — scheduling is optional'}
-                </span>
+                <span className="text-xs text-text-muted">No shift scheduled today</span>
               )}
               {isClockedIn && status?.time_category && (
-                <div className="text-xs text-text-muted mt-1">Category: <span className="font-medium text-primary-dark">{status.time_category.name}</span></div>
+                <div className="text-xs text-text-muted mt-1">
+                  Category: <span className="font-medium text-primary-dark">{status.time_category.name}</span>
+                </div>
               )}
             </div>
           </div>
@@ -405,7 +422,6 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
               <span className="text-xs text-amber-600 font-medium">
                 {blockedReason === 'too_early' && (status?.minutes_until != null ? `Clock in available in ~${status.minutes_until}m` : 'Shift hasn\'t started yet')}
                 {blockedReason === 'shift_ended' && 'Shift has ended'}
-                {blockedReason === 'no_schedule' && 'No shift scheduled today'}
                 {isAdmin && ' — admin override available'}
               </span>
             </div>
@@ -498,9 +514,27 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
           </div>
         )}
 
+        {isClockedIn && categories.length > 1 && (
+          <div className="mt-3 pt-3 border-t border-neutral-warm/50 max-w-sm">
+            <SwitchCategoryInline
+              categories={categories}
+              currentCategoryId={status?.time_category?.id ?? null}
+              onSwitch={async (catId) => {
+                setActionLoading(true)
+                setError(null)
+                try {
+                  const result = await api.switchCategory(catId)
+                  if (result?.error) { setError(result.error) } else { await fetchStatus(); onStatusChange?.() }
+                } catch { setError('Switch failed.') }
+                finally { setActionLoading(false) }
+              }}
+              disabled={actionLoading}
+            />
+          </div>
+        )}
+
         <ErrorMsg error={error} />
 
-        {/* Timeline (desktop) */}
         {isClockedIn && status?.clock_in_at && (
           <TimelineSection clockInAt={status.clock_in_at} breaks={status.breaks || []} fmtTime={fmtTime} compact />
         )}
@@ -659,33 +693,14 @@ function ErrorMsg({ error }: { error: string | null }) {
   )
 }
 
-function NoScheduleMsg({ isAdmin, scheduleRequired }: { isAdmin: boolean; scheduleRequired: boolean }) {
-  const tone = scheduleRequired
-    ? {
-        wrapper: 'bg-red-50 border-red-100',
-        icon: 'text-red-400',
-        title: 'text-red-700',
-        body: 'text-red-500',
-        message: isAdmin ? 'No shift scheduled, but you can use admin override.' : 'Contact your manager if you need to work today.',
-      }
-    : {
-        wrapper: 'bg-secondary/60 border-neutral-warm/60',
-        icon: 'text-text-muted',
-        title: 'text-primary-dark',
-        body: 'text-text-muted',
-        message: 'No shift scheduled right now. Scheduling is optional, so you can still clock in and log time.',
-      }
-
+function NoScheduleMsg() {
   return (
-    <div className={`mb-4 p-3.5 rounded-xl border ${tone.wrapper}`}>
+    <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
       <div className="flex items-start gap-2">
-        <svg className={`w-4 h-4 mt-0.5 shrink-0 ${tone.icon}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+        <svg className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
-        <div>
-          <div className={`text-sm font-medium ${tone.title}`}>No shift scheduled</div>
-          <div className={`text-xs mt-0.5 ${tone.body}`}>{tone.message}</div>
-        </div>
+        <div className="text-xs text-slate-500">No shift scheduled today — you can still clock in.</div>
       </div>
     </div>
   )
@@ -762,5 +777,41 @@ function StopIcon() {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
     </svg>
+  )
+}
+
+function SwitchCategoryInline({
+  categories,
+  currentCategoryId,
+  onSwitch,
+  disabled,
+}: {
+  categories: TimeCategory[]
+  currentCategoryId: number | null
+  onSwitch: (categoryId: number) => void
+  disabled: boolean
+}) {
+  const [switchTo, setSwitchTo] = useState<string>('')
+
+  return (
+    <div className="flex items-center gap-2 mt-2">
+      <select
+        value={switchTo}
+        onChange={e => setSwitchTo(e.target.value)}
+        className="text-sm border border-neutral-warm rounded-xl px-3 py-2 bg-white text-primary-dark flex-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
+      >
+        <option value="">Switch category...</option>
+        {categories.filter(c => c.id !== currentCategoryId).map(c => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+      <button
+        disabled={disabled || !switchTo}
+        onClick={() => { onSwitch(Number(switchTo)); setSwitchTo('') }}
+        className="text-xs font-semibold bg-cyan-50 text-cyan-700 border border-cyan-300 rounded-xl px-3 py-2 hover:bg-cyan-100 disabled:opacity-50 transition-colors whitespace-nowrap"
+      >
+        Switch
+      </button>
+    </div>
   )
 }

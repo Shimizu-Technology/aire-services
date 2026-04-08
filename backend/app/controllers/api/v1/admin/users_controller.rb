@@ -9,7 +9,7 @@ module Api
         before_action :set_user, only: [ :show, :update, :destroy, :resend_invite, :reset_kiosk_pin ]
 
         def index
-          @users = User.order(created_at: :desc)
+          @users = User.includes(user_time_categories: :time_category).order(created_at: :desc)
 
           if params[:role].present?
             @users = @users.where(role: params[:role])
@@ -31,7 +31,7 @@ module Api
         end
 
         def create
-          email = params[:email]&.downcase&.strip
+          email = params[:email]&.downcase&.strip.presence
           first_name = params[:first_name]&.strip
           last_name = params[:last_name]&.strip
           role = params[:role] || "employee"
@@ -40,20 +40,29 @@ module Api
             return render json: { error: "First name is required" }, status: :unprocessable_entity
           end
 
-          if email.blank?
-            return render json: { error: "Email is required" }, status: :unprocessable_entity
-          end
-
-          unless email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
-            return render json: { error: "Invalid email format" }, status: :unprocessable_entity
-          end
-
-          if User.exists?([ "LOWER(email) = ?", email ])
-            return render json: { error: "A user with this email already exists" }, status: :unprocessable_entity
-          end
-
           unless %w[admin employee].include?(role)
             return render json: { error: "Role must be admin or employee" }, status: :unprocessable_entity
+          end
+
+          send_invitation =
+            if params.key?(:send_invitation)
+              ActiveModel::Type::Boolean.new.cast(params[:send_invitation])
+            else
+              email.present?
+            end
+
+          if send_invitation && email.blank?
+            return render json: { error: "Email is required when sending an invitation" }, status: :unprocessable_entity
+          end
+
+          if email.present?
+            unless email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
+              return render json: { error: "Invalid email format" }, status: :unprocessable_entity
+            end
+
+            if User.exists?([ "LOWER(email) = ?", email ])
+              return render json: { error: "A user with this email already exists" }, status: :unprocessable_entity
+            end
           end
 
           @user = User.new(
@@ -65,7 +74,8 @@ module Api
           )
 
           if @user.save
-            email_sent = send_invitation_email(@user)
+            sync_time_categories(@user) if params[:time_category_ids].present?
+            email_sent = send_invitation ? send_invitation_email(@user) : false
 
             render json: { user: serialize_user(@user), invitation_email_sent: email_sent }, status: :created
           else
@@ -84,6 +94,7 @@ module Api
           end
 
           if @user.update(permitted)
+            sync_time_categories(@user) if params.key?(:time_category_ids)
             render json: { user: serialize_user(@user) }
           else
             render json: { error: @user.errors.full_messages.join(", ") }, status: :unprocessable_entity
@@ -145,6 +156,7 @@ module Api
         end
 
         def serialize_user(user)
+          utcs = user.user_time_categories.includes(:time_category)
           {
             id: user.id,
             email: user.email,
@@ -159,9 +171,38 @@ module Api
             kiosk_pin_configured: user.kiosk_pin_configured?,
             kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
             kiosk_locked_until: user.kiosk_locked_until&.iso8601,
+            time_category_ids: utcs.map(&:time_category_id),
+            time_categories: utcs.map { |utc| serialize_user_time_category(utc) },
             created_at: user.created_at.iso8601,
             updated_at: user.updated_at.iso8601
           }
+        end
+
+        def serialize_user_time_category(utc)
+          {
+            id: utc.time_category.id,
+            name: utc.time_category.name,
+            key: utc.time_category.key,
+            hourly_rate_cents: utc.effective_hourly_rate_cents,
+            hourly_rate: utc.effective_hourly_rate,
+            override_rate_cents: utc.hourly_rate_cents
+          }
+        end
+
+        def sync_time_categories(user)
+          desired_ids = Array(params[:time_category_ids]).map(&:to_i).uniq
+          overrides = params[:time_category_rate_overrides] || {}
+
+          ActiveRecord::Base.transaction do
+            user.user_time_categories.where.not(time_category_id: desired_ids).destroy_all
+
+            desired_ids.each do |cat_id|
+              utc = user.user_time_categories.find_or_initialize_by(time_category_id: cat_id)
+              override = overrides[cat_id.to_s]
+              utc.hourly_rate_cents = override.present? ? override.to_i : nil
+              utc.save!
+            end
+          end
         end
 
         def send_invitation_email(user)

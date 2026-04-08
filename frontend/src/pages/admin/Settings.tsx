@@ -1,615 +1,412 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api } from '../../lib/api'
+import type { AdminTimeCategory, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
-import { api, type AdminTimeCategory, type UserSummary, type EffectiveRate } from '../../lib/api'
 
-// ─── Settings Tab ───────────────────────────────────────────────────────────
-
-function SettingsTab() {
-  const [settings, setSettings] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const loadSettings = useCallback(async () => {
-    setLoading(true)
-    const res = await api.getSettings()
-    if (res.data) setSettings(res.data.settings)
-    else setError(res.error || 'Failed to load settings')
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    const run = async () => {
-      await loadSettings()
-    }
-
-    void run()
-  }, [loadSettings])
-
-  const handleSave = async () => {
-    setSaving(true)
-    setMessage(null)
-    setError(null)
-    const res = await api.updateSettings(settings)
-    if (res.data) {
-      setSettings(res.data.settings)
-      setMessage('Settings saved')
-    } else {
-      setError(res.error || 'Failed to save settings')
-    }
-    setSaving(false)
-  }
-
-  if (loading) return <div className="animate-pulse h-40 bg-gray-100 rounded-xl" />
-
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-6 space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-primary-dark">Time Tracking Settings</h3>
-        <p className="text-sm text-text-muted mt-1">Configure global time tracking policies.</p>
-      </div>
-
-      {error && <div className="bg-red-50 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>}
-      {message && <div className="bg-green-50 text-green-700 px-4 py-2 rounded-lg text-sm">{message}</div>}
-
-      <div className="space-y-5">
-        {/* Schedule Required Toggle */}
-        <div className="flex items-start gap-4">
-          <div className="flex-1">
-            <label className="block font-medium text-sm text-primary-dark">Require Schedule for Clock-In</label>
-            <p className="text-xs text-text-muted mt-1">
-              When enabled, employees must have a schedule assigned before they can clock in.
-              When disabled, employees can clock in at any time without a schedule.
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.schedule_required_for_clock_in === 'true'}
-            onClick={() => setSettings(s => ({ ...s, schedule_required_for_clock_in: s.schedule_required_for_clock_in === 'true' ? 'false' : 'true' }))}
-            className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer ${settings.schedule_required_for_clock_in === 'true' ? 'bg-primary' : 'bg-gray-200'}`}
-          >
-            <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition duration-200 ease-in-out ${settings.schedule_required_for_clock_in === 'true' ? 'translate-x-5' : 'translate-x-0'}`} />
-          </button>
-        </div>
-
-        {/* Overtime Thresholds */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block font-medium text-sm text-primary-dark">Daily Overtime Threshold (hours)</label>
-            <input
-              type="number"
-              min="1"
-              max="24"
-              step="0.5"
-              value={settings.overtime_daily_threshold_hours || '8'}
-              onChange={e => setSettings(s => ({ ...s, overtime_daily_threshold_hours: e.target.value }))}
-              className="mt-1 w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-            />
-          </div>
-          <div>
-            <label className="block font-medium text-sm text-primary-dark">Weekly Overtime Threshold (hours)</label>
-            <input
-              type="number"
-              min="1"
-              max="168"
-              step="0.5"
-              value={settings.overtime_weekly_threshold_hours || '40'}
-              onChange={e => setSettings(s => ({ ...s, overtime_weekly_threshold_hours: e.target.value }))}
-              className="mt-1 w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-            />
-          </div>
-        </div>
-
-        {/* Early Clock-In Buffer */}
-        <div className="max-w-xs">
-          <label className="block font-medium text-sm text-primary-dark">Early Clock-In Buffer (minutes)</label>
-          <p className="text-xs text-text-muted mt-1">How early before a shift start employees can clock in.</p>
-          <input
-            type="number"
-            min="0"
-            max="60"
-            value={settings.early_clock_in_buffer_minutes || '5'}
-            onChange={e => setSettings(s => ({ ...s, early_clock_in_buffer_minutes: e.target.value }))}
-            className="mt-1 w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-          />
-        </div>
-      </div>
-
-      <div className="pt-4 border-t border-neutral-warm">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors text-sm font-medium disabled:opacity-60"
-        >
-          {saving ? 'Saving...' : 'Save Settings'}
-        </button>
-      </div>
-    </div>
-  )
+const emptyCategoryForm = {
+  name: '',
+  key: '',
+  description: '',
+  is_active: true,
 }
-
-// ─── Time Categories Tab ────────────────────────────────────────────────────
-
-function TimeCategoriesTab() {
-  const [categories, setCategories] = useState<AdminTimeCategory[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [showForm, setShowForm] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [form, setForm] = useState({ name: '', key: '', description: '', hourly_rate: '' })
-  const [saving, setSaving] = useState(false)
-
-  const loadCategories = useCallback(async () => {
-    setLoading(true)
-    const res = await api.getAdminTimeCategories()
-    if (res.data) setCategories(res.data.time_categories)
-    else setError(res.error || 'Failed to load categories')
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    const run = async () => {
-      await loadCategories()
-    }
-
-    void run()
-  }, [loadCategories])
-
-  const openNew = () => {
-    setEditingId(null)
-    setForm({ name: '', key: '', description: '', hourly_rate: '' })
-    setShowForm(true)
-  }
-
-  const openEdit = (cat: AdminTimeCategory) => {
-    setEditingId(cat.id)
-    setForm({
-      name: cat.name,
-      key: cat.key || '',
-      description: cat.description || '',
-      hourly_rate: cat.hourly_rate != null ? cat.hourly_rate.toString() : '',
-    })
-    setShowForm(true)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    setError(null)
-
-    const rateCents = form.hourly_rate ? Math.round(parseFloat(form.hourly_rate) * 100) : null
-
-    if (editingId) {
-      const res = await api.updateTimeCategory(editingId, {
-        name: form.name,
-        key: form.key || undefined,
-        description: form.description || undefined,
-        hourly_rate_cents: rateCents,
-      })
-      if (res.error) { setError(res.error); setSaving(false); return }
-    } else {
-      const res = await api.createTimeCategory({
-        name: form.name,
-        key: form.key || undefined,
-        description: form.description || undefined,
-        hourly_rate_cents: rateCents,
-      })
-      if (res.error) { setError(res.error); setSaving(false); return }
-    }
-
-    setShowForm(false)
-    setSaving(false)
-    loadCategories()
-  }
-
-  const toggleActive = async (cat: AdminTimeCategory) => {
-    await api.updateTimeCategory(cat.id, { is_active: !cat.is_active })
-    loadCategories()
-  }
-
-  if (loading) return <div className="animate-pulse h-40 bg-gray-100 rounded-xl" />
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-primary-dark">Work Categories</h3>
-          <p className="text-sm text-text-muted">Manage work types and their default hourly rates.</p>
-        </div>
-        <button
-          onClick={openNew}
-          className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors text-sm font-medium"
-        >
-          Add Category
-        </button>
-      </div>
-
-      {error && <div className="bg-red-50 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>}
-
-      {/* Form Modal */}
-      {showForm && (
-        <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-6">
-          <h4 className="font-medium text-primary-dark mb-4">{editingId ? 'Edit Category' : 'New Category'}</h4>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-primary-dark mb-1">Name *</label>
-                <input
-                  required
-                  value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-                  placeholder="e.g. Flight Instruction"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-primary-dark mb-1">Key</label>
-                <input
-                  value={form.key}
-                  onChange={e => setForm(f => ({ ...f, key: e.target.value }))}
-                  className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-                  placeholder="e.g. aire_flight_instruction"
-                />
-                <p className="text-xs text-text-muted mt-1">Used to identify AIRE categories. Prefix with aire_ for kiosk display.</p>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-primary-dark mb-1">Description</label>
-              <input
-                value={form.description}
-                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-                placeholder="Optional description"
-              />
-            </div>
-            <div className="max-w-xs">
-              <label className="block text-sm font-medium text-primary-dark mb-1">Default Hourly Rate ($)</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.hourly_rate}
-                onChange={e => setForm(f => ({ ...f, hourly_rate: e.target.value }))}
-                className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-                placeholder="0.00"
-              />
-              <p className="text-xs text-text-muted mt-1">Default rate. Can be overridden per employee in Pay Rates.</p>
-            </div>
-            <div className="flex gap-3">
-              <button type="submit" disabled={saving} className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors text-sm font-medium disabled:opacity-60">
-                {saving ? 'Saving...' : (editingId ? 'Update' : 'Create')}
-              </button>
-              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-neutral-warm rounded-lg text-sm font-medium text-text-muted hover:bg-gray-50">
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Categories Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral-warm bg-gray-50/50">
-                <th className="text-left px-4 py-3 font-medium text-text-muted">Name</th>
-                <th className="text-left px-4 py-3 font-medium text-text-muted">Key</th>
-                <th className="text-right px-4 py-3 font-medium text-text-muted">Default Rate</th>
-                <th className="text-center px-4 py-3 font-medium text-text-muted">Entries</th>
-                <th className="text-center px-4 py-3 font-medium text-text-muted">Status</th>
-                <th className="text-right px-4 py-3 font-medium text-text-muted">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map(cat => (
-                <tr key={cat.id} className={`border-b border-neutral-warm/50 ${!cat.is_active ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-primary-dark">{cat.name}</div>
-                    {cat.description && <div className="text-xs text-text-muted">{cat.description}</div>}
-                  </td>
-                  <td className="px-4 py-3 text-text-muted font-mono text-xs">{cat.key || '—'}</td>
-                  <td className="px-4 py-3 text-right">
-                    {cat.hourly_rate != null ? `$${cat.hourly_rate.toFixed(2)}/hr` : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-center text-text-muted">{cat.time_entries_count}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${cat.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {cat.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => openEdit(cat)} className="text-primary hover:text-primary-dark text-xs font-medium">Edit</button>
-                      <button onClick={() => toggleActive(cat)} className="text-xs font-medium text-text-muted hover:text-primary-dark">
-                        {cat.is_active ? 'Deactivate' : 'Activate'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {categories.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">No categories found</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Employee Pay Rates Tab ─────────────────────────────────────────────────
-
-function PayRatesTab() {
-  const [users, setUsers] = useState<UserSummary[]>([])
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
-  const [selectedUserName, setSelectedUserName] = useState('')
-  const [effectiveRates, setEffectiveRates] = useState<EffectiveRate[]>([])
-  const [loading, setLoading] = useState(true)
-  const [ratesLoading, setRatesLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [editingCatId, setEditingCatId] = useState<number | null>(null)
-  const [editRate, setEditRate] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    (async () => {
-      const res = await api.getUsers()
-      if (res.data) setUsers(res.data.users)
-      setLoading(false)
-    })()
-  }, [])
-
-  const loadRatesForUser = useCallback(async (userId: number) => {
-    setRatesLoading(true)
-    setError(null)
-    const res = await api.getEffectiveRatesForUser(userId)
-    if (res.data) {
-      setSelectedUserName(res.data.user.full_name || res.data.user.display_name)
-      setEffectiveRates(res.data.effective_rates)
-    } else {
-      setError(res.error || 'Failed to load rates')
-    }
-    setRatesLoading(false)
-  }, [])
-
-  const selectUser = (userId: number) => {
-    setSelectedUserId(userId)
-    setEditingCatId(null)
-    loadRatesForUser(userId)
-  }
-
-  const startEdit = (rate: EffectiveRate) => {
-    setEditingCatId(rate.time_category_id)
-    setEditRate(rate.override_rate != null ? rate.override_rate.toString() : (rate.default_rate != null ? rate.default_rate.toString() : ''))
-  }
-
-  const saveRate = async (rate: EffectiveRate) => {
-    if (!selectedUserId) return
-    setSaving(true)
-    setError(null)
-
-    const newCents = editRate ? Math.round(parseFloat(editRate) * 100) : null
-
-    // If clearing rate and override exists, delete it
-    if (newCents === null && rate.override_id) {
-      const res = await api.deleteEmployeePayRate(rate.override_id)
-      if (res.error) {
-        setError(res.error)
-        setSaving(false)
-        return
-      }
-    }
-    // If setting rate same as default and override exists, delete the override
-    else if (newCents === rate.default_rate_cents && rate.override_id) {
-      const res = await api.deleteEmployeePayRate(rate.override_id)
-      if (res.error) {
-        setError(res.error)
-        setSaving(false)
-        return
-      }
-    }
-    // If setting rate different from default
-    else if (newCents !== null && newCents !== rate.default_rate_cents) {
-      if (rate.override_id) {
-        const res = await api.updateEmployeePayRate(rate.override_id, { hourly_rate_cents: newCents })
-        if (res.error) {
-          setError(res.error)
-          setSaving(false)
-          return
-        }
-      } else {
-        const res = await api.createEmployeePayRate({
-          user_id: selectedUserId,
-          time_category_id: rate.time_category_id,
-          hourly_rate_cents: newCents,
-        })
-        if (res.error) { setError(res.error); setSaving(false); return }
-      }
-    }
-
-    setEditingCatId(null)
-    setSaving(false)
-    loadRatesForUser(selectedUserId)
-  }
-
-  if (loading) return <div className="animate-pulse h-40 bg-gray-100 rounded-xl" />
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold text-primary-dark">Employee Pay Rates</h3>
-        <p className="text-sm text-text-muted">Override the default category rate per employee. For example, different CFIs may have different flight instruction rates.</p>
-      </div>
-
-      {error && <div className="bg-red-50 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>}
-
-      <div className="max-w-sm">
-        <label className="block text-sm font-medium text-primary-dark mb-1">Select Employee</label>
-        <select
-          value={selectedUserId || ''}
-          onChange={e => e.target.value ? selectUser(parseInt(e.target.value)) : setSelectedUserId(null)}
-          className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-        >
-          <option value="">Choose an employee...</option>
-          {users.map(u => (
-            <option key={u.id} value={u.id}>{u.full_name || u.display_name || u.email}</option>
-          ))}
-        </select>
-      </div>
-
-      {selectedUserId && (
-        <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden">
-          <div className="px-4 py-3 bg-gray-50/50 border-b border-neutral-warm">
-            <h4 className="font-medium text-primary-dark">Pay Rates for {selectedUserName}</h4>
-            <p className="text-xs text-text-muted mt-0.5">Override rates are used instead of the category default for payroll calculations.</p>
-          </div>
-          {ratesLoading ? (
-            <div className="px-4 py-8 text-center text-text-muted">Loading...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-warm">
-                    <th className="text-left px-4 py-2 font-medium text-text-muted">Category</th>
-                    <th className="text-right px-4 py-2 font-medium text-text-muted">Default Rate</th>
-                    <th className="text-right px-4 py-2 font-medium text-text-muted">Override Rate</th>
-                    <th className="text-right px-4 py-2 font-medium text-text-muted">Effective Rate</th>
-                    <th className="text-right px-4 py-2 font-medium text-text-muted">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {effectiveRates.map(rate => (
-                    <tr key={rate.time_category_id} className="border-b border-neutral-warm/50">
-                      <td className="px-4 py-2">
-                        <div className="font-medium text-primary-dark">{rate.time_category_name}</div>
-                        {rate.time_category_key && <div className="text-xs text-text-muted font-mono">{rate.time_category_key}</div>}
-                      </td>
-                      <td className="px-4 py-2 text-right text-text-muted">
-                        {rate.default_rate != null ? `$${rate.default_rate.toFixed(2)}/hr` : '—'}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {editingCatId === rate.time_category_id ? (
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={editRate}
-                            onChange={e => setEditRate(e.target.value)}
-                            className="w-24 px-2 py-1 border border-neutral-warm rounded text-sm text-right"
-                            autoFocus
-                          />
-                        ) : (
-                          rate.override_rate != null
-                            ? <span className="font-medium text-amber-600">${rate.override_rate.toFixed(2)}/hr</span>
-                            : <span className="text-text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-right font-medium text-primary-dark">
-                        {rate.effective_rate != null ? `$${rate.effective_rate.toFixed(2)}/hr` : '—'}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {editingCatId === rate.time_category_id ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => saveRate(rate)}
-                              disabled={saving}
-                              className="text-xs font-medium text-primary hover:text-primary-dark"
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={() => setEditingCatId(null)}
-                              className="text-xs font-medium text-text-muted"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => startEdit(rate)} className="text-xs font-medium text-primary hover:text-primary-dark">
-                              {rate.override_id ? 'Edit' : 'Set Override'}
-                            </button>
-                            {rate.override_id && (
-                              <button
-                                onClick={async () => {
-                                  const res = await api.deleteEmployeePayRate(rate.override_id!)
-                                  if (res.error) {
-                                    setError(res.error)
-                                    return
-                                  }
-                                  loadRatesForUser(selectedUserId)
-                                }}
-                                className="text-xs font-medium text-red-500 hover:text-red-700"
-                              >
-                                Remove
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {effectiveRates.length === 0 && (
-                    <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">No active categories found</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Main Settings Page ─────────────────────────────────────────────────────
 
 export default function Settings() {
-  useEffect(() => { document.title = 'Settings | AIRE Ops' }, [])
+  useEffect(() => {
+    document.title = 'Settings | AIRE Ops'
+  }, [])
 
-  const [activeTab, setActiveTab] = useState<'settings' | 'categories' | 'pay_rates'>('settings')
+  const [categories, setCategories] = useState<AdminTimeCategory[]>([])
+  const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
+  const [thresholdDraft, setThresholdDraft] = useState({
+    overtime_daily_threshold_hours: '',
+    overtime_weekly_threshold_hours: '',
+    early_clock_in_buffer_minutes: '',
+  })
+  const [loading, setLoading] = useState(true)
+  const [categoriesError, setCategoriesError] = useState('')
+  const [settingsError, setSettingsError] = useState('')
+  const [savingCategory, setSavingCategory] = useState(false)
+  const [savingThresholds, setSavingThresholds] = useState(false)
+  const [showInactive, setShowInactive] = useState(true)
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<AdminTimeCategory | null>(null)
+  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm)
+  const modalRef = useRef<HTMLDivElement>(null)
 
-  const tabs = [
-    { key: 'settings' as const, label: 'General' },
-    { key: 'categories' as const, label: 'Work Categories' },
-    { key: 'pay_rates' as const, label: 'Pay Rates' },
-  ]
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    setCategoriesError('')
+    setSettingsError('')
+    try {
+      const [catRes, setRes] = await Promise.all([api.getAdminTimeCategories(), api.getAdminAppSettings()])
+      if (catRes.error) setCategoriesError(catRes.error)
+      else if (catRes.data) setCategories(catRes.data.time_categories)
+
+      if (setRes.error) setSettingsError(setRes.error)
+      else if (setRes.data) {
+        const s = setRes.data.settings
+        setClockSettings(s)
+        setThresholdDraft({
+          overtime_daily_threshold_hours: s.overtime_daily_threshold_hours,
+          overtime_weekly_threshold_hours: s.overtime_weekly_threshold_hours,
+          early_clock_in_buffer_minutes: s.early_clock_in_buffer_minutes,
+        })
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  useEffect(() => {
+    if (categoryModalOpen && modalRef.current) {
+      const first = modalRef.current.querySelector<HTMLElement>('input, select, textarea')
+      if (first) setTimeout(() => first.focus(), 0)
+    }
+  }, [categoryModalOpen])
+
+  const openNewCategory = () => {
+    setEditingCategory(null)
+    setCategoryForm(emptyCategoryForm)
+    setCategoryModalOpen(true)
+  }
+
+  const openEditCategory = (cat: AdminTimeCategory) => {
+    setEditingCategory(cat)
+    setCategoryForm({
+      name: cat.name,
+      key: cat.key ?? '',
+      description: cat.description ?? '',
+      is_active: cat.is_active,
+    })
+    setCategoryModalOpen(true)
+  }
+
+  const closeCategoryModal = () => {
+    setCategoryModalOpen(false)
+    setEditingCategory(null)
+    setCategoryForm(emptyCategoryForm)
+  }
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const name = categoryForm.name.trim()
+    if (!name) return
+
+    const payload = {
+      name,
+      key: categoryForm.key.trim() || null,
+      description: categoryForm.description.trim() || null,
+      ...(editingCategory ? { is_active: categoryForm.is_active } : {}),
+    }
+
+    setSavingCategory(true)
+    try {
+      const res = editingCategory
+        ? await api.updateTimeCategory(editingCategory.id, payload)
+        : await api.createTimeCategory(payload)
+
+      if (res.error) {
+        alert(res.error)
+        return
+      }
+      closeCategoryModal()
+      loadData()
+    } finally {
+      setSavingCategory(false)
+    }
+  }
+
+  const handleDeactivateCategory = async (cat: AdminTimeCategory) => {
+    if (cat.time_entries_count > 0) {
+      if (!confirm(`Deactivate "${cat.name}"? Existing time entries keep this category; it will be hidden from new clock-ins.`)) return
+    } else if (!confirm(`Deactivate "${cat.name}"?`)) return
+
+    const res = await api.deleteTimeCategory(cat.id)
+    if (res.error) alert(res.error)
+    else loadData()
+  }
+
+  const handleReactivateCategory = async (cat: AdminTimeCategory) => {
+    const res = await api.updateTimeCategory(cat.id, { is_active: true })
+    if (res.error) alert(res.error)
+    else loadData()
+  }
+
+  const handleSaveThresholds = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!clockSettings) return
+
+    setSavingThresholds(true)
+    setSettingsError('')
+    try {
+      const res = await api.updateAdminAppSettings({
+        overtime_daily_threshold_hours: thresholdDraft.overtime_daily_threshold_hours,
+        overtime_weekly_threshold_hours: thresholdDraft.overtime_weekly_threshold_hours,
+        early_clock_in_buffer_minutes: thresholdDraft.early_clock_in_buffer_minutes,
+      })
+      if (res.error) {
+        setSettingsError(res.error)
+        return
+      }
+      if (res.data) {
+        setClockSettings(res.data.settings)
+        setThresholdDraft({
+          overtime_daily_threshold_hours: res.data.settings.overtime_daily_threshold_hours,
+          overtime_weekly_threshold_hours: res.data.settings.overtime_weekly_threshold_hours,
+          early_clock_in_buffer_minutes: res.data.settings.early_clock_in_buffer_minutes,
+        })
+      }
+    } finally {
+      setSavingThresholds(false)
+    }
+  }
+
+  const visibleCategories = showInactive ? categories : categories.filter((c) => c.is_active)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <FadeUp>
         <div>
-          <h1 className="text-2xl font-bold text-primary-dark tracking-tight">Settings</h1>
-          <p className="text-text-muted mt-1">Configure time tracking policies, work categories, and employee pay rates.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Manage work categories for kiosk clock-in, overtime rules, and early clock-in window.
+          </p>
         </div>
       </FadeUp>
 
-      {/* Tab Navigation */}
-      <div className="border-b border-neutral-warm">
-        <nav className="flex gap-4">
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.key
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-text-muted hover:text-primary-dark'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      {loading ? (
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500 shadow-sm">Loading settings…</div>
+      ) : (
+        <>
+          <FadeUp delay={0.05}>
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 px-5 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Time clock rules</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Overtime flags and how early staff may clock in before a scheduled shift.
+                </p>
+              </div>
+              <form onSubmit={handleSaveThresholds} className="space-y-5 px-5 py-5">
+                {settingsError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{settingsError}</div>
+                )}
+                <div className="grid gap-5 sm:grid-cols-3">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Daily overtime after (hours)</label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0.25"
+                      required
+                      value={thresholdDraft.overtime_daily_threshold_hours}
+                      onChange={(e) => setThresholdDraft((d) => ({ ...d, overtime_daily_threshold_hours: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Weekly overtime after (hours)</label>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0.25"
+                      required
+                      value={thresholdDraft.overtime_weekly_threshold_hours}
+                      onChange={(e) => setThresholdDraft((d) => ({ ...d, overtime_weekly_threshold_hours: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Early clock-in buffer (minutes)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      required
+                      value={thresholdDraft.early_clock_in_buffer_minutes}
+                      onChange={(e) => setThresholdDraft((d) => ({ ...d, early_clock_in_buffer_minutes: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingThresholds || !clockSettings}
+                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {savingThresholds ? 'Saving…' : 'Save time clock rules'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </FadeUp>
 
-      {activeTab === 'settings' && <SettingsTab />}
-      {activeTab === 'categories' && <TimeCategoriesTab />}
-      {activeTab === 'pay_rates' && <PayRatesTab />}
+          <FadeUp delay={0.1}>
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Time categories</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Define the types of work your team tracks. Assign categories to people on the <a href="/admin/users" className="font-medium text-cyan-700 hover:text-cyan-900">Users</a> page.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={showInactive}
+                      onChange={(e) => setShowInactive(e.target.checked)}
+                      className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                    />
+                    Show inactive
+                  </label>
+                  <button
+                    type="button"
+                    onClick={openNewCategory}
+                    className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Add category
+                  </button>
+                </div>
+              </div>
+
+              {categoriesError && (
+                <div className="mx-5 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{categoriesError}</div>
+              )}
+
+              {visibleCategories.length === 0 ? (
+                <div className="px-5 py-10 text-center text-sm text-slate-500">No categories match this filter.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[600px]">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Name</th>
+                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Key</th>
+                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Entries</th>
+                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</th>
+                        <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {visibleCategories.map((cat) => (
+                        <tr key={cat.id} className={cat.is_active ? 'hover:bg-slate-50/80' : 'bg-slate-50/60 text-slate-500'}>
+                          <td className="px-5 py-4">
+                            <div className="font-medium text-slate-900">{cat.name}</div>
+                            {cat.description && <div className="mt-1 max-w-md text-xs text-slate-500">{cat.description}</div>}
+                          </td>
+                          <td className="px-5 py-4 font-mono text-xs">{cat.key ?? '—'}</td>
+                          <td className="px-5 py-4 text-sm">{cat.time_entries_count}</td>
+                          <td className="px-5 py-4">
+                            {cat.is_active ? (
+                              <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                                Active
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                                Inactive
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4">
+                            <div className="flex justify-end gap-3 text-sm font-medium">
+                              <button type="button" onClick={() => openEditCategory(cat)} className="text-cyan-700 hover:text-cyan-900">
+                                Edit
+                              </button>
+                              {cat.is_active ? (
+                                <button type="button" onClick={() => handleDeactivateCategory(cat)} className="text-slate-600 hover:text-slate-900">
+                                  Deactivate
+                                </button>
+                              ) : (
+                                <button type="button" onClick={() => handleReactivateCategory(cat)} className="text-cyan-700 hover:text-cyan-900">
+                                  Reactivate
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </FadeUp>
+        </>
+      )}
+
+      {categoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div ref={modalRef} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900">{editingCategory ? 'Edit category' : 'New time category'}</h2>
+                <p className="mt-1 text-sm text-slate-500">Define a type of work your team can track time against.</p>
+              </div>
+              <button type="button" onClick={closeCategoryModal} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCategory} className="mt-6 space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Name</label>
+                <input
+                  value={categoryForm.name}
+                  onChange={(e) => setCategoryForm((f) => ({ ...f, name: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Key (optional)</label>
+                <input
+                  value={categoryForm.key}
+                  onChange={(e) => setCategoryForm((f) => ({ ...f, key: e.target.value }))}
+                  placeholder="e.g. aire_flight_instruction"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Description (optional)</label>
+                <textarea
+                  value={categoryForm.description}
+                  onChange={(e) => setCategoryForm((f) => ({ ...f, description: e.target.value }))}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                />
+              </div>
+              {editingCategory && (
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={categoryForm.is_active}
+                    onChange={(e) => setCategoryForm((f) => ({ ...f, is_active: e.target.checked }))}
+                    className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  Category is active (available for clock-in)
+                </label>
+              )}
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={closeCategoryModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCategory}
+                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {savingCategory ? 'Saving…' : editingCategory ? 'Save changes' : 'Create category'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

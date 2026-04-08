@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_02_183000) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_04_062229) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -153,10 +153,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_02_183000) do
     t.index ["start_date", "end_date"], name: "index_time_period_locks_on_start_date_and_end_date", unique: true
   end
 
+  create_table "user_time_categories", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "hourly_rate_cents"
+    t.bigint "time_category_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["time_category_id"], name: "index_user_time_categories_on_time_category_id"
+    t.index ["user_id", "time_category_id"], name: "index_user_time_categories_on_user_id_and_time_category_id", unique: true
+    t.index ["user_id"], name: "index_user_time_categories_on_user_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "clerk_id", null: false
     t.datetime "created_at", null: false
-    t.string "email", null: false
+    t.string "email"
     t.string "first_name"
     t.boolean "kiosk_enabled", default: false, null: false
     t.integer "kiosk_failed_attempts_count", default: 0, null: false
@@ -189,4 +200,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_02_183000) do
   add_foreign_key "time_entries", "users", column: "overtime_approved_by_id"
   add_foreign_key "time_entry_breaks", "time_entries"
   add_foreign_key "time_period_locks", "users", column: "locked_by_id"
+  add_foreign_key "user_time_categories", "time_categories"
+  add_foreign_key "user_time_categories", "users"
 end

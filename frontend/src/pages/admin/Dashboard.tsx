@@ -1,185 +1,207 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
+import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { formatDateISO } from '../../lib/dateUtils'
 
-type Snapshot = {
-  activeWorkers: number
-  scheduledToday: number
-  pendingApprovals: number
-  totalTeamMembers: number
-  weeklyScheduledHours: number
-}
-
-const quickLinks = [
-  { title: 'Time Tracking', description: 'Review entries, resolve issues, and finalize work weeks.', href: '/admin/time' },
-  { title: 'Reports', description: 'Inspect payroll summaries, exports, and category totals.', href: '/admin/reports' },
-  { title: 'Schedule', description: 'Balance staffing, handoffs, and planned hours for the week.', href: '/admin/schedule' },
-  { title: 'Users', description: 'Manage roles, invites, and kiosk PIN access for the team.', href: '/admin/users' },
+const actionLinks = [
+  {
+    title: 'Time Tracking',
+    description: 'Review entries, resolve issues, and finalize work weeks.',
+    href: '/admin/time',
+  },
+  {
+    title: 'Reports',
+    description: 'Inspect payroll summaries, exports, and category totals.',
+    href: '/admin/time?tab=reports',
+  },
+  {
+    title: 'Schedule',
+    description: 'Balance staffing, handoffs, and planned hours for the week.',
+    href: '/admin/schedule',
+  },
+  {
+    title: 'Users',
+    description: 'Manage roles, invites, and kiosk PIN access for the team.',
+    href: '/admin/users',
+  },
 ]
 
+function formatDateISO(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function formatWeekStart(date: Date): string {
+  const d = new Date(date)
+  d.setDate(d.getDate() - d.getDay())
+  return formatDateISO(d)
+}
+
 export default function Dashboard() {
-  const [loading, setLoading] = useState(true)
-  const [snapshotError, setSnapshotError] = useState<string | null>(null)
-  const [snapshot, setSnapshot] = useState<Snapshot>({
-    activeWorkers: 0,
-    scheduledToday: 0,
+  useEffect(() => { document.title = 'Dashboard | AIRE Ops' }, [])
+
+  const [stats, setStats] = useState({
+    activeCount: 0,
     pendingApprovals: 0,
-    totalTeamMembers: 0,
-    weeklyScheduledHours: 0,
+    scheduledToday: 0,
+    weeklyHours: 0,
+    totalMembers: 0,
   })
 
-  const loadSnapshot = useCallback(async () => {
-    setLoading(true)
-    setSnapshotError(null)
+  const loadStats = useCallback(async () => {
     try {
-      const today = formatDateISO(new Date())
-      const weekStart = new Date()
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay())
-
-      const [workersRes, pendingRes, usersRes, schedulesRes] = await Promise.all([
+      const [workersRes, approvalsRes, schedulesRes, usersRes] = await Promise.all([
         api.getWhosWorking(),
         api.getPendingApprovals(),
-        api.getAdminUsers(),
-        api.getSchedules({ week: formatDateISO(weekStart) }),
+        api.getSchedules({ week: formatWeekStart(new Date()) }),
+        api.getUsers(),
       ])
 
-      const workers = workersRes.data?.workers || []
-      const schedules = schedulesRes.data?.schedules || []
-      const users = usersRes.data?.users || []
+      const workers = workersRes.data?.workers ?? []
+      const active = workers.filter(
+        (w) => w.status === 'clocked_in' || w.status === 'on_break',
+      ).length
 
-      setSnapshot({
-        activeWorkers: workers.filter((worker) => worker.status === 'clocked_in' || worker.status === 'on_break').length,
-        scheduledToday: schedules.filter((schedule) => schedule.work_date === today).length,
-        pendingApprovals: pendingRes.data?.count || 0,
-        totalTeamMembers: users.filter((user) => user.role === 'admin' || user.role === 'employee').length,
-        weeklyScheduledHours: schedules.reduce((sum, schedule) => sum + schedule.hours, 0),
+      const todayStr = formatDateISO(new Date())
+      const schedules = schedulesRes.data?.schedules ?? []
+      const todaySchedules = schedules.filter((s) => s.work_date === todayStr)
+      const weeklyHours = schedules.reduce((sum, s) => sum + s.hours, 0)
+
+      setStats({
+        activeCount: active,
+        pendingApprovals: approvalsRes.data?.count ?? 0,
+        scheduledToday: todaySchedules.length,
+        weeklyHours,
+        totalMembers: usersRes.data?.users.length ?? 0,
       })
     } catch {
-      setSnapshotError('Could not refresh the dashboard snapshot right now. Please try again.')
-    } finally {
-      setLoading(false)
+      // Dashboard stats are best-effort
     }
   }, [])
 
+  // Initial data fetch on mount
   useEffect(() => {
-    loadSnapshot()
-  }, [loadSnapshot])
-
-  const cards = useMemo(() => [
-    {
-      label: 'Active Right Now',
-      value: loading ? '—' : String(snapshot.activeWorkers),
-      tone: 'text-emerald-600',
-      helper: 'Staff currently clocked in or on break',
-    },
-    {
-      label: 'Pending Approvals',
-      value: loading ? '—' : String(snapshot.pendingApprovals),
-      tone: snapshot.pendingApprovals > 0 ? 'text-amber-600' : 'text-slate-900',
-      helper: 'Manual entries or overtime waiting on admin review',
-    },
-    {
-      label: 'Scheduled Today',
-      value: loading ? '—' : String(snapshot.scheduledToday),
-      tone: 'text-cyan-700',
-      helper: 'Assigned shifts on the current Guam workday',
-    },
-    {
-      label: 'Weekly Scheduled Hours',
-      value: loading ? '—' : `${snapshot.weeklyScheduledHours.toFixed(1)}h`,
-      tone: 'text-slate-900',
-      helper: 'Total planned hours across the active week',
-    },
-  ], [loading, snapshot])
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- data-fetch pattern; setState is in async callback
+    loadStats()
+  }, [loadStats])
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">AIRE Ops</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Operations Dashboard</h1>
-          <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Keep staffing, time tracking, and payroll-ready reporting aligned from one place. This is the daily control center for the AIRE admin side.
-          </p>
+      <div>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">AIRE Ops</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Operations Dashboard</h1>
+          </div>
+          <div className="hidden shrink-0 items-center gap-2 sm:flex">
+            <Link
+              to="/admin/time?tab=reports"
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Open Reports
+            </Link>
+            <Link
+              to="/admin/schedule"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Adjust Schedule
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link to="/admin/reports" className="inline-flex items-center rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">
+        <p className="mt-2 max-w-2xl text-sm text-slate-600">
+          Keep staffing, time tracking, and payroll-ready reporting aligned from one place.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:hidden">
+          <Link
+            to="/admin/time?tab=reports"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
             Open Reports
           </Link>
-          <Link to="/admin/schedule" className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+          <Link
+            to="/admin/schedule"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
             Adjust Schedule
           </Link>
         </div>
       </div>
 
-      {snapshotError && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {snapshotError}
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Active Right Now" value={stats.activeCount.toString()} sublabel="Staff currently clocked in or on break" accent />
+        <StatCard label="Pending Approvals" value={stats.pendingApprovals.toString()} sublabel="Manual entries or overtime waiting on admin review" accent />
+        <StatCard label="Scheduled Today" value={stats.scheduledToday.toString()} sublabel="Assigned shifts on the current Guam workday" accent />
+        <StatCard label="Weekly Scheduled Hours" value={`${stats.weeklyHours.toFixed(1)}h`} sublabel="Total planned hours across the active week" />
+      </div>
+
+      {/* Who's Working */}
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Who's Working</h2>
+            <p className="mt-0.5 text-sm text-slate-500">Live staffing status for the current Guam workday.</p>
+          </div>
+          <button
+            onClick={loadStats}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+          >
+            Refresh snapshot
+          </button>
         </div>
-      )}
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-            <p className="text-sm font-medium text-slate-500">{card.label}</p>
-            <div className={`mt-2 text-3xl font-bold ${card.tone}`}>{card.value}</div>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">{card.helper}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.4fr,0.9fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Who’s Working</h2>
-              <p className="mt-1 text-sm text-slate-500">Live staffing status for the current Guam workday.</p>
-            </div>
-            <button onClick={loadSnapshot} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">
-              Refresh snapshot
-            </button>
-          </div>
+        <div className="p-5">
           <WhosWorking alwaysShow dashboardStyle />
-        </section>
+        </div>
+      </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      {/* Action Center */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
           <h2 className="text-lg font-semibold text-slate-900">Action Center</h2>
-          <p className="mt-1 text-sm text-slate-500">High-signal admin surfaces to keep the team moving.</p>
-          <div className="mt-5 space-y-3">
-            {quickLinks.map((item) => (
-              <Link
-                key={item.href}
-                to={item.href}
-                className="block rounded-2xl border border-slate-200 px-4 py-4 transition hover:border-cyan-300 hover:bg-cyan-50/40"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
-                    <p className="mt-1 text-sm leading-relaxed text-slate-500">{item.description}</p>
-                  </div>
-                  <span className="text-cyan-700">→</span>
-                </div>
-              </Link>
-            ))}
-          </div>
+          <p className="mt-0.5 text-sm text-slate-500">High-signal admin surfaces to keep the team moving.</p>
+        </div>
+        <div className="space-y-2">
+          {actionLinks.map((item) => (
+            <Link
+              key={item.href}
+              to={item.href}
+              className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-4 transition hover:border-slate-200 hover:bg-slate-50"
+            >
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
+                <p className="mt-0.5 text-sm text-slate-500">{item.description}</p>
+              </div>
+              <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          ))}
+        </div>
+      </section>
 
-          <div className="mt-6 rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Current Team Snapshot</p>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <div className="text-slate-500">Total team members</div>
-                <div className="mt-1 text-lg font-semibold text-slate-900">{loading ? '—' : snapshot.totalTeamMembers}</div>
-              </div>
-              <div>
-                <div className="text-slate-500">Approvals waiting</div>
-                <div className="mt-1 text-lg font-semibold text-slate-900">{loading ? '—' : snapshot.pendingApprovals}</div>
-              </div>
-            </div>
+      {/* Team Snapshot */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Current Team Snapshot</p>
+        <div className="mt-3 grid grid-cols-2 gap-6 sm:grid-cols-4">
+          <div>
+            <p className="text-sm text-slate-500">Total team members</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{stats.totalMembers}</p>
           </div>
-        </section>
-      </div>
+          <div>
+            <p className="text-sm text-slate-500">Approvals waiting</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{stats.pendingApprovals}</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function StatCard({ label, value, sublabel, accent }: { label: string; value: string; sublabel: string; accent?: boolean }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className={`mt-2 text-3xl font-bold ${accent ? 'text-cyan-700' : 'text-slate-900'}`}>{value}</p>
+      <p className="mt-1 text-xs text-slate-400">{sublabel}</p>
     </div>
   )
 }

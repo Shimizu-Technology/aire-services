@@ -206,12 +206,13 @@ module Api
           target_user = current_user
         end
 
+        source = resolved_clock_source(target_user: target_user, admin_override: admin_override)
         entry = TimeClockService.clock_in(
           user: target_user,
           admin_override_by: admin_override,
-          time_category_id: params[:time_category_id]
+          time_category_id: params[:time_category_id],
+          clock_source: source
         )
-        entry.update!(clock_source: resolved_clock_source(target_user: target_user, admin_override: admin_override))
         render json: { time_entry: serialize_time_entry(entry) }, status: :created
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
@@ -248,6 +249,22 @@ module Api
         target_user = resolve_clock_target_user
         admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
         entry = TimeClockService.end_break(user: target_user, admin_override_by: admin_override)
+        render json: { time_entry: serialize_time_entry(entry) }
+      rescue TimeClockService::ClockError => e
+        render json: { error: e.message }, status: :unprocessable_entity
+      end
+
+      # POST /api/v1/time_entries/switch_category
+      def switch_category
+        target_user = resolve_clock_target_user
+        admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
+        source = resolved_clock_source(target_user: target_user, admin_override: admin_override)
+        entry = TimeClockService.switch_category(
+          user: target_user,
+          time_category_id: params[:time_category_id],
+          admin_override_by: admin_override,
+          clock_source: source
+        )
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
@@ -331,90 +348,7 @@ module Api
       def whos_working
         return render json: { error: "Admin access required" }, status: :forbidden unless current_user.admin?
 
-        today = Time.current.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date
-        staff_users = User.staff.order(:first_name, :last_name)
-        staff_ids = staff_users.pluck(:id)
-
-        today_schedules = Schedule.where(user_id: staff_ids, work_date: today).index_by(&:user_id)
-        active_entries = TimeEntry.where(status: %w[clocked_in on_break], user_id: staff_ids, work_date: today)
-                                  .includes(:time_entry_breaks, :time_category)
-                                  .order(created_at: :desc)
-                                  .index_by(&:user_id)
-        completed_hours = TimeEntry.countable.where(user_id: staff_ids).for_date(today)
-                                   .group(:user_id).sum(:hours)
-        clocked_out_today = TimeEntry.where(user_id: staff_ids, work_date: today, status: "completed", entry_method: "clock")
-                                     .distinct.pluck(:user_id).to_set
-        buffer_seconds = (Setting.get("early_clock_in_buffer_minutes") || "5").to_i * 60
-
-        workers = staff_users.map do |user|
-          schedule = today_schedules[user.id]
-          active_entry = active_entries[user.id]
-          hours = (completed_hours[user.id] || 0).to_f.round(2)
-
-          active_break_record = active_entry&.active_break
-
-          elapsed_hours = if active_entry && active_entry.clock_in_at
-            elapsed = (Time.current - active_entry.clock_in_at) / 3600.0
-            completed_break_hours = (active_entry.total_break_minutes || 0) / 60.0
-            active_break_hours = if active_break_record&.start_time
-              (Time.current - active_break_record.start_time) / 3600.0
-            else
-              0.0
-            end
-            (elapsed - completed_break_hours - active_break_hours).clamp(0, Float::INFINITY).round(2)
-          else
-            0.0
-          end
-
-          {
-            user: {
-              id: user.id,
-              full_name: user.full_name,
-              display_name: user.display_name,
-              email: user.email
-            },
-            schedule: schedule ? {
-              start_time: schedule.formatted_start_time,
-              end_time: schedule.formatted_end_time,
-              hours: schedule.hours
-            } : nil,
-            status: if active_entry
-                      active_entry.status
-                    elsif clocked_out_today.include?(user.id)
-                      "clocked_out"
-                    elsif schedule
-                      guam_now = Time.current.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
-                      shift_start_seconds = schedule.start_time.utc.seconds_since_midnight
-                      shift_end_seconds = schedule.end_time.utc.seconds_since_midnight
-                      current_seconds = guam_now.seconds_since_midnight
-                      if current_seconds > shift_end_seconds && shift_end_seconds > shift_start_seconds
-                        "no_show"
-                      elsif current_seconds > shift_start_seconds + buffer_seconds
-                        "late"
-                      else
-                        "not_clocked_in"
-                      end
-                    else
-                      "no_schedule"
-                    end,
-            clock_in_at: active_entry&.clock_in_at&.iso8601,
-            clock_out_at: active_entry&.clock_out_at&.iso8601,
-            clock_source: active_entry&.clock_source,
-            completed_hours: (hours + elapsed_hours).round(2),
-            active_break: active_break_record.present?,
-            break_started_at: active_break_record&.start_time&.iso8601,
-            total_break_minutes: active_entry&.total_break_minutes || 0,
-            time_category: active_entry&.time_category ? {
-              id: active_entry.time_category.id,
-              key: active_entry.time_category.key,
-              name: active_entry.time_category.name,
-              hourly_rate_cents: active_entry.time_category.hourly_rate_cents,
-              hourly_rate: active_entry.time_category.hourly_rate
-            } : nil
-          }
-        end
-
-        render json: { workers: workers }
+        render json: { workers: WhosWorkingQuery.call }
       end
 
       private

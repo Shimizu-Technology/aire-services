@@ -1,4 +1,6 @@
 Rails.application.routes.draw do
+  mount ActionCable.server => "/cable"
+
   get "up" => "rails/health#show", as: :rails_health_check
 
   namespace :api do
@@ -17,6 +19,7 @@ Rails.application.routes.draw do
         post "kiosk/clock_out", to: "kiosk#clock_out"
         post "kiosk/start_break", to: "kiosk#start_break"
         post "kiosk/end_break", to: "kiosk#end_break"
+        post "kiosk/switch_category", to: "kiosk#switch_category"
       end
 
       # Staff/admin routes
@@ -27,6 +30,7 @@ Rails.application.routes.draw do
           post :clock_out
           post :start_break
           post :end_break
+          post :switch_category
           get :current_status
           get :pending_approvals
           get :whos_working
@@ -49,6 +53,7 @@ Rails.application.routes.draw do
       end
 
       namespace :admin do
+        resource :settings, only: [ :show, :update ]
         resources :users, only: [ :index, :show, :create, :update, :destroy ] do
           member do
             post :resend_invite

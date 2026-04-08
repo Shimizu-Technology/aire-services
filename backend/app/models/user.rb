@@ -15,11 +15,14 @@ class User < ApplicationRecord
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
   has_many :time_period_locks, foreign_key: "locked_by_id", dependent: :nullify
   has_many :employee_pay_rates, dependent: :destroy
+  has_many :user_time_categories, dependent: :destroy
+  has_many :assigned_time_categories, through: :user_time_categories, source: :time_category
 
   attr_accessor :skip_kiosk_pin_presence_validation
 
   validates :clerk_id, presence: true, uniqueness: true
-  validates :email, presence: true
+  validates :email, uniqueness: { case_sensitive: false }, allow_nil: true
+  validates :email, format: { with: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/ }, allow_blank: true
   validates :role, inclusion: { in: %w[admin employee] }
   validates :kiosk_pin_lookup_hash, uniqueness: true, allow_nil: true
   validate :kiosk_pin_format_if_present
@@ -49,16 +52,20 @@ class User < ApplicationRecord
   def full_name
     if first_name.present? || last_name.present?
       "#{first_name} #{last_name}".strip
-    else
+    elsif email.present?
       email
+    else
+      "User ##{id}"
     end
   end
 
   def display_name
     if first_name.present?
       first_name
-    else
+    elsif email.present?
       email.split("@").first
+    else
+      "User ##{id}"
     end
   end
 
