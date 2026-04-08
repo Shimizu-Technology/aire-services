@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
 import { api } from '../../lib/api'
@@ -27,6 +27,7 @@ const subjects = [
 ]
 
 export default function AireContact() {
+  useEffect(() => { document.title = 'Contact | AIRE Services Guam' }, [])
   const [form, setForm] = useState({
     name: '',
     email: '',

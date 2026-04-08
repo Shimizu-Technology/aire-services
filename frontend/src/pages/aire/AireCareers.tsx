@@ -1,8 +1,9 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
 
 const responsibilities = [
-  'Safely transport customers between designated locations in the Tumon Bay area and AIRE’s main office in Barrigada.',
+  'Safely transport customers between designated locations in the Tumon Bay area and AIRE\'s main office in Barrigada.',
   'Coordinate with the operations manager and staff to ensure timely customer pick-up and drop-off.',
   'Maintain cleanliness and functionality of the shuttle vehicle and report issues to management.',
   'Follow traffic laws and prioritize passenger, pedestrian, and road-user safety at all times.',
@@ -10,11 +11,12 @@ const responsibilities = [
 
 const requirements = [
   'High school diploma or equivalent (GED)',
-  'Valid Guam driver’s license',
+  'Valid Guam driver\'s license',
   'Strong communication skills and a friendly personality',
 ]
 
 export default function AireCareers() {
+  useEffect(() => { document.title = 'Careers | AIRE Services Guam' }, [])
   return (
     <>
       <Seo
@@ -33,8 +35,8 @@ export default function AireCareers() {
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Careers</p>
             <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">Join the AIRE team</h1>
             <p className="mt-4 text-base leading-relaxed text-slate-200 md:text-lg">
-              AIRE’s public hiring page highlights an immediate opening for an on-demand driver. This standalone site keeps the role visible
-              and presents the opportunity in a cleaner, more modern format.
+              AIRE Services is growing and looking for team members who bring positive energy, reliability, and a willingness
+              to learn. Explore our current opening below and reach out if it sounds like a fit.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <a href="mailto:admin@aireservicesguam.com?subject=AIRE%20Career%20Inquiry" className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
@@ -75,7 +77,7 @@ export default function AireCareers() {
               <div className="mt-8 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 text-sm leading-relaxed text-slate-700">
                 <p className="font-semibold text-slate-900">Training Experience</p>
                 <p className="mt-2">
-                  No specific experience is required. AIRE’s public hiring page says the team will train all aspects of the job if you bring the right
+                  No specific experience is required. The team will train all aspects of the job if you bring the right
                   customer-service and relationship skills.
                 </p>
               </div>

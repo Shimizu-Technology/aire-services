@@ -22,6 +22,7 @@ RSpec.describe "AIRE kiosk", type: :request do
   end
 
   before do
+    UserTimeCategory.create!(user: employee, time_category: time_category)
     guam_now = Time.current.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
     guam_today = guam_now.to_date
     start_hour = [ guam_now.hour - 1, 0 ].max

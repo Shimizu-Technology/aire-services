@@ -20,7 +20,7 @@ class AireKioskService
         user: user,
         kiosk_token: AireKioskToken.issue_for(user),
         current_status: TimeClockService.current_status(user: user),
-        available_categories: available_categories
+        available_categories: available_categories_for(user)
       }
     end
 
@@ -53,6 +53,14 @@ class AireKioskService
       response_payload(user, entry)
     end
 
+    def switch_category(kiosk_token:, time_category_id:)
+      user = user_from_token!(kiosk_token)
+      entry = TimeClockService.switch_category(user: user, time_category_id: time_category_id)
+      entry.update!(clock_source: "kiosk")
+      log_action(entry: entry, action: "created", metadata: "source=kiosk;event=switch_category")
+      response_payload(user, entry)
+    end
+
     private
 
     def response_payload(user, entry)
@@ -60,7 +68,7 @@ class AireKioskService
         user: user,
         entry: entry,
         current_status: TimeClockService.current_status(user: user),
-        available_categories: available_categories
+        available_categories: available_categories_for(user)
       }
     end
 
@@ -72,10 +80,8 @@ class AireKioskService
       user
     end
 
-    def available_categories
-      categories = TimeCategory.active.where("key LIKE ?", "aire_%").order(:name)
-      categories = TimeCategory.active.order(:name) if categories.none?
-      categories
+    def available_categories_for(user)
+      user.assigned_time_categories.active.order(:name)
     end
 
     def validate_pin!(pin)

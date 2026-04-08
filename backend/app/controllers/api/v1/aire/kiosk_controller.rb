@@ -12,7 +12,7 @@ module Api
             employee: serialize_user(result[:user]),
             kiosk_token: result[:kiosk_token],
             current_status: serialize_status(result[:current_status]),
-            available_categories: serialize_categories(result[:available_categories])
+            available_categories: serialize_categories_for(result[:user], result[:available_categories])
           }
         rescue AireKioskService::KioskError => e
           failed_user = User.find_kiosk_user_by_pin(params[:pin].to_s)
@@ -56,6 +56,17 @@ module Api
           render json: { error: e.message }, status: :unprocessable_entity
         end
 
+        # POST /api/v1/aire/kiosk/switch_category
+        def switch_category
+          result = AireKioskService.switch_category(
+            kiosk_token: params[:kiosk_token].to_s,
+            time_category_id: params[:time_category_id]
+          )
+          render json: serialize_action_response(result)
+        rescue AireKioskService::KioskError, TimeClockService::ClockError => e
+          render json: { error: e.message }, status: :unprocessable_entity
+        end
+
         private
 
         def serialize_action_response(result)
@@ -63,7 +74,7 @@ module Api
             employee: serialize_user(result[:user]),
             time_entry: serialize_entry(result[:entry]),
             current_status: serialize_status(result[:current_status]),
-            available_categories: serialize_categories(result[:available_categories])
+            available_categories: serialize_categories_for(result[:user], result[:available_categories])
           }
         end
 
@@ -75,15 +86,18 @@ module Api
           }
         end
 
-        def serialize_categories(categories)
+        def serialize_categories_for(user, categories)
+          utc_lookup = user.user_time_categories.index_by(&:time_category_id)
           categories.map do |category|
+            utc = utc_lookup[category.id]
+            effective_cents = utc&.effective_hourly_rate_cents || category.hourly_rate_cents
             {
               id: category.id,
               key: category.key,
               name: category.name,
               description: category.description,
-              hourly_rate_cents: category.hourly_rate_cents,
-              hourly_rate: category.hourly_rate
+              hourly_rate_cents: effective_cents,
+              hourly_rate: effective_cents ? (effective_cents.to_f / 100).round(2) : nil
             }
           end
         end

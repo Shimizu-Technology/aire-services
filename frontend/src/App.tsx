@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 
 import { PostHogPageView } from './providers/PostHogProvider'
 import PublicLayout from './components/layouts/PublicLayout'
@@ -31,6 +31,18 @@ function AdminLoadingFallback() {
   )
 }
 
+function NotFound() {
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center">
+      <h1 className="text-6xl font-bold text-slate-900">404</h1>
+      <p className="mt-4 text-lg text-slate-600">The page you're looking for doesn't exist.</p>
+      <Link to="/" className="mt-6 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+        Back to Home
+      </Link>
+    </div>
+  )
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -43,6 +55,7 @@ function App() {
           <Route path="/discovery-flight" element={<AireDiscoveryFlight />} />
           <Route path="/careers" element={<AireCareers />} />
           <Route path="/contact" element={<AireContact />} />
+          <Route path="*" element={<NotFound />} />
         </Route>
 
         <Route path="/kiosk" element={<AireKiosk />} />
@@ -57,21 +70,20 @@ function App() {
         >
           <Route index element={<Suspense fallback={<AdminLoadingFallback />}><Dashboard /></Suspense>} />
           <Route path="time" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking /></Suspense>} />
-          <Route path="reports" element={<Navigate to="/admin/time?tab=reports" replace />} />
           <Route path="schedule" element={<Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense>} />
-          <Route
-            path="users"
-            element={
-              <ProtectedRoute requiredRole="admin">
-                <Suspense fallback={<AdminLoadingFallback />}><Users /></Suspense>
-              </ProtectedRoute>
-            }
-          />
           <Route
             path="settings"
             element={
               <ProtectedRoute requiredRole="admin">
                 <Suspense fallback={<AdminLoadingFallback />}><Settings /></Suspense>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="users"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <Suspense fallback={<AdminLoadingFallback />}><Users /></Suspense>
               </ProtectedRoute>
             }
           />

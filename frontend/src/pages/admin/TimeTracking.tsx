@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { FadeUp, StaggerContainer, StaggerItem } from '../../components/ui/MotionComponents'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSearchParams } from 'react-router-dom'
@@ -16,8 +16,6 @@ interface TimeCategory {
   key?: string | null
   name: string
   description: string | null
-  hourly_rate_cents?: number | null
-  hourly_rate?: number | null
 }
 
 interface TimeEntryItem {
@@ -52,11 +50,7 @@ interface TimeEntryItem {
     id: number
     key?: string | null
     name: string
-    hourly_rate_cents?: number | null
-    hourly_rate?: number | null
   } | null
-  effective_rate_cents?: number | null
-  effective_rate?: number | null
   locked_at: string | null
   created_at: string
   updated_at: string
@@ -171,8 +165,10 @@ export default function TimeTracking() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  // Tab: 'entries' or 'reports'
-  const [activeTab, setActiveTab] = useState<'entries' | 'reports'>('entries')
+  // Tab: 'entries' or 'reports' — respect ?tab=reports from deep links
+  const [activeTab, setActiveTab] = useState<'entries' | 'reports'>(
+    searchParams.get('tab') === 'reports' ? 'reports' : 'entries'
+  )
   
   // View mode: 'day' or 'week'
   const [viewMode, setViewMode] = useState<'day' | 'week'>('week')
@@ -191,7 +187,7 @@ export default function TimeTracking() {
     end_date: formatDateISO(new Date()),
     user_id: '',
     time_category_id: '',
-    aire_only: true,
+    aire_only: false,
   })
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [reportLoading, setReportLoading] = useState(false)
@@ -202,6 +198,10 @@ export default function TimeTracking() {
   const [currentWeekLockId, setCurrentWeekLockId] = useState<number | null>(null)
   const [lockingWeek, setLockingWeek] = useState(false)
   
+  // Person-day modal state (grouped calendar entries)
+  const [personDayModal, setPersonDayModal] = useState<{ entries: TimeEntryItem[]; name: string; date: string } | null>(null)
+  const returnToPersonDay = useRef<{ name: string; date: string; userId: number } | null>(null)
+
   // Modal state
   const [showModal, setShowModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<TimeEntryItem | null>(null)
@@ -438,19 +438,14 @@ export default function TimeTracking() {
     }
   }, [activeTab, loadReport])
 
+  // Clean up ?tab= from URL after reading it on mount
   useEffect(() => {
-    const requestedTab = searchParams.get('tab')
-    if (requestedTab === 'reports') {
-      if (isAdmin) {
-        setActiveTab('reports')
-      } else {
-        setActiveTab('entries')
-      }
-      return
+    if (searchParams.has('tab')) {
+      searchParams.delete('tab')
+      setSearchParams(searchParams, { replace: true })
     }
-
-    setActiveTab('entries')
-  }, [isAdmin, searchParams])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Handle prefill from schedule
   useEffect(() => {
@@ -477,7 +472,7 @@ export default function TimeTracking() {
       // Clear the URL params
       setSearchParams({})
     }
-  }, [currentUserId, searchParams, setSearchParams])
+  }, [searchParams, setSearchParams])
 
   // Navigation
   const goToToday = () => setCurrentDate(new Date())
@@ -536,6 +531,35 @@ export default function TimeTracking() {
     setShowModal(true)
   }
 
+  const reopenPersonDayAfterLoad = useRef<{ name: string; date: string; userId: number } | null>(null)
+
+  useEffect(() => {
+    const ctx = reopenPersonDayAfterLoad.current
+    if (!ctx) return
+    reopenPersonDayAfterLoad.current = null
+    const freshEntries = entries.filter(
+      e => e.user.id === ctx.userId && e.work_date === ctx.date
+    )
+    if (freshEntries.length > 0) {
+      setPersonDayModal({ entries: freshEntries, name: ctx.name, date: ctx.date })
+    }
+  }, [entries])
+
+  const closeEditModal = () => {
+    setShowModal(false)
+    setEditingEntry(null)
+    const ctx = returnToPersonDay.current
+    if (ctx) {
+      returnToPersonDay.current = null
+      const freshEntries = entries.filter(
+        e => e.user.id === ctx.userId && e.work_date === ctx.date
+      )
+      if (freshEntries.length > 0) {
+        setPersonDayModal({ entries: freshEntries, name: ctx.name, date: ctx.date })
+      }
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (dateIsInLockedWeek(formData.work_date)) {
@@ -576,6 +600,8 @@ export default function TimeTracking() {
         }
       }
 
+      reopenPersonDayAfterLoad.current = returnToPersonDay.current
+      returnToPersonDay.current = null
       setShowModal(false)
       loadEntries()
     } catch {
@@ -605,6 +631,8 @@ export default function TimeTracking() {
         setError(response.error)
         return
       }
+      reopenPersonDayAfterLoad.current = returnToPersonDay.current
+      returnToPersonDay.current = null
       setShowModal(false)
       setEditingEntry(null)
       loadEntries()
@@ -658,37 +686,32 @@ export default function TimeTracking() {
 
   const aireCategories = categories.filter(cat => cat.key?.startsWith('aire_'))
 
-  const payrollSummaryByEmployeeCategory = reportData.reduce((acc, entry) => {
+  const hoursSummaryByEmployeeCategory = reportData.reduce((acc, entry) => {
     const employeeName = entry.user.full_name || entry.user.display_name || entry.user.email.split('@')[0]
     const categoryName = entry.time_category?.name || 'Uncategorized'
-    const source = entry.clock_source || 'legacy'
-    const rate = entry.effective_rate ?? entry.time_category?.hourly_rate ?? 0
-    const key = `${employeeName}__${categoryName}__${source}__${rate}`
+    const key = `${employeeName}__${categoryName}`
     if (!acc[key]) {
       acc[key] = {
         employeeName,
         categoryName,
         hours: 0,
-        rate,
-        estimatedGross: 0,
-        source,
+        breakHours: 0,
+        entries: 0,
       }
     }
     acc[key].hours += entry.hours
-    acc[key].estimatedGross += entry.hours * rate
+    acc[key].breakHours += (entry.break_minutes || 0) / 60
+    acc[key].entries += 1
     return acc
-  }, {} as Record<string, { employeeName: string; categoryName: string; hours: number; rate: number; estimatedGross: number; source: string }>)
+  }, {} as Record<string, { employeeName: string; categoryName: string; hours: number; breakHours: number; entries: number }>)
 
-  const payrollRows = Object.values(payrollSummaryByEmployeeCategory).sort((a, b) => {
+  const hoursSummaryRows = Object.values(hoursSummaryByEmployeeCategory).sort((a, b) => {
     if (a.employeeName === b.employeeName) return b.hours - a.hours
     return a.employeeName.localeCompare(b.employeeName)
   })
 
-  const payrollTotals = payrollRows.reduce((acc, row) => {
-    acc.hours += row.hours
-    acc.estimatedGross += row.estimatedGross
-    return acc
-  }, { hours: 0, estimatedGross: 0 })
+  const hoursSummaryTotal = hoursSummaryRows.reduce((acc, row) => acc + row.hours, 0)
+  const hoursSummaryBreakTotal = hoursSummaryRows.reduce((acc, row) => acc + row.breakHours, 0)
 
   const reportBySource = reportData.reduce((acc, entry) => {
     const source = entry.clock_source || 'legacy'
@@ -697,51 +720,15 @@ export default function TimeTracking() {
     return acc
   }, {} as Record<string, number>)
 
-  const applyReportRange = (kind: 'this_week' | 'this_month' | 'last_14_days') => {
-    const today = new Date()
-
-    if (kind === 'this_week') {
-      const weekStart = new Date(today)
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay())
-      const weekEnd = new Date(weekStart)
-      weekEnd.setDate(weekEnd.getDate() + 6)
-      setReportFilters((prev) => ({
-        ...prev,
-        start_date: formatDateISO(weekStart),
-        end_date: formatDateISO(weekEnd),
-      }))
-      return
-    }
-
-    if (kind === 'this_month') {
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
-      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
-      setReportFilters((prev) => ({
-        ...prev,
-        start_date: formatDateISO(monthStart),
-        end_date: formatDateISO(monthEnd),
-      }))
-      return
-    }
-
-    const start = new Date(today)
-    start.setDate(today.getDate() - 13)
-    setReportFilters((prev) => ({
-      ...prev,
-      start_date: formatDateISO(start),
-      end_date: formatDateISO(today),
-    }))
-  }
-
-  const exportPayrollCsv = () => {
-    const headers = ['Employee','Category','Hours','Rate','Estimated Gross','Clock Source','Date Range Start','Date Range End']
-    const rows = payrollRows.map(row => [
+  const exportHoursCsv = () => {
+    const headers = ['Employee','Category','Work Hours','Break Hours','Net Hours','Entries','Date Range Start','Date Range End']
+    const rows = hoursSummaryRows.map(row => [
       row.employeeName,
       row.categoryName,
       row.hours.toFixed(2),
-      row.rate.toFixed(2),
-      row.estimatedGross.toFixed(2),
-      row.source,
+      row.breakHours.toFixed(2),
+      (row.hours - row.breakHours).toFixed(2),
+      row.entries.toString(),
       reportFilters.start_date,
       reportFilters.end_date,
     ])
@@ -752,7 +739,7 @@ export default function TimeTracking() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `aire-payroll-summary-${reportFilters.start_date}-to-${reportFilters.end_date}.csv`
+    a.download = `aire-hours-summary-${reportFilters.start_date}-to-${reportFilters.end_date}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -761,40 +748,22 @@ export default function TimeTracking() {
     <div className="space-y-6">
       {/* Header */}
       <FadeUp>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-primary-dark tracking-tight">Time Tracking</h1>
-          <p className="text-text-muted mt-1">Track work, review approvals, and turn completed hours into payroll-ready reporting.</p>
+          <p className="text-text-muted mt-1">Track your hours by work category, source, and pay period.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {activeTab === 'entries' && isAdmin && (
-            <button
-              onClick={() => {
-                setActiveTab('reports')
-                setSearchParams((prev) => {
-                  const next = new URLSearchParams(prev)
-                  next.set('tab', 'reports')
-                  return next
-                })
-              }}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-warm px-4 py-2 text-sm font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
-            >
-              <ChartIcon />
-              <span>Open Reports</span>
-            </button>
-          )}
-          {activeTab === 'entries' && (
-            <button
-              onClick={() => openNewEntry()}
-              disabled={currentWeekLocked}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
-              title={currentWeekLocked ? 'This week is locked' : 'Log Time'}
-            >
-              <PlusIcon />
-              <span>Log Time</span>
-            </button>
-          )}
-        </div>
+        {activeTab === 'entries' && (
+          <button
+            onClick={() => openNewEntry()}
+            disabled={currentWeekLocked}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
+            title={currentWeekLocked ? 'This week is locked' : 'Log Time'}
+          >
+            <PlusIcon />
+            <span>Log Time</span>
+          </button>
+        )}
       </div>
       </FadeUp>
 
@@ -813,14 +782,7 @@ export default function TimeTracking() {
       <div className="border-b border-neutral-warm">
         <nav className="flex gap-4">
           <button
-            onClick={() => {
-              setActiveTab('entries')
-              setSearchParams((prev) => {
-                const next = new URLSearchParams(prev)
-                next.set('tab', 'entries')
-                return next
-              })
-            }}
+            onClick={() => setActiveTab('entries')}
             className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
               activeTab === 'entries'
                 ? 'border-primary text-primary'
@@ -832,14 +794,7 @@ export default function TimeTracking() {
           </button>
           {isAdmin && (
             <button
-              onClick={() => {
-                setActiveTab('reports')
-                setSearchParams((prev) => {
-                  const next = new URLSearchParams(prev)
-                  next.set('tab', 'reports')
-                  return next
-                })
-              }}
+              onClick={() => setActiveTab('reports')}
               className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
                 activeTab === 'reports'
                   ? 'border-primary text-primary'
@@ -1162,6 +1117,15 @@ export default function TimeTracking() {
                 const dateStr = formatDateISO(date)
                 const dayEntries = entriesByDate[dateStr] || []
                 const isToday = isSameDay(date, new Date())
+
+                const groupedByUser = dayEntries.reduce((acc, entry) => {
+                  const uid = entry.user.id
+                  if (!acc[uid]) acc[uid] = []
+                  acc[uid].push(entry)
+                  return acc
+                }, {} as Record<number, TimeEntryItem[]>)
+
+                const userGroups = Object.values(groupedByUser)
                 
                 return (
                   <div
@@ -1170,44 +1134,54 @@ export default function TimeTracking() {
                       isToday ? 'bg-primary/10' : ''
                     }`}
                   >
-                    {dayEntries.map(entry => (
-                      <div
-                        key={entry.id}
-                        className={`mb-1 sm:mb-2 p-1 sm:p-2 bg-white border rounded text-xs cursor-pointer hover:bg-neutral-warm/50 transition-colors shadow-sm ${entry.locked_at ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm'}`}
-                        onClick={() => openEditEntry(entry)}
-                      >
-                        <div className="font-bold text-primary-dark flex items-center gap-1">
-                          {entry.locked_at ? <LockIcon /> : <ClockIcon />}
-                          {entry.hours}h
-                          {entry.approval_status === 'pending' && (
-                            <span className="ml-auto w-2 h-2 rounded-full bg-amber-500" title="Pending approval" />
-                          )}
-                          {entry.approval_status === 'denied' && (
-                            <span className="ml-auto w-2 h-2 rounded-full bg-red-500" title="Denied" />
-                          )}
-                          {entry.overtime_status === 'pending' && (
-                            <span className="ml-auto w-2 h-2 rounded-full bg-orange-500" title="Overtime pending" />
-                          )}
-                        </div>
-                        {entry.entry_method === 'clock' && (
-                          <div className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">CLOCK</div>
-                        )}
-                        {entry.formatted_start_time && entry.formatted_end_time && (
-                          <div className="text-primary-dark/70 text-[10px]">
-                            {entry.formatted_start_time} - {entry.formatted_end_time}
+                    {userGroups.map(userEntries => {
+                      const totalHours = userEntries.reduce((s, e) => s + e.hours, 0)
+                      const name = ownerLabel(userEntries[0])
+                      const hasMultiple = userEntries.length > 1
+                      const hasPending = userEntries.some(e => e.approval_status === 'pending')
+                      const hasDenied = userEntries.some(e => e.approval_status === 'denied')
+                      const hasLocked = userEntries.some(e => e.locked_at)
+                      const firstStart = userEntries[0].formatted_start_time
+                      const lastEnd = userEntries[userEntries.length - 1].formatted_end_time
+
+                      if (!hasMultiple) {
+                        const entry = userEntries[0]
+                        return (
+                          <div
+                            key={entry.id}
+                            className={`mb-1 sm:mb-2 p-1 sm:p-2 bg-white border rounded text-xs cursor-pointer hover:bg-neutral-warm/50 transition-colors shadow-sm ${entry.locked_at ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm'}`}
+                            onClick={() => openEditEntry(entry)}
+                          >
+                            <div className="font-bold text-primary-dark flex items-center gap-1">
+                              {entry.locked_at ? <LockIcon /> : <ClockIcon />}
+                              {entry.hours.toFixed(2)}h
+                              {entry.approval_status === 'pending' && <span className="ml-auto w-2 h-2 rounded-full bg-amber-500" title="Pending approval" />}
+                              {entry.approval_status === 'denied' && <span className="ml-auto w-2 h-2 rounded-full bg-red-500" title="Denied" />}
+                            </div>
+                            {entry.formatted_start_time && entry.formatted_end_time && (
+                              <div className="text-primary-dark/70 text-[10px]">{entry.formatted_start_time} – {entry.formatted_end_time}</div>
+                            )}
+                            {entry.time_category && <div className="text-primary font-medium truncate text-[10px] sm:text-xs">{entry.time_category.name}</div>}
+                            <div className="text-primary-dark/70 truncate text-[10px] mt-0.5">{name}</div>
                           </div>
-                        )}
-                        {entry.time_category && (
-                          <div className="text-primary font-medium truncate text-[10px] sm:text-xs">{entry.time_category.name}</div>
-                        )}
-                        <div className="text-primary-dark/70 truncate text-[10px] mt-0.5 sm:mt-1">{ownerLabel(entry)}</div>
-                        {entry.approval_note && (
-                          <div className="text-[9px] text-text-muted italic truncate mt-0.5" title={entry.approval_note}>
-                            "{entry.approval_note}"
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                        )
+                      }
+
+                      return (
+                        <CalendarUserGroup
+                          key={userEntries[0].user.id}
+                          entries={userEntries}
+                          name={name}
+                          totalHours={totalHours}
+                          firstStart={firstStart}
+                          lastEnd={lastEnd}
+                          hasLocked={hasLocked}
+                          hasPending={hasPending}
+                          hasDenied={hasDenied}
+                          onClick={() => setPersonDayModal({ entries: userEntries, name, date: formatDateISO(date) })}
+                        />
+                      )
+                    })}
                     <button
                       onClick={() => openNewEntry(date)}
                       disabled={currentWeekLocked}
@@ -1337,6 +1311,70 @@ export default function TimeTracking() {
         </FadeIn>
       )}
 
+      {/* Person Day Modal - shows all entries for one person on one day */}
+      <AnimatePresence>
+      {personDayModal && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={(e) => { if (e.target === e.currentTarget) setPersonDayModal(null) }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            transition={{ duration: 0.25, delay: 0.1 }}
+            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+          >
+            <PersonDayModalContent
+              entries={personDayModal.entries}
+              name={personDayModal.name}
+              dateLabel={formatDate(personDayModal.date)}
+              isAdmin={isAdmin}
+              categories={categories}
+              isLocked={dateIsInLockedWeek(personDayModal.date)}
+              onEditEntry={(entry) => {
+                returnToPersonDay.current = { name: personDayModal.name, date: personDayModal.date, userId: entry.user.id }
+                setPersonDayModal(null)
+                openEditEntry(entry)
+              }}
+              onAddEntry={() => {
+                const e = personDayModal.entries[0]
+                const userId = e ? e.user.id : currentUserId
+                returnToPersonDay.current = { name: personDayModal.name, date: personDayModal.date, userId: userId || 0 }
+                setPersonDayModal(null)
+                setEditingEntry(null)
+                setFormData({
+                  work_date: personDayModal.date,
+                  start_time: '08:00',
+                  end_time: '17:00',
+                  description: '',
+                  time_category_id: '',
+                  user_id: userId?.toString() || '',
+                  break_minutes: null
+                })
+                setShowModal(true)
+              }}
+              onDeleteEntry={async (entry) => {
+                await handleDelete(entry)
+                const remaining = personDayModal.entries.filter(e => e.id !== entry.id)
+                if (remaining.length === 0) {
+                  setPersonDayModal(null)
+                } else {
+                  setPersonDayModal({ ...personDayModal, entries: remaining })
+                }
+              }}
+              canDelete={canDeleteEntry}
+              onClose={() => setPersonDayModal(null)}
+            />
+          </motion.div>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
       {/* Entry Modal */}
       <AnimatePresence>
       {showModal && (
@@ -1347,7 +1385,7 @@ export default function TimeTracking() {
           transition={{ duration: 0.2 }}
           className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setShowModal(false)
+            if (e.target === e.currentTarget) closeEditModal()
           }}
         >
           <motion.div
@@ -1558,7 +1596,7 @@ export default function TimeTracking() {
                   <div className="flex gap-3">
                     <button
                       type="button"
-                      onClick={() => setShowModal(false)}
+                      onClick={closeEditModal}
                       className="px-4 py-2 text-primary-dark font-medium hover:bg-neutral-warm rounded-lg transition-colors"
                     >
                       Cancel
@@ -1589,33 +1627,27 @@ export default function TimeTracking() {
           {/* Report Filters */}
           <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-medium text-primary-dark">Report Filters</h3>
-                <p className="mt-1 text-xs text-text-muted">Use quick ranges to jump to payroll periods, then narrow by employee or category.</p>
-              </div>
+              <h3 className="text-sm font-medium text-primary-dark">Filter Report</h3>
               <div className="flex flex-wrap items-center gap-3">
-                <label className="inline-flex items-center gap-2 text-sm text-text-muted">
-                  <input
-                    type="checkbox"
-                    checked={reportFilters.aire_only}
-                    onChange={(e) => setReportFilters({ ...reportFilters, aire_only: e.target.checked, time_category_id: e.target.checked ? '' : reportFilters.time_category_id })}
-                    className="rounded border-neutral-warm text-primary focus:ring-primary"
-                  />
-                  AIRE categories only
-                </label>
+                {aireCategories.length > 0 && aireCategories.length < categories.length && (
+                  <label className="inline-flex items-center gap-2 text-sm text-text-muted">
+                    <input
+                      type="checkbox"
+                      checked={reportFilters.aire_only}
+                      onChange={(e) => setReportFilters({ ...reportFilters, aire_only: e.target.checked, time_category_id: e.target.checked ? '' : reportFilters.time_category_id })}
+                      className="rounded border-neutral-warm text-primary focus:ring-primary"
+                    />
+                    AIRE categories only
+                  </label>
+                )}
                 <button
-                  onClick={exportPayrollCsv}
-                  disabled={reportLoading || payrollRows.length === 0}
+                  onClick={exportHoursCsv}
+                  disabled={reportLoading || hoursSummaryRows.length === 0}
                   className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark disabled:opacity-50"
                 >
-                  Export Payroll CSV
+                  Export Hours CSV
                 </button>
               </div>
-            </div>
-            <div className="mb-4 flex flex-wrap gap-2">
-              <button onClick={() => applyReportRange('this_week')} className="rounded-full border border-neutral-warm px-3 py-1.5 text-sm text-primary-dark transition hover:bg-neutral-warm">This week</button>
-              <button onClick={() => applyReportRange('last_14_days')} className="rounded-full border border-neutral-warm px-3 py-1.5 text-sm text-primary-dark transition hover:bg-neutral-warm">Last 14 days</button>
-              <button onClick={() => applyReportRange('this_month')} className="rounded-full border border-neutral-warm px-3 py-1.5 text-sm text-primary-dark transition hover:bg-neutral-warm">This month</button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
@@ -1719,16 +1751,24 @@ export default function TimeTracking() {
             </div>
           )}
 
-          {/* Payroll Summary */}
+          {/* Hours Summary by Employee & Category */}
           <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
             <div className="px-4 py-3 border-b border-neutral-warm bg-neutral-warm/30 flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-primary-dark">AIRE Payroll Summary</h3>
-                <p className="text-xs text-text-muted mt-0.5">Grouped by employee and work category using each entry’s snapshotted effective hourly rate</p>
+                <h3 className="font-semibold text-primary-dark">Hours Summary</h3>
+                <p className="text-xs text-text-muted mt-0.5">Grouped by employee and work category</p>
               </div>
-              <div className="text-right">
-                <div className="text-xs text-text-muted">Estimated Gross</div>
-                <div className="text-lg font-bold text-primary">${payrollTotals.estimatedGross.toFixed(2)}</div>
+              <div className="flex items-center gap-4 text-right">
+                <div>
+                  <div className="text-xs text-text-muted">Work Hours</div>
+                  <div className="text-lg font-bold text-primary">{hoursSummaryTotal.toFixed(2)}</div>
+                </div>
+                {hoursSummaryBreakTotal > 0 && (
+                  <div>
+                    <div className="text-xs text-text-muted">Break Hours</div>
+                    <div className="text-lg font-bold text-text-muted">{hoursSummaryBreakTotal.toFixed(2)}</div>
+                  </div>
+                )}
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -1737,25 +1777,23 @@ export default function TimeTracking() {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Employee</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Category</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Source</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Hours</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Rate</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Estimated Gross</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Entries</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Work Hours</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Breaks</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-warm">
                   {reportLoading ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">Loading...</td></tr>
-                  ) : payrollRows.length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-text-muted">No payroll rows for this range</td></tr>
-                  ) : payrollRows.map((row) => (
+                    <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading...</td></tr>
+                  ) : hoursSummaryRows.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">No data for this range</td></tr>
+                  ) : hoursSummaryRows.map((row) => (
                     <tr key={`${row.employeeName}-${row.categoryName}`} className="hover:bg-neutral-warm/20">
                       <td className="px-4 py-3 text-sm text-primary-dark">{row.employeeName}</td>
                       <td className="px-4 py-3 text-sm text-text-muted">{row.categoryName}</td>
-                      <td className="px-4 py-3 text-sm text-text-muted uppercase">{row.source}</td>
+                      <td className="px-4 py-3 text-sm text-right text-text-muted">{row.entries}</td>
                       <td className="px-4 py-3 text-sm text-right font-semibold text-primary-dark">{row.hours.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-sm text-right text-text-muted">${row.rate.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-sm text-right font-semibold text-primary">${row.estimatedGross.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-sm text-right text-text-muted">{row.breakHours > 0 ? `${row.breakHours.toFixed(2)}` : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1837,62 +1875,450 @@ export default function TimeTracking() {
           </div>
 
           {/* Detailed Entries Table */}
-          <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
-            <div className="px-4 py-3 border-b border-neutral-warm bg-neutral-warm/30">
-              <h3 className="font-semibold text-primary-dark">Detailed Entries</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-neutral-warm/50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Date</th>
-                    {isAdmin && <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Employee</th>}
-                    <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Category</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Source</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Hours</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Rate</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Description</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-warm">
-                  {reportLoading ? (
-                    <tr>
-                      <td colSpan={isAdmin ? 8 : 7} className="px-4 py-8 text-center text-text-muted">Loading...</td>
-                    </tr>
-                  ) : reportData.length === 0 ? (
-                    <tr>
-                      <td colSpan={isAdmin ? 8 : 7} className="px-4 py-8 text-center text-text-muted">No entries found</td>
-                    </tr>
-                  ) : (
-                    reportData.slice(0, 100).map(entry => (
-                      <tr key={entry.id} className="hover:bg-neutral-warm/20">
-                        <td className="px-4 py-3 text-sm text-primary-dark whitespace-nowrap">{formatDate(entry.work_date)}</td>
-                        {isAdmin && <td className="px-4 py-3 text-sm text-text-muted truncate max-w-[150px]">{entry.user.display_name || entry.user.email.split('@')[0]}</td>}
-                        <td className="px-4 py-3 text-sm text-primary-dark whitespace-nowrap">
-                          {entry.formatted_start_time && entry.formatted_end_time 
-                            ? `${entry.formatted_start_time} - ${entry.formatted_end_time}`
-                            : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-text-muted">{entry.time_category?.name || '-'}</td>
-                        <td className="px-4 py-3 text-sm text-text-muted uppercase">{entry.clock_source || 'legacy'}</td>
-                        <td className="px-4 py-3 text-sm text-primary font-semibold text-right">{entry.hours.toFixed(1)}</td>
-                        <td className="px-4 py-3 text-sm text-text-muted text-right">{entry.effective_rate != null ? `$${entry.effective_rate.toFixed(2)}` : entry.time_category?.hourly_rate != null ? `$${entry.time_category.hourly_rate.toFixed(2)}` : '-'}</td>
-                        <td className="px-4 py-3 text-sm text-text-muted truncate max-w-[200px]">{entry.description || '-'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-              {reportData.length > 100 && (
-                <div className="px-4 py-3 text-center text-sm text-text-muted border-t border-neutral-warm">
-                  Showing first 100 entries of {reportData.length} total
-                </div>
-              )}
-            </div>
-          </div>
+          <DetailedEntriesTable
+            entries={reportData}
+            isAdmin={isAdmin}
+            loading={reportLoading}
+          />
         </div>
       )}
+    </div>
+  )
+}
+
+function DetailedEntriesTable({
+  entries,
+  isAdmin,
+  loading,
+}: {
+  entries: TimeEntryItem[]
+  isAdmin: boolean
+  loading: boolean
+}) {
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+
+  const groups = entries.reduce((acc, entry) => {
+    const name = entry.user.full_name || entry.user.display_name || entry.user.email.split('@')[0]
+    const key = `${entry.work_date}__${entry.user.id}`
+    if (!acc[key]) {
+      acc[key] = { date: entry.work_date, userId: entry.user.id, name, entries: [] }
+    }
+    acc[key].entries.push(entry)
+    return acc
+  }, {} as Record<string, { date: string; userId: number; name: string; entries: TimeEntryItem[] }>)
+
+  const groupList = Object.entries(groups)
+    .sort(([, a], [, b]) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name))
+
+  const toggle = (key: string) => {
+    setExpandedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const colCount = isAdmin ? 8 : 7
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
+      <div className="px-4 py-3 border-b border-neutral-warm bg-neutral-warm/30">
+        <h3 className="font-semibold text-primary-dark">Detailed Entries</h3>
+        <p className="text-xs text-text-muted mt-0.5">Grouped by employee per day — click to expand</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-neutral-warm/50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Date</th>
+              {isAdmin && <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Employee</th>}
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Time</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Categories</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Source</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Hours</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Breaks</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Description</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-warm">
+            {loading ? (
+              <tr><td colSpan={colCount} className="px-4 py-8 text-center text-text-muted">Loading...</td></tr>
+            ) : groupList.length === 0 ? (
+              <tr><td colSpan={colCount} className="px-4 py-8 text-center text-text-muted">No entries found</td></tr>
+            ) : (
+              groupList.slice(0, 100).map(([key, group]) => {
+                const isExpanded = expandedKeys.has(key)
+                const totalHours = group.entries.reduce((s, e) => s + e.hours, 0)
+                const totalBreaks = group.entries.reduce((s, e) => s + (e.break_minutes || 0), 0)
+                const hasMultiple = group.entries.length > 1
+                const cats = [...new Set(group.entries.map(e => e.time_category?.name || 'Other'))]
+                const sources = [...new Set(group.entries.map(e => e.clock_source || 'legacy'))]
+                const firstStart = group.entries[0].formatted_start_time
+                const lastEnd = group.entries[group.entries.length - 1].formatted_end_time
+                const descriptions = group.entries.map(e => e.description).filter(Boolean)
+
+                return (
+                  <Fragment key={key}>
+                    <tr
+                      className={`hover:bg-neutral-warm/20 ${hasMultiple ? 'cursor-pointer' : ''}`}
+                      onClick={() => hasMultiple && toggle(key)}
+                    >
+                      <td className="px-4 py-3 text-sm text-primary-dark whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          {hasMultiple && (
+                            <svg className={`w-3 h-3 text-text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          )}
+                          {formatDate(group.date)}
+                        </div>
+                      </td>
+                      {isAdmin && <td className="px-4 py-3 text-sm text-text-muted">{group.name}</td>}
+                      <td className="px-4 py-3 text-sm text-primary-dark whitespace-nowrap">
+                        {firstStart && lastEnd ? `${firstStart} – ${lastEnd}` : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-text-muted">
+                        {hasMultiple ? (
+                          <div className="flex flex-wrap gap-1">
+                            {cats.map(c => (
+                              <span key={c} className="inline-block bg-secondary/60 text-primary-dark rounded px-1.5 py-0.5 text-[10px] font-medium">{c}</span>
+                            ))}
+                          </div>
+                        ) : cats[0]}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-text-muted uppercase">{sources.join(', ')}</td>
+                      <td className="px-4 py-3 text-sm text-primary font-semibold text-right">
+                        {totalHours.toFixed(2)}
+                        {hasMultiple && <span className="text-[10px] text-text-muted font-normal ml-1">({group.entries.length})</span>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-text-muted text-right">{totalBreaks > 0 ? `${totalBreaks}m` : '—'}</td>
+                      <td className="px-4 py-3 text-sm text-text-muted truncate max-w-[200px]">{descriptions.length > 0 ? descriptions.join('; ') : '-'}</td>
+                    </tr>
+                    {isExpanded && group.entries.map(entry => (
+                      <tr key={entry.id} className="bg-secondary/30">
+                        <td className="pl-10 pr-4 py-2 text-xs text-text-muted whitespace-nowrap"></td>
+                        {isAdmin && <td className="px-4 py-2 text-xs text-text-muted"></td>}
+                        <td className="px-4 py-2 text-xs text-primary-dark whitespace-nowrap">
+                          {entry.formatted_start_time && entry.formatted_end_time
+                            ? `${entry.formatted_start_time} – ${entry.formatted_end_time}`
+                            : '-'}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-text-muted">{entry.time_category?.name || '-'}</td>
+                        <td className="px-4 py-2 text-xs text-text-muted uppercase">{entry.clock_source || 'legacy'}</td>
+                        <td className="px-4 py-2 text-xs text-primary font-semibold text-right">{entry.hours.toFixed(2)}</td>
+                        <td className="px-4 py-2 text-xs text-text-muted text-right">{entry.break_minutes ? `${entry.break_minutes}m` : '—'}</td>
+                        <td className="px-4 py-2 text-xs text-text-muted truncate max-w-[200px]">{entry.description || '-'}</td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+        {groupList.length > 100 && (
+          <div className="px-4 py-3 text-center text-sm text-text-muted border-t border-neutral-warm">
+            Showing first 100 groups of {groupList.length} total
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CalendarUserGroup({
+  entries,
+  name,
+  totalHours,
+  firstStart,
+  lastEnd,
+  hasLocked,
+  hasPending,
+  hasDenied,
+  onClick,
+}: {
+  entries: TimeEntryItem[]
+  name: string
+  totalHours: number
+  firstStart: string | null
+  lastEnd: string | null
+  hasLocked: boolean
+  hasPending: boolean
+  hasDenied: boolean
+  onClick: () => void
+}) {
+  const catSummary = entries.reduce((acc, e) => {
+    const cat = e.time_category?.name || 'Other'
+    acc[cat] = (acc[cat] || 0) + e.hours
+    return acc
+  }, {} as Record<string, number>)
+
+  return (
+    <div
+      className={`mb-1 sm:mb-2 border rounded text-xs shadow-sm cursor-pointer hover:shadow-md transition-all ${hasLocked ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm bg-white hover:border-primary/40'}`}
+      onClick={onClick}
+    >
+      <div className="p-1 sm:p-2">
+        <div className="font-bold text-primary-dark flex items-center gap-1">
+          <ClockIcon />
+          {totalHours.toFixed(2)}h
+          {hasPending && <span className="w-2 h-2 rounded-full bg-amber-500" title="Has pending entries" />}
+          {hasDenied && <span className="w-2 h-2 rounded-full bg-red-500" title="Has denied entries" />}
+          <span className="ml-auto text-[9px] font-normal text-primary/60">{entries.length} entries</span>
+        </div>
+        {firstStart && lastEnd && (
+          <div className="text-primary-dark/70 text-[10px]">{firstStart} – {lastEnd}</div>
+        )}
+        <div className="mt-0.5 space-y-0">
+          {Object.entries(catSummary).map(([cat, hrs]) => (
+            <div key={cat} className="flex items-center justify-between text-[10px]">
+              <span className="text-primary font-medium truncate mr-1">{cat}</span>
+              <span className="text-text-muted shrink-0">{hrs.toFixed(2)}h</span>
+            </div>
+          ))}
+        </div>
+        <div className="text-primary-dark/70 truncate text-[10px] mt-0.5">{name}</div>
+      </div>
+    </div>
+  )
+}
+
+function PersonDayModalContent({
+  entries,
+  name,
+  dateLabel,
+  isAdmin,
+  categories,
+  isLocked,
+  onEditEntry,
+  onAddEntry,
+  onDeleteEntry,
+  canDelete,
+  onClose,
+}: {
+  entries: TimeEntryItem[]
+  name: string
+  dateLabel: string
+  isAdmin: boolean
+  categories: TimeCategory[]
+  isLocked: boolean
+  onEditEntry: (e: TimeEntryItem) => void
+  onAddEntry: () => void
+  onDeleteEntry: (e: TimeEntryItem) => void
+  canDelete: (e: TimeEntryItem) => boolean
+  onClose: () => void
+}) {
+  const totalHours = entries.reduce((s, e) => s + e.hours, 0)
+  const totalBreaks = entries.reduce((s, e) => s + (e.break_minutes || 0), 0)
+  const sorted = [...entries].sort((a, b) => {
+    const ta = a.start_time || ''
+    const tb = b.start_time || ''
+    return ta.localeCompare(tb)
+  })
+
+  const catSummary = entries.reduce((acc, e) => {
+    const cat = e.time_category?.name || 'Other'
+    acc[cat] = (acc[cat] || 0) + e.hours
+    return acc
+  }, {} as Record<string, number>)
+
+  return (
+    <div className="p-6">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <h2 className="text-xl font-bold text-primary-dark">{name}</h2>
+          <p className="text-sm text-text-muted">{dateLabel}</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1 text-text-muted hover:text-primary-dark rounded-lg hover:bg-neutral-warm transition-colors"
+          title="Close"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="bg-primary/10 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-primary">{totalHours.toFixed(2)}h</div>
+          <div className="text-xs text-text-muted">Total Hours</div>
+        </div>
+        <div className="bg-neutral-warm/50 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-primary-dark">{entries.length}</div>
+          <div className="text-xs text-text-muted">{entries.length === 1 ? 'Entry' : 'Entries'}</div>
+        </div>
+        <div className="bg-amber-50 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-amber-700">{totalBreaks > 0 ? `${totalBreaks}m` : '—'}</div>
+          <div className="text-xs text-text-muted">Breaks</div>
+        </div>
+      </div>
+
+      {/* Category breakdown pills */}
+      {Object.keys(catSummary).length > 1 && (
+        <div className="flex flex-wrap gap-2 mb-5">
+          {Object.entries(catSummary).map(([cat, hrs]) => (
+            <span key={cat} className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary text-sm font-medium rounded-full">
+              {cat}
+              <span className="text-primary/60">{hrs.toFixed(2)}h</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Entries list */}
+      <div className="space-y-2 mb-5">
+        {sorted.map((entry, idx) => {
+          const isFirst = idx === 0
+          const prevEntry = idx > 0 ? sorted[idx - 1] : null
+          const isCategorySwitch = prevEntry && entry.time_category?.id !== prevEntry.time_category?.id
+
+          return (
+            <Fragment key={entry.id}>
+              {isCategorySwitch && (
+                <div className="flex items-center gap-2 px-2 py-1">
+                  <div className="flex-1 h-px bg-cyan-300" />
+                  <span className="text-[10px] text-cyan-600 font-medium flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>
+                    Switched category
+                  </span>
+                  <div className="flex-1 h-px bg-cyan-300" />
+                </div>
+              )}
+              <div
+                className={`border rounded-xl p-3 transition-all ${
+                  entry.locked_at
+                    ? 'border-amber-200 bg-amber-50/30'
+                    : 'border-neutral-warm hover:border-primary/40 hover:shadow-sm cursor-pointer'
+                }`}
+                onClick={() => !entry.locked_at && onEditEntry(entry)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    {/* Time range */}
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold text-primary-dark">
+                        {entry.formatted_start_time || '—'} – {entry.formatted_end_time || 'Active'}
+                      </span>
+                      {entry.status === 'clocked_in' && (
+                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-medium rounded-full">Active</span>
+                      )}
+                      {entry.status === 'on_break' && (
+                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-medium rounded-full">On Break</span>
+                      )}
+                    </div>
+
+                    {/* Category */}
+                    <div className="flex items-center gap-2 mb-1">
+                      {entry.time_category ? (
+                        <span className="inline-flex items-center px-2 py-0.5 bg-primary/10 text-primary text-xs font-medium rounded-full">
+                          {entry.time_category.name}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 bg-neutral-warm text-text-muted text-xs rounded-full">
+                          No category
+                        </span>
+                      )}
+                      {entry.clock_source && (
+                        <span className="text-[10px] text-text-muted uppercase tracking-wide">{entry.clock_source}</span>
+                      )}
+                    </div>
+
+                    {/* Details row */}
+                    <div className="flex items-center gap-3 text-xs text-text-muted">
+                      <span className="font-medium text-primary-dark">{entry.hours.toFixed(2)}h</span>
+                      {(entry.break_minutes ?? 0) > 0 && (
+                        <span>{entry.break_minutes}m break</span>
+                      )}
+                      {entry.description && (
+                        <span className="truncate max-w-[200px]" title={entry.description}>{entry.description}</span>
+                      )}
+                    </div>
+
+                    {/* Status indicators */}
+                    <div className="flex items-center gap-2 mt-1">
+                      {entry.approval_status === 'pending' && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-600">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          Pending approval
+                        </span>
+                      )}
+                      {entry.approval_status === 'approved' && entry.approved_by && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Approved by {entry.approved_by.full_name}
+                        </span>
+                      )}
+                      {entry.approval_status === 'denied' && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-red-600">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                          Denied
+                        </span>
+                      )}
+                      {entry.locked_at && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-600">
+                          <LockIcon />
+                          Locked
+                        </span>
+                      )}
+                      {entry.admin_override && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-indigo-500">Admin override</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEditEntry(entry) }}
+                      disabled={!!entry.locked_at}
+                      className={`p-1.5 rounded-lg transition-colors ${entry.locked_at ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-primary hover:bg-neutral-warm'}`}
+                      title={entry.locked_at ? 'Locked' : 'Edit entry'}
+                    >
+                      <EditIcon />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDeleteEntry(entry) }}
+                      disabled={!canDelete(entry)}
+                      className={`p-1.5 rounded-lg transition-colors ${!canDelete(entry) ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-red-600 hover:bg-red-50'}`}
+                      title={!canDelete(entry) ? 'Cannot delete' : 'Delete entry'}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </Fragment>
+          )
+        })}
+      </div>
+
+      {/* Footer actions */}
+      <div className="flex justify-between items-center pt-3 border-t border-neutral-warm">
+        {!isLocked ? (
+          <button
+            onClick={onAddEntry}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-primary hover:text-primary-dark hover:bg-primary/10 rounded-lg transition-colors"
+          >
+            <PlusIcon />
+            Add Entry
+          </button>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs text-amber-600">
+            <LockIcon /> This period is locked
+          </span>
+        )}
+        <button
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-primary-dark hover:bg-neutral-warm rounded-lg transition-colors"
+        >
+          Close
+        </button>
+      </div>
     </div>
   )
 }

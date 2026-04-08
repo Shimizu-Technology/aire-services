@@ -17,12 +17,6 @@ class TimeClockService
 
       schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
 
-      schedule_required = Setting.get("schedule_required_for_clock_in") == "true"
-
-      if schedule_required && !schedule && !admin_override_by
-        raise ClockError, "No shift scheduled for today. Contact your manager if you need to work today."
-      end
-
       if schedule && !admin_override_by
         validate_clock_in_time(now, schedule)
       end
@@ -49,6 +43,7 @@ class TimeClockService
       )
 
       entry.save!
+      broadcast_time_clock_update("clock_in", user)
       entry
     rescue ActiveRecord::RecordNotUnique
       raise ClockError, "You are already clocked in"
@@ -99,6 +94,7 @@ class TimeClockService
         entry.save!
       end
 
+      broadcast_time_clock_update("clock_out", user)
       entry
     end
 
@@ -115,6 +111,7 @@ class TimeClockService
         entry.update!(status: "on_break")
       end
 
+      broadcast_time_clock_update("start_break", user)
       entry
     rescue ActiveRecord::RecordNotUnique
       raise ClockError, "You are already on a break"
@@ -135,7 +132,62 @@ class TimeClockService
         entry.update!(status: "clocked_in")
       end
 
+      broadcast_time_clock_update("end_break", user)
       entry
+    end
+
+    # ── Switch Category ──
+    def switch_category(user:, time_category_id:, admin_override_by: nil)
+      entry = active_entry_for(user)
+      raise ClockError, "Not currently clocked in" unless entry
+
+      new_category = TimeCategory.active.find_by(id: time_category_id)
+      raise ClockError, "Selected work category is invalid or inactive" unless new_category
+
+      if entry.time_category_id == new_category.id
+        raise ClockError, "Already tracking time under #{new_category.name}"
+      end
+
+      now = Time.current
+      guam_now = now.in_time_zone(business_timezone)
+      today = guam_now.to_date
+
+      new_entry = nil
+
+      ActiveRecord::Base.transaction do
+        if entry.status == "on_break"
+          active_brk = entry.active_break
+          active_brk&.close!(now)
+        end
+
+        entry.end_time = guam_now
+        entry.clock_out_at = now
+        entry.status = "completed"
+        entry.break_minutes = entry.total_break_minutes
+        entry.calculate_hours_from_times
+        entry.overtime_status = check_overtime_status(user, entry)
+        entry.admin_override = true if admin_override_by.present?
+        entry.save!
+
+        new_entry = TimeEntry.create!(
+          user: user,
+          work_date: today,
+          start_time: guam_now,
+          clock_in_at: now,
+          entry_method: "clock",
+          status: "clocked_in",
+          hours: 0,
+          schedule: entry.schedule,
+          time_category: new_category,
+          clock_source: entry.clock_source,
+          admin_override: admin_override_by.present?,
+          approval_status: nil,
+          attendance_status: entry.attendance_status
+        )
+      end
+
+      broadcast_time_clock_update("switch_category", user)
+      new_entry
     end
 
     # ── Current Status ──
@@ -164,7 +216,6 @@ class TimeClockService
           end_time: schedule.formatted_end_time,
           hours: schedule.hours
         } : nil,
-        schedule_required_for_clock_in: Setting.get("schedule_required_for_clock_in") == "true",
         can_clock_in: clock_in_info[:allowed],
         clock_in_blocked_reason: clock_in_info[:reason],
         minutes_until: clock_in_info[:minutes_until]
@@ -375,11 +426,6 @@ class TimeClockService
     def can_clock_in_info(user, schedule, existing_entry: nil)
       active = existing_entry.nil? ? active_entry_for(user) : existing_entry
       return { allowed: false, reason: "already_clocked_in" } if active
-
-      schedule_required = Setting.get("schedule_required_for_clock_in") == "true"
-      if schedule_required && !schedule
-        return { allowed: false, reason: "no_schedule" }
-      end
       return { allowed: true, reason: nil } unless schedule
 
       buffer = (Setting.get("early_clock_in_buffer_minutes") || "5").to_i
@@ -395,6 +441,18 @@ class TimeClockService
         minutes_until = ((earliest_allowed - current_seconds) / 60).ceil
         { allowed: false, reason: "too_early", minutes_until: minutes_until }
       end
+    end
+
+    def broadcast_time_clock_update(event, user)
+      ActionCable.server.broadcast("time_clock_updates", {
+        type: "time_clock_update",
+        event: event,
+        user_id: user.id,
+        timestamp: Time.current.iso8601,
+        workers: WhosWorkingQuery.call
+      })
+    rescue StandardError => e
+      Rails.logger.warn("TimeClockService broadcast failed: #{e.message}")
     end
   end
 end

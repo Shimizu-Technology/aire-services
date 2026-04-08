@@ -8,12 +8,12 @@ puts "Seeding AIRE Services database..."
 puts "Creating time categories..."
 
 time_categories = [
-  { name: "Flight Instruction", key: "aire_flight_instruction", description: "CFI flight instruction hours" },
-  { name: "Ground School", key: "aire_ground_school", description: "Ground instruction and briefings" },
-  { name: "Aircraft Maintenance", key: "aire_maintenance", description: "Aircraft maintenance and inspections" },
-  { name: "Office / Admin", key: "aire_admin", description: "Office and administrative tasks" },
-  { name: "Dispatch / Ops", key: "aire_dispatch", description: "Flight dispatch, scheduling, and operations" },
-  { name: "Training", key: "aire_training", description: "Staff training and professional development" }
+  { name: "Flight Instruction", key: "aire_flight_instruction", description: "CFI flight instruction hours", hourly_rate_cents: 7500 },
+  { name: "Ground School", key: "aire_ground_school", description: "Ground instruction and briefings", hourly_rate_cents: 4500 },
+  { name: "Aircraft Maintenance", key: "aire_maintenance", description: "Aircraft maintenance and inspections", hourly_rate_cents: 5500 },
+  { name: "Office / Admin", key: "aire_admin", description: "Office and administrative tasks", hourly_rate_cents: 2500 },
+  { name: "Dispatch / Ops", key: "aire_dispatch", description: "Flight dispatch, scheduling, and operations", hourly_rate_cents: 3000 },
+  { name: "Training", key: "aire_training", description: "Staff training and professional development", hourly_rate_cents: 4000 }
 ]
 
 time_categories.each do |attrs|

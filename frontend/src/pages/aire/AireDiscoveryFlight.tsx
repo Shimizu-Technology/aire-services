@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
 
@@ -15,6 +16,7 @@ const reasons = [
 ]
 
 export default function AireDiscoveryFlight() {
+  useEffect(() => { document.title = 'Discovery Flight | AIRE Services Guam' }, [])
   return (
     <>
       <Seo

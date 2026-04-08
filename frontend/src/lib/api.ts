@@ -14,6 +14,10 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
   getAuthToken = getter;
 }
 
+export function getAuthTokenValue(): Promise<string | null> {
+  return getAuthToken ? getAuthToken() : Promise.resolve(null);
+}
+
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {},
@@ -125,9 +129,15 @@ export interface UserSummary {
   role: string;
 }
 
+export interface UserTimeCategoryAssignment {
+  id: number;
+  name: string;
+  key: string | null;
+}
+
 export interface AdminUser {
   id: number;
-  email: string;
+  email: string | null;
   first_name: string | null;
   last_name: string | null;
   display_name: string;
@@ -139,6 +149,8 @@ export interface AdminUser {
   kiosk_pin_configured?: boolean;
   kiosk_pin_last_rotated_at?: string | null;
   kiosk_locked_until?: string | null;
+  time_category_ids?: number[];
+  time_categories?: UserTimeCategoryAssignment[];
   created_at: string;
   updated_at: string;
 }
@@ -149,11 +161,6 @@ export interface ResetKioskPinResponse {
   message: string;
 }
 
-export interface ContactSettingsResponse {
-  contact_notification_emails: string[];
-  message?: string;
-}
-
 // Time Tracking Types
 
 export interface TimeCategory {
@@ -161,8 +168,6 @@ export interface TimeCategory {
   key?: string | null;
   name: string;
   description: string | null;
-  hourly_rate_cents?: number | null;
-  hourly_rate?: number | null;
 }
 
 export interface AdminTimeCategory extends TimeCategory {
@@ -172,36 +177,18 @@ export interface AdminTimeCategory extends TimeCategory {
   updated_at: string;
 }
 
-export interface EmployeePayRate {
-  id: number;
-  user_id: number;
-  user_name: string;
-  time_category_id: number;
-  time_category_name: string;
-  time_category_key: string | null;
-  hourly_rate_cents: number;
-  hourly_rate: number;
-  default_rate_cents: number | null;
-  default_rate: number | null;
-  created_at: string;
-  updated_at: string;
+/** Payload for admin create/update (nested under `time_category` in the request body). */
+export interface AdminTimeCategoryInput {
+  name: string;
+  key?: string | null;
+  description?: string | null;
+  is_active?: boolean;
 }
 
-export interface EffectiveRate {
-  time_category_id: number;
-  time_category_name: string;
-  time_category_key: string | null;
-  default_rate_cents: number | null;
-  default_rate: number | null;
-  override_rate_cents: number | null;
-  override_rate: number | null;
-  effective_rate_cents: number | null;
-  effective_rate: number | null;
-  override_id: number | null;
-}
-
-export interface SettingsHash {
-  [key: string]: string;
+export interface TimeClockAppSettings {
+  overtime_daily_threshold_hours: string;
+  overtime_weekly_threshold_hours: string;
+  early_clock_in_buffer_minutes: string;
 }
 
 export interface TimeEntry {
@@ -257,11 +244,7 @@ export interface TimeEntry {
     id: number;
     key?: string | null;
     name: string;
-    hourly_rate_cents?: number | null;
-    hourly_rate?: number | null;
   } | null;
-  effective_rate_cents?: number | null;
-  effective_rate?: number | null;
   locked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -288,9 +271,8 @@ export interface ClockStatus {
     end_time: string;
     hours: number;
   } | null;
-  schedule_required_for_clock_in?: boolean;
   can_clock_in: boolean;
-  clock_in_blocked_reason: 'already_clocked_in' | 'no_schedule' | 'too_early' | 'shift_ended' | null;
+  clock_in_blocked_reason: 'already_clocked_in' | 'too_early' | 'shift_ended' | null;
   minutes_until?: number;
   is_admin?: boolean;
   clock_source?: 'kiosk' | 'mobile' | 'admin' | 'legacy' | null;
@@ -298,8 +280,6 @@ export interface ClockStatus {
     id: number;
     key?: string | null;
     name: string;
-    hourly_rate_cents?: number | null;
-    hourly_rate?: number | null;
   } | null;
 }
 
@@ -323,6 +303,28 @@ export interface AireKioskActionResponse {
   available_categories: TimeCategory[];
 }
 
+export interface WorkerBreak {
+  start_time: string;
+  end_time: string | null;
+  duration_minutes: number | null;
+  active: boolean;
+}
+
+export interface WorkerDayEntry {
+  id: number;
+  status: string;
+  clock_in_at: string | null;
+  clock_out_at: string | null;
+  hours: number;
+  clock_source?: string | null;
+  time_category?: {
+    id: number;
+    key?: string | null;
+    name: string;
+  } | null;
+  breaks: WorkerBreak[];
+}
+
 export interface WorkerStatus {
   user: {
     id: number;
@@ -343,13 +345,13 @@ export interface WorkerStatus {
   active_break: boolean;
   break_started_at: string | null;
   total_break_minutes: number;
+  breaks: WorkerBreak[];
   time_category?: {
     id: number;
     key?: string | null;
     name: string;
-    hourly_rate_cents?: number | null;
-    hourly_rate?: number | null;
   } | null;
+  day_entries?: WorkerDayEntry[];
 }
 
 export interface TimeEntriesResponse {
@@ -467,10 +469,13 @@ export const api = {
       body: JSON.stringify({ pin }),
     }),
 
-  aireKioskClockIn: (kioskToken: string, timeCategoryId: number) =>
+  aireKioskClockIn: (kioskToken: string, timeCategoryId?: number | null) =>
     fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/clock_in', {
       method: 'POST',
-      body: JSON.stringify({ kiosk_token: kioskToken, time_category_id: timeCategoryId }),
+      body: JSON.stringify({
+        kiosk_token: kioskToken,
+        ...(timeCategoryId ? { time_category_id: timeCategoryId } : {}),
+      }),
     }),
 
   aireKioskClockOut: (kioskToken: string) =>
@@ -491,6 +496,12 @@ export const api = {
       body: JSON.stringify({ kiosk_token: kioskToken }),
     }),
 
+  aireKioskSwitchCategory: (kioskToken: string, timeCategoryId: number) =>
+    fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/switch_category', {
+      method: 'POST',
+      body: JSON.stringify({ kiosk_token: kioskToken, time_category_id: timeCategoryId }),
+    }),
+
   // Users (staff list for dropdowns)
   getUsers: () =>
     fetchApi<{ users: UserSummary[] }>('/api/v1/users'),
@@ -499,16 +510,32 @@ export const api = {
   getAdminUsers: () =>
     fetchApi<{ users: AdminUser[] }>('/api/v1/admin/users'),
 
-  inviteUser: (data: { email: string; first_name: string; last_name?: string; role: 'admin' | 'employee' | 'client' }) =>
-    fetchApi<{ user: AdminUser }>('/api/v1/admin/users', {
+  inviteUser: (data: {
+    email?: string;
+    first_name: string;
+    last_name?: string;
+    role: 'admin' | 'employee';
+    send_invitation?: boolean;
+    time_category_ids?: number[];
+  }) =>
+    fetchApi<{ user: AdminUser; invitation_email_sent: boolean }>('/api/v1/admin/users', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  updateUserRole: (id: number, role: 'admin' | 'employee' | 'client') =>
+  updateUserRole: (id: number, role: 'admin' | 'employee') =>
     fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ role }),
+    }),
+
+  updateUser: (id: number, data: {
+    role?: 'admin' | 'employee';
+    time_category_ids?: number[];
+  }) =>
+    fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
     }),
 
   deleteUser: (id: number) =>
@@ -525,15 +552,6 @@ export const api = {
     fetchApi<ResetKioskPinResponse>(`/api/v1/admin/users/${id}/reset_kiosk_pin`, {
       method: 'POST',
       ...(pin ? { body: JSON.stringify({ pin }) } : {}),
-    }),
-
-  getContactSettings: () =>
-    fetchApi<ContactSettingsResponse>('/api/v1/admin/contact_settings'),
-
-  updateContactSettings: (contactNotificationEmails: string[]) =>
-    fetchApi<ContactSettingsResponse>('/api/v1/admin/contact_settings', {
-      method: 'PUT',
-      body: JSON.stringify({ contact_notification_emails: contactNotificationEmails }),
     }),
 
   // Time Entries
@@ -607,23 +625,35 @@ export const api = {
       }),
     }),
 
-  clockOut: (correctedEndTime?: string, description?: string) =>
+  clockOut: (correctedEndTime?: string, description?: string, userId?: number) =>
     fetchApi<{ time_entry: TimeEntry }>('/api/v1/time_entries/clock_out', {
       method: 'POST',
-      ...((correctedEndTime || description) ? { body: JSON.stringify({
+      body: JSON.stringify({
+        ...(userId ? { user_id: userId } : {}),
         ...(correctedEndTime ? { corrected_end_time: correctedEndTime } : {}),
         ...(description ? { description } : {}),
-      }) } : {}),
+      }),
     }),
 
-  startBreak: () =>
+  startBreak: (userId?: number) =>
     fetchApi<{ time_entry: TimeEntry }>('/api/v1/time_entries/start_break', {
       method: 'POST',
+      ...(userId ? { body: JSON.stringify({ user_id: userId }) } : {}),
     }),
 
-  endBreak: () =>
+  endBreak: (userId?: number) =>
     fetchApi<{ time_entry: TimeEntry }>('/api/v1/time_entries/end_break', {
       method: 'POST',
+      ...(userId ? { body: JSON.stringify({ user_id: userId }) } : {}),
+    }),
+
+  switchCategory: (timeCategoryId: number, userId?: number) =>
+    fetchApi<{ time_entry: TimeEntry }>('/api/v1/time_entries/switch_category', {
+      method: 'POST',
+      body: JSON.stringify({
+        time_category_id: timeCategoryId,
+        ...(userId ? { user_id: userId } : {}),
+      }),
     }),
 
   getClockStatus: () =>
@@ -666,13 +696,22 @@ export const api = {
   getAdminTimeCategories: () =>
     fetchApi<{ time_categories: AdminTimeCategory[] }>('/api/v1/admin/time_categories'),
 
-  createTimeCategory: (data: { name: string; key?: string; description?: string; hourly_rate_cents?: number | null }) =>
+  getAdminAppSettings: () =>
+    fetchApi<{ settings: TimeClockAppSettings }>('/api/v1/admin/settings'),
+
+  updateAdminAppSettings: (settings: Partial<TimeClockAppSettings>) =>
+    fetchApi<{ settings: TimeClockAppSettings }>('/api/v1/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ settings }),
+    }),
+
+  createTimeCategory: (data: AdminTimeCategoryInput) =>
     fetchApi<{ time_category: AdminTimeCategory }>('/api/v1/admin/time_categories', {
       method: 'POST',
       body: JSON.stringify({ time_category: data }),
     }),
 
-  updateTimeCategory: (id: number, data: Partial<{ name: string; key: string; description: string; is_active: boolean; hourly_rate_cents: number | null }>) =>
+  updateTimeCategory: (id: number, data: Partial<AdminTimeCategoryInput>) =>
     fetchApi<{ time_category: AdminTimeCategory }>(`/api/v1/admin/time_categories/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ time_category: data }),
@@ -770,42 +809,4 @@ export const api = {
   // Schedule Time Presets
   getScheduleTimePresets: () =>
     fetchApi<ScheduleTimePresetsResponse>('/api/v1/schedule_time_presets'),
-
-  // Admin: Settings
-  getSettings: () =>
-    fetchApi<{ settings: SettingsHash }>('/api/v1/admin/settings'),
-
-  updateSettings: (settings: Record<string, string>) =>
-    fetchApi<{ settings: SettingsHash; message: string }>('/api/v1/admin/settings', {
-      method: 'PATCH',
-      body: JSON.stringify({ settings }),
-    }),
-
-  // Admin: Employee Pay Rates
-  getEmployeePayRates: (userId?: number) => {
-    const query = userId ? `?user_id=${userId}` : '';
-    return fetchApi<{ employee_pay_rates: EmployeePayRate[] }>(`/api/v1/admin/employee_pay_rates${query}`);
-  },
-
-  getEffectiveRatesForUser: (userId: number) =>
-    fetchApi<{ user: { id: number; full_name: string; display_name: string }; effective_rates: EffectiveRate[] }>(
-      `/api/v1/admin/employee_pay_rates/for_user/${userId}`
-    ),
-
-  createEmployeePayRate: (data: { user_id: number; time_category_id: number; hourly_rate_cents: number }) =>
-    fetchApi<{ employee_pay_rate: EmployeePayRate }>('/api/v1/admin/employee_pay_rates', {
-      method: 'POST',
-      body: JSON.stringify({ employee_pay_rate: data }),
-    }),
-
-  updateEmployeePayRate: (id: number, data: { hourly_rate_cents: number }) =>
-    fetchApi<{ employee_pay_rate: EmployeePayRate }>(`/api/v1/admin/employee_pay_rates/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ employee_pay_rate: data }),
-    }),
-
-  deleteEmployeePayRate: (id: number) =>
-    fetchApi<void>(`/api/v1/admin/employee_pay_rates/${id}`, {
-      method: 'DELETE',
-    }),
 };
