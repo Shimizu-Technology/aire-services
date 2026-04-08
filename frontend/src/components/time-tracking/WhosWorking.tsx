@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, type JSX } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, getAuthTokenValue } from '../../lib/api'
 import type { WorkerStatus, WorkerBreak, WorkerDayEntry, TimeCategory } from '../../lib/api'
-import { getConsumer, disconnectConsumer, type Subscription } from '../../lib/cable'
+import { getOrCreateConsumer, disconnectConsumer, type Subscription } from '../../lib/cable'
 
 interface WhosWorkingProps {
   alwaysShow?: boolean
@@ -44,12 +44,13 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
 
     let mounted = true
 
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+
     async function setupCable() {
       try {
-        const token = await getAuthTokenValue()
-        if (!token || !mounted) return
+        const consumer = await getOrCreateConsumer(getAuthTokenValue)
+        if (!consumer || !mounted) return
 
-        const consumer = getConsumer(token)
         subscriptionRef.current = consumer.subscriptions.create(
           { channel: 'TimeClockChannel' },
           {
@@ -57,7 +58,12 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
               if (mounted) setCableConnected(true)
             },
             disconnected() {
-              if (mounted) setCableConnected(false)
+              if (mounted) {
+                setCableConnected(false)
+                reconnectTimer = setTimeout(() => {
+                  if (mounted) setupCable()
+                }, 3000)
+              }
             },
             received(data: { type: string }) {
               if (data.type === 'time_clock_update' && mounted) {
@@ -77,6 +83,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
 
     return () => {
       mounted = false
+      if (reconnectTimer) clearTimeout(reconnectTimer)
       if (pollRef.current) clearInterval(pollRef.current)
       if (subscriptionRef.current) {
         subscriptionRef.current.unsubscribe()

@@ -103,36 +103,20 @@ module Api
         end
 
         def serialize_status(status)
+          entry = status[:entry_id] ? TimeEntry.includes(:time_category).find_by(id: status[:entry_id]) : nil
+
+          tc = entry&.time_category
           status.merge(
             schedule: status[:schedule],
             breaks: status[:breaks],
-            time_category: active_time_category_from_status(status),
-            clock_source: active_clock_source_from_status(status)
+            time_category: tc ? { id: tc.id, key: tc.key, name: tc.name, hourly_rate_cents: tc.hourly_rate_cents, hourly_rate: tc.hourly_rate } : nil,
+            clock_source: entry&.clock_source
           )
         end
 
-        def active_time_category_from_status(status)
-          return nil unless status[:entry_id]
-
-          entry = TimeEntry.includes(:time_category).find_by(id: status[:entry_id])
-          return nil unless entry&.time_category
-
-          {
-            id: entry.time_category.id,
-            key: entry.time_category.key,
-            name: entry.time_category.name,
-            hourly_rate_cents: entry.time_category.hourly_rate_cents,
-            hourly_rate: entry.time_category.hourly_rate
-          }
-        end
-
-        def active_clock_source_from_status(status)
-          return nil unless status[:entry_id]
-
-          TimeEntry.find_by(id: status[:entry_id])&.clock_source
-        end
-
         def serialize_entry(entry)
+          entry = TimeEntry.includes(:time_category).find(entry.id) unless entry.association(:time_category).loaded?
+          tc = entry.time_category
           {
             id: entry.id,
             work_date: entry.work_date.iso8601,
@@ -142,12 +126,9 @@ module Api
             clock_out_at: entry.clock_out_at&.iso8601,
             break_minutes: entry.break_minutes,
             hours: entry.hours.to_f,
-            time_category: entry.time_category ? {
-              id: entry.time_category.id,
-              key: entry.time_category.key,
-              name: entry.time_category.name,
-              hourly_rate_cents: entry.time_category.hourly_rate_cents,
-              hourly_rate: entry.time_category.hourly_rate
+            time_category: tc ? {
+              id: tc.id, key: tc.key, name: tc.name,
+              hourly_rate_cents: tc.hourly_rate_cents, hourly_rate: tc.hourly_rate
             } : nil
           }
         end
