@@ -193,13 +193,15 @@ module Api
           desired_ids = Array(params[:time_category_ids]).map(&:to_i).uniq
           overrides = params[:time_category_rate_overrides] || {}
 
-          user.user_time_categories.where.not(time_category_id: desired_ids).destroy_all
+          ActiveRecord::Base.transaction do
+            user.user_time_categories.where.not(time_category_id: desired_ids).destroy_all
 
-          desired_ids.each do |cat_id|
-            utc = user.user_time_categories.find_or_initialize_by(time_category_id: cat_id)
-            override = overrides[cat_id.to_s]
-            utc.hourly_rate_cents = override.present? ? override.to_i : nil
-            utc.save!
+            desired_ids.each do |cat_id|
+              utc = user.user_time_categories.find_or_initialize_by(time_category_id: cat_id)
+              override = overrides[cat_id.to_s]
+              utc.hourly_rate_cents = override.present? ? override.to_i : nil
+              utc.save!
+            end
           end
         end
 

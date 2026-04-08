@@ -1333,8 +1333,6 @@ export default function TimeTracking() {
               entries={personDayModal.entries}
               name={personDayModal.name}
               dateLabel={formatDate(personDayModal.date)}
-              isAdmin={isAdmin}
-              categories={categories}
               isLocked={dateIsInLockedWeek(personDayModal.date)}
               onEditEntry={(entry) => {
                 returnToPersonDay.current = { name: personDayModal.name, date: personDayModal.date, userId: entry.user.id }
@@ -2088,8 +2086,6 @@ function PersonDayModalContent({
   entries,
   name,
   dateLabel,
-  isAdmin,
-  categories,
   isLocked,
   onEditEntry,
   onAddEntry,
@@ -2100,8 +2096,6 @@ function PersonDayModalContent({
   entries: TimeEntryItem[]
   name: string
   dateLabel: string
-  isAdmin: boolean
-  categories: TimeCategory[]
   isLocked: boolean
   onEditEntry: (e: TimeEntryItem) => void
   onAddEntry: () => void
@@ -2173,7 +2167,6 @@ function PersonDayModalContent({
       {/* Entries list */}
       <div className="space-y-2 mb-5">
         {sorted.map((entry, idx) => {
-          const isFirst = idx === 0
           const prevEntry = idx > 0 ? sorted[idx - 1] : null
           const isCategorySwitch = prevEntry && entry.time_category?.id !== prevEntry.time_category?.id
 

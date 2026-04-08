@@ -26,8 +26,7 @@ class AireKioskService
 
     def clock_in(kiosk_token:, time_category_id: nil)
       user = user_from_token!(kiosk_token)
-      entry = TimeClockService.clock_in(user: user, time_category_id: time_category_id)
-      entry.update!(clock_source: "kiosk")
+      entry = TimeClockService.clock_in(user: user, time_category_id: time_category_id, clock_source: "kiosk")
       log_action(entry: entry, action: "created", metadata: "source=kiosk;event=clock_in")
       response_payload(user, entry)
     end
@@ -55,8 +54,7 @@ class AireKioskService
 
     def switch_category(kiosk_token:, time_category_id:)
       user = user_from_token!(kiosk_token)
-      entry = TimeClockService.switch_category(user: user, time_category_id: time_category_id)
-      entry.update!(clock_source: "kiosk")
+      entry = TimeClockService.switch_category(user: user, time_category_id: time_category_id, clock_source: "kiosk")
       log_action(entry: entry, action: "created", metadata: "source=kiosk;event=switch_category")
       response_payload(user, entry)
     end

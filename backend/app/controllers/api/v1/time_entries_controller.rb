@@ -206,12 +206,13 @@ module Api
           target_user = current_user
         end
 
+        source = resolved_clock_source(target_user: target_user, admin_override: admin_override)
         entry = TimeClockService.clock_in(
           user: target_user,
           admin_override_by: admin_override,
-          time_category_id: params[:time_category_id]
+          time_category_id: params[:time_category_id],
+          clock_source: source
         )
-        entry.update!(clock_source: resolved_clock_source(target_user: target_user, admin_override: admin_override))
         render json: { time_entry: serialize_time_entry(entry) }, status: :created
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
@@ -257,12 +258,13 @@ module Api
       def switch_category
         target_user = resolve_clock_target_user
         admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
+        source = resolved_clock_source(target_user: target_user, admin_override: admin_override)
         entry = TimeClockService.switch_category(
           user: target_user,
           time_category_id: params[:time_category_id],
-          admin_override_by: admin_override
+          admin_override_by: admin_override,
+          clock_source: source
         )
-        entry.update!(clock_source: resolved_clock_source(target_user: target_user, admin_override: admin_override)) unless admin_override
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity

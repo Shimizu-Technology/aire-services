@@ -100,6 +100,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_062229) do
     t.string "clock_source"
     t.datetime "created_at", null: false
     t.text "description"
+    t.integer "effective_rate_cents_snapshot"
     t.time "end_time"
     t.string "entry_method", default: "manual", null: false
     t.decimal "hours", precision: 4, scale: 2, null: false

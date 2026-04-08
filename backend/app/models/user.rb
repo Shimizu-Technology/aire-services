@@ -14,6 +14,7 @@ class User < ApplicationRecord
   has_many :schedules, dependent: :nullify
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
   has_many :time_period_locks, foreign_key: "locked_by_id", dependent: :nullify
+  has_many :employee_pay_rates, dependent: :destroy
   has_many :user_time_categories, dependent: :destroy
   has_many :assigned_time_categories, through: :user_time_categories, source: :time_category
 

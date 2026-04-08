@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, type JSX } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, getAuthTokenValue } from '../../lib/api'
 import type { WorkerStatus, WorkerBreak, WorkerDayEntry, TimeCategory } from '../../lib/api'
@@ -59,9 +59,9 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
             disconnected() {
               if (mounted) setCableConnected(false)
             },
-            received(data: { type: string; workers?: WorkerStatus[] }) {
-              if (data.type === 'time_clock_update' && data.workers && mounted) {
-                setWorkers(data.workers)
+            received(data: { type: string }) {
+              if (data.type === 'time_clock_update' && mounted) {
+                fetchWorkers()
               }
             },
           },
