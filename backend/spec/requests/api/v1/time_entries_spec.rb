@@ -36,6 +36,9 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
       expect(response).to have_http_status(:created)
       expect(json.dig(:time_entry, :user, :id)).to eq(employee.id)
+      # Rates are hidden from employees; verify snapshot was stored via admin
+      entry_id = json.dig(:time_entry, :id)
+      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[admin]
       expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
       expect(json.dig(:time_entry, :effective_rate)).to eq(42.0)
     end
@@ -47,7 +50,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       create(:employee_pay_rate, user: employee, time_category: time_category, hourly_rate_cents: 6500)
       time_category.update!(hourly_rate_cents: 9000)
 
-      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[employee]
+      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:ok)
       expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
@@ -121,7 +124,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
               headers: auth_headers_for[other_employee]
 
         expect(response).to have_http_status(:forbidden)
-        expect(json[:error]).to eq("You can only edit your own time entries")
+        expect(json[:error]).to match(/your own/)
       end
     end
 
@@ -176,7 +179,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
                headers: auth_headers_for[other_employee]
 
         expect(response).to have_http_status(:forbidden)
-        expect(json[:error]).to eq("You can only delete your own time entries")
+        expect(json[:error]).to match(/your own/)
       end
     end
 

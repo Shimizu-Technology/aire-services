@@ -5,7 +5,7 @@ module Api
     class SchedulesController < BaseController
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :require_admin!, only: [ :create, :update, :destroy, :bulk_create ]
+      before_action :require_admin!, only: [ :create, :update, :destroy, :bulk_create, :clear_week ]
       before_action :set_schedule, only: [ :show, :update, :destroy ]
 
       # GET /api/v1/schedules
@@ -151,7 +151,11 @@ module Api
       private
 
       def set_schedule
-        @schedule = Schedule.find(params[:id])
+        @schedule = if current_user.admin?
+          Schedule.find(params[:id])
+        else
+          current_user.schedules.find(params[:id])
+        end
       rescue ActiveRecord::RecordNotFound
         render json: { error: "Schedule not found" }, status: :not_found
       end
