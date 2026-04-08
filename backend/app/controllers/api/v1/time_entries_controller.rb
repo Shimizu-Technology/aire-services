@@ -279,9 +279,7 @@ module Api
         status[:time_category] = active_entry&.time_category ? {
           id: active_entry.time_category.id,
           key: active_entry.time_category.key,
-          name: active_entry.time_category.name,
-          hourly_rate_cents: active_entry.time_category.hourly_rate_cents,
-          hourly_rate: active_entry.time_category.hourly_rate
+          name: active_entry.time_category.name
         } : nil
         render json: status
       end
@@ -368,7 +366,8 @@ module Api
       end
 
       def set_time_entry
-        @time_entry = TimeEntry.find(params[:id])
+        scope = current_user.admin? ? TimeEntry : current_user.time_entries
+        @time_entry = scope.find(params[:id])
       rescue ActiveRecord::RecordNotFound
         render json: { error: "Time entry not found" }, status: :not_found
       end
@@ -482,12 +481,10 @@ module Api
           time_category: entry.time_category ? {
             id: entry.time_category.id,
             key: entry.time_category.key,
-            name: entry.time_category.name,
-            hourly_rate_cents: entry.time_category.hourly_rate_cents,
-            hourly_rate: entry.time_category.hourly_rate
-          } : nil,
-          effective_rate_cents: entry.effective_rate_cents,
-          effective_rate: entry.effective_rate,
+            name: entry.time_category.name
+          }.merge(current_user.admin? ? { hourly_rate_cents: entry.time_category.hourly_rate_cents, hourly_rate: entry.time_category.hourly_rate } : {}) : nil,
+          effective_rate_cents: current_user.admin? ? entry.effective_rate_cents : nil,
+          effective_rate: current_user.admin? ? entry.effective_rate : nil,
           locked_at: entry.locked_at&.iso8601,
           created_at: entry.created_at.iso8601,
           updated_at: entry.updated_at.iso8601

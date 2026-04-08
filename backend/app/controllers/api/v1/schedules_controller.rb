@@ -5,7 +5,7 @@ module Api
     class SchedulesController < BaseController
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :require_admin!, only: [ :create, :update, :destroy, :bulk_create ]
+      before_action :require_admin!, only: [ :create, :update, :destroy, :bulk_create, :clear_week ]
       before_action :set_schedule, only: [ :show, :update, :destroy ]
 
       # GET /api/v1/schedules
@@ -133,6 +133,10 @@ module Api
       # DELETE /api/v1/schedules/clear
       # Clear all schedules for a specific week (admin only)
       def clear_week
+        unless params[:week].present?
+          return render json: { error: "week parameter is required" }, status: :bad_request
+        end
+
         week_start = Date.parse(params[:week])
         week_end = week_start + 6.days
 
@@ -146,12 +150,18 @@ module Api
         schedules.destroy_all
 
         render json: { message: "Cleared #{count} schedule(s)" }
+      rescue Date::Error
+        render json: { error: "Invalid week date format" }, status: :bad_request
       end
 
       private
 
       def set_schedule
-        @schedule = Schedule.find(params[:id])
+        @schedule = if current_user.admin?
+          Schedule.find(params[:id])
+        else
+          current_user.schedules.find(params[:id])
+        end
       rescue ActiveRecord::RecordNotFound
         render json: { error: "Schedule not found" }, status: :not_found
       end

@@ -36,6 +36,9 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
       expect(response).to have_http_status(:created)
       expect(json.dig(:time_entry, :user, :id)).to eq(employee.id)
+      # Rates are hidden from employees; verify snapshot was stored via admin
+      entry_id = json.dig(:time_entry, :id)
+      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[admin]
       expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
       expect(json.dig(:time_entry, :effective_rate)).to eq(42.0)
     end
@@ -47,7 +50,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       create(:employee_pay_rate, user: employee, time_category: time_category, hourly_rate_cents: 6500)
       time_category.update!(hourly_rate_cents: 9000)
 
-      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[employee]
+      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:ok)
       expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
@@ -115,13 +118,12 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
     end
 
     context "employee tries to edit another user's entry" do
-      it "returns 403 with ownership error" do
+      it "returns 404" do
         patch "/api/v1/time_entries/#{entry.id}",
               params: { time_entry: { description: "nope" } },
               headers: auth_headers_for[other_employee]
 
-        expect(response).to have_http_status(:forbidden)
-        expect(json[:error]).to eq("You can only edit your own time entries")
+        expect(response).to have_http_status(:not_found)
       end
     end
 
@@ -171,12 +173,11 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
     end
 
     context "employee tries to delete another user's entry" do
-      it "returns 403 with ownership error" do
+      it "returns 404" do
         delete "/api/v1/time_entries/#{entry.id}",
                headers: auth_headers_for[other_employee]
 
-        expect(response).to have_http_status(:forbidden)
-        expect(json[:error]).to eq("You can only delete your own time entries")
+        expect(response).to have_http_status(:not_found)
       end
     end
 
@@ -305,6 +306,14 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(user_data[:id]).to eq(employee.id)
       expect(user_data[:display_name]).to eq(employee.display_name)
       expect(user_data[:full_name]).to eq(employee.full_name)
+    end
+
+    it "returns 404 when employee tries to access another user's entry" do
+      get "/api/v1/time_entries/#{entry.id}",
+          headers: auth_headers_for[other_employee]
+
+      expect(response).to have_http_status(:not_found)
+      expect(json[:error]).to match(/not found/)
     end
   end
 end

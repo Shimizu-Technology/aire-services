@@ -3,13 +3,16 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 
-const baseNavigation = [
-  { name: 'Dashboard', href: '/admin' },
-  { name: 'Time Tracking', href: '/admin/time' },
+const employeeNavigation = [
+  { name: 'My Dashboard', href: '/admin' },
+  { name: 'My Time', href: '/admin/time' },
   { name: 'Schedule', href: '/admin/schedule' },
 ]
 
-const adminOnlyNavigation = [
+const adminNavigation = [
+  { name: 'Dashboard', href: '/admin' },
+  { name: 'Time Tracking', href: '/admin/time' },
+  { name: 'Schedule', href: '/admin/schedule' },
   { name: 'Users', href: '/admin/users' },
   { name: 'Settings', href: '/admin/settings' },
 ]
@@ -19,10 +22,10 @@ export default function AdminLayout() {
   const location = useLocation()
   const { userRole, isClerkEnabled } = useAuthContext()
 
+  const isAdmin = !isClerkEnabled || userRole === 'admin'
   const navigation = useMemo(() => {
-    const showAdminNav = !isClerkEnabled || userRole === 'admin'
-    return showAdminNav ? [...baseNavigation, ...adminOnlyNavigation] : baseNavigation
-  }, [isClerkEnabled, userRole])
+    return isAdmin ? adminNavigation : employeeNavigation
+  }, [isAdmin])
 
   const isActive = (href: string) => (href === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(href))
 
@@ -36,7 +39,7 @@ export default function AdminLayout() {
             </button>
             <div>
               <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">AIRE Ops</Link>
-              <p className="text-xs text-slate-400 lg:hidden">Staff dashboard</p>
+              <p className="text-xs text-slate-400 lg:hidden">{isAdmin ? 'Admin dashboard' : 'Staff portal'}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -60,7 +63,7 @@ export default function AdminLayout() {
 
         <aside className={`fixed top-16 bottom-0 left-0 z-40 w-72 border-r border-slate-200 bg-white px-4 py-6 transition-transform lg:static lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
           <div className="mb-6 px-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Admin Navigation</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{isAdmin ? 'Admin Navigation' : 'Navigation'}</p>
           </div>
           <nav className="space-y-1">
             {navigation.map((item) => (
