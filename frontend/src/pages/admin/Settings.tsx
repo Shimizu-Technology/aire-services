@@ -33,33 +33,43 @@ export default function Settings() {
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm)
   const modalRef = useRef<HTMLDivElement>(null)
 
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    setCategoriesError('')
-    setSettingsError('')
-    try {
-      const [catRes, setRes] = await Promise.all([api.getAdminTimeCategories(), api.getAdminAppSettings()])
-      if (catRes.error) setCategoriesError(catRes.error)
-      else if (catRes.data) setCategories(catRes.data.time_categories)
+  const applyFetchedData = useCallback((catRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>, setRes: Awaited<ReturnType<typeof api.getAdminAppSettings>>) => {
+    if (catRes.error) setCategoriesError(catRes.error)
+    else if (catRes.data) setCategories(catRes.data.time_categories)
 
-      if (setRes.error) setSettingsError(setRes.error)
-      else if (setRes.data) {
-        const s = setRes.data.settings
-        setClockSettings(s)
-        setThresholdDraft({
-          overtime_daily_threshold_hours: s.overtime_daily_threshold_hours,
-          overtime_weekly_threshold_hours: s.overtime_weekly_threshold_hours,
-          early_clock_in_buffer_minutes: s.early_clock_in_buffer_minutes,
-        })
-      }
-    } finally {
-      setLoading(false)
+    if (setRes.error) setSettingsError(setRes.error)
+    else if (setRes.data) {
+      const s = setRes.data.settings
+      setClockSettings(s)
+      setThresholdDraft({
+        overtime_daily_threshold_hours: s.overtime_daily_threshold_hours,
+        overtime_weekly_threshold_hours: s.overtime_weekly_threshold_hours,
+        early_clock_in_buffer_minutes: s.early_clock_in_buffer_minutes,
+      })
     }
   }, [])
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    let cancelled = false
+    async function initialLoad() {
+      setLoading(true)
+      setCategoriesError('')
+      setSettingsError('')
+      try {
+        const [catRes, setRes] = await Promise.all([api.getAdminTimeCategories(), api.getAdminAppSettings()])
+        if (!cancelled) applyFetchedData(catRes, setRes)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    initialLoad()
+    return () => { cancelled = true }
+  }, [applyFetchedData])
+
+  const refreshCategories = useCallback(async () => {
+    const res = await api.getAdminTimeCategories()
+    if (res.data) setCategories(res.data.time_categories)
+  }, [])
 
   useEffect(() => {
     if (categoryModalOpen && modalRef.current) {
@@ -114,7 +124,7 @@ export default function Settings() {
         return
       }
       closeCategoryModal()
-      loadData()
+      refreshCategories()
     } finally {
       setSavingCategory(false)
     }
@@ -127,13 +137,13 @@ export default function Settings() {
 
     const res = await api.deleteTimeCategory(cat.id)
     if (res.error) alert(res.error)
-    else loadData()
+    else refreshCategories()
   }
 
   const handleReactivateCategory = async (cat: AdminTimeCategory) => {
     const res = await api.updateTimeCategory(cat.id, { is_active: true })
     if (res.error) alert(res.error)
-    else loadData()
+    else refreshCategories()
   }
 
   const handleSaveThresholds = async (e: React.FormEvent) => {

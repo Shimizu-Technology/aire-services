@@ -41,20 +41,30 @@ export default function Users() {
     }
   }, [showCreateModal])
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [usersRes, catsRes] = await Promise.all([api.getAdminUsers(), api.getAdminTimeCategories()])
-      if (usersRes.data) setUsers(usersRes.data.users.filter((u) => u.role === 'admin' || u.role === 'employee'))
-      if (catsRes.data) setAllCategories(catsRes.data.time_categories)
-    } finally {
-      setLoading(false)
-    }
+  const applyFetchedData = useCallback((usersRes: Awaited<ReturnType<typeof api.getAdminUsers>>, catsRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>) => {
+    if (usersRes.data) setUsers(usersRes.data.users.filter((u) => u.role === 'admin' || u.role === 'employee'))
+    if (catsRes.data) setAllCategories(catsRes.data.time_categories)
   }, [])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    let cancelled = false
+    async function initialLoad() {
+      setLoading(true)
+      try {
+        const [usersRes, catsRes] = await Promise.all([api.getAdminUsers(), api.getAdminTimeCategories()])
+        if (!cancelled) applyFetchedData(usersRes, catsRes)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    initialLoad()
+    return () => { cancelled = true }
+  }, [applyFetchedData])
+
+  const refreshData = useCallback(async () => {
+    const [usersRes, catsRes] = await Promise.all([api.getAdminUsers(), api.getAdminTimeCategories()])
+    applyFetchedData(usersRes, catsRes)
+  }, [applyFetchedData])
 
   const activeCategories = allCategories.filter((c) => c.is_active)
 
@@ -93,7 +103,7 @@ export default function Users() {
         }
         setShowCreateModal(false)
         resetCreateForm()
-        fetchData()
+        refreshData()
       }
     } catch {
       setCreateError('Failed to create team member')
@@ -119,7 +129,7 @@ export default function Users() {
         alert(res.error)
       } else {
         setEditingUser(null)
-        fetchData()
+        refreshData()
       }
     } finally {
       setSavingCategories(false)
@@ -131,7 +141,7 @@ export default function Users() {
     try {
       const response = await api.updateUserRole(userId, newRole)
       if (response.error) alert(response.error)
-      else fetchData()
+      else refreshData()
     } catch {
       alert('Failed to update role')
     } finally {
@@ -149,7 +159,7 @@ export default function Users() {
     try {
       const response = await api.deleteUser(user.id)
       if (response.error) alert(response.error)
-      else fetchData()
+      else refreshData()
     } catch {
       alert('Failed to remove team member')
     } finally {
@@ -188,7 +198,7 @@ export default function Users() {
         alert(response.error || 'Failed to reset kiosk PIN')
       } else {
         alert(`Kiosk PIN for ${user.full_name}: ${response.data.kiosk_pin}`)
-        fetchData()
+        refreshData()
       }
     } catch {
       alert('Failed to reset kiosk PIN')
