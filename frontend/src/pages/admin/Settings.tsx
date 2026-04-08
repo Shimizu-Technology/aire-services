@@ -68,7 +68,12 @@ export default function Settings() {
 
   const refreshCategories = useCallback(async () => {
     const res = await api.getAdminTimeCategories()
-    if (res.data) setCategories(res.data.time_categories)
+    if (res.error) {
+      setCategoriesError(res.error)
+    } else if (res.data) {
+      setCategoriesError('')
+      setCategories(res.data.time_categories)
+    }
   }, [])
 
   useEffect(() => {

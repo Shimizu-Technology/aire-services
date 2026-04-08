@@ -43,7 +43,9 @@ export default function Users() {
 
   const applyFetchedData = useCallback((usersRes: Awaited<ReturnType<typeof api.getAdminUsers>>, catsRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>) => {
     if (usersRes.data) setUsers(usersRes.data.users.filter((u) => u.role === 'admin' || u.role === 'employee'))
+    else if (usersRes.error) console.error('Failed to refresh users:', usersRes.error)
     if (catsRes.data) setAllCategories(catsRes.data.time_categories)
+    else if (catsRes.error) console.error('Failed to refresh categories:', catsRes.error)
   }, [])
 
   useEffect(() => {
