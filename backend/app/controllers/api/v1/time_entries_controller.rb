@@ -488,7 +488,8 @@ module Api
       end
 
       def calculate_summary(entries)
-        row = entries.reorder(nil).pick(
+        # Drop ordering and eager-loads; pick() runs a single aggregate SELECT.
+        row = entries.reorder(nil).unscope(:includes).pick(
           Arel.sql("COALESCE(SUM(hours), 0)"),
           Arel.sql("COALESCE(SUM(break_minutes), 0)"),
           Arel.sql("COUNT(*)")
