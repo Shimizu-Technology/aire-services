@@ -213,7 +213,7 @@ module Api
           time_category_id: params[:time_category_id],
           clock_source: source
         )
-        render json: { time_entry: serialize_time_entry(entry) }, status: :created
+        render json: { time_entry: serialize_time_entry(eager_reload(entry)) }, status: :created
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -229,7 +229,7 @@ module Api
           corrected_end_time: permitted[:corrected_end_time],
           description: permitted[:description]
         )
-        render json: { time_entry: serialize_time_entry(entry) }
+        render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -239,7 +239,7 @@ module Api
         target_user = resolve_clock_target_user
         admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
         entry = TimeClockService.start_break(user: target_user, admin_override_by: admin_override)
-        render json: { time_entry: serialize_time_entry(entry) }
+        render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -249,7 +249,7 @@ module Api
         target_user = resolve_clock_target_user
         admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
         entry = TimeClockService.end_break(user: target_user, admin_override_by: admin_override)
-        render json: { time_entry: serialize_time_entry(entry) }
+        render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -265,23 +265,14 @@ module Api
           admin_override_by: admin_override,
           clock_source: source
         )
-        render json: { time_entry: serialize_time_entry(entry) }
+        render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
 
       # GET /api/v1/time_entries/current_status
       def current_status
-        status = TimeClockService.current_status(user: current_user)
-        active_entry = TimeClockService.active_entry_for(current_user)
-        status[:is_admin] = current_user.admin?
-        status[:clock_source] = active_entry&.clock_source
-        status[:time_category] = active_entry&.time_category ? {
-          id: active_entry.time_category.id,
-          key: active_entry.time_category.key,
-          name: active_entry.time_category.name
-        } : nil
-        render json: status
+        render json: TimeClockService.current_status(user: current_user)
       end
 
       # ── Approval Actions ──
@@ -350,6 +341,11 @@ module Api
       end
 
       private
+
+      def eager_reload(entry)
+        TimeEntry.includes(:user, :time_category, :schedule, :approved_by,
+                           :overtime_approved_by, :time_entry_breaks).find(entry.id)
+      end
 
       def resolve_clock_target_user
         if current_user.admin? && params[:user_id].present?
@@ -492,11 +488,16 @@ module Api
       end
 
       def calculate_summary(entries)
-        total_break_minutes = entries.sum(:break_minutes).to_i
+        row = entries.reorder(nil).pick(
+          Arel.sql("COALESCE(SUM(hours), 0)"),
+          Arel.sql("COALESCE(SUM(break_minutes), 0)"),
+          Arel.sql("COUNT(*)")
+        )
+        total_hours, total_break_minutes, entry_count = row || [ 0, 0, 0 ]
         {
-          total_hours: entries.sum(:hours).to_f,
-          total_break_hours: (total_break_minutes / 60.0).round(2),
-          entry_count: entries.count
+          total_hours: total_hours.to_f,
+          total_break_hours: (total_break_minutes.to_i / 60.0).round(2),
+          entry_count: entry_count.to_i
         }
       end
     end

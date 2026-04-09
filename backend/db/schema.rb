@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_04_062229) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_09_061342) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -125,6 +125,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_062229) do
     t.index ["schedule_id"], name: "index_time_entries_on_schedule_id"
     t.index ["status"], name: "index_time_entries_on_status"
     t.index ["time_category_id"], name: "index_time_entries_on_time_category_id"
+    t.index ["user_id", "work_date", "entry_method"], name: "idx_time_entries_user_date_method"
+    t.index ["user_id", "work_date"], name: "idx_time_entries_user_date"
     t.index ["user_id"], name: "index_time_entries_on_user_id"
     t.index ["user_id"], name: "index_time_entries_one_active_per_user", unique: true, where: "((status)::text = ANY (ARRAY[('clocked_in'::character varying)::text, ('on_break'::character varying)::text]))"
     t.index ["work_date"], name: "index_time_entries_on_work_date"

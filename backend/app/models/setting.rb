@@ -11,8 +11,27 @@ class Setting < ApplicationRecord
   }.freeze
 
   def self.get(key)
-    setting = find_by(key: key)
-    setting&.value || DEFAULTS[key.to_s]
+    cached = request_cache
+    if cached
+      cached[key.to_s] || DEFAULTS[key.to_s]
+    else
+      setting = find_by(key: key)
+      setting&.value || DEFAULTS[key.to_s]
+    end
+  end
+
+  def self.preload_cache!
+    hash = DEFAULTS.dup
+    all.each { |s| hash[s.key] = s.value }
+    Thread.current[:settings_cache] = hash
+  end
+
+  def self.clear_cache!
+    Thread.current[:settings_cache] = nil
+  end
+
+  def self.request_cache
+    Thread.current[:settings_cache]
   end
 
   def self.set(key, value, description: nil)
@@ -20,6 +39,7 @@ class Setting < ApplicationRecord
     setting.value = value
     setting.description = description if description.present?
     setting.save!
+    clear_cache!
     setting
   end
 
