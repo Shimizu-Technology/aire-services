@@ -250,6 +250,20 @@ export interface TimeEntry {
   updated_at: string;
 }
 
+export interface ClockSessionSegment {
+  category_name: string;
+  clock_in_at: string;
+  clock_out_at: string | null;
+  active: boolean;
+}
+
+export interface ClockSession {
+  original_clock_in_at: string;
+  total_break_minutes: number;
+  completed_work_seconds: number;
+  segments: ClockSessionSegment[];
+}
+
 export interface ClockStatus {
   clocked_in: boolean;
   status: 'clocked_in' | 'on_break' | 'completed' | null;
@@ -265,6 +279,7 @@ export interface ClockStatus {
     duration_minutes: number | null;
     active: boolean;
   }>;
+  session?: ClockSession | null;
   schedule: {
     id: number;
     start_time: string;

@@ -18,7 +18,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [sessionElapsed, setSessionElapsed] = useState(0)
+  const [categoryElapsed, setCategoryElapsed] = useState(0)
   const [breakElapsed, setBreakElapsed] = useState(0)
   const [showClockOutModal, setShowClockOutModal] = useState(false)
   const [correctionTime, setCorrectionTime] = useState('')
@@ -32,9 +33,17 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
       const result = await api.getClockStatus()
       if (result.data) {
         setStatus(result.data)
-        if (result.data.clock_in_at) {
+        const session = result.data.session
+        if (session?.original_clock_in_at) {
+          const sessionStart = new Date(session.original_clock_in_at).getTime()
+          setSessionElapsed(Math.floor((Date.now() - sessionStart) / 1000))
+        } else if (result.data.clock_in_at) {
           const start = new Date(result.data.clock_in_at).getTime()
-          setElapsedSeconds(Math.floor((Date.now() - start) / 1000))
+          setSessionElapsed(Math.floor((Date.now() - start) / 1000))
+        }
+        if (result.data.clock_in_at) {
+          const catStart = new Date(result.data.clock_in_at).getTime()
+          setCategoryElapsed(Math.floor((Date.now() - catStart) / 1000))
         }
         if (result.data.active_break && result.data.active_break_started_at) {
           const breakStart = new Date(result.data.active_break_started_at).getTime()
@@ -69,11 +78,12 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   // Keep ref in sync so the single interval callback reads fresh state
   isOnBreakRef.current = status?.active_break ?? false
 
-  // Single interval ticks both elapsed and break counters in sync
+  // Single interval ticks session, category, and break counters in sync
   useEffect(() => {
     if (status?.clocked_in) {
       timerRef.current = setInterval(() => {
-        setElapsedSeconds(prev => prev + 1)
+        setSessionElapsed(prev => prev + 1)
+        setCategoryElapsed(prev => prev + 1)
         if (isOnBreakRef.current) {
           setBreakElapsed(prev => prev + 1)
         }
@@ -210,6 +220,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         end_break: () => api.endBreak(),
       }
       const result = await fn[action]()
+      if (action === 'end_break') setBreakElapsed(0)
       if (result?.error) {
         setError(result.error)
         await fetchStatus()
@@ -242,7 +253,11 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   const blockedReason = status?.clock_in_blocked_reason
   const isAdminOverridable = isAdmin && (blockedReason === 'too_early' || blockedReason === 'shift_ended')
   const canClockIn = status?.can_clock_in || isAdminOverridable
-  const netWorkSeconds = isClockedIn ? elapsedSeconds - (status?.break_minutes || 0) * 60 - (isOnBreak ? breakElapsed : 0) : 0
+
+  const hasMultipleSegments = (status?.session?.segments?.length ?? 0) > 1
+  const sessionBreakMin = status?.session?.total_break_minutes ?? (status?.break_minutes || 0)
+  const netSessionWorkSeconds = isClockedIn ? sessionElapsed - sessionBreakMin * 60 - (isOnBreak ? breakElapsed : 0) : 0
+  const netCategoryWorkSeconds = isClockedIn ? categoryElapsed - (status?.break_minutes || 0) * 60 - (isOnBreak ? breakElapsed : 0) : 0
 
   const stripeColor = isOnBreak ? 'bg-amber-400' : isClockedIn ? 'bg-emerald-500' : 'bg-neutral-warm'
   const borderColor = isOnBreak ? 'border-amber-300/60' : isClockedIn ? 'border-emerald-300/60' : 'border-neutral-warm'
@@ -278,24 +293,34 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-5">
             <div className={`text-center py-3 rounded-xl ${isOnBreak ? 'bg-amber-50 border border-amber-200/60' : 'bg-secondary/60'}`}>
               <div className={`font-mono text-3xl font-bold tabular-nums tracking-tight ${isOnBreak ? 'text-amber-600' : 'text-primary-dark'}`}>
-                {isOnBreak ? fmt(breakElapsed) : fmt(Math.max(netWorkSeconds, 0))}
+                {isOnBreak ? fmt(breakElapsed) : fmt(Math.max(netSessionWorkSeconds, 0))}
               </div>
               <div className={`text-[10px] mt-1 font-medium uppercase tracking-wider ${isOnBreak ? 'text-amber-500' : 'text-text-muted'}`}>
                 {isOnBreak ? 'Break time' : 'Time worked'}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2.5 mt-3">
+            <div className={`grid gap-2.5 mt-3 ${hasMultipleSegments ? 'grid-cols-3' : 'grid-cols-2'}`}>
               <div className="text-center bg-secondary/40 rounded-xl py-2 px-2">
                 <div className="text-sm font-semibold text-primary-dark tabular-nums font-mono">
-                  {fmt(elapsedSeconds)}
+                  {fmt(sessionElapsed)}
                 </div>
                 <div className="text-[10px] text-text-muted font-medium uppercase tracking-wider mt-0.5">
                   Total time
                 </div>
               </div>
+              {hasMultipleSegments && (
+                <div className="text-center bg-secondary/40 rounded-xl py-2 px-2">
+                  <div className="text-sm font-semibold text-cyan-700 tabular-nums font-mono">
+                    {fmt(Math.max(netCategoryWorkSeconds, 0))}
+                  </div>
+                  <div className="text-[10px] text-text-muted font-medium uppercase tracking-wider mt-0.5">
+                    This category
+                  </div>
+                </div>
+              )}
               <div className="text-center bg-secondary/40 rounded-xl py-2 px-2">
                 <div className="text-sm font-semibold tabular-nums font-mono text-text-muted">
-                  {isOnBreak ? fmt(Math.max(netWorkSeconds, 0)) : `${status?.break_minutes || 0}m`}
+                  {isOnBreak ? fmt(Math.max(netSessionWorkSeconds, 0)) : `${sessionBreakMin}m`}
                 </div>
                 <div className="text-[10px] text-text-muted font-medium uppercase tracking-wider mt-0.5">
                   {isOnBreak ? 'Time worked' : 'Breaks'}
@@ -307,7 +332,14 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
 
         {/* Timeline (mobile) */}
         {isClockedIn && status?.clock_in_at && (
-          <TimelineSection clockInAt={status.clock_in_at} breaks={status.breaks || []} fmtTime={fmtTime} />
+          <>
+            {hasMultipleSegments && status.session && (
+              <SessionSegments segments={status.session.segments} fmtTime={fmtTime} />
+            )}
+            {!hasMultipleSegments && (
+              <TimelineSection clockInAt={status.session?.original_clock_in_at || status.clock_in_at} breaks={status.breaks || []} fmtTime={fmtTime} />
+            )}
+          </>
         )}
 
         {/* Schedule / no-schedule (mobile) */}
@@ -467,7 +499,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
             <div className="flex items-center gap-6 lg:gap-8">
               <div className="text-center">
                 <div className={`font-mono text-3xl lg:text-4xl font-bold tabular-nums tracking-tight ${isOnBreak ? 'text-amber-600' : 'text-primary-dark'}`}>
-                  {isOnBreak ? fmt(breakElapsed) : fmt(Math.max(netWorkSeconds, 0))}
+                  {isOnBreak ? fmt(breakElapsed) : fmt(Math.max(netSessionWorkSeconds, 0))}
                 </div>
                 <div className={`text-[10px] font-medium uppercase tracking-wider mt-1 ${isOnBreak ? 'text-amber-500' : 'text-text-muted'}`}>
                   {isOnBreak ? 'Break time' : 'Time worked'}
@@ -476,16 +508,29 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
               <div className="w-px h-12 bg-neutral-warm/60" />
               <div className="text-center">
                 <div className="font-mono text-xl lg:text-2xl font-semibold text-primary-dark tabular-nums">
-                  {fmt(elapsedSeconds)}
+                  {fmt(sessionElapsed)}
                 </div>
                 <div className="text-[10px] text-text-muted font-medium uppercase tracking-wider mt-1">
                   Total time
                 </div>
               </div>
+              {hasMultipleSegments && (
+                <>
+                  <div className="w-px h-12 bg-neutral-warm/60" />
+                  <div className="text-center">
+                    <div className="font-mono text-xl lg:text-2xl font-semibold text-cyan-700 tabular-nums">
+                      {fmt(Math.max(netCategoryWorkSeconds, 0))}
+                    </div>
+                    <div className="text-[10px] text-text-muted font-medium uppercase tracking-wider mt-1">
+                      This category
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="w-px h-12 bg-neutral-warm/60" />
               <div className="text-center">
                 <div className="font-mono text-xl lg:text-2xl font-semibold tabular-nums text-text-muted">
-                  {isOnBreak ? fmt(Math.max(netWorkSeconds, 0)) : `${status?.break_minutes || 0}m`}
+                  {isOnBreak ? fmt(Math.max(netSessionWorkSeconds, 0)) : `${sessionBreakMin}m`}
                 </div>
                 <div className="text-[10px] text-text-muted font-medium uppercase tracking-wider mt-1">
                   {isOnBreak ? 'Time worked' : 'Breaks'}
@@ -536,7 +581,14 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         <ErrorMsg error={error} />
 
         {isClockedIn && status?.clock_in_at && (
-          <TimelineSection clockInAt={status.clock_in_at} breaks={status.breaks || []} fmtTime={fmtTime} compact />
+          <>
+            {hasMultipleSegments && status.session && (
+              <SessionSegments segments={status.session.segments} fmtTime={fmtTime} compact />
+            )}
+            {!hasMultipleSegments && (
+              <TimelineSection clockInAt={status.session?.original_clock_in_at || status.clock_in_at} breaks={status.breaks || []} fmtTime={fmtTime} compact />
+            )}
+          </>
         )}
       </div>
 
@@ -554,7 +606,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
               <div>
                 <h3 className="font-semibold text-gray-900">Clock Out</h3>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  {status?.clock_in_at && `You've been working since ${fmtTime(status.clock_in_at)}`}
+                  {(status?.session?.original_clock_in_at || status?.clock_in_at) && `You've been working since ${fmtTime(status?.session?.original_clock_in_at || status!.clock_in_at!)}`}
                 </p>
               </div>
             </div>
@@ -671,6 +723,36 @@ function TimelineSection({ clockInAt, breaks, fmtTime, compact }: {
             )}
           </span>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function SessionSegments({ segments, fmtTime, compact }: {
+  segments: Array<{ category_name: string; clock_in_at: string; clock_out_at: string | null; active: boolean }>
+  fmtTime: (iso: string) => string
+  compact?: boolean
+}) {
+  return (
+    <div className={compact ? 'mt-3 pt-3 border-t border-neutral-warm/50' : 'mb-4'}>
+      <div className={compact ? '' : 'bg-secondary/40 rounded-lg px-3 py-2'}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+          {segments.map((seg, i) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <span className="text-neutral-warm">→</span>}
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${seg.active ? 'bg-emerald-500 animate-pulse' : 'bg-cyan-400'} mr-0.5 align-middle`} />
+              <span className="font-medium text-primary-dark">{seg.category_name}</span>
+              <span>{fmtTime(seg.clock_in_at)}</span>
+              {seg.clock_out_at && (
+                <>
+                  <span className="text-neutral-warm">–</span>
+                  <span>{fmtTime(seg.clock_out_at)}</span>
+                </>
+              )}
+              {seg.active && <span className="text-emerald-600 font-medium">(now)</span>}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   )
