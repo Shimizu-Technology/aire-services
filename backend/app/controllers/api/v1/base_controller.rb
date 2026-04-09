@@ -10,7 +10,18 @@ module Api
       rescue_from ActionController::ParameterMissing, with: :bad_request
       rescue_from StandardError, with: :internal_server_error
 
+      before_action :preload_settings
+      after_action :clear_settings_cache
+
       private
+
+      def preload_settings
+        Setting.preload_cache!
+      end
+
+      def clear_settings_cache
+        Setting.clear_cache!
+      end
 
       def not_found(_exception)
         render json: { error: "Record not found" }, status: :not_found

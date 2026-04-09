@@ -67,10 +67,10 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
     }).catch(() => undefined)
   }, [])
 
-  // Auto-poll every 30s when not clocked in (waiting for shift to start)
+  // Auto-poll every 60s when not clocked in (waiting for shift to start)
   useEffect(() => {
     if (!status?.clocked_in && !loading) {
-      pollRef.current = setInterval(() => fetchStatus(), 30_000)
+      pollRef.current = setInterval(() => fetchStatus(), 60_000)
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [status?.clocked_in, loading, fetchStatus])
@@ -92,10 +92,10 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [status?.clocked_in])
 
-  // Re-sync with server every 60s while clocked in to prevent drift
+  // Re-sync with server every 2 minutes while clocked in to prevent drift
   useEffect(() => {
     if (!status?.clocked_in) return
-    const syncInterval = setInterval(() => fetchStatus(), 60_000)
+    const syncInterval = setInterval(() => fetchStatus(), 120_000)
     return () => clearInterval(syncInterval)
   }, [status?.clocked_in, fetchStatus])
 

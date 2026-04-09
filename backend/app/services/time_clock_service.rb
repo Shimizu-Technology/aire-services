@@ -199,11 +199,26 @@ class TimeClockService
 
     # ── Current Status ──
     def current_status(user:)
-      entry = active_entry_for(user)
       today = Time.current.in_time_zone(business_timezone).to_date
-      schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
 
+      entry = TimeEntry
+        .where(user_id: user.id)
+        .where(status: %w[clocked_in on_break])
+        .includes(:time_entry_breaks, :time_category)
+        .order(created_at: :desc)
+        .first
+
+      schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
       clock_in_info = can_clock_in_info(user, schedule, existing_entry: entry)
+
+      active_break_record = entry&.time_entry_breaks&.detect(&:active?)
+      breaks_list = if entry
+        entry.time_entry_breaks.sort_by(&:start_time).map { |b|
+          { start_time: b.start_time, end_time: b.end_time, duration_minutes: b.duration_minutes, active: b.active? }
+        }
+      else
+        []
+      end
 
       session = session_data_for(user, today, entry)
 
@@ -213,13 +228,18 @@ class TimeClockService
         entry_id: entry&.id,
         clock_in_at: entry&.clock_in_at,
         elapsed_minutes: entry ? ((Time.current - entry.clock_in_at) / 60).round : nil,
-        break_minutes: entry&.total_break_minutes || 0,
-        active_break: entry&.active_break.present?,
-        active_break_started_at: entry&.active_break&.start_time,
-        breaks: entry ? entry.time_entry_breaks.order(:start_time).map { |b|
-          { start_time: b.start_time, end_time: b.end_time, duration_minutes: b.duration_minutes, active: b.active? }
-        } : [],
+        break_minutes: entry ? entry.time_entry_breaks.sum { |b| b.duration_minutes || 0 } : 0,
+        active_break: active_break_record.present?,
+        active_break_started_at: active_break_record&.start_time,
+        breaks: breaks_list,
         session: session,
+        is_admin: user.admin?,
+        clock_source: entry&.clock_source,
+        time_category: entry&.time_category ? {
+          id: entry.time_category.id,
+          key: entry.time_category.key,
+          name: entry.time_category.name
+        } : nil,
         schedule: schedule ? {
           id: schedule.id,
           start_time: schedule.formatted_start_time,

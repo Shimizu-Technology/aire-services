@@ -4,8 +4,8 @@ class WhosWorkingQuery
   class << self
     def call
       today = Time.current.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date
-      staff_users = User.staff.order(:first_name, :last_name)
-      staff_ids = staff_users.pluck(:id)
+      staff_users = User.staff.order(:first_name, :last_name).to_a
+      staff_ids = staff_users.map(&:id)
 
       today_schedules = Schedule.where(user_id: staff_ids, work_date: today).index_by(&:user_id)
 
@@ -13,6 +13,7 @@ class WhosWorkingQuery
                                    .where(entry_method: "clock")
                                    .includes(:time_entry_breaks, :time_category)
                                    .order(clock_in_at: :asc)
+                                   .to_a
 
       entries_by_user = all_today_entries.group_by(&:user_id)
 
