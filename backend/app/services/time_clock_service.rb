@@ -205,6 +205,8 @@ class TimeClockService
 
       clock_in_info = can_clock_in_info(user, schedule, existing_entry: entry)
 
+      session = session_data_for(user, today, entry)
+
       {
         clocked_in: entry.present?,
         status: entry&.status,
@@ -217,6 +219,7 @@ class TimeClockService
         breaks: entry ? entry.time_entry_breaks.order(:start_time).map { |b|
           { start_time: b.start_time, end_time: b.end_time, duration_minutes: b.duration_minutes, active: b.active? }
         } : [],
+        session: session,
         schedule: schedule ? {
           id: schedule.id,
           start_time: schedule.formatted_start_time,
@@ -385,6 +388,42 @@ class TimeClockService
     end
 
     private
+
+    def session_data_for(user, today, active_entry)
+      return nil unless active_entry
+
+      todays_clock_entries = user.time_entries
+        .where(work_date: today, entry_method: "clock")
+        .includes(:time_entry_breaks, :time_category)
+        .order(:clock_in_at)
+
+      first_entry = todays_clock_entries.first
+      return nil unless first_entry
+
+      total_break_min = todays_clock_entries.sum { |e| e.total_break_minutes || 0 }
+
+      completed = todays_clock_entries.reject { |e| e.id == active_entry.id }
+      completed_seconds = completed.sum do |e|
+        next 0 unless e.clock_out_at && e.clock_in_at
+        (e.clock_out_at - e.clock_in_at).to_i
+      end
+
+      segments = todays_clock_entries.map do |e|
+        {
+          category_name: e.time_category&.name || "Uncategorized",
+          clock_in_at: e.clock_in_at,
+          clock_out_at: e.clock_out_at,
+          active: e.id == active_entry.id
+        }
+      end
+
+      {
+        original_clock_in_at: first_entry.clock_in_at,
+        total_break_minutes: total_break_min,
+        completed_seconds: completed_seconds,
+        segments: segments
+      }
+    end
 
     # Schedule times are stored as wall-clock times in UTC (e.g., 7:30 PM stored
     # as 19:30 UTC). We need the current local wall-clock time in the same
