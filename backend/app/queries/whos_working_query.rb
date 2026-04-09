@@ -11,7 +11,7 @@ class WhosWorkingQuery
 
       all_today_entries = TimeEntry.where(user_id: staff_ids, work_date: today)
                                    .where(entry_method: "clock")
-                                   .includes(:time_entry_breaks, :time_category)
+                                   .eager_load(:time_entry_breaks, :time_category)
                                    .order(clock_in_at: :asc)
                                    .to_a
 

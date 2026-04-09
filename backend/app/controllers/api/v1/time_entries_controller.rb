@@ -11,7 +11,7 @@ module Api
       # GET /api/v1/time_entries
       def index
         @time_entries = current_user.admin? ? TimeEntry.all : TimeEntry.for_user(current_user)
-        @time_entries = @time_entries.includes(:user, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks)
+        @time_entries = @time_entries.eager_load(:user, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks)
 
         if params[:user_id].present? && current_user.admin?
           @time_entries = @time_entries.where(user_id: params[:user_id])
@@ -281,7 +281,7 @@ module Api
       def pending_approvals
         return render json: { error: "Admin access required" }, status: :forbidden unless current_user.admin?
 
-        entries = TimeEntry.includes(:user, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks,
+        entries = TimeEntry.eager_load(:user, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks,
                                         :time_category)
           .where(approval_status: "pending")
           .or(TimeEntry.where(overtime_status: "pending"))
@@ -343,8 +343,8 @@ module Api
       private
 
       def eager_reload(entry)
-        TimeEntry.includes(:user, :time_category, :schedule, :approved_by,
-                           :overtime_approved_by, :time_entry_breaks).find(entry.id)
+        TimeEntry.eager_load(:user, :time_category, :schedule, :approved_by,
+                             :overtime_approved_by, :time_entry_breaks).find(entry.id)
       end
 
       def resolve_clock_target_user

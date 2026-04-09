@@ -198,16 +198,19 @@ class TimeClockService
     end
 
     # ── Current Status ──
+    # Optimized: loads all today's clock entries + associations in ONE eager_load
+    # query (single SQL LEFT JOIN), then derives active entry and session chain
+    # in Ruby — total: 3 DB queries (settings preload + entries + schedule).
     def current_status(user:)
       today = Time.current.in_time_zone(business_timezone).to_date
 
-      entry = TimeEntry
-        .where(user_id: user.id)
-        .where(status: %w[clocked_in on_break])
-        .includes(:time_entry_breaks, :time_category)
-        .order(created_at: :desc)
-        .first
+      todays_entries = user.time_entries
+        .where(work_date: today, entry_method: "clock")
+        .eager_load(:time_entry_breaks, :time_category)
+        .order(:clock_in_at)
+        .to_a
 
+      entry = todays_entries.select { |e| %w[clocked_in on_break].include?(e.status) }.last
       schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
       clock_in_info = can_clock_in_info(user, schedule, existing_entry: entry)
 
@@ -220,7 +223,7 @@ class TimeClockService
         []
       end
 
-      session = session_data_for(user, today, entry)
+      session = session_data_from_loaded(todays_entries, entry)
 
       {
         clocked_in: entry.present?,
@@ -409,10 +412,11 @@ class TimeClockService
 
     private
 
-    def session_data_for(user, today, active_entry)
+    # Build session data from already-loaded entries (no extra queries).
+    def session_data_from_loaded(todays_entries, active_entry)
       return nil unless active_entry
 
-      chain = build_session_chain(user, today, active_entry)
+      chain = build_chain_from_loaded(todays_entries, active_entry)
 
       total_break_min = chain.sum { |e| e.total_break_minutes || 0 }
 
@@ -440,20 +444,14 @@ class TimeClockService
       }
     end
 
-    # Walk backwards from the active entry to find the continuous session chain.
-    # Two entries are chained when one's clock_out_at is within 5s of the next's
-    # clock_in_at (category switches are near-instant).
-    def build_session_chain(user, today, active_entry)
-      candidates = user.time_entries
-        .where(work_date: today, entry_method: "clock")
-        .includes(:time_entry_breaks, :time_category)
-        .order(clock_in_at: :desc)
-        .to_a
+    # Walk backwards from the active entry through the pre-loaded entries.
+    def build_chain_from_loaded(todays_entries, active_entry)
+      sorted_desc = todays_entries.sort_by { |e| e.clock_in_at || Time.at(0) }.reverse
 
       chain = [ active_entry ]
       current = active_entry
 
-      candidates.each do |entry|
+      sorted_desc.each do |entry|
         next if entry.id == current.id
         next unless entry.clock_out_at && current.clock_in_at
 
