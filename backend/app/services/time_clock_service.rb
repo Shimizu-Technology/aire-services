@@ -392,23 +392,18 @@ class TimeClockService
     def session_data_for(user, today, active_entry)
       return nil unless active_entry
 
-      todays_clock_entries = user.time_entries
-        .where(work_date: today, entry_method: "clock")
-        .includes(:time_entry_breaks, :time_category)
-        .order(:clock_in_at)
+      chain = build_session_chain(user, today, active_entry)
 
-      first_entry = todays_clock_entries.first
-      return nil unless first_entry
+      total_break_min = chain.sum { |e| e.total_break_minutes || 0 }
 
-      total_break_min = todays_clock_entries.sum { |e| e.total_break_minutes || 0 }
-
-      completed = todays_clock_entries.reject { |e| e.id == active_entry.id }
-      completed_seconds = completed.sum do |e|
+      completed = chain.reject { |e| e.id == active_entry.id }
+      completed_work_seconds = completed.sum do |e|
         next 0 unless e.clock_out_at && e.clock_in_at
-        (e.clock_out_at - e.clock_in_at).to_i
+        raw = (e.clock_out_at - e.clock_in_at).to_i
+        raw - ((e.total_break_minutes || 0) * 60)
       end
 
-      segments = todays_clock_entries.map do |e|
+      segments = chain.map do |e|
         {
           category_name: e.time_category&.name || "Uncategorized",
           clock_in_at: e.clock_in_at,
@@ -418,11 +413,38 @@ class TimeClockService
       end
 
       {
-        original_clock_in_at: first_entry.clock_in_at,
+        original_clock_in_at: chain.first.clock_in_at,
         total_break_minutes: total_break_min,
-        completed_seconds: completed_seconds,
+        completed_work_seconds: completed_work_seconds,
         segments: segments
       }
+    end
+
+    # Walk backwards from the active entry to find the continuous session chain.
+    # Two entries are chained when one's clock_out_at is within 5s of the next's
+    # clock_in_at (category switches are near-instant).
+    def build_session_chain(user, today, active_entry)
+      candidates = user.time_entries
+        .where(work_date: today, entry_method: "clock")
+        .includes(:time_entry_breaks, :time_category)
+        .order(clock_in_at: :desc)
+        .to_a
+
+      chain = [ active_entry ]
+      current = active_entry
+
+      candidates.each do |entry|
+        next if entry.id == current.id
+        next unless entry.clock_out_at && current.clock_in_at
+
+        gap = (current.clock_in_at - entry.clock_out_at).abs
+        if gap <= 5
+          chain.unshift(entry)
+          current = entry
+        end
+      end
+
+      chain
     end
 
     # Schedule times are stored as wall-clock times in UTC (e.g., 7:30 PM stored

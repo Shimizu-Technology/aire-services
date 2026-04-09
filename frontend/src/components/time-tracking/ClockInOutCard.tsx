@@ -220,6 +220,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         end_break: () => api.endBreak(),
       }
       const result = await fn[action]()
+      if (action === 'end_break') setBreakElapsed(0)
       if (result?.error) {
         setError(result.error)
         await fetchStatus()

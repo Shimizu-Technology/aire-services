@@ -260,7 +260,7 @@ export interface ClockSessionSegment {
 export interface ClockSession {
   original_clock_in_at: string;
   total_break_minutes: number;
-  completed_seconds: number;
+  completed_work_seconds: number;
   segments: ClockSessionSegment[];
 }
 
