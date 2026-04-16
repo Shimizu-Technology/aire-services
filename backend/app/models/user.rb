@@ -24,7 +24,7 @@ class User < ApplicationRecord
   validates :email, uniqueness: { case_sensitive: false }, allow_nil: true
   validates :email, format: { with: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/ }, allow_blank: true
   validates :role, inclusion: { in: %w[admin employee] }
-  validates :kiosk_pin_lookup_hash, uniqueness: true, allow_nil: true
+  validates :kiosk_pin_lookup_hash, uniqueness: { message: "This PIN is already in use by another employee. Please choose a different PIN." }, allow_nil: true
   validate :kiosk_pin_format_if_present
   validate :staff_requires_pin_when_kiosk_enabled
 
