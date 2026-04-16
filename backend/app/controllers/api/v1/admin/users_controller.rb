@@ -144,7 +144,7 @@ module Api
             message: "Kiosk PIN reset for #{@user.full_name}"
           }
         rescue ActiveRecord::RecordInvalid => e
-          messages = e.record.errors.map { |err| err.type == :taken ? err.message : err.full_message }
+          messages = e.record.errors.map { |err| err.attribute == :kiosk_pin_lookup_hash && err.type == :taken ? err.message : err.full_message }
           render json: { error: messages.join(", ") }, status: :unprocessable_entity
         end
 
