@@ -30,8 +30,8 @@ class TimeClockService
       if time_category_id.present?
         selected_time_category = TimeCategory.active.find_by(id: time_category_id)
         raise ClockError, "Selected work category is invalid or inactive" unless selected_time_category
-        validate_time_category_assignment!(user, selected_time_category, admin_override_by: admin_override_by)
       end
+      validate_time_category_assignment!(user, selected_time_category, admin_override_by: admin_override_by)
 
       entry = TimeEntry.new(
         user: user,
@@ -489,7 +489,11 @@ class TimeClockService
     def validate_time_category_assignment!(user, category, admin_override_by:)
       return if admin_override_by.present?
       return if user.admin?
-      return if user.assigned_time_categories.exists?(category.id)
+
+      assigned_categories = user.assigned_time_categories.active
+      raise ClockError, "No work categories are assigned to this employee" unless assigned_categories.exists?
+      raise ClockError, "Choose a work category before clocking in" unless category
+      return if assigned_categories.exists?(category.id)
 
       raise ClockError, "Selected work category is not assigned to this employee"
     end

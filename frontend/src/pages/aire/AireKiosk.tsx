@@ -174,7 +174,12 @@ export default function AireKiosk() {
       return
     }
 
-    if (action === 'clock_in' && categories.length > 0 && !selectedCategoryId) {
+    if (action === 'clock_in' && categories.length === 0) {
+      setError('No work categories are assigned. Please ask an admin to assign your categories before clocking in.')
+      return
+    }
+
+    if (action === 'clock_in' && !selectedCategoryId) {
       setError('Choose a work category before clocking in.')
       return
     }
@@ -214,7 +219,7 @@ export default function AireKiosk() {
     setActionLoading(null)
   }
 
-  const canClockIn = !!employee && !status?.clocked_in && status?.can_clock_in !== false
+  const canClockIn = !!employee && !status?.clocked_in && status?.can_clock_in !== false && categories.length > 0
   const canClockOut = !!employee && !!status?.clocked_in
   const canStartBreak = !!employee && status?.status === 'clocked_in'
   const canEndBreak = !!employee && status?.status === 'on_break'
@@ -325,7 +330,7 @@ export default function AireKiosk() {
             </div>
           ) : (
             <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-300">
-              No work categories assigned. You can still clock in and out. Ask an admin to assign your categories.
+              No work categories assigned. Ask an admin to assign your categories before clocking in.
             </div>
           )}
 

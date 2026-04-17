@@ -16,8 +16,10 @@ RSpec.describe TimeClockService, type: :service do
   describe ".clock_in" do
     it "allows clock-in without a schedule when the schedule requirement is disabled" do
       Setting.set("schedule_required_for_clock_in", "false")
+      time_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: time_category)
 
-      entry = described_class.clock_in(user: user)
+      entry = described_class.clock_in(user: user, time_category_id: time_category.id)
 
       expect(entry).to be_persisted
       expect(entry.schedule).to be_nil
@@ -39,6 +41,24 @@ RSpec.describe TimeClockService, type: :service do
 
       expect(status[:schedule_required_for_clock_in]).to be(true)
       expect(status[:clock_in_blocked_reason]).to eq("no_schedule")
+    end
+
+    it "blocks employees from clocking in with no assigned categories" do
+      Setting.set("schedule_required_for_clock_in", "false")
+
+      expect {
+        described_class.clock_in(user: user)
+      }.to raise_error(TimeClockService::ClockError, /No work categories/)
+    end
+
+    it "blocks employees from clocking in without selecting an assigned category" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      assigned_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: assigned_category)
+
+      expect {
+        described_class.clock_in(user: user)
+      }.to raise_error(TimeClockService::ClockError, /Choose a work category/)
     end
 
     it "blocks employees from clocking in with an unassigned category" do
@@ -97,10 +117,12 @@ RSpec.describe TimeClockService, type: :service do
 
     it "allows clock-out after midnight for an overnight shift" do
       Setting.set("schedule_required_for_clock_in", "false")
+      time_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: time_category)
       overnight_start = guam_zone.local(2026, 4, 2, 23, 30, 0)
 
       travel_to(overnight_start)
-      described_class.clock_in(user: user)
+      described_class.clock_in(user: user, time_category_id: time_category.id)
 
       travel_to(overnight_start + 2.hours)
       entry = described_class.clock_out(user: user)
@@ -114,10 +136,12 @@ RSpec.describe TimeClockService, type: :service do
   describe ".current_status" do
     it "reports an active overnight entry after midnight" do
       Setting.set("schedule_required_for_clock_in", "false")
+      time_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: time_category)
       overnight_start = guam_zone.local(2026, 4, 2, 23, 30, 0)
 
       travel_to(overnight_start)
-      entry = described_class.clock_in(user: user)
+      entry = described_class.clock_in(user: user, time_category_id: time_category.id)
 
       travel_to(overnight_start + 2.hours)
       status = described_class.current_status(user: user)
