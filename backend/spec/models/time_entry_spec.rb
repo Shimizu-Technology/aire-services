@@ -13,7 +13,10 @@ RSpec.describe TimeEntry, type: :model do
         user: user,
         work_date: Date.new(2026, 4, 2),
         start_time: guam_zone.local(2026, 4, 2, 23, 30, 0),
-        end_time: guam_zone.local(2026, 4, 3, 1, 30, 0)
+        end_time: guam_zone.local(2026, 4, 3, 1, 30, 0),
+        clock_in_at: guam_zone.local(2026, 4, 2, 23, 30, 0),
+        clock_out_at: guam_zone.local(2026, 4, 3, 1, 30, 0),
+        entry_method: "clock"
       )
 
       expect(entry).to be_valid
@@ -26,6 +29,18 @@ RSpec.describe TimeEntry, type: :model do
         user: user,
         start_time: guam_zone.local(2026, 4, 2, 9, 0, 0),
         end_time: guam_zone.local(2026, 4, 2, 9, 0, 0)
+      )
+
+      expect(entry).not_to be_valid
+      expect(entry.errors[:end_time]).to include("must be after start time")
+    end
+
+    it "rejects same-day entries that end before they start" do
+      entry = build(
+        :time_entry,
+        user: user,
+        start_time: guam_zone.local(2026, 4, 2, 9, 0, 0),
+        end_time: guam_zone.local(2026, 4, 2, 8, 0, 0)
       )
 
       expect(entry).not_to be_valid

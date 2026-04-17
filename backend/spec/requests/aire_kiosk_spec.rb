@@ -3,7 +3,11 @@
 require "rails_helper"
 
 RSpec.describe "AIRE kiosk", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:employee_pin) { "731248" }
+  let(:guam_zone) { ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE] }
+  let(:frozen_time) { guam_zone.local(2026, 4, 2, 9, 0, 0) }
 
   let!(:employee) do
     create(:user, :employee, first_name: "Mindy").tap do |user|
@@ -19,6 +23,10 @@ RSpec.describe "AIRE kiosk", type: :request do
       hourly_rate_cents: 3000,
       is_active: true
     )
+  end
+
+  around do |example|
+    travel_to(frozen_time) { example.run }
   end
 
   before do
