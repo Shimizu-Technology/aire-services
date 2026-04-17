@@ -30,6 +30,7 @@ class TimeClockService
       if time_category_id.present?
         selected_time_category = TimeCategory.active.find_by(id: time_category_id)
         raise ClockError, "Selected work category is invalid or inactive" unless selected_time_category
+        validate_time_category_assignment!(user, selected_time_category, admin_override_by: admin_override_by)
       end
 
       entry = TimeEntry.new(
@@ -149,6 +150,7 @@ class TimeClockService
 
       new_category = TimeCategory.active.find_by(id: time_category_id)
       raise ClockError, "Selected work category is invalid or inactive" unless new_category
+      validate_time_category_assignment!(user, new_category, admin_override_by: admin_override_by)
 
       if entry.time_category_id == new_category.id
         raise ClockError, "Already tracking time under #{new_category.name}"
@@ -336,6 +338,14 @@ class TimeClockService
 
     def active_entry_for(user)
       TimeEntry.clocked_in.for_user(user).order(created_at: :desc).first
+    end
+
+    def validate_time_category_assignment!(user, category, admin_override_by:)
+      return if admin_override_by.present?
+      return if user.admin?
+      return if user.assigned_time_categories.exists?(category.id)
+
+      raise ClockError, "Selected work category is not assigned to this employee"
     end
 
     def flag_stale_entries(threshold_hours: 12)
