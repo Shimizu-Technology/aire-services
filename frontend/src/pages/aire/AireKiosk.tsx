@@ -5,7 +5,7 @@ import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockSt
 type KioskAction = 'clock_in' | 'clock_out' | 'start_break' | 'end_break' | 'switch_category'
 
 const keypad = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'CLR']
-const PIN_LENGTH = 6
+const PIN_LENGTH = 8
 const IDLE_RESET_MS = 30_000
 const SUCCESS_RESET_MS = 8_000
 
@@ -60,7 +60,7 @@ export default function AireKiosk() {
   const idleResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const successResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const maskedPin = useMemo(() => (pin.length ? '•'.repeat(pin.length) : '------'), [pin])
+  const maskedPin = useMemo(() => (pin.length ? '•'.repeat(pin.length) : '--------'), [pin])
 
   const selectedCategory = useMemo(
     () => categories.find((category) => category.id === selectedCategoryId) ?? null,
@@ -174,7 +174,12 @@ export default function AireKiosk() {
       return
     }
 
-    if (action === 'clock_in' && categories.length > 0 && !selectedCategoryId) {
+    if (action === 'clock_in' && categories.length === 0) {
+      setError('No work categories are assigned. Please ask an admin to assign your categories before clocking in.')
+      return
+    }
+
+    if (action === 'clock_in' && !selectedCategoryId) {
       setError('Choose a work category before clocking in.')
       return
     }
@@ -214,7 +219,7 @@ export default function AireKiosk() {
     setActionLoading(null)
   }
 
-  const canClockIn = !!employee && !status?.clocked_in
+  const canClockIn = !!employee && !status?.clocked_in && status?.can_clock_in !== false && categories.length > 0
   const canClockOut = !!employee && !!status?.clocked_in
   const canStartBreak = !!employee && status?.status === 'clocked_in'
   const canEndBreak = !!employee && status?.status === 'on_break'
@@ -325,7 +330,7 @@ export default function AireKiosk() {
             </div>
           ) : (
             <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-300">
-              No work categories assigned. You can still clock in and out. Ask an admin to assign your categories.
+              No work categories assigned. Ask an admin to assign your categories before clocking in.
             </div>
           )}
 

@@ -163,9 +163,15 @@ class TimeEntry < ApplicationRecord
   def end_time_after_start_time
     return unless start_time.present? && end_time.present?
 
-    tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
-    start_local = start_time.in_time_zone(tz).seconds_since_midnight
-    end_local = end_time.in_time_zone(tz).seconds_since_midnight
+    if clock_entry? && clock_in_at.present? && clock_out_at.present?
+      if clock_out_at <= clock_in_at
+        errors.add(:end_time, "must be after start time")
+      end
+      return
+    end
+
+    start_local = start_time.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).seconds_since_midnight
+    end_local = end_time.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).seconds_since_midnight
 
     if end_local <= start_local
       errors.add(:end_time, "must be after start time")

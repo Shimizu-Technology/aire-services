@@ -3,6 +3,51 @@
 require "rails_helper"
 
 RSpec.describe TimeEntry, type: :model do
+  describe "time validation" do
+    let(:user) { create(:user, :employee) }
+    let(:guam_zone) { ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE] }
+
+    it "allows completed entries that end after midnight" do
+      entry = build(
+        :time_entry,
+        user: user,
+        work_date: Date.new(2026, 4, 2),
+        start_time: guam_zone.local(2026, 4, 2, 23, 30, 0),
+        end_time: guam_zone.local(2026, 4, 3, 1, 30, 0),
+        clock_in_at: guam_zone.local(2026, 4, 2, 23, 30, 0),
+        clock_out_at: guam_zone.local(2026, 4, 3, 1, 30, 0),
+        entry_method: "clock"
+      )
+
+      expect(entry).to be_valid
+      expect(entry.hours).to eq(2.0)
+    end
+
+    it "still rejects entries with matching start and end wall-clock times" do
+      entry = build(
+        :time_entry,
+        user: user,
+        start_time: guam_zone.local(2026, 4, 2, 9, 0, 0),
+        end_time: guam_zone.local(2026, 4, 2, 9, 0, 0)
+      )
+
+      expect(entry).not_to be_valid
+      expect(entry.errors[:end_time]).to include("must be after start time")
+    end
+
+    it "rejects same-day entries that end before they start" do
+      entry = build(
+        :time_entry,
+        user: user,
+        start_time: guam_zone.local(2026, 4, 2, 9, 0, 0),
+        end_time: guam_zone.local(2026, 4, 2, 8, 0, 0)
+      )
+
+      expect(entry).not_to be_valid
+      expect(entry.errors[:end_time]).to include("must be after start time")
+    end
+  end
+
   describe "effective rate snapshotting" do
     let(:user) { create(:user, :employee) }
     let(:flight_category) { create(:time_category, hourly_rate_cents: 4200) }

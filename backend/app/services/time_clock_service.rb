@@ -31,6 +31,7 @@ class TimeClockService
         selected_time_category = TimeCategory.active.find_by(id: time_category_id)
         raise ClockError, "Selected work category is invalid or inactive" unless selected_time_category
       end
+      validate_time_category_assignment!(user, selected_time_category, admin_override_by: admin_override_by)
 
       entry = TimeEntry.new(
         user: user,
@@ -149,6 +150,7 @@ class TimeClockService
 
       new_category = TimeCategory.active.find_by(id: time_category_id)
       raise ClockError, "Selected work category is invalid or inactive" unless new_category
+      validate_time_category_assignment!(user, new_category, admin_override_by: admin_override_by)
 
       if entry.time_category_id == new_category.id
         raise ClockError, "Already tracking time under #{new_category.name}"
@@ -204,13 +206,20 @@ class TimeClockService
     def current_status(user:)
       today = Time.current.in_time_zone(business_timezone).to_date
 
-      todays_entries = user.time_entries
-        .where(work_date: today, entry_method: "clock")
+      active_entry = active_entry_for(user)
+      entries_scope = user.time_entries.where(work_date: today, entry_method: "clock")
+      entries_scope = entries_scope.or(user.time_entries.where(id: active_entry.id)) if active_entry
+
+      todays_entries = entries_scope
         .eager_load(:time_entry_breaks, :time_category)
         .order(:clock_in_at)
         .to_a
 
-      entry = todays_entries.select { |e| %w[clocked_in on_break].include?(e.status) }.last
+      entry = if active_entry
+        todays_entries.find { |e| e.id == active_entry.id }
+      else
+        todays_entries.select { |e| %w[clocked_in on_break].include?(e.status) }.last
+      end
       schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
       clock_in_info = can_clock_in_info(user, schedule, existing_entry: entry)
 
@@ -475,6 +484,18 @@ class TimeClockService
 
     def business_timezone
       BUSINESS_TIMEZONE
+    end
+
+    def validate_time_category_assignment!(user, category, admin_override_by:)
+      return if admin_override_by.present?
+      return if user.admin?
+
+      assigned_categories = user.assigned_time_categories.active
+      raise ClockError, "No work categories are assigned to this employee" unless assigned_categories.exists?
+      raise ClockError, "Choose a work category before clocking in" unless category
+      return if assigned_categories.exists?(category.id)
+
+      raise ClockError, "Selected work category is not assigned to this employee"
     end
 
     def validate_clock_in_time(now, schedule)

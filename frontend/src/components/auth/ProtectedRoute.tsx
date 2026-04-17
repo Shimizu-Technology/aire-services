@@ -12,7 +12,20 @@ const ClerkProtectedContent = lazy(() => import('./ClerkProtectedContent'))
 export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   const { isClerkEnabled } = useAuthContext()
 
-  // If Clerk is not enabled (dev mode), allow access without auth
+  if (!isClerkEnabled && import.meta.env.PROD) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-center text-white">
+        <div className="max-w-md">
+          <h1 className="text-2xl font-semibold">Authentication is not configured</h1>
+          <p className="mt-3 text-sm text-slate-300">
+            Staff access is unavailable until the Clerk publishable key is set for this deployment.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // If Clerk is not enabled in development, allow access without auth
   if (!isClerkEnabled) {
     return <>{children}</>
   }
