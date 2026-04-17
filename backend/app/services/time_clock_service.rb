@@ -206,13 +206,20 @@ class TimeClockService
     def current_status(user:)
       today = Time.current.in_time_zone(business_timezone).to_date
 
-      todays_entries = user.time_entries
-        .where(work_date: today, entry_method: "clock")
+      active_entry = active_entry_for(user)
+      entries_scope = user.time_entries.where(work_date: today, entry_method: "clock")
+      entries_scope = entries_scope.or(user.time_entries.where(id: active_entry.id)) if active_entry
+
+      todays_entries = entries_scope
         .eager_load(:time_entry_breaks, :time_category)
         .order(:clock_in_at)
         .to_a
 
-      entry = todays_entries.select { |e| %w[clocked_in on_break].include?(e.status) }.last
+      entry = if active_entry
+        todays_entries.find { |e| e.id == active_entry.id }
+      else
+        todays_entries.select { |e| %w[clocked_in on_break].include?(e.status) }.last
+      end
       schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
       clock_in_info = can_clock_in_info(user, schedule, existing_entry: entry)
 

@@ -111,6 +111,24 @@ RSpec.describe TimeClockService, type: :service do
     end
   end
 
+  describe ".current_status" do
+    it "reports an active overnight entry after midnight" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      overnight_start = guam_zone.local(2026, 4, 2, 23, 30, 0)
+
+      travel_to(overnight_start)
+      entry = described_class.clock_in(user: user)
+
+      travel_to(overnight_start + 2.hours)
+      status = described_class.current_status(user: user)
+
+      expect(status[:clocked_in]).to be(true)
+      expect(status[:entry_id]).to eq(entry.id)
+      expect(status[:clock_in_blocked_reason]).to eq("already_clocked_in")
+      expect(status[:can_clock_in]).to be(false)
+    end
+  end
+
   describe ".switch_category" do
     it "blocks employees from switching to an unassigned category" do
       Setting.set("schedule_required_for_clock_in", "false")
