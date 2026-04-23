@@ -1,5 +1,27 @@
 import { test, expect } from '@playwright/test';
 
+const fixtureInquiryTopics = [
+  'Admissions',
+  'Discovery Flight',
+  'Aircraft Rental',
+  'General Questions',
+];
+
+async function mockPublicContactSettings(
+  page: import('@playwright/test').Page,
+  inquiryTopics: string[] = fixtureInquiryTopics,
+) {
+  await page.route('**/api/v1/contact_settings', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        inquiry_topics: inquiryTopics,
+      }),
+    });
+  });
+}
+
 async function mockContactSubmit(page: import('@playwright/test').Page, options?: { delayMs?: number; responseBody?: Record<string, unknown> }) {
   await page.route('**/api/v1/contact', async (route) => {
     if (options?.delayMs) {
@@ -19,6 +41,7 @@ async function mockContactSubmit(page: import('@playwright/test').Page, options?
 
 test.describe('Contact Form', () => {
   test.beforeEach(async ({ page }) => {
+    await mockPublicContactSettings(page);
     await page.goto('/contact');
     await expect(page).toHaveTitle(/Contact \| AIRE Services Guam/i);
     await expect(page.locator('h1')).toContainText(/Talk with AIRE/i);
@@ -28,7 +51,7 @@ test.describe('Contact Form', () => {
   test('contact form loads with all required fields', async ({ page }) => {
     await expect(page.locator('input#name')).toBeVisible();
     await expect(page.locator('input#email')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Private Pilot Certificate' })).toBeVisible();
+    await expect(page.getByRole('button', { name: fixtureInquiryTopics[0] })).toBeVisible();
     await expect(page.locator('textarea#message')).toBeVisible();
     await expect(page.locator('button[type="submit"]')).toBeVisible();
   });
@@ -51,7 +74,7 @@ test.describe('Contact Form', () => {
   test('validates email format', async ({ page }) => {
     await page.fill('input#name', 'Test User');
     await page.fill('input#email', 'invalid-email');
-    await page.getByRole('button', { name: 'Discovery Flight' }).click();
+    await page.getByRole('button', { name: fixtureInquiryTopics[1] }).click();
     await page.fill('textarea#message', 'Test message');
 
     await page.click('button[type="submit"]');
@@ -67,7 +90,7 @@ test.describe('Contact Form', () => {
     await page.fill('input#name', 'Test User');
     await page.fill('input#email', `test-${Date.now()}@example.com`);
     await page.fill('input#phone', '671-555-1234');
-    await page.getByRole('button', { name: 'Discovery Flight' }).click();
+    await page.getByRole('button', { name: fixtureInquiryTopics[1] }).click();
     await page.fill('textarea#message', 'This is a test message from automated e2e tests.');
 
     await page.click('button[type="submit"]');
@@ -80,7 +103,7 @@ test.describe('Contact Form', () => {
 
     await page.fill('input#name', 'Test User');
     await page.fill('input#email', 'test@example.com');
-    await page.getByRole('button', { name: 'Discovery Flight' }).click();
+    await page.getByRole('button', { name: fixtureInquiryTopics[1] }).click();
     await page.fill('textarea#message', 'Test message');
 
     const submitButton = page.locator('button[type="submit"]');
@@ -114,12 +137,13 @@ test.describe('Contact Form', () => {
 
 test.describe('Contact Form Edge Cases', () => {
   test('handles special characters in name and message', async ({ page }) => {
+    await mockPublicContactSettings(page);
     await mockContactSubmit(page);
     await page.goto('/contact');
 
     await page.fill('input#name', "María O'Connor-García");
     await page.fill('input#email', 'test@example.com');
-    await page.getByRole('button', { name: 'Discovery Flight' }).click();
+    await page.getByRole('button', { name: fixtureInquiryTopics[1] }).click();
     await page.fill('textarea#message', 'Test with special chars: < > & " \' © ®');
 
     await page.click('button[type="submit"]');
@@ -128,6 +152,7 @@ test.describe('Contact Form Edge Cases', () => {
   });
 
   test('handles a very long message', async ({ page }) => {
+    await mockPublicContactSettings(page);
     await mockContactSubmit(page);
     await page.goto('/contact');
 
@@ -135,7 +160,7 @@ test.describe('Contact Form Edge Cases', () => {
 
     await page.fill('input#name', 'Test User');
     await page.fill('input#email', 'test@example.com');
-    await page.getByRole('button', { name: 'Discovery Flight' }).click();
+    await page.getByRole('button', { name: fixtureInquiryTopics[1] }).click();
     await page.fill('textarea#message', longMessage);
 
     await page.click('button[type="submit"]');
@@ -146,6 +171,7 @@ test.describe('Contact Form Edge Cases', () => {
   test('trims whitespace from inputs before submitting', async ({ page }) => {
     let capturedBody: Record<string, unknown> | null = null;
 
+    await mockPublicContactSettings(page);
     await page.route('**/api/v1/contact', async (route) => {
       capturedBody = route.request().postDataJSON() as Record<string, unknown>;
       await route.fulfill({
@@ -160,7 +186,7 @@ test.describe('Contact Form Edge Cases', () => {
     await page.fill('input#name', '  Test User  ');
     await page.fill('input#email', '  test@example.com  ');
     await page.fill('input#phone', '  671-555-1234  ');
-    await page.getByRole('button', { name: 'Discovery Flight' }).click();
+    await page.getByRole('button', { name: fixtureInquiryTopics[1] }).click();
     await page.fill('textarea#message', '  Test message  ');
 
     await page.click('button[type="submit"]');
@@ -170,7 +196,7 @@ test.describe('Contact Form Edge Cases', () => {
       name: 'Test User',
       email: 'test@example.com',
       phone: '671-555-1234',
-      subject: 'Discovery Flight',
+      subject: fixtureInquiryTopics[1],
       message: 'Test message',
     });
   });
