@@ -1091,7 +1091,7 @@ export default function TimeTracking() {
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           <div className="overflow-x-auto">
             {/* Week Header */}
-            <div className="grid grid-cols-7 border-b border-neutral-warm min-w-[600px]">
+            <div className="grid min-w-[980px] grid-cols-7 border-b border-neutral-warm lg:min-w-full">
               {weekDates.map((date, idx) => {
                 const dateStr = formatDateISO(date)
                 const isToday = isSameDay(date, new Date())
@@ -1119,7 +1119,7 @@ export default function TimeTracking() {
             </div>
 
             {/* Week Entries */}
-            <div className="grid grid-cols-7 min-h-[250px] sm:min-h-[300px] min-w-[600px]">
+            <div className="grid min-h-[280px] grid-cols-7 min-w-[980px] sm:min-h-[320px] lg:min-w-full">
               {weekDates.map((date, idx) => {
                 const dateStr = formatDateISO(date)
                 const dayEntries = entriesByDate[dateStr] || []
@@ -1200,10 +1200,10 @@ export default function TimeTracking() {
                     <button
                       onClick={() => openNewEntry(date)}
                       disabled={currentWeekLocked}
-                      className="w-full p-1 sm:p-2 text-xs text-primary-dark font-medium hover:text-primary hover:bg-neutral-warm rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={currentWeekLocked ? 'This week is locked' : 'Add time entry'}
-                    >
-                      + Add
+                    className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 sm:p-2"
+                    title={currentWeekLocked ? 'This week is locked' : 'Add time entry'}
+                  >
+                    + Add
                     </button>
                   </div>
                 )
@@ -2034,6 +2034,9 @@ function CalendarUserGroup({
     acc[cat] = (acc[cat] || 0) + e.hours
     return acc
   }, {} as Record<string, number>)
+  const categoryRows = Object.entries(catSummary)
+  const visibleCategories = categoryRows.slice(0, 2)
+  const hiddenCategoryCount = Math.max(0, categoryRows.length - visibleCategories.length)
 
   return (
     <div
@@ -2043,29 +2046,32 @@ function CalendarUserGroup({
       onClick={onClick}
     >
       <div className="p-2.5 sm:p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary-dark">
+        <div className="flex items-center gap-2">
+          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary-dark">
             <ClockIcon />
             {totalHours.toFixed(2)}h
           </div>
           <div className="flex items-center gap-1.5">
             {hasPending && <span className="h-2 w-2 rounded-full bg-amber-500" title="Has pending entries" />}
             {hasDenied && <span className="h-2 w-2 rounded-full bg-red-500" title="Has denied entries" />}
-            <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-[10px] font-medium text-primary/70">
-              {entries.length} entries
-            </span>
           </div>
         </div>
         {firstStart && lastEnd && (
           <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{firstStart} – {lastEnd}</div>
         )}
+        <div className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-primary/60">
+          {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+        </div>
         <div className="mt-2 space-y-1.5">
-          {Object.entries(catSummary).map(([cat, hrs]) => (
-            <div key={cat} className="flex items-center justify-between gap-2 text-[11px]">
+          {visibleCategories.map(([cat, hrs]) => (
+            <div key={cat} className="flex min-w-0 items-center justify-between gap-2 text-[11px]">
               <span className="truncate font-medium text-primary">{cat}</span>
               <span className="shrink-0 text-text-muted">{hrs.toFixed(2)}h</span>
             </div>
           ))}
+          {hiddenCategoryCount > 0 && (
+            <div className="text-[10px] font-medium text-text-muted">+{hiddenCategoryCount} more categories</div>
+          )}
         </div>
         <div className="mt-2 truncate text-[11px] text-primary-dark/70">{name}</div>
       </div>

@@ -338,6 +338,11 @@ module Api
         if entry_ids.empty?
           return render json: { error: "Select at least one pending entry to approve" }, status: :unprocessable_entity
         end
+        if entry_ids.length > 100
+          return render json: { error: "Approve at most 100 entries at a time" }, status: :unprocessable_entity
+        end
+
+        note = params[:note].presence
 
         updated_entries = []
         error_message = nil
@@ -355,8 +360,6 @@ module Api
               error_message = "One or more selected entries are no longer pending approval"
               raise ActiveRecord::Rollback
             end
-
-            note = params[:note].presence
 
             entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note) if entry.approval_status == "pending"
             entry = TimeClockService.approve_overtime(entry: entry, approved_by: current_user, note: note) if entry.overtime_status == "pending"

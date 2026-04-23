@@ -399,5 +399,14 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       expect(json[:error]).to eq("One or more selected entries are no longer pending approval")
     end
+
+    it "caps oversized approval batches" do
+      post "/api/v1/time_entries/bulk_approve",
+           params: { entry_ids: Array.new(101) { pending_manual_entry.id } + (1..100).map { |idx| idx + 10_000 } },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to eq("Approve at most 100 entries at a time")
+    end
   end
 end
