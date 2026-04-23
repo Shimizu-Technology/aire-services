@@ -10,15 +10,7 @@ const contactPoints = [
   { label: 'Location', value: '1780 Admiral Sherman Boulevard, Tiyan / Barrigada, Guam 96913' },
 ]
 
-const reasons = [
-  'Private Pilot Certificate training',
-  'Discovery flight questions',
-  'Aircraft rental requirements',
-  'Career opportunities',
-  'General training path guidance',
-]
-
-const subjects = [
+const defaultInquiryTopics = [
   'Private Pilot Certificate',
   'Discovery Flight',
   'Aircraft Rental',
@@ -32,12 +24,32 @@ export default function AireContact() {
     name: '',
     email: '',
     phone: '',
-    subject: subjects[0],
+    subject: defaultInquiryTopics[0],
     message: '',
   })
+  const [inquiryTopics, setInquiryTopics] = useState(defaultInquiryTopics)
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadContactSettings() {
+      const response = await api.getPublicContactSettings()
+      const nextTopics = response.data?.inquiry_topics?.filter(Boolean)
+      if (!cancelled && nextTopics && nextTopics.length > 0) {
+        setInquiryTopics(nextTopics)
+        setForm((current) => ({
+          ...current,
+          subject: nextTopics.includes(current.subject) ? current.subject : nextTopics[0],
+        }))
+      }
+    }
+
+    loadContactSettings()
+    return () => { cancelled = true }
+  }, [])
 
   const updateField = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }))
@@ -66,7 +78,7 @@ export default function AireContact() {
     }
 
     setSuccess(response.data.message || 'Your message has been sent successfully!')
-    setForm({ name: '', email: '', phone: '', subject: subjects[0], message: '' })
+    setForm({ name: '', email: '', phone: '', subject: inquiryTopics[0] || defaultInquiryTopics[0], message: '' })
     setSubmitting(false)
   }
 
@@ -135,15 +147,34 @@ export default function AireContact() {
             <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Send an Inquiry</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Let’s help you find the right place to start</h2>
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                {reasons.map((item) => (
-                  <div key={item} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-700">
-                    {item}
-                  </div>
-                ))}
-              </div>
 
               <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+                <fieldset>
+                  <legend className="mb-2 block text-sm font-medium text-slate-700">Subject</legend>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {inquiryTopics.map((topic) => {
+                      const selected = form.subject === topic
+
+                      return (
+                        <button
+                          key={topic}
+                          type="button"
+                          onClick={() => updateField('subject', topic)}
+                          aria-pressed={selected}
+                          className={`rounded-2xl border px-4 py-4 text-left text-sm font-medium transition ${
+                            selected
+                              ? 'border-cyan-500 bg-cyan-50 text-cyan-900 shadow-sm ring-4 ring-cyan-100'
+                              : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/60'
+                          }`}
+                        >
+                          {topic}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Choose the topic that best matches what you need help with.</p>
+                </fieldset>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="name" className="mb-2 block text-sm font-medium text-slate-700">Name</label>
@@ -181,18 +212,9 @@ export default function AireContact() {
                       placeholder="(671) ..."
                     />
                   </div>
-                  <div>
-                    <label htmlFor="subject" className="mb-2 block text-sm font-medium text-slate-700">Subject</label>
-                    <select
-                      id="subject"
-                      value={form.subject}
-                      onChange={(e) => updateField('subject', e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    >
-                      {subjects.map((subject) => (
-                        <option key={subject} value={subject}>{subject}</option>
-                      ))}
-                    </select>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Selected topic</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">{form.subject}</p>
                   </div>
                 </div>
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdminTimeCategory, TimeClockAppSettings } from '../../lib/api'
+import type { AdminTimeCategory, ContactSettings, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
 const emptyCategoryForm = {
@@ -17,23 +17,33 @@ export default function Settings() {
 
   const [categories, setCategories] = useState<AdminTimeCategory[]>([])
   const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
+  const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null)
   const [thresholdDraft, setThresholdDraft] = useState({
     overtime_daily_threshold_hours: '',
     overtime_weekly_threshold_hours: '',
     early_clock_in_buffer_minutes: '',
   })
+  const [contactNotificationEmailsDraft, setContactNotificationEmailsDraft] = useState('')
+  const [inquiryTopicsDraft, setInquiryTopicsDraft] = useState<string[]>([''])
   const [loading, setLoading] = useState(true)
   const [categoriesError, setCategoriesError] = useState('')
   const [settingsError, setSettingsError] = useState('')
+  const [contactSettingsError, setContactSettingsError] = useState('')
+  const [contactSettingsMessage, setContactSettingsMessage] = useState('')
   const [savingCategory, setSavingCategory] = useState(false)
   const [savingThresholds, setSavingThresholds] = useState(false)
+  const [savingContactSettings, setSavingContactSettings] = useState(false)
   const [showInactive, setShowInactive] = useState(true)
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<AdminTimeCategory | null>(null)
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm)
   const modalRef = useRef<HTMLDivElement>(null)
 
-  const applyFetchedData = useCallback((catRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>, setRes: Awaited<ReturnType<typeof api.getAdminAppSettings>>) => {
+  const applyFetchedData = useCallback((
+    catRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>,
+    setRes: Awaited<ReturnType<typeof api.getAdminAppSettings>>,
+    contactRes: Awaited<ReturnType<typeof api.getAdminContactSettings>>,
+  ) => {
     if (catRes.error) setCategoriesError(catRes.error)
     else if (catRes.data) setCategories(catRes.data.time_categories)
 
@@ -47,6 +57,13 @@ export default function Settings() {
         early_clock_in_buffer_minutes: s.early_clock_in_buffer_minutes,
       })
     }
+
+    if (contactRes.error) setContactSettingsError(contactRes.error)
+    else if (contactRes.data) {
+      setContactSettings(contactRes.data)
+      setContactNotificationEmailsDraft(contactRes.data.contact_notification_emails.join('\n'))
+      setInquiryTopicsDraft(contactRes.data.inquiry_topics.length > 0 ? contactRes.data.inquiry_topics : [''])
+    }
   }, [])
 
   useEffect(() => {
@@ -55,9 +72,14 @@ export default function Settings() {
       setLoading(true)
       setCategoriesError('')
       setSettingsError('')
+      setContactSettingsError('')
       try {
-        const [catRes, setRes] = await Promise.all([api.getAdminTimeCategories(), api.getAdminAppSettings()])
-        if (!cancelled) applyFetchedData(catRes, setRes)
+        const [catRes, setRes, contactRes] = await Promise.all([
+          api.getAdminTimeCategories(),
+          api.getAdminAppSettings(),
+          api.getAdminContactSettings(),
+        ])
+        if (!cancelled) applyFetchedData(catRes, setRes, contactRes)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -180,6 +202,69 @@ export default function Settings() {
     }
   }
 
+  const handleSaveContactSettings = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    const contact_notification_emails = contactNotificationEmailsDraft
+      .split(/\n+/)
+      .map((email) => email.trim())
+      .filter(Boolean)
+    const inquiry_topics = inquiryTopicsDraft
+      .map((topic) => topic.trim())
+      .filter(Boolean)
+
+    if (contact_notification_emails.length === 0) {
+      setContactSettingsError('At least one notification email is required.')
+      setContactSettingsMessage('')
+      return
+    }
+
+    if (inquiry_topics.length === 0) {
+      setContactSettingsError('At least one inquiry topic is required.')
+      setContactSettingsMessage('')
+      return
+    }
+
+    setSavingContactSettings(true)
+    setContactSettingsError('')
+    setContactSettingsMessage('')
+    try {
+      const res = await api.updateAdminContactSettings({
+        contact_notification_emails,
+        inquiry_topics,
+      })
+      if (res.error || !res.data) {
+        setContactSettingsError(res.error || 'Failed to save contact settings')
+        return
+      }
+
+      setContactSettings({
+        contact_notification_emails: res.data.contact_notification_emails,
+        inquiry_topics: res.data.inquiry_topics,
+      })
+      setContactNotificationEmailsDraft(res.data.contact_notification_emails.join('\n'))
+      setInquiryTopicsDraft(res.data.inquiry_topics.length > 0 ? res.data.inquiry_topics : [''])
+      setContactSettingsMessage(res.data.message || 'Contact settings saved.')
+    } finally {
+      setSavingContactSettings(false)
+    }
+  }
+
+  const updateInquiryTopicDraft = (index: number, value: string) => {
+    setInquiryTopicsDraft((current) => current.map((topic, topicIndex) => (topicIndex === index ? value : topic)))
+  }
+
+  const addInquiryTopicDraft = () => {
+    setInquiryTopicsDraft((current) => [...current, ''])
+  }
+
+  const removeInquiryTopicDraft = (index: number) => {
+    setInquiryTopicsDraft((current) => {
+      if (current.length === 1) return ['']
+      return current.filter((_, topicIndex) => topicIndex !== index)
+    })
+  }
+
   const visibleCategories = showInactive ? categories : categories.filter((c) => c.is_active)
 
   return (
@@ -254,6 +339,93 @@ export default function Settings() {
                     className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
                   >
                     {savingThresholds ? 'Saving…' : 'Save time clock rules'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 px-5 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Contact settings</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Control who receives website inquiries and which topics visitors can choose on the public contact form.
+                </p>
+              </div>
+              <form onSubmit={handleSaveContactSettings} className="space-y-5 px-5 py-5">
+                {contactSettingsError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{contactSettingsError}</div>
+                )}
+                {contactSettingsMessage && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{contactSettingsMessage}</div>
+                )}
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <div>
+                    <label htmlFor="contact-notification-emails" className="mb-2 block text-sm font-medium text-slate-700">Notification recipient emails</label>
+                    <textarea
+                      id="contact-notification-emails"
+                      rows={6}
+                      value={contactNotificationEmailsDraft}
+                      onChange={(e) => setContactNotificationEmailsDraft(e.target.value)}
+                      placeholder="ops@example.com&#10;owner@example.com"
+                      className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                    <p className="mt-2 text-xs text-slate-500">
+                      Enter one email per line. Every address listed here receives website contact-form notifications.
+                    </p>
+                  </div>
+                  <div>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <label className="block text-sm font-medium text-slate-700">Public inquiry topics</label>
+                      <button
+                        type="button"
+                        onClick={addInquiryTopicDraft}
+                        className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                      >
+                        Add topic
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      {inquiryTopicsDraft.map((topic, index) => (
+                        <div key={`inquiry-topic-${index}`} className="flex items-center gap-3">
+                          <input
+                            id={`public-inquiry-topic-${index}`}
+                            value={topic}
+                            onChange={(e) => updateInquiryTopicDraft(index, e.target.value)}
+                            placeholder={index === 0 ? 'Private Pilot Certificate' : 'Another inquiry topic'}
+                            aria-label={index === 0 ? 'Public inquiry topics' : `Public inquiry topic ${index + 1}`}
+                            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeInquiryTopicDraft(index)}
+                            disabled={inquiryTopicsDraft.length === 1 && !topic.trim()}
+                            aria-label={`Remove inquiry topic ${index + 1}`}
+                            className="rounded-lg border border-slate-200 px-3 py-3 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Add each topic as its own option. These are shown as selectable buttons on the public contact page.
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                  {contactSettings
+                    ? `Currently configured: ${contactSettings.contact_notification_emails.length} recipient${contactSettings.contact_notification_emails.length === 1 ? '' : 's'} and ${contactSettings.inquiry_topics.length} public topic${contactSettings.inquiry_topics.length === 1 ? '' : 's'}.`
+                    : 'Contact settings load separately from time clock settings.'}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingContactSettings}
+                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {savingContactSettings ? 'Saving…' : 'Save contact settings'}
                   </button>
                 </div>
               </form>

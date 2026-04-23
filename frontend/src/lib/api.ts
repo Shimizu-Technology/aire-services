@@ -205,6 +205,15 @@ export interface TimeClockAppSettings {
   early_clock_in_buffer_minutes: string;
 }
 
+export interface ContactSettings {
+  contact_notification_emails: string[];
+  inquiry_topics: string[];
+}
+
+export interface PublicContactSettings {
+  inquiry_topics: string[];
+}
+
 export interface TimeEntry {
   id: number;
   work_date: string;
@@ -493,6 +502,9 @@ export const api = {
     }),
 
   // Contact form (public)
+  getPublicContactSettings: () =>
+    fetchApiPublic<PublicContactSettings>('/api/v1/contact_settings'),
+
   submitContact: (data: { name: string; email: string; phone?: string; subject: string; message: string }) =>
     fetchApiPublic<{ success: boolean; message: string }>('/api/v1/contact', {
       method: 'POST',
@@ -754,6 +766,15 @@ export const api = {
     fetchApi<{ settings: TimeClockAppSettings }>('/api/v1/admin/settings', {
       method: 'PATCH',
       body: JSON.stringify({ settings }),
+    }),
+
+  getAdminContactSettings: () =>
+    fetchApi<ContactSettings>('/api/v1/admin/contact_settings'),
+
+  updateAdminContactSettings: (settings: ContactSettings) =>
+    fetchApi<ContactSettings & { message: string }>('/api/v1/admin/contact_settings', {
+      method: 'PATCH',
+      body: JSON.stringify(settings),
     }),
 
   createTimeCategory: (data: AdminTimeCategoryInput) =>
