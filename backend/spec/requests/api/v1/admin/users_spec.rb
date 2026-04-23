@@ -69,5 +69,33 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(json.dig(:user, :approval_group)).to be_nil
       expect(employee.reload.approval_group).to be_nil
     end
+
+    it "updates profile fields and assigned categories together" do
+      category = create(:time_category, name: "Ground Training Hours")
+
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              first_name: "Updated",
+              last_name: "Pilot",
+              email: "updated.pilot@example.com",
+              role: "employee",
+              approval_group: "cfi",
+              time_category_ids: [ category.id ]
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:user, :first_name)).to eq("Updated")
+      expect(json.dig(:user, :last_name)).to eq("Pilot")
+      expect(json.dig(:user, :email)).to eq("updated.pilot@example.com")
+      expect(json.dig(:user, :time_category_ids)).to eq([ category.id ])
+      expect(employee.reload).to have_attributes(
+        first_name: "Updated",
+        last_name: "Pilot",
+        email: "updated.pilot@example.com",
+        approval_group: "cfi"
+      )
+      expect(employee.assigned_time_categories.pluck(:id)).to eq([ category.id ])
+    end
   end
 end

@@ -52,4 +52,50 @@ RSpec.describe "Api::V1::Auth", type: :request do
       )
     end
   end
+
+  it "returns kiosk setup state for the current user" do
+    create(
+      :user,
+      clerk_id: "user_clerk_123",
+      email: "first.admin@example.com",
+      role: "employee"
+    )
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(JSON.parse(response.body).dig("user", "kiosk_pin_configured")).to eq(false)
+    expect(JSON.parse(response.body).dig("user", "needs_kiosk_pin_setup")).to eq(true)
+  end
+
+  describe "POST /api/v1/auth/kiosk_pin" do
+    let!(:user) do
+      create(
+        :user,
+        clerk_id: "user_clerk_123",
+        email: "first.admin@example.com",
+        role: "employee"
+      )
+    end
+
+    it "lets a staff user set their own kiosk pin" do
+      post "/api/v1/auth/kiosk_pin",
+           params: { pin: "4826" },
+           headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(JSON.parse(response.body).dig("user", "kiosk_pin_configured")).to eq(true)
+      expect(user.reload.verify_kiosk_pin("4826")).to eq(true)
+      expect(user.kiosk_enabled).to eq(true)
+    end
+
+    it "rejects invalid pins" do
+      post "/api/v1/auth/kiosk_pin",
+           params: { pin: "12ab" },
+           headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body).fetch("error")).to match(/must be 4 to 8 digits/i)
+    end
+  end
 end

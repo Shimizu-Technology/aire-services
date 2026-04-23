@@ -94,21 +94,12 @@ module Api
             return render json: { error: "You cannot change your own role" }, status: :unprocessable_entity
           end
 
-          permitted = {}
-          if params[:role].present? && %w[admin employee].include?(params[:role])
-            permitted[:role] = params[:role]
-          end
-          if params.key?(:approval_group)
-            approval_group = normalized_approval_group(params[:approval_group])
-            unless valid_approval_group?(approval_group)
-              return render json: { error: "Approval group must be CFI, Ops / Maintenance, or blank" }, status: :unprocessable_entity
-            end
-            permitted[:approval_group] = approval_group
-          end
+          permitted = normalized_update_params
+          return if performed?
 
           if @user.update(permitted)
             sync_time_categories(@user) if params.key?(:time_category_ids)
-            render json: { user: serialize_user(@user) }
+            render json: { user: serialize_user(@user.reload) }
           else
             render json: { error: @user.errors.full_messages.join(", ") }, status: :unprocessable_entity
           end
@@ -242,6 +233,61 @@ module Api
 
         def valid_approval_group?(value)
           value.nil? || User::APPROVAL_GROUPS.include?(value)
+        end
+
+        def normalized_update_params
+          permitted = {}
+
+          if params[:role].present?
+            unless %w[admin employee].include?(params[:role])
+              render json: { error: "Role must be admin or employee" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:role] = params[:role]
+          end
+
+          if params.key?(:first_name)
+            first_name = params[:first_name].to_s.strip
+            if first_name.blank?
+              render json: { error: "First name is required" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:first_name] = first_name
+          end
+
+          if params.key?(:last_name)
+            permitted[:last_name] = params[:last_name].to_s.strip.presence
+          end
+
+          if params.key?(:email)
+            email = params[:email].to_s.strip.downcase.presence
+
+            if email.present? && !email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
+              render json: { error: "Invalid email format" }, status: :unprocessable_entity
+              return {}
+            end
+
+            if email.present? && User.where.not(id: @user.id).exists?([ "LOWER(email) = ?", email ])
+              render json: { error: "A user with this email already exists" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:email] = email
+          end
+
+          if params.key?(:approval_group)
+            approval_group = normalized_approval_group(params[:approval_group])
+            unless valid_approval_group?(approval_group)
+              render json: { error: "Approval group must be CFI, Ops / Maintenance, or blank" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:approval_group] = approval_group
+          end
+
+          permitted
         end
       end
     end

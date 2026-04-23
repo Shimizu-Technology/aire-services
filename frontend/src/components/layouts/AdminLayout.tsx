@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 
 const employeeNavigation = [
   { name: 'My Dashboard', href: '/admin' },
@@ -20,12 +21,13 @@ const adminNavigation = [
 export default function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
-  const { userRole, isClerkEnabled } = useAuthContext()
+  const { userRole, isClerkEnabled, currentUser, refreshCurrentUser } = useAuthContext()
 
   const isAdmin = !isClerkEnabled || userRole === 'admin'
   const navigation = useMemo(() => {
     return isAdmin ? adminNavigation : employeeNavigation
   }, [isAdmin])
+  const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)
 
   const isActive = (href: string) => (href === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(href))
 
@@ -83,6 +85,12 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
+
+      <KioskPinSetupModal
+        open={needsKioskPinSetup}
+        userName={currentUser?.full_name ?? 'Team member'}
+        onComplete={refreshCurrentUser}
+      />
     </div>
   )
 }
