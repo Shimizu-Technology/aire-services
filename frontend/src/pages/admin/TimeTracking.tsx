@@ -8,6 +8,7 @@ import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
+import EditTimeEntryModal from '../../components/time-tracking/EditTimeEntryModal'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 
 // Local types to avoid Vite caching issues
@@ -204,6 +205,7 @@ export default function TimeTracking() {
 
   // Modal state
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<TimeEntryItem | null>(null)
   const [formData, setFormData] = useState({
     work_date: formatDateISO(new Date()),
@@ -519,16 +521,7 @@ export default function TimeTracking() {
 
   const openEditEntry = (entry: TimeEntryItem) => {
     setEditingEntry(entry)
-    setFormData({
-      work_date: entry.work_date,
-      start_time: entry.start_time || '08:00',
-      end_time: entry.end_time || '17:00',
-      description: entry.description || '',
-      time_category_id: entry.time_category?.id.toString() || '',
-      user_id: entry.user.id.toString(),
-      break_minutes: entry.break_minutes
-    })
-    setShowModal(true)
+    setShowEditModal(true)
   }
 
   const reopenPersonDayAfterLoad = useRef<{ name: string; date: string; userId: number } | null>(null)
@@ -546,8 +539,22 @@ export default function TimeTracking() {
   }, [entries])
 
   const closeEditModal = () => {
-    setShowModal(false)
+    setShowEditModal(false)
     setEditingEntry(null)
+    const ctx = returnToPersonDay.current
+    if (ctx) {
+      returnToPersonDay.current = null
+      const freshEntries = entries.filter(
+        e => e.user.id === ctx.userId && e.work_date === ctx.date
+      )
+      if (freshEntries.length > 0) {
+        setPersonDayModal({ entries: freshEntries, name: ctx.name, date: ctx.date })
+      }
+    }
+  }
+
+  const closeCreateModal = () => {
+    setShowModal(false)
     const ctx = returnToPersonDay.current
     if (ctx) {
       returnToPersonDay.current = null
@@ -567,7 +574,7 @@ export default function TimeTracking() {
       return
     }
 
-    if (!editingEntry && isAdmin && !formData.user_id) {
+    if (isAdmin && !formData.user_id) {
       setError('Please select an entry owner')
       return
     }
@@ -582,22 +589,14 @@ export default function TimeTracking() {
         end_time: formData.end_time,
         description: formData.description || undefined,
         time_category_id: formData.time_category_id ? parseInt(formData.time_category_id) : undefined,
-        user_id: !editingEntry && isAdmin && formData.user_id ? parseInt(formData.user_id) : undefined,
+        user_id: isAdmin && formData.user_id ? parseInt(formData.user_id) : undefined,
         break_minutes: formData.break_minutes
       }
 
-      if (editingEntry) {
-        const response = await api.updateTimeEntry(editingEntry.id, data)
-        if (response.error) {
-          setError(response.error)
-          return
-        }
-      } else {
-        const response = await api.createTimeEntry(data)
-        if (response.error) {
-          setError(response.error)
-          return
-        }
+      const response = await api.createTimeEntry(data)
+      if (response.error) {
+        setError(response.error)
+        return
       }
 
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
@@ -639,6 +638,14 @@ export default function TimeTracking() {
     } catch {
       setError('Failed to delete time entry')
     }
+  }
+
+  const refreshEntriesAfterEdit = async () => {
+    reopenPersonDayAfterLoad.current = returnToPersonDay.current
+    returnToPersonDay.current = null
+    setShowEditModal(false)
+    setEditingEntry(null)
+    await loadEntries()
   }
 
   // Get week dates for week view
@@ -1374,6 +1381,18 @@ export default function TimeTracking() {
       </AnimatePresence>
 
       {/* Entry Modal */}
+      <EditTimeEntryModal
+        isOpen={showEditModal && !!editingEntry}
+        entry={editingEntry}
+        categories={categories}
+        canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
+        onClose={closeEditModal}
+        onSaved={refreshEntriesAfterEdit}
+        onDeleted={refreshEntriesAfterEdit}
+        onError={setError}
+      />
+
+      {/* Log Time Modal */}
       <AnimatePresence>
       {showModal && (
         <motion.div 
@@ -1383,7 +1402,7 @@ export default function TimeTracking() {
           transition={{ duration: 0.2 }}
           className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
           onClick={(e) => {
-            if (e.target === e.currentTarget) closeEditModal()
+            if (e.target === e.currentTarget) closeCreateModal()
           }}
         >
           <motion.div
@@ -1393,41 +1412,11 @@ export default function TimeTracking() {
             transition={{ duration: 0.25, delay: 0.1 }}
             className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <h2 className="text-xl font-bold text-primary-dark mb-1">
-                {editingEntry ? 'Edit Time Entry' : 'Log Time'}
-              </h2>
-              {editingEntry && (
-                <div className="mb-4">
-                  <p className="text-sm text-primary-dark/70">
-                    Entry for: <span className="font-medium text-primary-dark">{editingEntry.user.full_name || editingEntry.user.display_name || editingEntry.user.email.split('@')[0]}</span>
-                  </p>
-                  {editingEntry.locked_at && (
-                    <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm">
-                      <LockIcon />
-                      <span>This entry is locked and cannot be edited.</span>
-                    </div>
-                  )}
-                  {editingEntry.approved_by && (
-                    <div className={`mt-2 px-3 py-2 rounded-lg text-sm border ${
-                      editingEntry.approval_status === 'approved'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-red-50 border-red-200 text-red-700'
-                    }`}>
-                      <span className="font-medium">
-                        {editingEntry.approval_status === 'approved' ? 'Approved' : 'Denied'}
-                      </span>
-                      {' '}by {editingEntry.approved_by.full_name}
-                      {editingEntry.approval_note && (
-                        <p className="mt-1 text-xs italic opacity-80">"{editingEntry.approval_note}"</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              {!editingEntry && <div className="mb-4" />}
+              <h2 className="text-xl font-bold text-primary-dark mb-1">Log Time</h2>
+              <div className="mb-4" />
               
               <form onSubmit={handleSubmit} className="space-y-4">
-              <fieldset disabled={!!(editingEntry?.locked_at)} className={editingEntry?.locked_at ? 'opacity-60' : ''}>
+              <fieldset>
                 {/* Date */}
                 <div>
                   <label className="block text-sm font-medium text-primary-dark mb-1">
@@ -1477,7 +1466,7 @@ export default function TimeTracking() {
                 </div>
 
                 {/* Entry Owner (admin create only) */}
-                {isAdmin && !editingEntry && (
+                {isAdmin && (
                   <div>
                     <label className="block text-sm font-medium text-primary-dark mb-1">
                       Entry Owner
@@ -1577,37 +1566,23 @@ export default function TimeTracking() {
               </fieldset>
                 {/* Actions */}
                 <div className="flex justify-between items-center gap-3 pt-4">
-                  <div>
-                    {editingEntry && (
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(editingEntry)}
-                        disabled={!canDeleteEntry(editingEntry)}
-                        className={`px-4 py-2 rounded-lg transition-colors ${canDeleteEntry(editingEntry) ? 'text-red-600 hover:bg-red-50' : 'text-gray-300 cursor-not-allowed'}`}
-                        title={canDeleteEntry(editingEntry) ? 'Delete this time entry' : 'This entry is locked/finalized or cannot be deleted'}
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
+                  <div />
 
                   <div className="flex gap-3">
                     <button
                       type="button"
-                      onClick={closeEditModal}
+                      onClick={closeCreateModal}
                       className="px-4 py-2 text-primary-dark font-medium hover:bg-neutral-warm rounded-lg transition-colors"
                     >
                       Cancel
                     </button>
-                    {!(editingEntry?.locked_at) && (
-                      <button
-                        type="submit"
-                        disabled={saving}
-                        className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50"
-                      >
-                        {saving ? 'Saving...' : (editingEntry ? 'Update' : 'Save')}
-                      </button>
-                    )}
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50"
+                    >
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
                   </div>
                 </div>
               </form>

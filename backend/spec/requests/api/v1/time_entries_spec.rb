@@ -356,4 +356,37 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(json.dig(:pending_entries, 0, :user, :approval_group)).to be_nil
     end
   end
+
+  describe "POST /api/v1/time_entries/bulk_approve" do
+    let!(:pending_manual_entry) { create(:time_entry, user: employee, approval_status: "pending") }
+    let!(:pending_overtime_entry) { create(:time_entry, user: employee, approval_status: "approved", overtime_status: "pending") }
+
+    it "approves all selected pending entries for an admin" do
+      post "/api/v1/time_entries/bulk_approve",
+           params: { entry_ids: [ pending_manual_entry.id, pending_overtime_entry.id ] },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:count]).to eq(2)
+      expect(pending_manual_entry.reload.approval_status).to eq("approved")
+      expect(pending_overtime_entry.reload.overtime_status).to eq("approved")
+    end
+
+    it "rejects empty selections" do
+      post "/api/v1/time_entries/bulk_approve",
+           params: { entry_ids: [] },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to eq("Select at least one pending entry to approve")
+    end
+
+    it "blocks non-admin users" do
+      post "/api/v1/time_entries/bulk_approve",
+           params: { entry_ids: [ pending_manual_entry.id ] },
+           headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:forbidden)
+    end
+  end
 end

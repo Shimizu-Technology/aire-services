@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
-import type { ApprovalGroupFilter, TimeEntry } from '../../lib/api'
+import type { ApprovalGroupFilter, TimeCategory, TimeEntry } from '../../lib/api'
+import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
   onUpdate?: () => void
@@ -10,13 +11,16 @@ interface ApprovalQueueProps {
 export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
+  const [categories, setCategories] = useState<TimeCategory[]>([])
   const [approvalGroupFilter, setApprovalGroupFilter] = useState<'all' | ApprovalGroupFilter>('all')
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [noteInput, setNoteInput] = useState<{ id: number; note: string } | null>(null)
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
+  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null)
 
   const syncExpandedDescriptions = useCallback((visibleEntries: TimeEntry[]) => {
     const freshIds = new Set(visibleEntries.map((entry) => entry.id))
@@ -63,6 +67,16 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
     }, 30000)
     return () => clearInterval(interval)
   }, [approvalGroupFilter, fetchPending])
+
+  useEffect(() => {
+    api.getTimeCategories()
+      .then((result) => {
+        if (result.data?.time_categories) {
+          setCategories(result.data.time_categories)
+        }
+      })
+      .catch(() => undefined)
+  }, [])
 
   const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
     { value: 'all', label: 'All', count: allEntries.length },
@@ -117,6 +131,41 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
     }
   }
 
+  const handleBulkApprove = async () => {
+    if (entries.length === 0) return
+    if (!confirm(`Approve all ${entries.length} visible entr${entries.length === 1 ? 'y' : 'ies'}?`)) return
+
+    setBulkActionLoading(true)
+    setActionError(null)
+    try {
+      const result = await api.bulkApproveTimeEntries(entries.map((entry) => entry.id))
+      if (result.error) {
+        setActionError(result.error)
+        return
+      }
+
+      await fetchPending(approvalGroupFilter)
+      setNoteInput(null)
+      onUpdate?.()
+    } catch {
+      setActionError('Failed to approve visible entries. Please try again.')
+    } finally {
+      setBulkActionLoading(false)
+    }
+  }
+
+  const handleEditSaved = async () => {
+    setEditingEntry(null)
+    await fetchPending(approvalGroupFilter)
+    onUpdate?.()
+  }
+
+  const handleEditDeleted = async () => {
+    setEditingEntry(null)
+    await fetchPending(approvalGroupFilter)
+    onUpdate?.()
+  }
+
   if (loading) {
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-5 animate-pulse">
@@ -152,14 +201,25 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
   if (allEntries.length === 0) return null
 
   return (
+    <>
     <div className="bg-white rounded-2xl shadow-sm border border-amber-200/70 overflow-hidden hover:shadow-md transition-shadow duration-300">
       <div className="h-1 bg-amber-400" />
       <div className="p-5">
-        <div className="flex items-center gap-2.5 mb-4">
-          <div className="w-6 h-6 bg-amber-50 border border-amber-200 rounded-full flex items-center justify-center">
-            <span className="text-amber-600 text-xs font-bold">{entries.length}</span>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 bg-amber-50 border border-amber-200 rounded-full flex items-center justify-center">
+              <span className="text-amber-600 text-xs font-bold">{entries.length}</span>
+            </div>
+            <h3 className="font-semibold text-primary-dark text-base">Pending Approvals</h3>
           </div>
-          <h3 className="font-semibold text-primary-dark text-base">Pending Approvals</h3>
+          <button
+            type="button"
+            onClick={handleBulkApprove}
+            disabled={bulkActionLoading || entries.length === 0}
+            className="min-h-[44px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {bulkActionLoading ? 'Approving…' : `Approve Visible (${entries.length})`}
+          </button>
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -304,6 +364,15 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
                       Deny
                     </button>
                     <button
+                      onClick={() => setEditingEntry(entry)}
+                      className="min-h-[44px] min-w-[44px] py-2 px-3 bg-white hover:bg-secondary border border-neutral-warm text-text-muted text-sm rounded-xl transition-colors flex items-center justify-center"
+                      title="Edit entry"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
                       onClick={() => setNoteInput(noteInput?.id === entry.id ? null : { id: entry.id, note: '' })}
                       className="min-h-[44px] min-w-[44px] py-2 px-3 bg-white hover:bg-secondary border border-neutral-warm text-text-muted text-sm rounded-xl transition-colors flex items-center justify-center"
                       title="Add note"
@@ -321,5 +390,16 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
         </div>
       </div>
     </div>
+    <EditTimeEntryModal
+      isOpen={!!editingEntry}
+      entry={editingEntry}
+      categories={categories}
+      canDelete={!!editingEntry && !editingEntry.locked_at}
+      onClose={() => setEditingEntry(null)}
+      onSaved={handleEditSaved}
+      onDeleted={handleEditDeleted}
+      onError={setActionError}
+    />
+    </>
   )
 }

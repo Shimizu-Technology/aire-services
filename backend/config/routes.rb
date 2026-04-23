@@ -31,6 +31,7 @@ Rails.application.routes.draw do
           post :start_break
           post :end_break
           post :switch_category
+          post :bulk_approve
           get :current_status
           get :pending_approvals
           get :whos_working
