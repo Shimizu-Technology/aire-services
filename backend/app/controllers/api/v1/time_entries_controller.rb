@@ -6,7 +6,7 @@ module Api
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
-      before_action :require_admin!, only: [ :approve, :deny, :approve_overtime, :deny_overtime ]
+      before_action :require_admin!, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve ]
 
       # GET /api/v1/time_entries
       def index
@@ -323,6 +323,59 @@ module Api
       def deny_overtime
         entry = TimeClockService.deny_overtime(entry: @time_entry, denied_by: current_user, note: params[:note])
         render json: { time_entry: serialize_time_entry(entry) }
+      rescue TimeClockService::AuthorizationError => e
+        render json: { error: e.message }, status: :forbidden
+      rescue TimeClockService::ClockError => e
+        render json: { error: e.message }, status: :unprocessable_entity
+      end
+
+      # POST /api/v1/time_entries/bulk_approve
+      def bulk_approve
+        entry_ids = Array(params[:entry_ids]).filter_map do |value|
+          integer_id = value.to_i
+          integer_id if integer_id.positive?
+        end.uniq
+        if entry_ids.empty?
+          return render json: { error: "Select at least one pending entry to approve" }, status: :unprocessable_entity
+        end
+        if entry_ids.length > 100
+          return render json: { error: "Approve at most 100 entries at a time" }, status: :unprocessable_entity
+        end
+
+        note = params[:note].presence
+
+        updated_entries = []
+        error_message = nil
+        ActiveRecord::Base.transaction do
+          entries_by_id = TimeEntry.where(id: entry_ids).lock.index_by(&:id)
+          missing_ids = entry_ids - entries_by_id.keys
+          if missing_ids.any?
+            error_message = "One or more selected entries could not be found"
+            raise ActiveRecord::Rollback
+          end
+
+          entry_ids.each do |entry_id|
+            entry = entries_by_id.fetch(entry_id)
+            unless entry.approval_status == "pending" || entry.overtime_status == "pending"
+              error_message = "One or more selected entries are no longer pending approval"
+              raise ActiveRecord::Rollback
+            end
+
+            entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note) if entry.approval_status == "pending"
+            entry = TimeClockService.approve_overtime(entry: entry, approved_by: current_user, note: note) if entry.overtime_status == "pending"
+
+            updated_entries << eager_reload(entry)
+          end
+        end
+
+        if error_message
+          return render json: { error: error_message }, status: :unprocessable_entity
+        end
+
+        render json: {
+          time_entries: updated_entries.map { |entry| serialize_time_entry(entry) },
+          count: updated_entries.length
+        }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e

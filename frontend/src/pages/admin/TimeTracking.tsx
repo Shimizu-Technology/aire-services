@@ -8,6 +8,7 @@ import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
+import EditTimeEntryModal from '../../components/time-tracking/EditTimeEntryModal'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 
 // Local types to avoid Vite caching issues
@@ -204,6 +205,7 @@ export default function TimeTracking() {
 
   // Modal state
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<TimeEntryItem | null>(null)
   const [formData, setFormData] = useState({
     work_date: formatDateISO(new Date()),
@@ -519,16 +521,7 @@ export default function TimeTracking() {
 
   const openEditEntry = (entry: TimeEntryItem) => {
     setEditingEntry(entry)
-    setFormData({
-      work_date: entry.work_date,
-      start_time: entry.start_time || '08:00',
-      end_time: entry.end_time || '17:00',
-      description: entry.description || '',
-      time_category_id: entry.time_category?.id.toString() || '',
-      user_id: entry.user.id.toString(),
-      break_minutes: entry.break_minutes
-    })
-    setShowModal(true)
+    setShowEditModal(true)
   }
 
   const reopenPersonDayAfterLoad = useRef<{ name: string; date: string; userId: number } | null>(null)
@@ -546,8 +539,22 @@ export default function TimeTracking() {
   }, [entries])
 
   const closeEditModal = () => {
-    setShowModal(false)
+    setShowEditModal(false)
     setEditingEntry(null)
+    const ctx = returnToPersonDay.current
+    if (ctx) {
+      returnToPersonDay.current = null
+      const freshEntries = entries.filter(
+        e => e.user.id === ctx.userId && e.work_date === ctx.date
+      )
+      if (freshEntries.length > 0) {
+        setPersonDayModal({ entries: freshEntries, name: ctx.name, date: ctx.date })
+      }
+    }
+  }
+
+  const closeCreateModal = () => {
+    setShowModal(false)
     const ctx = returnToPersonDay.current
     if (ctx) {
       returnToPersonDay.current = null
@@ -567,7 +574,7 @@ export default function TimeTracking() {
       return
     }
 
-    if (!editingEntry && isAdmin && !formData.user_id) {
+    if (isAdmin && !formData.user_id) {
       setError('Please select an entry owner')
       return
     }
@@ -582,22 +589,14 @@ export default function TimeTracking() {
         end_time: formData.end_time,
         description: formData.description || undefined,
         time_category_id: formData.time_category_id ? parseInt(formData.time_category_id) : undefined,
-        user_id: !editingEntry && isAdmin && formData.user_id ? parseInt(formData.user_id) : undefined,
+        user_id: isAdmin && formData.user_id ? parseInt(formData.user_id) : undefined,
         break_minutes: formData.break_minutes
       }
 
-      if (editingEntry) {
-        const response = await api.updateTimeEntry(editingEntry.id, data)
-        if (response.error) {
-          setError(response.error)
-          return
-        }
-      } else {
-        const response = await api.createTimeEntry(data)
-        if (response.error) {
-          setError(response.error)
-          return
-        }
+      const response = await api.createTimeEntry(data)
+      if (response.error) {
+        setError(response.error)
+        return
       }
 
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
@@ -639,6 +638,14 @@ export default function TimeTracking() {
     } catch {
       setError('Failed to delete time entry')
     }
+  }
+
+  const refreshEntriesAfterEdit = async () => {
+    reopenPersonDayAfterLoad.current = returnToPersonDay.current
+    returnToPersonDay.current = null
+    setShowEditModal(false)
+    setEditingEntry(null)
+    await loadEntries()
   }
 
   // Get week dates for week view
@@ -773,7 +780,7 @@ export default function TimeTracking() {
       {/* Admin Panels */}
       {isAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ApprovalQueue onUpdate={() => loadEntries()} />
+          <ApprovalQueue onUpdate={() => loadEntries()} canDeleteEntry={canDeleteEntry} />
           <WhosWorking />
         </div>
       )}
@@ -1084,7 +1091,7 @@ export default function TimeTracking() {
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           <div className="overflow-x-auto">
             {/* Week Header */}
-            <div className="grid grid-cols-7 border-b border-neutral-warm min-w-[600px]">
+            <div className="grid min-w-[980px] grid-cols-7 border-b border-neutral-warm lg:min-w-full">
               {weekDates.map((date, idx) => {
                 const dateStr = formatDateISO(date)
                 const isToday = isSameDay(date, new Date())
@@ -1112,7 +1119,7 @@ export default function TimeTracking() {
             </div>
 
             {/* Week Entries */}
-            <div className="grid grid-cols-7 min-h-[250px] sm:min-h-[300px] min-w-[600px]">
+            <div className="grid min-h-[280px] grid-cols-7 min-w-[980px] sm:min-h-[320px] lg:min-w-full">
               {weekDates.map((date, idx) => {
                 const dateStr = formatDateISO(date)
                 const dayEntries = entriesByDate[dateStr] || []
@@ -1149,20 +1156,28 @@ export default function TimeTracking() {
                         return (
                           <div
                             key={entry.id}
-                            className={`mb-1 sm:mb-2 p-1 sm:p-2 bg-white border rounded text-xs cursor-pointer hover:bg-neutral-warm/50 transition-colors shadow-sm ${entry.locked_at ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm'}`}
+                            className={`mb-2 rounded-xl border bg-white p-2.5 text-xs shadow-sm transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${
+                              entry.locked_at ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm hover:border-primary/40'
+                            }`}
                             onClick={() => openEditEntry(entry)}
                           >
-                            <div className="font-bold text-primary-dark flex items-center gap-1">
-                              {entry.locked_at ? <LockIcon /> : <ClockIcon />}
-                              {entry.hours.toFixed(2)}h
-                              {entry.approval_status === 'pending' && <span className="ml-auto w-2 h-2 rounded-full bg-amber-500" title="Pending approval" />}
-                              {entry.approval_status === 'denied' && <span className="ml-auto w-2 h-2 rounded-full bg-red-500" title="Denied" />}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary-dark">
+                                {entry.locked_at ? <LockIcon /> : <ClockIcon />}
+                                {entry.hours.toFixed(2)}h
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {entry.approval_status === 'pending' && <span className="h-2 w-2 rounded-full bg-amber-500" title="Pending approval" />}
+                                {entry.approval_status === 'denied' && <span className="h-2 w-2 rounded-full bg-red-500" title="Denied" />}
+                              </div>
                             </div>
                             {entry.formatted_start_time && entry.formatted_end_time && (
-                              <div className="text-primary-dark/70 text-[10px]">{entry.formatted_start_time} – {entry.formatted_end_time}</div>
+                              <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{entry.formatted_start_time} – {entry.formatted_end_time}</div>
                             )}
-                            {entry.time_category && <div className="text-primary font-medium truncate text-[10px] sm:text-xs">{entry.time_category.name}</div>}
-                            <div className="text-primary-dark/70 truncate text-[10px] mt-0.5">{name}</div>
+                            {entry.time_category && (
+                              <div className="mt-1 truncate text-[11px] font-medium text-primary">{entry.time_category.name}</div>
+                            )}
+                            <div className="mt-1 truncate text-[11px] text-primary-dark/70">{name}</div>
                           </div>
                         )
                       }
@@ -1185,10 +1200,10 @@ export default function TimeTracking() {
                     <button
                       onClick={() => openNewEntry(date)}
                       disabled={currentWeekLocked}
-                      className="w-full p-1 sm:p-2 text-xs text-primary-dark font-medium hover:text-primary hover:bg-neutral-warm rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={currentWeekLocked ? 'This week is locked' : 'Add time entry'}
-                    >
-                      + Add
+                    className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 sm:p-2"
+                    title={currentWeekLocked ? 'This week is locked' : 'Add time entry'}
+                  >
+                    + Add
                     </button>
                   </div>
                 )
@@ -1374,6 +1389,18 @@ export default function TimeTracking() {
       </AnimatePresence>
 
       {/* Entry Modal */}
+      <EditTimeEntryModal
+        isOpen={showEditModal && !!editingEntry}
+        entry={editingEntry}
+        categories={categories}
+        canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
+        onClose={closeEditModal}
+        onSaved={refreshEntriesAfterEdit}
+        onDeleted={refreshEntriesAfterEdit}
+        onError={setError}
+      />
+
+      {/* Log Time Modal */}
       <AnimatePresence>
       {showModal && (
         <motion.div 
@@ -1383,7 +1410,7 @@ export default function TimeTracking() {
           transition={{ duration: 0.2 }}
           className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
           onClick={(e) => {
-            if (e.target === e.currentTarget) closeEditModal()
+            if (e.target === e.currentTarget) closeCreateModal()
           }}
         >
           <motion.div
@@ -1393,41 +1420,11 @@ export default function TimeTracking() {
             transition={{ duration: 0.25, delay: 0.1 }}
             className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <h2 className="text-xl font-bold text-primary-dark mb-1">
-                {editingEntry ? 'Edit Time Entry' : 'Log Time'}
-              </h2>
-              {editingEntry && (
-                <div className="mb-4">
-                  <p className="text-sm text-primary-dark/70">
-                    Entry for: <span className="font-medium text-primary-dark">{editingEntry.user.full_name || editingEntry.user.display_name || editingEntry.user.email.split('@')[0]}</span>
-                  </p>
-                  {editingEntry.locked_at && (
-                    <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm">
-                      <LockIcon />
-                      <span>This entry is locked and cannot be edited.</span>
-                    </div>
-                  )}
-                  {editingEntry.approved_by && (
-                    <div className={`mt-2 px-3 py-2 rounded-lg text-sm border ${
-                      editingEntry.approval_status === 'approved'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-red-50 border-red-200 text-red-700'
-                    }`}>
-                      <span className="font-medium">
-                        {editingEntry.approval_status === 'approved' ? 'Approved' : 'Denied'}
-                      </span>
-                      {' '}by {editingEntry.approved_by.full_name}
-                      {editingEntry.approval_note && (
-                        <p className="mt-1 text-xs italic opacity-80">"{editingEntry.approval_note}"</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              {!editingEntry && <div className="mb-4" />}
+              <h2 className="text-xl font-bold text-primary-dark mb-1">Log Time</h2>
+              <div className="mb-4" />
               
               <form onSubmit={handleSubmit} className="space-y-4">
-              <fieldset disabled={!!(editingEntry?.locked_at)} className={editingEntry?.locked_at ? 'opacity-60' : ''}>
+              <fieldset>
                 {/* Date */}
                 <div>
                   <label className="block text-sm font-medium text-primary-dark mb-1">
@@ -1477,7 +1474,7 @@ export default function TimeTracking() {
                 </div>
 
                 {/* Entry Owner (admin create only) */}
-                {isAdmin && !editingEntry && (
+                {isAdmin && (
                   <div>
                     <label className="block text-sm font-medium text-primary-dark mb-1">
                       Entry Owner
@@ -1577,37 +1574,23 @@ export default function TimeTracking() {
               </fieldset>
                 {/* Actions */}
                 <div className="flex justify-between items-center gap-3 pt-4">
-                  <div>
-                    {editingEntry && (
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(editingEntry)}
-                        disabled={!canDeleteEntry(editingEntry)}
-                        className={`px-4 py-2 rounded-lg transition-colors ${canDeleteEntry(editingEntry) ? 'text-red-600 hover:bg-red-50' : 'text-gray-300 cursor-not-allowed'}`}
-                        title={canDeleteEntry(editingEntry) ? 'Delete this time entry' : 'This entry is locked/finalized or cannot be deleted'}
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
+                  <div />
 
                   <div className="flex gap-3">
                     <button
                       type="button"
-                      onClick={closeEditModal}
+                      onClick={closeCreateModal}
                       className="px-4 py-2 text-primary-dark font-medium hover:bg-neutral-warm rounded-lg transition-colors"
                     >
                       Cancel
                     </button>
-                    {!(editingEntry?.locked_at) && (
-                      <button
-                        type="submit"
-                        disabled={saving}
-                        className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50"
-                      >
-                        {saving ? 'Saving...' : (editingEntry ? 'Update' : 'Save')}
-                      </button>
-                    )}
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50"
+                    >
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
                   </div>
                 </div>
               </form>
@@ -2051,32 +2034,46 @@ function CalendarUserGroup({
     acc[cat] = (acc[cat] || 0) + e.hours
     return acc
   }, {} as Record<string, number>)
+  const categoryRows = Object.entries(catSummary)
+  const visibleCategories = categoryRows.slice(0, 2)
+  const hiddenCategoryCount = Math.max(0, categoryRows.length - visibleCategories.length)
 
   return (
     <div
-      className={`mb-1 sm:mb-2 border rounded text-xs shadow-sm cursor-pointer hover:shadow-md transition-all ${hasLocked ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm bg-white hover:border-primary/40'}`}
+      className={`mb-2 rounded-xl border text-xs shadow-sm cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md ${
+        hasLocked ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm bg-white hover:border-primary/40'
+      }`}
       onClick={onClick}
     >
-      <div className="p-1 sm:p-2">
-        <div className="font-bold text-primary-dark flex items-center gap-1">
-          <ClockIcon />
-          {totalHours.toFixed(2)}h
-          {hasPending && <span className="w-2 h-2 rounded-full bg-amber-500" title="Has pending entries" />}
-          {hasDenied && <span className="w-2 h-2 rounded-full bg-red-500" title="Has denied entries" />}
-          <span className="ml-auto text-[9px] font-normal text-primary/60">{entries.length} entries</span>
+      <div className="p-2.5 sm:p-3">
+        <div className="flex items-center gap-2">
+          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary-dark">
+            <ClockIcon />
+            {totalHours.toFixed(2)}h
+          </div>
+          <div className="flex items-center gap-1.5">
+            {hasPending && <span className="h-2 w-2 rounded-full bg-amber-500" title="Has pending entries" />}
+            {hasDenied && <span className="h-2 w-2 rounded-full bg-red-500" title="Has denied entries" />}
+          </div>
         </div>
         {firstStart && lastEnd && (
-          <div className="text-primary-dark/70 text-[10px]">{firstStart} – {lastEnd}</div>
+          <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{firstStart} – {lastEnd}</div>
         )}
-        <div className="mt-0.5 space-y-0">
-          {Object.entries(catSummary).map(([cat, hrs]) => (
-            <div key={cat} className="flex items-center justify-between text-[10px]">
-              <span className="text-primary font-medium truncate mr-1">{cat}</span>
-              <span className="text-text-muted shrink-0">{hrs.toFixed(2)}h</span>
+        <div className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-primary/60">
+          {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+        </div>
+        <div className="mt-2 space-y-1.5">
+          {visibleCategories.map(([cat, hrs]) => (
+            <div key={cat} className="flex min-w-0 items-center justify-between gap-2 text-[11px]">
+              <span className="truncate font-medium text-primary">{cat}</span>
+              <span className="shrink-0 text-text-muted">{hrs.toFixed(2)}h</span>
             </div>
           ))}
+          {hiddenCategoryCount > 0 && (
+            <div className="text-[10px] font-medium text-text-muted">+{hiddenCategoryCount} more categories</div>
+          )}
         </div>
-        <div className="text-primary-dark/70 truncate text-[10px] mt-0.5">{name}</div>
+        <div className="mt-2 truncate text-[11px] text-primary-dark/70">{name}</div>
       </div>
     </div>
   )

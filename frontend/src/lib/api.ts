@@ -700,6 +700,12 @@ export const api = {
       body: JSON.stringify({ note }),
     }),
 
+  bulkApproveTimeEntries: (entryIds: number[], note?: string) =>
+    fetchApi<{ time_entries: TimeEntry[]; count: number }>('/api/v1/time_entries/bulk_approve', {
+      method: 'POST',
+      body: JSON.stringify({ entry_ids: entryIds, ...(note ? { note } : {}) }),
+    }),
+
   denyTimeEntry: (id: number, note?: string) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/deny`, {
       method: 'POST',
