@@ -339,16 +339,23 @@ module Api
           return render json: { error: "Select at least one pending entry to approve" }, status: :unprocessable_entity
         end
 
-        entries_by_id = pending_approval_entries_scope.where(id: entry_ids).index_by(&:id)
-        missing_ids = entry_ids - entries_by_id.keys
-        if missing_ids.any?
-          return render json: { error: "One or more selected entries are no longer pending approval" }, status: :unprocessable_entity
-        end
-
         updated_entries = []
+        error_message = nil
         ActiveRecord::Base.transaction do
+          entries_by_id = TimeEntry.where(id: entry_ids).lock.index_by(&:id)
+          missing_ids = entry_ids - entries_by_id.keys
+          if missing_ids.any?
+            error_message = "One or more selected entries could not be found"
+            raise ActiveRecord::Rollback
+          end
+
           entry_ids.each do |entry_id|
             entry = entries_by_id.fetch(entry_id)
+            unless entry.approval_status == "pending" || entry.overtime_status == "pending"
+              error_message = "One or more selected entries are no longer pending approval"
+              raise ActiveRecord::Rollback
+            end
+
             note = params[:note].presence
 
             entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note) if entry.approval_status == "pending"
@@ -356,6 +363,10 @@ module Api
 
             updated_entries << eager_reload(entry)
           end
+        end
+
+        if error_message
+          return render json: { error: error_message }, status: :unprocessable_entity
         end
 
         render json: {

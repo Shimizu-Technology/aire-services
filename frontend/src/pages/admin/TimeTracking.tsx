@@ -780,7 +780,7 @@ export default function TimeTracking() {
       {/* Admin Panels */}
       {isAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ApprovalQueue onUpdate={() => loadEntries()} />
+          <ApprovalQueue onUpdate={() => loadEntries()} canDeleteEntry={canDeleteEntry} />
           <WhosWorking />
         </div>
       )}
@@ -1156,20 +1156,28 @@ export default function TimeTracking() {
                         return (
                           <div
                             key={entry.id}
-                            className={`mb-1 sm:mb-2 p-1 sm:p-2 bg-white border rounded text-xs cursor-pointer hover:bg-neutral-warm/50 transition-colors shadow-sm ${entry.locked_at ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm'}`}
+                            className={`mb-2 rounded-xl border bg-white p-2.5 text-xs shadow-sm transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${
+                              entry.locked_at ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm hover:border-primary/40'
+                            }`}
                             onClick={() => openEditEntry(entry)}
                           >
-                            <div className="font-bold text-primary-dark flex items-center gap-1">
-                              {entry.locked_at ? <LockIcon /> : <ClockIcon />}
-                              {entry.hours.toFixed(2)}h
-                              {entry.approval_status === 'pending' && <span className="ml-auto w-2 h-2 rounded-full bg-amber-500" title="Pending approval" />}
-                              {entry.approval_status === 'denied' && <span className="ml-auto w-2 h-2 rounded-full bg-red-500" title="Denied" />}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary-dark">
+                                {entry.locked_at ? <LockIcon /> : <ClockIcon />}
+                                {entry.hours.toFixed(2)}h
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {entry.approval_status === 'pending' && <span className="h-2 w-2 rounded-full bg-amber-500" title="Pending approval" />}
+                                {entry.approval_status === 'denied' && <span className="h-2 w-2 rounded-full bg-red-500" title="Denied" />}
+                              </div>
                             </div>
                             {entry.formatted_start_time && entry.formatted_end_time && (
-                              <div className="text-primary-dark/70 text-[10px]">{entry.formatted_start_time} – {entry.formatted_end_time}</div>
+                              <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{entry.formatted_start_time} – {entry.formatted_end_time}</div>
                             )}
-                            {entry.time_category && <div className="text-primary font-medium truncate text-[10px] sm:text-xs">{entry.time_category.name}</div>}
-                            <div className="text-primary-dark/70 truncate text-[10px] mt-0.5">{name}</div>
+                            {entry.time_category && (
+                              <div className="mt-1 truncate text-[11px] font-medium text-primary">{entry.time_category.name}</div>
+                            )}
+                            <div className="mt-1 truncate text-[11px] text-primary-dark/70">{name}</div>
                           </div>
                         )
                       }
@@ -2029,29 +2037,37 @@ function CalendarUserGroup({
 
   return (
     <div
-      className={`mb-1 sm:mb-2 border rounded text-xs shadow-sm cursor-pointer hover:shadow-md transition-all ${hasLocked ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm bg-white hover:border-primary/40'}`}
+      className={`mb-2 rounded-xl border text-xs shadow-sm cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md ${
+        hasLocked ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm bg-white hover:border-primary/40'
+      }`}
       onClick={onClick}
     >
-      <div className="p-1 sm:p-2">
-        <div className="font-bold text-primary-dark flex items-center gap-1">
-          <ClockIcon />
-          {totalHours.toFixed(2)}h
-          {hasPending && <span className="w-2 h-2 rounded-full bg-amber-500" title="Has pending entries" />}
-          {hasDenied && <span className="w-2 h-2 rounded-full bg-red-500" title="Has denied entries" />}
-          <span className="ml-auto text-[9px] font-normal text-primary/60">{entries.length} entries</span>
+      <div className="p-2.5 sm:p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary-dark">
+            <ClockIcon />
+            {totalHours.toFixed(2)}h
+          </div>
+          <div className="flex items-center gap-1.5">
+            {hasPending && <span className="h-2 w-2 rounded-full bg-amber-500" title="Has pending entries" />}
+            {hasDenied && <span className="h-2 w-2 rounded-full bg-red-500" title="Has denied entries" />}
+            <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-[10px] font-medium text-primary/70">
+              {entries.length} entries
+            </span>
+          </div>
         </div>
         {firstStart && lastEnd && (
-          <div className="text-primary-dark/70 text-[10px]">{firstStart} – {lastEnd}</div>
+          <div className="mt-2 text-[11px] font-medium text-primary-dark/75">{firstStart} – {lastEnd}</div>
         )}
-        <div className="mt-0.5 space-y-0">
+        <div className="mt-2 space-y-1.5">
           {Object.entries(catSummary).map(([cat, hrs]) => (
-            <div key={cat} className="flex items-center justify-between text-[10px]">
-              <span className="text-primary font-medium truncate mr-1">{cat}</span>
-              <span className="text-text-muted shrink-0">{hrs.toFixed(2)}h</span>
+            <div key={cat} className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="truncate font-medium text-primary">{cat}</span>
+              <span className="shrink-0 text-text-muted">{hrs.toFixed(2)}h</span>
             </div>
           ))}
         </div>
-        <div className="text-primary-dark/70 truncate text-[10px] mt-0.5">{name}</div>
+        <div className="mt-2 truncate text-[11px] text-primary-dark/70">{name}</div>
       </div>
     </div>
   )

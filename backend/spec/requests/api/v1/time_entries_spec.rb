@@ -388,5 +388,16 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
       expect(response).to have_http_status(:forbidden)
     end
+
+    it "rejects entries that are no longer pending by approval time" do
+      pending_manual_entry.update!(approval_status: "approved")
+
+      post "/api/v1/time_entries/bulk_approve",
+           params: { entry_ids: [ pending_manual_entry.id ] },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to eq("One or more selected entries are no longer pending approval")
+    end
   end
 end

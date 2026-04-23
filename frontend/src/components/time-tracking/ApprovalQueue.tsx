@@ -6,9 +6,16 @@ import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
   onUpdate?: () => void
+  canDeleteEntry?: (entry: TimeEntry) => boolean
 }
 
-export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
+function filterEntriesByGroup(entries: TimeEntry[], filter: 'all' | ApprovalGroupFilter) {
+  if (filter === 'all') return entries
+  if (filter === 'unassigned') return entries.filter((entry) => !entry.user.approval_group)
+  return entries.filter((entry) => entry.user.approval_group === filter)
+}
+
+export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -17,6 +24,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
   const [fetchError, setFetchError] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
+  const [refreshingFilter, setRefreshingFilter] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [noteInput, setNoteInput] = useState<{ id: number; note: string } | null>(null)
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
@@ -57,6 +65,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
       setFetchError(true)
     } finally {
       setLoading(false)
+      setRefreshingFilter(false)
     }
   }, [syncExpandedDescriptions])
 
@@ -166,6 +175,17 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
     onUpdate?.()
   }
 
+  const applyFilter = (filter: 'all' | ApprovalGroupFilter) => {
+    setApprovalGroupFilter(filter)
+
+    if (allEntries.length > 0) {
+      const filteredEntries = filterEntriesByGroup(allEntries, filter)
+      setEntries(filteredEntries)
+      syncExpandedDescriptions(filteredEntries)
+      setRefreshingFilter(true)
+    }
+  }
+
   if (loading) {
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-5 animate-pulse">
@@ -222,12 +242,13 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
           </button>
         </div>
 
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="-mx-1 mb-4 overflow-x-auto pb-1">
+          <div className="flex min-w-max flex-nowrap gap-2 px-1">
           {filterOptions.map((option) => (
             <button
               key={option.value}
               type="button"
-              onClick={() => setApprovalGroupFilter(option.value)}
+              onClick={() => applyFilter(option.value)}
               className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                 approvalGroupFilter === option.value
                   ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
@@ -237,6 +258,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
               {option.label} ({option.count})
             </button>
           ))}
+          </div>
         </div>
 
         {actionError && (
@@ -250,7 +272,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
           </div>
         )}
 
-        <div className="space-y-3">
+        <div className={`space-y-3 transition-opacity ${refreshingFilter ? 'opacity-70' : 'opacity-100'}`}>
           {entries.length === 0 ? (
             <div className="rounded-xl border border-dashed border-neutral-warm bg-secondary/20 px-4 py-5 text-sm text-text-muted">
               No pending entries match this review group.
@@ -394,7 +416,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
       isOpen={!!editingEntry}
       entry={editingEntry}
       categories={categories}
-      canDelete={!!editingEntry && !editingEntry.locked_at}
+      canDelete={!!editingEntry && !!canDeleteEntry?.(editingEntry)}
       onClose={() => setEditingEntry(null)}
       onSaved={handleEditSaved}
       onDeleted={handleEditDeleted}

@@ -101,10 +101,8 @@ export default function EditTimeEntryModal({
     return Math.max(0, durationMinutes / 60)
   }, [formData.break_minutes, formData.end_time, formData.start_time])
 
-  if (!isOpen || !entry) return null
-
-  const ownerName = entry.user.full_name || entry.user.display_name || entry.user.email.split('@')[0]
-  const isLocked = !!entry.locked_at
+  const ownerName = entry?.user.full_name || entry?.user.display_name || entry?.user.email.split('@')[0] || ''
+  const isLocked = !!entry?.locked_at
 
   const setLocalError = (message: string | null) => {
     setError(message)
@@ -113,6 +111,7 @@ export default function EditTimeEntryModal({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!entry) return
     setSaving(true)
     setLocalError(null)
 
@@ -140,7 +139,7 @@ export default function EditTimeEntryModal({
   }
 
   const handleDelete = async () => {
-    if (!canDelete) return
+    if (!entry || !canDelete) return
     if (!confirm('Are you sure you want to delete this time entry?')) return
 
     setDeleting(true)
@@ -163,54 +162,55 @@ export default function EditTimeEntryModal({
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-        onClick={(event) => {
-          if (event.target === event.currentTarget) onClose()
-        }}
-      >
+      {isOpen && entry && (
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          transition={{ duration: 0.25, delay: 0.1 }}
-          className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) onClose()
+          }}
         >
-          <div className="p-6">
-            <h2 className="mb-1 text-xl font-bold text-primary-dark">Edit Time Entry</h2>
-            <div className="mb-4">
-              <p className="text-sm text-primary-dark/70">
-                Entry for: <span className="font-medium text-primary-dark">{ownerName}</span>
-              </p>
-              {isLocked && (
-                <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                  <LockIcon />
-                  <span>This entry is locked and cannot be edited.</span>
-                </div>
-              )}
-              {entry.approved_by && (
-                <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${
-                  entry.approval_status === 'approved'
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                    : 'border-red-200 bg-red-50 text-red-700'
-                }`}>
-                  <span className="font-medium">
-                    {entry.approval_status === 'approved' ? 'Approved' : 'Denied'}
-                  </span>{' '}
-                  by {entry.approved_by.full_name}
-                  {entry.approval_note && (
-                    <p className="mt-1 text-xs italic opacity-80">"{entry.approval_note}"</p>
-                  )}
-                </div>
-              )}
-            </div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            transition={{ duration: 0.25, delay: 0.1 }}
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl"
+          >
+            <div className="p-6">
+              <h2 className="mb-1 text-xl font-bold text-primary-dark">Edit Time Entry</h2>
+              <div className="mb-4">
+                <p className="text-sm text-primary-dark/70">
+                  Entry for: <span className="font-medium text-primary-dark">{ownerName}</span>
+                </p>
+                {isLocked && (
+                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                    <LockIcon />
+                    <span>This entry is locked and cannot be edited.</span>
+                  </div>
+                )}
+                {entry.approved_by && (
+                  <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${
+                    entry.approval_status === 'approved'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-red-200 bg-red-50 text-red-700'
+                  }`}>
+                    <span className="font-medium">
+                      {entry.approval_status === 'approved' ? 'Approved' : 'Denied'}
+                    </span>{' '}
+                    by {entry.approved_by.full_name}
+                    {entry.approval_note && (
+                      <p className="mt-1 text-xs italic opacity-80">"{entry.approval_note}"</p>
+                    )}
+                  </div>
+                )}
+              </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <fieldset disabled={isLocked || saving || deleting} className={isLocked ? 'opacity-60' : ''}>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <fieldset disabled={isLocked || saving || deleting} className={isLocked ? 'opacity-60' : ''}>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-primary-dark">Date *</label>
                   <input
@@ -320,52 +320,53 @@ export default function EditTimeEntryModal({
                     className="w-full resize-none rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
-              </fieldset>
+                </fieldset>
 
-              {error && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-                  {error}
-                </div>
-              )}
+                {error && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                    {error}
+                  </div>
+                )}
 
-              <div className="flex items-center justify-between gap-3 pt-4">
-                <div>
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={!canDelete || deleting || saving}
-                    className={`rounded-lg px-4 py-2 transition-colors ${
-                      canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
-                    }`}
-                    title={canDelete ? 'Delete this time entry' : 'This entry is locked/finalized or cannot be deleted'}
-                  >
-                    {deleting ? 'Deleting...' : 'Delete'}
-                  </button>
-                </div>
-
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="rounded-lg px-4 py-2 font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
-                  >
-                    Cancel
-                  </button>
-                  {!isLocked && (
+                <div className="flex items-center justify-between gap-3 pt-4">
+                  <div>
                     <button
-                      type="submit"
-                      disabled={saving || deleting}
-                      className="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                      type="button"
+                      onClick={handleDelete}
+                      disabled={!canDelete || deleting || saving}
+                      className={`rounded-lg px-4 py-2 transition-colors ${
+                        canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
+                      }`}
+                      title={canDelete ? 'Delete this time entry' : 'This entry is locked/finalized or cannot be deleted'}
                     >
-                      {saving ? 'Saving...' : 'Update'}
+                      {deleting ? 'Deleting...' : 'Delete'}
                     </button>
-                  )}
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="rounded-lg px-4 py-2 font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
+                    >
+                      Cancel
+                    </button>
+                    {!isLocked && (
+                      <button
+                        type="submit"
+                        disabled={saving || deleting}
+                        className="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                      >
+                        {saving ? 'Saving...' : 'Update'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </form>
-          </div>
+              </form>
+            </div>
+          </motion.div>
         </motion.div>
-      </motion.div>
+      )}
     </AnimatePresence>
   )
 }
