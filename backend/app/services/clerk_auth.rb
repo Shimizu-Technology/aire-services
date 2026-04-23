@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "uri"
+
 # Service for verifying Clerk JWT tokens
 # Uses Clerk's JWKS (JSON Web Key Set) to verify token signatures
 class ClerkAuth
@@ -21,10 +23,7 @@ class ClerkAuth
       jwks = fetch_jwks
       return nil if jwks.nil?
 
-      decoded = JWT.decode(token, nil, true, {
-        algorithms: [ "RS256" ],
-        jwks: jwks
-      })
+      decoded = JWT.decode(token, nil, true, decode_options(jwks))
 
       decoded.first
     rescue JWT::DecodeError => e
@@ -66,6 +65,27 @@ class ClerkAuth
 
     private
 
+    def decode_options(jwks)
+      options = {
+        algorithms: [ "RS256" ],
+        jwks: jwks
+      }
+
+      issuer = token_issuer
+      if issuer.present?
+        options[:verify_iss] = true
+        options[:iss] = issuer
+      end
+
+      audiences = token_audiences
+      if audiences.present?
+        options[:verify_aud] = true
+        options[:aud] = audiences.length == 1 ? audiences.first : audiences
+      end
+
+      options
+    end
+
     def fetch_jwks
       # Try to get from cache first
       cached = Rails.cache.read(JWKS_CACHE_KEY)
@@ -103,6 +123,31 @@ class ClerkAuth
         Rails.logger.warn("Neither CLERK_JWKS_URL nor CLERK_ISSUER configured")
         nil
       end
+    end
+
+    def token_issuer
+      issuer = ENV.fetch("CLERK_ISSUER", nil)
+      return issuer if issuer.present?
+
+      jwks = jwks_url
+      return nil if jwks.blank?
+
+      uri = URI.parse(jwks)
+      return nil if uri.scheme.blank? || uri.host.blank?
+
+      origin = +"#{uri.scheme}://#{uri.host}"
+      origin << ":#{uri.port}" unless [ 80, 443 ].include?(uri.port)
+      origin
+    rescue URI::InvalidURIError => e
+      Rails.logger.warn("Invalid Clerk JWKS URL: #{e.message}")
+      nil
+    end
+
+    def token_audiences
+      raw = ENV.fetch("CLERK_AUDIENCE", ENV.fetch("CLERK_AUDIENCES", nil))
+      return nil if raw.blank?
+
+      raw.split(",").map(&:strip).reject(&:blank?)
     end
 
     def handle_test_token(token)

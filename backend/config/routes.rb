@@ -44,6 +44,7 @@ Rails.application.routes.draw do
       end
       resources :time_categories, only: [ :index ]
       resources :time_period_locks, only: [ :index ]
+      resources :schedule_time_presets, only: [ :index ]
       resources :schedules, only: [ :index, :show, :create, :update, :destroy ] do
         collection do
           get :my_schedule

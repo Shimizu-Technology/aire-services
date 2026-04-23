@@ -5,6 +5,8 @@
 module ClerkAuthenticatable
   extend ActiveSupport::Concern
 
+  INVITE_ONLY_MESSAGE = "Access denied. You haven't been invited to this system. Please contact an administrator.".freeze
+
   private
 
   def authenticate_user!
@@ -23,20 +25,10 @@ module ClerkAuthenticatable
       return
     end
 
-    clerk_id = decoded["sub"]
-    email = decoded["email"] || decoded["primary_email_address"]
-    first_name = decoded["first_name"]
-    last_name = decoded["last_name"]
-
-    @current_user = find_or_create_user(
-      clerk_id: clerk_id,
-      email: email,
-      first_name: first_name,
-      last_name: last_name
-    )
+    @current_user = resolve_user_from_claims(decoded)
 
     unless @current_user
-      render_unauthorized("Unable to authenticate user")
+      render_forbidden(INVITE_ONLY_MESSAGE)
       return # rubocop:disable Style/RedundantReturn -- consistent with other early-exits in this method
     end
   end
@@ -49,8 +41,7 @@ module ClerkAuthenticatable
     decoded = ClerkAuth.verify(token)
     return unless decoded
 
-    clerk_id = decoded["sub"]
-    @current_user = User.find_by(clerk_id: clerk_id)
+    @current_user = resolve_user_from_claims(decoded)
   end
 
   def current_user
@@ -78,13 +69,15 @@ module ClerkAuthenticatable
   def find_or_create_user(clerk_id:, email:, first_name:, last_name:)
     return nil if clerk_id.blank?
 
+    normalized_email = email&.downcase
+
     # First try to find by clerk_id - this is the primary key from Clerk
     user = User.find_by(clerk_id: clerk_id)
 
     if user
       # Only update if we have new info and it's different
       updates = {}
-      updates[:email] = email if email.present? && email != user.email && !user.email.include?("@placeholder.local")
+      updates[:email] = normalized_email if normalized_email.present? && normalized_email != user.email&.downcase && !user.email.to_s.include?("@placeholder.local")
       updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
       updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
 
@@ -93,21 +86,23 @@ module ClerkAuthenticatable
     end
 
     # Try to find by email (for invited users who haven't signed in yet)
-    if email.present?
-      user = User.find_by("LOWER(email) = ?", email.downcase)
+    if normalized_email.present?
+      user = User.find_by("LOWER(email) = ?", normalized_email)
 
       if user
-        user.update(clerk_id: clerk_id)
+        updates = { clerk_id: clerk_id }
+        updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
+        updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
+        user.update(updates)
         return user
       end
     else
       Rails.logger.warn "No email in JWT for clerk_id=#{clerk_id}. Cannot link invited user. Verify Clerk JWT template includes email claim."
     end
 
-    # INVITE-ONLY: If user not found by clerk_id or email, they haven't been invited
-    # Only exception: if there are NO users yet, create the first admin
-    if User.count.zero?
-      user_email = email.presence || "#{clerk_id}@placeholder.local"
+    # Bootstrap is disabled by default. Only allow it when explicitly enabled.
+    if allow_first_user_bootstrap? && User.count.zero?
+      user_email = normalized_email.presence || "#{clerk_id}@placeholder.local"
       new_user = User.create(
         clerk_id: clerk_id,
         email: user_email,
@@ -120,6 +115,37 @@ module ClerkAuthenticatable
 
     # User not invited - return nil (will trigger access denied)
     nil
+  end
+
+  def resolve_user_from_claims(decoded)
+    identity = identity_attributes_from(decoded)
+    find_or_create_user(**identity)
+  end
+
+  def identity_attributes_from(decoded)
+    clerk_id = decoded["sub"]
+    email = decoded["email"] || decoded["primary_email_address"]
+
+    if email.blank? && clerk_id.present?
+      Rails.logger.info "JWT for clerk_id=#{clerk_id} has no email claim. Attempting Clerk API fallback."
+      email = ClerkAuth.fetch_user_email(clerk_id)
+      if email.present?
+        Rails.logger.debug "Clerk API resolved email for clerk_id=#{clerk_id}"
+      else
+        Rails.logger.warn "JWT for clerk_id=#{clerk_id} has no email claim and Clerk API fallback failed. Ensure Clerk JWT template includes the email claim or set CLERK_SECRET_KEY."
+      end
+    end
+
+    {
+      clerk_id: clerk_id,
+      email: email,
+      first_name: decoded["first_name"],
+      last_name: decoded["last_name"]
+    }
+  end
+
+  def allow_first_user_bootstrap?
+    ActiveModel::Type::Boolean.new.cast(ENV.fetch("ALLOW_FIRST_USER_BOOTSTRAP", "false"))
   end
 
   def render_unauthorized(message = "Unauthorized")
