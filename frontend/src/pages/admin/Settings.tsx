@@ -24,7 +24,7 @@ export default function Settings() {
     early_clock_in_buffer_minutes: '',
   })
   const [contactNotificationEmailsDraft, setContactNotificationEmailsDraft] = useState('')
-  const [inquiryTopicsDraft, setInquiryTopicsDraft] = useState('')
+  const [inquiryTopicsDraft, setInquiryTopicsDraft] = useState<string[]>([''])
   const [loading, setLoading] = useState(true)
   const [categoriesError, setCategoriesError] = useState('')
   const [settingsError, setSettingsError] = useState('')
@@ -62,7 +62,7 @@ export default function Settings() {
     else if (contactRes.data) {
       setContactSettings(contactRes.data)
       setContactNotificationEmailsDraft(contactRes.data.contact_notification_emails.join('\n'))
-      setInquiryTopicsDraft(contactRes.data.inquiry_topics.join('\n'))
+      setInquiryTopicsDraft(contactRes.data.inquiry_topics.length > 0 ? contactRes.data.inquiry_topics : [''])
     }
   }, [])
 
@@ -210,7 +210,6 @@ export default function Settings() {
       .map((email) => email.trim())
       .filter(Boolean)
     const inquiry_topics = inquiryTopicsDraft
-      .split(/\n+/)
       .map((topic) => topic.trim())
       .filter(Boolean)
 
@@ -244,11 +243,26 @@ export default function Settings() {
         inquiry_topics: res.data.inquiry_topics,
       })
       setContactNotificationEmailsDraft(res.data.contact_notification_emails.join('\n'))
-      setInquiryTopicsDraft(res.data.inquiry_topics.join('\n'))
+      setInquiryTopicsDraft(res.data.inquiry_topics.length > 0 ? res.data.inquiry_topics : [''])
       setContactSettingsMessage(res.data.message || 'Contact settings saved.')
     } finally {
       setSavingContactSettings(false)
     }
+  }
+
+  const updateInquiryTopicDraft = (index: number, value: string) => {
+    setInquiryTopicsDraft((current) => current.map((topic, topicIndex) => (topicIndex === index ? value : topic)))
+  }
+
+  const addInquiryTopicDraft = () => {
+    setInquiryTopicsDraft((current) => [...current, ''])
+  }
+
+  const removeInquiryTopicDraft = (index: number) => {
+    setInquiryTopicsDraft((current) => {
+      if (current.length === 1) return ['']
+      return current.filter((_, topicIndex) => topicIndex !== index)
+    })
   }
 
   const visibleCategories = showInactive ? categories : categories.filter((c) => c.is_active)
@@ -362,17 +376,41 @@ export default function Settings() {
                     </p>
                   </div>
                   <div>
-                    <label htmlFor="public-inquiry-topics" className="mb-2 block text-sm font-medium text-slate-700">Public inquiry topics</label>
-                    <textarea
-                      id="public-inquiry-topics"
-                      rows={6}
-                      value={inquiryTopicsDraft}
-                      onChange={(e) => setInquiryTopicsDraft(e.target.value)}
-                      placeholder="Aerial Tours&#10;Video Packages&#10;General Inquiry"
-                      className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    />
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <label className="block text-sm font-medium text-slate-700">Public inquiry topics</label>
+                      <button
+                        type="button"
+                        onClick={addInquiryTopicDraft}
+                        className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                      >
+                        Add topic
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      {inquiryTopicsDraft.map((topic, index) => (
+                        <div key={`inquiry-topic-${index}`} className="flex items-center gap-3">
+                          <input
+                            id={`public-inquiry-topic-${index}`}
+                            value={topic}
+                            onChange={(e) => updateInquiryTopicDraft(index, e.target.value)}
+                            placeholder={index === 0 ? 'Private Pilot Certificate' : 'Another inquiry topic'}
+                            aria-label={index === 0 ? 'Public inquiry topics' : `Public inquiry topic ${index + 1}`}
+                            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeInquiryTopicDraft(index)}
+                            disabled={inquiryTopicsDraft.length === 1 && !topic.trim()}
+                            aria-label={`Remove inquiry topic ${index + 1}`}
+                            className="rounded-lg border border-slate-200 px-3 py-3 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                     <p className="mt-2 text-xs text-slate-500">
-                      Enter one topic per line. These options are shown directly on the public contact page.
+                      Add each topic as its own option. These are shown as selectable buttons on the public contact page.
                     </p>
                   </div>
                 </div>

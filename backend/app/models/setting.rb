@@ -79,12 +79,19 @@ class Setting < ApplicationRecord
   end
 
   def self.set_contact_inquiry_topics!(topics)
-    normalized_topics = Array(topics).map { |topic| topic.to_s.strip }.reject(&:blank?).uniq
+    normalized_topics = normalize_contact_inquiry_topics(topics)
     set(
       "contact_inquiry_topics",
       normalized_topics.to_json,
       description: "JSON array of inquiry topics shown on the public contact form"
     )
+  end
+
+  def self.update_contact_settings!(emails:, topics:)
+    transaction do
+      set_contact_notification_emails!(emails)
+      set_contact_inquiry_topics!(topics)
+    end
   end
 
   def self.normalize_emails(value)
@@ -95,11 +102,19 @@ class Setting < ApplicationRecord
       .uniq
   end
 
+  def self.normalize_contact_inquiry_topics(value)
+    Array(value)
+      .flat_map { |topics| topics.to_s.split(/\n+/) }
+      .map(&:strip)
+      .reject(&:blank?)
+      .uniq
+  end
+
   def self.parse_contact_inquiry_topics(value)
     return DEFAULT_CONTACT_INQUIRY_TOPICS if value.blank?
 
     parsed = JSON.parse(value)
-    topics = Array(parsed).map { |topic| topic.to_s.strip }.reject(&:blank?).uniq
+    topics = normalize_contact_inquiry_topics(parsed)
     topics.presence || DEFAULT_CONTACT_INQUIRY_TOPICS
   end
 end

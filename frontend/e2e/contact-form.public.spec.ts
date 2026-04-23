@@ -28,7 +28,7 @@ test.describe('Contact Form', () => {
   test('contact form loads with all required fields', async ({ page }) => {
     await expect(page.locator('input#name')).toBeVisible();
     await expect(page.locator('input#email')).toBeVisible();
-    await expect(page.locator('select#subject')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Private Pilot Certificate' })).toBeVisible();
     await expect(page.locator('textarea#message')).toBeVisible();
     await expect(page.locator('button[type="submit"]')).toBeVisible();
   });
@@ -51,7 +51,7 @@ test.describe('Contact Form', () => {
   test('validates email format', async ({ page }) => {
     await page.fill('input#name', 'Test User');
     await page.fill('input#email', 'invalid-email');
-    await page.selectOption('select#subject', { index: 1 });
+    await page.getByRole('button', { name: 'Discovery Flight' }).click();
     await page.fill('textarea#message', 'Test message');
 
     await page.click('button[type="submit"]');
@@ -67,7 +67,7 @@ test.describe('Contact Form', () => {
     await page.fill('input#name', 'Test User');
     await page.fill('input#email', `test-${Date.now()}@example.com`);
     await page.fill('input#phone', '671-555-1234');
-    await page.selectOption('select#subject', { index: 1 });
+    await page.getByRole('button', { name: 'Discovery Flight' }).click();
     await page.fill('textarea#message', 'This is a test message from automated e2e tests.');
 
     await page.click('button[type="submit"]');
@@ -80,7 +80,7 @@ test.describe('Contact Form', () => {
 
     await page.fill('input#name', 'Test User');
     await page.fill('input#email', 'test@example.com');
-    await page.selectOption('select#subject', { index: 1 });
+    await page.getByRole('button', { name: 'Discovery Flight' }).click();
     await page.fill('textarea#message', 'Test message');
 
     const submitButton = page.locator('button[type="submit"]');
@@ -91,15 +91,15 @@ test.describe('Contact Form', () => {
   });
 
   test('can select different subject options', async ({ page }) => {
-    const subjectSelect = page.locator('select#subject');
-    const options = await subjectSelect.locator('option').all();
+    const topicButtons = page.locator('button[aria-pressed]');
+    const count = await topicButtons.count();
 
-    expect(options.length).toBeGreaterThan(1);
+    expect(count).toBeGreaterThan(1);
 
-    for (let i = 1; i < Math.min(options.length, 4); i++) {
-      await subjectSelect.selectOption({ index: i });
-      const selectedValue = await subjectSelect.inputValue();
-      expect(selectedValue).toBeTruthy();
+    for (let i = 1; i < Math.min(count, 4); i++) {
+      const button = topicButtons.nth(i);
+      await button.click();
+      await expect(button).toHaveAttribute('aria-pressed', 'true');
     }
   });
 
@@ -119,7 +119,7 @@ test.describe('Contact Form Edge Cases', () => {
 
     await page.fill('input#name', "María O'Connor-García");
     await page.fill('input#email', 'test@example.com');
-    await page.selectOption('select#subject', { index: 1 });
+    await page.getByRole('button', { name: 'Discovery Flight' }).click();
     await page.fill('textarea#message', 'Test with special chars: < > & " \' © ®');
 
     await page.click('button[type="submit"]');
@@ -135,7 +135,7 @@ test.describe('Contact Form Edge Cases', () => {
 
     await page.fill('input#name', 'Test User');
     await page.fill('input#email', 'test@example.com');
-    await page.selectOption('select#subject', { index: 1 });
+    await page.getByRole('button', { name: 'Discovery Flight' }).click();
     await page.fill('textarea#message', longMessage);
 
     await page.click('button[type="submit"]');
@@ -160,7 +160,7 @@ test.describe('Contact Form Edge Cases', () => {
     await page.fill('input#name', '  Test User  ');
     await page.fill('input#email', '  test@example.com  ');
     await page.fill('input#phone', '  671-555-1234  ');
-    await page.selectOption('select#subject', { index: 1 });
+    await page.getByRole('button', { name: 'Discovery Flight' }).click();
     await page.fill('textarea#message', '  Test message  ');
 
     await page.click('button[type="submit"]');

@@ -63,15 +63,14 @@ describe('Admin Settings contact settings', () => {
 
     expect(await screen.findByDisplayValue('ops@example.com')).toBeInTheDocument()
     await waitFor(() => {
-      expect(screen.getByLabelText('Public inquiry topics')).toHaveValue('Aerial Tours\nGeneral Inquiry')
+      expect(screen.getByLabelText('Public inquiry topics')).toHaveValue('Aerial Tours')
+      expect(screen.getByLabelText('Public inquiry topic 2')).toHaveValue('General Inquiry')
     })
 
     fireEvent.change(screen.getByLabelText('Notification recipient emails'), {
       target: { value: 'ops@example.com\nowner@example.com' },
     })
-    fireEvent.change(screen.getByLabelText('Public inquiry topics'), {
-      target: { value: 'Aerial Tours\nVideo Packages' },
-    })
+    fireEvent.change(screen.getByLabelText('Public inquiry topic 2'), { target: { value: 'Video Packages' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Save contact settings' }))
 

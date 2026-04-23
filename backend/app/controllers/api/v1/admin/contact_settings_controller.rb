@@ -16,7 +16,7 @@ module Api
 
         def update
           emails = Setting.normalize_emails(params[:contact_notification_emails])
-          topics = normalized_topics(params[:inquiry_topics])
+          topics = Setting.normalize_contact_inquiry_topics(params[:inquiry_topics])
 
           if emails.empty?
             return render json: { error: "At least one notification email is required" }, status: :unprocessable_entity
@@ -31,24 +31,13 @@ module Api
             return render json: { error: "At least one inquiry topic is required" }, status: :unprocessable_entity
           end
 
-          Setting.set_contact_notification_emails!(emails)
-          Setting.set_contact_inquiry_topics!(topics)
+          Setting.update_contact_settings!(emails: emails, topics: topics)
 
           render json: {
             contact_notification_emails: emails,
             inquiry_topics: topics,
             message: "Contact inquiry settings updated"
           }
-        end
-
-        private
-
-        def normalized_topics(value)
-          Array(value)
-            .flat_map { |topics| topics.to_s.split(/\n+/) }
-            .map(&:strip)
-            .reject(&:blank?)
-            .uniq
         end
       end
     end

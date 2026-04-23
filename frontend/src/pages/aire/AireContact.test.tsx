@@ -44,7 +44,7 @@ describe('AireContact', () => {
   it('renders direct phone and email links', async () => {
     renderPage()
 
-    await screen.findByLabelText('Subject')
+    await screen.findByRole('button', { name: 'Private Pilot Certificate' })
 
     expect(screen.getByRole('link', { name: '(671) 477-4243' })).toHaveAttribute('href', 'tel:+16714774243')
     expect(screen.getByRole('link', { name: 'admin@aireservicesguam.com' })).toHaveAttribute('href', 'mailto:admin@aireservicesguam.com')
@@ -84,12 +84,20 @@ describe('AireContact', () => {
 
     renderPage()
 
-    await screen.findByDisplayValue('Aerial Tours')
-    expect(screen.getAllByText('Aerial Tours').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Video Packages').length).toBeGreaterThan(0)
+    const aerialToursButton = await screen.findByRole('button', { name: 'Aerial Tours' })
+    expect(aerialToursButton).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Video Packages' })).toBeInTheDocument()
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Subject')).toHaveValue('Aerial Tours')
-    })
+    expect(screen.getByText('Selected topic').parentElement).toHaveTextContent('Aerial Tours')
+  })
+
+  it('lets visitors pick the subject from topic buttons', async () => {
+    renderPage()
+
+    const discoveryFlightButton = await screen.findByRole('button', { name: 'Discovery Flight' })
+    fireEvent.click(discoveryFlightButton)
+
+    expect(discoveryFlightButton).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Selected topic').parentElement).toHaveTextContent('Discovery Flight')
   })
 })

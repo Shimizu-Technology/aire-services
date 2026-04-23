@@ -147,15 +147,34 @@ export default function AireContact() {
             <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Send an Inquiry</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Let’s help you find the right place to start</h2>
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                {inquiryTopics.map((item) => (
-                  <div key={item} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-700">
-                    {item}
-                  </div>
-                ))}
-              </div>
 
               <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+                <fieldset>
+                  <legend className="mb-2 block text-sm font-medium text-slate-700">Subject</legend>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {inquiryTopics.map((topic) => {
+                      const selected = form.subject === topic
+
+                      return (
+                        <button
+                          key={topic}
+                          type="button"
+                          onClick={() => updateField('subject', topic)}
+                          aria-pressed={selected}
+                          className={`rounded-2xl border px-4 py-4 text-left text-sm font-medium transition ${
+                            selected
+                              ? 'border-cyan-500 bg-cyan-50 text-cyan-900 shadow-sm ring-4 ring-cyan-100'
+                              : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/60'
+                          }`}
+                        >
+                          {topic}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Choose the topic that best matches what you need help with.</p>
+                </fieldset>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="name" className="mb-2 block text-sm font-medium text-slate-700">Name</label>
@@ -193,18 +212,9 @@ export default function AireContact() {
                       placeholder="(671) ..."
                     />
                   </div>
-                  <div>
-                    <label htmlFor="subject" className="mb-2 block text-sm font-medium text-slate-700">Subject</label>
-                    <select
-                      id="subject"
-                      value={form.subject}
-                      onChange={(e) => updateField('subject', e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    >
-                      {inquiryTopics.map((subject) => (
-                        <option key={subject} value={subject}>{subject}</option>
-                      ))}
-                    </select>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Selected topic</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">{form.subject}</p>
                   </div>
                 </div>
 
