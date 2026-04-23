@@ -34,7 +34,6 @@ module ClerkAuthenticatable
 
     unless @current_user.is_active?
       render_forbidden("Your access has been deactivated. Please contact an administrator.")
-      return
     end
   end
 

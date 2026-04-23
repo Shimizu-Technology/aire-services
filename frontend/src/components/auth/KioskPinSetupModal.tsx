@@ -52,7 +52,13 @@ export default function KioskPinSetupModal({ open, userName, onComplete }: Kiosk
         return
       }
 
-      await onComplete()
+      try {
+        await onComplete()
+      } catch {
+        setError('Your PIN was saved, but we could not refresh your account. Please reload the page.')
+        return
+      }
+
       setPin('')
       setConfirmPin('')
     } finally {

@@ -65,6 +65,30 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
     end
   end
 
+  describe "GET /api/v1/admin/users" do
+    it "keeps active and pending filters mutually exclusive" do
+      active_user = create(:user, :employee, clerk_id: "clerk_active_1", is_active: true)
+      pending_user = create(:user, :employee, clerk_id: "pending_123", is_active: true)
+      inactive_user = create(:user, :employee, clerk_id: "clerk_inactive_1", is_active: false)
+
+      get "/api/v1/admin/users",
+          params: { status: "active" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:users].map { |user| user[:id] }).to include(active_user.id)
+      expect(json[:users].map { |user| user[:id] }).not_to include(pending_user.id, inactive_user.id)
+
+      get "/api/v1/admin/users",
+          params: { status: "pending" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:users].map { |user| user[:id] }).to include(pending_user.id)
+      expect(json[:users].map { |user| user[:id] }).not_to include(active_user.id, inactive_user.id)
+    end
+  end
+
   describe "PATCH /api/v1/admin/users/:id" do
     it "updates approval group" do
       patch "/api/v1/admin/users/#{employee.id}",

@@ -10,17 +10,18 @@ module Api
 
         def index
           @users = User.includes(user_time_categories: :time_category).order(created_at: :desc)
+          pending_scope = @users.where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
 
           if params[:role].present?
             @users = @users.where(role: params[:role])
           end
 
           if params[:status] == "active"
-            @users = @users.where(is_active: true)
+            @users = @users.where(is_active: true).where.not(id: pending_scope.select(:id))
           elsif params[:status] == "inactive"
             @users = @users.where(is_active: false)
           elsif params[:status] == "pending"
-            @users = @users.where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
+            @users = pending_scope.where(is_active: true)
           end
 
           render json: {
