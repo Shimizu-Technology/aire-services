@@ -115,8 +115,13 @@ export interface CurrentUser {
   full_name: string;
   role: 'admin' | 'employee';
   approval_group?: ApprovalGroup | null;
+  is_active: boolean;
   is_admin: boolean;
   is_staff: boolean;
+  kiosk_enabled: boolean;
+  kiosk_pin_configured: boolean;
+  kiosk_pin_last_rotated_at?: string | null;
+  needs_kiosk_pin_setup: boolean;
   created_at: string;
 }
 
@@ -153,6 +158,7 @@ export interface AdminUser {
   approval_group_label?: string;
   is_active: boolean;
   is_pending: boolean;
+  uses_clerk_profile: boolean;
   kiosk_enabled?: boolean;
   kiosk_pin_configured?: boolean;
   kiosk_pin_last_rotated_at?: string | null;
@@ -480,6 +486,12 @@ export const api = {
       method: 'POST',
     }),
 
+  setMyKioskPin: (pin: string) =>
+    fetchApi<{ user: CurrentUser; message: string }>('/api/v1/auth/kiosk_pin', {
+      method: 'POST',
+      body: JSON.stringify({ pin }),
+    }),
+
   // Contact form (public)
   submitContact: (data: { name: string; email: string; phone?: string; subject: string; message: string }) =>
     fetchApiPublic<{ success: boolean; message: string }>('/api/v1/contact', {
@@ -537,7 +549,7 @@ export const api = {
 
   inviteUser: (data: {
     email?: string;
-    first_name: string;
+    first_name?: string;
     last_name?: string;
     role: 'admin' | 'employee';
     approval_group?: ApprovalGroup | null;
@@ -556,8 +568,12 @@ export const api = {
     }),
 
   updateUser: (id: number, data: {
+    first_name?: string;
+    last_name?: string;
+    email?: string | null;
     role?: 'admin' | 'employee';
     approval_group?: ApprovalGroup | null;
+    is_active?: boolean;
     time_category_ids?: number[];
   }) =>
     fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {

@@ -30,16 +30,26 @@ export default function Users() {
   const [createError, setCreateError] = useState('')
 
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
+  const [editFirstName, setEditFirstName] = useState('')
+  const [editLastName, setEditLastName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editRole, setEditRole] = useState<'admin' | 'employee'>('employee')
+  const [editApprovalGroup, setEditApprovalGroup] = useState<ApprovalGroup | ''>('')
   const [editCategoryIds, setEditCategoryIds] = useState<Set<number>>(new Set())
-  const [savingCategories, setSavingCategories] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState('')
+
+  const [pinModalUser, setPinModalUser] = useState<AdminUser | null>(null)
+  const [customPin, setCustomPin] = useState('')
+  const [pinResult, setPinResult] = useState('')
+  const [pinError, setPinError] = useState('')
+  const [savingPin, setSavingPin] = useState(false)
 
   const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
-  const [updatingRoleIds, setUpdatingRoleIds] = useState<Set<number>>(new Set())
-  const [updatingApprovalGroupIds, setUpdatingApprovalGroupIds] = useState<Set<number>>(new Set())
-  const [resettingPinIds, setResettingPinIds] = useState<Set<number>>(new Set())
   const createModalRef = useRef<HTMLDivElement>(null)
   const editModalRef = useRef<HTMLDivElement>(null)
+  const pinModalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (showCreateModal && createModalRef.current) {
@@ -47,6 +57,20 @@ export default function Users() {
       if (first) setTimeout(() => first.focus(), 0)
     }
   }, [showCreateModal])
+
+  useEffect(() => {
+    if (editingUser && editModalRef.current) {
+      const first = editModalRef.current.querySelector<HTMLElement>('input, select, textarea')
+      if (first) setTimeout(() => first.focus(), 0)
+    }
+  }, [editingUser])
+
+  useEffect(() => {
+    if (pinModalUser && pinModalRef.current) {
+      const first = pinModalRef.current.querySelector<HTMLElement>('input, button')
+      if (first) setTimeout(() => first.focus(), 0)
+    }
+  }, [pinModalUser])
 
   const applyFetchedData = useCallback((usersRes: Awaited<ReturnType<typeof api.getAdminUsers>>, catsRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>) => {
     if (usersRes.data) setUsers(usersRes.data.users.filter((u) => u.role === 'admin' || u.role === 'employee'))
@@ -76,19 +100,24 @@ export default function Users() {
   }, [applyFetchedData])
 
   const activeCategories = allCategories.filter((c) => c.is_active)
-
-  const assignedCategorySummaries = useCallback((categoryIds: number[]) => {
-    return allCategories
-      .filter((category) => categoryIds.includes(category.id))
-      .map((category) => ({
-        id: category.id,
-        name: category.name,
-        key: category.key ?? null,
-      }))
-  }, [allCategories])
+  const createUsesClerkProfile = createEmail.trim().length > 0
+  const editingUserUsesClerkProfile = editingUser?.uses_clerk_profile ?? false
+  const canEditPendingInviteEmail = Boolean(editingUserUsesClerkProfile && editingUser?.is_pending)
+  const editingUserIsKioskOnly = Boolean(editingUser && !editingUserUsesClerkProfile)
 
   const patchLocalUser = useCallback((userId: number, updater: (user: AdminUser) => AdminUser) => {
     setUsers((prev) => prev.map((user) => (user.id === userId ? updater(user) : user)))
+  }, [])
+
+  const loadEditState = useCallback((user: AdminUser) => {
+    setEditingUser(user)
+    setEditFirstName(user.first_name ?? '')
+    setEditLastName(user.last_name ?? '')
+    setEditEmail(user.email ?? '')
+    setEditRole(user.role)
+    setEditApprovalGroup(user.approval_group ?? '')
+    setEditCategoryIds(new Set(user.time_category_ids ?? []))
+    setEditError('')
   }, [])
 
   const resetCreateForm = () => {
@@ -102,6 +131,26 @@ export default function Users() {
     setCreateError('')
   }
 
+  const closeEditModal = () => {
+    setEditingUser(null)
+    setEditFirstName('')
+    setEditLastName('')
+    setEditEmail('')
+    setEditRole('employee')
+    setEditApprovalGroup('')
+    setEditCategoryIds(new Set())
+    setSavingEdit(false)
+    setEditError('')
+  }
+
+  const closePinModal = () => {
+    setPinModalUser(null)
+    setCustomPin('')
+    setPinResult('')
+    setPinError('')
+    setSavingPin(false)
+  }
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setCreateError('')
@@ -110,8 +159,10 @@ export default function Users() {
     try {
       const response = await api.inviteUser({
         email: createEmail.trim() || undefined,
-        first_name: createFirstName.trim(),
-        last_name: createLastName.trim() || undefined,
+        ...(createUsesClerkProfile ? {} : {
+          first_name: createFirstName.trim(),
+          last_name: createLastName.trim() || undefined,
+        }),
         role: createRole,
         approval_group: createApprovalGroup || undefined,
         send_invitation: sendInvitationEmail && !!createEmail.trim(),
@@ -137,110 +188,72 @@ export default function Users() {
     }
   }
 
-  const openEditCategories = (user: AdminUser) => {
-    setEditingUser(user)
-    setEditCategoryIds(new Set(user.time_category_ids ?? []))
-  }
+  const openEditUser = (user: AdminUser) => loadEditState(user)
 
-  const handleSaveCategories = async () => {
+  const handleSaveUser = async (event: React.FormEvent) => {
+    event.preventDefault()
     if (!editingUser) return
-    setSavingCategories(true)
+    setEditError('')
+    setSavingEdit(true)
     const targetUserId = editingUser.id
+    const nextFirstName = editFirstName.trim()
+    const nextLastName = editLastName.trim()
+    const nextEmail = editEmail.trim().toLowerCase()
     const nextCategoryIds = Array.from(editCategoryIds)
-    const nextCategories = assignedCategorySummaries(nextCategoryIds)
-    const previousUser = users.find((user) => user.id === targetUserId) ?? null
 
-    patchLocalUser(targetUserId, (user) => ({
-      ...user,
-      time_category_ids: nextCategoryIds,
-      time_categories: nextCategories,
-    }))
-    setEditingUser(null)
+    if (editingUserIsKioskOnly && !nextFirstName) {
+      setEditError('First name is required.')
+      setSavingEdit(false)
+      return
+    }
+
+    if (canEditPendingInviteEmail && !nextEmail) {
+      setEditError('Email is required for invited Clerk users.')
+      setSavingEdit(false)
+      return
+    }
 
     try {
-      const res = await api.updateUser(targetUserId, {
+      const payload: Parameters<typeof api.updateUser>[1] = {
+        role: editRole,
+        approval_group: editApprovalGroup || null,
         time_category_ids: nextCategoryIds,
-      })
+      }
+
+      if (editingUserUsesClerkProfile) {
+        if (canEditPendingInviteEmail) payload.email = nextEmail
+      } else {
+        payload.first_name = nextFirstName
+        payload.last_name = nextLastName || ''
+      }
+
+      const res = await api.updateUser(targetUserId, payload)
       if (res.error) {
-        if (previousUser) {
-          patchLocalUser(targetUserId, () => previousUser)
-        }
-        alert(res.error)
+        setEditError(res.error)
       } else {
         if (res.data?.user) {
           patchLocalUser(targetUserId, () => res.data!.user)
         }
+        closeEditModal()
       }
     } finally {
-      setSavingCategories(false)
+      setSavingEdit(false)
     }
   }
 
-  const handleRoleChange = async (userId: number, newRole: 'admin' | 'employee') => {
-    const previousUser = users.find((user) => user.id === userId) ?? null
-    patchLocalUser(userId, (user) => ({ ...user, role: newRole }))
-    setUpdatingRoleIds((prev) => new Set(prev).add(userId))
+  const handleSetUserActive = async (user: AdminUser, isActive: boolean) => {
+    setSavingEdit(true)
+    setEditError('')
     try {
-      const response = await api.updateUserRole(userId, newRole)
+      const response = await api.updateUser(user.id, { is_active: isActive })
       if (response.error) {
-        if (previousUser) {
-          patchLocalUser(userId, () => previousUser)
-        }
-        alert(response.error)
+        setEditError(response.error)
       } else if (response.data?.user) {
-        patchLocalUser(userId, () => response.data!.user)
+        patchLocalUser(user.id, () => response.data!.user)
+        loadEditState(response.data.user)
       }
-    } catch {
-      if (previousUser) {
-        patchLocalUser(userId, () => previousUser)
-      }
-      alert('Failed to update role')
     } finally {
-      setUpdatingRoleIds((prev) => {
-        const next = new Set(prev)
-        next.delete(userId)
-        return next
-      })
-    }
-  }
-
-  const handleApprovalGroupChange = async (userId: number, newApprovalGroup: ApprovalGroup | '') => {
-    const previousUser = users.find((user) => user.id === userId) ?? null
-    const nextApprovalGroup = newApprovalGroup || null
-    patchLocalUser(userId, (user) => ({
-      ...user,
-      approval_group: nextApprovalGroup,
-      approval_group_label:
-        nextApprovalGroup === 'cfi'
-          ? 'CFI'
-          : nextApprovalGroup === 'ops_maintenance'
-            ? 'Ops / Maintenance'
-            : 'Unassigned',
-    }))
-    setUpdatingApprovalGroupIds((prev) => new Set(prev).add(userId))
-    try {
-      const response = await api.updateUser(userId, {
-        approval_group: nextApprovalGroup,
-      })
-      if (response.error) {
-        if (previousUser) {
-          patchLocalUser(userId, () => previousUser)
-        }
-        alert(response.error)
-      } else if (response.data?.user) {
-        patchLocalUser(userId, () => response.data!.user)
-      }
-    } catch {
-      if (previousUser) {
-        patchLocalUser(userId, () => previousUser)
-      }
-      alert('Failed to update approval group')
-    } finally {
-      setUpdatingApprovalGroupIds((prev) => {
-        const next = new Set(prev)
-        next.delete(userId)
-        return next
-      })
+      setSavingEdit(false)
     }
   }
 
@@ -279,26 +292,28 @@ export default function Users() {
     }
   }
 
-  const handleResetKioskPin = async (user: AdminUser) => {
-    const customPin = prompt(`Set a custom 4-8 digit kiosk PIN for ${user.display_name || user.email || user.full_name}.\nLeave blank to auto-generate one.`)?.trim()
-    if (customPin === null) return
-    setResettingPinIds((prev) => new Set(prev).add(user.id))
+  const openPinModal = (user: AdminUser) => {
+    setPinModalUser(user)
+    setCustomPin('')
+    setPinResult('')
+    setPinError('')
+  }
+
+  const handleResetKioskPin = async (user: AdminUser, pin?: string) => {
+    setSavingPin(true)
+    setPinError('')
     try {
-      const response = await api.resetKioskPin(user.id, customPin || undefined)
+      const response = await api.resetKioskPin(user.id, pin || undefined)
       if (response.error || !response.data) {
-        alert(response.error || 'Failed to reset kiosk PIN')
+        setPinError(response.error || 'Failed to reset kiosk PIN')
       } else {
-        alert(`Kiosk PIN for ${user.full_name}: ${response.data.kiosk_pin}`)
+        setPinResult(response.data.kiosk_pin)
         refreshData()
       }
     } catch {
-      alert('Failed to reset kiosk PIN')
+      setPinError('Failed to reset kiosk PIN')
     } finally {
-      setResettingPinIds((prev) => {
-        const next = new Set(prev)
-        next.delete(user.id)
-        return next
-      })
+      setSavingPin(false)
     }
   }
 
@@ -306,6 +321,30 @@ export default function Users() {
     const next = new Set(set)
     if (next.has(id)) { next.delete(id) } else { next.add(id) }
     setter(next)
+  }
+
+  function renderStatusBadge(user: AdminUser) {
+    if (!user.is_active) {
+      return (
+        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+          Inactive
+        </span>
+      )
+    }
+
+    if (user.is_pending) {
+      return (
+        <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+          {user.email ? 'Pending sign-in' : 'Kiosk only'}
+        </span>
+      )
+    }
+
+    return (
+      <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+        Active
+      </span>
+    )
   }
 
   return (
@@ -375,28 +414,14 @@ export default function Users() {
                       {!user.email && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — no email</div>}
                     </td>
                     <td className="px-5 py-4">
-                      <select
-                        value={user.role}
-                        onChange={(e) => handleRoleChange(user.id, e.target.value as 'admin' | 'employee')}
-                        disabled={updatingRoleIds.has(user.id)}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="employee">Employee</option>
-                        </select>
+                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {user.role === 'admin' ? 'Admin' : 'Employee'}
+                      </span>
                     </td>
                     <td className="px-5 py-4">
-                      <select
-                        value={user.approval_group ?? ''}
-                        onChange={(e) => handleApprovalGroupChange(user.id, e.target.value as ApprovalGroup | '')}
-                        disabled={updatingApprovalGroupIds.has(user.id)}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                      >
-                        <option value="">Unassigned</option>
-                        {approvalGroupOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {user.approval_group_label ?? 'Unassigned'}
+                      </span>
                     </td>
                     <td className="px-5 py-4">
                       {(user.time_categories ?? []).length > 0 ? (
@@ -410,32 +435,17 @@ export default function Users() {
                       ) : (
                         <span className="text-xs text-slate-400">Not configured</span>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => openEditCategories(user)}
-                        className="mt-1.5 text-xs font-medium text-cyan-700 hover:text-cyan-900"
-                      >
-                        Edit categories
-                      </button>
                     </td>
                     <td className="px-5 py-4">
-                      {user.is_pending ? (
-                        <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-                          {user.email ? 'Pending sign-in' : 'Kiosk only'}
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                          Active
-                        </span>
-                      )}
+                      {renderStatusBadge(user)}
                     </td>
                     <td className="px-5 py-4">
                       <div className="space-y-1 text-sm">
-                        <div>
+                        <div className="flex">
                           {user.kiosk_pin_configured ? (
-                            <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-medium text-cyan-700">PIN ready</span>
+                            <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-cyan-700">PIN ready</span>
                           ) : (
-                            <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">Not set</span>
+                            <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-slate-600">Not set</span>
                           )}
                         </div>
                         {user.kiosk_pin_last_rotated_at && <div className="text-xs text-slate-500">Rotated {formatDateTime(user.kiosk_pin_last_rotated_at)}</div>}
@@ -445,14 +455,22 @@ export default function Users() {
                     <td className="px-5 py-4">
                       <div className="flex flex-col items-end gap-2 text-sm font-medium">
                         <button
-                          onClick={() => handleResetKioskPin(user)}
-                          disabled={resettingPinIds.has(user.id)}
-                          className="text-cyan-700 transition hover:text-cyan-900 disabled:opacity-50"
+                          type="button"
+                          onClick={() => openEditUser(user)}
+                          className="text-slate-700 transition hover:text-slate-900"
                         >
-                          {resettingPinIds.has(user.id) ? 'Resetting…' : 'Reset PIN'}
+                          Edit
                         </button>
-                        {user.is_pending && user.email && (
+                        <button
+                          type="button"
+                          onClick={() => openPinModal(user)}
+                          className="text-cyan-700 transition hover:text-cyan-900"
+                        >
+                          Reset PIN
+                        </button>
+                        {user.is_active && user.is_pending && user.email && (
                           <button
+                            type="button"
                             onClick={() => handleResendInvite(user)}
                             disabled={resendingIds.has(user.id)}
                             className="text-slate-700 transition hover:text-slate-900 disabled:opacity-50"
@@ -461,6 +479,7 @@ export default function Users() {
                           </button>
                         )}
                         <button
+                          type="button"
                           onClick={() => handleDelete(user)}
                           disabled={deletingIds.has(user.id)}
                           className="text-red-600 transition hover:text-red-800 disabled:opacity-50"
@@ -484,23 +503,13 @@ export default function Users() {
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">Add team member</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Create a staff record. Kiosk-only people need only a name and PIN — no email required.
+                  Create a staff record. Email-based accounts get their name from Clerk after sign-in, while kiosk-only staff need a local name and PIN.
                 </p>
               </div>
               <button onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
             </div>
 
             <form onSubmit={handleCreate} className="mt-6 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
-                  <input value={createFirstName} onChange={(e) => setCreateFirstName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" required />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
-                  <input value={createLastName} onChange={(e) => setCreateLastName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
-                </div>
-              </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Email {sendInvitationEmail ? <span className="text-slate-400">*</span> : <span className="text-xs font-normal text-slate-400">(optional for kiosk-only)</span>}
@@ -513,6 +522,22 @@ export default function Users() {
                   required={sendInvitationEmail}
                 />
               </div>
+              {createUsesClerkProfile ? (
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+                  First and last name will come from Clerk when this person signs in.
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
+                    <input value={createFirstName} onChange={(e) => setCreateFirstName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" required />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
+                    <input value={createLastName} onChange={(e) => setCreateLastName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">Role</label>
                 <select value={createRole} onChange={(e) => setCreateRole(e.target.value as 'admin' | 'employee')} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
@@ -598,53 +623,224 @@ export default function Users() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">
-                  Work categories for {editingUser.full_name}
+                  Edit {editingUser.full_name || editingUser.display_name}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Select which types of work this person does. Only checked categories appear at the kiosk.
+                  Update profile details, review routing, and kiosk work categories in one place.
                 </p>
               </div>
-              <button onClick={() => setEditingUser(null)} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
+              <button type="button" onClick={closeEditModal} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
             </div>
 
-            <div className="mt-5 space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-              {activeCategories.map((cat) => (
-                <label key={cat.id} className="flex cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={editCategoryIds.has(cat.id)}
-                    onChange={() => toggleCategoryId(editCategoryIds, setEditCategoryIds, cat.id)}
-                    className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-slate-800">{cat.name}</div>
-                    {cat.description && <div className="mt-0.5 text-xs text-slate-500">{cat.description}</div>}
+            <form onSubmit={handleSaveUser} className="mt-6 space-y-4">
+              {editingUserUsesClerkProfile ? (
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+                  {canEditPendingInviteEmail
+                    ? 'This invitation uses Clerk for identity. You can change the invite email here, but names will come from Clerk after first sign-in.'
+                    : 'This person signs in with Clerk. Name and email stay managed by their sign-in profile.'}
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
+                    <input
+                      value={editFirstName}
+                      onChange={(event) => setEditFirstName(event.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      required
+                    />
                   </div>
-                </label>
-              ))}
-              {activeCategories.length === 0 && (
-                <div className="py-4 text-center text-sm text-slate-500">
-                  No active categories. Create them in <a href="/admin/settings" className="font-medium text-cyan-700 hover:text-cyan-900">Settings</a> first.
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
+                    <input
+                      value={editLastName}
+                      onChange={(event) => setEditLastName(event.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </div>
                 </div>
               )}
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
+                <input
+                  type="email"
+                  value={editEmail}
+                  onChange={(event) => setEditEmail(event.target.value)}
+                  disabled={!canEditPendingInviteEmail}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  {canEditPendingInviteEmail
+                    ? 'This email controls the outstanding invite until they sign in.'
+                    : editingUserUsesClerkProfile
+                      ? 'Activated Clerk users update email from Clerk, not from this admin form.'
+                      : 'Kiosk-only users do not sign in with email. Create a new invited user if they need Clerk access.'}
+                </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Role</label>
+                  <select
+                    value={editRole}
+                    onChange={(event) => setEditRole(event.target.value as 'admin' | 'employee')}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  >
+                    <option value="employee">Employee</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Approval Group</label>
+                  <select
+                    value={editApprovalGroup}
+                    onChange={(event) => setEditApprovalGroup(event.target.value as ApprovalGroup | '')}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  >
+                    <option value="">Unassigned</option>
+                    {approvalGroupOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {activeCategories.length > 0 && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Work categories</label>
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+                    {activeCategories.map((cat) => (
+                      <label key={cat.id} className="flex cursor-pointer items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={editCategoryIds.has(cat.id)}
+                          onChange={() => toggleCategoryId(editCategoryIds, setEditCategoryIds, cat.id)}
+                          className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-slate-800">{cat.name}</div>
+                          {cat.description && <div className="mt-0.5 text-xs text-slate-500">{cat.description}</div>}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Assigned categories appear on the kiosk. If none are selected, the kiosk will fall back to General.
+                  </p>
+                </div>
+              )}
+
+              <div className={`rounded-xl border px-4 py-3 text-sm ${editingUser.is_active ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900'}`}>
+                <div className="font-medium">Account status</div>
+                <div className="mt-1">
+                  {editingUser.is_active
+                    ? 'Active users can sign in and use the kiosk with their assigned PIN.'
+                    : 'Inactive users cannot sign in or clock in at the kiosk until you reactivate them.'}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <div className="font-medium text-slate-800">Kiosk access</div>
+                <div className="mt-1">
+                  {editingUser.kiosk_pin_configured
+                    ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}.`
+                    : 'No kiosk PIN set yet. Staff can create their own PIN on first sign-in, or you can reset one from the table.'}
+                </div>
+              </div>
+
+              {editError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {editError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleSetUserActive(editingUser, !editingUser.is_active)}
+                  disabled={savingEdit}
+                  className={`rounded-xl border px-4 py-3 text-sm font-medium transition disabled:opacity-50 ${editingUser.is_active ? 'border-rose-200 text-rose-700 hover:bg-rose-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
+                >
+                  {editingUser.is_active ? 'Make inactive' : 'Reactivate user'}
+                </button>
+                <button type="button" onClick={closeEditModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {savingEdit ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {pinModalUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div ref={pinModalRef} className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900">Reset kiosk PIN</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Set a custom 4 to 8 digit PIN for {pinModalUser.full_name}, or generate one automatically.
+                </p>
+              </div>
+              <button type="button" onClick={closePinModal} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
             </div>
 
-            <p className="mt-3 text-xs text-slate-500">
-              If no categories are selected, no categories will appear at the kiosk for this person.
-            </p>
+            <div className="mt-6 space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Custom PIN</label>
+                <input
+                  value={customPin}
+                  onChange={(event) => setCustomPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
+                  inputMode="numeric"
+                  placeholder="Leave blank to auto-generate"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                />
+                <p className="mt-2 text-xs text-slate-500">If you leave this blank, AIRE Ops will generate a PIN for you.</p>
+              </div>
 
-            <div className="mt-5 flex justify-end gap-3">
-              <button type="button" onClick={() => setEditingUser(null)} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveCategories}
-                disabled={savingCategories}
-                className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-              >
-                {savingCategories ? 'Saving…' : 'Save categories'}
-              </button>
+              {pinResult && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">PIN ready</div>
+                  <div className="mt-2 text-2xl font-semibold tracking-[0.2em] text-slate-900">{pinResult}</div>
+                  <p className="mt-2 text-xs text-slate-600">Share this PIN privately with the team member.</p>
+                </div>
+              )}
+
+              {pinError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {pinError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={closePinModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleResetKioskPin(pinModalUser)}
+                  disabled={savingPin}
+                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {savingPin ? 'Working…' : 'Generate PIN'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleResetKioskPin(pinModalUser, customPin.trim() || undefined)}
+                  disabled={savingPin || customPin.trim().length === 0}
+                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {savingPin ? 'Saving…' : 'Set PIN'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

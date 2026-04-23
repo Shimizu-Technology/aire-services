@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useState, useCal
 import type { ReactNode } from 'react'
 import { useAuth, useUser } from '@clerk/clerk-react'
 import { setAuthTokenGetter, api } from '../lib/api'
+import type { CurrentUser } from '../lib/api'
 
 interface AuthContextType {
   isClerkEnabled: boolean
@@ -9,6 +10,8 @@ interface AuthContextType {
   isLoading: boolean
   userRole: 'admin' | 'employee' | null
   isStaff: boolean
+  currentUser: CurrentUser | null
+  refreshCurrentUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({ 
@@ -17,6 +20,8 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   userRole: null,
   isStaff: false,
+  currentUser: null,
+  refreshCurrentUser: async () => {},
 })
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -62,9 +67,10 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
   const { getToken, isLoaded, isSignedIn } = useAuth()
   const { user: clerkUser } = useUser()
   const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [roleFetched, setRoleFetched] = useState(false)
   const fetchedRef = useRef(false)
-  const fetchRoleRef = useRef<((retryCount?: number) => Promise<void>) | undefined>(undefined)
+  const fetchRoleRef = useRef<((retryCount?: number, force?: boolean) => Promise<void>) | undefined>(undefined)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const lastClerkIdRef = useRef<string | null>(null)
 
@@ -94,20 +100,23 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
 
   const clerkUserId = clerkUser?.id
 
-  const fetchRole = useCallback(async (retryCount = 0) => {
+  const fetchRole = useCallback(async (retryCount = 0, force = false) => {
     if (!isLoaded || !isSignedIn || !clerkUserId) {
+      setCurrentUser(null)
       setUserRole(null)
       setRoleFetched(true)
       return
     }
 
-    if (fetchedRef.current) return
+    if (fetchedRef.current && !force) return
     fetchedRef.current = true
 
     try {
       const response = await api.getCurrentUser()
       if (response.data?.user) {
-        const role = response.data.user.role
+        const nextUser = response.data.user
+        const role = nextUser.role
+        setCurrentUser(nextUser)
         setUserRole(role)
         setCachedRole(clerkUserId, role)
         setRoleFetched(true)
@@ -118,9 +127,10 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
       fetchedRef.current = false
       if (retryCount < 2) {
         const delay = (retryCount + 1) * 1500
-        retryTimerRef.current = setTimeout(() => fetchRoleRef.current?.(retryCount + 1), delay)
+        retryTimerRef.current = setTimeout(() => fetchRoleRef.current?.(retryCount + 1, force), delay)
       } else {
         const fallback = getCachedRole(clerkUserId)
+        setCurrentUser(null)
         setUserRole(fallback)
         setRoleFetched(true)
       }
@@ -137,11 +147,17 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
     } else if (isLoaded && !isSignedIn) {
       clearTimeout(retryTimerRef.current)
       fetchedRef.current = false
+      setCurrentUser(null)
       setUserRole(null)
       setRoleFetched(true)
     }
     return () => clearTimeout(retryTimerRef.current)
   }, [isLoaded, isSignedIn, fetchRole])
+
+  const refreshCurrentUser = useCallback(async () => {
+    fetchedRef.current = false
+    await fetchRole(0, true)
+  }, [fetchRole])
 
   return (
     <AuthContext.Provider value={{ 
@@ -150,6 +166,8 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
       isLoading: !isLoaded || (isSignedIn === true && !roleFetched),
       userRole,
       isStaff: userRole === 'admin' || userRole === 'employee',
+      currentUser,
+      refreshCurrentUser,
     }}>
       {children}
     </AuthContext.Provider>
@@ -168,6 +186,8 @@ function NoAuthProvider({ children }: { children: ReactNode }) {
       isLoading: false,
       userRole: null,
       isStaff: false,
+      currentUser: null,
+      refreshCurrentUser: async () => {},
     }}>
       {children}
     </AuthContext.Provider>

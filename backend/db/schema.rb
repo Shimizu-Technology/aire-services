@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_23_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_23_021500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -172,6 +172,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_010000) do
     t.datetime "created_at", null: false
     t.string "email"
     t.string "first_name"
+    t.boolean "is_active", default: true, null: false
     t.boolean "kiosk_enabled", default: false, null: false
     t.integer "kiosk_failed_attempts_count", default: 0, null: false
     t.datetime "kiosk_locked_until"
@@ -185,6 +186,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_010000) do
     t.index ["approval_group"], name: "index_users_on_approval_group"
     t.index ["clerk_id"], name: "index_users_on_clerk_id", unique: true
     t.index ["email"], name: "index_users_on_email"
+    t.index ["is_active"], name: "index_users_on_is_active"
     t.index ["kiosk_enabled"], name: "index_users_on_kiosk_enabled"
     t.index ["kiosk_locked_until"], name: "index_users_on_kiosk_locked_until"
     t.index ["kiosk_pin_lookup_hash"], name: "index_users_on_kiosk_pin_lookup_hash", unique: true

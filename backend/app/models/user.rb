@@ -24,6 +24,7 @@ class User < ApplicationRecord
   validates :clerk_id, presence: true, uniqueness: true
   validates :email, uniqueness: { case_sensitive: false }, allow_nil: true
   validates :email, format: { with: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/ }, allow_blank: true
+  validates :is_active, inclusion: { in: [ true, false ] }
   validates :role, inclusion: { in: %w[admin employee] }
   validates :approval_group, inclusion: { in: APPROVAL_GROUPS }, allow_nil: true
   validates :kiosk_pin_lookup_hash, uniqueness: { message: "This PIN is already in use by another employee. Please choose a different PIN." }, allow_nil: true
@@ -104,12 +105,24 @@ class User < ApplicationRecord
     end
   end
 
+  def pending_invite?
+    clerk_id.blank? || clerk_id.start_with?("pending_")
+  end
+
+  def uses_clerk_profile?
+    email.present?
+  end
+
+  def kiosk_only?
+    !uses_clerk_profile?
+  end
+
   def kiosk_locked?
     kiosk_locked_until.present? && kiosk_locked_until.future?
   end
 
   def kiosk_access_enabled?
-    staff? && kiosk_enabled? && kiosk_pin_digest.present? && !kiosk_locked?
+    is_active? && staff? && kiosk_enabled? && kiosk_pin_digest.present? && !kiosk_locked?
   end
 
   def kiosk_pin_configured?
@@ -118,6 +131,7 @@ class User < ApplicationRecord
 
   def verify_kiosk_pin(pin)
     return false unless pin.present?
+    return false unless is_active?
     return false unless staff?
     return false unless kiosk_enabled?
     return false if kiosk_locked?

@@ -15,10 +15,14 @@ module Api
             @users = @users.where(role: params[:role])
           end
 
+          pending_scope = @users.where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
+
           if params[:status] == "active"
-            @users = @users.where.not(clerk_id: nil).where.not("clerk_id LIKE 'pending_%'")
+            @users = @users.where(is_active: true).where.not(id: pending_scope.select(:id))
+          elsif params[:status] == "inactive"
+            @users = @users.where(is_active: false)
           elsif params[:status] == "pending"
-            @users = @users.where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
+            @users = pending_scope.where(is_active: true)
           end
 
           render json: {
@@ -36,8 +40,9 @@ module Api
           last_name = params[:last_name]&.strip
           role = params[:role] || "employee"
           approval_group = normalized_approval_group(params[:approval_group])
+          kiosk_only_user = email.blank?
 
-          if first_name.blank?
+          if kiosk_only_user && first_name.blank?
             return render json: { error: "First name is required" }, status: :unprocessable_entity
           end
 
@@ -72,11 +77,12 @@ module Api
 
           @user = User.new(
             email: email,
-            first_name: first_name,
-            last_name: last_name.presence,
+            first_name: kiosk_only_user ? first_name : nil,
+            last_name: kiosk_only_user ? last_name.presence : nil,
             role: role,
             approval_group: approval_group,
-            clerk_id: "pending_#{SecureRandom.hex(8)}"
+            clerk_id: "pending_#{SecureRandom.hex(8)}",
+            is_active: true
           )
 
           if @user.save
@@ -94,21 +100,12 @@ module Api
             return render json: { error: "You cannot change your own role" }, status: :unprocessable_entity
           end
 
-          permitted = {}
-          if params[:role].present? && %w[admin employee].include?(params[:role])
-            permitted[:role] = params[:role]
-          end
-          if params.key?(:approval_group)
-            approval_group = normalized_approval_group(params[:approval_group])
-            unless valid_approval_group?(approval_group)
-              return render json: { error: "Approval group must be CFI, Ops / Maintenance, or blank" }, status: :unprocessable_entity
-            end
-            permitted[:approval_group] = approval_group
-          end
+          permitted = normalized_update_params
+          return if performed?
 
           if @user.update(permitted)
             sync_time_categories(@user) if params.key?(:time_category_ids)
-            render json: { user: serialize_user(@user) }
+            render json: { user: serialize_user(@user.reload) }
           else
             render json: { error: @user.errors.full_messages.join(", ") }, status: :unprocessable_entity
           end
@@ -152,7 +149,7 @@ module Api
           @user.rotate_kiosk_pin!(pin)
 
           render json: {
-            user: serialize_user(@user),
+            user: serialize_user(@user.reload),
             kiosk_pin: pin,
             message: "Kiosk PIN reset for #{@user.full_name}"
           }
@@ -181,8 +178,9 @@ module Api
             role: user.role,
             approval_group: user.approval_group,
             approval_group_label: user.approval_group_label,
-            is_active: user.clerk_id.present? && !user.clerk_id.start_with?("pending_"),
-            is_pending: user.clerk_id.blank? || user.clerk_id.start_with?("pending_"),
+            is_active: user.is_active,
+            is_pending: user.pending_invite?,
+            uses_clerk_profile: user.uses_clerk_profile?,
             kiosk_enabled: user.kiosk_enabled,
             kiosk_pin_configured: user.kiosk_pin_configured?,
             kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
@@ -242,6 +240,95 @@ module Api
 
         def valid_approval_group?(value)
           value.nil? || User::APPROVAL_GROUPS.include?(value)
+        end
+
+        def normalized_update_params
+          permitted = {}
+          uses_clerk_profile = @user.uses_clerk_profile?
+
+          if params[:role].present?
+            unless %w[admin employee].include?(params[:role])
+              render json: { error: "Role must be admin or employee" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:role] = params[:role]
+          end
+
+          if params.key?(:first_name) || params.key?(:last_name)
+            if uses_clerk_profile
+              render json: { error: "Clerk-managed users update their name from their sign-in profile" }, status: :unprocessable_entity
+              return {}
+            end
+          end
+
+          if params.key?(:first_name)
+            first_name = params[:first_name].to_s.strip
+            if first_name.blank?
+              render json: { error: "First name is required" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:first_name] = first_name
+          end
+
+          if params.key?(:last_name)
+            permitted[:last_name] = params[:last_name].to_s.strip.presence
+          end
+
+          if params.key?(:email)
+            email = params[:email].to_s.strip.downcase.presence
+
+            if uses_clerk_profile
+              if email.blank?
+                render json: { error: "Clerk-managed users must keep an email address" }, status: :unprocessable_entity
+                return {}
+              end
+
+              if !@user.pending_invite? && email != @user.email&.downcase
+                render json: { error: "Activated Clerk users must update their email from Clerk" }, status: :unprocessable_entity
+                return {}
+              end
+            elsif email.present?
+              render json: { error: "Kiosk-only users cannot be converted to email sign-in from this form" }, status: :unprocessable_entity
+              return {}
+            end
+
+            if email.present? && !email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
+              render json: { error: "Invalid email format" }, status: :unprocessable_entity
+              return {}
+            end
+
+            if email.present? && User.where.not(id: @user.id).exists?([ "LOWER(email) = ?", email ])
+              render json: { error: "A user with this email already exists" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:email] = email
+          end
+
+          if params.key?(:approval_group)
+            approval_group = normalized_approval_group(params[:approval_group])
+            unless valid_approval_group?(approval_group)
+              render json: { error: "Approval group must be CFI, Ops / Maintenance, or blank" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:approval_group] = approval_group
+          end
+
+          if params.key?(:is_active)
+            is_active = ActiveModel::Type::Boolean.new.cast(params[:is_active])
+
+            if !is_active && @user.id == current_user.id
+              render json: { error: "You cannot deactivate your own account" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:is_active] = is_active
+          end
+
+          permitted
         end
       end
     end

@@ -8,6 +8,7 @@ Rails.application.routes.draw do
       # Auth
       get "auth/me", to: "auth#me"
       post "auth/me", to: "auth#me"
+      post "auth/kiosk_pin", to: "auth#update_kiosk_pin"
 
       # Public marketing/contact
       post "contact", to: "contact#create"

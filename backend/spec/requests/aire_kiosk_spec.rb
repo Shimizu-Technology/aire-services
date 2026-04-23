@@ -81,4 +81,13 @@ RSpec.describe "AIRE kiosk", type: :request do
     employee.reload
     expect(employee.verify_kiosk_pin("731249")).to be(true)
   end
+
+  it "rejects inactive users at the kiosk" do
+    employee.update!(is_active: false)
+
+    post "/api/v1/aire/kiosk/verify", params: { pin: employee_pin }
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(JSON.parse(response.body).fetch("error")).to eq("Invalid PIN")
+  end
 end
