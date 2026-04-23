@@ -114,10 +114,14 @@ export interface CurrentUser {
   last_name: string | null;
   full_name: string;
   role: 'admin' | 'employee';
+  approval_group?: ApprovalGroup | null;
   is_admin: boolean;
   is_staff: boolean;
   created_at: string;
 }
+
+export type ApprovalGroup = 'cfi' | 'ops_maintenance';
+export type ApprovalGroupFilter = ApprovalGroup | 'unassigned';
 
 export interface UserSummary {
   id: number;
@@ -127,6 +131,8 @@ export interface UserSummary {
   display_name: string;
   full_name: string;
   role: string;
+  approval_group?: ApprovalGroup | null;
+  approval_group_label?: string;
 }
 
 export interface UserTimeCategoryAssignment {
@@ -143,6 +149,8 @@ export interface AdminUser {
   display_name: string;
   full_name: string;
   role: 'admin' | 'employee';
+  approval_group?: ApprovalGroup | null;
+  approval_group_label?: string;
   is_active: boolean;
   is_pending: boolean;
   kiosk_enabled?: boolean;
@@ -239,6 +247,8 @@ export interface TimeEntry {
     email: string;
     display_name: string;
     full_name: string;
+    approval_group?: ApprovalGroup | null;
+    approval_group_label?: string;
   };
   time_category: {
     id: number;
@@ -530,6 +540,7 @@ export const api = {
     first_name: string;
     last_name?: string;
     role: 'admin' | 'employee';
+    approval_group?: ApprovalGroup | null;
     send_invitation?: boolean;
     time_category_ids?: number[];
   }) =>
@@ -546,6 +557,7 @@ export const api = {
 
   updateUser: (id: number, data: {
     role?: 'admin' | 'employee';
+    approval_group?: ApprovalGroup | null;
     time_category_ids?: number[];
   }) =>
     fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {
@@ -674,8 +686,10 @@ export const api = {
   getClockStatus: () =>
     fetchApi<ClockStatus>('/api/v1/time_entries/current_status'),
 
-  getPendingApprovals: () =>
-    fetchApi<{ pending_entries: TimeEntry[]; count: number }>('/api/v1/time_entries/pending_approvals'),
+  getPendingApprovals: (approvalGroup?: ApprovalGroupFilter) => {
+    const query = approvalGroup ? `?approval_group=${encodeURIComponent(approvalGroup)}` : '';
+    return fetchApi<{ pending_entries: TimeEntry[]; count: number }>(`/api/v1/time_entries/pending_approvals${query}`);
+  },
 
   getWhosWorking: () =>
     fetchApi<{ workers: WorkerStatus[] }>('/api/v1/time_entries/whos_working'),

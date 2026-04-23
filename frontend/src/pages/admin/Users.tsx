@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdminUser, AdminTimeCategory } from '../../lib/api'
+import type { AdminUser, AdminTimeCategory, ApprovalGroup } from '../../lib/api'
 import { formatDateTime } from '../../lib/dateUtils'
 import { FadeUp } from '../../components/ui/MotionComponents'
+
+const approvalGroupOptions: Array<{ value: ApprovalGroup; label: string }> = [
+  { value: 'cfi', label: 'CFI' },
+  { value: 'ops_maintenance', label: 'Ops / Maintenance' },
+]
 
 export default function Users() {
   useEffect(() => {
@@ -18,6 +23,7 @@ export default function Users() {
   const [createLastName, setCreateLastName] = useState('')
   const [createEmail, setCreateEmail] = useState('')
   const [createRole, setCreateRole] = useState<'admin' | 'employee'>('employee')
+  const [createApprovalGroup, setCreateApprovalGroup] = useState<ApprovalGroup | ''>('')
   const [sendInvitationEmail, setSendInvitationEmail] = useState(true)
   const [createCategoryIds, setCreateCategoryIds] = useState<Set<number>>(new Set())
   const [creating, setCreating] = useState(false)
@@ -30,6 +36,7 @@ export default function Users() {
   const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [updatingRoleIds, setUpdatingRoleIds] = useState<Set<number>>(new Set())
+  const [updatingApprovalGroupIds, setUpdatingApprovalGroupIds] = useState<Set<number>>(new Set())
   const [resettingPinIds, setResettingPinIds] = useState<Set<number>>(new Set())
   const createModalRef = useRef<HTMLDivElement>(null)
   const editModalRef = useRef<HTMLDivElement>(null)
@@ -75,6 +82,7 @@ export default function Users() {
     setCreateLastName('')
     setCreateEmail('')
     setCreateRole('employee')
+    setCreateApprovalGroup('')
     setSendInvitationEmail(true)
     setCreateCategoryIds(new Set())
     setCreateError('')
@@ -91,6 +99,7 @@ export default function Users() {
         first_name: createFirstName.trim(),
         last_name: createLastName.trim() || undefined,
         role: createRole,
+        approval_group: createApprovalGroup || undefined,
         send_invitation: sendInvitationEmail && !!createEmail.trim(),
         time_category_ids: Array.from(createCategoryIds),
       })
@@ -148,6 +157,25 @@ export default function Users() {
       alert('Failed to update role')
     } finally {
       setUpdatingRoleIds((prev) => {
+        const next = new Set(prev)
+        next.delete(userId)
+        return next
+      })
+    }
+  }
+
+  const handleApprovalGroupChange = async (userId: number, newApprovalGroup: ApprovalGroup | '') => {
+    setUpdatingApprovalGroupIds((prev) => new Set(prev).add(userId))
+    try {
+      const response = await api.updateUser(userId, {
+        approval_group: newApprovalGroup || null,
+      })
+      if (response.error) alert(response.error)
+      else refreshData()
+    } catch {
+      alert('Failed to update approval group')
+    } finally {
+      setUpdatingApprovalGroupIds((prev) => {
         const next = new Set(prev)
         next.delete(userId)
         return next
@@ -248,8 +276,8 @@ export default function Users() {
           <div className="mt-2 text-3xl font-bold text-cyan-700">{users.filter((u) => u.role === 'admin').length}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-sm text-slate-500">Kiosk PIN Configured</div>
-          <div className="mt-2 text-3xl font-bold text-slate-900">{users.filter((u) => u.kiosk_pin_configured).length}</div>
+          <div className="text-sm text-slate-500">CFI Review Group</div>
+          <div className="mt-2 text-3xl font-bold text-slate-900">{users.filter((u) => u.approval_group === 'cfi').length}</div>
         </div>
       </div>
 
@@ -265,11 +293,12 @@ export default function Users() {
           <div className="px-5 py-10 text-center text-sm text-slate-500">No team members yet.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px]">
+            <table className="w-full min-w-[1080px]">
               <thead className="bg-slate-50">
                 <tr>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Team Member</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Approval Group</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Work Categories</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Kiosk</th>
@@ -293,6 +322,19 @@ export default function Users() {
                       >
                         <option value="admin">Admin</option>
                         <option value="employee">Employee</option>
+                        </select>
+                    </td>
+                    <td className="px-5 py-4">
+                      <select
+                        value={user.approval_group ?? ''}
+                        onChange={(e) => handleApprovalGroupChange(user.id, e.target.value as ApprovalGroup | '')}
+                        disabled={updatingApprovalGroupIds.has(user.id)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      >
+                        <option value="">Unassigned</option>
+                        {approvalGroupOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </td>
                     <td className="px-5 py-4">
@@ -416,6 +458,22 @@ export default function Users() {
                   <option value="employee">Employee</option>
                   <option value="admin">Admin</option>
                 </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Approval Group</label>
+                <select
+                  value={createApprovalGroup}
+                  onChange={(e) => setCreateApprovalGroup(e.target.value as ApprovalGroup | '')}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                >
+                  <option value="">Unassigned</option>
+                  {approvalGroupOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs text-slate-500">
+                  This controls which pending approvals bucket they show up under.
+                </p>
               </div>
 
               <label className="flex cursor-pointer gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
-import type { TimeEntry } from '../../lib/api'
+import type { ApprovalGroupFilter, TimeEntry } from '../../lib/api'
 
 interface ApprovalQueueProps {
   onUpdate?: () => void
@@ -9,6 +9,7 @@ interface ApprovalQueueProps {
 
 export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
   const [entries, setEntries] = useState<TimeEntry[]>([])
+  const [approvalGroupFilter, setApprovalGroupFilter] = useState<'all' | ApprovalGroupFilter>('all')
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
@@ -45,6 +46,19 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
     const interval = setInterval(fetchPending, 30000)
     return () => clearInterval(interval)
   }, [fetchPending])
+
+  const filteredEntries = entries.filter((entry) => {
+    if (approvalGroupFilter === 'all') return true
+    if (approvalGroupFilter === 'unassigned') return !entry.user.approval_group
+    return entry.user.approval_group === approvalGroupFilter
+  })
+
+  const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
+    { value: 'all', label: 'All', count: entries.length },
+    { value: 'cfi', label: 'CFI', count: entries.filter((entry) => entry.user.approval_group === 'cfi').length },
+    { value: 'ops_maintenance', label: 'Ops / Maintenance', count: entries.filter((entry) => entry.user.approval_group === 'ops_maintenance').length },
+    { value: 'unassigned', label: 'Unassigned', count: entries.filter((entry) => !entry.user.approval_group).length },
+  ]
 
   const handleApprove = async (entry: TimeEntry, note?: string) => {
     setActionLoading(entry.id)
@@ -147,6 +161,23 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
           <h3 className="font-semibold text-primary-dark text-base">Pending Approvals</h3>
         </div>
 
+        <div className="mb-4 flex flex-wrap gap-2">
+          {filterOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setApprovalGroupFilter(option.value)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                approvalGroupFilter === option.value
+                  ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                  : 'border-neutral-warm bg-white text-text-muted hover:border-slate-300 hover:text-primary-dark'
+              }`}
+            >
+              {option.label} ({option.count})
+            </button>
+          ))}
+        </div>
+
         {actionError && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3 flex items-center justify-between gap-2">
             <p className="text-xs text-red-700">{actionError}</p>
@@ -159,8 +190,13 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
         )}
 
         <div className="space-y-3">
-          <AnimatePresence>
-            {entries.map(entry => {
+          {filteredEntries.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-neutral-warm bg-secondary/20 px-4 py-5 text-sm text-text-muted">
+              No pending entries match this review group.
+            </div>
+          ) : (
+            <AnimatePresence>
+              {filteredEntries.map(entry => {
               const isPendingApproval = entry.approval_status === 'pending'
               const isPendingOvertime = entry.overtime_status === 'pending'
 
@@ -278,8 +314,9 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
                   </div>
                 </motion.div>
               )
-            })}
-          </AnimatePresence>
+              })}
+            </AnimatePresence>
+          )}
         </div>
       </div>
     </div>

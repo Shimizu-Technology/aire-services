@@ -35,6 +35,7 @@ module Api
           first_name = params[:first_name]&.strip
           last_name = params[:last_name]&.strip
           role = params[:role] || "employee"
+          approval_group = normalized_approval_group(params[:approval_group])
 
           if first_name.blank?
             return render json: { error: "First name is required" }, status: :unprocessable_entity
@@ -42,6 +43,10 @@ module Api
 
           unless %w[admin employee].include?(role)
             return render json: { error: "Role must be admin or employee" }, status: :unprocessable_entity
+          end
+
+          unless valid_approval_group?(approval_group)
+            return render json: { error: "Approval group must be CFI, Ops / Maintenance, or blank" }, status: :unprocessable_entity
           end
 
           send_invitation =
@@ -70,6 +75,7 @@ module Api
             first_name: first_name,
             last_name: last_name.presence,
             role: role,
+            approval_group: approval_group,
             clerk_id: "pending_#{SecureRandom.hex(8)}"
           )
 
@@ -91,6 +97,13 @@ module Api
           permitted = {}
           if params[:role].present? && %w[admin employee].include?(params[:role])
             permitted[:role] = params[:role]
+          end
+          if params.key?(:approval_group)
+            approval_group = normalized_approval_group(params[:approval_group])
+            unless valid_approval_group?(approval_group)
+              return render json: { error: "Approval group must be CFI, Ops / Maintenance, or blank" }, status: :unprocessable_entity
+            end
+            permitted[:approval_group] = approval_group
           end
 
           if @user.update(permitted)
@@ -166,6 +179,8 @@ module Api
             display_name: user.display_name,
             full_name: user.full_name,
             role: user.role,
+            approval_group: user.approval_group,
+            approval_group_label: user.approval_group_label,
             is_active: user.clerk_id.present? && !user.clerk_id.start_with?("pending_"),
             is_pending: user.clerk_id.blank? || user.clerk_id.start_with?("pending_"),
             kiosk_enabled: user.kiosk_enabled,
@@ -214,6 +229,19 @@ module Api
             Rails.logger.warn "Invitation email could not be sent to #{user.email}"
           end
           sent
+        end
+
+        def normalized_approval_group(value)
+          return nil if value.nil?
+
+          normalized = value.to_s.strip.presence
+          return nil if normalized.blank? || normalized == "unassigned"
+
+          normalized
+        end
+
+        def valid_approval_group?(value)
+          value.nil? || User::APPROVAL_GROUPS.include?(value)
         end
       end
     end

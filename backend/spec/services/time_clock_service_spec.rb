@@ -89,6 +89,37 @@ RSpec.describe TimeClockService, type: :service do
   end
 
   describe ".clock_out" do
+    it "marks unscheduled employee clock entries as pending on clock-out" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      time_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: time_category)
+
+      described_class.clock_in(user: user, time_category_id: time_category.id)
+
+      travel 2.hours
+      entry = described_class.clock_out(user: user)
+
+      expect(entry.status).to eq("completed")
+      expect(entry.schedule).to be_nil
+      expect(entry.approval_status).to eq("pending")
+      expect(entry.approval_note).to eq("Clocked in without a schedule")
+    end
+
+    it "does not mark unscheduled admin clock entries as pending on clock-out" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      admin = create(:user, :admin)
+
+      described_class.clock_in(user: admin)
+
+      travel 2.hours
+      entry = described_class.clock_out(user: admin)
+
+      expect(entry.status).to eq("completed")
+      expect(entry.schedule).to be_nil
+      expect(entry.approval_status).to be_nil
+      expect(entry.approval_note).to be_nil
+    end
+
     it "snapshots the effective rate when a clock entry is completed" do
       Setting.set("schedule_required_for_clock_in", "false")
       time_category = create(:time_category, hourly_rate_cents: 3000)

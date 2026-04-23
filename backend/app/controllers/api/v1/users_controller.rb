@@ -20,7 +20,9 @@ module Api
               last_name: user.last_name,
               display_name: user.display_name,
               full_name: user.full_name,
-              role: user.role
+              role: user.role,
+              approval_group: user.approval_group,
+              approval_group_label: user.approval_group_label
             }
           end
         }

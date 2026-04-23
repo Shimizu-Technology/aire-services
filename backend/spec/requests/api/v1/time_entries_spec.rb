@@ -316,4 +316,44 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(json[:error]).to match(/not found/)
     end
   end
+
+  describe "GET /api/v1/time_entries/pending_approvals" do
+    let!(:cfi_employee) { create(:user, :employee, approval_group: "cfi", first_name: "Cfi", last_name: "User") }
+    let!(:ops_employee) { create(:user, :employee, approval_group: "ops_maintenance", first_name: "Ops", last_name: "User") }
+    let!(:unassigned_employee) { create(:user, :employee, approval_group: nil, first_name: "Unassigned", last_name: "User") }
+
+    let!(:cfi_entry) { create(:time_entry, user: cfi_employee, approval_status: "pending") }
+    let!(:ops_entry) { create(:time_entry, user: ops_employee, approval_status: "pending") }
+    let!(:unassigned_entry) { create(:time_entry, user: unassigned_employee, approval_status: "pending") }
+
+    it "returns all pending entries by default" do
+      get "/api/v1/time_entries/pending_approvals", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      ids = json[:pending_entries].map { |entry| entry[:id] }
+      expect(ids).to include(cfi_entry.id, ops_entry.id, unassigned_entry.id)
+    end
+
+    it "filters pending entries by approval group" do
+      get "/api/v1/time_entries/pending_approvals",
+          params: { approval_group: "cfi" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      ids = json[:pending_entries].map { |entry| entry[:id] }
+      expect(ids).to contain_exactly(cfi_entry.id)
+      expect(json.dig(:pending_entries, 0, :user, :approval_group)).to eq("cfi")
+    end
+
+    it "filters pending entries for unassigned users" do
+      get "/api/v1/time_entries/pending_approvals",
+          params: { approval_group: "unassigned" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      ids = json[:pending_entries].map { |entry| entry[:id] }
+      expect(ids).to contain_exactly(unassigned_entry.id)
+      expect(json.dig(:pending_entries, 0, :user, :approval_group)).to be_nil
+    end
+  end
 end

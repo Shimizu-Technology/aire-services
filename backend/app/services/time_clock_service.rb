@@ -46,6 +46,7 @@ class TimeClockService
         clock_source: clock_source,
         admin_override: admin_override_by.present?,
         approval_status: nil,
+        approval_note: unscheduled_approval_note_for(user: user, schedule: schedule),
         attendance_status: schedule ? calculate_attendance_status(now, schedule) : nil
       )
 
@@ -89,6 +90,7 @@ class TimeClockService
         else
           entry.end_time = guam_now
           entry.clock_out_at = now
+          apply_unscheduled_pending!(entry)
         end
 
         entry.description = description if description.present?
@@ -97,6 +99,7 @@ class TimeClockService
         entry.calculate_hours_from_times
         entry.overtime_status = check_overtime_status(user, entry)
         entry.admin_override = true if admin_override_by.present?
+        apply_unscheduled_pending!(entry)
 
         entry.save!
       end
@@ -176,6 +179,7 @@ class TimeClockService
         entry.calculate_hours_from_times
         entry.overtime_status = check_overtime_status(user, entry)
         entry.admin_override = true if admin_override_by.present?
+        apply_unscheduled_pending!(entry)
         entry.save!
 
         new_entry = TimeEntry.create!(
@@ -191,6 +195,7 @@ class TimeClockService
           clock_source: resolved_source,
           admin_override: admin_override_by.present?,
           approval_status: nil,
+          approval_note: unscheduled_approval_note_for(user: user, schedule: entry.schedule),
           attendance_status: entry.attendance_status
         )
       end
@@ -417,6 +422,23 @@ class TimeClockService
       else
         "none"
       end
+    end
+
+    def unscheduled_approval_note_for(user:, schedule:)
+      return nil unless unscheduled_entry_requires_approval?(user: user, schedule: schedule)
+
+      "Clocked in without a schedule"
+    end
+
+    def apply_unscheduled_pending!(entry)
+      return unless unscheduled_entry_requires_approval?(user: entry.user, schedule: entry.schedule)
+
+      entry.approval_status = "pending"
+      entry.approval_note = "Clocked in without a schedule"
+    end
+
+    def unscheduled_entry_requires_approval?(user:, schedule:)
+      schedule.nil? && !user.admin?
     end
 
     private
