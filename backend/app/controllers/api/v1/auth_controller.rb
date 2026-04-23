@@ -14,6 +14,7 @@ module Api
             last_name: current_user.last_name,
             full_name: current_user.full_name,
             role: current_user.role,
+            approval_group: current_user.approval_group,
             is_admin: current_user.admin?,
             is_staff: current_user.staff?,
             created_at: current_user.created_at

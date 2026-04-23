@@ -46,6 +46,7 @@ class TimeClockService
         clock_source: clock_source,
         admin_override: admin_override_by.present?,
         approval_status: nil,
+        approval_note: unscheduled_approval_note_for(user: user, schedule: schedule),
         attendance_status: schedule ? calculate_attendance_status(now, schedule) : nil
       )
 
@@ -85,10 +86,12 @@ class TimeClockService
           entry.end_time = parsed
           entry.clock_out_at = now
           entry.approval_status = "pending"
-          entry.approval_note = "Employee corrected clock-out time to #{parsed.strftime('%I:%M %p')}"
+          entry.approval_note = build_approval_note(entry.approval_note, "Employee corrected clock-out time to #{parsed.strftime('%I:%M %p')}")
+          apply_unscheduled_pending!(entry)
         else
           entry.end_time = guam_now
           entry.clock_out_at = now
+          apply_unscheduled_pending!(entry)
         end
 
         entry.description = description if description.present?
@@ -176,6 +179,7 @@ class TimeClockService
         entry.calculate_hours_from_times
         entry.overtime_status = check_overtime_status(user, entry)
         entry.admin_override = true if admin_override_by.present?
+        apply_unscheduled_pending!(entry)
         entry.save!
 
         new_entry = TimeEntry.create!(
@@ -191,6 +195,7 @@ class TimeClockService
           clock_source: resolved_source,
           admin_override: admin_override_by.present?,
           approval_status: nil,
+          approval_note: unscheduled_approval_note_for(user: user, schedule: entry.schedule),
           attendance_status: entry.attendance_status
         )
       end
@@ -421,6 +426,32 @@ class TimeClockService
 
     private
 
+    def unscheduled_approval_note_for(user:, schedule:)
+      return nil unless unscheduled_entry_requires_approval?(user: user, schedule: schedule)
+
+      "Clocked in without a schedule"
+    end
+
+    def apply_unscheduled_pending!(entry)
+      return unless unscheduled_entry_requires_approval?(user: entry.user, schedule: entry.schedule)
+
+      entry.approval_status = "pending"
+      entry.approval_note = build_approval_note(entry.approval_note, "Clocked in without a schedule")
+    end
+
+    def unscheduled_entry_requires_approval?(user:, schedule:)
+      schedule.nil? && !user.admin?
+    end
+
+    def build_approval_note(existing_note, new_note)
+      [ existing_note.presence, new_note.presence ]
+        .compact
+        .flat_map { |note| note.split(" | ").map(&:strip) }
+        .reject(&:blank?)
+        .uniq
+        .join(" | ")
+    end
+
     # Build session data from already-loaded entries (no extra queries).
     def session_data_from_loaded(todays_entries, active_entry)
       return nil unless active_entry
@@ -491,7 +522,7 @@ class TimeClockService
       return if user.admin?
 
       assigned_categories = user.assigned_time_categories.active
-      raise ClockError, "No work categories are assigned to this employee" unless assigned_categories.exists?
+      return if assigned_categories.none? && category.nil?
       raise ClockError, "Choose a work category before clocking in" unless category
       return if assigned_categories.exists?(category.id)
 

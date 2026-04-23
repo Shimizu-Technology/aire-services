@@ -281,11 +281,7 @@ module Api
       def pending_approvals
         return render json: { error: "Admin access required" }, status: :forbidden unless current_user.admin?
 
-        entries = TimeEntry.eager_load(:user, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks,
-                                        :time_category)
-          .where(approval_status: "pending")
-          .or(TimeEntry.where(overtime_status: "pending"))
-          .order(created_at: :desc)
+        entries = pending_approval_entries_scope.order(created_at: :desc)
 
         render json: {
           pending_entries: entries.map { |e| serialize_time_entry(e) },
@@ -472,7 +468,9 @@ module Api
             id: entry.user.id,
             email: entry.user.email,
             display_name: entry.user.display_name,
-            full_name: entry.user.full_name
+            full_name: entry.user.full_name,
+            approval_group: entry.user.approval_group,
+            approval_group_label: entry.user.approval_group_label
           },
           time_category: entry.time_category ? {
             id: entry.time_category.id,
@@ -500,6 +498,23 @@ module Api
           total_break_hours: (total_break_minutes.to_i / 60.0).round(2),
           entry_count: entry_count.to_i
         }
+      end
+
+      def pending_approval_entries_scope
+        base_scope = TimeEntry.eager_load(:user, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
+        entries = base_scope.where(approval_status: "pending").or(base_scope.where(overtime_status: "pending"))
+
+        approval_group = params[:approval_group].to_s
+        return entries if approval_group.blank?
+
+        case approval_group
+        when "unassigned"
+          entries.where(users: { approval_group: nil })
+        when *User::APPROVAL_GROUPS
+          entries.where(users: { approval_group: approval_group })
+        else
+          entries
+        end
       end
     end
   end

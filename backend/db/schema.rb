@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_09_061342) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_23_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -167,6 +167,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_061342) do
   end
 
   create_table "users", force: :cascade do |t|
+    t.string "approval_group"
     t.string "clerk_id", null: false
     t.datetime "created_at", null: false
     t.string "email"
@@ -181,6 +182,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_061342) do
     t.string "phone"
     t.string "role", default: "employee"
     t.datetime "updated_at", null: false
+    t.index ["approval_group"], name: "index_users_on_approval_group"
     t.index ["clerk_id"], name: "index_users_on_clerk_id", unique: true
     t.index ["email"], name: "index_users_on_email"
     t.index ["kiosk_enabled"], name: "index_users_on_kiosk_enabled"

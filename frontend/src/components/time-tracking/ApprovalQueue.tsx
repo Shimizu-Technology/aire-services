@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
-import type { TimeEntry } from '../../lib/api'
+import type { ApprovalGroupFilter, TimeEntry } from '../../lib/api'
 
 interface ApprovalQueueProps {
   onUpdate?: () => void
 }
 
 export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
+  const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
+  const [approvalGroupFilter, setApprovalGroupFilter] = useState<'all' | ApprovalGroupFilter>('all')
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
@@ -16,21 +18,35 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
   const [noteInput, setNoteInput] = useState<{ id: number; note: string } | null>(null)
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
 
-  const fetchPending = useCallback(async () => {
+  const syncExpandedDescriptions = useCallback((visibleEntries: TimeEntry[]) => {
+    const freshIds = new Set(visibleEntries.map((entry) => entry.id))
+    setExpandedDescriptions(prev => {
+      const pruned = new Set<number>()
+      for (const id of prev) {
+        if (freshIds.has(id)) pruned.add(id)
+      }
+      return pruned.size === prev.size ? prev : pruned
+    })
+  }, [])
+
+  const fetchPending = useCallback(async (filter: 'all' | ApprovalGroupFilter) => {
     try {
-      const result = await api.getPendingApprovals()
-      if (result.data) {
-        setEntries(result.data.pending_entries)
-        const freshIds = new Set(result.data.pending_entries.map((e: { id: number }) => e.id))
-        setExpandedDescriptions(prev => {
-          const pruned = new Set<number>()
-          for (const id of prev) {
-            if (freshIds.has(id)) pruned.add(id)
-          }
-          return pruned.size === prev.size ? prev : pruned
-        })
+      const [allResult, filteredResult] = await Promise.all([
+        api.getPendingApprovals(),
+        filter === 'all' ? Promise.resolve(null) : api.getPendingApprovals(filter),
+      ])
+
+      const allPendingEntries = allResult.data?.pending_entries
+      const visibleEntries = filter === 'all'
+        ? allPendingEntries
+        : filteredResult?.data?.pending_entries
+
+      if (allPendingEntries && visibleEntries) {
+        setAllEntries(allPendingEntries)
+        setEntries(visibleEntries)
+        syncExpandedDescriptions(visibleEntries)
         setFetchError(false)
-      } else if (result.error) {
+      } else {
         setFetchError(true)
       }
     } catch {
@@ -38,13 +54,22 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [syncExpandedDescriptions])
 
   useEffect(() => {
-    fetchPending()
-    const interval = setInterval(fetchPending, 30000)
+    fetchPending(approvalGroupFilter)
+    const interval = setInterval(() => {
+      void fetchPending(approvalGroupFilter)
+    }, 30000)
     return () => clearInterval(interval)
-  }, [fetchPending])
+  }, [approvalGroupFilter, fetchPending])
+
+  const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
+    { value: 'all', label: 'All', count: allEntries.length },
+    { value: 'cfi', label: 'CFI', count: allEntries.filter((entry) => entry.user.approval_group === 'cfi').length },
+    { value: 'ops_maintenance', label: 'Ops / Maintenance', count: allEntries.filter((entry) => entry.user.approval_group === 'ops_maintenance').length },
+    { value: 'unassigned', label: 'Unassigned', count: allEntries.filter((entry) => !entry.user.approval_group).length },
+  ]
 
   const handleApprove = async (entry: TimeEntry, note?: string) => {
     setActionLoading(entry.id)
@@ -58,12 +83,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
       if (result.error) {
         setActionError(result.error)
       } else {
-        const stillHasOvertimePending = !isOvertimeOnly && entry.overtime_status === 'pending'
-        if (stillHasOvertimePending) {
-          await fetchPending()
-        } else {
-          setEntries(prev => prev.filter(e => e.id !== entry.id))
-        }
+        await fetchPending(approvalGroupFilter)
         setNoteInput(null)
         onUpdate?.()
       }
@@ -86,12 +106,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
       if (result.error) {
         setActionError(result.error)
       } else {
-        const stillHasOvertimePending = !isOvertimeOnly && entry.overtime_status === 'pending'
-        if (stillHasOvertimePending) {
-          await fetchPending()
-        } else {
-          setEntries(prev => prev.filter(e => e.id !== entry.id))
-        }
+        await fetchPending(approvalGroupFilter)
         setNoteInput(null)
         onUpdate?.()
       }
@@ -125,7 +140,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
         </div>
         <p className="text-xs text-text-muted mb-3">There may be entries awaiting your review.</p>
         <button
-          onClick={() => { setLoading(true); fetchPending(); }}
+          onClick={() => { setLoading(true); void fetchPending(approvalGroupFilter); }}
           className="min-h-[44px] px-4 py-2 bg-white hover:bg-secondary border border-neutral-warm text-primary-dark text-sm font-medium rounded-xl transition-colors"
         >
           Retry
@@ -134,7 +149,7 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
     )
   }
 
-  if (entries.length === 0) return null
+  if (allEntries.length === 0) return null
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-amber-200/70 overflow-hidden hover:shadow-md transition-shadow duration-300">
@@ -145,6 +160,23 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
             <span className="text-amber-600 text-xs font-bold">{entries.length}</span>
           </div>
           <h3 className="font-semibold text-primary-dark text-base">Pending Approvals</h3>
+        </div>
+
+        <div className="mb-4 flex flex-wrap gap-2">
+          {filterOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setApprovalGroupFilter(option.value)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                approvalGroupFilter === option.value
+                  ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                  : 'border-neutral-warm bg-white text-text-muted hover:border-slate-300 hover:text-primary-dark'
+              }`}
+            >
+              {option.label} ({option.count})
+            </button>
+          ))}
         </div>
 
         {actionError && (
@@ -159,8 +191,13 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
         )}
 
         <div className="space-y-3">
-          <AnimatePresence>
-            {entries.map(entry => {
+          {entries.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-neutral-warm bg-secondary/20 px-4 py-5 text-sm text-text-muted">
+              No pending entries match this review group.
+            </div>
+          ) : (
+            <AnimatePresence>
+              {entries.map(entry => {
               const isPendingApproval = entry.approval_status === 'pending'
               const isPendingOvertime = entry.overtime_status === 'pending'
 
@@ -278,8 +315,9 @@ export default function ApprovalQueue({ onUpdate }: ApprovalQueueProps) {
                   </div>
                 </motion.div>
               )
-            })}
-          </AnimatePresence>
+              })}
+            </AnimatePresence>
+          )}
         </div>
       </div>
     </div>

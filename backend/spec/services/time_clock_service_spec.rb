@@ -43,12 +43,14 @@ RSpec.describe TimeClockService, type: :service do
       expect(status[:clock_in_blocked_reason]).to eq("no_schedule")
     end
 
-    it "blocks employees from clocking in with no assigned categories" do
+    it "allows employees with no assigned categories to clock in under the general bucket" do
       Setting.set("schedule_required_for_clock_in", "false")
 
-      expect {
-        described_class.clock_in(user: user)
-      }.to raise_error(TimeClockService::ClockError, /No work categories/)
+      entry = described_class.clock_in(user: user)
+
+      expect(entry).to be_persisted
+      expect(entry.time_category).to be_nil
+      expect(entry.status).to eq("clocked_in")
     end
 
     it "blocks employees from clocking in without selecting an assigned category" do
@@ -89,6 +91,49 @@ RSpec.describe TimeClockService, type: :service do
   end
 
   describe ".clock_out" do
+    it "marks unscheduled employee clock entries as pending on clock-out" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      time_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: time_category)
+
+      described_class.clock_in(user: user, time_category_id: time_category.id)
+
+      travel 2.hours
+      entry = described_class.clock_out(user: user)
+
+      expect(entry.status).to eq("completed")
+      expect(entry.schedule).to be_nil
+      expect(entry.approval_status).to eq("pending")
+      expect(entry.approval_note).to eq("Clocked in without a schedule")
+    end
+
+    it "preserves both unscheduled and corrected clock-out notes" do
+      Setting.set("schedule_required_for_clock_in", "false")
+
+      described_class.clock_in(user: user)
+
+      travel 2.hours
+      entry = described_class.clock_out(user: user, corrected_end_time: "2026-04-02T10:30:00")
+
+      expect(entry.approval_status).to eq("pending")
+      expect(entry.approval_note).to eq("Clocked in without a schedule | Employee corrected clock-out time to 10:30 AM")
+    end
+
+    it "does not mark unscheduled admin clock entries as pending on clock-out" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      admin = create(:user, :admin)
+
+      described_class.clock_in(user: admin)
+
+      travel 2.hours
+      entry = described_class.clock_out(user: admin)
+
+      expect(entry.status).to eq("completed")
+      expect(entry.schedule).to be_nil
+      expect(entry.approval_status).to be_nil
+      expect(entry.approval_note).to be_nil
+    end
+
     it "snapshots the effective rate when a clock entry is completed" do
       Setting.set("schedule_required_for_clock_in", "false")
       time_category = create(:time_category, hourly_rate_cents: 3000)

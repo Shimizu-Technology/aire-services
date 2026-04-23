@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class User < ApplicationRecord
+  APPROVAL_GROUPS = %w[cfi ops_maintenance].freeze
   KIOSK_PIN_FORMAT = /\A\d{4,8}\z/
   KIOSK_MAX_FAILED_ATTEMPTS = 5
   KIOSK_LOCKOUT_DURATION = 15.minutes
@@ -24,6 +25,7 @@ class User < ApplicationRecord
   validates :email, uniqueness: { case_sensitive: false }, allow_nil: true
   validates :email, format: { with: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/ }, allow_blank: true
   validates :role, inclusion: { in: %w[admin employee] }
+  validates :approval_group, inclusion: { in: APPROVAL_GROUPS }, allow_nil: true
   validates :kiosk_pin_lookup_hash, uniqueness: { message: "This PIN is already in use by another employee. Please choose a different PIN." }, allow_nil: true
   validate :kiosk_pin_format_if_present
   validate :staff_requires_pin_when_kiosk_enabled
@@ -35,6 +37,16 @@ class User < ApplicationRecord
   scope :employees, -> { where(role: "employee") }
   scope :staff, -> { where(role: %w[admin employee]) }
   scope :kiosk_enabled, -> { staff.where(kiosk_enabled: true) }
+  scope :for_approval_group, ->(approval_group) {
+    case approval_group.to_s
+    when ""
+      all
+    when "unassigned"
+      where(approval_group: nil)
+    else
+      where(approval_group: approval_group)
+    end
+  }
 
   def self.kiosk_pin_lookup_hash_for(pin)
     return nil if pin.blank?
@@ -79,6 +91,17 @@ class User < ApplicationRecord
 
   def staff?
     admin? || employee?
+  end
+
+  def approval_group_label
+    case approval_group
+    when "cfi"
+      "CFI"
+    when "ops_maintenance"
+      "Ops / Maintenance"
+    else
+      "Unassigned"
+    end
   end
 
   def kiosk_locked?
