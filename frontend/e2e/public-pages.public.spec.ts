@@ -17,25 +17,29 @@ test.describe('Public Marketing Pages', () => {
   test('team page loads', async ({ page }) => {
     await page.goto('/team');
 
-    await expect(page.locator('h1')).toContainText(/Team/i);
+    await expect(page).toHaveTitle(/Team \| AIRE Services Guam/i);
+    await expect(page.locator('h1')).toBeVisible();
   });
 
   test('discovery flight page loads', async ({ page }) => {
     await page.goto('/discovery-flight');
 
-    await expect(page.locator('h1')).toContainText(/Discovery|Flight/i);
+    await expect(page).toHaveTitle(/Discovery Flight \| AIRE Services Guam/i);
+    await expect(page.locator('h1')).toBeVisible();
   });
 
   test('careers page loads', async ({ page }) => {
     await page.goto('/careers');
 
-    await expect(page.locator('h1')).toContainText(/Careers/i);
+    await expect(page).toHaveTitle(/Careers \| AIRE Services Guam/i);
+    await expect(page.locator('h1')).toBeVisible();
   });
 
   test('contact page loads', async ({ page }) => {
     await page.goto('/contact');
 
-    await expect(page.locator('h1')).toContainText(/Contact/i);
+    await expect(page).toHaveTitle(/Contact \| AIRE Services Guam/i);
+    await expect(page.locator('form')).toBeVisible();
   });
 
   test('kiosk page loads', async ({ page }) => {
@@ -78,7 +82,7 @@ test.describe('Mobile Responsiveness', () => {
     await expect(menuButton).toBeVisible();
     await menuButton.click();
 
-    const mobileMenu = page.locator('text=Programs');
+    const mobileMenu = page.locator('a:has-text("Programs"):visible');
     await expect(mobileMenu.first()).toBeVisible({ timeout: 5000 });
   });
 });

@@ -14,6 +14,9 @@ Create a `.env` file:
 ```bash
 # Clerk Authentication
 CLERK_JWKS_URL=https://your-app.clerk.accounts.dev/.well-known/jwks.json
+CLERK_ISSUER=https://your-app.clerk.accounts.dev
+# Optional if your token template includes aud
+CLERK_AUDIENCE=https://api.example.com
 
 # Active Record Encryption
 ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=<your_key>
@@ -22,6 +25,8 @@ ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=<your_salt>
 
 # Production only
 DATABASE_URL=postgres://...
+# Set to true only for one-time first-admin bootstrap on a fresh deploy
+ALLOW_FIRST_USER_BOOTSTRAP=false
 ```
 
 Generate encryption keys:

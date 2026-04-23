@@ -5,8 +5,8 @@ import { api } from '../../lib/api'
 import { socialLinks } from '../../lib/socialLinks'
 
 const contactPoints = [
-  { label: 'Phone', value: '(671) 477-4243' },
-  { label: 'Email', value: 'admin@aireservicesguam.com' },
+  { label: 'Phone', value: '(671) 477-4243', href: 'tel:+16714774243' },
+  { label: 'Email', value: 'admin@aireservicesguam.com', href: 'mailto:admin@aireservicesguam.com' },
   { label: 'Location', value: '1780 Admiral Sherman Boulevard, Tiyan / Barrigada, Guam 96913' },
 ]
 
@@ -49,7 +49,15 @@ export default function AireContact() {
     setSuccess(null)
     setError(null)
 
-    const response = await api.submitContact(form)
+    const payload = {
+      name: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      subject: form.subject.trim(),
+      message: form.message.trim(),
+    }
+
+    const response = await api.submitContact(payload)
 
     if (response.error || !response.data?.success) {
       setError(response.error || 'Failed to send message. Please try again.')
@@ -86,7 +94,13 @@ export default function AireContact() {
                 {contactPoints.map((item) => (
                   <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-800">{item.value}</p>
+                    {item.href ? (
+                      <a href={item.href} className="mt-2 inline-block text-sm font-medium leading-relaxed text-cyan-700 transition hover:text-cyan-800">
+                        {item.value}
+                      </a>
+                    ) : (
+                      <p className="mt-2 text-sm leading-relaxed text-slate-800">{item.value}</p>
+                    )}
                   </div>
                 ))}
               </div>
