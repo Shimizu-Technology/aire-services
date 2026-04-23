@@ -10,11 +10,12 @@ module Api
 
         def index
           @users = User.includes(user_time_categories: :time_category).order(created_at: :desc)
-          pending_scope = @users.where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
 
           if params[:role].present?
             @users = @users.where(role: params[:role])
           end
+
+          pending_scope = @users.where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
 
           if params[:status] == "active"
             @users = @users.where(is_active: true).where.not(id: pending_scope.select(:id))

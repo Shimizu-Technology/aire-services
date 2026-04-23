@@ -87,6 +87,19 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(json[:users].map { |user| user[:id] }).to include(pending_user.id)
       expect(json[:users].map { |user| user[:id] }).not_to include(active_user.id, inactive_user.id)
     end
+
+    it "preserves role filtering when listing pending users" do
+      pending_admin = create(:user, :admin, clerk_id: "pending_admin_123", is_active: true)
+      pending_employee = create(:user, :employee, clerk_id: "pending_employee_123", is_active: true)
+
+      get "/api/v1/admin/users",
+          params: { role: "admin", status: "pending" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:users].map { |user| user[:id] }).to include(pending_admin.id)
+      expect(json[:users].map { |user| user[:id] }).not_to include(pending_employee.id)
+    end
   end
 
   describe "PATCH /api/v1/admin/users/:id" do
