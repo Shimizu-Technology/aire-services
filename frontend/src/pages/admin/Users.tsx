@@ -47,8 +47,6 @@ export default function Users() {
 
   const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
-  const [updatingRoleIds, setUpdatingRoleIds] = useState<Set<number>>(new Set())
-  const [updatingApprovalGroupIds, setUpdatingApprovalGroupIds] = useState<Set<number>>(new Set())
   const createModalRef = useRef<HTMLDivElement>(null)
   const editModalRef = useRef<HTMLDivElement>(null)
   const pinModalRef = useRef<HTMLDivElement>(null)
@@ -102,9 +100,22 @@ export default function Users() {
   }, [applyFetchedData])
 
   const activeCategories = allCategories.filter((c) => c.is_active)
+  const createUsesClerkProfile = createEmail.trim().length > 0
+  const editUsesClerkProfile = editEmail.trim().length > 0
 
   const patchLocalUser = useCallback((userId: number, updater: (user: AdminUser) => AdminUser) => {
     setUsers((prev) => prev.map((user) => (user.id === userId ? updater(user) : user)))
+  }, [])
+
+  const loadEditState = useCallback((user: AdminUser) => {
+    setEditingUser(user)
+    setEditFirstName(user.first_name ?? '')
+    setEditLastName(user.last_name ?? '')
+    setEditEmail(user.email ?? '')
+    setEditRole(user.role)
+    setEditApprovalGroup(user.approval_group ?? '')
+    setEditCategoryIds(new Set(user.time_category_ids ?? []))
+    setEditError('')
   }, [])
 
   const resetCreateForm = () => {
@@ -146,8 +157,10 @@ export default function Users() {
     try {
       const response = await api.inviteUser({
         email: createEmail.trim() || undefined,
-        first_name: createFirstName.trim(),
-        last_name: createLastName.trim() || undefined,
+        ...(createUsesClerkProfile ? {} : {
+          first_name: createFirstName.trim(),
+          last_name: createLastName.trim() || undefined,
+        }),
         role: createRole,
         approval_group: createApprovalGroup || undefined,
         send_invitation: sendInvitationEmail && !!createEmail.trim(),
@@ -173,16 +186,7 @@ export default function Users() {
     }
   }
 
-  const openEditUser = (user: AdminUser) => {
-    setEditingUser(user)
-    setEditFirstName(user.first_name ?? '')
-    setEditLastName(user.last_name ?? '')
-    setEditEmail(user.email ?? '')
-    setEditRole(user.role)
-    setEditApprovalGroup(user.approval_group ?? '')
-    setEditCategoryIds(new Set(user.time_category_ids ?? []))
-    setEditError('')
-  }
+  const openEditUser = (user: AdminUser) => loadEditState(user)
 
   const handleSaveUser = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -195,7 +199,7 @@ export default function Users() {
     const nextEmail = editEmail.trim().toLowerCase()
     const nextCategoryIds = Array.from(editCategoryIds)
 
-    if (!nextFirstName) {
+    if (!nextEmail && !nextFirstName) {
       setEditError('First name is required.')
       setSavingEdit(false)
       return
@@ -203,8 +207,10 @@ export default function Users() {
 
     try {
       const res = await api.updateUser(targetUserId, {
-        first_name: nextFirstName,
-        last_name: nextLastName || '',
+        ...(nextEmail ? {} : {
+          first_name: nextFirstName,
+          last_name: nextLastName || '',
+        }),
         email: nextEmail || null,
         role: editRole,
         approval_group: editApprovalGroup || null,
@@ -223,71 +229,19 @@ export default function Users() {
     }
   }
 
-  const handleRoleChange = async (userId: number, newRole: 'admin' | 'employee') => {
-    const previousUser = users.find((user) => user.id === userId) ?? null
-    patchLocalUser(userId, (user) => ({ ...user, role: newRole }))
-    setUpdatingRoleIds((prev) => new Set(prev).add(userId))
+  const handleSetUserActive = async (user: AdminUser, isActive: boolean) => {
+    setSavingEdit(true)
+    setEditError('')
     try {
-      const response = await api.updateUserRole(userId, newRole)
+      const response = await api.updateUser(user.id, { is_active: isActive })
       if (response.error) {
-        if (previousUser) {
-          patchLocalUser(userId, () => previousUser)
-        }
-        alert(response.error)
+        setEditError(response.error)
       } else if (response.data?.user) {
-        patchLocalUser(userId, () => response.data!.user)
+        patchLocalUser(user.id, () => response.data!.user)
+        loadEditState(response.data.user)
       }
-    } catch {
-      if (previousUser) {
-        patchLocalUser(userId, () => previousUser)
-      }
-      alert('Failed to update role')
     } finally {
-      setUpdatingRoleIds((prev) => {
-        const next = new Set(prev)
-        next.delete(userId)
-        return next
-      })
-    }
-  }
-
-  const handleApprovalGroupChange = async (userId: number, newApprovalGroup: ApprovalGroup | '') => {
-    const previousUser = users.find((user) => user.id === userId) ?? null
-    const nextApprovalGroup = newApprovalGroup || null
-    patchLocalUser(userId, (user) => ({
-      ...user,
-      approval_group: nextApprovalGroup,
-      approval_group_label:
-        nextApprovalGroup === 'cfi'
-          ? 'CFI'
-          : nextApprovalGroup === 'ops_maintenance'
-            ? 'Ops / Maintenance'
-            : 'Unassigned',
-    }))
-    setUpdatingApprovalGroupIds((prev) => new Set(prev).add(userId))
-    try {
-      const response = await api.updateUser(userId, {
-        approval_group: nextApprovalGroup,
-      })
-      if (response.error) {
-        if (previousUser) {
-          patchLocalUser(userId, () => previousUser)
-        }
-        alert(response.error)
-      } else if (response.data?.user) {
-        patchLocalUser(userId, () => response.data!.user)
-      }
-    } catch {
-      if (previousUser) {
-        patchLocalUser(userId, () => previousUser)
-      }
-      alert('Failed to update approval group')
-    } finally {
-      setUpdatingApprovalGroupIds((prev) => {
-        const next = new Set(prev)
-        next.delete(userId)
-        return next
-      })
+      setSavingEdit(false)
     }
   }
 
@@ -357,6 +311,30 @@ export default function Users() {
     setter(next)
   }
 
+  function renderStatusBadge(user: AdminUser) {
+    if (!user.is_active) {
+      return (
+        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+          Inactive
+        </span>
+      )
+    }
+
+    if (user.is_pending) {
+      return (
+        <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+          {user.email ? 'Pending sign-in' : 'Kiosk only'}
+        </span>
+      )
+    }
+
+    return (
+      <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+        Active
+      </span>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <FadeUp>
@@ -424,28 +402,14 @@ export default function Users() {
                       {!user.email && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — no email</div>}
                     </td>
                     <td className="px-5 py-4">
-                      <select
-                        value={user.role}
-                        onChange={(e) => handleRoleChange(user.id, e.target.value as 'admin' | 'employee')}
-                        disabled={updatingRoleIds.has(user.id)}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="employee">Employee</option>
-                        </select>
+                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {user.role === 'admin' ? 'Admin' : 'Employee'}
+                      </span>
                     </td>
                     <td className="px-5 py-4">
-                      <select
-                        value={user.approval_group ?? ''}
-                        onChange={(e) => handleApprovalGroupChange(user.id, e.target.value as ApprovalGroup | '')}
-                        disabled={updatingApprovalGroupIds.has(user.id)}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                      >
-                        <option value="">Unassigned</option>
-                        {approvalGroupOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {user.approval_group_label ?? 'Unassigned'}
+                      </span>
                     </td>
                     <td className="px-5 py-4">
                       {(user.time_categories ?? []).length > 0 ? (
@@ -461,23 +425,15 @@ export default function Users() {
                       )}
                     </td>
                     <td className="px-5 py-4">
-                      {user.is_pending ? (
-                        <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-                          {user.email ? 'Pending sign-in' : 'Kiosk only'}
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                          Active
-                        </span>
-                      )}
+                      {renderStatusBadge(user)}
                     </td>
                     <td className="px-5 py-4">
                       <div className="space-y-1 text-sm">
-                        <div>
+                        <div className="flex">
                           {user.kiosk_pin_configured ? (
-                            <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-medium text-cyan-700">PIN ready</span>
+                            <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-cyan-700">PIN ready</span>
                           ) : (
-                            <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">Not set</span>
+                            <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-slate-600">Not set</span>
                           )}
                         </div>
                         {user.kiosk_pin_last_rotated_at && <div className="text-xs text-slate-500">Rotated {formatDateTime(user.kiosk_pin_last_rotated_at)}</div>}
@@ -500,7 +456,7 @@ export default function Users() {
                         >
                           Reset PIN
                         </button>
-                        {user.is_pending && user.email && (
+                        {user.is_active && user.is_pending && user.email && (
                           <button
                             type="button"
                             onClick={() => handleResendInvite(user)}
@@ -535,23 +491,13 @@ export default function Users() {
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">Add team member</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Create a staff record. Kiosk-only people need only a name and PIN — no email required.
+                  Create a staff record. Email-based accounts get their name from Clerk after sign-in, while kiosk-only staff need a local name and PIN.
                 </p>
               </div>
               <button onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
             </div>
 
             <form onSubmit={handleCreate} className="mt-6 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
-                  <input value={createFirstName} onChange={(e) => setCreateFirstName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" required />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
-                  <input value={createLastName} onChange={(e) => setCreateLastName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
-                </div>
-              </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Email {sendInvitationEmail ? <span className="text-slate-400">*</span> : <span className="text-xs font-normal text-slate-400">(optional for kiosk-only)</span>}
@@ -564,6 +510,22 @@ export default function Users() {
                   required={sendInvitationEmail}
                 />
               </div>
+              {createUsesClerkProfile ? (
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+                  First and last name will come from Clerk when this person signs in.
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
+                    <input value={createFirstName} onChange={(e) => setCreateFirstName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" required />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
+                    <input value={createLastName} onChange={(e) => setCreateLastName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">Role</label>
                 <select value={createRole} onChange={(e) => setCreateRole(e.target.value as 'admin' | 'employee')} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
@@ -649,7 +611,7 @@ export default function Users() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">
-                  Edit {editingUser.full_name}
+                  Edit {editingUser.full_name || editingUser.display_name}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
                   Update profile details, review routing, and kiosk work categories in one place.
@@ -659,25 +621,31 @@ export default function Users() {
             </div>
 
             <form onSubmit={handleSaveUser} className="mt-6 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
-                  <input
-                    value={editFirstName}
-                    onChange={(event) => setEditFirstName(event.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    required
-                  />
+              {editUsesClerkProfile ? (
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+                  This person&apos;s name comes from Clerk. They can update it from their sign-in profile.
                 </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
-                  <input
-                    value={editLastName}
-                    onChange={(event) => setEditLastName(event.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  />
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
+                    <input
+                      value={editFirstName}
+                      onChange={(event) => setEditFirstName(event.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
+                    <input
+                      value={editLastName}
+                      onChange={(event) => setEditLastName(event.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
@@ -744,6 +712,15 @@ export default function Users() {
                 </div>
               )}
 
+              <div className={`rounded-xl border px-4 py-3 text-sm ${editingUser.is_active ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900'}`}>
+                <div className="font-medium">Account status</div>
+                <div className="mt-1">
+                  {editingUser.is_active
+                    ? 'Active users can sign in and use the kiosk with their assigned PIN.'
+                    : 'Inactive users cannot sign in or clock in at the kiosk until you reactivate them.'}
+                </div>
+              </div>
+
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 <div className="font-medium text-slate-800">Kiosk access</div>
                 <div className="mt-1">
@@ -760,6 +737,14 @@ export default function Users() {
               )}
 
               <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleSetUserActive(editingUser, !editingUser.is_active)}
+                  disabled={savingEdit}
+                  className={`rounded-xl border px-4 py-3 text-sm font-medium transition disabled:opacity-50 ${editingUser.is_active ? 'border-rose-200 text-rose-700 hover:bg-rose-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
+                >
+                  {editingUser.is_active ? 'Make inactive' : 'Reactivate user'}
+                </button>
                 <button type="button" onClick={closeEditModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
                   Cancel
                 </button>

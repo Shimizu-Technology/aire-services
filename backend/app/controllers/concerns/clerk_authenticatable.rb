@@ -31,6 +31,11 @@ module ClerkAuthenticatable
       render_forbidden(INVITE_ONLY_MESSAGE)
       return # rubocop:disable Style/RedundantReturn -- consistent with other early-exits in this method
     end
+
+    unless @current_user.is_active?
+      render_forbidden("Your access has been deactivated. Please contact an administrator.")
+      return
+    end
   end
 
   def authenticate_user_optional
@@ -41,7 +46,8 @@ module ClerkAuthenticatable
     decoded = ClerkAuth.verify(token)
     return unless decoded
 
-    @current_user = resolve_user_from_claims(decoded)
+    resolved_user = resolve_user_from_claims(decoded)
+    @current_user = resolved_user if resolved_user&.is_active?
   end
 
   def current_user

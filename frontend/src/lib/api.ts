@@ -115,6 +115,7 @@ export interface CurrentUser {
   full_name: string;
   role: 'admin' | 'employee';
   approval_group?: ApprovalGroup | null;
+  is_active: boolean;
   is_admin: boolean;
   is_staff: boolean;
   kiosk_enabled: boolean;
@@ -547,7 +548,7 @@ export const api = {
 
   inviteUser: (data: {
     email?: string;
-    first_name: string;
+    first_name?: string;
     last_name?: string;
     role: 'admin' | 'employee';
     approval_group?: ApprovalGroup | null;
@@ -571,6 +572,7 @@ export const api = {
     email?: string | null;
     role?: 'admin' | 'employee';
     approval_group?: ApprovalGroup | null;
+    is_active?: boolean;
     time_category_ids?: number[];
   }) =>
     fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {

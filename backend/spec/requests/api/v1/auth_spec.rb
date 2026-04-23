@@ -68,6 +68,21 @@ RSpec.describe "Api::V1::Auth", type: :request do
     expect(JSON.parse(response.body).dig("user", "needs_kiosk_pin_setup")).to eq(true)
   end
 
+  it "blocks inactive staff users from signing in" do
+    create(
+      :user,
+      clerk_id: "user_clerk_123",
+      email: "first.admin@example.com",
+      role: "employee",
+      is_active: false
+    )
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:forbidden)
+    expect(JSON.parse(response.body).fetch("error")).to match(/deactivated/i)
+  end
+
   describe "POST /api/v1/auth/kiosk_pin" do
     let!(:user) do
       create(

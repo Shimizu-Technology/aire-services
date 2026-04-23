@@ -16,7 +16,9 @@ module Api
           end
 
           if params[:status] == "active"
-            @users = @users.where.not(clerk_id: nil).where.not("clerk_id LIKE 'pending_%'")
+            @users = @users.where(is_active: true)
+          elsif params[:status] == "inactive"
+            @users = @users.where(is_active: false)
           elsif params[:status] == "pending"
             @users = @users.where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
           end
@@ -36,8 +38,9 @@ module Api
           last_name = params[:last_name]&.strip
           role = params[:role] || "employee"
           approval_group = normalized_approval_group(params[:approval_group])
+          kiosk_only_user = email.blank?
 
-          if first_name.blank?
+          if kiosk_only_user && first_name.blank?
             return render json: { error: "First name is required" }, status: :unprocessable_entity
           end
 
@@ -72,11 +75,12 @@ module Api
 
           @user = User.new(
             email: email,
-            first_name: first_name,
-            last_name: last_name.presence,
+            first_name: kiosk_only_user ? first_name : nil,
+            last_name: kiosk_only_user ? last_name.presence : nil,
             role: role,
             approval_group: approval_group,
-            clerk_id: "pending_#{SecureRandom.hex(8)}"
+            clerk_id: "pending_#{SecureRandom.hex(8)}",
+            is_active: true
           )
 
           if @user.save
@@ -143,7 +147,7 @@ module Api
           @user.rotate_kiosk_pin!(pin)
 
           render json: {
-            user: serialize_user(@user),
+            user: serialize_user(@user.reload),
             kiosk_pin: pin,
             message: "Kiosk PIN reset for #{@user.full_name}"
           }
@@ -172,7 +176,7 @@ module Api
             role: user.role,
             approval_group: user.approval_group,
             approval_group_label: user.approval_group_label,
-            is_active: user.clerk_id.present? && !user.clerk_id.start_with?("pending_"),
+            is_active: user.is_active,
             is_pending: user.clerk_id.blank? || user.clerk_id.start_with?("pending_"),
             kiosk_enabled: user.kiosk_enabled,
             kiosk_pin_configured: user.kiosk_pin_configured?,
@@ -285,6 +289,17 @@ module Api
             end
 
             permitted[:approval_group] = approval_group
+          end
+
+          if params.key?(:is_active)
+            is_active = ActiveModel::Type::Boolean.new.cast(params[:is_active])
+
+            if !is_active && @user.id == current_user.id
+              render json: { error: "You cannot deactivate your own account" }, status: :unprocessable_entity
+              return {}
+            end
+
+            permitted[:is_active] = is_active
           end
 
           permitted

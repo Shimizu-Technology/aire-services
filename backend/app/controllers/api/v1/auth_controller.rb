@@ -21,7 +21,7 @@ module Api
         current_user.rotate_kiosk_pin!(pin, enabled: true)
 
         render json: {
-          user: serialize_current_user(current_user),
+          user: serialize_current_user(current_user.reload),
           message: "Your kiosk PIN has been set"
         }
       rescue ActiveRecord::RecordInvalid => e
@@ -42,6 +42,7 @@ module Api
           full_name: user.full_name,
           role: user.role,
           approval_group: user.approval_group,
+          is_active: user.is_active,
           is_admin: user.admin?,
           is_staff: user.staff?,
           kiosk_enabled: user.kiosk_enabled,

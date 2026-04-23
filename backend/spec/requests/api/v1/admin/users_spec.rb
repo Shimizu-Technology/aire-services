@@ -32,6 +32,24 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(json.dig(:user, :approval_group_label)).to eq("CFI")
     end
 
+    it "does not persist admin-entered names for email-based users" do
+      post "/api/v1/admin/users",
+           params: {
+             first_name: "Should",
+             last_name: "Ignore",
+             email: "invitee@example.com",
+             role: "employee",
+             send_invitation: false
+           },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:created)
+      expect(json.dig(:user, :email)).to eq("invitee@example.com")
+      expect(json.dig(:user, :first_name)).to be_nil
+      expect(json.dig(:user, :last_name)).to be_nil
+      expect(User.order(:id).last).to have_attributes(first_name: nil, last_name: nil)
+    end
+
     it "rejects an invalid approval group" do
       post "/api/v1/admin/users",
            params: {
@@ -96,6 +114,26 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
         approval_group: "cfi"
       )
       expect(employee.assigned_time_categories.pluck(:id)).to eq([ category.id ])
+    end
+
+    it "deactivates another user" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: { is_active: false },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:user, :is_active)).to eq(false)
+      expect(employee.reload.is_active).to eq(false)
+    end
+
+    it "does not let admins deactivate themselves" do
+      patch "/api/v1/admin/users/#{admin.id}",
+            params: { is_active: false },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/cannot deactivate your own account/i)
+      expect(admin.reload.is_active).to eq(true)
     end
   end
 end

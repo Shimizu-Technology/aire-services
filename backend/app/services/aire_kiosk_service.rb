@@ -9,6 +9,7 @@ class AireKioskService
 
       user = User.find_kiosk_user_by_pin(pin)
       raise KioskError, invalid_pin_message unless user
+      raise KioskError, invalid_pin_message unless user.is_active?
       raise KioskError, invalid_pin_message unless user.staff?
       raise KioskError, "Kiosk access is temporarily locked. Please contact a manager." if user.kiosk_locked?
       raise KioskError, invalid_pin_message unless user.kiosk_enabled?
