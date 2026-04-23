@@ -121,9 +121,6 @@ function EmployeeDashboard() {
                       {entry.formatted_start_time ?? '—'}
                       {entry.formatted_end_time ? ` — ${entry.formatted_end_time}` : ' — In progress'}
                     </p>
-                    {entry.approval_note && (
-                      <p className="mt-1 text-xs text-slate-400">{entry.approval_note}</p>
-                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-semibold text-slate-900">{entry.hours.toFixed(2)}h</p>

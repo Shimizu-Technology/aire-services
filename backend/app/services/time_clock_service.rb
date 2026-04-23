@@ -424,6 +424,8 @@ class TimeClockService
       end
     end
 
+    private
+
     def unscheduled_approval_note_for(user:, schedule:)
       return nil unless unscheduled_entry_requires_approval?(user: user, schedule: schedule)
 
@@ -449,8 +451,6 @@ class TimeClockService
         .uniq
         .join(" | ")
     end
-
-    private
 
     # Build session data from already-loaded entries (no extra queries).
     def session_data_from_loaded(todays_entries, active_entry)
