@@ -179,7 +179,8 @@ module Api
             approval_group: user.approval_group,
             approval_group_label: user.approval_group_label,
             is_active: user.is_active,
-            is_pending: user.clerk_id.blank? || user.clerk_id.start_with?("pending_"),
+            is_pending: user.pending_invite?,
+            uses_clerk_profile: user.uses_clerk_profile?,
             kiosk_enabled: user.kiosk_enabled,
             kiosk_pin_configured: user.kiosk_pin_configured?,
             kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
@@ -243,6 +244,7 @@ module Api
 
         def normalized_update_params
           permitted = {}
+          uses_clerk_profile = @user.uses_clerk_profile?
 
           if params[:role].present?
             unless %w[admin employee].include?(params[:role])
@@ -251,6 +253,13 @@ module Api
             end
 
             permitted[:role] = params[:role]
+          end
+
+          if params.key?(:first_name) || params.key?(:last_name)
+            if uses_clerk_profile
+              render json: { error: "Clerk-managed users update their name from their sign-in profile" }, status: :unprocessable_entity
+              return {}
+            end
           end
 
           if params.key?(:first_name)
@@ -269,6 +278,21 @@ module Api
 
           if params.key?(:email)
             email = params[:email].to_s.strip.downcase.presence
+
+            if uses_clerk_profile
+              if email.blank?
+                render json: { error: "Clerk-managed users must keep an email address" }, status: :unprocessable_entity
+                return {}
+              end
+
+              if !@user.pending_invite? && email != @user.email&.downcase
+                render json: { error: "Activated Clerk users must update their email from Clerk" }, status: :unprocessable_entity
+                return {}
+              end
+            elsif email.present?
+              render json: { error: "Kiosk-only users cannot be converted to email sign-in from this form" }, status: :unprocessable_entity
+              return {}
+            end
 
             if email.present? && !email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
               render json: { error: "Invalid email format" }, status: :unprocessable_entity

@@ -125,14 +125,21 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(employee.reload.approval_group).to be_nil
     end
 
-    it "updates profile fields and assigned categories together" do
+    it "updates kiosk-only profile fields and assigned categories together" do
+      kiosk_only_user = create(
+        :user,
+        :employee,
+        email: nil,
+        clerk_id: "pending_kiosk_123",
+        first_name: "Initial",
+        last_name: nil
+      )
       category = create(:time_category, name: "Ground Training Hours")
 
-      patch "/api/v1/admin/users/#{employee.id}",
+      patch "/api/v1/admin/users/#{kiosk_only_user.id}",
             params: {
               first_name: "Updated",
               last_name: "Pilot",
-              email: "updated.pilot@example.com",
               role: "employee",
               approval_group: "cfi",
               time_category_ids: [ category.id ]
@@ -142,15 +149,95 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(response).to have_http_status(:ok)
       expect(json.dig(:user, :first_name)).to eq("Updated")
       expect(json.dig(:user, :last_name)).to eq("Pilot")
-      expect(json.dig(:user, :email)).to eq("updated.pilot@example.com")
+      expect(json.dig(:user, :email)).to be_nil
       expect(json.dig(:user, :time_category_ids)).to eq([ category.id ])
-      expect(employee.reload).to have_attributes(
+      expect(kiosk_only_user.reload).to have_attributes(
         first_name: "Updated",
         last_name: "Pilot",
-        email: "updated.pilot@example.com",
+        email: nil,
         approval_group: "cfi"
       )
-      expect(employee.assigned_time_categories.pluck(:id)).to eq([ category.id ])
+      expect(kiosk_only_user.assigned_time_categories.pluck(:id)).to eq([ category.id ])
+    end
+
+    it "updates invited Clerk email and assigned categories together" do
+      invited_user = create(
+        :user,
+        :employee,
+        clerk_id: "pending_invite_123",
+        first_name: nil,
+        last_name: nil
+      )
+      category = create(:time_category, name: "Ground Training Hours")
+
+      patch "/api/v1/admin/users/#{invited_user.id}",
+            params: {
+              email: "updated.pilot@example.com",
+              role: "employee",
+              approval_group: "cfi",
+              time_category_ids: [ category.id ]
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:user, :email)).to eq("updated.pilot@example.com")
+      expect(json.dig(:user, :uses_clerk_profile)).to eq(true)
+      expect(json.dig(:user, :time_category_ids)).to eq([ category.id ])
+      expect(invited_user.reload).to have_attributes(
+        email: "updated.pilot@example.com",
+        first_name: nil,
+        last_name: nil,
+        approval_group: "cfi"
+      )
+      expect(invited_user.assigned_time_categories.pluck(:id)).to eq([ category.id ])
+    end
+
+    it "does not allow clearing email for an activated Clerk user" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: { email: "" },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/must keep an email address/i)
+      expect(employee.reload.email).to be_present
+    end
+
+    it "does not allow changing email for an activated Clerk user" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: { email: "new.email@example.com" },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/update their email from clerk/i)
+      expect(employee.reload.email).not_to eq("new.email@example.com")
+    end
+
+    it "does not allow editing Clerk-managed names" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: { first_name: "Updated" },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/update their name from their sign-in profile/i)
+      expect(employee.reload.first_name).to eq("Test")
+    end
+
+    it "does not allow converting a kiosk-only user to email sign-in from the edit form" do
+      kiosk_only_user = create(
+        :user,
+        :employee,
+        email: nil,
+        clerk_id: "pending_kiosk_456",
+        first_name: "Initial"
+      )
+
+      patch "/api/v1/admin/users/#{kiosk_only_user.id}",
+            params: { email: "new.invite@example.com" },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/cannot be converted to email sign-in/i)
+      expect(kiosk_only_user.reload.email).to be_nil
     end
 
     it "deactivates another user" do

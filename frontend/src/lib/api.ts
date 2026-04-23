@@ -158,6 +158,7 @@ export interface AdminUser {
   approval_group_label?: string;
   is_active: boolean;
   is_pending: boolean;
+  uses_clerk_profile: boolean;
   kiosk_enabled?: boolean;
   kiosk_pin_configured?: boolean;
   kiosk_pin_last_rotated_at?: string | null;

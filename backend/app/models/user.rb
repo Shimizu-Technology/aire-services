@@ -105,6 +105,18 @@ class User < ApplicationRecord
     end
   end
 
+  def pending_invite?
+    clerk_id.blank? || clerk_id.start_with?("pending_")
+  end
+
+  def uses_clerk_profile?
+    email.present?
+  end
+
+  def kiosk_only?
+    !uses_clerk_profile?
+  end
+
   def kiosk_locked?
     kiosk_locked_until.present? && kiosk_locked_until.future?
   end

@@ -101,7 +101,9 @@ export default function Users() {
 
   const activeCategories = allCategories.filter((c) => c.is_active)
   const createUsesClerkProfile = createEmail.trim().length > 0
-  const editUsesClerkProfile = editEmail.trim().length > 0
+  const editingUserUsesClerkProfile = editingUser?.uses_clerk_profile ?? false
+  const canEditPendingInviteEmail = Boolean(editingUserUsesClerkProfile && editingUser?.is_pending)
+  const editingUserIsKioskOnly = Boolean(editingUser && !editingUserUsesClerkProfile)
 
   const patchLocalUser = useCallback((userId: number, updater: (user: AdminUser) => AdminUser) => {
     setUsers((prev) => prev.map((user) => (user.id === userId ? updater(user) : user)))
@@ -199,23 +201,33 @@ export default function Users() {
     const nextEmail = editEmail.trim().toLowerCase()
     const nextCategoryIds = Array.from(editCategoryIds)
 
-    if (!nextEmail && !nextFirstName) {
+    if (editingUserIsKioskOnly && !nextFirstName) {
       setEditError('First name is required.')
       setSavingEdit(false)
       return
     }
 
+    if (canEditPendingInviteEmail && !nextEmail) {
+      setEditError('Email is required for invited Clerk users.')
+      setSavingEdit(false)
+      return
+    }
+
     try {
-      const res = await api.updateUser(targetUserId, {
-        ...(nextEmail ? {} : {
-          first_name: nextFirstName,
-          last_name: nextLastName || '',
-        }),
-        email: nextEmail || null,
+      const payload: Parameters<typeof api.updateUser>[1] = {
         role: editRole,
         approval_group: editApprovalGroup || null,
         time_category_ids: nextCategoryIds,
-      })
+      }
+
+      if (editingUserUsesClerkProfile) {
+        if (canEditPendingInviteEmail) payload.email = nextEmail
+      } else {
+        payload.first_name = nextFirstName
+        payload.last_name = nextLastName || ''
+      }
+
+      const res = await api.updateUser(targetUserId, payload)
       if (res.error) {
         setEditError(res.error)
       } else {
@@ -621,9 +633,11 @@ export default function Users() {
             </div>
 
             <form onSubmit={handleSaveUser} className="mt-6 space-y-4">
-              {editUsesClerkProfile ? (
+              {editingUserUsesClerkProfile ? (
                 <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
-                  This person&apos;s name comes from Clerk. They can update it from their sign-in profile.
+                  {canEditPendingInviteEmail
+                    ? 'This invitation uses Clerk for identity. You can change the invite email here, but names will come from Clerk after first sign-in.'
+                    : 'This person signs in with Clerk. Name and email stay managed by their sign-in profile.'}
                 </div>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -653,10 +667,15 @@ export default function Users() {
                   type="email"
                   value={editEmail}
                   onChange={(event) => setEditEmail(event.target.value)}
+                  disabled={!canEditPendingInviteEmail}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                 />
                 <p className="mt-2 text-xs text-slate-500">
-                  Leave blank only for kiosk-only users that do not sign in with email.
+                  {canEditPendingInviteEmail
+                    ? 'This email controls the outstanding invite until they sign in.'
+                    : editingUserUsesClerkProfile
+                      ? 'Activated Clerk users update email from Clerk, not from this admin form.'
+                      : 'Kiosk-only users do not sign in with email. Create a new invited user if they need Clerk access.'}
                 </p>
               </div>
 
