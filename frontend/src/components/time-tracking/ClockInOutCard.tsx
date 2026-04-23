@@ -7,6 +7,8 @@ interface ClockInOutCardProps {
   onStatusChange?: () => void
 }
 
+const ENABLE_CLOCK_OUT_DESCRIPTION = false
+
 function Spinner({ className = 'border-white/30 border-t-white' }: { className?: string }) {
   return <span className={`w-5 h-5 border-2 rounded-full animate-spin ${className}`} />
 }
@@ -174,6 +176,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
       setCorrectionTime(`${hh}:${mm}`)
     } else {
       setCorrectionTime('')
+      void handleClockOutSubmit()
+      return
     }
     setClockOutDescription('')
     setShowClockOutModal(true)
@@ -188,7 +192,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         const guamDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Guam', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
         return `${guamDate}T${correctionTime}:00`
       })() : undefined
-      const desc = clockOutDescription.trim() || undefined
+      const desc = ENABLE_CLOCK_OUT_DESCRIPTION ? clockOutDescription.trim() || undefined : undefined
       const result = await api.clockOut(correctedEnd, desc)
       if (result?.error) {
         setError(result.error)
@@ -206,7 +210,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   }
 
   const handleAction = async (action: 'clock_in' | 'start_break' | 'end_break', adminOverride = false) => {
-    if (action === 'clock_in' && !selectedCategoryId) {
+    if (action === 'clock_in' && categories.length > 0 && !selectedCategoryId) {
       setError('Choose a work category before clocking in.')
       return
     }
@@ -258,6 +262,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   const sessionBreakMin = status?.session?.total_break_minutes ?? (status?.break_minutes || 0)
   const netSessionWorkSeconds = isClockedIn ? sessionElapsed - sessionBreakMin * 60 - (isOnBreak ? breakElapsed : 0) : 0
   const netCategoryWorkSeconds = isClockedIn ? categoryElapsed - (status?.break_minutes || 0) * 60 - (isOnBreak ? breakElapsed : 0) : 0
+  const activeCategoryLabel = status?.time_category?.name ?? 'General'
 
   const stripeColor = isOnBreak ? 'bg-amber-400' : isClockedIn ? 'bg-emerald-500' : 'bg-neutral-warm'
   const borderColor = isOnBreak ? 'border-amber-300/60' : isClockedIn ? 'border-emerald-300/60' : 'border-neutral-warm'
@@ -369,11 +374,18 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
             </select>
           </div>
         )}
-
-        {isClockedIn && categories.length > 0 && (
+        {!isClockedIn && categories.length === 0 && (
           <div className="mb-4 p-3.5 bg-secondary/40 rounded-xl border border-neutral-warm/50">
             <div className="text-sm text-text-muted">
-              Current work category: <span className="font-semibold text-primary-dark">{status?.time_category?.name ?? '—'}</span>
+              No work categories are assigned. Your time will be tracked under <span className="font-semibold text-primary-dark">General</span>.
+            </div>
+          </div>
+        )}
+
+        {isClockedIn && (
+          <div className="mb-4 p-3.5 bg-secondary/40 rounded-xl border border-neutral-warm/50">
+            <div className="text-sm text-text-muted">
+              Current work category: <span className="font-semibold text-primary-dark">{activeCategoryLabel}</span>
             </div>
             {categories.length > 1 && (
               <SwitchCategoryInline
@@ -441,9 +453,9 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
               {!status?.schedule && !isClockedIn && (
                 <span className="text-xs text-text-muted">No shift scheduled today</span>
               )}
-              {isClockedIn && status?.time_category && (
+              {isClockedIn && (
                 <div className="text-xs text-text-muted mt-1">
-                  Category: <span className="font-medium text-primary-dark">{status.time_category.name}</span>
+                  Category: <span className="font-medium text-primary-dark">{activeCategoryLabel}</span>
                 </div>
               )}
             </div>
@@ -558,6 +570,13 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
             )}
           </div>
         )}
+        {!isClockedIn && categories.length === 0 && (
+          <div className="mt-4 pt-4 border-t border-neutral-warm/50 max-w-xl">
+            <p className="text-sm text-text-muted">
+              No work categories are assigned. Your time will be tracked under <span className="font-semibold text-primary-dark">General</span>.
+            </p>
+          </div>
+        )}
 
         {isClockedIn && categories.length > 1 && (
           <div className="mt-3 pt-3 border-t border-neutral-warm/50 max-w-sm">
@@ -612,20 +631,22 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1.5">
-                  What did you work on today?
-                </label>
-                <textarea
-                  value={clockOutDescription}
-                  onChange={e => setClockOutDescription(e.target.value)}
-                  placeholder="e.g. Flight instruction with student, ground school briefing, aircraft preflight..."
-                  rows={3}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none placeholder:text-gray-400"
-                  autoFocus
-                />
-                <p className="text-xs text-gray-400 mt-1">Optional, but helps keep track of your day</p>
-              </div>
+              {ENABLE_CLOCK_OUT_DESCRIPTION && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                    What did you work on today?
+                  </label>
+                  <textarea
+                    value={clockOutDescription}
+                    onChange={e => setClockOutDescription(e.target.value)}
+                    placeholder="e.g. Flight instruction with student, ground school briefing, aircraft preflight..."
+                    rows={3}
+                    className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none placeholder:text-gray-400"
+                    autoFocus
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Optional, but helps keep track of your day</p>
+                </div>
+              )}
 
               {correctionTime && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">

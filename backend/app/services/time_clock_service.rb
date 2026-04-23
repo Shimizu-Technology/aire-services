@@ -86,7 +86,8 @@ class TimeClockService
           entry.end_time = parsed
           entry.clock_out_at = now
           entry.approval_status = "pending"
-          entry.approval_note = "Employee corrected clock-out time to #{parsed.strftime('%I:%M %p')}"
+          entry.approval_note = build_approval_note(entry.approval_note, "Employee corrected clock-out time to #{parsed.strftime('%I:%M %p')}")
+          apply_unscheduled_pending!(entry)
         else
           entry.end_time = guam_now
           entry.clock_out_at = now
@@ -99,7 +100,6 @@ class TimeClockService
         entry.calculate_hours_from_times
         entry.overtime_status = check_overtime_status(user, entry)
         entry.admin_override = true if admin_override_by.present?
-        apply_unscheduled_pending!(entry)
 
         entry.save!
       end
@@ -434,11 +434,20 @@ class TimeClockService
       return unless unscheduled_entry_requires_approval?(user: entry.user, schedule: entry.schedule)
 
       entry.approval_status = "pending"
-      entry.approval_note = "Clocked in without a schedule"
+      entry.approval_note = build_approval_note(entry.approval_note, "Clocked in without a schedule")
     end
 
     def unscheduled_entry_requires_approval?(user:, schedule:)
       schedule.nil? && !user.admin?
+    end
+
+    def build_approval_note(existing_note, new_note)
+      [ existing_note.presence, new_note.presence ]
+        .compact
+        .flat_map { |note| note.split(" | ").map(&:strip) }
+        .reject(&:blank?)
+        .uniq
+        .join(" | ")
     end
 
     private
@@ -513,7 +522,7 @@ class TimeClockService
       return if user.admin?
 
       assigned_categories = user.assigned_time_categories.active
-      raise ClockError, "No work categories are assigned to this employee" unless assigned_categories.exists?
+      return if assigned_categories.none? && category.nil?
       raise ClockError, "Choose a work category before clocking in" unless category
       return if assigned_categories.exists?(category.id)
 

@@ -4,6 +4,7 @@ import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
+import type { TimeEntry } from '../../lib/api'
 
 const actionLinks = [
   {
@@ -50,14 +51,29 @@ export default function Dashboard() {
 
 function EmployeeDashboard() {
   const [mySchedule, setMySchedule] = useState<{ work_date: string; formatted_start_time: string; formatted_end_time: string; hours: number; notes?: string | null }[]>([])
-
-  useEffect(() => {
-    api.getMySchedule().then(r => {
-      if (r.data?.schedules) setMySchedule(r.data.schedules)
-    }).catch(() => undefined)
-  }, [])
+  const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([])
+  const [loadingTodayEntries, setLoadingTodayEntries] = useState(true)
 
   const todayStr = formatDateISO(new Date())
+  const loadDashboardData = useCallback(async () => {
+    try {
+      const [scheduleRes, entriesRes] = await Promise.all([
+        api.getMySchedule(),
+        api.getTimeEntries({ date: todayStr, per_page: 20 }),
+      ])
+
+      if (scheduleRes.data?.schedules) setMySchedule(scheduleRes.data.schedules)
+      if (entriesRes.data?.time_entries) setTodayEntries(entriesRes.data.time_entries)
+    } catch {
+      // Employee dashboard is best-effort.
+    } finally {
+      setLoadingTodayEntries(false)
+    }
+  }, [todayStr])
+
+  useEffect(() => {
+    loadDashboardData()
+  }, [loadDashboardData])
 
   return (
     <div className="space-y-6">
@@ -67,7 +83,58 @@ function EmployeeDashboard() {
         <p className="mt-1 text-sm text-slate-600">Clock in, track breaks, and view your schedule.</p>
       </div>
 
-      <ClockInOutCard />
+      <ClockInOutCard onStatusChange={loadDashboardData} />
+
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h2 className="text-lg font-semibold text-slate-900">Today&apos;s Activity</h2>
+          <p className="mt-0.5 text-sm text-slate-500">Your clock-ins, active time, and completed entries for today.</p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {loadingTodayEntries ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-500">Loading today&apos;s activity…</div>
+          ) : todayEntries.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-500">No time logged today yet.</div>
+          ) : (
+            todayEntries.map((entry) => {
+              const badge =
+                entry.status === 'on_break'
+                  ? { label: 'On break', className: 'border-amber-200 bg-amber-50 text-amber-700' }
+                  : entry.status === 'clocked_in'
+                    ? { label: 'Clocked in', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+                    : entry.approval_status === 'pending'
+                      ? { label: 'Pending review', className: 'border-amber-200 bg-amber-50 text-amber-700' }
+                      : { label: 'Completed', className: 'border-slate-200 bg-slate-50 text-slate-700' }
+
+              return (
+                <div key={entry.id} className="flex items-center justify-between gap-4 px-5 py-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {entry.time_category?.name ?? 'General'}
+                      </p>
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {entry.formatted_start_time ?? '—'}
+                      {entry.formatted_end_time ? ` — ${entry.formatted_end_time}` : ' — In progress'}
+                    </p>
+                    {entry.approval_note && (
+                      <p className="mt-1 text-xs text-slate-400">{entry.approval_note}</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-semibold text-slate-900">{entry.hours.toFixed(2)}h</p>
+                    <p className="text-xs uppercase tracking-[0.12em] text-slate-400">{entry.entry_method}</p>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-4">

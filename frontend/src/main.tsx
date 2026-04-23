@@ -26,7 +26,14 @@ function Root() {
   if (isClerkEnabled) {
     return (
       <PostHogProvider>
-        <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/">
+        <ClerkProvider
+          publishableKey={PUBLISHABLE_KEY}
+          afterSignOutUrl="/"
+          signInForceRedirectUrl="/admin"
+          signInFallbackRedirectUrl="/admin"
+          signUpForceRedirectUrl="/admin"
+          signUpFallbackRedirectUrl="/admin"
+        >
           <AuthProvider isClerkEnabled={true}>
             <App />
           </AuthProvider>

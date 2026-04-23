@@ -77,6 +77,20 @@ export default function Users() {
 
   const activeCategories = allCategories.filter((c) => c.is_active)
 
+  const assignedCategorySummaries = useCallback((categoryIds: number[]) => {
+    return allCategories
+      .filter((category) => categoryIds.includes(category.id))
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        key: category.key ?? null,
+      }))
+  }, [allCategories])
+
+  const patchLocalUser = useCallback((userId: number, updater: (user: AdminUser) => AdminUser) => {
+    setUsers((prev) => prev.map((user) => (user.id === userId ? updater(user) : user)))
+  }, [])
+
   const resetCreateForm = () => {
     setCreateFirstName('')
     setCreateLastName('')
@@ -131,16 +145,31 @@ export default function Users() {
   const handleSaveCategories = async () => {
     if (!editingUser) return
     setSavingCategories(true)
+    const targetUserId = editingUser.id
+    const nextCategoryIds = Array.from(editCategoryIds)
+    const nextCategories = assignedCategorySummaries(nextCategoryIds)
+    const previousUser = users.find((user) => user.id === targetUserId) ?? null
+
+    patchLocalUser(targetUserId, (user) => ({
+      ...user,
+      time_category_ids: nextCategoryIds,
+      time_categories: nextCategories,
+    }))
+    setEditingUser(null)
 
     try {
-      const res = await api.updateUser(editingUser.id, {
-        time_category_ids: Array.from(editCategoryIds),
+      const res = await api.updateUser(targetUserId, {
+        time_category_ids: nextCategoryIds,
       })
       if (res.error) {
+        if (previousUser) {
+          patchLocalUser(targetUserId, () => previousUser)
+        }
         alert(res.error)
       } else {
-        setEditingUser(null)
-        refreshData()
+        if (res.data?.user) {
+          patchLocalUser(targetUserId, () => res.data!.user)
+        }
       }
     } finally {
       setSavingCategories(false)
@@ -148,12 +177,23 @@ export default function Users() {
   }
 
   const handleRoleChange = async (userId: number, newRole: 'admin' | 'employee') => {
+    const previousUser = users.find((user) => user.id === userId) ?? null
+    patchLocalUser(userId, (user) => ({ ...user, role: newRole }))
     setUpdatingRoleIds((prev) => new Set(prev).add(userId))
     try {
       const response = await api.updateUserRole(userId, newRole)
-      if (response.error) alert(response.error)
-      else refreshData()
+      if (response.error) {
+        if (previousUser) {
+          patchLocalUser(userId, () => previousUser)
+        }
+        alert(response.error)
+      } else if (response.data?.user) {
+        patchLocalUser(userId, () => response.data!.user)
+      }
     } catch {
+      if (previousUser) {
+        patchLocalUser(userId, () => previousUser)
+      }
       alert('Failed to update role')
     } finally {
       setUpdatingRoleIds((prev) => {
@@ -165,14 +205,35 @@ export default function Users() {
   }
 
   const handleApprovalGroupChange = async (userId: number, newApprovalGroup: ApprovalGroup | '') => {
+    const previousUser = users.find((user) => user.id === userId) ?? null
+    const nextApprovalGroup = newApprovalGroup || null
+    patchLocalUser(userId, (user) => ({
+      ...user,
+      approval_group: nextApprovalGroup,
+      approval_group_label:
+        nextApprovalGroup === 'cfi'
+          ? 'CFI'
+          : nextApprovalGroup === 'ops_maintenance'
+            ? 'Ops / Maintenance'
+            : 'Unassigned',
+    }))
     setUpdatingApprovalGroupIds((prev) => new Set(prev).add(userId))
     try {
       const response = await api.updateUser(userId, {
-        approval_group: newApprovalGroup || null,
+        approval_group: nextApprovalGroup,
       })
-      if (response.error) alert(response.error)
-      else refreshData()
+      if (response.error) {
+        if (previousUser) {
+          patchLocalUser(userId, () => previousUser)
+        }
+        alert(response.error)
+      } else if (response.data?.user) {
+        patchLocalUser(userId, () => response.data!.user)
+      }
     } catch {
+      if (previousUser) {
+        patchLocalUser(userId, () => previousUser)
+      }
       alert('Failed to update approval group')
     } finally {
       setUpdatingApprovalGroupIds((prev) => {
