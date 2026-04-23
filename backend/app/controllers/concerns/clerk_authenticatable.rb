@@ -145,7 +145,7 @@ module ClerkAuthenticatable
   end
 
   def allow_first_user_bootstrap?
-    ActiveModel::Type::Boolean.new.cast(ENV.fetch("ALLOW_FIRST_USER_BOOTSTRAP", false))
+    ActiveModel::Type::Boolean.new.cast(ENV.fetch("ALLOW_FIRST_USER_BOOTSTRAP", "false"))
   end
 
   def render_unauthorized(message = "Unauthorized")
