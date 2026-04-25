@@ -273,8 +273,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(response).to have_http_status(:ok)
       expect(ClerkUserService).to have_received(:update_user!).with(
         clerk_user_id: employee.clerk_id,
-        first_name: "Updated",
-        last_name: "User"
+        first_name: "Updated"
       )
       expect(employee.reload).to have_attributes(
         email: employee.email,

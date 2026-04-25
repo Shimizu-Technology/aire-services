@@ -1,16 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type PublicTeamMember } from '../../lib/api'
 
-const fallbackTeamMembers: PublicTeamMember[] = [
-  { name: 'Mindy Wilson', title: 'Certified Flight Instructor' },
-  { name: 'Addison "AJ" Weldy', title: 'Certified Flight Instructor, Instrument / Multi Engine' },
-  { name: 'Spencer Williams', title: 'Certified Flight Instructor' },
-  { name: 'Roke Matanane', title: 'Certified Flight Instructor, Instrument / Multi Engine' },
-  { name: 'Brandon Letourneau', title: 'Certified Flight Instructor' },
-  { name: 'Monique Ayuyu', title: 'Certified Flight Instructor' },
-  { name: 'Jason Kim', title: 'Certified Flight Instructor' },
-]
-
 const credibilityPoints = [
   'Guam-based instructors who understand local flying conditions and student needs.',
   'Support for private, instrument, and multi-engine training.',
@@ -18,8 +8,8 @@ const credibilityPoints = [
 ]
 
 export default function AireTeam() {
-  const [teamMembers, setTeamMembers] = useState<PublicTeamMember[]>([])
-  const [loadedTeamMembers, setLoadedTeamMembers] = useState(false)
+  const [teamMembers, setTeamMembers] = useState<PublicTeamMember[] | null>(null)
+  const [teamLoadFailed, setTeamLoadFailed] = useState(false)
 
   useEffect(() => {
     document.title = 'Meet the Team | AIRE Services Guam'
@@ -28,10 +18,15 @@ export default function AireTeam() {
 
     async function loadTeamMembers() {
       const result = await api.getPublicTeamMembers()
-      if (cancelled || result.error || !result.data) return
+      if (cancelled) return
+
+      if (result.error || !result.data) {
+        setTeamLoadFailed(true)
+        setTeamMembers([])
+        return
+      }
 
       setTeamMembers(result.data.team_members)
-      setLoadedTeamMembers(true)
     }
 
     loadTeamMembers()
@@ -53,17 +48,30 @@ export default function AireTeam() {
         <div className="mt-10 grid gap-6 lg:grid-cols-[1fr_0.9fr] lg:items-start">
           <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-7">
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Training team</h2>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {(loadedTeamMembers ? teamMembers : fallbackTeamMembers).map((member) => (
-                <div key={`${member.name}-${member.title}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="text-base font-semibold leading-snug text-slate-900">{member.name}</p>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{member.title}</p>
-                </div>
-              ))}
-            </div>
-            {loadedTeamMembers && teamMembers.length === 0 && (
+            {teamMembers === null ? (
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="h-5 w-40 animate-pulse rounded bg-slate-200" />
+                    <div className="mt-3 h-4 w-52 animate-pulse rounded bg-slate-100" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                {teamMembers.map((member) => (
+                  <div key={`${member.name}-${member.title}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <p className="text-base font-semibold leading-snug text-slate-900">{member.name}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{member.title}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {teamMembers !== null && teamMembers.length === 0 && (
               <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm leading-relaxed text-slate-600">
-                Reach out to AIRE for the latest instructor roster and training availability.
+                {teamLoadFailed
+                  ? 'We could not load the instructor roster right now. Reach out to AIRE for the latest training availability.'
+                  : 'Reach out to AIRE for the latest instructor roster and training availability.'}
               </div>
             )}
           </section>

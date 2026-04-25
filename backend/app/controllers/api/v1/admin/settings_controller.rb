@@ -45,18 +45,21 @@ module Api
             return render json: { error: validation_error }, status: :unprocessable_entity if validation_error
           end
 
-          if approval_groups_present
-            approval_groups_error = validate_approval_groups(approval_groups_payload)
-            return render json: { error: approval_groups_error }, status: :unprocessable_entity if approval_groups_error
-          end
-
+          approval_groups_error = nil
           Setting.transaction do
+            if approval_groups_present
+              approval_groups_error = validate_approval_groups(approval_groups_payload, live: true)
+              raise ActiveRecord::Rollback if approval_groups_error.present?
+            end
+
             payload&.each do |key, value|
               Setting.set(key.to_s, value.to_s)
             end
 
             Setting.set_approval_groups!(approval_groups_payload) if approval_groups_present
           end
+
+          return render json: { error: approval_groups_error }, status: :unprocessable_entity if approval_groups_error.present?
 
           render json: {
             settings: serialized_settings,
@@ -108,18 +111,29 @@ module Api
           nil
         end
 
-        def validate_approval_groups(payload)
+        def validate_approval_groups(payload, live: false)
           normalized = Setting.normalize_approval_groups(payload)
-          removed_keys = Setting.approval_group_keys - normalized.map { |group| group.fetch("key") }
+          current_groups = live ? live_approval_groups : Setting.approval_groups
+          removed_keys = current_groups.map { |group| group.fetch("key") } - normalized.map { |group| group.fetch("key") }
           return if removed_keys.empty?
 
-          in_use_keys = User.where(approval_group: removed_keys).distinct.pluck(:approval_group)
+          users_scope = User.where(approval_group: removed_keys)
+          users_scope = users_scope.lock if live
+          in_use_keys = users_scope.distinct.pluck(:approval_group)
           return if in_use_keys.empty?
 
-          labels = in_use_keys.map { |key| Setting.approval_group_label_for(key) }
+          labels = in_use_keys.map do |key|
+            current_groups.find { |group| group["key"] == key }&.fetch("label", nil) || key.to_s.humanize
+          end
           "Reassign users before removing approval groups currently in use: #{labels.join(', ')}"
         rescue ArgumentError => e
           e.message
+        end
+
+        def live_approval_groups
+          Setting.clear_cache!
+          value = Setting.lock.where(key: "approval_groups").pick(:value)
+          Setting.parse_approval_groups(value)
         end
       end
     end
