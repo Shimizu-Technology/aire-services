@@ -35,18 +35,16 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
       expect(json[:team_members]).to eq(
         [
           {
-            id: first_user.id,
             name: "Captain First",
             title: "Certified Flight Instructor"
           },
           {
-            id: second_user.id,
             name: "Second User",
             title: "Chief Instructor"
           }
         ]
       )
-      expect(json[:team_members].map { |member| member[:id] }).not_to include(hidden_user.id)
+      expect(json[:team_members]).not_to include(include(name: hidden_user.full_name))
     end
   end
 end

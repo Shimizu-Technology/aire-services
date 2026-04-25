@@ -10,7 +10,6 @@ module Api
           next if name.blank? || title.blank?
 
           {
-            id: user.id,
             name: name,
             title: title
           }

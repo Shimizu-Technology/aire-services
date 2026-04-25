@@ -229,7 +229,6 @@ export interface PublicContactSettings {
 }
 
 export interface PublicTeamMember {
-  id: number;
   name: string;
   title: string;
 }

@@ -261,17 +261,10 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
     end
 
     it "updates active Clerk profile fields through ClerkUserService" do
-      allow(ClerkUserService).to receive(:update_user!).and_return(
-        {
-          email: "new.email@example.com",
-          first_name: "Updated",
-          last_name: "User"
-        }
-      )
+      allow(ClerkUserService).to receive(:update_user!).and_return(true)
 
       patch "/api/v1/admin/users/#{employee.id}",
             params: {
-              email: "new.email@example.com",
               first_name: "Updated",
               last_name: "User"
             },
@@ -280,29 +273,46 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(response).to have_http_status(:ok)
       expect(ClerkUserService).to have_received(:update_user!).with(
         clerk_user_id: employee.clerk_id,
-        email: "new.email@example.com",
         first_name: "Updated",
         last_name: "User"
       )
       expect(employee.reload).to have_attributes(
-        email: "new.email@example.com",
+        email: employee.email,
         first_name: "Updated",
         last_name: "User"
       )
     end
 
-    it "returns Clerk service errors to the admin form" do
+    it "rolls back local name changes when Clerk sync fails" do
       allow(ClerkUserService).to receive(:update_user!).and_raise(
         ClerkUserService::RequestError,
-        "Clerk request failed: email address already exists"
+        "Clerk request failed: upstream unavailable"
       )
 
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              first_name: "Updated",
+              public_team_enabled: true,
+              public_team_title: "Certified Flight Instructor"
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/upstream unavailable/i)
+      expect(employee.reload).to have_attributes(
+        first_name: "Test",
+        public_team_enabled: false,
+        public_team_title: nil
+      )
+    end
+
+    it "does not allow changing email for an activated Clerk user" do
       patch "/api/v1/admin/users/#{employee.id}",
             params: { email: "new.email@example.com" },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/email address already exists/i)
+      expect(json[:error]).to match(/update their email from Clerk/i)
       expect(employee.reload.email).not_to eq("new.email@example.com")
     end
 

@@ -235,7 +235,7 @@ export default function Users() {
       return
     }
 
-    if ((canEditPendingInviteEmail || canEditActiveClerkProfile) && !nextEmail) {
+    if (canEditPendingInviteEmail && !nextEmail) {
       setEditError('Email is required for Clerk-managed users.')
       setSavingEdit(false)
       return
@@ -274,7 +274,9 @@ export default function Users() {
       }
 
       if (editingUserUsesClerkProfile) {
-        payload.email = nextEmail
+        if (canEditPendingInviteEmail) {
+          payload.email = nextEmail
+        }
         if (canEditActiveClerkProfile) {
           payload.first_name = nextFirstName
           payload.last_name = nextLastName || ''
@@ -735,14 +737,14 @@ export default function Users() {
                   type="email"
                   value={editEmail}
                   onChange={(event) => setEditEmail(event.target.value)}
-                  disabled={editingUserIsKioskOnly}
+                  disabled={editingUserIsKioskOnly || canEditActiveClerkProfile}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-50 disabled:text-slate-400"
                 />
                 <p className="mt-2 text-xs text-slate-500">
                   {canEditPendingInviteEmail
                     ? 'This email controls the outstanding invite until they sign in.'
                     : canEditActiveClerkProfile
-                      ? 'Changing this updates the person’s Clerk sign-in email and their local AIRE Ops profile together.'
+                      ? 'Active Clerk users keep their sign-in email managed in Clerk. Use this form for names, status, routing, and Team page details.'
                       : editingUserUsesClerkProfile
                         ? 'Clerk invite email stays editable until the account is activated.'
                       : 'Kiosk-only users do not sign in with email. Create a new invited user if they need Clerk access.'}

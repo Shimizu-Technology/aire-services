@@ -83,7 +83,7 @@ class Setting < ApplicationRecord
   end
 
   def self.approval_groups
-    value = find_by(key: "approval_groups")&.value
+    value = get("approval_groups")
     parse_approval_groups(value)
   end
 

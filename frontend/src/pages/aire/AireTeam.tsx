@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { api, type PublicTeamMember } from '../../lib/api'
 
 const fallbackTeamMembers: PublicTeamMember[] = [
-  { id: 1, name: 'Mindy Wilson', title: 'Certified Flight Instructor' },
-  { id: 2, name: 'Addison "AJ" Weldy', title: 'Certified Flight Instructor, Instrument / Multi Engine' },
-  { id: 3, name: 'Spencer Williams', title: 'Certified Flight Instructor' },
-  { id: 4, name: 'Roke Matanane', title: 'Certified Flight Instructor, Instrument / Multi Engine' },
-  { id: 5, name: 'Brandon Letourneau', title: 'Certified Flight Instructor' },
-  { id: 6, name: 'Monique Ayuyu', title: 'Certified Flight Instructor' },
-  { id: 7, name: 'Jason Kim', title: 'Certified Flight Instructor' },
+  { name: 'Mindy Wilson', title: 'Certified Flight Instructor' },
+  { name: 'Addison "AJ" Weldy', title: 'Certified Flight Instructor, Instrument / Multi Engine' },
+  { name: 'Spencer Williams', title: 'Certified Flight Instructor' },
+  { name: 'Roke Matanane', title: 'Certified Flight Instructor, Instrument / Multi Engine' },
+  { name: 'Brandon Letourneau', title: 'Certified Flight Instructor' },
+  { name: 'Monique Ayuyu', title: 'Certified Flight Instructor' },
+  { name: 'Jason Kim', title: 'Certified Flight Instructor' },
 ]
 
 const credibilityPoints = [
@@ -55,7 +55,7 @@ export default function AireTeam() {
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Training team</h2>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               {(loadedTeamMembers ? teamMembers : fallbackTeamMembers).map((member) => (
-                <div key={`${member.id}-${member.name}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div key={`${member.name}-${member.title}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <p className="text-base font-semibold leading-snug text-slate-900">{member.name}</p>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">{member.title}</p>
                 </div>

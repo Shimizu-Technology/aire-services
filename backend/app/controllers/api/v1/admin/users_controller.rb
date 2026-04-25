@@ -105,23 +105,36 @@ module Api
 
           permitted = payload.fetch(:local_attributes)
           clerk_attributes = payload.fetch(:clerk_attributes)
+          previous_state = snapshot_local_user_state(@user) if clerk_attributes.present?
+
+          begin
+            ActiveRecord::Base.transaction do
+              @user.assign_attributes(permitted)
+              @user.save!
+              sync_time_categories(@user) if params.key?(:time_category_ids)
+            end
+          rescue ActiveRecord::RecordInvalid => e
+            return render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
+          end
 
           if clerk_attributes.present?
             begin
-              permitted.merge!(
-                ClerkUserService.update_user!(clerk_user_id: @user.clerk_id, **clerk_attributes)
-              )
+              ClerkUserService.update_user!(clerk_user_id: @user.clerk_id, **clerk_attributes)
             rescue ClerkUserService::Error => e
+              begin
+                restore_local_user_state!(@user, previous_state)
+              rescue StandardError => rollback_error
+                Rails.logger.error(
+                  "Failed to roll back local user changes after Clerk sync error for user #{@user.id}: #{rollback_error.message}"
+                )
+                return render json: { error: "Clerk sync failed after saving local changes, and automatic rollback could not be completed. Manual intervention is required." }, status: :internal_server_error
+              end
+
               return render json: { error: e.message }, status: :unprocessable_entity
             end
           end
 
-          if @user.update(permitted)
-            sync_time_categories(@user) if params.key?(:time_category_ids)
-            render json: { user: serialize_user(@user.reload) }
-          else
-            render json: { error: @user.errors.full_messages.join(", ") }, status: :unprocessable_entity
-          end
+          render json: { user: serialize_user(@user.reload) }
         end
 
         def destroy
@@ -236,6 +249,43 @@ module Api
           end
         end
 
+        def snapshot_local_user_state(user)
+          {
+            attributes: user.attributes.slice(
+              "email",
+              "first_name",
+              "last_name",
+              "role",
+              "approval_group",
+              "is_active",
+              "public_team_enabled",
+              "public_team_name",
+              "public_team_title",
+              "public_team_sort_order"
+            ),
+            time_categories: user.user_time_categories.pluck(:time_category_id, :hourly_rate_cents)
+          }
+        end
+
+        def restore_local_user_state!(user, snapshot)
+          ActiveRecord::Base.transaction do
+            user.reload
+            user.update_columns(snapshot.fetch(:attributes).merge("updated_at" => Time.current))
+            restore_user_time_categories!(user, snapshot.fetch(:time_categories))
+          end
+        end
+
+        def restore_user_time_categories!(user, time_categories)
+          desired_ids = time_categories.map(&:first)
+          user.user_time_categories.where.not(time_category_id: desired_ids).destroy_all
+
+          time_categories.each do |time_category_id, hourly_rate_cents|
+            assignment = user.user_time_categories.find_or_initialize_by(time_category_id: time_category_id)
+            assignment.hourly_rate_cents = hourly_rate_cents
+            assignment.save!
+          end
+        end
+
         def send_invitation_email(user)
           sent = EmailService.send_invitation_email(user: user, invited_by: current_user)
           if sent
@@ -289,6 +339,7 @@ module Api
             end
 
             if active_clerk_user
+              permitted[:first_name] = first_name
               clerk_attributes[:first_name] = first_name if first_name != @user.first_name.to_s
             else
               permitted[:first_name] = first_name
@@ -298,6 +349,7 @@ module Api
           if params.key?(:last_name)
             last_name = params[:last_name].to_s.strip.presence
             if active_clerk_user
+              permitted[:last_name] = last_name
               clerk_attributes[:last_name] = last_name if last_name != @user.last_name.presence
             else
               permitted[:last_name] = last_name
@@ -314,7 +366,10 @@ module Api
               end
 
               if active_clerk_user
-                clerk_attributes[:email] = email if email != @user.email&.downcase
+                if email != @user.email&.downcase
+                  render json: { error: "Activated Clerk users must update their email from Clerk" }, status: :unprocessable_entity
+                  return { local_attributes: {}, clerk_attributes: {} }
+                end
               else
                 permitted[:email] = email
               end
