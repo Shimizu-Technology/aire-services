@@ -27,6 +27,18 @@ RSpec.describe Setting, type: :model do
       )
       expect(described_class.approval_group_label_for("lead_cfi")).to eq("Lead CFI")
     end
+
+    it "falls back to the label when the provided key is blank" do
+      described_class.set_approval_groups!([
+        { key: "", label: "Tour Ops" }
+      ])
+
+      expect(described_class.approval_groups).to eq(
+        [
+          { "key" => "tour_ops", "label" => "Tour Ops" }
+        ]
+      )
+    end
   end
 
   describe ".update_contact_settings!" do

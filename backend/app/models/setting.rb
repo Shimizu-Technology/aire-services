@@ -141,10 +141,10 @@ class Setting < ApplicationRecord
   def self.normalize_approval_groups(value)
     groups = Array(value).filter_map do |group|
       raw_group = group.respond_to?(:to_h) ? group.to_h : {}
-      label = raw_group["label"] || raw_group[:label] || group
+      label = raw_group["label"].presence || raw_group[:label].presence || group
       next if label.blank?
 
-      raw_key = raw_group["key"] || raw_group[:key] || label
+      raw_key = raw_group["key"].presence || raw_group[:key].presence || label
       key = normalize_approval_group_key(raw_key)
       raise ArgumentError, "Approval group keys may only contain letters, numbers, and underscores" if key.blank?
 

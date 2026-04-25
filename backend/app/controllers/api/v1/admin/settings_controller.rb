@@ -131,7 +131,6 @@ module Api
         end
 
         def live_approval_groups
-          Setting.clear_cache!
           value = Setting.lock.where(key: "approval_groups").pick(:value)
           Setting.parse_approval_groups(value)
         end

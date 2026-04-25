@@ -56,7 +56,7 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       patch "/api/v1/admin/settings",
             params: {
               approval_groups: [
-                { label: "CFI" },
+                { key: "", label: "CFI" },
                 { key: "tour_ops", label: "Tour Ops" }
               ]
             },
