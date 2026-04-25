@@ -59,8 +59,8 @@ export default function AireTeam() {
               </div>
             ) : (
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                {teamMembers.map((member) => (
-                  <div key={`${member.name}-${member.title}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                {teamMembers.map((member, index) => (
+                  <div key={`${member.name}-${member.title}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <p className="text-base font-semibold leading-snug text-slate-900">{member.name}</p>
                     <p className="mt-2 text-sm leading-relaxed text-slate-600">{member.title}</p>
                   </div>

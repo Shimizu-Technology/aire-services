@@ -10,6 +10,15 @@ const emptyCategoryForm = {
   is_active: true,
 }
 
+const normalizeApprovalGroupKey = (value: string) => (
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+)
+
 export default function Settings() {
   useEffect(() => {
     document.title = 'Settings | AIRE Ops'
@@ -248,6 +257,19 @@ export default function Settings() {
 
     if (normalizedGroups.some((group) => !group.label)) {
       setApprovalGroupsError('Each approval group needs a label.')
+      setApprovalGroupsMessage('')
+      return
+    }
+
+    const normalizedKeys = normalizedGroups.map((group) => normalizeApprovalGroupKey(group.key || group.label))
+    if (normalizedKeys.some((key) => !key)) {
+      setApprovalGroupsError('Approval group keys may only contain letters, numbers, and underscores.')
+      setApprovalGroupsMessage('')
+      return
+    }
+
+    if (new Set(normalizedKeys).size !== normalizedKeys.length) {
+      setApprovalGroupsError('Approval group keys must be unique.')
       setApprovalGroupsMessage('')
       return
     }

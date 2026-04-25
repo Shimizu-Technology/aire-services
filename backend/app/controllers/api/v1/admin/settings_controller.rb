@@ -119,7 +119,7 @@ module Api
 
           users_scope = User.where(approval_group: removed_keys)
           users_scope = users_scope.lock if live
-          in_use_keys = users_scope.distinct.pluck(:approval_group)
+          in_use_keys = users_scope.pluck(:approval_group).compact.uniq
           return if in_use_keys.empty?
 
           labels = in_use_keys.map do |key|
