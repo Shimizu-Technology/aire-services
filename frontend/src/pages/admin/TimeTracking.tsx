@@ -3,6 +3,7 @@ import { FadeUp, StaggerContainer, StaggerItem } from '../../components/ui/Motio
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
+import type { ApprovalGroupOption } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
 import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
@@ -161,6 +162,8 @@ export default function TimeTracking() {
   const [entrySummary, setEntrySummary] = useState({ total_hours: 0, total_break_hours: 0, entry_count: 0 })
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [users, setUsers] = useState<UserOption[]>([])
+  const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
+  const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
@@ -331,6 +334,25 @@ export default function TimeTracking() {
       console.error('Failed to load options')
     }
   }, [])
+
+  const loadApprovalGroups = useCallback(async () => {
+    if (!isAdmin) {
+      setApprovalGroups([])
+      setApprovalGroupsLoaded(true)
+      return
+    }
+
+    try {
+      const response = await api.getAdminAppSettings()
+      if (response.data?.approval_groups) {
+        setApprovalGroups(response.data.approval_groups)
+      }
+    } catch {
+      console.error('Failed to load approval groups')
+    } finally {
+      setApprovalGroupsLoaded(true)
+    }
+  }, [isAdmin])
   
   const loadWeekLockStatus = useCallback(async () => {
     try {
@@ -429,6 +451,11 @@ export default function TimeTracking() {
   useEffect(() => {
     loadOptions()
   }, [loadOptions])
+
+  useEffect(() => {
+    setApprovalGroupsLoaded(false)
+    loadApprovalGroups()
+  }, [loadApprovalGroups])
 
   useEffect(() => {
     loadWeekLockStatus()
@@ -780,7 +807,12 @@ export default function TimeTracking() {
       {/* Admin Panels */}
       {isAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ApprovalQueue onUpdate={() => loadEntries()} canDeleteEntry={canDeleteEntry} />
+          <ApprovalQueue
+            approvalGroups={approvalGroups}
+            approvalGroupsLoaded={approvalGroupsLoaded}
+            onUpdate={() => loadEntries()}
+            canDeleteEntry={canDeleteEntry}
+          />
           <WhosWorking />
         </div>
       )}

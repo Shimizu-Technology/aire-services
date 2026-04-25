@@ -283,6 +283,8 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
     end
 
     it "rolls back local name changes when Clerk sync fails" do
+      original_updated_at = employee.updated_at
+
       allow(ClerkUserService).to receive(:update_user!).and_raise(
         ClerkUserService::RequestError,
         "Clerk request failed: upstream unavailable"
@@ -303,6 +305,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
         public_team_enabled: false,
         public_team_title: nil
       )
+      expect(employee.updated_at.to_i).to eq(original_updated_at.to_i)
     end
 
     it "does not allow changing email for an activated Clerk user" do

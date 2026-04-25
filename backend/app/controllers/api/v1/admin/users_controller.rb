@@ -280,7 +280,8 @@ module Api
               "public_team_enabled",
               "public_team_name",
               "public_team_title",
-              "public_team_sort_order"
+              "public_team_sort_order",
+              "updated_at"
             ),
             time_categories: user.user_time_categories.pluck(:time_category_id, :hourly_rate_cents)
           }
@@ -289,7 +290,7 @@ module Api
         def restore_local_user_state!(user, snapshot)
           ActiveRecord::Base.transaction do
             user.reload
-            user.update_columns(snapshot.fetch(:attributes).merge("updated_at" => Time.current))
+            user.update_columns(snapshot.fetch(:attributes))
             restore_user_time_categories!(user, snapshot.fetch(:time_categories))
           end
         end

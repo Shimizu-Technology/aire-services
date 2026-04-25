@@ -5,6 +5,8 @@ import type { ApprovalGroupFilter, ApprovalGroupOption, TimeCategory, TimeEntry 
 import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
+  approvalGroups: ApprovalGroupOption[]
+  approvalGroupsLoaded: boolean
   onUpdate?: () => void
   canDeleteEntry?: (entry: TimeEntry) => boolean
 }
@@ -15,12 +17,10 @@ function filterEntriesByGroup(entries: TimeEntry[], filter: 'all' | ApprovalGrou
   return entries.filter((entry) => entry.user.approval_group === filter)
 }
 
-export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
-  const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
-  const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [approvalGroupFilter, setApprovalGroupFilter] = useState<'all' | ApprovalGroupFilter>('all')
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
@@ -87,17 +87,6 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
         }
       })
       .catch(() => undefined)
-  }, [])
-
-  useEffect(() => {
-    api.getAdminAppSettings()
-      .then((result) => {
-        if (result.data?.approval_groups) {
-          setApprovalGroups(result.data.approval_groups)
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => setApprovalGroupsLoaded(true))
   }, [])
 
   const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
