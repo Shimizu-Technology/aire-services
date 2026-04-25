@@ -47,16 +47,24 @@ module Api
 
           approval_groups_error = nil
           Setting.transaction do
+            persist_settings = lambda do
+              if approval_groups_present
+                approval_groups_error = validate_approval_groups(approval_groups_payload, live: true)
+                raise ActiveRecord::Rollback if approval_groups_error.present?
+              end
+
+              payload&.each do |key, value|
+                Setting.set(key.to_s, value.to_s)
+              end
+
+              Setting.set_approval_groups!(approval_groups_payload) if approval_groups_present
+            end
+
             if approval_groups_present
-              approval_groups_error = validate_approval_groups(approval_groups_payload, live: true)
-              raise ActiveRecord::Rollback if approval_groups_error.present?
+              Setting.with_approval_groups_lock { persist_settings.call }
+            else
+              persist_settings.call
             end
-
-            payload&.each do |key, value|
-              Setting.set(key.to_s, value.to_s)
-            end
-
-            Setting.set_approval_groups!(approval_groups_payload) if approval_groups_present
           end
 
           return render json: { error: approval_groups_error }, status: :unprocessable_entity if approval_groups_error.present?

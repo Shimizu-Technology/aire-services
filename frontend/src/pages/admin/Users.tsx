@@ -226,7 +226,8 @@ export default function Users() {
     const nextEmail = editEmail.trim().toLowerCase()
     const nextPublicTeamName = editPublicTeamName.trim()
     const nextPublicTeamTitle = editPublicTeamTitle.trim()
-    const nextPublicTeamSortOrder = Number.parseInt(editPublicTeamSortOrder, 10)
+    const hasPublicTeamSortOrder = editPublicTeamSortOrder.trim().length > 0
+    const nextPublicTeamSortOrder = hasPublicTeamSortOrder ? Number.parseInt(editPublicTeamSortOrder, 10) : null
     const nextCategoryIds = Array.from(editCategoryIds)
 
     if ((editingUserIsKioskOnly || canEditActiveClerkProfile) && !nextFirstName) {
@@ -255,7 +256,7 @@ export default function Users() {
         return
       }
 
-      if (Number.isNaN(nextPublicTeamSortOrder)) {
+      if (nextPublicTeamSortOrder === null || Number.isNaN(nextPublicTeamSortOrder)) {
         setEditError('Public team sort order must be a whole number.')
         setSavingEdit(false)
         return
@@ -269,8 +270,11 @@ export default function Users() {
         public_team_enabled: editPublicTeamEnabled,
         public_team_name: nextPublicTeamName || null,
         public_team_title: nextPublicTeamTitle || null,
-        public_team_sort_order: Number.isNaN(nextPublicTeamSortOrder) ? 0 : nextPublicTeamSortOrder,
         time_category_ids: nextCategoryIds,
+      }
+
+      if (nextPublicTeamSortOrder !== null) {
+        payload.public_team_sort_order = nextPublicTeamSortOrder
       }
 
       if (editingUserUsesClerkProfile) {

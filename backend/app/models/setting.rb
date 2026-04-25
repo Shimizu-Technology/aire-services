@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class Setting < ApplicationRecord
+  APPROVAL_GROUPS_ADVISORY_LOCK_KEY = 92_144_007
   DEFAULT_CONTACT_NOTIFICATION_EMAILS = [ "admin@aireservicesguam.com" ].freeze
   DEFAULT_CONTACT_INQUIRY_TOPICS = [
     "Private Pilot Certificate",
@@ -95,6 +96,16 @@ class Setting < ApplicationRecord
     return "Unassigned" if key.blank?
 
     approval_groups.find { |group| group["key"] == key.to_s }&.fetch("label", nil) || key.to_s.humanize
+  end
+
+  def self.with_approval_groups_lock
+    raise "Approval group lock requires an open transaction" unless connection.transaction_open?
+
+    connection.select_value("SELECT pg_advisory_xact_lock(#{APPROVAL_GROUPS_ADVISORY_LOCK_KEY})")
+    clear_cache!
+    yield
+  ensure
+    clear_cache!
   end
 
   def self.set_approval_groups!(groups)

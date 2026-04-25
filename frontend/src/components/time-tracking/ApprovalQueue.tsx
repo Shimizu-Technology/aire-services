@@ -20,6 +20,7 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
+  const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [approvalGroupFilter, setApprovalGroupFilter] = useState<'all' | ApprovalGroupFilter>('all')
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
@@ -96,6 +97,7 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
         }
       })
       .catch(() => undefined)
+      .finally(() => setApprovalGroupsLoaded(true))
   }, [])
 
   const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
@@ -258,7 +260,7 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
 
         <div className="-mx-1 mb-4 overflow-x-auto pb-1">
           <div className="flex min-w-max flex-nowrap gap-2 px-1">
-          {filterOptions.map((option) => (
+          {approvalGroupsLoaded ? filterOptions.map((option) => (
             <button
               key={option.value}
               type="button"
@@ -271,6 +273,8 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
             >
               {option.label} ({option.count})
             </button>
+          )) : Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-8 w-24 animate-pulse rounded-full border border-neutral-warm bg-secondary/40" />
           ))}
           </div>
         </div>
