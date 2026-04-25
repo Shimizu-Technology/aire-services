@@ -33,9 +33,9 @@ export default function AireDiscoveryFlight() {
           <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Discovery Flight</p>
-              <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">The easiest real first step into aviation</h1>
+              <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">Take a discovery flight and get a real first look at flying</h1>
               <p className="mt-4 text-base leading-relaxed text-slate-200 md:text-lg">
-                A discovery flight moves you from curiosity into a real aircraft with an instructor. It is the simplest way to see what flying feels like before committing to full training.
+                A discovery flight is a simple way to meet an instructor, experience the aircraft, and see whether flight training feels like the right next step for you.
               </p>
             </div>
           </div>
@@ -69,7 +69,7 @@ export default function AireDiscoveryFlight() {
                     Ask About Discovery Flights
                   </Link>
                   <Link to="/programs" className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-                    View All Programs
+                    View Tours and Services
                   </Link>
                 </div>
               </section>

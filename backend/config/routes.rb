@@ -13,6 +13,7 @@ Rails.application.routes.draw do
       # Public marketing/contact
       post "contact", to: "contact#create"
       resource :contact_settings, only: [ :show ]
+      resources :team_members, only: [ :index ]
 
       # Public kiosk endpoints
       namespace :aire do

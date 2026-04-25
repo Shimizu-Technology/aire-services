@@ -1,5 +1,10 @@
 # AIRE Services — Public Site Rebuild Status
 
+Status note:
+- This file describes the earlier rebuild/design pass and is now partially superseded by later contact-settings work.
+- The public contact form is now wired to the backend and its inquiry topics are admin-configurable from the ops side.
+- The next public-site work is no longer basic contact plumbing; it is phase-5 IA/copy repositioning and polish.
+
 ## Completed in this pass
 - Replaced placeholder AIRE marketing copy with a structured first-pass public site using AIRE research as the content base
 - Rebuilt `AireHome.tsx` with:
@@ -33,6 +38,6 @@ This is a **content-structure pass**, not the final design polish pass.
 Still needed:
 - approved real images/assets from AIRE
 - design polish / richer visual system
-- real contact form wiring on the public site
+- IA/copy refresh around current tours / media / training positioning
 - testimonials/social proof if available
 - hiring/careers page if Leon wants it public

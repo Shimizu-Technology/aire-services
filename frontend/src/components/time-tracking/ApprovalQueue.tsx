@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
-import type { ApprovalGroupFilter, TimeCategory, TimeEntry } from '../../lib/api'
+import type { ApprovalGroupFilter, ApprovalGroupOption, TimeCategory, TimeEntry } from '../../lib/api'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
+  approvalGroups: ApprovalGroupOption[]
+  approvalGroupsLoaded: boolean
   onUpdate?: () => void
   canDeleteEntry?: (entry: TimeEntry) => boolean
 }
@@ -15,7 +17,7 @@ function filterEntriesByGroup(entries: TimeEntry[], filter: 'all' | ApprovalGrou
   return entries.filter((entry) => entry.user.approval_group === filter)
 }
 
-export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -89,8 +91,11 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
 
   const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
     { value: 'all', label: 'All', count: allEntries.length },
-    { value: 'cfi', label: 'CFI', count: allEntries.filter((entry) => entry.user.approval_group === 'cfi').length },
-    { value: 'ops_maintenance', label: 'Ops / Maintenance', count: allEntries.filter((entry) => entry.user.approval_group === 'ops_maintenance').length },
+    ...approvalGroups.map((group) => ({
+      value: group.key,
+      label: group.label,
+      count: allEntries.filter((entry) => entry.user.approval_group === group.key).length,
+    })),
     { value: 'unassigned', label: 'Unassigned', count: allEntries.filter((entry) => !entry.user.approval_group).length },
   ]
 
@@ -244,7 +249,7 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
 
         <div className="-mx-1 mb-4 overflow-x-auto pb-1">
           <div className="flex min-w-max flex-nowrap gap-2 px-1">
-          {filterOptions.map((option) => (
+          {approvalGroupsLoaded ? filterOptions.map((option) => (
             <button
               key={option.value}
               type="button"
@@ -257,6 +262,8 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
             >
               {option.label} ({option.count})
             </button>
+          )) : Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-8 w-24 animate-pulse rounded-full border border-neutral-warm bg-secondary/40" />
           ))}
           </div>
         </div>

@@ -1,5 +1,25 @@
 import { test, expect } from '@playwright/test';
 
+const publicRoutes = [
+  { path: '/', heading: /Pilot training|Guam aerial tours|video packages/i },
+  { path: '/programs', heading: /Pilot training|Programs/i },
+  { path: '/team', heading: /Meet the people|Meet the instructors|Team/i },
+  { path: '/discovery-flight', heading: /discovery flight/i },
+  { path: '/careers', heading: /Join the AIRE team|Careers/i },
+  { path: '/contact', heading: /Talk with AIRE|Contact/i },
+];
+
+async function expectNoHorizontalOverflow(page: import('@playwright/test').Page) {
+  const metrics = await page.evaluate(() => ({
+    doc: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+    viewport: window.innerWidth,
+  }));
+
+  expect(metrics.doc).toBeLessThanOrEqual(metrics.viewport + 1);
+  expect(metrics.body).toBeLessThanOrEqual(metrics.viewport + 1);
+}
+
 test.describe('Public Marketing Pages', () => {
   test('home page loads and displays content', async ({ page }) => {
     await page.goto('/');
@@ -57,7 +77,7 @@ test.describe('Public Marketing Pages', () => {
       if (await mobileMenuButton.isVisible()) {
         await mobileMenuButton.click();
         await page.waitForTimeout(300);
-        await page.locator(`a:has-text("${name}")`).first().click();
+        await page.locator(`a:has-text("${name}"):visible`).first().click();
       } else {
         await page.locator(`nav a:has-text("${name}")`).first().click();
       }
@@ -68,6 +88,14 @@ test.describe('Public Marketing Pages', () => {
 
     await clickNavLink('Contact');
     await expect(page).toHaveURL(/\/contact/);
+  });
+
+  test('desktop pages render without horizontal overflow', async ({ page }) => {
+    for (const route of publicRoutes) {
+      await page.goto(route.path);
+      await expect(page.locator('h1').first()).toContainText(route.heading);
+      await expectNoHorizontalOverflow(page);
+    }
   });
 });
 
@@ -84,5 +112,13 @@ test.describe('Mobile Responsiveness', () => {
 
     const mobileMenu = page.locator('a:has-text("Programs"):visible');
     await expect(mobileMenu.first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('public pages stack cleanly on mobile without overflow', async ({ page }) => {
+    for (const route of publicRoutes) {
+      await page.goto(route.path);
+      await expect(page.locator('h1').first()).toContainText(route.heading);
+      await expectNoHorizontalOverflow(page);
+    }
   });
 });

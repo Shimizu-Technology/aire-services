@@ -9,18 +9,27 @@ This document captures:
 
 This is the working planning document for the next build phase.
 
+Current status note:
+- Validated against the current `main` branch on 2026-04-24.
+- `Phases 1` through `4` are already implemented on `main`.
+- The active remaining work is the public-site direction shift plus final admin-shell polish.
+
 ---
 
 ## Executive summary
 AIRE is close enough to real operations that the next phase should be treated as a rollout-hardening phase, not a prototype phase.
 
-The main issue is not visual polish. The main issue is that the operations workflow is still missing several behaviors that matter for real time approval and staff administration:
-- unscheduled clock time is not yet routed into pending approval the way the business now wants
-- user management is still too shallow for real admin operations
-- kiosk PIN setup is still too admin-driven
-- the approval queue is not yet the primary place to review and edit entries
-- reviewer routing for CFI vs admin/maintenance does not exist yet
-- public-site content and inquiry handling still reflect an older discovery-flight-led direction
+The operational base is materially further along than the original review snapshot:
+- unscheduled non-admin clock time now routes into pending approval
+- reviewer routing exists via `approval_group`
+- the approval queue supports filtering, edit-in-place entry access, notes, and bulk approve for the visible set
+- user management now has create/edit flows, approval-group assignment, activation controls, and PIN tools
+- self-service kiosk PIN setup exists for authenticated staff on first sign-in
+- admin-configurable contact recipients and inquiry topics are already wired through to the public form
+
+The remaining rollout work is now concentrated in two areas:
+- public-site information architecture and copy still reflect the older discovery-flight-led direction
+- admin-shell polish still needs a final pass after workflow decisions are locked
 
 The right next move is to document the rollout phase as three workstreams:
 - ops core
@@ -32,6 +41,31 @@ The highest-priority workstream is `ops core`.
 ---
 
 ## Inputs used for this review
+
+## Confirmed follow-up decisions (2026-04-24)
+- Keep the current admin exemption for unscheduled pending approval.
+- Group filters are enough for now; "assigned to me" stays future scope.
+- `approval_group` should evolve from the current hardcoded enum into an admin-configurable list so the office can rename/add groups later.
+- We should extend admin user editing for activated Clerk-managed users by using Clerk's backend API with `CLERK_SECRET_KEY`, rather than treating that as a permanent product limitation.
+- The public site should emphasize:
+  - pilot training / becoming a pilot
+  - Guam aerial tours
+  - video packages
+- Discovery flights are no longer the lead public offer and should be de-emphasized or removed from the primary IA.
+- Confirmed public aerial-tour pricing:
+  - Bay Tour: `$275`
+  - Island Tour: `$395`
+  - Sunset Tour: `$345`
+- Confirmed standard video-package pricing:
+  - Bay: `$79`
+  - Sunset: `$89`
+  - Island: `$99`
+- Confirmed all-inclusive video-package pricing:
+  - Bay: `$129`
+  - Sunset: `$139`
+  - Island: `$149`
+- Local residents and military members should not show a public numeric discount; the site should say to contact AIRE for discounted-rate details.
+- Tour/video disclaimers from the flyers should be carried onto the site.
 
 ### Meeting notes
 Requested changes from the office-manager conversation:
@@ -60,29 +94,21 @@ Important note:
 
 ## 1) User management
 ### Current state
-- Admins can add users, remove users, resend invites, reset kiosk PINs, change role, and assign work categories.
-- Work categories are edited in a dedicated modal.
-- There is no full edit flow for staff profile data.
+- Admins can add users, remove users, resend invites, reset kiosk PINs, activate/deactivate users, change role, assign approval groups, and assign work categories.
+- User management now includes unified create/edit modals for role, approval routing, category assignment, and kiosk status context.
+- Kiosk-only users can be edited for local profile fields, and pending invite email addresses can be corrected before activation.
 
 ### Missing
-- no edit flow for first name / last name / email
-- no unified edit modal for profile + role + categories + kiosk/access behavior
-- no reviewer/grouping field for approval routing
-- no clear admin UX for managing who belongs to CFI vs admin/maintenance review buckets
+- activated Clerk users still do not support admin-side name/email edits from this form
+- there is still no separate kiosk-enabled toggle beyond PIN rotation and account active state
+- if the office manager expects admins to directly correct active Clerk profile data, that remains a future integration decision
 
 ### Recommendation
-Replace the current fragmented user actions with a real user edit modal or panel that supports:
-- first name
-- last name
-- email
-- role
-- approval/reviewer grouping
-- time categories
-- kiosk access / PIN status actions
+Keep the current unified user edit flow and only extend it if the business truly needs admin-managed edits for activated Clerk identities.
 
-Important design decision:
+Important design decision already implemented:
 - do **not** reuse time categories as reviewer routing
-- add a dedicated user-level field such as `approval_group`
+- use the dedicated user-level `approval_group` field
 
 Recommended initial values:
 - `cfi`
@@ -94,9 +120,9 @@ If needed later, this can expand without breaking reporting or payroll semantics
 
 ## 2) PIN onboarding
 ### Current state
-- PIN creation/reset is currently initiated by an admin.
-- Admin reset returns the PIN directly and the current UI uses prompt/alert-driven handling.
-- This is functional, but it is not a strong rollout UX.
+- Authenticated staff who do not yet have a kiosk PIN are now forced through a self-service PIN setup flow on first sign-in.
+- Admin reset/create remains available as a support tool.
+- The old prompt/alert-only handling is no longer the primary path.
 
 ### Desired behavior
 - staff with email accounts should be able to sign in normally
@@ -104,7 +130,7 @@ If needed later, this can expand without breaking reporting or payroll semantics
 - admin should still have a manual reset/create fallback for exceptions
 
 ### Recommendation
-Build self-service PIN setup as the default flow and keep admin reset as a support tool.
+Keep self-service PIN setup as the default flow and admin reset as the exception path.
 
 This will reduce:
 - admin overhead
@@ -116,8 +142,9 @@ This will reduce:
 ## 3) Unscheduled time and approval workflow
 ### Current AIRE behavior
 - corrected clock-out times are sent to pending approval
-- regular clock-in / clock-out behavior does **not** currently push unscheduled clock time into pending approval
+- regular unscheduled non-admin clock sessions now move into pending approval on clock-out
 - manual entries already participate in approval behavior
+- admins are currently exempt from unscheduled pending behavior
 
 ### Cornerstone Tax reference behavior
 Cornerstone marks unscheduled clock sessions for approval:
@@ -131,49 +158,38 @@ The requested behavior is:
 - admins may or may not be exempt, but that must be decided explicitly
 
 ### Recommendation
-Port the Cornerstone unscheduled-approval rule into AIRE, but implement it deliberately for AIRE’s workflow instead of blindly cloning it.
-
-Proposed rule:
+The core rule is already implemented in AIRE:
 - completed unscheduled time entries become `pending`
 - scheduled time entries remain standard
 - corrected or edited entries remain `pending`
 
-Decision still needed:
-- should admins be exempt from unscheduled pending behavior, or should all unscheduled time require review?
+Current encoded rule:
+- non-admin unscheduled entries require approval
+- admins are exempt
 
-Current recommendation:
-- start with everyone non-admin requiring approval
-- allow explicit admin override behavior where needed
+Only revisit this if operations explicitly wants admin unscheduled time reviewed too.
 
 ---
 
 ## 4) Approval queue and approval operations
 ### Current state
 - AIRE has a pending approvals surface
-- admins can approve, deny, and add notes
-- editing a time entry still happens lower in the time-tracking page / calendar flow rather than directly in the approval queue
+- admins can approve, deny, add notes, open entry editing directly from approval cards, and bulk-approve the visible filtered set
+- approval filters now support All / CFI / Ops-Maintenance / Unassigned
 
 ### Gap
-This means the approval queue is not yet the true operational review surface.
+The main queue concern is largely resolved.
 
-For real usage, the office manager’s concern is valid:
-- reviewers should not need to bounce between the pending queue and a separate edit area just to fix an entry
+Remaining stretch items:
+- "assigned to me" reviewer filtering is still optional future work
+- bulk deny is still unnecessary unless operations proves it needs it
 
 ### Recommendation
-Make the approval queue the main review surface by adding:
-- edit entry action directly from approval cards
-- approval note support
-- deny action
-- approve action
-- optional bulk approve for visible entries
+Keep the approval queue as the main review surface and avoid reopening a second editing workflow unless there is a specific UX gap.
 
-Stretch but valuable:
-- bulk deny is probably unnecessary initially
-- approve-all should be filter-aware, not global
-
-Recommended rule:
-- only allow bulk approve on the currently filtered dataset
-- require explicit confirmation before bulk approval
+Current implemented rule:
+- bulk approve only applies to the currently visible filtered dataset
+- confirmation is required before bulk approval
 
 ---
 
@@ -184,44 +200,54 @@ The office manager described a split review workflow:
 - another reviewer handles admin/maintenance hours
 
 ### Current state
-- AIRE does not yet have a separate reviewer grouping model
-- work categories exist, but they describe labor type, not approval ownership
+- AIRE now has a dedicated reviewer grouping model on users
+- work categories remain separate from approval ownership, which is the correct design
 
 ### Recommendation
-Add a dedicated employee grouping field for approval filtering.
+Keep using the dedicated employee grouping field for approval filtering, but plan one more iteration so the list is admin-configurable instead of permanently code-defined.
 
-Suggested implementation:
+Implemented model:
 - `approval_group` enum on users
 - values:
   - `cfi`
   - `ops_maintenance`
 
-Then add approval filters such as:
+Implemented filters:
 - All pending
 - CFI
 - Ops / Maintenance
+- Unassigned
 - Assigned to me (optional later)
 
 This is a cleaner long-term design than trying to infer reviewer ownership from time categories.
+
+Confirmed follow-up change:
+- replace the hardcoded `User::APPROVAL_GROUPS` list with admin-managed approval-group settings
+- preserve the current default values as the initial seed:
+  - `cfi`
+  - `ops_maintenance`
+- keep filtering group-based rather than reviewer-assignment-based for this rollout
 
 ---
 
 ## 6) Contact form and inquiry configurability
 ### Current state
-- backend support already exists for configurable contact notification email recipients
-- frontend admin UI does not yet expose that capability
-- inquiry topics/subjects on the public contact page are still hardcoded
+- backend support exists for configurable contact notification email recipients
+- frontend admin UI now exposes those settings
+- public contact inquiry topics now load from backend-managed settings, with local defaults as fallback
 
 ### Requested direction
 - the inquiry destination should send to whatever email(s) are configured on the admin side
 - inquiry reasons/topics should be configurable rather than hardcoded
 
 ### Recommendation
-Add a contact settings area to admin that supports:
+This operational/settings slice is complete enough for rollout.
+
+Admin now supports:
 - notification recipient email list
 - inquiry subject/topic options
 
-Public contact page should then fetch and render those options instead of embedding them directly in code.
+Public contact now fetches and renders those options instead of hardcoding them as the primary source.
 
 This gives AIRE a usable non-technical content/operations control point without requiring a larger CMS build.
 
@@ -305,7 +331,7 @@ It does **not** fully answer:
 ## Recommended implementation workstreams
 
 ## Workstream 1: Ops core
-This should be first.
+Status: complete on `main`.
 
 Includes:
 - unscheduled clock time -> pending approval behavior
@@ -323,14 +349,16 @@ Why first:
 ---
 
 ## Workstream 2: User onboarding and admin management
-This should be second.
+Status: mostly complete on `main`, but reopened for two final admin capabilities.
 
 Includes:
 - real user edit modal/panel
-- profile field editing
 - approval-group assignment in user management
 - self-service PIN setup on first sign-in
 - admin fallback PIN reset/create flow
+- limited profile editing based on identity source
+- admin-configurable approval groups
+- admin editing of activated Clerk-managed user profile fields through Clerk backend API
 
 Why second:
 - this reduces admin friction during rollout
@@ -339,7 +367,7 @@ Why second:
 ---
 
 ## Workstream 3: Public site refresh
-This should be third unless leadership wants site changes accelerated for marketing reasons.
+Status: partially complete; contact/settings plumbing is done, IA/copy shift remains.
 
 Includes:
 - contact settings UI
@@ -358,55 +386,82 @@ Why third:
 ## Recommended implementation order inside the workstreams
 
 ## Phase 1
-- define approval-group model
-- implement unscheduled clock-entry pending logic
-- expose pending filters by approval group
+Status: complete.
+- defined approval-group model
+- implemented unscheduled clock-entry pending logic
+- exposed pending filters by approval group
 
 ## Phase 2
-- add edit-from-approval capability
-- add approve-all for current filtered view
-- finalize approval workflow UX
+Status: complete.
+- added edit-from-approval capability
+- added approve-all for current filtered view
+- finalized the approval queue as the main review surface
 
 ## Phase 3
-- add full user edit modal/panel
-- add approval-group management on users
-- add self-service PIN creation on first login
+Status: largely complete, with one follow-up completion pass still desired.
+- added the main user edit modal/panel
+- added approval-group management on users
+- added self-service PIN creation on first login
+- kept admin fallback PIN reset/create flow
+- remaining limitation: active Clerk-managed profile data is still not editable from this admin form
+- remaining enhancement: approval-group options are still code-defined rather than admin-configurable
 
 ## Phase 4
-- add admin contact settings UI
-- add configurable inquiry topics
-- connect public contact form to those settings
+Status: complete.
+- added admin contact settings UI
+- added configurable inquiry topics
+- connected the public contact form to those settings
 
 ## Phase 5
+Status: active remaining phase.
 - rebuild public-site IA/copy around current AIRE offerings
 - replace discovery-led messaging with current tours/media/training positioning
 - complete admin-shell polish pass
 
+Current interpretation:
+- phases 1 through 4 are already merged
+- the remaining focus has shifted from workflow plumbing to public positioning, navigation, content confirmation, and final admin presentation polish
+
 ---
 
 ## Product decisions still needed before implementation
-These are the main decisions to confirm as we implement:
+Most earlier decisions are now confirmed. The remaining product work is implementation, not discovery.
 
-1. Should admins be exempt from unscheduled pending approval?
-2. What exact label should be used for the second approval group?
-   - `ops_maintenance`
-   - `admin_maintenance`
-   - something else
-3. Should approvers only filter by group, or should entries be explicitly assigned to a reviewer?
-4. Should self-service PIN setup be mandatory before the user can continue into the app?
-5. Which public nav/service structure should replace `Discovery Flight`?
-6. Which flyer prices are final and approved for publication?
+Items now decided:
+1. Keep the current admin exemption for unscheduled pending approval.
+2. Group-based filtering is enough for this rollout.
+3. Approval groups should become admin-configurable.
+4. We should extend admin edits for activated Clerk-managed users.
+5. Public site direction should shift to training + tours + video packages.
+6. Public pricing is confirmed from the follow-up notes above.
 
-These should be resolved early, but none of them blocks documenting the work or starting the first backend workflow changes.
+Open content/detail checks that still need implementation care:
+1. What exact admin UX should manage approval groups in Settings or Users?
+2. Should discovery flights remain as a secondary page or be removed from primary nav entirely?
+3. Which tour/video images are approved for the final public page treatment?
+4. How much flyer disclaimer copy should appear inline on cards versus in a shared note section?
 
 ---
 
 ## Recommended immediate next step
-Start with `Workstream 1: Ops core`.
+Start with a final `Workstream 2` completion pass, then do `Workstream 3`, then finish admin polish.
 
-The first coding slice should be:
-- add the approval-group field to users
-- implement unscheduled clock entries becoming pending
-- wire pending-approval filtering around that grouping
+The next coding slices should be:
 
-That will establish the correct operational backbone before UI polish or public-site refresh.
+1. User/admin completion:
+- make approval groups admin-configurable
+- add Clerk-backed admin edits for activated Clerk-managed users
+- keep the current admin exemption and group-filter model unchanged
+
+2. Public site refresh:
+- replace discovery-flight-first homepage and nav emphasis
+- map the flyers into approved tours/video-package content blocks
+- update contact/home/program CTAs to the new business direction
+- publish the confirmed tours and video-package pricing
+- add the local/military "contact us for discounted rates" language
+- add the flyer disclaimer language in an appropriate public-facing note area
+
+After that:
+- do the collapsible desktop sidebar and final admin spacing/presentation cleanup
+
+The operational backbone is already in place; the remaining work is positioning, content accuracy, and final rollout polish.

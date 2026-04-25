@@ -35,8 +35,7 @@ export default function AireCareers() {
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Careers</p>
             <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">Join the AIRE team</h1>
             <p className="mt-4 text-base leading-relaxed text-slate-200 md:text-lg">
-              AIRE Services is growing and looking for team members who bring positive energy, reliability, and a willingness
-              to learn. Explore our current opening below and reach out if it sounds like a fit.
+              AIRE is looking for dependable team members who bring a strong work ethic, good communication, and a willingness to learn. Review the current opening below and reach out if it sounds like a fit.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <a href="mailto:admin@aireservicesguam.com?subject=AIRE%20Career%20Inquiry" className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
@@ -55,7 +54,7 @@ export default function AireCareers() {
           <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-7">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Current Opening</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Immediate opening for on-demand driver</h2>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Immediate opening: on-demand driver</h2>
               <div className="mt-6">
                 <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Responsibilities</h3>
                 <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
@@ -75,10 +74,9 @@ export default function AireCareers() {
               </div>
 
               <div className="mt-8 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 text-sm leading-relaxed text-slate-700">
-                <p className="font-semibold text-slate-900">Training Experience</p>
+                <p className="font-semibold text-slate-900">Training Provided</p>
                 <p className="mt-2">
-                  No specific experience is required. The team will train all aspects of the job if you bring the right
-                  customer-service and relationship skills.
+                  No previous experience is required. The team will train you in the role if you bring the right customer-service mindset and communication skills.
                 </p>
               </div>
 

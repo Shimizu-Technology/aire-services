@@ -3,6 +3,44 @@
 require "rails_helper"
 
 RSpec.describe Setting, type: :model do
+  describe ".approval_groups" do
+    it "returns default approval groups when nothing is configured" do
+      expect(described_class.approval_groups).to eq(
+        [
+          { "key" => "cfi", "label" => "CFI" },
+          { "key" => "ops_maintenance", "label" => "Ops / Maintenance" }
+        ]
+      )
+    end
+
+    it "normalizes labels into stable keys when saving" do
+      described_class.set_approval_groups!([
+        { label: "Lead CFI" },
+        { label: "Ops & Maintenance", key: "ops_team" }
+      ])
+
+      expect(described_class.approval_groups).to eq(
+        [
+          { "key" => "lead_cfi", "label" => "Lead CFI" },
+          { "key" => "ops_team", "label" => "Ops & Maintenance" }
+        ]
+      )
+      expect(described_class.approval_group_label_for("lead_cfi")).to eq("Lead CFI")
+    end
+
+    it "falls back to the label when the provided key is blank" do
+      described_class.set_approval_groups!([
+        { key: "", label: "Tour Ops" }
+      ])
+
+      expect(described_class.approval_groups).to eq(
+        [
+          { "key" => "tour_ops", "label" => "Tour Ops" }
+        ]
+      )
+    end
+  end
+
   describe ".update_contact_settings!" do
     it "rolls back notification emails if saving inquiry topics fails" do
       Setting.set_contact_notification_emails!([ "admin@aireservicesguam.com" ])

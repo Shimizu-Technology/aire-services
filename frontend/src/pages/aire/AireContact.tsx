@@ -11,11 +11,20 @@ const contactPoints = [
 ]
 
 const defaultInquiryTopics = [
-  'Private Pilot Certificate',
+  'Pilot Training',
+  'Guam Aerial Tours',
+  'Video Packages',
   'Discovery Flight',
-  'Aircraft Rental',
   'Careers',
   'General Inquiry',
+]
+
+const pricingSnapshot = [
+  { label: 'Bay Tour', value: '$275' },
+  { label: 'Island Tour', value: '$395' },
+  { label: 'Sunset Tour', value: '$345' },
+  { label: 'Standard Video', value: 'From $79' },
+  { label: 'All Inclusive', value: 'From $129' },
 ]
 
 export default function AireContact() {
@@ -86,21 +95,21 @@ export default function AireContact() {
     <>
       <Seo
         title="Contact | AIRE Services Guam"
-        description="Contact AIRE Services Guam about discovery flights, private pilot training, aircraft rental, or general aviation questions."
+        description="Contact AIRE Services Guam about pilot training, Guam aerial tours, video packages, or general aviation questions."
         path="/contact"
       />
       <div className="bg-white py-14 md:py-20">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Contact</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Talk with AIRE about training, discovery flights, rentals, or careers</h1>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Talk with AIRE about training, tours, video packages, or careers</h1>
             <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-              Ready to start? Reach out to the AIRE team and get help with discovery flights, private pilot training, aircraft rental questions, or the best next step for your goals.
+              Reach out if you are planning flight training, comparing tour options, adding a video package, or checking local and military rates.
             </p>
           </div>
 
           <div className="mt-10 grid gap-6 lg:grid-cols-[0.88fr_1.12fr]">
-            <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-7">
+            <section className="rounded-[2rem] border border-slate-200 bg-slate-50/70 p-7">
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Direct contact information</h2>
               <div className="mt-6 space-y-4">
                 {contactPoints.map((item) => (
@@ -118,6 +127,18 @@ export default function AireContact() {
               </div>
 
               <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Pricing snapshot</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {pricingSnapshot.map((item) => (
+                    <div key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{item.label}</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Social</p>
                 <div className="mt-3 flex flex-wrap gap-3">
                   {socialLinks.map((link) => (
@@ -128,25 +149,27 @@ export default function AireContact() {
                 </div>
               </div>
 
-              <div className="mt-8 rounded-3xl bg-slate-950 p-6 text-white">
-                <h3 className="text-xl font-semibold tracking-tight">Want the fastest starting point?</h3>
-                <p className="mt-3 text-sm leading-relaxed text-slate-300">
-                  Discovery flights are still the easiest way to experience flying, meet the team, and decide whether full training is the right next step.
-                </p>
+              <div className="mt-8 rounded-[1.75rem] bg-slate-950 p-6 text-white">
+                <h3 className="text-xl font-semibold tracking-tight">Need help choosing the right option?</h3>
+                <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-300">
+                  <p>Pilot training: ask about the Private Pilot path and the best place to start.</p>
+                  <p>Tours: ask which route fits your time and sightseeing goals.</p>
+                  <p>Video packages: ask whether standard or all-inclusive is the better fit.</p>
+                </div>
                 <div className="mt-5 flex flex-wrap gap-3">
-                  <Link to="/discovery-flight" className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
-                    Explore Discovery Flight
+                  <Link to="/programs" className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+                    View Services
                   </Link>
-                  <Link to="/programs" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
-                    View Programs
+                  <Link to="/team" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
+                    Meet the Team
                   </Link>
                 </div>
               </div>
             </section>
 
-            <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+            <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Send an Inquiry</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Let’s help you find the right place to start</h2>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Let&apos;s get you to the right next step</h2>
 
               <form onSubmit={handleSubmit} className="mt-8 space-y-4">
                 <fieldset>
@@ -226,7 +249,7 @@ export default function AireContact() {
                     onChange={(e) => updateField('message', e.target.value)}
                     rows={6}
                     className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    placeholder="Tell us what you're interested in and where you'd like to start."
+                    placeholder="Tell us what you're interested in and any timing, pricing, or route questions you have."
                     required
                   />
                 </div>

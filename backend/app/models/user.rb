@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 class User < ApplicationRecord
-  APPROVAL_GROUPS = %w[cfi ops_maintenance].freeze
   KIOSK_PIN_FORMAT = /\A\d{4,8}\z/
   KIOSK_MAX_FAILED_ATTEMPTS = 5
   KIOSK_LOCKOUT_DURATION = 15.minutes
@@ -25,8 +24,10 @@ class User < ApplicationRecord
   validates :email, uniqueness: { case_sensitive: false }, allow_nil: true
   validates :email, format: { with: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/ }, allow_blank: true
   validates :is_active, inclusion: { in: [ true, false ] }
+  validates :public_team_enabled, inclusion: { in: [ true, false ] }
   validates :role, inclusion: { in: %w[admin employee] }
-  validates :approval_group, inclusion: { in: APPROVAL_GROUPS }, allow_nil: true
+  validate :approval_group_must_be_configured
+  validate :public_team_profile_is_complete
   validates :kiosk_pin_lookup_hash, uniqueness: { message: "This PIN is already in use by another employee. Please choose a different PIN." }, allow_nil: true
   validate :kiosk_pin_format_if_present
   validate :staff_requires_pin_when_kiosk_enabled
@@ -38,6 +39,11 @@ class User < ApplicationRecord
   scope :employees, -> { where(role: "employee") }
   scope :staff, -> { where(role: %w[admin employee]) }
   scope :kiosk_enabled, -> { staff.where(kiosk_enabled: true) }
+  scope :public_team, -> {
+    staff
+      .where(is_active: true, public_team_enabled: true)
+      .order(:public_team_sort_order, :last_name, :first_name, :id)
+  }
   scope :for_approval_group, ->(approval_group) {
     case approval_group.to_s
     when ""
@@ -95,18 +101,23 @@ class User < ApplicationRecord
   end
 
   def approval_group_label
-    case approval_group
-    when "cfi"
-      "CFI"
-    when "ops_maintenance"
-      "Ops / Maintenance"
-    else
-      "Unassigned"
-    end
+    Setting.approval_group_label_for(approval_group)
   end
 
   def pending_invite?
     clerk_id.blank? || clerk_id.start_with?("pending_")
+  end
+
+  def profile_name
+    [ first_name, last_name ].map(&:presence).compact.join(" ").presence
+  end
+
+  def public_team_display_name
+    public_team_name.presence || profile_name
+  end
+
+  def public_team_title_text
+    public_team_title.to_s.strip.presence
   end
 
   def uses_clerk_profile?
@@ -188,5 +199,22 @@ class User < ApplicationRecord
     return if kiosk_pin_digest.present? || kiosk_pin.present? || skip_kiosk_pin_presence_validation
 
     errors.add(:kiosk_pin, "must be set when kiosk access is enabled")
+  end
+
+  def approval_group_must_be_configured
+    return if approval_group.blank?
+    return if Setting.approval_group_keys.include?(approval_group)
+
+    errors.add(:approval_group, "must match a configured approval group")
+  end
+
+  def public_team_profile_is_complete
+    return unless public_team_enabled?
+
+    errors.add(:public_team_title, "is required when showing this user on the Team page") if public_team_title_text.blank?
+
+    return if public_team_display_name.present?
+
+    errors.add(:public_team_name, "is required when no first or last name is available")
   end
 end

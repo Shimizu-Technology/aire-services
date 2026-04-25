@@ -125,6 +125,64 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(employee.reload.approval_group).to be_nil
     end
 
+    it "updates public Team page profile fields" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              public_team_enabled: true,
+              public_team_name: "Captain Test",
+              public_team_title: "Certified Flight Instructor",
+              public_team_sort_order: 2
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:user, :public_team_enabled)).to eq(true)
+      expect(json.dig(:user, :public_team_name)).to eq("Captain Test")
+      expect(json.dig(:user, :public_team_title)).to eq("Certified Flight Instructor")
+      expect(json.dig(:user, :public_team_sort_order)).to eq(2)
+      expect(employee.reload).to have_attributes(
+        public_team_enabled: true,
+        public_team_name: "Captain Test",
+        public_team_title: "Certified Flight Instructor",
+        public_team_sort_order: 2
+      )
+    end
+
+    it "does not call Clerk when only public Team page fields change" do
+      allow(ClerkUserService).to receive(:update_user!)
+
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              email: employee.email,
+              first_name: employee.first_name,
+              last_name: employee.last_name,
+              public_team_enabled: true,
+              public_team_title: "Certified Flight Instructor",
+              public_team_sort_order: 0
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(ClerkUserService).not_to have_received(:update_user!)
+      expect(employee.reload).to have_attributes(
+        public_team_enabled: true,
+        public_team_title: "Certified Flight Instructor",
+        public_team_sort_order: 0
+      )
+    end
+
+    it "requires a public title when showing a user on the Team page" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              public_team_enabled: true,
+              public_team_title: ""
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/public team title/i)
+    end
+
     it "updates kiosk-only profile fields and assigned categories together" do
       kiosk_only_user = create(
         :user,
@@ -202,24 +260,62 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(employee.reload.email).to be_present
     end
 
+    it "updates active Clerk profile fields through ClerkUserService" do
+      allow(ClerkUserService).to receive(:update_user!).and_return(true)
+
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              first_name: "Updated",
+              last_name: "User"
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(ClerkUserService).to have_received(:update_user!).with(
+        clerk_user_id: employee.clerk_id,
+        first_name: "Updated"
+      )
+      expect(employee.reload).to have_attributes(
+        email: employee.email,
+        first_name: "Updated",
+        last_name: "User"
+      )
+    end
+
+    it "rolls back local name changes when Clerk sync fails" do
+      original_updated_at = employee.updated_at
+
+      allow(ClerkUserService).to receive(:update_user!).and_raise(
+        ClerkUserService::RequestError,
+        "Clerk request failed: upstream unavailable"
+      )
+
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              first_name: "Updated",
+              public_team_enabled: true,
+              public_team_title: "Certified Flight Instructor"
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/upstream unavailable/i)
+      expect(employee.reload).to have_attributes(
+        first_name: "Test",
+        public_team_enabled: false,
+        public_team_title: nil
+      )
+      expect(employee.updated_at.to_i).to eq(original_updated_at.to_i)
+    end
+
     it "does not allow changing email for an activated Clerk user" do
       patch "/api/v1/admin/users/#{employee.id}",
             params: { email: "new.email@example.com" },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/update their email from clerk/i)
+      expect(json[:error]).to match(/update their email from Clerk/i)
       expect(employee.reload.email).not_to eq("new.email@example.com")
-    end
-
-    it "does not allow editing Clerk-managed names" do
-      patch "/api/v1/admin/users/#{employee.id}",
-            params: { first_name: "Updated" },
-            headers: auth_headers_for[admin]
-
-      expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/update their name from their sign-in profile/i)
-      expect(employee.reload.first_name).to eq("Test")
     end
 
     it "does not allow converting a kiosk-only user to email sign-in from the edit form" do

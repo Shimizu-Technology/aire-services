@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdminUser, AdminTimeCategory, ApprovalGroup } from '../../lib/api'
+import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
 import { formatDateTime } from '../../lib/dateUtils'
 import { FadeUp } from '../../components/ui/MotionComponents'
-
-const approvalGroupOptions: Array<{ value: ApprovalGroup; label: string }> = [
-  { value: 'cfi', label: 'CFI' },
-  { value: 'ops_maintenance', label: 'Ops / Maintenance' },
-]
 
 export default function Users() {
   useEffect(() => {
@@ -16,6 +11,7 @@ export default function Users() {
 
   const [users, setUsers] = useState<AdminUser[]>([])
   const [allCategories, setAllCategories] = useState<AdminTimeCategory[]>([])
+  const [approvalGroupOptions, setApprovalGroupOptions] = useState<ApprovalGroupOption[]>([])
   const [loading, setLoading] = useState(true)
 
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -35,6 +31,10 @@ export default function Users() {
   const [editEmail, setEditEmail] = useState('')
   const [editRole, setEditRole] = useState<'admin' | 'employee'>('employee')
   const [editApprovalGroup, setEditApprovalGroup] = useState<ApprovalGroup | ''>('')
+  const [editPublicTeamEnabled, setEditPublicTeamEnabled] = useState(false)
+  const [editPublicTeamName, setEditPublicTeamName] = useState('')
+  const [editPublicTeamTitle, setEditPublicTeamTitle] = useState('')
+  const [editPublicTeamSortOrder, setEditPublicTeamSortOrder] = useState('0')
   const [editCategoryIds, setEditCategoryIds] = useState<Set<number>>(new Set())
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState('')
@@ -72,11 +72,17 @@ export default function Users() {
     }
   }, [pinModalUser])
 
-  const applyFetchedData = useCallback((usersRes: Awaited<ReturnType<typeof api.getAdminUsers>>, catsRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>) => {
+  const applyFetchedData = useCallback((
+    usersRes: Awaited<ReturnType<typeof api.getAdminUsers>>,
+    catsRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>,
+    settingsRes: Awaited<ReturnType<typeof api.getAdminAppSettings>>,
+  ) => {
     if (usersRes.data) setUsers(usersRes.data.users.filter((u) => u.role === 'admin' || u.role === 'employee'))
     else if (usersRes.error) console.error('Failed to refresh users:', usersRes.error)
     if (catsRes.data) setAllCategories(catsRes.data.time_categories)
     else if (catsRes.error) console.error('Failed to refresh categories:', catsRes.error)
+    if (settingsRes.data) setApprovalGroupOptions(settingsRes.data.approval_groups)
+    else if (settingsRes.error) console.error('Failed to refresh approval groups:', settingsRes.error)
   }, [])
 
   useEffect(() => {
@@ -84,8 +90,12 @@ export default function Users() {
     async function initialLoad() {
       setLoading(true)
       try {
-        const [usersRes, catsRes] = await Promise.all([api.getAdminUsers(), api.getAdminTimeCategories()])
-        if (!cancelled) applyFetchedData(usersRes, catsRes)
+        const [usersRes, catsRes, settingsRes] = await Promise.all([
+          api.getAdminUsers(),
+          api.getAdminTimeCategories(),
+          api.getAdminAppSettings(),
+        ])
+        if (!cancelled) applyFetchedData(usersRes, catsRes, settingsRes)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -95,15 +105,22 @@ export default function Users() {
   }, [applyFetchedData])
 
   const refreshData = useCallback(async () => {
-    const [usersRes, catsRes] = await Promise.all([api.getAdminUsers(), api.getAdminTimeCategories()])
-    applyFetchedData(usersRes, catsRes)
+    const [usersRes, catsRes, settingsRes] = await Promise.all([
+      api.getAdminUsers(),
+      api.getAdminTimeCategories(),
+      api.getAdminAppSettings(),
+    ])
+    applyFetchedData(usersRes, catsRes, settingsRes)
   }, [applyFetchedData])
 
   const activeCategories = allCategories.filter((c) => c.is_active)
   const createUsesClerkProfile = createEmail.trim().length > 0
   const editingUserUsesClerkProfile = editingUser?.uses_clerk_profile ?? false
   const canEditPendingInviteEmail = Boolean(editingUserUsesClerkProfile && editingUser?.is_pending)
+  const canEditActiveClerkProfile = Boolean(editingUserUsesClerkProfile && editingUser && !editingUser.is_pending)
   const editingUserIsKioskOnly = Boolean(editingUser && !editingUserUsesClerkProfile)
+  const routedUsersCount = users.filter((user) => !!user.approval_group).length
+  const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
 
   const patchLocalUser = useCallback((userId: number, updater: (user: AdminUser) => AdminUser) => {
     setUsers((prev) => prev.map((user) => (user.id === userId ? updater(user) : user)))
@@ -116,6 +133,10 @@ export default function Users() {
     setEditEmail(user.email ?? '')
     setEditRole(user.role)
     setEditApprovalGroup(user.approval_group ?? '')
+    setEditPublicTeamEnabled(user.public_team_enabled)
+    setEditPublicTeamName(user.public_team_name ?? '')
+    setEditPublicTeamTitle(user.public_team_title ?? '')
+    setEditPublicTeamSortOrder(String(user.public_team_sort_order ?? 0))
     setEditCategoryIds(new Set(user.time_category_ids ?? []))
     setEditError('')
   }, [])
@@ -138,6 +159,10 @@ export default function Users() {
     setEditEmail('')
     setEditRole('employee')
     setEditApprovalGroup('')
+    setEditPublicTeamEnabled(false)
+    setEditPublicTeamName('')
+    setEditPublicTeamTitle('')
+    setEditPublicTeamSortOrder('0')
     setEditCategoryIds(new Set())
     setSavingEdit(false)
     setEditError('')
@@ -199,29 +224,67 @@ export default function Users() {
     const nextFirstName = editFirstName.trim()
     const nextLastName = editLastName.trim()
     const nextEmail = editEmail.trim().toLowerCase()
+    const nextPublicTeamName = editPublicTeamName.trim()
+    const nextPublicTeamTitle = editPublicTeamTitle.trim()
+    const hasPublicTeamSortOrder = editPublicTeamSortOrder.trim().length > 0
+    const nextPublicTeamSortOrder = hasPublicTeamSortOrder ? Number.parseInt(editPublicTeamSortOrder, 10) : null
     const nextCategoryIds = Array.from(editCategoryIds)
 
-    if (editingUserIsKioskOnly && !nextFirstName) {
+    if ((editingUserIsKioskOnly || canEditActiveClerkProfile) && !nextFirstName) {
       setEditError('First name is required.')
       setSavingEdit(false)
       return
     }
 
     if (canEditPendingInviteEmail && !nextEmail) {
-      setEditError('Email is required for invited Clerk users.')
+      setEditError('Email is required for Clerk-managed users.')
       setSavingEdit(false)
       return
+    }
+
+    if (editPublicTeamEnabled) {
+      if (!nextPublicTeamTitle) {
+        setEditError('Public team title is required when this person appears on the Team page.')
+        setSavingEdit(false)
+        return
+      }
+
+      const hasProfileName = nextFirstName.length > 0 || nextLastName.length > 0 || nextPublicTeamName.length > 0
+      if (!hasProfileName) {
+        setEditError('Add a public display name before showing someone on the Team page.')
+        setSavingEdit(false)
+        return
+      }
+
+      if (nextPublicTeamSortOrder === null || Number.isNaN(nextPublicTeamSortOrder)) {
+        setEditError('Public team sort order must be a whole number.')
+        setSavingEdit(false)
+        return
+      }
     }
 
     try {
       const payload: Parameters<typeof api.updateUser>[1] = {
         role: editRole,
         approval_group: editApprovalGroup || null,
+        public_team_enabled: editPublicTeamEnabled,
+        public_team_name: nextPublicTeamName || null,
+        public_team_title: nextPublicTeamTitle || null,
         time_category_ids: nextCategoryIds,
       }
 
+      if (nextPublicTeamSortOrder !== null) {
+        payload.public_team_sort_order = nextPublicTeamSortOrder
+      }
+
       if (editingUserUsesClerkProfile) {
-        if (canEditPendingInviteEmail) payload.email = nextEmail
+        if (canEditPendingInviteEmail) {
+          payload.email = nextEmail
+        }
+        if (canEditActiveClerkProfile) {
+          payload.first_name = nextFirstName
+          payload.last_name = nextLastName || ''
+        }
       } else {
         payload.first_name = nextFirstName
         payload.last_name = nextLastName || ''
@@ -366,7 +429,7 @@ export default function Users() {
         </div>
       </FadeUp>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-sm text-slate-500">Total Team Members</div>
           <div className="mt-2 text-3xl font-bold text-slate-900">{users.length}</div>
@@ -376,8 +439,12 @@ export default function Users() {
           <div className="mt-2 text-3xl font-bold text-cyan-700">{users.filter((u) => u.role === 'admin').length}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-sm text-slate-500">CFI Review Group</div>
-          <div className="mt-2 text-3xl font-bold text-slate-900">{users.filter((u) => u.approval_group === 'cfi').length}</div>
+          <div className="text-sm text-slate-500">Routed Reviewers</div>
+          <div className="mt-2 text-3xl font-bold text-slate-900">{routedUsersCount}</div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-sm text-slate-500">Shown on Team Page</div>
+          <div className="mt-2 text-3xl font-bold text-slate-900">{publicTeamUsersCount}</div>
         </div>
       </div>
 
@@ -393,11 +460,12 @@ export default function Users() {
           <div className="px-5 py-10 text-center text-sm text-slate-500">No team members yet.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px]">
+            <table className="w-full min-w-[1200px]">
               <thead className="bg-slate-50">
                 <tr>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Team Member</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Public Team</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Approval Group</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Work Categories</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</th>
@@ -417,6 +485,18 @@ export default function Users() {
                       <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
                         {user.role === 'admin' ? 'Admin' : 'Employee'}
                       </span>
+                    </td>
+                    <td className="px-5 py-4">
+                      {user.public_team_enabled ? (
+                        <div className="space-y-1">
+                          <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-medium text-cyan-700">
+                            Visible
+                          </span>
+                          {user.public_team_title && <div className="text-xs text-slate-500">{user.public_team_title}</div>}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">Hidden</span>
+                      )}
                     </td>
                     <td className="px-5 py-4">
                       <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
@@ -554,7 +634,7 @@ export default function Users() {
                 >
                   <option value="">Unassigned</option>
                   {approvalGroupOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
+                    <option key={option.key} value={option.key}>{option.label}</option>
                   ))}
                 </select>
                 <p className="mt-2 text-xs text-slate-500">
@@ -626,40 +706,34 @@ export default function Users() {
                   Edit {editingUser.full_name || editingUser.display_name}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Update profile details, review routing, and kiosk work categories in one place.
+                  Update profile details, public Team page visibility, review routing, and kiosk work categories in one place.
                 </p>
               </div>
               <button type="button" onClick={closeEditModal} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
             </div>
 
             <form onSubmit={handleSaveUser} className="mt-6 space-y-4">
-              {editingUserUsesClerkProfile ? (
-                <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
-                  {canEditPendingInviteEmail
-                    ? 'This invitation uses Clerk for identity. You can change the invite email here, but names will come from Clerk after first sign-in.'
-                    : 'This person signs in with Clerk. Name and email stay managed by their sign-in profile.'}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
+                  <input
+                    value={editFirstName}
+                    onChange={(event) => setEditFirstName(event.target.value)}
+                    disabled={editingUserUsesClerkProfile && !canEditActiveClerkProfile}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-50 disabled:text-slate-400"
+                    required
+                  />
                 </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
-                    <input
-                      value={editFirstName}
-                      onChange={(event) => setEditFirstName(event.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
-                    <input
-                      value={editLastName}
-                      onChange={(event) => setEditLastName(event.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    />
-                  </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
+                  <input
+                    value={editLastName}
+                    onChange={(event) => setEditLastName(event.target.value)}
+                    disabled={editingUserUsesClerkProfile && !canEditActiveClerkProfile}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-50 disabled:text-slate-400"
+                  />
                 </div>
-              )}
+              </div>
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
@@ -667,14 +741,16 @@ export default function Users() {
                   type="email"
                   value={editEmail}
                   onChange={(event) => setEditEmail(event.target.value)}
-                  disabled={!canEditPendingInviteEmail}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  disabled={editingUserIsKioskOnly || canEditActiveClerkProfile}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-50 disabled:text-slate-400"
                 />
                 <p className="mt-2 text-xs text-slate-500">
                   {canEditPendingInviteEmail
                     ? 'This email controls the outstanding invite until they sign in.'
-                    : editingUserUsesClerkProfile
-                      ? 'Activated Clerk users update email from Clerk, not from this admin form.'
+                    : canEditActiveClerkProfile
+                      ? 'Active Clerk users keep their sign-in email managed in Clerk. Use this form for names, status, routing, and Team page details.'
+                      : editingUserUsesClerkProfile
+                        ? 'Clerk invite email stays editable until the account is activated.'
                       : 'Kiosk-only users do not sign in with email. Create a new invited user if they need Clerk access.'}
                 </p>
               </div>
@@ -700,10 +776,64 @@ export default function Users() {
                   >
                     <option value="">Unassigned</option>
                     {approvalGroupOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
+                      <option key={option.key} value={option.key}>{option.label}</option>
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={editPublicTeamEnabled}
+                    onChange={(event) => setEditPublicTeamEnabled(event.target.checked)}
+                    className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-slate-800">Show on the public Team page</span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      Only active users with this enabled appear on <span className="font-medium">/team</span>.
+                    </span>
+                  </span>
+                </label>
+
+                {editPublicTeamEnabled && (
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Public display name</label>
+                      <input
+                        value={editPublicTeamName}
+                        onChange={(event) => setEditPublicTeamName(event.target.value)}
+                        placeholder="Leave blank to use the person’s profile name"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                      <p className="mt-2 text-xs text-slate-500">
+                        Use this if their public-facing name should differ from their AIRE Ops profile.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Public title *</label>
+                      <input
+                        value={editPublicTeamTitle}
+                        onChange={(event) => setEditPublicTeamTitle(event.target.value)}
+                        placeholder="Certified Flight Instructor"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                        required={editPublicTeamEnabled}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Display order</label>
+                      <input
+                        type="number"
+                        value={editPublicTeamSortOrder}
+                        onChange={(event) => setEditPublicTeamSortOrder(event.target.value)}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                      <p className="mt-2 text-xs text-slate-500">Lower numbers appear first on the Team page.</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {activeCategories.length > 0 && (

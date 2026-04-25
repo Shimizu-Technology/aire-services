@@ -41,6 +41,10 @@ describe('Admin Settings contact settings', () => {
           overtime_weekly_threshold_hours: '40',
           early_clock_in_buffer_minutes: '5',
         },
+        approval_groups: [
+          { key: 'cfi', label: 'CFI' },
+          { key: 'ops_maintenance', label: 'Ops / Maintenance' },
+        ],
       },
     })
     apiMock.getAdminContactSettings.mockResolvedValue({

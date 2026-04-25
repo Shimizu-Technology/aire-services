@@ -1,114 +1,195 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 
-const certificateRequirements = [
-  'Be at least 16 years old to solo and 17 years old to earn the certificate',
-  'Pass the FAA knowledge test',
-  'Hold a third-class medical certificate',
-  'Demonstrate English proficiency and basic math ability',
-  'Complete the required flight experience, including a minimum of 40 flight hours',
+const trainingHighlights = [
+  'Private Pilot Certificate training is the foundation of the AIRE flight-training program.',
+  'Guam-based instructors help students build confidence, knowledge, and flight skill close to home.',
+  'Discovery flights are available for people who want an introductory flight before starting training.',
 ]
 
-const trainingSteps = [
-  'Complete ground school, including online study such as Sporty\'s Learn To Fly Course',
-  'Prepare for and pass the FAA written exam',
-  'Build flight proficiency with instructor-led training',
-  'Meet required flight experience benchmarks',
-  'Complete the FAA check-ride, including oral and practical testing',
+const tours = [
+  {
+    title: 'Bay Tour',
+    price: '$275',
+    duration: '30 minutes',
+    details: ['Max 3 pax per flight', "Two Lovers' Point", 'Tumon Bay', 'Chamorro Village', 'Fish Eye'],
+  },
+  {
+    title: 'Island Tour',
+    price: '$395',
+    duration: '60 minutes',
+    details: ['Max 3 pax per flight', 'Pago Bay', 'Talofofo Bay', 'Inarajan Pool', 'Cocos Island'],
+  },
+  {
+    title: 'Sunset Tour',
+    price: '$345',
+    duration: '45 minutes',
+    details: ['Max 3 pax per flight', "Two Lovers' Point", 'Tumon Bay', 'Chamorro Village', 'Fish Eye', 'Agat Marina'],
+  },
 ]
 
-const rentalRequirements = [
-  'Private pilot license required',
-  'Minimum 80 hours PIC time required',
-  'Must be checked out by an AIRE pilot',
-  'Currency flight required if the pilot has not flown in the previous 30 days',
-  'Cross-country checkout required for cross-country rentals',
-  'Multi-engine rental available with instructor only',
+const videoPackages = [
+  {
+    title: 'Standard Video Package',
+    prices: ['Bay $79', 'Sunset $89', 'Island $99'],
+    features: ['10 images', '1 social media reel', '3-5 minutes edited video'],
+  },
+  {
+    title: 'All Inclusive Video Package',
+    prices: ['Bay $129', 'Sunset $139', 'Island $149'],
+    features: ['10 images', '3 social media reels', '3-5 minutes edited video', 'Raw footage'],
+  },
+]
+
+const notes = [
+  'Local residents and military members qualify for discounted rates. Contact AIRE for details.',
+  'Guests of all ages can enjoy the experience.',
+  'Use of personal recording devices is not allowed during flight.',
+  'Video packages include 4K delivery, your preferred editing theme, and a 7-day download window.',
+  'Basic edits may remove taxiing, ramp movement, hold-short time, and other nonessential footage.',
+  'AIRE Services may exclude footage that could affect U.S. national security or the privacy of individuals who have not granted permission.',
 ]
 
 export default function AirePrograms() {
   useEffect(() => { document.title = 'Programs & Services | AIRE Services Guam' }, [])
+
   return (
     <div className="bg-white py-14 md:py-20">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Programs & Services</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Training options built around real flight goals</h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Pilot training, scenic tours, and video packages</h1>
           <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-            AIRE Services Guam offers practical training paths for future pilots, first-time discovery flyers, and current pilots
-            looking for local rental options. Explore the programs below and reach out when you're ready to start.
+            Explore AIRE's flight training, scenic aerial tours, and add-on media packages. Reach out for scheduling, local and military rates, or discovery flight questions.
           </p>
         </div>
 
-        <div className="mt-10 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <section className="rounded-3xl border border-slate-200 bg-slate-50/60 p-7">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Core Program</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">Private Pilot Certificate</h2>
-            <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-              This is the foundational certificate for pilots who want to build skill, confidence, and a real path into aviation.
-              It is the first major step toward broader flight training and, for some students, the start of a long-term airline career path.
-            </p>
+        <section className="mt-10 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="rounded-[2rem] border border-slate-200 bg-slate-50/70 p-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Pilot Training</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">Private Pilot Certificate training</h2>
+            <div className="mt-6 space-y-3 text-sm leading-relaxed text-slate-600">
+              {trainingHighlights.map((item) => (
+                <div key={item} className="flex gap-3">
+                  <span className="mt-1 text-cyan-700">•</span>
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 text-sm leading-relaxed text-slate-700">
+              Interested in a first flight before committing to training? Ask about a discovery flight.
+            </div>
+          </div>
 
-            <div className="mt-8 grid gap-6 md:grid-cols-2">
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Requirements</h3>
-                <ul className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
-                  {certificateRequirements.map((item) => (
-                    <li key={item} className="flex gap-3"><span className="mt-1 text-cyan-700">•</span><span>{item}</span></li>
-                  ))}
-                </ul>
+          <div className="rounded-[2rem] bg-slate-950 p-7 text-white">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Tours and Media</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Scenic tours with optional video packages</h2>
+            <p className="mt-4 text-sm leading-relaxed text-slate-300">
+              Guests can choose scenic tour options and then add a standard or all-inclusive video package depending on how much finished content they want.
+            </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <div className="text-sm font-semibold text-white">Tours</div>
+                <p className="mt-2 text-sm text-slate-300">Bay, Island, and Sunset routes with fixed durations and published pricing.</p>
               </div>
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Training Flow</h3>
-                <ul className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
-                  {trainingSteps.map((item) => (
-                    <li key={item} className="flex gap-3"><span className="mt-1 text-cyan-700">•</span><span>{item}</span></li>
-                  ))}
-                </ul>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                <div className="text-sm font-semibold text-white">Add-on content</div>
+                <p className="mt-2 text-sm text-slate-300">4K edited delivery, reels, stills, and optional raw footage.</p>
               </div>
             </div>
-          </section>
-
-          <div className="space-y-6">
-            <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">First Flight</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Discovery Flight</h2>
-              <p className="mt-4 text-sm leading-relaxed text-slate-600">
-                A discovery flight gives first-time flyers a hands-on introductory experience with a certified flight instructor.
-                Students fly from the left seat and get a practical first look at what training can feel like.
-              </p>
-              <ul className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
-                <li className="flex gap-3"><span className="mt-1 text-cyan-700">•</span><span>Introductory flight with a certified flight instructor</span></li>
-                <li className="flex gap-3"><span className="mt-1 text-cyan-700">•</span><span>Hands-on experience from the left seat</span></li>
-                <li className="flex gap-3"><span className="mt-1 text-cyan-700">•</span><span>1 to 2 additional passengers may accompany at no additional charge</span></li>
-                <li className="flex gap-3"><span className="mt-1 text-cyan-700">•</span><span>Weight and balance restrictions may apply</span></li>
-              </ul>
-              <Link to="/contact" className="mt-6 inline-flex text-sm font-semibold text-cyan-700 hover:text-cyan-900">Ask about discovery flights &rarr;</Link>
-            </section>
-
-            <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">For Current Pilots</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Aircraft Rental</h2>
-              <ul className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
-                {rentalRequirements.map((item) => (
-                  <li key={item} className="flex gap-3"><span className="mt-1 text-cyan-700">•</span><span>{item}</span></li>
-                ))}
-              </ul>
-            </section>
           </div>
-        </div>
+        </section>
 
-        <section className="mt-10 rounded-3xl border border-amber-200 bg-amber-50/70 p-7">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-900">Important training notes</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-2 text-sm leading-relaxed text-slate-700">
-            <p>
-              Discovery flight and block time pricing indicate that aircraft rental, instructor fees,
-              and landing fees are included. Ground instructor fees may apply if needed.
+        <section className="mt-10">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Guam Aerial Tours</p>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Route options and pricing</h2>
+            </div>
+            <div className="text-sm text-slate-500">All tours list max capacity as 3 passengers per flight.</div>
+          </div>
+
+          <div className="mt-8 grid gap-5 lg:grid-cols-3">
+            {tours.map((tour) => (
+              <div key={tour.title} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tour.title}</p>
+                    <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{tour.price}</h3>
+                  </div>
+                  <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+                    {tour.duration}
+                  </div>
+                </div>
+                <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
+                  {tour.details.map((item) => (
+                    <div key={item} className="flex gap-3">
+                      <span className="mt-1 text-cyan-700">•</span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-12 rounded-[2rem] border border-slate-200 bg-slate-50/70 p-7">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Video Packages</p>
+            <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Standard and all-inclusive add-ons</h2>
+          </div>
+
+          <div className="mt-8 grid gap-5 lg:grid-cols-2">
+            {videoPackages.map((tier) => (
+              <div key={tier.title} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tier.title}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {tier.prices.map((price) => (
+                    <span key={price} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-700">
+                      {price}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
+                  {tier.features.map((feature) => (
+                    <div key={feature} className="flex gap-3">
+                      <span className="mt-1 text-cyan-700">•</span>
+                      <span>{feature}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-12 rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-700">Important Notes</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {notes.map((note) => (
+              <div key={note} className="rounded-2xl border border-amber-200/80 bg-white/70 px-4 py-4 text-sm leading-relaxed text-slate-700">
+                {note}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-12 grid gap-6 rounded-[2rem] bg-slate-950 px-6 py-8 text-white sm:px-8 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Need help choosing?</p>
+            <h2 className="mt-2 text-3xl font-bold tracking-tight">Talk with AIRE before booking.</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300">
+              Contact the team if you need help picking the right tour, understanding training, or confirming local and military discount details.
             </p>
-            <p>
-              Block time is valid for two years. Cancellation fees may apply when less
-              than 24 hours notice is given, except in situations involving weather or maintenance.
-            </p>
+          </div>
+          <div className="flex flex-wrap gap-3 lg:justify-end">
+            <Link to="/contact" className="rounded-xl bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+              Contact AIRE
+            </Link>
+            <Link to="/team" className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
+              Meet the Team
+            </Link>
           </div>
         </section>
       </div>

@@ -56,6 +56,7 @@ describe('AireContact', () => {
     })
 
     renderPage()
+    await screen.findByRole('button', { name: 'Private Pilot Certificate' })
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: '  Test User  ' } })
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: '  test@example.com  ' } })

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_23_021500) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_24_030000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -181,6 +181,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_021500) do
     t.string "kiosk_pin_lookup_hash"
     t.string "last_name"
     t.string "phone"
+    t.boolean "public_team_enabled", default: false, null: false
+    t.string "public_team_name"
+    t.integer "public_team_sort_order", default: 0, null: false
+    t.string "public_team_title"
     t.string "role", default: "employee"
     t.datetime "updated_at", null: false
     t.index ["approval_group"], name: "index_users_on_approval_group"
@@ -190,6 +194,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_021500) do
     t.index ["kiosk_enabled"], name: "index_users_on_kiosk_enabled"
     t.index ["kiosk_locked_until"], name: "index_users_on_kiosk_locked_until"
     t.index ["kiosk_pin_lookup_hash"], name: "index_users_on_kiosk_pin_lookup_hash", unique: true
+    t.index ["public_team_enabled", "public_team_sort_order"], name: "index_users_on_public_team_visibility_and_sort"
     t.index ["role"], name: "index_users_on_role"
     t.check_constraint "role::text = ANY (ARRAY['admin'::character varying, 'employee'::character varying]::text[])", name: "check_valid_role"
   end
