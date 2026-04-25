@@ -6,7 +6,6 @@ import { useAuthContext } from '../../contexts/AuthContext'
 const navigation = [
   { name: 'Home', href: '/' },
   { name: 'Programs', href: '/programs' },
-  { name: 'Discovery Flight', href: '/discovery-flight' },
   { name: 'Team', href: '/team' },
   { name: 'Careers', href: '/careers' },
   { name: 'Contact', href: '/contact' },
@@ -26,7 +25,7 @@ export default function Header() {
           <img src="/assets/aire/logo.png" alt="AIRE Services Guam" className="h-10 w-auto shrink-0 object-contain sm:h-11 xl:h-12" />
           <div className="min-w-0">
             <div className="truncate text-xs font-semibold uppercase leading-none tracking-[0.18em] text-slate-500 sm:text-sm">AIRE Services</div>
-            <div className="mt-1 hidden truncate text-xs leading-none text-slate-400 md:block xl:text-sm">Guam Flight Training</div>
+            <div className="mt-1 hidden truncate text-xs leading-none text-slate-400 md:block xl:text-sm">Pilot Training, Tours, and Media</div>
           </div>
         </Link>
 

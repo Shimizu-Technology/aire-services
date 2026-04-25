@@ -10,7 +10,7 @@ export default function Footer() {
         <div>
           <img src="/assets/aire/logo.png" alt="AIRE Services Guam" className="h-14 w-auto rounded bg-white/95 p-2" />
           <p className="mt-4 max-w-sm text-sm leading-relaxed text-slate-400">
-            Discovery flights, local flight training, current hiring, and internal operations built for Guam.
+            Pilot training, Guam aerial tours, and video packages from a Guam-based aviation team.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             {socialLinks.map((link) => (
@@ -26,7 +26,6 @@ export default function Footer() {
           <ul className="mt-4 space-y-3 text-sm">
             <li><Link to="/" className="hover:text-white">Home</Link></li>
             <li><Link to="/programs" className="hover:text-white">Programs</Link></li>
-            <li><Link to="/discovery-flight" className="hover:text-white">Discovery Flight</Link></li>
             <li><Link to="/team" className="hover:text-white">Team</Link></li>
             <li><Link to="/careers" className="hover:text-white">Careers</Link></li>
             <li><Link to="/contact" className="hover:text-white">Contact</Link></li>

@@ -9,6 +9,10 @@ class Setting < ApplicationRecord
     "Careers",
     "General Inquiry"
   ].freeze
+  DEFAULT_APPROVAL_GROUPS = [
+    { "key" => "cfi", "label" => "CFI" },
+    { "key" => "ops_maintenance", "label" => "Ops / Maintenance" }
+  ].freeze
 
   validates :key, presence: true, uniqueness: true
 
@@ -78,6 +82,30 @@ class Setting < ApplicationRecord
     DEFAULT_CONTACT_INQUIRY_TOPICS
   end
 
+  def self.approval_groups
+    value = find_by(key: "approval_groups")&.value
+    parse_approval_groups(value)
+  end
+
+  def self.approval_group_keys
+    approval_groups.map { |group| group.fetch("key") }
+  end
+
+  def self.approval_group_label_for(key)
+    return "Unassigned" if key.blank?
+
+    approval_groups.find { |group| group["key"] == key.to_s }&.fetch("label", nil) || key.to_s.humanize
+  end
+
+  def self.set_approval_groups!(groups)
+    normalized_groups = normalize_approval_groups(groups)
+    set(
+      "approval_groups",
+      normalized_groups.to_json,
+      description: "JSON array of approval routing groups used for pending review filters"
+    )
+  end
+
   def self.set_contact_inquiry_topics!(topics)
     normalized_topics = normalize_contact_inquiry_topics(topics)
     set(
@@ -110,11 +138,51 @@ class Setting < ApplicationRecord
       .uniq
   end
 
+  def self.normalize_approval_groups(value)
+    groups = Array(value).filter_map do |group|
+      raw_group = group.respond_to?(:to_h) ? group.to_h : {}
+      label = raw_group["label"] || raw_group[:label] || group
+      next if label.blank?
+
+      raw_key = raw_group["key"] || raw_group[:key] || label
+      key = normalize_approval_group_key(raw_key)
+      raise ArgumentError, "Approval group keys may only contain letters, numbers, and underscores" if key.blank?
+
+      { "key" => key, "label" => label.to_s.strip }
+    end
+
+    raise ArgumentError, "At least one approval group is required" if groups.empty?
+
+    duplicate_keys = groups.group_by { |group| group["key"] }.select { |_key, rows| rows.size > 1 }.keys
+    raise ArgumentError, "Approval group keys must be unique" if duplicate_keys.any?
+
+    groups
+  end
+
+  def self.normalize_approval_group_key(value)
+    value
+      .to_s
+      .strip
+      .downcase
+      .gsub(/[^a-z0-9]+/, "_")
+      .gsub(/\A_+|_+\z/, "")
+      .gsub(/_+/, "_")
+  end
+
   def self.parse_contact_inquiry_topics(value)
     return DEFAULT_CONTACT_INQUIRY_TOPICS if value.blank?
 
     parsed = JSON.parse(value)
     topics = normalize_contact_inquiry_topics(parsed)
     topics.presence || DEFAULT_CONTACT_INQUIRY_TOPICS
+  end
+
+  def self.parse_approval_groups(value)
+    return DEFAULT_APPROVAL_GROUPS.map(&:dup) if value.blank?
+
+    parsed = JSON.parse(value)
+    normalize_approval_groups(parsed)
+  rescue JSON::ParserError, ArgumentError
+    DEFAULT_APPROVAL_GROUPS.map(&:dup)
   end
 end

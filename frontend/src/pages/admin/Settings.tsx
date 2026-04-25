@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdminTimeCategory, ContactSettings, TimeClockAppSettings } from '../../lib/api'
+import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
 const emptyCategoryForm = {
@@ -18,20 +18,25 @@ export default function Settings() {
   const [categories, setCategories] = useState<AdminTimeCategory[]>([])
   const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
   const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null)
+  const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [thresholdDraft, setThresholdDraft] = useState({
     overtime_daily_threshold_hours: '',
     overtime_weekly_threshold_hours: '',
     early_clock_in_buffer_minutes: '',
   })
+  const [approvalGroupDrafts, setApprovalGroupDrafts] = useState<ApprovalGroupOption[]>([{ key: '', label: '' }])
   const [contactNotificationEmailsDraft, setContactNotificationEmailsDraft] = useState('')
   const [inquiryTopicsDraft, setInquiryTopicsDraft] = useState<string[]>([''])
   const [loading, setLoading] = useState(true)
   const [categoriesError, setCategoriesError] = useState('')
   const [settingsError, setSettingsError] = useState('')
+  const [approvalGroupsError, setApprovalGroupsError] = useState('')
+  const [approvalGroupsMessage, setApprovalGroupsMessage] = useState('')
   const [contactSettingsError, setContactSettingsError] = useState('')
   const [contactSettingsMessage, setContactSettingsMessage] = useState('')
   const [savingCategory, setSavingCategory] = useState(false)
   const [savingThresholds, setSavingThresholds] = useState(false)
+  const [savingApprovalGroups, setSavingApprovalGroups] = useState(false)
   const [savingContactSettings, setSavingContactSettings] = useState(false)
   const [showInactive, setShowInactive] = useState(true)
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
@@ -51,6 +56,12 @@ export default function Settings() {
     else if (setRes.data) {
       const s = setRes.data.settings
       setClockSettings(s)
+      setApprovalGroups(setRes.data.approval_groups)
+      setApprovalGroupDrafts(
+        setRes.data.approval_groups.length > 0
+          ? setRes.data.approval_groups
+          : [{ key: '', label: '' }]
+      )
       setThresholdDraft({
         overtime_daily_threshold_hours: s.overtime_daily_threshold_hours,
         overtime_weekly_threshold_hours: s.overtime_weekly_threshold_hours,
@@ -181,9 +192,11 @@ export default function Settings() {
     setSettingsError('')
     try {
       const res = await api.updateAdminAppSettings({
-        overtime_daily_threshold_hours: thresholdDraft.overtime_daily_threshold_hours,
-        overtime_weekly_threshold_hours: thresholdDraft.overtime_weekly_threshold_hours,
-        early_clock_in_buffer_minutes: thresholdDraft.early_clock_in_buffer_minutes,
+        settings: {
+          overtime_daily_threshold_hours: thresholdDraft.overtime_daily_threshold_hours,
+          overtime_weekly_threshold_hours: thresholdDraft.overtime_weekly_threshold_hours,
+          early_clock_in_buffer_minutes: thresholdDraft.early_clock_in_buffer_minutes,
+        },
       })
       if (res.error) {
         setSettingsError(res.error)
@@ -191,6 +204,7 @@ export default function Settings() {
       }
       if (res.data) {
         setClockSettings(res.data.settings)
+        setApprovalGroups(res.data.approval_groups)
         setThresholdDraft({
           overtime_daily_threshold_hours: res.data.settings.overtime_daily_threshold_hours,
           overtime_weekly_threshold_hours: res.data.settings.overtime_weekly_threshold_hours,
@@ -199,6 +213,66 @@ export default function Settings() {
       }
     } finally {
       setSavingThresholds(false)
+    }
+  }
+
+  const updateApprovalGroupDraft = (index: number, field: keyof ApprovalGroupOption, value: string) => {
+    setApprovalGroupDrafts((current) => current.map((group, groupIndex) => (
+      groupIndex === index ? { ...group, [field]: value } : group
+    )))
+  }
+
+  const addApprovalGroupDraft = () => {
+    setApprovalGroupDrafts((current) => [...current, { key: '', label: '' }])
+  }
+
+  const removeApprovalGroupDraft = (index: number) => {
+    setApprovalGroupDrafts((current) => {
+      if (current.length === 1) return [{ key: '', label: '' }]
+      return current.filter((_, groupIndex) => groupIndex !== index)
+    })
+  }
+
+  const handleSaveApprovalGroups = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    const normalizedGroups = approvalGroupDrafts
+      .map((group) => ({ key: group.key.trim(), label: group.label.trim() }))
+      .filter((group) => group.key || group.label)
+
+    if (normalizedGroups.length === 0) {
+      setApprovalGroupsError('At least one approval group is required.')
+      setApprovalGroupsMessage('')
+      return
+    }
+
+    if (normalizedGroups.some((group) => !group.label)) {
+      setApprovalGroupsError('Each approval group needs a label.')
+      setApprovalGroupsMessage('')
+      return
+    }
+
+    setSavingApprovalGroups(true)
+    setApprovalGroupsError('')
+    setApprovalGroupsMessage('')
+    try {
+      const res = await api.updateAdminAppSettings({
+        approval_groups: normalizedGroups,
+      })
+      if (res.error || !res.data) {
+        setApprovalGroupsError(res.error || 'Failed to save approval groups')
+        return
+      }
+
+      setApprovalGroups(res.data.approval_groups)
+      setApprovalGroupDrafts(
+        res.data.approval_groups.length > 0
+          ? res.data.approval_groups
+          : [{ key: '', label: '' }]
+      )
+      setApprovalGroupsMessage('Approval routing groups saved.')
+    } finally {
+      setSavingApprovalGroups(false)
     }
   }
 
@@ -273,7 +347,7 @@ export default function Settings() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Manage work categories for kiosk clock-in, overtime rules, and early clock-in window.
+            Manage approval routing, work categories, overtime rules, and public contact settings.
           </p>
         </div>
       </FadeUp>
@@ -346,6 +420,85 @@ export default function Settings() {
           </FadeUp>
 
           <FadeUp delay={0.08}>
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 px-5 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Approval routing groups</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Configure the review groups used on Users and pending approvals. Labels are what admins see; keys stay stable for routing.
+                </p>
+              </div>
+              <form onSubmit={handleSaveApprovalGroups} className="space-y-5 px-5 py-5">
+                {approvalGroupsError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{approvalGroupsError}</div>
+                )}
+                {approvalGroupsMessage && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{approvalGroupsMessage}</div>
+                )}
+                <div className="space-y-3">
+                  {approvalGroupDrafts.map((group, index) => (
+                    <div key={`approval-group-${index}`} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[1.2fr_1fr_auto]">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Label</label>
+                        <input
+                          value={group.label}
+                          onChange={(e) => updateApprovalGroupDraft(index, 'label', e.target.value)}
+                          placeholder={index === 0 ? 'CFI' : 'Ops / Maintenance'}
+                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Key</label>
+                        <input
+                          value={group.key}
+                          onChange={(e) => updateApprovalGroupDraft(index, 'key', e.target.value)}
+                          placeholder="optional; auto-generated from label"
+                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          onClick={() => removeApprovalGroupDraft(index)}
+                          disabled={approvalGroupDrafts.length === 1 && !group.label.trim() && !group.key.trim()}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    {approvalGroups.length > 0
+                      ? `Currently configured: ${approvalGroups.map((group) => `${group.label} (${group.key})`).join(', ')}.`
+                      : 'Approval groups load with the internal admin settings.'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addApprovalGroupDraft}
+                    className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                  >
+                    Add approval group
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  If a group is already assigned to staff, reassign those users before removing that key.
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingApprovalGroups}
+                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {savingApprovalGroups ? 'Saving…' : 'Save approval groups'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </FadeUp>
+
+          <FadeUp delay={0.1}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Contact settings</h2>
@@ -432,7 +585,7 @@ export default function Settings() {
             </section>
           </FadeUp>
 
-          <FadeUp delay={0.1}>
+          <FadeUp delay={0.12}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>

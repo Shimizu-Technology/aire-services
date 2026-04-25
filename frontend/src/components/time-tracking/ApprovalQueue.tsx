@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
-import type { ApprovalGroupFilter, TimeCategory, TimeEntry } from '../../lib/api'
+import type { ApprovalGroupFilter, ApprovalGroupOption, TimeCategory, TimeEntry } from '../../lib/api'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
@@ -19,6 +19,7 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
+  const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [approvalGroupFilter, setApprovalGroupFilter] = useState<'all' | ApprovalGroupFilter>('all')
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
@@ -87,10 +88,23 @@ export default function ApprovalQueue({ onUpdate, canDeleteEntry }: ApprovalQueu
       .catch(() => undefined)
   }, [])
 
+  useEffect(() => {
+    api.getAdminAppSettings()
+      .then((result) => {
+        if (result.data?.approval_groups) {
+          setApprovalGroups(result.data.approval_groups)
+        }
+      })
+      .catch(() => undefined)
+  }, [])
+
   const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
     { value: 'all', label: 'All', count: allEntries.length },
-    { value: 'cfi', label: 'CFI', count: allEntries.filter((entry) => entry.user.approval_group === 'cfi').length },
-    { value: 'ops_maintenance', label: 'Ops / Maintenance', count: allEntries.filter((entry) => entry.user.approval_group === 'ops_maintenance').length },
+    ...approvalGroups.map((group) => ({
+      value: group.key,
+      label: group.label,
+      count: allEntries.filter((entry) => entry.user.approval_group === group.key).length,
+    })),
     { value: 'unassigned', label: 'Unassigned', count: allEntries.filter((entry) => !entry.user.approval_group).length },
   ]
 

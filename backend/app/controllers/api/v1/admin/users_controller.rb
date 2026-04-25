@@ -51,7 +51,7 @@ module Api
           end
 
           unless valid_approval_group?(approval_group)
-            return render json: { error: "Approval group must be CFI, Ops / Maintenance, or blank" }, status: :unprocessable_entity
+            return render json: { error: approval_group_error_message }, status: :unprocessable_entity
           end
 
           send_invitation =
@@ -100,8 +100,21 @@ module Api
             return render json: { error: "You cannot change your own role" }, status: :unprocessable_entity
           end
 
-          permitted = normalized_update_params
+          payload = normalized_update_params
           return if performed?
+
+          permitted = payload.fetch(:local_attributes)
+          clerk_attributes = payload.fetch(:clerk_attributes)
+
+          if clerk_attributes.present?
+            begin
+              permitted.merge!(
+                ClerkUserService.update_user!(clerk_user_id: @user.clerk_id, **clerk_attributes)
+              )
+            rescue ClerkUserService::Error => e
+              return render json: { error: e.message }, status: :unprocessable_entity
+            end
+          end
 
           if @user.update(permitted)
             sync_time_categories(@user) if params.key?(:time_category_ids)
@@ -181,6 +194,10 @@ module Api
             is_active: user.is_active,
             is_pending: user.pending_invite?,
             uses_clerk_profile: user.uses_clerk_profile?,
+            public_team_enabled: user.public_team_enabled,
+            public_team_name: user.public_team_name,
+            public_team_title: user.public_team_title,
+            public_team_sort_order: user.public_team_sort_order,
             kiosk_enabled: user.kiosk_enabled,
             kiosk_pin_configured: user.kiosk_pin_configured?,
             kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
@@ -239,26 +256,28 @@ module Api
         end
 
         def valid_approval_group?(value)
-          value.nil? || User::APPROVAL_GROUPS.include?(value)
+          value.nil? || Setting.approval_group_keys.include?(value)
         end
 
         def normalized_update_params
           permitted = {}
           uses_clerk_profile = @user.uses_clerk_profile?
+          active_clerk_user = uses_clerk_profile && !@user.pending_invite?
+          clerk_attributes = {}
 
           if params[:role].present?
             unless %w[admin employee].include?(params[:role])
               render json: { error: "Role must be admin or employee" }, status: :unprocessable_entity
-              return {}
+              return { local_attributes: {}, clerk_attributes: {} }
             end
 
             permitted[:role] = params[:role]
           end
 
           if params.key?(:first_name) || params.key?(:last_name)
-            if uses_clerk_profile
-              render json: { error: "Clerk-managed users update their name from their sign-in profile" }, status: :unprocessable_entity
-              return {}
+            if uses_clerk_profile && !active_clerk_user
+              render json: { error: "Pending Clerk invites will pull names from Clerk after first sign-in" }, status: :unprocessable_entity
+              return { local_attributes: {}, clerk_attributes: {} }
             end
           end
 
@@ -266,14 +285,23 @@ module Api
             first_name = params[:first_name].to_s.strip
             if first_name.blank?
               render json: { error: "First name is required" }, status: :unprocessable_entity
-              return {}
+              return { local_attributes: {}, clerk_attributes: {} }
             end
 
-            permitted[:first_name] = first_name
+            if active_clerk_user
+              clerk_attributes[:first_name] = first_name if first_name != @user.first_name.to_s
+            else
+              permitted[:first_name] = first_name
+            end
           end
 
           if params.key?(:last_name)
-            permitted[:last_name] = params[:last_name].to_s.strip.presence
+            last_name = params[:last_name].to_s.strip.presence
+            if active_clerk_user
+              clerk_attributes[:last_name] = last_name if last_name != @user.last_name.presence
+            else
+              permitted[:last_name] = last_name
+            end
           end
 
           if params.key?(:email)
@@ -282,36 +310,35 @@ module Api
             if uses_clerk_profile
               if email.blank?
                 render json: { error: "Clerk-managed users must keep an email address" }, status: :unprocessable_entity
-                return {}
+                return { local_attributes: {}, clerk_attributes: {} }
               end
 
-              if !@user.pending_invite? && email != @user.email&.downcase
-                render json: { error: "Activated Clerk users must update their email from Clerk" }, status: :unprocessable_entity
-                return {}
+              if active_clerk_user
+                clerk_attributes[:email] = email if email != @user.email&.downcase
+              else
+                permitted[:email] = email
               end
             elsif email.present?
               render json: { error: "Kiosk-only users cannot be converted to email sign-in from this form" }, status: :unprocessable_entity
-              return {}
+              return { local_attributes: {}, clerk_attributes: {} }
             end
 
             if email.present? && !email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
               render json: { error: "Invalid email format" }, status: :unprocessable_entity
-              return {}
+              return { local_attributes: {}, clerk_attributes: {} }
             end
 
             if email.present? && User.where.not(id: @user.id).exists?([ "LOWER(email) = ?", email ])
               render json: { error: "A user with this email already exists" }, status: :unprocessable_entity
-              return {}
+              return { local_attributes: {}, clerk_attributes: {} }
             end
-
-            permitted[:email] = email
           end
 
           if params.key?(:approval_group)
             approval_group = normalized_approval_group(params[:approval_group])
             unless valid_approval_group?(approval_group)
-              render json: { error: "Approval group must be CFI, Ops / Maintenance, or blank" }, status: :unprocessable_entity
-              return {}
+              render json: { error: approval_group_error_message }, status: :unprocessable_entity
+              return { local_attributes: {}, clerk_attributes: {} }
             end
 
             permitted[:approval_group] = approval_group
@@ -322,13 +349,40 @@ module Api
 
             if !is_active && @user.id == current_user.id
               render json: { error: "You cannot deactivate your own account" }, status: :unprocessable_entity
-              return {}
+              return { local_attributes: {}, clerk_attributes: {} }
             end
 
             permitted[:is_active] = is_active
           end
 
-          permitted
+          if params.key?(:public_team_enabled)
+            permitted[:public_team_enabled] = ActiveModel::Type::Boolean.new.cast(params[:public_team_enabled])
+          end
+
+          if params.key?(:public_team_name)
+            permitted[:public_team_name] = params[:public_team_name].to_s.strip.presence
+          end
+
+          if params.key?(:public_team_title)
+            permitted[:public_team_title] = params[:public_team_title].to_s.strip.presence
+          end
+
+          if params.key?(:public_team_sort_order)
+            begin
+              sort_order = Integer(params[:public_team_sort_order])
+              permitted[:public_team_sort_order] = sort_order
+            rescue ArgumentError, TypeError
+              render json: { error: "Public team sort order must be a whole number" }, status: :unprocessable_entity
+              return { local_attributes: {}, clerk_attributes: {} }
+            end
+          end
+
+          { local_attributes: permitted, clerk_attributes: clerk_attributes }
+        end
+
+        def approval_group_error_message
+          labels = Setting.approval_groups.map { |group| group.fetch("label") }
+          "Approval group must be one of #{labels.join(', ')}, or blank"
         end
       end
     end

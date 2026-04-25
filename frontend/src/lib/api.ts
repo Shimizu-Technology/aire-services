@@ -125,8 +125,13 @@ export interface CurrentUser {
   created_at: string;
 }
 
-export type ApprovalGroup = 'cfi' | 'ops_maintenance';
+export type ApprovalGroup = string;
 export type ApprovalGroupFilter = ApprovalGroup | 'unassigned';
+
+export interface ApprovalGroupOption {
+  key: string;
+  label: string;
+}
 
 export interface UserSummary {
   id: number;
@@ -159,6 +164,10 @@ export interface AdminUser {
   is_active: boolean;
   is_pending: boolean;
   uses_clerk_profile: boolean;
+  public_team_enabled: boolean;
+  public_team_name: string | null;
+  public_team_title: string | null;
+  public_team_sort_order: number;
   kiosk_enabled?: boolean;
   kiosk_pin_configured?: boolean;
   kiosk_pin_last_rotated_at?: string | null;
@@ -205,6 +214,11 @@ export interface TimeClockAppSettings {
   early_clock_in_buffer_minutes: string;
 }
 
+export interface AdminAppSettingsResponse {
+  settings: TimeClockAppSettings;
+  approval_groups: ApprovalGroupOption[];
+}
+
 export interface ContactSettings {
   contact_notification_emails: string[];
   inquiry_topics: string[];
@@ -212,6 +226,12 @@ export interface ContactSettings {
 
 export interface PublicContactSettings {
   inquiry_topics: string[];
+}
+
+export interface PublicTeamMember {
+  id: number;
+  name: string;
+  title: string;
 }
 
 export interface TimeEntry {
@@ -505,6 +525,9 @@ export const api = {
   getPublicContactSettings: () =>
     fetchApiPublic<PublicContactSettings>('/api/v1/contact_settings'),
 
+  getPublicTeamMembers: () =>
+    fetchApiPublic<{ team_members: PublicTeamMember[] }>('/api/v1/team_members'),
+
   submitContact: (data: { name: string; email: string; phone?: string; subject: string; message: string }) =>
     fetchApiPublic<{ success: boolean; message: string }>('/api/v1/contact', {
       method: 'POST',
@@ -586,6 +609,10 @@ export const api = {
     role?: 'admin' | 'employee';
     approval_group?: ApprovalGroup | null;
     is_active?: boolean;
+    public_team_enabled?: boolean;
+    public_team_name?: string | null;
+    public_team_title?: string | null;
+    public_team_sort_order?: number;
     time_category_ids?: number[];
   }) =>
     fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {
@@ -760,12 +787,12 @@ export const api = {
     fetchApi<{ time_categories: AdminTimeCategory[] }>('/api/v1/admin/time_categories'),
 
   getAdminAppSettings: () =>
-    fetchApi<{ settings: TimeClockAppSettings }>('/api/v1/admin/settings'),
+    fetchApi<AdminAppSettingsResponse>('/api/v1/admin/settings'),
 
-  updateAdminAppSettings: (settings: Partial<TimeClockAppSettings>) =>
-    fetchApi<{ settings: TimeClockAppSettings }>('/api/v1/admin/settings', {
+  updateAdminAppSettings: (payload: { settings?: Partial<TimeClockAppSettings>; approval_groups?: ApprovalGroupOption[] }) =>
+    fetchApi<AdminAppSettingsResponse>('/api/v1/admin/settings', {
       method: 'PATCH',
-      body: JSON.stringify({ settings }),
+      body: JSON.stringify(payload),
     }),
 
   getAdminContactSettings: () =>

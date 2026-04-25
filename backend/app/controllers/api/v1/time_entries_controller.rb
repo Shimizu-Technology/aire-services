@@ -563,7 +563,7 @@ module Api
         case approval_group
         when "unassigned"
           entries.where(users: { approval_group: nil })
-        when *User::APPROVAL_GROUPS
+        when *Setting.approval_group_keys
           entries.where(users: { approval_group: approval_group })
         else
           entries

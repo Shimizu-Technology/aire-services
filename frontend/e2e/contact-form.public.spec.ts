@@ -126,12 +126,15 @@ test.describe('Contact Form', () => {
     }
   });
 
-  test('has a quick link to the discovery flight page', async ({ page }) => {
-    const discoveryLink = page.getByRole('link', { name: /Explore Discovery Flight/i });
-    await expect(discoveryLink).toBeVisible();
+  test('has quick links to supporting pages', async ({ page }) => {
+    const servicesLink = page.getByRole('link', { name: /View Services/i });
+    const teamLink = page.getByRole('link', { name: /Meet the Team/i });
 
-    await discoveryLink.click();
-    await expect(page).toHaveURL(/\/discovery-flight/);
+    await expect(servicesLink).toBeVisible();
+    await expect(teamLink).toBeVisible();
+
+    await servicesLink.click();
+    await expect(page).toHaveURL(/\/programs/);
   });
 });
 
