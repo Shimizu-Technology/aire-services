@@ -83,7 +83,7 @@ class AddressGeocodingService
       now = Time.current.to_i
       bucket = (now / bucket_seconds).to_s
       key = "address_geocoding:rate_limit:#{bucket}"
-      expires_in = [bucket_seconds - (now % bucket_seconds), 1].max
+      expires_in = [ bucket_seconds - (now % bucket_seconds), 1 ].max
       request_count = Rails.cache.increment(key, 1, expires_in: expires_in)
       if request_count.nil?
         initialized = Rails.cache.write(key, 1, expires_in: expires_in, unless_exist: true)

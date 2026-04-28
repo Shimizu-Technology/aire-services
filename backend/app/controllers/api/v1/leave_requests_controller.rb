@@ -97,29 +97,47 @@ module Api
       end
 
       def review_request!(status)
-        if @leave_request.user_id == current_user.id
-          return render json: { error: "Admins cannot approve or decline their own leave requests" }, status: :unprocessable_entity
+        review_result = nil
+        error_response = nil
+
+        @leave_request.with_lock do
+          if @leave_request.user_id == current_user.id
+            error_response = {
+              error: "Admins cannot approve or decline their own leave requests",
+              status: :unprocessable_entity
+            }
+            next
+          end
+
+          unless @leave_request.pending?
+            error_response = {
+              error: "Only pending leave requests can be reviewed",
+              status: :unprocessable_entity
+            }
+            next
+          end
+
+          @leave_request.update!(
+            status: status,
+            reviewed_by: current_user,
+            reviewed_at: Time.current,
+            review_note: params[:review_note].presence
+          )
+          review_result = @leave_request.reload
         end
 
-        unless @leave_request.pending?
-          return render json: { error: "Only pending leave requests can be reviewed" }, status: :unprocessable_entity
+        if error_response
+          return render json: { error: error_response.fetch(:error) }, status: error_response.fetch(:status)
         end
-
-        @leave_request.update!(
-          status: status,
-          reviewed_by: current_user,
-          reviewed_at: Time.current,
-          review_note: params[:review_note].presence
-        )
 
         AuditLog.log(
-          auditable: @leave_request,
+          auditable: review_result,
           action: "updated",
           user: current_user,
           metadata: "leave_request_status=#{status}"
         )
 
-        render json: { leave_request: serialize_leave_request(@leave_request.reload) }
+        render json: { leave_request: serialize_leave_request(review_result) }
       end
 
       def serialize_leave_request(request)

@@ -141,6 +141,25 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(json[:error]).to match(/cannot approve or decline their own leave requests/i)
       expect(own_request.reload.status).to eq("pending")
     end
+
+    it "rejects a second review after the request is no longer pending" do
+      post "/api/v1/leave_requests/#{request_record.id}/approve",
+           params: { review_note: "Approved first" },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+
+      post "/api/v1/leave_requests/#{request_record.id}/decline",
+           params: { review_note: "Declined second" },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/Only pending leave requests can be reviewed/i)
+
+      request_record.reload
+      expect(request_record.status).to eq("approved")
+      expect(request_record.review_note).to eq("Approved first")
+    end
   end
 
   describe "POST /api/v1/leave_requests/:id/cancel" do
