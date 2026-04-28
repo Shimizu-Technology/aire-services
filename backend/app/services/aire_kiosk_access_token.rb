@@ -5,13 +5,13 @@ class AireKioskAccessToken
   EXPIRY = 12.hours
 
   class << self
-    def issue_for(admin)
+    def issue_for(admin, issued_at: Time.current)
       raise ArgumentError, "Only admins can unlock the kiosk" unless admin&.admin?
 
       verifier.generate(
         {
           admin_id: admin.id,
-          issued_at: Time.current.to_i
+          issued_at: issued_at.to_i
         },
         purpose: PURPOSE,
         expires_in: EXPIRY
@@ -30,8 +30,8 @@ class AireKioskAccessToken
       nil
     end
 
-    def expires_at
-      EXPIRY.from_now
+    def expires_at(issued_at: Time.current)
+      issued_at + EXPIRY
     end
 
     private

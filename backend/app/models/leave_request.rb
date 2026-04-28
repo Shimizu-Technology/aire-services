@@ -47,13 +47,21 @@ class LeaveRequest < ApplicationRecord
   def does_not_overlap_active_request
     return if user_id.blank? || start_date.blank? || end_date.blank?
 
-    overlapping = self.class
+    overlapping = if user.present?
+      user.with_lock { overlapping_active_requests.exists? }
+    else
+      overlapping_active_requests.exists?
+    end
+
+    return unless overlapping
+
+    errors.add(:base, "overlaps with another pending or approved leave request")
+  end
+
+  def overlapping_active_requests
+    self.class
       .where(user_id: user_id, status: %w[pending approved])
       .where.not(id: id)
       .where("start_date <= ? AND end_date >= ?", end_date, start_date)
-
-    return unless overlapping.exists?
-
-    errors.add(:base, "overlaps with another pending or approved leave request")
   end
 end

@@ -10,6 +10,8 @@ class AddressGeocodingService
   BASE_URL = "https://nominatim.openstreetmap.org".freeze
   DEFAULT_LIMIT = 5
   CACHE_TTL = 12.hours
+  RATE_LIMIT_WINDOW = 1.minute
+  RATE_LIMIT_MAX_REQUESTS = 10
 
   class << self
     def search(query:, limit: DEFAULT_LIMIT)
@@ -19,6 +21,8 @@ class AddressGeocodingService
       normalized_limit = limit.to_i.clamp(1, 10)
 
       Rails.cache.fetch(cache_key(normalized_query, normalized_limit), expires_in: CACHE_TTL) do
+        enforce_rate_limit!
+
         uri = URI("#{BASE_URL}/search")
         uri.query = URI.encode_www_form(
           q: normalized_query,
@@ -70,6 +74,18 @@ class AddressGeocodingService
     def geocoding_user_agent
       contact_email = Setting.contact_notification_emails.first.presence || "admin@aireservicesguam.com"
       "AIRE Ops/1.0 (admin-geofence-setup; contact: #{contact_email})"
+    end
+
+    def enforce_rate_limit!
+      bucket = (Time.current.to_i / RATE_LIMIT_WINDOW.to_i).to_s
+      key = "address_geocoding:rate_limit:#{bucket}"
+      request_count = Rails.cache.read(key).to_i
+
+      if request_count >= RATE_LIMIT_MAX_REQUESTS
+        raise GeocodingError, "Geocoding search is temporarily rate-limited. Please try again in a minute."
+      end
+
+      Rails.cache.write(key, request_count + 1, expires_in: RATE_LIMIT_WINDOW)
     end
   end
 end
