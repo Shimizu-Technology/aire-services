@@ -11,6 +11,7 @@ import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
 import EditTimeEntryModal from '../../components/time-tracking/EditTimeEntryModal'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
+import LeaveRequestsPanel from '../../components/time-tracking/LeaveRequestsPanel'
 
 // Local types to avoid Vite caching issues
 interface TimeCategory {
@@ -169,9 +170,13 @@ export default function TimeTracking() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  // Tab: 'entries' or 'reports' — respect ?tab=reports from deep links
-  const [activeTab, setActiveTab] = useState<'entries' | 'reports'>(
-    searchParams.get('tab') === 'reports' ? 'reports' : 'entries'
+  // Tab: 'entries', 'reports', or 'leave' — respect ?tab=... from deep links
+  const [activeTab, setActiveTab] = useState<'entries' | 'reports' | 'leave'>(
+    searchParams.get('tab') === 'reports'
+      ? 'reports'
+      : searchParams.get('tab') === 'leave'
+        ? 'leave'
+        : 'entries'
   )
   
   // View mode: 'day' or 'week'
@@ -844,6 +849,17 @@ export default function TimeTracking() {
               Reports
             </button>
           )}
+          <button
+            onClick={() => setActiveTab('leave')}
+            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === 'leave'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-muted hover:text-primary-dark'
+            }`}
+          >
+            <PlusIcon />
+            Leave Requests
+          </button>
         </nav>
       </div>
 
@@ -1894,6 +1910,10 @@ export default function TimeTracking() {
             loading={reportLoading}
           />
         </div>
+      )}
+
+      {activeTab === 'leave' && (
+        <LeaveRequestsPanel isAdmin={isAdmin} />
       )}
     </div>
   )

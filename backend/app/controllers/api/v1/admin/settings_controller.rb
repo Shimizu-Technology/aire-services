@@ -9,6 +9,11 @@ module Api
           overtime_weekly_threshold_hours
           early_clock_in_buffer_minutes
           schedule_required_for_clock_in
+          clock_in_location_enforced
+          clock_in_location_name
+          clock_in_location_latitude
+          clock_in_location_longitude
+          clock_in_location_radius_meters
         ].freeze
 
         before_action :authenticate_user!
@@ -114,6 +119,21 @@ module Api
           if payload.key?("early_clock_in_buffer_minutes")
             v = payload["early_clock_in_buffer_minutes"].to_i
             return "Early clock-in buffer must be 0 or greater" if v.negative?
+          end
+
+          if payload.key?("clock_in_location_radius_meters")
+            v = payload["clock_in_location_radius_meters"].to_i
+            return "Clock-in radius must be greater than 0 meters" if v <= 0
+          end
+
+          if payload.key?("clock_in_location_latitude")
+            v = Setting.safe_float(payload["clock_in_location_latitude"])
+            return "Clock-in latitude must be between -90 and 90" if v.nil? || v < -90 || v > 90
+          end
+
+          if payload.key?("clock_in_location_longitude")
+            v = Setting.safe_float(payload["clock_in_location_longitude"])
+            return "Clock-in longitude must be between -180 and 180" if v.nil? || v < -180 || v > 180
           end
 
           nil

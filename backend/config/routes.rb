@@ -27,6 +27,13 @@ Rails.application.routes.draw do
 
       # Staff/admin routes
       resources :users, only: [ :index ]
+      resources :leave_requests, only: [ :index, :show, :create ] do
+        member do
+          post :approve
+          post :decline
+          post :cancel
+        end
+      end
       resources :time_entries, only: [ :index, :show, :create, :update, :destroy ] do
         collection do
           post :clock_in
@@ -58,6 +65,7 @@ Rails.application.routes.draw do
       end
 
       namespace :admin do
+        resource :kiosk_session, only: [ :create ]
         resource :settings, only: [ :show, :update ]
         resources :users, only: [ :index, :show, :create, :update, :destroy ] do
           member do

@@ -11,6 +11,8 @@ class User < ApplicationRecord
   has_many :time_entries, dependent: :nullify
   has_many :approved_time_entries, class_name: "TimeEntry", foreign_key: "approved_by_id", dependent: :nullify
   has_many :overtime_approved_time_entries, class_name: "TimeEntry", foreign_key: "overtime_approved_by_id", dependent: :nullify
+  has_many :leave_requests, dependent: :destroy
+  has_many :reviewed_leave_requests, class_name: "LeaveRequest", foreign_key: "reviewed_by_id", dependent: :nullify
   has_many :schedules, dependent: :nullify
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
   has_many :time_period_locks, foreign_key: "locked_by_id", dependent: :nullify

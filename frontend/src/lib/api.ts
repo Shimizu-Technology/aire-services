@@ -212,6 +212,11 @@ export interface TimeClockAppSettings {
   overtime_daily_threshold_hours: string;
   overtime_weekly_threshold_hours: string;
   early_clock_in_buffer_minutes: string;
+  clock_in_location_enforced: string;
+  clock_in_location_name: string;
+  clock_in_location_latitude: string;
+  clock_in_location_longitude: string;
+  clock_in_location_radius_meters: string;
 }
 
 export interface AdminAppSettingsResponse {
@@ -333,6 +338,9 @@ export interface ClockStatus {
   can_clock_in: boolean;
   clock_in_blocked_reason: 'already_clocked_in' | 'too_early' | 'shift_ended' | null;
   minutes_until?: number;
+  clock_in_location_required?: boolean;
+  clock_in_location_name?: string | null;
+  clock_in_location_radius_meters?: number | null;
   is_admin?: boolean;
   clock_source?: 'kiosk' | 'mobile' | 'admin' | 'legacy' | null;
   time_category?: {
@@ -353,6 +361,15 @@ export interface AireKioskVerifyResponse {
   kiosk_token: string;
   current_status: ClockStatus;
   available_categories: TimeCategory[];
+}
+
+export interface KioskSessionResponse {
+  kiosk_access_token: string;
+  expires_at: string;
+  unlocked_by: {
+    id: number;
+    full_name: string;
+  };
 }
 
 export interface AireKioskActionResponse {
@@ -411,6 +428,36 @@ export interface WorkerStatus {
     name: string;
   } | null;
   day_entries?: WorkerDayEntry[];
+}
+
+export interface LeaveRequest {
+  id: number;
+  leave_type: 'paid_time_off' | 'sick' | 'unpaid' | 'bereavement' | 'other';
+  start_date: string;
+  end_date: string;
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  reason: string | null;
+  review_note: string | null;
+  total_days: number;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  user: {
+    id: number;
+    email: string;
+    display_name?: string;
+    full_name?: string;
+  };
+  reviewed_by: {
+    id: number;
+    full_name: string;
+  } | null;
+}
+
+export interface ClockLocationPayload {
+  latitude: number;
+  longitude: number;
+  accuracy_meters?: number;
 }
 
 export interface TimeEntriesResponse {
@@ -534,43 +581,44 @@ export const api = {
     }),
 
   // AIRE Kiosk (public, PIN-based auth)
-  aireKioskVerify: (pin: string) =>
+  aireKioskVerify: (pin: string, kioskAccessToken: string) =>
     fetchApi<AireKioskVerifyResponse>('/api/v1/aire/kiosk/verify', {
       method: 'POST',
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({ pin, kiosk_access_token: kioskAccessToken }),
     }),
 
-  aireKioskClockIn: (kioskToken: string, timeCategoryId?: number | null) =>
+  aireKioskClockIn: (kioskAccessToken: string, kioskToken: string, timeCategoryId?: number | null) =>
     fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/clock_in', {
       method: 'POST',
       body: JSON.stringify({
+        kiosk_access_token: kioskAccessToken,
         kiosk_token: kioskToken,
         ...(timeCategoryId ? { time_category_id: timeCategoryId } : {}),
       }),
     }),
 
-  aireKioskClockOut: (kioskToken: string) =>
+  aireKioskClockOut: (kioskAccessToken: string, kioskToken: string) =>
     fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/clock_out', {
       method: 'POST',
-      body: JSON.stringify({ kiosk_token: kioskToken }),
+      body: JSON.stringify({ kiosk_access_token: kioskAccessToken, kiosk_token: kioskToken }),
     }),
 
-  aireKioskStartBreak: (kioskToken: string) =>
+  aireKioskStartBreak: (kioskAccessToken: string, kioskToken: string) =>
     fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/start_break', {
       method: 'POST',
-      body: JSON.stringify({ kiosk_token: kioskToken }),
+      body: JSON.stringify({ kiosk_access_token: kioskAccessToken, kiosk_token: kioskToken }),
     }),
 
-  aireKioskEndBreak: (kioskToken: string) =>
+  aireKioskEndBreak: (kioskAccessToken: string, kioskToken: string) =>
     fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/end_break', {
       method: 'POST',
-      body: JSON.stringify({ kiosk_token: kioskToken }),
+      body: JSON.stringify({ kiosk_access_token: kioskAccessToken, kiosk_token: kioskToken }),
     }),
 
-  aireKioskSwitchCategory: (kioskToken: string, timeCategoryId: number) =>
+  aireKioskSwitchCategory: (kioskAccessToken: string, kioskToken: string, timeCategoryId: number) =>
     fetchApi<AireKioskActionResponse>('/api/v1/aire/kiosk/switch_category', {
       method: 'POST',
-      body: JSON.stringify({ kiosk_token: kioskToken, time_category_id: timeCategoryId }),
+      body: JSON.stringify({ kiosk_access_token: kioskAccessToken, kiosk_token: kioskToken, time_category_id: timeCategoryId }),
     }),
 
   // Users (staff list for dropdowns)
@@ -696,13 +744,14 @@ export const api = {
     }),
 
   // Time Clock
-  clockIn: (userId?: number, adminOverride?: boolean, timeCategoryId?: number) =>
+  clockIn: (userId?: number, adminOverride?: boolean, timeCategoryId?: number, location?: ClockLocationPayload) =>
     fetchApi<{ time_entry: TimeEntry }>('/api/v1/time_entries/clock_in', {
       method: 'POST',
       body: JSON.stringify({
         ...(userId ? { user_id: userId } : {}),
         ...(adminOverride ? { admin_override: true } : {}),
         ...(timeCategoryId ? { time_category_id: timeCategoryId } : {}),
+        ...(location ? { location } : {}),
       }),
     }),
 
@@ -776,6 +825,39 @@ export const api = {
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/deny_overtime`, {
       method: 'POST',
       body: JSON.stringify({ note }),
+    }),
+
+  getLeaveRequests: (status?: LeaveRequest['status']) => {
+    const query = status ? `?status=${encodeURIComponent(status)}` : '';
+    return fetchApi<{ leave_requests: LeaveRequest[] }>(`/api/v1/leave_requests${query}`);
+  },
+
+  createLeaveRequest: (payload: Pick<LeaveRequest, 'leave_type' | 'start_date' | 'end_date'> & { reason?: string }) =>
+    fetchApi<{ leave_request: LeaveRequest }>('/api/v1/leave_requests', {
+      method: 'POST',
+      body: JSON.stringify({ leave_request: payload }),
+    }),
+
+  approveLeaveRequest: (id: number, reviewNote?: string) =>
+    fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ review_note: reviewNote }),
+    }),
+
+  declineLeaveRequest: (id: number, reviewNote?: string) =>
+    fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/decline`, {
+      method: 'POST',
+      body: JSON.stringify({ review_note: reviewNote }),
+    }),
+
+  cancelLeaveRequest: (id: number) =>
+    fetchApi<{ leave_request: LeaveRequest }>(`/api/v1/leave_requests/${id}/cancel`, {
+      method: 'POST',
+    }),
+
+  createAdminKioskSession: () =>
+    fetchApi<KioskSessionResponse>('/api/v1/admin/kiosk_session', {
+      method: 'POST',
     }),
 
   // Time Categories

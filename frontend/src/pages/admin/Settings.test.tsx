@@ -40,6 +40,11 @@ describe('Admin Settings contact settings', () => {
           overtime_daily_threshold_hours: '8',
           overtime_weekly_threshold_hours: '40',
           early_clock_in_buffer_minutes: '5',
+          clock_in_location_enforced: 'true',
+          clock_in_location_name: 'AIRE Services Guam',
+          clock_in_location_latitude: '13.46913',
+          clock_in_location_longitude: '144.79901',
+          clock_in_location_radius_meters: '1000',
         },
         approval_groups: [
           { key: 'cfi', label: 'CFI' },

@@ -32,6 +32,11 @@ export default function Settings() {
     overtime_daily_threshold_hours: '',
     overtime_weekly_threshold_hours: '',
     early_clock_in_buffer_minutes: '',
+    clock_in_location_enforced: 'true',
+    clock_in_location_name: '',
+    clock_in_location_latitude: '',
+    clock_in_location_longitude: '',
+    clock_in_location_radius_meters: '',
   })
   const [approvalGroupDrafts, setApprovalGroupDrafts] = useState<ApprovalGroupOption[]>([{ key: '', label: '' }])
   const [contactNotificationEmailsDraft, setContactNotificationEmailsDraft] = useState('')
@@ -75,6 +80,11 @@ export default function Settings() {
         overtime_daily_threshold_hours: s.overtime_daily_threshold_hours,
         overtime_weekly_threshold_hours: s.overtime_weekly_threshold_hours,
         early_clock_in_buffer_minutes: s.early_clock_in_buffer_minutes,
+        clock_in_location_enforced: s.clock_in_location_enforced,
+        clock_in_location_name: s.clock_in_location_name,
+        clock_in_location_latitude: s.clock_in_location_latitude,
+        clock_in_location_longitude: s.clock_in_location_longitude,
+        clock_in_location_radius_meters: s.clock_in_location_radius_meters,
       })
     }
 
@@ -205,6 +215,11 @@ export default function Settings() {
           overtime_daily_threshold_hours: thresholdDraft.overtime_daily_threshold_hours,
           overtime_weekly_threshold_hours: thresholdDraft.overtime_weekly_threshold_hours,
           early_clock_in_buffer_minutes: thresholdDraft.early_clock_in_buffer_minutes,
+          clock_in_location_enforced: thresholdDraft.clock_in_location_enforced,
+          clock_in_location_name: thresholdDraft.clock_in_location_name,
+          clock_in_location_latitude: thresholdDraft.clock_in_location_latitude,
+          clock_in_location_longitude: thresholdDraft.clock_in_location_longitude,
+          clock_in_location_radius_meters: thresholdDraft.clock_in_location_radius_meters,
         },
       })
       if (res.error) {
@@ -218,6 +233,11 @@ export default function Settings() {
           overtime_daily_threshold_hours: res.data.settings.overtime_daily_threshold_hours,
           overtime_weekly_threshold_hours: res.data.settings.overtime_weekly_threshold_hours,
           early_clock_in_buffer_minutes: res.data.settings.early_clock_in_buffer_minutes,
+          clock_in_location_enforced: res.data.settings.clock_in_location_enforced,
+          clock_in_location_name: res.data.settings.clock_in_location_name,
+          clock_in_location_latitude: res.data.settings.clock_in_location_latitude,
+          clock_in_location_longitude: res.data.settings.clock_in_location_longitude,
+          clock_in_location_radius_meters: res.data.settings.clock_in_location_radius_meters,
         })
       }
     } finally {
@@ -426,6 +446,68 @@ export default function Settings() {
                       onChange={(e) => setThresholdDraft((d) => ({ ...d, early_clock_in_buffer_minutes: e.target.value }))}
                       className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                     />
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">Clock-in location restriction</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Require self-service clock-ins to happen at the AIRE office. Kiosk and admin override actions still work.
+                        </p>
+                      </div>
+                      <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={thresholdDraft.clock_in_location_enforced === 'true'}
+                          onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_enforced: e.target.checked ? 'true' : 'false' }))}
+                          className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                        />
+                        Enforce
+                      </label>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="xl:col-span-1">
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Location label</label>
+                        <input
+                          value={thresholdDraft.clock_in_location_name}
+                          onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_name: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Latitude</label>
+                        <input
+                          type="number"
+                          step="0.000001"
+                          value={thresholdDraft.clock_in_location_latitude}
+                          onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_latitude: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Longitude</label>
+                        <input
+                          type="number"
+                          step="0.000001"
+                          value={thresholdDraft.clock_in_location_longitude}
+                          onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_longitude: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Allowed radius (meters)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={thresholdDraft.clock_in_location_radius_meters}
+                          onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_radius_meters: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div className="flex justify-end">

@@ -4,7 +4,8 @@ class AireKioskService
   class KioskError < StandardError; end
 
   class << self
-    def verify_pin(pin:)
+    def verify_pin(pin:, kiosk_access_token:)
+      unlock_admin_from_token!(kiosk_access_token)
       validate_pin!(pin)
 
       user = User.find_kiosk_user_by_pin(pin)
@@ -25,35 +26,40 @@ class AireKioskService
       }
     end
 
-    def clock_in(kiosk_token:, time_category_id: nil)
+    def clock_in(kiosk_access_token:, kiosk_token:, time_category_id: nil)
+      unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.clock_in(user: user, time_category_id: time_category_id, clock_source: "kiosk")
       log_action(entry: entry, action: "created", metadata: "source=kiosk;event=clock_in")
       response_payload(user, entry)
     end
 
-    def clock_out(kiosk_token:)
+    def clock_out(kiosk_access_token:, kiosk_token:)
+      unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.clock_out(user: user)
       log_action(entry: entry, action: "updated", metadata: "source=kiosk;event=clock_out")
       response_payload(user, entry)
     end
 
-    def start_break(kiosk_token:)
+    def start_break(kiosk_access_token:, kiosk_token:)
+      unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.start_break(user: user)
       log_action(entry: entry, action: "updated", metadata: "source=kiosk;event=start_break")
       response_payload(user, entry)
     end
 
-    def end_break(kiosk_token:)
+    def end_break(kiosk_access_token:, kiosk_token:)
+      unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.end_break(user: user)
       log_action(entry: entry, action: "updated", metadata: "source=kiosk;event=end_break")
       response_payload(user, entry)
     end
 
-    def switch_category(kiosk_token:, time_category_id:)
+    def switch_category(kiosk_access_token:, kiosk_token:, time_category_id:)
+      unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.switch_category(user: user, time_category_id: time_category_id, clock_source: "kiosk")
       log_action(entry: entry, action: "created", metadata: "source=kiosk;event=switch_category")
@@ -77,6 +83,15 @@ class AireKioskService
       raise KioskError, "Kiosk access is unavailable for this employee." unless user.kiosk_access_enabled?
 
       user
+    end
+
+    def unlock_admin_from_token!(kiosk_access_token)
+      return true if Rails.env.development? && kiosk_access_token.blank?
+
+      admin = AireKioskAccessToken.admin_from_token(kiosk_access_token)
+      raise KioskError, "Kiosk is locked. Ask an admin to unlock it before use." unless admin
+
+      admin
     end
 
     def available_categories_for(user)
