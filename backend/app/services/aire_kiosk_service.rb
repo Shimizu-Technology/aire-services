@@ -2,6 +2,7 @@
 
 class AireKioskService
   class KioskError < StandardError; end
+  INVALID_PIN_MESSAGE = "Invalid PIN"
 
   class << self
     def verify_pin(pin:, kiosk_access_token:)
@@ -108,7 +109,7 @@ class AireKioskService
     end
 
     def invalid_pin_message
-      "Invalid PIN"
+      INVALID_PIN_MESSAGE
     end
 
     def log_action(entry:, action:, metadata:)

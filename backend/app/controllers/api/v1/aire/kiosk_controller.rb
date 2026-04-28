@@ -19,7 +19,9 @@ module Api
           }
         rescue AireKioskService::KioskError => e
           failed_user = User.find_kiosk_user_by_pin(params[:pin].to_s)
-          failed_user&.register_kiosk_failure! if e.message == "Invalid PIN" && failed_user&.staff? && !failed_user.kiosk_locked?
+          if e.message == AireKioskService::INVALID_PIN_MESSAGE && failed_user&.staff? && !failed_user.kiosk_locked?
+            failed_user.register_kiosk_failure!
+          end
           render json: { error: e.message }, status: :unprocessable_entity
         end
 
