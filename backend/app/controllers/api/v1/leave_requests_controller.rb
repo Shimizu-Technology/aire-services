@@ -11,7 +11,13 @@ module Api
       def index
         requests = current_user.admin? ? LeaveRequest.all : current_user.leave_requests
         requests = requests.includes(:user, :reviewed_by)
-        requests = requests.where(status: params[:status]) if params[:status].present?
+        if params[:status].present?
+          requests = if params[:status] == "reviewed"
+            requests.where.not(status: "pending")
+          else
+            requests.where(status: params[:status])
+          end
+        end
         requests = requests.recent
 
         page = [ params[:page].to_i, 1 ].max

@@ -79,12 +79,15 @@ class AddressGeocodingService
     end
 
     def enforce_rate_limit!
-      bucket = (Time.current.to_i / RATE_LIMIT_WINDOW.to_i).to_s
+      bucket_seconds = RATE_LIMIT_WINDOW.to_i
+      now = Time.current.to_i
+      bucket = (now / bucket_seconds).to_s
       key = "address_geocoding:rate_limit:#{bucket}"
-      request_count = Rails.cache.increment(key, 1, expires_in: RATE_LIMIT_WINDOW)
+      expires_in = [bucket_seconds - (now % bucket_seconds), 1].max
+      request_count = Rails.cache.increment(key, 1, expires_in: expires_in)
       if request_count.nil?
-        initialized = Rails.cache.write(key, 1, expires_in: RATE_LIMIT_WINDOW, unless_exist: true)
-        request_count = initialized ? 1 : Rails.cache.increment(key, 1, expires_in: RATE_LIMIT_WINDOW)
+        initialized = Rails.cache.write(key, 1, expires_in: expires_in, unless_exist: true)
+        request_count = initialized ? 1 : Rails.cache.increment(key, 1, expires_in: expires_in)
       end
 
       request_count ||= RATE_LIMIT_MAX_REQUESTS + 1

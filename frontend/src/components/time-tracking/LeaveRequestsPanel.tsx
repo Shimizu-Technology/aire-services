@@ -36,7 +36,11 @@ interface LeaveRequestsPanelProps {
 export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps) {
   const [requests, setRequests] = useState<LeaveRequest[]>([])
   const [pagination, setPagination] = useState<PaginationMeta | null>(null)
+  const [pendingPagination, setPendingPagination] = useState<PaginationMeta | null>(null)
+  const [reviewedRequests, setReviewedRequests] = useState<LeaveRequest[]>([])
+  const [reviewedPagination, setReviewedPagination] = useState<PaginationMeta | null>(null)
   const [page, setPage] = useState(1)
+  const [reviewedPage, setReviewedPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null)
@@ -49,7 +53,29 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     reason: '',
   })
 
-  const loadRequests = useCallback(async (targetPage: number) => {
+  const loadRequests = useCallback(async (targetPage: number, targetReviewedPage: number = reviewedPage) => {
+    if (isAdmin) {
+      const [pendingResult, reviewedResult] = await Promise.all([
+        api.getLeaveRequests('pending', targetPage),
+        api.getLeaveRequests('reviewed', targetReviewedPage),
+      ])
+
+      if (pendingResult.error || !pendingResult.data || reviewedResult.error || !reviewedResult.data) {
+        setError(pendingResult.error || reviewedResult.error || 'Failed to load leave requests.')
+        setLoading(false)
+        return false
+      }
+
+      setError(null)
+      setRequests(pendingResult.data.leave_requests)
+      setPagination(pendingResult.data.pagination)
+      setPendingPagination(pendingResult.data.pagination)
+      setReviewedRequests(reviewedResult.data.leave_requests)
+      setReviewedPagination(reviewedResult.data.pagination)
+      setLoading(false)
+      return true
+    }
+
     const result = await api.getLeaveRequests(undefined, targetPage)
     if (result.error || !result.data) {
       setError(result.error || 'Failed to load leave requests.')
@@ -60,14 +86,40 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     setError(null)
     setRequests(result.data.leave_requests)
     setPagination(result.data.pagination)
+    setPendingPagination(null)
+    setReviewedRequests([])
+    setReviewedPagination(null)
     setLoading(false)
     return true
-  }, [])
+  }, [isAdmin, reviewedPage])
 
   useEffect(() => {
     let cancelled = false
 
     const run = async () => {
+      if (isAdmin) {
+        const [pendingResult, reviewedResult] = await Promise.all([
+          api.getLeaveRequests('pending', page),
+          api.getLeaveRequests('reviewed', reviewedPage),
+        ])
+        if (cancelled) return
+
+        if (pendingResult.error || !pendingResult.data || reviewedResult.error || !reviewedResult.data) {
+          setError(pendingResult.error || reviewedResult.error || 'Failed to load leave requests.')
+          setLoading(false)
+          return
+        }
+
+        setError(null)
+        setRequests(pendingResult.data.leave_requests)
+        setPagination(pendingResult.data.pagination)
+        setPendingPagination(pendingResult.data.pagination)
+        setReviewedRequests(reviewedResult.data.leave_requests)
+        setReviewedPagination(reviewedResult.data.pagination)
+        setLoading(false)
+        return
+      }
+
       const result = await api.getLeaveRequests(undefined, page)
       if (cancelled) return
 
@@ -80,6 +132,9 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       setError(null)
       setRequests(result.data.leave_requests)
       setPagination(result.data.pagination)
+      setPendingPagination(null)
+      setReviewedRequests([])
+      setReviewedPagination(null)
       setLoading(false)
     }
 
@@ -88,16 +143,11 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     return () => {
       cancelled = true
     }
-  }, [page])
-
-  const pendingRequests = useMemo(
-    () => requests.filter((request) => request.status === 'pending'),
-    [requests],
-  )
+  }, [isAdmin, page, reviewedPage])
 
   const historyRequests = useMemo(
-    () => requests.filter((request) => request.status !== 'pending'),
-    [requests],
+    () => (isAdmin ? reviewedRequests : requests.filter((request) => request.status !== 'pending')),
+    [isAdmin, requests, reviewedRequests],
   )
 
   const submitRequest = async (event: React.FormEvent) => {
@@ -127,7 +177,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
 
     if (page === 1) {
       setLoading(true)
-      await loadRequests(1)
+      await loadRequests(1, reviewedPage)
     } else {
       setLoading(true)
       setPage(1)
@@ -161,13 +211,18 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       return next
     })
     setLoading(true)
-    await loadRequests(page)
+    await loadRequests(page, reviewedPage)
     setActionLoadingId(null)
-  }, [loadRequests, page, reviewNotes])
+  }, [loadRequests, page, reviewNotes, reviewedPage])
 
   const changePage = useCallback((nextPage: number) => {
     setLoading(true)
     setPage(nextPage)
+  }, [])
+
+  const changeReviewedPage = useCallback((nextPage: number) => {
+    setLoading(true)
+    setReviewedPage(nextPage)
   }, [])
 
   return (
@@ -243,19 +298,19 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <h3 className="text-lg font-semibold text-slate-900">
-            {isAdmin ? 'Pending approvals' : 'My requests'}
+            {isAdmin ? `Pending approvals${pendingPagination ? ` (${pendingPagination.total_count})` : ''}` : 'My requests'}
           </h3>
         </div>
         {loading ? (
           <div className="px-5 py-10 text-sm text-slate-500">Loading leave requests…</div>
         ) : (
           <div className="space-y-4 px-5 py-5">
-            {(isAdmin ? pendingRequests : requests).length === 0 ? (
+            {requests.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
                 No leave requests to show yet.
               </div>
             ) : (
-              (isAdmin ? pendingRequests : requests).map((request) => (
+              requests.map((request) => (
                 <article key={request.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
@@ -363,7 +418,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
         )}
       </section>
 
-      {isAdmin && historyRequests.length > 0 && (
+      {isAdmin && (historyRequests.length > 0 || (reviewedPagination?.total_count ?? 0) > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-5 py-4">
             <h3 className="text-lg font-semibold text-slate-900">Reviewed requests</h3>
@@ -389,6 +444,31 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                 </div>
               </article>
             ))}
+            {reviewedPagination && reviewedPagination.total_pages > 1 && (
+              <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-sm text-slate-500">
+                <span>
+                  Page {reviewedPagination.current_page} of {reviewedPagination.total_pages}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={reviewedPagination.current_page <= 1}
+                    onClick={() => changeReviewedPage(Math.max(1, reviewedPagination.current_page - 1))}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reviewedPagination.current_page >= reviewedPagination.total_pages}
+                    onClick={() => changeReviewedPage(Math.min(reviewedPagination.total_pages, reviewedPagination.current_page + 1))}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}

@@ -437,6 +437,8 @@ export interface WorkerStatus {
   day_entries?: WorkerDayEntry[];
 }
 
+export type LeaveRequestQueryStatus = LeaveRequest['status'] | 'reviewed';
+
 export interface LeaveRequest {
   id: number;
   leave_type: 'paid_time_off' | 'sick' | 'unpaid' | 'bereavement' | 'other';
@@ -843,7 +845,7 @@ export const api = {
       body: JSON.stringify({ note }),
     }),
 
-  getLeaveRequests: (status?: LeaveRequest['status'], page: number = 1, perPage: number = 25) => {
+  getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25) => {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
     params.set('page', String(page));

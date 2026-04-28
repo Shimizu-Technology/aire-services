@@ -40,10 +40,11 @@ RSpec.describe AddressGeocodingService do
     it "rate limits repeated uncached outbound lookups" do
       frozen_time = Time.zone.parse("2026-04-28 10:00:00")
       bucket = "address_geocoding:rate_limit:#{frozen_time.to_i / AddressGeocodingService::RATE_LIMIT_WINDOW.to_i}"
+      bucket_expires_in = AddressGeocodingService::RATE_LIMIT_WINDOW.to_i
 
       allow(Time).to receive(:current).and_return(frozen_time)
       expect(Rails.cache).to receive(:increment)
-        .with(bucket, 1, expires_in: AddressGeocodingService::RATE_LIMIT_WINDOW)
+        .with(bucket, 1, expires_in: bucket_expires_in)
         .and_return(AddressGeocodingService::RATE_LIMIT_MAX_REQUESTS + 1)
       expect(Rails.cache).not_to receive(:write)
 
@@ -55,13 +56,14 @@ RSpec.describe AddressGeocodingService do
     it "retries the counter increment when the first cache increment returns nil" do
       frozen_time = Time.zone.parse("2026-04-28 10:00:00")
       bucket = "address_geocoding:rate_limit:#{frozen_time.to_i / AddressGeocodingService::RATE_LIMIT_WINDOW.to_i}"
+      bucket_expires_in = AddressGeocodingService::RATE_LIMIT_WINDOW.to_i
 
       allow(Time).to receive(:current).and_return(frozen_time)
       expect(Rails.cache).to receive(:increment)
-        .with(bucket, 1, expires_in: AddressGeocodingService::RATE_LIMIT_WINDOW)
+        .with(bucket, 1, expires_in: bucket_expires_in)
         .and_return(nil, 2)
       expect(Rails.cache).to receive(:write)
-        .with(bucket, 1, expires_in: AddressGeocodingService::RATE_LIMIT_WINDOW, unless_exist: true)
+        .with(bucket, 1, expires_in: bucket_expires_in, unless_exist: true)
         .and_return(false)
 
       expect { described_class.send(:enforce_rate_limit!) }.not_to raise_error

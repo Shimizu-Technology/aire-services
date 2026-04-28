@@ -93,6 +93,21 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(json.dig(:pagination, :total_count)).to eq(32)
       expect(json.dig(:pagination, :total_pages)).to eq(4)
     end
+
+    it "lets admins filter reviewed requests separately from pending approvals" do
+      pending_request = create(:leave_request, user: employee, status: "pending", start_date: Date.new(2026, 7, 1), end_date: Date.new(2026, 7, 2))
+      approved_request = create(:leave_request, user: employee, status: "approved", start_date: Date.new(2026, 7, 10), end_date: Date.new(2026, 7, 11))
+      declined_request = create(:leave_request, user: other_employee, status: "declined", start_date: Date.new(2026, 7, 20), end_date: Date.new(2026, 7, 21))
+
+      get "/api/v1/leave_requests",
+          params: { status: "reviewed" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      ids = json[:leave_requests].map { |request| request.fetch(:id) }
+      expect(ids).to include(approved_request.id, declined_request.id)
+      expect(ids).not_to include(pending_request.id)
+    end
   end
 
   describe "POST /api/v1/leave_requests/:id/approve" do
