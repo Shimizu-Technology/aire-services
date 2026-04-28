@@ -149,6 +149,21 @@ module Api
             return "Clock-in longitude must be between -180 and 180" if v.nil? || v < -180 || v > 180
           end
 
+          location_enforced = if payload.key?("clock_in_location_enforced")
+            ActiveModel::Type::Boolean.new.cast(payload["clock_in_location_enforced"])
+          else
+            Setting.get("clock_in_location_enforced") == "true"
+          end
+
+          if location_enforced
+            latitude = payload.key?("clock_in_location_latitude") ? Setting.safe_float(payload["clock_in_location_latitude"]) : Setting.safe_float(Setting.get("clock_in_location_latitude"))
+            longitude = payload.key?("clock_in_location_longitude") ? Setting.safe_float(payload["clock_in_location_longitude"]) : Setting.safe_float(Setting.get("clock_in_location_longitude"))
+            radius_meters = payload.key?("clock_in_location_radius_meters") ? payload["clock_in_location_radius_meters"].to_i : Setting.get("clock_in_location_radius_meters").to_i
+
+            return "Set a valid clock-in latitude and longitude before enabling location enforcement" if latitude.nil? || longitude.nil?
+            return "Clock-in radius must be greater than 0 meters before enabling location enforcement" if radius_meters <= 0
+          end
+
           nil
         end
 

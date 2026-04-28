@@ -270,19 +270,21 @@ export default function Settings() {
     setGeocodeLoading(true)
     setGeocodeError('')
     setGeocodeResults([])
-    const result = await api.geocodeAdminClockLocation(query)
-    if (result.error || !result.data) {
-      setGeocodeError(result.error || 'Address lookup failed.')
-      setGeocodeResults([])
-      setGeocodeLoading(false)
-      return
-    }
+    try {
+      const result = await api.geocodeAdminClockLocation(query)
+      if (result.error || !result.data) {
+        setGeocodeError(result.error || 'Address lookup failed.')
+        setGeocodeResults([])
+        return
+      }
 
-    setGeocodeResults(result.data.results)
-    if (result.data.results.length === 0) {
-      setGeocodeError('No matching locations were found. Try a fuller address.')
+      setGeocodeResults(result.data.results)
+      if (result.data.results.length === 0) {
+        setGeocodeError('No matching locations were found. Try a fuller address.')
+      }
+    } finally {
+      setGeocodeLoading(false)
     }
-    setGeocodeLoading(false)
   }
 
   const handleSelectGeocodeResult = (result: GeocodeResult) => {

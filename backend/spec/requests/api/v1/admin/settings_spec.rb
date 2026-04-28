@@ -98,6 +98,22 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
 
       expect(response).to have_http_status(:unprocessable_entity)
     end
+
+    it "rejects enabling location enforcement when stored coordinates are missing" do
+      Setting.set("clock_in_location_latitude", "")
+      Setting.set("clock_in_location_longitude", "")
+
+      patch "/api/v1/admin/settings",
+            params: {
+              settings: {
+                clock_in_location_enforced: "true"
+              }
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/Set a valid clock-in latitude and longitude before enabling location enforcement/i)
+    end
   end
 
   describe "GET /api/v1/admin/settings/geocode" do

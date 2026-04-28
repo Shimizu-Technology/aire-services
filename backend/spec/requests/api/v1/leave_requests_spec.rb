@@ -114,6 +114,18 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
 
       expect(response).to have_http_status(:forbidden)
     end
+
+    it "does not allow admins to approve their own leave request" do
+      own_request = create(:leave_request, user: admin)
+
+      post "/api/v1/leave_requests/#{own_request.id}/approve",
+           params: { review_note: "Self-approved" },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/Only pending leave requests can be reviewed/i)
+      expect(own_request.reload.status).to eq("pending")
+    end
   end
 
   describe "POST /api/v1/leave_requests/:id/cancel" do
