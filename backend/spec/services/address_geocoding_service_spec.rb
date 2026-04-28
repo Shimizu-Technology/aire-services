@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require "cgi"
 
 RSpec.describe AddressGeocodingService do
   describe ".search" do
@@ -67,6 +68,33 @@ RSpec.describe AddressGeocodingService do
         .and_return(false)
 
       expect { described_class.send(:enforce_rate_limit!) }.not_to raise_error
+    end
+
+    it "tries Guam-friendly fallback queries when the exact address returns no matches" do
+      empty_response = double("empty_response", body: "[]")
+      matched_response = double("matched_response", body: '[{"display_name":"Aire Services, LLC, Barrigada, Guam","lat":"13.493135","lon":"144.821518"}]')
+      seen_queries = []
+
+      allow(empty_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+      allow(matched_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+      allow(described_class).to receive(:enforce_rate_limit!)
+      allow(described_class).to receive(:perform_request) do |uri|
+        seen_queries << CGI.parse(uri.query.to_s).fetch("q").first
+        seen_queries.length == 1 ? empty_response : matched_response
+      end
+
+      results = described_class.search(query: "1780 Admiral Sherman Boulevard, Tiyan, 96913, Guam")
+
+      expect(seen_queries.first).to eq("1780 Admiral Sherman Boulevard, Tiyan, 96913, Guam")
+      expect(seen_queries.second).not_to eq(seen_queries.first)
+      expect(seen_queries.second).to match(/Admiral Sherman Boulevard/i)
+      expect(results).to eq([
+        {
+          display_name: "Aire Services, LLC, Barrigada, Guam",
+          latitude: "13.493135",
+          longitude: "144.821518"
+        }
+      ])
     end
   end
 end

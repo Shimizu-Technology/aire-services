@@ -14,7 +14,7 @@ const navigation = [
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
-  const { isClerkEnabled } = useAuthContext()
+  const { isClerkEnabled, userRole } = useAuthContext()
 
   const isActive = (href: string) => location.pathname === href
 
@@ -45,12 +45,6 @@ export default function Header() {
           ))}
 
           <div className="ml-3 flex items-center gap-2 border-l border-slate-200 pl-3">
-            <Link
-              to="/kiosk"
-              className="inline-flex h-10 items-center rounded-xl border border-cyan-300 px-4 text-sm font-semibold leading-none text-cyan-700 transition hover:bg-cyan-50"
-            >
-              Staff Kiosk
-            </Link>
             {isClerkEnabled && (
               <>
                 <SignedOut>
@@ -61,6 +55,14 @@ export default function Header() {
                   </SignInButton>
                 </SignedOut>
                 <SignedIn>
+                  {userRole === 'admin' && (
+                    <Link
+                      to="/kiosk"
+                      className="inline-flex h-10 items-center rounded-xl border border-cyan-300 px-4 text-sm font-semibold leading-none text-cyan-700 transition hover:bg-cyan-50"
+                    >
+                      Staff Kiosk
+                    </Link>
+                  )}
                   <Link to="/admin" className="inline-flex h-10 items-center rounded-xl px-3 text-sm font-medium leading-none text-slate-600 transition hover:bg-slate-50 hover:text-slate-900">
                     Admin
                   </Link>
@@ -97,13 +99,6 @@ export default function Header() {
                 {item.name}
               </Link>
             ))}
-            <Link
-              to="/kiosk"
-              onClick={() => setMobileOpen(false)}
-              className="block rounded-xl border border-cyan-200 px-3 py-3 text-sm font-semibold text-cyan-700"
-            >
-              Staff Kiosk
-            </Link>
             {isClerkEnabled && (
               <div className="pt-2">
                 <SignedOut>
@@ -114,10 +109,19 @@ export default function Header() {
                   </SignInButton>
                 </SignedOut>
                 <SignedIn>
+                  {userRole === 'admin' && (
+                    <Link
+                      to="/kiosk"
+                      onClick={() => setMobileOpen(false)}
+                      className="block rounded-xl border border-cyan-200 px-3 py-3 text-sm font-semibold text-cyan-700"
+                    >
+                      Staff Kiosk
+                    </Link>
+                  )}
                   <Link
                     to="/admin"
                     onClick={() => setMobileOpen(false)}
-                    className="mt-2 block rounded-xl bg-cyan-50 px-3 py-3 text-sm font-semibold text-cyan-700"
+                    className={`block rounded-xl bg-cyan-50 px-3 py-3 text-sm font-semibold text-cyan-700 ${userRole === 'admin' ? 'mt-2' : ''}`}
                   >
                     Open Admin Dashboard
                   </Link>

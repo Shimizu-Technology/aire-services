@@ -280,7 +280,7 @@ export default function Settings() {
 
       setGeocodeResults(result.data.results)
       if (result.data.results.length === 0) {
-        setGeocodeError('No matching locations were found. Try a fuller address.')
+        setGeocodeError('No matching locations were found. Try the business name or the full street address.')
       }
     } finally {
       setGeocodeLoading(false)
@@ -472,9 +472,6 @@ export default function Settings() {
   const mapIframeSrc = hasPreviewCoordinates
     ? `https://www.openstreetmap.org/export/embed.html?bbox=${previewLongitude - 0.01}%2C${previewLatitude - 0.01}%2C${previewLongitude + 0.01}%2C${previewLatitude + 0.01}&layer=mapnik&marker=${previewLatitude}%2C${previewLongitude}`
     : null
-  const mapLink = hasPreviewCoordinates
-    ? `https://www.openstreetmap.org/?mlat=${previewLatitude}&mlon=${previewLongitude}#map=16/${previewLatitude}/${previewLongitude}`
-    : null
 
   return (
     <div className="space-y-8">
@@ -585,7 +582,7 @@ export default function Settings() {
                                     void handleGeocodeSearch()
                                   }
                                 }}
-                                placeholder="1780 Admiral Sherman Boulevard, Barrigada, Guam"
+                                placeholder="1780 Admiral Sherman Boulevard, Tiyan, 96913, Guam"
                                 className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                               />
                               <button
@@ -697,16 +694,6 @@ export default function Settings() {
                               <p><span className="font-semibold text-slate-800">Latitude:</span> {thresholdDraft.clock_in_location_latitude}</p>
                               <p className="mt-1"><span className="font-semibold text-slate-800">Longitude:</span> {thresholdDraft.clock_in_location_longitude}</p>
                             </div>
-                            {mapLink && (
-                              <a
-                                href={mapLink}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex text-sm font-semibold text-cyan-700 transition hover:text-cyan-600"
-                              >
-                                Open full map
-                              </a>
-                            )}
                           </>
                         ) : (
                           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">

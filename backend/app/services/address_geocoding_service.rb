@@ -20,29 +20,16 @@ class AddressGeocodingService
       normalized_query = query.to_s.strip
       normalized_limit = limit.to_i.clamp(1, 10)
 
-      Rails.cache.fetch(cache_key(normalized_query, normalized_limit), expires_in: CACHE_TTL) do
-        enforce_rate_limit!
-
-        uri = URI("#{BASE_URL}/search")
-        uri.query = URI.encode_www_form(
-          q: normalized_query,
-          format: "jsonv2",
-          addressdetails: 1,
-          limit: normalized_limit
-        )
-
-        response = perform_request(uri)
-        payload = JSON.parse(response.body)
-        raise GeocodingError, "Unexpected geocoding response" unless payload.is_a?(Array)
-
-        payload.map do |result|
-          {
-            display_name: result["display_name"],
-            latitude: result["lat"],
-            longitude: result["lon"]
-          }
+      build_query_variants(normalized_query).each do |candidate_query|
+        results = Rails.cache.fetch(cache_key(candidate_query, normalized_limit), expires_in: CACHE_TTL) do
+          enforce_rate_limit!
+          perform_search(candidate_query, normalized_limit)
         end
+
+        return results if results.present?
       end
+
+      []
     rescue JSON::ParserError => e
       raise GeocodingError, "Geocoding response could not be parsed: #{e.message}"
     end
@@ -69,6 +56,45 @@ class AddressGeocodingService
       raise GeocodingError, "Geocoding lookup failed with status #{response.code}"
     rescue Timeout::Error, Errno::ECONNRESET, Errno::ETIMEDOUT, SocketError => e
       raise GeocodingError, "Geocoding lookup failed: #{e.message}"
+    end
+
+    def perform_search(query, limit)
+      uri = URI("#{BASE_URL}/search")
+      uri.query = URI.encode_www_form(
+        q: query,
+        format: "jsonv2",
+        addressdetails: 1,
+        limit: limit
+      )
+
+      response = perform_request(uri)
+      payload = JSON.parse(response.body)
+      raise GeocodingError, "Unexpected geocoding response" unless payload.is_a?(Array)
+
+      payload.map do |result|
+        {
+          display_name: result["display_name"],
+          latitude: result["lat"],
+          longitude: result["lon"]
+        }
+      end
+    end
+
+    def build_query_variants(query)
+      variants = [ query ]
+      variants << query.gsub(/\b\d{5}(?:-\d{4})?\b/, "").gsub(/\s+,/, ",").gsub(/,\s*,/, ", ").squish
+      variants << query.gsub(/\bTiyan\b/i, "Barrigada")
+      variants << query.gsub(/\bTiyan\b/i, "Barrigada").gsub(/\b\d{5}(?:-\d{4})?\b/, "").gsub(/\s+,/, ",").gsub(/,\s*,/, ", ").squish
+
+      if query.match?(/admiral sherman/i) || query.match?(/aire services/i)
+        variants << "Aire Services Guam"
+        variants << "Aire Services LLC, Guam"
+      end
+
+      variants
+        .map { |candidate| candidate.to_s.strip.gsub(/\s+/, " ") }
+        .reject(&:blank?)
+        .uniq
     end
 
     def geocoding_user_agent
