@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
 import type { LeaveRequest, PaginationMeta } from '../../lib/api'
 
@@ -49,24 +49,44 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     reason: '',
   })
 
-  const loadRequests = async (targetPage: number = page) => {
-    setLoading(true)
-    setError(null)
-
+  const loadRequests = useCallback(async (targetPage: number) => {
     const result = await api.getLeaveRequests(undefined, targetPage)
     if (result.error || !result.data) {
       setError(result.error || 'Failed to load leave requests.')
       setLoading(false)
-      return
+      return false
     }
 
+    setError(null)
     setRequests(result.data.leave_requests)
     setPagination(result.data.pagination)
     setLoading(false)
-  }
+    return true
+  }, [])
 
   useEffect(() => {
-    void loadRequests()
+    let cancelled = false
+
+    const run = async () => {
+      const result = await api.getLeaveRequests(undefined, page)
+      if (cancelled) return
+
+      if (result.error || !result.data) {
+        setError(result.error || 'Failed to load leave requests.')
+        setLoading(false)
+        return
+      }
+
+      setRequests(result.data.leave_requests)
+      setPagination(result.data.pagination)
+      setLoading(false)
+    }
+
+    void run()
+
+    return () => {
+      cancelled = true
+    }
   }, [page])
 
   const pendingRequests = useMemo(
@@ -103,12 +123,19 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       end_date: '',
       reason: '',
     })
-    setPage(1)
-    await loadRequests(1)
+
+    if (page === 1) {
+      setLoading(true)
+      await loadRequests(1)
+    } else {
+      setLoading(true)
+      setPage(1)
+    }
+
     setSubmitting(false)
   }
 
-  const runReviewAction = async (request: LeaveRequest, action: 'approve' | 'decline' | 'cancel') => {
+  const runReviewAction = useCallback(async (request: LeaveRequest, action: 'approve' | 'decline' | 'cancel') => {
     setActionLoadingId(request.id)
     setError(null)
 
@@ -132,9 +159,15 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       delete next[request.id]
       return next
     })
-    await loadRequests()
+    setLoading(true)
+    await loadRequests(page)
     setActionLoadingId(null)
-  }
+  }, [loadRequests, page, reviewNotes])
+
+  const changePage = useCallback((nextPage: number) => {
+    setLoading(true)
+    setPage(nextPage)
+  }, [])
 
   return (
     <div className="space-y-5">
@@ -309,7 +342,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                   <button
                     type="button"
                     disabled={pagination.current_page <= 1}
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    onClick={() => changePage(Math.max(1, pagination.current_page - 1))}
                     className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
                   >
                     Previous
@@ -317,7 +350,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                   <button
                     type="button"
                     disabled={pagination.current_page >= pagination.total_pages}
-                    onClick={() => setPage((current) => current + 1)}
+                    onClick={() => changePage(Math.min(pagination.total_pages, pagination.current_page + 1))}
                     className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
                   >
                     Next

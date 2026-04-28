@@ -163,7 +163,7 @@ export default function AireKiosk() {
     return () => {
       if (successResetRef.current) clearTimeout(successResetRef.current)
     }
-  }, [success])
+  }, [clearSession, success])
 
   const applyResponse = (response: AireKioskActionResponse, forceCategory = false) => {
     setEmployee(response.employee)

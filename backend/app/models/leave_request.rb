@@ -12,6 +12,7 @@ class LeaveRequest < ApplicationRecord
   validates :start_date, presence: true
   validates :end_date, presence: true
   validate :end_date_on_or_after_start_date
+  validate :does_not_overlap_active_request
 
   scope :pending_review, -> { where(status: "pending") }
   scope :recent, -> { order(start_date: :desc, created_at: :desc) }
@@ -41,5 +42,18 @@ class LeaveRequest < ApplicationRecord
     return if end_date >= start_date
 
     errors.add(:end_date, "must be on or after the start date")
+  end
+
+  def does_not_overlap_active_request
+    return if user_id.blank? || start_date.blank? || end_date.blank?
+
+    overlapping = self.class
+      .where(user_id: user_id, status: %w[pending approved])
+      .where.not(id: id)
+      .where("start_date <= ? AND end_date >= ?", end_date, start_date)
+
+    return unless overlapping.exists?
+
+    errors.add(:base, "overlaps with another pending or approved leave request")
   end
 end

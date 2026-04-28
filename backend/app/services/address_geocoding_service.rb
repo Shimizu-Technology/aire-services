@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "digest"
 require "net/http"
 require "uri"
 
@@ -8,35 +9,45 @@ class AddressGeocodingService
 
   BASE_URL = "https://nominatim.openstreetmap.org".freeze
   DEFAULT_LIMIT = 5
+  CACHE_TTL = 12.hours
 
   class << self
     def search(query:, limit: DEFAULT_LIMIT)
       raise GeocodingError, "Address query is required" if query.blank?
 
-      uri = URI("#{BASE_URL}/search")
-      uri.query = URI.encode_www_form(
-        q: query.to_s.strip,
-        format: "jsonv2",
-        addressdetails: 1,
-        limit: limit.to_i.clamp(1, 10)
-      )
+      normalized_query = query.to_s.strip
+      normalized_limit = limit.to_i.clamp(1, 10)
 
-      response = perform_request(uri)
-      payload = JSON.parse(response.body)
-      raise GeocodingError, "Unexpected geocoding response" unless payload.is_a?(Array)
+      Rails.cache.fetch(cache_key(normalized_query, normalized_limit), expires_in: CACHE_TTL) do
+        uri = URI("#{BASE_URL}/search")
+        uri.query = URI.encode_www_form(
+          q: normalized_query,
+          format: "jsonv2",
+          addressdetails: 1,
+          limit: normalized_limit
+        )
 
-      payload.map do |result|
-        {
-          display_name: result["display_name"],
-          latitude: result["lat"],
-          longitude: result["lon"]
-        }
+        response = perform_request(uri)
+        payload = JSON.parse(response.body)
+        raise GeocodingError, "Unexpected geocoding response" unless payload.is_a?(Array)
+
+        payload.map do |result|
+          {
+            display_name: result["display_name"],
+            latitude: result["lat"],
+            longitude: result["lon"]
+          }
+        end
       end
     rescue JSON::ParserError => e
       raise GeocodingError, "Geocoding response could not be parsed: #{e.message}"
     end
 
     private
+
+    def cache_key(query, limit)
+      "address_geocoding:v1:#{Digest::SHA256.hexdigest("#{query.downcase}|#{limit}")}"
+    end
 
     def perform_request(uri)
       http = Net::HTTP.new(uri.host, uri.port)

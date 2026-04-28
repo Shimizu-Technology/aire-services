@@ -100,7 +100,7 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
     end
   end
 
-  describe "POST /api/v1/admin/settings/geocode" do
+  describe "GET /api/v1/admin/settings/geocode" do
     it "returns geocoding matches for admins" do
       allow(AddressGeocodingService).to receive(:search).with(query: "AIRE Guam").and_return([
         {
@@ -110,7 +110,7 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
         }
       ])
 
-      post "/api/v1/admin/settings/geocode",
+      get "/api/v1/admin/settings/geocode",
            params: { query: "AIRE Guam" },
            headers: auth_headers_for[admin]
 
@@ -125,7 +125,7 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
     end
 
     it "blocks non-admin geocoding" do
-      post "/api/v1/admin/settings/geocode",
+      get "/api/v1/admin/settings/geocode",
            params: { query: "AIRE Guam" },
            headers: auth_headers_for[employee]
 

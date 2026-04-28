@@ -888,10 +888,7 @@ export const api = {
     fetchApi<AdminAppSettingsResponse>('/api/v1/admin/settings'),
 
   geocodeAdminClockLocation: (query: string) =>
-    fetchApi<{ results: GeocodeResult[] }>('/api/v1/admin/settings/geocode', {
-      method: 'POST',
-      body: JSON.stringify({ query }),
-    }),
+    fetchApi<{ results: GeocodeResult[] }>(`/api/v1/admin/settings/geocode?query=${encodeURIComponent(query)}`),
 
   updateAdminAppSettings: (payload: { settings?: Partial<TimeClockAppSettings>; approval_groups?: ApprovalGroupOption[] }) =>
     fetchApi<AdminAppSettingsResponse>('/api/v1/admin/settings', {

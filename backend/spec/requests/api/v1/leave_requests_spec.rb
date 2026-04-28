@@ -33,6 +33,24 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(json.dig(:leave_request, :user, :id)).to eq(employee.id)
       expect(json.dig(:leave_request, :total_days)).to eq(3)
     end
+
+    it "rejects overlapping pending or approved requests for the same employee" do
+      create(:leave_request, user: employee, start_date: Date.new(2026, 5, 20), end_date: Date.new(2026, 5, 22), status: "approved")
+
+      post "/api/v1/leave_requests",
+           params: {
+             leave_request: {
+               leave_type: "paid_time_off",
+               start_date: "2026-05-21",
+               end_date: "2026-05-23",
+               reason: "Overlap attempt"
+             }
+           },
+           headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/overlaps with another pending or approved leave request/i)
+    end
   end
 
   describe "GET /api/v1/leave_requests" do
@@ -54,7 +72,15 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
     end
 
     it "paginates the admin index" do
-      create_list(:leave_request, 30, user: employee)
+      30.times do |index|
+        start_date = Date.new(2026, 6, 1) + (index * 2)
+        create(
+          :leave_request,
+          user: employee,
+          start_date: start_date,
+          end_date: start_date
+        )
+      end
 
       get "/api/v1/leave_requests",
           params: { page: 2, per_page: 10 },
