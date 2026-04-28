@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_24_030000) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_28_121000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -38,6 +38,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_24_030000) do
     t.index ["time_category_id"], name: "index_employee_pay_rates_on_time_category_id"
     t.index ["user_id", "time_category_id"], name: "idx_employee_pay_rates_user_category", unique: true
     t.index ["user_id"], name: "index_employee_pay_rates_on_user_id"
+  end
+
+  create_table "leave_requests", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.date "end_date", null: false
+    t.string "leave_type", null: false
+    t.text "reason"
+    t.text "review_note"
+    t.datetime "reviewed_at"
+    t.bigint "reviewed_by_id"
+    t.date "start_date", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["reviewed_by_id"], name: "index_leave_requests_on_reviewed_by_id"
+    t.index ["status", "start_date"], name: "index_leave_requests_on_status_and_start_date"
+    t.index ["status"], name: "index_leave_requests_on_status"
+    t.index ["user_id", "start_date"], name: "index_leave_requests_on_user_id_and_start_date"
+    t.index ["user_id"], name: "index_leave_requests_on_user_id"
   end
 
   create_table "schedule_time_presets", force: :cascade do |t|
@@ -186,6 +205,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_24_030000) do
     t.integer "public_team_sort_order", default: 0, null: false
     t.string "public_team_title"
     t.string "role", default: "employee"
+    t.string "staff_title"
     t.datetime "updated_at", null: false
     t.index ["approval_group"], name: "index_users_on_approval_group"
     t.index ["clerk_id"], name: "index_users_on_clerk_id", unique: true
@@ -202,6 +222,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_24_030000) do
   add_foreign_key "audit_logs", "users"
   add_foreign_key "employee_pay_rates", "time_categories"
   add_foreign_key "employee_pay_rates", "users"
+  add_foreign_key "leave_requests", "users"
+  add_foreign_key "leave_requests", "users", column: "reviewed_by_id"
   add_foreign_key "schedules", "users"
   add_foreign_key "schedules", "users", column: "created_by_id"
   add_foreign_key "time_entries", "schedules"

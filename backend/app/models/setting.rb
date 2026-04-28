@@ -22,6 +22,11 @@ class Setting < ApplicationRecord
     "overtime_weekly_threshold_hours" => "40",
     "early_clock_in_buffer_minutes" => "5",
     "schedule_required_for_clock_in" => "false",
+    "clock_in_location_enforced" => "false",
+    "clock_in_location_name" => "AIRE Services Guam",
+    "clock_in_location_latitude" => "13.46913",
+    "clock_in_location_longitude" => "144.79901",
+    "clock_in_location_radius_meters" => "1000",
     "contact_email" => DEFAULT_CONTACT_NOTIFICATION_EMAILS.join(", "),
     "contact_inquiry_topics" => DEFAULT_CONTACT_INQUIRY_TOPICS.to_json
   }.freeze
@@ -86,6 +91,22 @@ class Setting < ApplicationRecord
   def self.approval_groups
     value = get("approval_groups")
     parse_approval_groups(value)
+  end
+
+  def self.clock_in_location_policy
+    latitude = safe_float(get("clock_in_location_latitude"))
+    longitude = safe_float(get("clock_in_location_longitude"))
+    radius_meters = get("clock_in_location_radius_meters").to_i
+    configured = latitude.present? && longitude.present? && radius_meters.positive?
+
+    {
+      enabled: get("clock_in_location_enforced") == "true" && configured,
+      configured: configured,
+      name: get("clock_in_location_name").presence || "AIRE Services Guam",
+      latitude: latitude,
+      longitude: longitude,
+      radius_meters: radius_meters
+    }
   end
 
   def self.approval_group_keys
@@ -195,5 +216,11 @@ class Setting < ApplicationRecord
     normalize_approval_groups(parsed)
   rescue JSON::ParserError, ArgumentError
     DEFAULT_APPROVAL_GROUPS.map(&:dup)
+  end
+
+  def self.safe_float(value)
+    Float(value)
+  rescue ArgumentError, TypeError
+    nil
   end
 end

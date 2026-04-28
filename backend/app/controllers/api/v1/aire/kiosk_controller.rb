@@ -6,7 +6,10 @@ module Api
       class KioskController < BaseController
         # POST /api/v1/aire/kiosk/verify
         def verify
-          result = AireKioskService.verify_pin(pin: params[:pin].to_s)
+          result = AireKioskService.verify_pin(
+            pin: params[:pin].to_s,
+            kiosk_access_token: params[:kiosk_access_token].to_s
+          )
 
           render json: {
             employee: serialize_user(result[:user]),
@@ -16,13 +19,16 @@ module Api
           }
         rescue AireKioskService::KioskError => e
           failed_user = User.find_kiosk_user_by_pin(params[:pin].to_s)
-          failed_user&.register_kiosk_failure! if failed_user&.staff? && !failed_user.kiosk_locked?
+          if e.message == AireKioskService::INVALID_PIN_MESSAGE && failed_user&.staff? && !failed_user.kiosk_locked?
+            failed_user.register_kiosk_failure!
+          end
           render json: { error: e.message }, status: :unprocessable_entity
         end
 
         # POST /api/v1/aire/kiosk/clock_in
         def clock_in
           result = AireKioskService.clock_in(
+            kiosk_access_token: params[:kiosk_access_token].to_s,
             kiosk_token: params[:kiosk_token].to_s,
             time_category_id: params[:time_category_id]
           )
@@ -34,7 +40,10 @@ module Api
 
         # POST /api/v1/aire/kiosk/clock_out
         def clock_out
-          result = AireKioskService.clock_out(kiosk_token: params[:kiosk_token].to_s)
+          result = AireKioskService.clock_out(
+            kiosk_access_token: params[:kiosk_access_token].to_s,
+            kiosk_token: params[:kiosk_token].to_s
+          )
           render json: serialize_action_response(result)
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e
           render json: { error: e.message }, status: :unprocessable_entity
@@ -42,7 +51,10 @@ module Api
 
         # POST /api/v1/aire/kiosk/start_break
         def start_break
-          result = AireKioskService.start_break(kiosk_token: params[:kiosk_token].to_s)
+          result = AireKioskService.start_break(
+            kiosk_access_token: params[:kiosk_access_token].to_s,
+            kiosk_token: params[:kiosk_token].to_s
+          )
           render json: serialize_action_response(result)
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e
           render json: { error: e.message }, status: :unprocessable_entity
@@ -50,7 +62,10 @@ module Api
 
         # POST /api/v1/aire/kiosk/end_break
         def end_break
-          result = AireKioskService.end_break(kiosk_token: params[:kiosk_token].to_s)
+          result = AireKioskService.end_break(
+            kiosk_access_token: params[:kiosk_access_token].to_s,
+            kiosk_token: params[:kiosk_token].to_s
+          )
           render json: serialize_action_response(result)
         rescue AireKioskService::KioskError, TimeClockService::ClockError => e
           render json: { error: e.message }, status: :unprocessable_entity
@@ -59,6 +74,7 @@ module Api
         # POST /api/v1/aire/kiosk/switch_category
         def switch_category
           result = AireKioskService.switch_category(
+            kiosk_access_token: params[:kiosk_access_token].to_s,
             kiosk_token: params[:kiosk_token].to_s,
             time_category_id: params[:time_category_id]
           )

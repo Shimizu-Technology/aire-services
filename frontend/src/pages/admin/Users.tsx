@@ -19,6 +19,7 @@ export default function Users() {
   const [createLastName, setCreateLastName] = useState('')
   const [createEmail, setCreateEmail] = useState('')
   const [createRole, setCreateRole] = useState<'admin' | 'employee'>('employee')
+  const [createStaffTitle, setCreateStaffTitle] = useState('')
   const [createApprovalGroup, setCreateApprovalGroup] = useState<ApprovalGroup | ''>('')
   const [sendInvitationEmail, setSendInvitationEmail] = useState(true)
   const [createCategoryIds, setCreateCategoryIds] = useState<Set<number>>(new Set())
@@ -30,6 +31,7 @@ export default function Users() {
   const [editLastName, setEditLastName] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [editRole, setEditRole] = useState<'admin' | 'employee'>('employee')
+  const [editStaffTitle, setEditStaffTitle] = useState('')
   const [editApprovalGroup, setEditApprovalGroup] = useState<ApprovalGroup | ''>('')
   const [editPublicTeamEnabled, setEditPublicTeamEnabled] = useState(false)
   const [editPublicTeamName, setEditPublicTeamName] = useState('')
@@ -132,6 +134,7 @@ export default function Users() {
     setEditLastName(user.last_name ?? '')
     setEditEmail(user.email ?? '')
     setEditRole(user.role)
+    setEditStaffTitle(user.staff_title ?? '')
     setEditApprovalGroup(user.approval_group ?? '')
     setEditPublicTeamEnabled(user.public_team_enabled)
     setEditPublicTeamName(user.public_team_name ?? '')
@@ -146,6 +149,7 @@ export default function Users() {
     setCreateLastName('')
     setCreateEmail('')
     setCreateRole('employee')
+    setCreateStaffTitle('')
     setCreateApprovalGroup('')
     setSendInvitationEmail(true)
     setCreateCategoryIds(new Set())
@@ -158,6 +162,7 @@ export default function Users() {
     setEditLastName('')
     setEditEmail('')
     setEditRole('employee')
+    setEditStaffTitle('')
     setEditApprovalGroup('')
     setEditPublicTeamEnabled(false)
     setEditPublicTeamName('')
@@ -188,6 +193,7 @@ export default function Users() {
           first_name: createFirstName.trim(),
           last_name: createLastName.trim() || undefined,
         }),
+        staff_title: createStaffTitle.trim() || undefined,
         role: createRole,
         approval_group: createApprovalGroup || undefined,
         send_invitation: sendInvitationEmail && !!createEmail.trim(),
@@ -224,6 +230,7 @@ export default function Users() {
     const nextFirstName = editFirstName.trim()
     const nextLastName = editLastName.trim()
     const nextEmail = editEmail.trim().toLowerCase()
+    const nextStaffTitle = editStaffTitle.trim()
     const nextPublicTeamName = editPublicTeamName.trim()
     const nextPublicTeamTitle = editPublicTeamTitle.trim()
     const hasPublicTeamSortOrder = editPublicTeamSortOrder.trim().length > 0
@@ -243,8 +250,8 @@ export default function Users() {
     }
 
     if (editPublicTeamEnabled) {
-      if (!nextPublicTeamTitle) {
-        setEditError('Public team title is required when this person appears on the Team page.')
+      if (!nextPublicTeamTitle && !nextStaffTitle) {
+        setEditError('Add a staff title or public title before showing someone on the Team page.')
         setSavingEdit(false)
         return
       }
@@ -266,6 +273,7 @@ export default function Users() {
     try {
       const payload: Parameters<typeof api.updateUser>[1] = {
         role: editRole,
+        staff_title: nextStaffTitle || null,
         approval_group: editApprovalGroup || null,
         public_team_enabled: editPublicTeamEnabled,
         public_team_name: nextPublicTeamName || null,
@@ -439,7 +447,7 @@ export default function Users() {
           <div className="mt-2 text-3xl font-bold text-cyan-700">{users.filter((u) => u.role === 'admin').length}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-sm text-slate-500">Routed Reviewers</div>
+          <div className="text-sm text-slate-500">Assigned Departments</div>
           <div className="mt-2 text-3xl font-bold text-slate-900">{routedUsersCount}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -451,7 +459,7 @@ export default function Users() {
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <h2 className="text-lg font-semibold text-slate-900">AIRE Team</h2>
-          <p className="mt-1 text-sm text-slate-500">Roles, work categories, and kiosk access.</p>
+          <p className="mt-1 text-sm text-slate-500">Roles, departments, work categories, and kiosk access.</p>
         </div>
 
         {loading ? (
@@ -466,7 +474,7 @@ export default function Users() {
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Team Member</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Public Team</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Approval Group</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Department</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Work Categories</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Kiosk</th>
@@ -478,6 +486,7 @@ export default function Users() {
                   <tr key={user.id} className="hover:bg-slate-50/80">
                     <td className="px-5 py-4">
                       <div className="font-medium text-slate-900">{user.full_name || user.display_name}</div>
+                      {user.staff_title && <div className="mt-1 text-sm text-slate-500">{user.staff_title}</div>}
                       {user.email && <div className="mt-1 text-sm text-slate-500">{user.email}</div>}
                       {!user.email && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — no email</div>}
                     </td>
@@ -492,7 +501,9 @@ export default function Users() {
                           <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-medium text-cyan-700">
                             Visible
                           </span>
-                          {user.public_team_title && <div className="text-xs text-slate-500">{user.public_team_title}</div>}
+                          {(user.public_team_title || user.staff_title) && (
+                            <div className="text-xs text-slate-500">{user.public_team_title || user.staff_title}</div>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-slate-400">Hidden</span>
@@ -626,7 +637,7 @@ export default function Users() {
                 </select>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Approval Group</label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Department</label>
                 <select
                   value={createApprovalGroup}
                   onChange={(e) => setCreateApprovalGroup(e.target.value as ApprovalGroup | '')}
@@ -638,7 +649,19 @@ export default function Users() {
                   ))}
                 </select>
                 <p className="mt-2 text-xs text-slate-500">
-                  This controls which pending approvals bucket they show up under.
+                  This controls review routing and department filters across the admin tools.
+                </p>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Staff title</label>
+                <input
+                  value={createStaffTitle}
+                  onChange={(e) => setCreateStaffTitle(e.target.value)}
+                  placeholder="Certified Flight Instructor"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Optional internal title. You can reuse this on the public Team page later.
                 </p>
               </div>
 
@@ -706,7 +729,7 @@ export default function Users() {
                   Edit {editingUser.full_name || editingUser.display_name}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Update profile details, public Team page visibility, review routing, and kiosk work categories in one place.
+                  Update profile details, department routing, public Team page visibility, and kiosk work categories in one place.
                 </p>
               </div>
               <button type="button" onClick={closeEditModal} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
@@ -768,7 +791,7 @@ export default function Users() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Approval Group</label>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Department</label>
                   <select
                     value={editApprovalGroup}
                     onChange={(event) => setEditApprovalGroup(event.target.value as ApprovalGroup | '')}
@@ -780,6 +803,19 @@ export default function Users() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Staff title</label>
+                <input
+                  value={editStaffTitle}
+                  onChange={(event) => setEditStaffTitle(event.target.value)}
+                  placeholder="Certified Flight Instructor"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Optional internal title. If the public title is blank, the Team page will use this automatically.
+                </p>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
@@ -813,14 +849,16 @@ export default function Users() {
                       </p>
                     </div>
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Public title *</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Public title override</label>
                       <input
                         value={editPublicTeamTitle}
                         onChange={(event) => setEditPublicTeamTitle(event.target.value)}
-                        placeholder="Certified Flight Instructor"
+                        placeholder="Leave blank to use the staff title"
                         className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                        required={editPublicTeamEnabled}
                       />
+                      <p className="mt-2 text-xs text-slate-500">
+                        Only set this when the public-facing title should differ from the internal staff title.
+                      </p>
                     </div>
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Display order</label>

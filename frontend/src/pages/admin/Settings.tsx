@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, TimeClockAppSettings } from '../../lib/api'
+import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, GeocodeResult, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
 const emptyCategoryForm = {
@@ -32,6 +32,11 @@ export default function Settings() {
     overtime_daily_threshold_hours: '',
     overtime_weekly_threshold_hours: '',
     early_clock_in_buffer_minutes: '',
+    clock_in_location_enforced: 'false',
+    clock_in_location_name: '',
+    clock_in_location_latitude: '',
+    clock_in_location_longitude: '',
+    clock_in_location_radius_meters: '',
   })
   const [approvalGroupDrafts, setApprovalGroupDrafts] = useState<ApprovalGroupOption[]>([{ key: '', label: '' }])
   const [contactNotificationEmailsDraft, setContactNotificationEmailsDraft] = useState('')
@@ -47,6 +52,11 @@ export default function Settings() {
   const [savingThresholds, setSavingThresholds] = useState(false)
   const [savingApprovalGroups, setSavingApprovalGroups] = useState(false)
   const [savingContactSettings, setSavingContactSettings] = useState(false)
+  const [locationSearchQuery, setLocationSearchQuery] = useState('')
+  const [geocodeResults, setGeocodeResults] = useState<GeocodeResult[]>([])
+  const [geocodeLoading, setGeocodeLoading] = useState(false)
+  const [geocodeError, setGeocodeError] = useState('')
+  const [currentLocationLoading, setCurrentLocationLoading] = useState(false)
   const [showInactive, setShowInactive] = useState(true)
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<AdminTimeCategory | null>(null)
@@ -75,6 +85,11 @@ export default function Settings() {
         overtime_daily_threshold_hours: s.overtime_daily_threshold_hours,
         overtime_weekly_threshold_hours: s.overtime_weekly_threshold_hours,
         early_clock_in_buffer_minutes: s.early_clock_in_buffer_minutes,
+        clock_in_location_enforced: s.clock_in_location_enforced,
+        clock_in_location_name: s.clock_in_location_name,
+        clock_in_location_latitude: s.clock_in_location_latitude,
+        clock_in_location_longitude: s.clock_in_location_longitude,
+        clock_in_location_radius_meters: s.clock_in_location_radius_meters,
       })
     }
 
@@ -84,6 +99,15 @@ export default function Settings() {
       setContactNotificationEmailsDraft(contactRes.data.contact_notification_emails.join('\n'))
       setInquiryTopicsDraft(contactRes.data.inquiry_topics.length > 0 ? contactRes.data.inquiry_topics : [''])
     }
+  }, [])
+
+  const applyClockLocation = useCallback((location: { latitude: string; longitude: string; label?: string }) => {
+    setThresholdDraft((draft) => ({
+      ...draft,
+      clock_in_location_latitude: location.latitude,
+      clock_in_location_longitude: location.longitude,
+      clock_in_location_name: location.label?.trim() || draft.clock_in_location_name,
+    }))
   }, [])
 
   useEffect(() => {
@@ -205,6 +229,11 @@ export default function Settings() {
           overtime_daily_threshold_hours: thresholdDraft.overtime_daily_threshold_hours,
           overtime_weekly_threshold_hours: thresholdDraft.overtime_weekly_threshold_hours,
           early_clock_in_buffer_minutes: thresholdDraft.early_clock_in_buffer_minutes,
+          clock_in_location_enforced: thresholdDraft.clock_in_location_enforced,
+          clock_in_location_name: thresholdDraft.clock_in_location_name,
+          clock_in_location_latitude: thresholdDraft.clock_in_location_latitude,
+          clock_in_location_longitude: thresholdDraft.clock_in_location_longitude,
+          clock_in_location_radius_meters: thresholdDraft.clock_in_location_radius_meters,
         },
       })
       if (res.error) {
@@ -218,11 +247,86 @@ export default function Settings() {
           overtime_daily_threshold_hours: res.data.settings.overtime_daily_threshold_hours,
           overtime_weekly_threshold_hours: res.data.settings.overtime_weekly_threshold_hours,
           early_clock_in_buffer_minutes: res.data.settings.early_clock_in_buffer_minutes,
+          clock_in_location_enforced: res.data.settings.clock_in_location_enforced,
+          clock_in_location_name: res.data.settings.clock_in_location_name,
+          clock_in_location_latitude: res.data.settings.clock_in_location_latitude,
+          clock_in_location_longitude: res.data.settings.clock_in_location_longitude,
+          clock_in_location_radius_meters: res.data.settings.clock_in_location_radius_meters,
         })
       }
     } finally {
       setSavingThresholds(false)
     }
+  }
+
+  const handleGeocodeSearch = async () => {
+    const query = locationSearchQuery.trim()
+    if (!query) {
+      setGeocodeError('Enter an address or place name first.')
+      setGeocodeResults([])
+      return
+    }
+
+    setGeocodeLoading(true)
+    setGeocodeError('')
+    setGeocodeResults([])
+    try {
+      const result = await api.geocodeAdminClockLocation(query)
+      if (result.error || !result.data) {
+        setGeocodeError(result.error || 'Address lookup failed.')
+        setGeocodeResults([])
+        return
+      }
+
+      setGeocodeResults(result.data.results)
+      if (result.data.results.length === 0) {
+        setGeocodeError('No matching locations were found. Try a fuller address.')
+      }
+    } finally {
+      setGeocodeLoading(false)
+    }
+  }
+
+  const handleSelectGeocodeResult = (result: GeocodeResult) => {
+    applyClockLocation({
+      latitude: result.latitude,
+      longitude: result.longitude,
+      label: thresholdDraft.clock_in_location_name.trim() ? thresholdDraft.clock_in_location_name : result.display_name.split(',')[0],
+    })
+    setGeocodeError('')
+  }
+
+  const handleUseCurrentLocation = async () => {
+    if (!navigator.geolocation) {
+      setGeocodeError('This browser does not support location lookup.')
+      return
+    }
+
+    setCurrentLocationLoading(true)
+    setGeocodeError('')
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        applyClockLocation({
+          latitude: position.coords.latitude.toFixed(6),
+          longitude: position.coords.longitude.toFixed(6),
+        })
+        setCurrentLocationLoading(false)
+      },
+      (error) => {
+        setGeocodeError(
+          error.code === error.PERMISSION_DENIED
+            ? 'Location permission was denied.'
+            : 'Could not get the current device location.'
+        )
+        setCurrentLocationLoading(false)
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 30000,
+      }
+    )
   }
 
   const updateApprovalGroupDraft = (index: number, field: keyof ApprovalGroupOption, value: string) => {
@@ -250,26 +354,26 @@ export default function Settings() {
       .filter((group) => group.key || group.label)
 
     if (normalizedGroups.length === 0) {
-      setApprovalGroupsError('At least one approval group is required.')
+      setApprovalGroupsError('At least one department is required.')
       setApprovalGroupsMessage('')
       return
     }
 
     if (normalizedGroups.some((group) => !group.label)) {
-      setApprovalGroupsError('Each approval group needs a label.')
+      setApprovalGroupsError('Each department needs a label.')
       setApprovalGroupsMessage('')
       return
     }
 
     const normalizedKeys = normalizedGroups.map((group) => normalizeApprovalGroupKey(group.key || group.label))
     if (normalizedKeys.some((key) => !key)) {
-      setApprovalGroupsError('Approval group keys may only contain letters, numbers, and underscores.')
+      setApprovalGroupsError('Department keys may only contain letters, numbers, and underscores.')
       setApprovalGroupsMessage('')
       return
     }
 
     if (new Set(normalizedKeys).size !== normalizedKeys.length) {
-      setApprovalGroupsError('Approval group keys must be unique.')
+      setApprovalGroupsError('Department keys must be unique.')
       setApprovalGroupsMessage('')
       return
     }
@@ -282,7 +386,7 @@ export default function Settings() {
         approval_groups: normalizedGroups,
       })
       if (res.error || !res.data) {
-        setApprovalGroupsError(res.error || 'Failed to save approval groups')
+        setApprovalGroupsError(res.error || 'Failed to save departments')
         return
       }
 
@@ -292,7 +396,7 @@ export default function Settings() {
           ? res.data.approval_groups
           : [{ key: '', label: '' }]
       )
-      setApprovalGroupsMessage('Approval routing groups saved.')
+      setApprovalGroupsMessage('Departments saved.')
     } finally {
       setSavingApprovalGroups(false)
     }
@@ -362,6 +466,15 @@ export default function Settings() {
   }
 
   const visibleCategories = showInactive ? categories : categories.filter((c) => c.is_active)
+  const previewLatitude = Number.parseFloat(thresholdDraft.clock_in_location_latitude)
+  const previewLongitude = Number.parseFloat(thresholdDraft.clock_in_location_longitude)
+  const hasPreviewCoordinates = Number.isFinite(previewLatitude) && Number.isFinite(previewLongitude)
+  const mapIframeSrc = hasPreviewCoordinates
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${previewLongitude - 0.01}%2C${previewLatitude - 0.01}%2C${previewLongitude + 0.01}%2C${previewLatitude + 0.01}&layer=mapnik&marker=${previewLatitude}%2C${previewLongitude}`
+    : null
+  const mapLink = hasPreviewCoordinates
+    ? `https://www.openstreetmap.org/?mlat=${previewLatitude}&mlon=${previewLongitude}#map=16/${previewLatitude}/${previewLongitude}`
+    : null
 
   return (
     <div className="space-y-8">
@@ -369,7 +482,7 @@ export default function Settings() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Manage approval routing, work categories, overtime rules, and public contact settings.
+            Manage departments, work categories, overtime rules, and public contact settings.
           </p>
         </div>
       </FadeUp>
@@ -428,6 +541,182 @@ export default function Settings() {
                     />
                   </div>
                 </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">Clock-in location restriction</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Require self-service clock-ins to happen at the AIRE office. Kiosk and admin override actions still work.
+                        </p>
+                      </div>
+                      <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={thresholdDraft.clock_in_location_enforced === 'true'}
+                          onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_enforced: e.target.checked ? 'true' : 'false' }))}
+                          className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                        />
+                        Enforce
+                      </label>
+                    </div>
+                    <div className="grid gap-4 lg:grid-cols-[1.3fr_0.9fr]">
+                      <div className="space-y-4">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-700">Location label</label>
+                          <input
+                            value={thresholdDraft.clock_in_location_name}
+                            onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_name: e.target.value }))}
+                            placeholder="AIRE Services Guam"
+                            className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700">Find location by address</label>
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                              <input
+                                value={locationSearchQuery}
+                                onChange={(e) => setLocationSearchQuery(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    void handleGeocodeSearch()
+                                  }
+                                }}
+                                placeholder="1780 Admiral Sherman Boulevard, Barrigada, Guam"
+                                className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void handleGeocodeSearch()}
+                                disabled={geocodeLoading}
+                                className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-800 ring-1 ring-slate-300 transition hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                {geocodeLoading ? 'Searching…' : 'Find address'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleUseCurrentLocation}
+                                disabled={currentLocationLoading}
+                                className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-800 ring-1 ring-slate-300 transition hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                {currentLocationLoading ? 'Locating…' : 'Use current location'}
+                              </button>
+                            </div>
+                          </div>
+                          {geocodeError && (
+                            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{geocodeError}</div>
+                          )}
+                          {geocodeResults.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-sm font-medium text-slate-700">Address matches</p>
+                              {geocodeResults.map((result) => (
+                                <button
+                                  key={`${result.latitude}-${result.longitude}-${result.display_name}`}
+                                  type="button"
+                                  onClick={() => handleSelectGeocodeResult(result)}
+                                  className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
+                                >
+                                  {result.display_name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-700">Allowed radius (meters)</label>
+                          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_130px]">
+                            <input
+                              type="range"
+                              min="50"
+                              max="2000"
+                              step="25"
+                              value={thresholdDraft.clock_in_location_radius_meters || '1000'}
+                              onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_radius_meters: e.target.value }))}
+                              className="w-full accent-cyan-600"
+                            />
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={thresholdDraft.clock_in_location_radius_meters}
+                              onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_radius_meters: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                            />
+                          </div>
+                        </div>
+
+                        <details className="rounded-xl border border-slate-200 bg-white">
+                          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">Advanced coordinates</summary>
+                          <div className="grid gap-4 border-t border-slate-200 px-4 py-4 md:grid-cols-2">
+                            <div>
+                              <label className="mb-2 block text-sm font-medium text-slate-700">Latitude</label>
+                              <input
+                                type="number"
+                                step="0.000001"
+                                value={thresholdDraft.clock_in_location_latitude}
+                                onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_latitude: e.target.value }))}
+                                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-2 block text-sm font-medium text-slate-700">Longitude</label>
+                              <input
+                                type="number"
+                                step="0.000001"
+                                value={thresholdDraft.clock_in_location_longitude}
+                                onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_longitude: e.target.value }))}
+                                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                              />
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+
+                      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">Map preview</p>
+                          <p className="mt-1 text-sm text-slate-500">
+                            Confirm the pin is on the AIRE office and then save the rule.
+                          </p>
+                        </div>
+                        {hasPreviewCoordinates && mapIframeSrc ? (
+                          <>
+                            <div className="overflow-hidden rounded-2xl border border-slate-200">
+                              <iframe
+                                title="Clock-in location preview"
+                                src={mapIframeSrc}
+                                className="h-72 w-full"
+                                loading="lazy"
+                              />
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                              <p><span className="font-semibold text-slate-800">Latitude:</span> {thresholdDraft.clock_in_location_latitude}</p>
+                              <p className="mt-1"><span className="font-semibold text-slate-800">Longitude:</span> {thresholdDraft.clock_in_location_longitude}</p>
+                            </div>
+                            {mapLink && (
+                              <a
+                                href={mapLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex text-sm font-semibold text-cyan-700 transition hover:text-cyan-600"
+                              >
+                                Open full map
+                              </a>
+                            )}
+                          </>
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                            Search for an address or use your current location to preview the saved pin here.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div className="flex justify-end">
                   <button
                     type="submit"
@@ -444,9 +733,9 @@ export default function Settings() {
           <FadeUp delay={0.08}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
-                <h2 className="text-lg font-semibold text-slate-900">Approval routing groups</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Departments</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Configure the review groups used on Users and pending approvals. Labels are what admins see; keys stay stable for routing.
+                  Configure the departments used on Users and pending approvals. Labels are what admins see; keys stay stable for routing.
                 </p>
               </div>
               <form onSubmit={handleSaveApprovalGroups} className="space-y-5 px-5 py-5">
@@ -494,14 +783,14 @@ export default function Settings() {
                   <div>
                     {approvalGroups.length > 0
                       ? `Currently configured: ${approvalGroups.map((group) => `${group.label} (${group.key})`).join(', ')}.`
-                      : 'Approval groups load with the internal admin settings.'}
+                      : 'Departments load with the internal admin settings.'}
                   </div>
                   <button
                     type="button"
                     onClick={addApprovalGroupDraft}
                     className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
                   >
-                    Add approval group
+                    Add department
                   </button>
                 </div>
                 <p className="text-xs text-slate-500">
@@ -513,7 +802,7 @@ export default function Settings() {
                     disabled={savingApprovalGroups}
                     className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
                   >
-                    {savingApprovalGroups ? 'Saving…' : 'Save approval groups'}
+                    {savingApprovalGroups ? 'Saving…' : 'Save departments'}
                   </button>
                 </div>
               </form>

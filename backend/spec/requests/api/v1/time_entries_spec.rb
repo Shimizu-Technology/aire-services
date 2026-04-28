@@ -103,6 +103,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:ok)
         expect(json.dig(:time_entry, :description)).to eq("updated")
+        expect(json.dig(:time_entry, :approval_status)).to eq("pending")
       end
     end
 
@@ -114,6 +115,52 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:ok)
         expect(json.dig(:time_entry, :description)).to eq("admin edit")
+      end
+    end
+
+    context "employee edits a previously approved entry" do
+      let!(:approved_entry) do
+        create(
+          :time_entry,
+          user: employee,
+          approval_status: "approved",
+          approved_by: admin,
+          approved_at: Time.current
+        )
+      end
+
+      it "returns the entry to pending review and clears prior approval metadata" do
+        patch "/api/v1/time_entries/#{approved_entry.id}",
+              params: { time_entry: { description: "needs review again" } },
+              headers: auth_headers_for[employee]
+
+        expect(response).to have_http_status(:ok)
+        expect(json.dig(:time_entry, :approval_status)).to eq("pending")
+        expect(json.dig(:time_entry, :approved_by)).to be_nil
+        expect(json.dig(:time_entry, :approved_at)).to be_nil
+      end
+
+      it "preserves an existing admin note that contains the old separator text" do
+        approved_entry.update!(approval_note: "Reviewed | pending payroll")
+
+        patch "/api/v1/time_entries/#{approved_entry.id}",
+              params: { time_entry: { description: "still preserved" } },
+              headers: auth_headers_for[employee]
+
+        expect(response).to have_http_status(:ok)
+        expect(json.dig(:time_entry, :approval_note)).to eq("Reviewed | pending payroll\n\nEmployee edited time entry — awaiting admin review")
+      end
+
+      it "does not log a fake overtime status change when overtime did not change" do
+        approved_entry.update!(overtime_status: "none")
+
+        patch "/api/v1/time_entries/#{approved_entry.id}",
+              params: { time_entry: { description: "same overtime" } },
+              headers: auth_headers_for[employee]
+
+        expect(response).to have_http_status(:ok)
+        audit_log = AuditLog.where(auditable: approved_entry).order(created_at: :desc).first
+        expect(audit_log.changes_made).not_to have_key("overtime_status")
       end
     end
 

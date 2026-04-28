@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
-import type { ClockStatus, TimeCategory } from '../../lib/api'
+import type { ClockLocationPayload, ClockStatus, TimeCategory } from '../../lib/api'
 
 interface ClockInOutCardProps {
   onStatusChange?: () => void
@@ -11,6 +11,38 @@ const ENABLE_CLOCK_OUT_DESCRIPTION = false
 
 function Spinner({ className = 'border-white/30 border-t-white' }: { className?: string }) {
   return <span className={`w-5 h-5 border-2 rounded-full animate-spin ${className}`} />
+}
+
+function requestCurrentLocation(): Promise<ClockLocationPayload> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('This device does not support location services.'))
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy_meters: Math.round(position.coords.accuracy),
+        })
+      },
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          reject(new Error('Location access is required before you can clock in.'))
+          return
+        }
+
+        reject(new Error('Unable to get your current location. Please try again near the AIRE office.'))
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 30000,
+      },
+    )
+  })
 }
 
 export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) {
@@ -201,8 +233,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         await fetchStatus()
         onStatusChange?.()
       }
-    } catch {
-      setError('Action failed. Please try again.')
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Action failed. Please try again.')
       await fetchStatus()
     } finally {
       setActionLoading(false)
@@ -218,8 +250,12 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
     setActionLoading(true)
     setError(null)
     try {
+      const location = action === 'clock_in' && status?.clock_in_location_required
+        ? await requestCurrentLocation()
+        : undefined
+
       const fn = {
-        clock_in: () => api.clockIn(undefined, adminOverride, Number(selectedCategoryId)),
+        clock_in: () => api.clockIn(undefined, adminOverride, Number(selectedCategoryId), location),
         start_break: () => api.startBreak(),
         end_break: () => api.endBreak(),
       }
@@ -232,8 +268,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         await fetchStatus()
         onStatusChange?.()
       }
-    } catch {
-      setError('Action failed. Please try again.')
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Action failed. Please try again.')
       await fetchStatus()
     } finally {
       setActionLoading(false)
@@ -292,6 +328,11 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
             </span>
           )}
         </div>
+        {!isClockedIn && status?.clock_in_location_required && (
+          <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-700">
+            Clock-in is limited to {status.clock_in_location_name || 'the AIRE office'}.
+          </div>
+        )}
 
         {/* Timer (mobile) */}
         {isClockedIn && (

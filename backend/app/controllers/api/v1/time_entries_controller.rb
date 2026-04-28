@@ -116,33 +116,40 @@ module Api
           hours: @time_entry.hours.to_f,
           work_date: @time_entry.work_date.iso8601,
           description: @time_entry.description,
-          time_category_id: @time_entry.time_category_id
+          time_category_id: @time_entry.time_category_id,
+          overtime_status: @time_entry.overtime_status
         }
 
         update_params = time_entry_params.except(:user_id)
 
         unless current_user.admin?
-          # Intentional: any employee edit to an approved/denied entry OR any manual entry
-          # requires re-approval. Clock entries with nil status (legacy) are left as-is.
-          if @time_entry.approval_status.in?([ "approved", "denied" ]) || @time_entry.entry_method == "manual"
-            update_params[:approval_status] = "pending"
-            update_params[:approval_note] = "Employee edited time entry — awaiting admin review" unless @time_entry.approval_status == "pending"
-          end
+          update_params[:approval_status] = "pending"
+          update_params[:approved_by] = nil
+          update_params[:approved_at] = nil
+          update_params[:approval_note] = append_review_note(@time_entry.approval_note)
         end
 
         if @time_entry.update(update_params)
           if @time_entry.status == "completed" &&
-             @time_entry.overtime_status.in?([ nil, "none", "pending" ]) &&
              (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
             new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry, include_entry_hours: false)
-            @time_entry.update!(overtime_status: new_overtime)
+            overtime_attrs = { overtime_status: new_overtime }
+
+            if !current_user.admin? || old_values[:overtime_status].in?([ "approved", "denied" ])
+              overtime_attrs[:overtime_approved_by] = nil
+              overtime_attrs[:overtime_approved_at] = nil
+              overtime_attrs[:overtime_note] = nil
+            end
+
+            @time_entry.update!(overtime_attrs)
           end
 
           new_values = {
             hours: @time_entry.hours.to_f,
             work_date: @time_entry.work_date.iso8601,
             description: @time_entry.description,
-            time_category_id: @time_entry.time_category_id
+            time_category_id: @time_entry.time_category_id,
+            overtime_status: @time_entry.overtime_status
           }
 
           changes = old_values.each_with_object({}) do |(key, old_val), hash|
@@ -211,7 +218,8 @@ module Api
           user: target_user,
           admin_override_by: admin_override,
           time_category_id: params[:time_category_id],
-          clock_source: source
+          clock_source: source,
+          location: clock_location_params
         )
         render json: { time_entry: serialize_time_entry(eager_reload(entry)) }, status: :created
       rescue TimeClockService::ClockError => e
@@ -568,6 +576,21 @@ module Api
         else
           entries
         end
+      end
+
+      def clock_location_params
+        location = params[:location]
+        return {} unless location.respond_to?(:permit)
+
+        location.permit(:latitude, :longitude, :accuracy_meters).to_h.symbolize_keys
+      end
+
+      def append_review_note(existing_note)
+        review_note = "Employee edited time entry — awaiting admin review"
+        return review_note if existing_note.blank?
+        return existing_note if existing_note.include?(review_note)
+
+        "#{existing_note}\n\n#{review_note}"
       end
     end
   end

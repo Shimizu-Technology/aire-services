@@ -83,6 +83,7 @@ module Api
                   email: email,
                   first_name: kiosk_only_user ? first_name : nil,
                   last_name: kiosk_only_user ? last_name.presence : nil,
+                  staff_title: params[:staff_title]&.to_s&.strip&.presence,
                   role: role,
                   approval_group: approval_group,
                   clerk_id: "pending_#{SecureRandom.hex(8)}",
@@ -219,6 +220,7 @@ module Api
             display_name: user.display_name,
             full_name: user.full_name,
             role: user.role,
+            staff_title: user.staff_title,
             approval_group: user.approval_group,
             approval_group_label: user.approval_group_label,
             is_active: user.is_active,
@@ -274,6 +276,7 @@ module Api
               "email",
               "first_name",
               "last_name",
+              "staff_title",
               "role",
               "approval_group",
               "is_active",
@@ -425,6 +428,10 @@ module Api
             permitted[:approval_group] = approval_group
           end
 
+          if params.key?(:staff_title)
+            permitted[:staff_title] = params[:staff_title].to_s.strip.presence
+          end
+
           if params.key?(:is_active)
             is_active = ActiveModel::Type::Boolean.new.cast(params[:is_active])
 
@@ -463,7 +470,7 @@ module Api
 
         def approval_group_error_message
           labels = Setting.approval_groups.map { |group| group.fetch("label") }
-          "Approval group must be one of #{labels.join(', ')}, or blank"
+          "Department must be one of #{labels.join(', ')}, or blank"
         end
       end
     end

@@ -9,6 +9,7 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   getAdminContactSettings: vi.fn(),
   updateAdminContactSettings: vi.fn(),
+  geocodeAdminClockLocation: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -17,6 +18,7 @@ vi.mock('../../lib/api', () => ({
     getAdminAppSettings: apiMock.getAdminAppSettings,
     getAdminContactSettings: apiMock.getAdminContactSettings,
     updateAdminContactSettings: apiMock.updateAdminContactSettings,
+    geocodeAdminClockLocation: apiMock.geocodeAdminClockLocation,
   },
 }))
 
@@ -30,6 +32,7 @@ describe('Admin Settings contact settings', () => {
     apiMock.getAdminAppSettings.mockReset()
     apiMock.getAdminContactSettings.mockReset()
     apiMock.updateAdminContactSettings.mockReset()
+    apiMock.geocodeAdminClockLocation.mockReset()
 
     apiMock.getAdminTimeCategories.mockResolvedValue({
       data: { time_categories: [] },
@@ -40,6 +43,11 @@ describe('Admin Settings contact settings', () => {
           overtime_daily_threshold_hours: '8',
           overtime_weekly_threshold_hours: '40',
           early_clock_in_buffer_minutes: '5',
+          clock_in_location_enforced: 'true',
+          clock_in_location_name: 'AIRE Services Guam',
+          clock_in_location_latitude: '13.46913',
+          clock_in_location_longitude: '144.79901',
+          clock_in_location_radius_meters: '1000',
         },
         approval_groups: [
           { key: 'cfi', label: 'CFI' },
@@ -58,6 +66,17 @@ describe('Admin Settings contact settings', () => {
         contact_notification_emails: ['ops@example.com', 'owner@example.com'],
         inquiry_topics: ['Aerial Tours', 'Video Packages'],
         message: 'Contact inquiry settings updated',
+      },
+    })
+    apiMock.geocodeAdminClockLocation.mockResolvedValue({
+      data: {
+        results: [
+          {
+            display_name: 'AIRE Services Guam, Barrigada, Guam',
+            latitude: '13.469130',
+            longitude: '144.799010',
+          },
+        ],
       },
     })
   })
@@ -86,5 +105,23 @@ describe('Admin Settings contact settings', () => {
     })
 
     expect(await screen.findByText('Contact inquiry settings updated')).toBeInTheDocument()
+  })
+
+  it('can search by address and apply a geocoding result', async () => {
+    render(<Settings />)
+
+    fireEvent.change(await screen.findByPlaceholderText('1780 Admiral Sherman Boulevard, Barrigada, Guam'), {
+      target: { value: 'AIRE Guam' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Find address' }))
+
+    expect(await screen.findByText('AIRE Services Guam, Barrigada, Guam')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AIRE Services Guam, Barrigada, Guam' }))
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('13.469130')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('144.799010')).toBeInTheDocument()
+    })
   })
 })

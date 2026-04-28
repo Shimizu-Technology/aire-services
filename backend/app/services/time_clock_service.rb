@@ -8,12 +8,13 @@ class TimeClockService
 
   class << self
     # ── Clock In ──
-    def clock_in(user:, admin_override_by: nil, time_category_id: nil, clock_source: nil)
+    def clock_in(user:, admin_override_by: nil, time_category_id: nil, clock_source: nil, location: nil)
       now = Time.current
       guam_now = now.in_time_zone(business_timezone)
       today = guam_now.to_date
 
       raise ClockError, "You are already clocked in" if active_entry_for(user)
+      validate_clock_in_location!(user: user, location: location, admin_override_by: admin_override_by, clock_source: clock_source)
 
       schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
 
@@ -264,6 +265,9 @@ class TimeClockService
           hours: schedule.hours
         } : nil,
         schedule_required_for_clock_in: Setting.get("schedule_required_for_clock_in") == "true",
+        clock_in_location_required: location_policy[:enabled],
+        clock_in_location_name: location_policy[:name],
+        clock_in_location_radius_meters: location_policy[:radius_meters],
         can_clock_in: clock_in_info[:allowed],
         clock_in_blocked_reason: clock_in_info[:reason],
         minutes_until: clock_in_info[:minutes_until]
@@ -515,6 +519,66 @@ class TimeClockService
 
     def business_timezone
       BUSINESS_TIMEZONE
+    end
+
+    def location_policy
+      Setting.clock_in_location_policy
+    end
+
+    def validate_clock_in_location!(user:, location:, admin_override_by:, clock_source:)
+      return if admin_override_by.present? && admin_override_by.id != user.id
+      return unless user.staff?
+      return unless clock_source == "mobile"
+
+      policy = location_policy
+      return unless policy[:enabled]
+
+      latitude = location_coordinate(location, :latitude)
+      longitude = location_coordinate(location, :longitude)
+      accuracy = location_coordinate(location, :accuracy_meters)&.to_f || 0.0
+
+      if latitude.nil? || longitude.nil?
+        raise ClockError, "Share your device location to clock in at #{policy[:name]}."
+      end
+
+      distance = haversine_distance_meters(
+        latitude,
+        longitude,
+        policy.fetch(:latitude),
+        policy.fetch(:longitude)
+      )
+      allowed_radius = policy.fetch(:radius_meters).to_f + accuracy.clamp(0, 250)
+      return if distance <= allowed_radius
+
+      raise ClockError, "Clock-in is only allowed while you are at #{policy[:name]}."
+    end
+
+    def location_coordinate(location, key)
+      raw = location.respond_to?(:[]) ? (location[key] || location[key.to_s]) : nil
+      return nil if raw.blank?
+
+      Float(raw)
+    rescue ArgumentError, TypeError
+      nil
+    end
+
+    def haversine_distance_meters(lat1, lon1, lat2, lon2)
+      earth_radius_meters = 6_371_000.0
+      d_lat = degrees_to_radians(lat2 - lat1)
+      d_lon = degrees_to_radians(lon2 - lon1)
+
+      lat1_rad = degrees_to_radians(lat1)
+      lat2_rad = degrees_to_radians(lat2)
+
+      a = Math.sin(d_lat / 2)**2 +
+        Math.cos(lat1_rad) * Math.cos(lat2_rad) * Math.sin(d_lon / 2)**2
+      c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+      earth_radius_meters * c
+    end
+
+    def degrees_to_radians(value)
+      value * Math::PI / 180
     end
 
     def validate_time_category_assignment!(user, category, admin_override_by:)

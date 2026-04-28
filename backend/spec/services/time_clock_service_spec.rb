@@ -88,6 +88,39 @@ RSpec.describe TimeClockService, type: :service do
       expect(entry.time_category_id).to eq(unassigned_category.id)
       expect(entry.admin_override).to be(true)
     end
+
+    it "requires a nearby location for mobile clock-in when geofencing is enabled" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      Setting.set("clock_in_location_enforced", "true")
+      time_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: time_category)
+
+      expect {
+        described_class.clock_in(
+          user: user,
+          time_category_id: time_category.id,
+          clock_source: "mobile",
+          location: { latitude: 13.55, longitude: 144.9, accuracy_meters: 10 }
+        )
+      }.to raise_error(TimeClockService::ClockError, /only allowed while you are at AIRE Services Guam/i)
+    end
+
+    it "allows a nearby mobile clock-in when the location is within the configured radius" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      Setting.set("clock_in_location_enforced", "true")
+      time_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: time_category)
+
+      entry = described_class.clock_in(
+        user: user,
+        time_category_id: time_category.id,
+        clock_source: "mobile",
+        location: { latitude: 13.4692, longitude: 144.7991, accuracy_meters: 20 }
+      )
+
+      expect(entry).to be_persisted
+      expect(entry.status).to eq("clocked_in")
+    end
   end
 
   describe ".clock_out" do
@@ -195,6 +228,16 @@ RSpec.describe TimeClockService, type: :service do
       expect(status[:entry_id]).to eq(entry.id)
       expect(status[:clock_in_blocked_reason]).to eq("already_clocked_in")
       expect(status[:can_clock_in]).to be(false)
+    end
+
+    it "includes the location policy for the frontend clock-in guard" do
+      Setting.set("clock_in_location_enforced", "true")
+
+      status = described_class.current_status(user: user)
+
+      expect(status[:clock_in_location_required]).to be(true)
+      expect(status[:clock_in_location_name]).to eq("AIRE Services Guam")
+      expect(status[:clock_in_location_radius_meters]).to eq(1000)
     end
   end
 

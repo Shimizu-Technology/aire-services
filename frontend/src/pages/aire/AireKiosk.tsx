@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockStatus, type TimeCategory } from '../../lib/api'
+import { useAuthContext } from '../../contexts/AuthContext'
 
 type KioskAction = 'clock_in' | 'clock_out' | 'start_break' | 'end_break' | 'switch_category'
 
@@ -8,6 +9,13 @@ const keypad = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'CLR']
 const PIN_LENGTH = 8
 const IDLE_RESET_MS = 30_000
 const SUCCESS_RESET_MS = 8_000
+const KIOSK_ACCESS_STORAGE_KEY = 'aire_kiosk_access_session'
+
+interface StoredKioskAccessSession {
+  token: string
+  expiresAt: string
+  unlockedBy: string
+}
 
 function formatActionLabel(action: KioskAction) {
   switch (action) {
@@ -46,6 +54,7 @@ function formatStatus(status: ClockStatus | null) {
 }
 
 export default function AireKiosk() {
+  const { isClerkEnabled, isSignedIn, userRole } = useAuthContext()
   const [pin, setPin] = useState('')
   const [employee, setEmployee] = useState<AireKioskEmployee | null>(null)
   const [kioskToken, setKioskToken] = useState<string | null>(null)
@@ -57,6 +66,24 @@ export default function AireKiosk() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
+  const [unlocking, setUnlocking] = useState(false)
+  const [kioskAccessSession, setKioskAccessSession] = useState<StoredKioskAccessSession | null>(() => {
+    if (typeof window === 'undefined') return null
+    const raw = window.sessionStorage.getItem(KIOSK_ACCESS_STORAGE_KEY)
+    if (!raw) return null
+
+    try {
+      const parsed = JSON.parse(raw) as StoredKioskAccessSession
+      if (new Date(parsed.expiresAt).getTime() <= Date.now()) {
+        window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+        return null
+      }
+      return parsed
+    } catch {
+      window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+      return null
+    }
+  })
   const idleResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const successResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -66,8 +93,11 @@ export default function AireKiosk() {
     () => categories.find((category) => category.id === selectedCategoryId) ?? null,
     [categories, selectedCategoryId],
   )
+  const kioskAccessToken = !isClerkEnabled ? null : kioskAccessSession?.token ?? null
+  const kioskUnlocked = !isClerkEnabled || !!kioskAccessToken
+  const canUnlockKiosk = !isClerkEnabled || userRole === 'admin'
 
-  const clearSession = () => {
+  const clearSession = useCallback(() => {
     setPin('')
     setEmployee(null)
     setKioskToken(null)
@@ -78,7 +108,16 @@ export default function AireKiosk() {
     setActionLoading(null)
     setError(null)
     setSuccess(null)
-  }
+  }, [])
+
+  const clearExpiredKioskAccessSession = useCallback(() => {
+    if (!kioskAccessSession) return
+    if (new Date(kioskAccessSession.expiresAt).getTime() > Date.now()) return
+
+    window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+    setKioskAccessSession(null)
+    clearSession()
+  }, [clearSession, kioskAccessSession])
 
   const bumpIdleTimer = () => {
     if (idleResetRef.current) clearTimeout(idleResetRef.current)
@@ -101,6 +140,20 @@ export default function AireKiosk() {
   }, [])
 
   useEffect(() => {
+    clearExpiredKioskAccessSession()
+  }, [clearExpiredKioskAccessSession, kioskAccessSession])
+
+  useEffect(() => {
+    if (!kioskAccessSession) return
+
+    const interval = setInterval(() => {
+      clearExpiredKioskAccessSession()
+    }, 60_000)
+
+    return () => clearInterval(interval)
+  }, [clearExpiredKioskAccessSession, kioskAccessSession])
+
+  useEffect(() => {
     if (!success) return
     if (successResetRef.current) clearTimeout(successResetRef.current)
     successResetRef.current = setTimeout(() => {
@@ -110,7 +163,7 @@ export default function AireKiosk() {
     return () => {
       if (successResetRef.current) clearTimeout(successResetRef.current)
     }
-  }, [success])
+  }, [clearSession, success])
 
   const applyResponse = (response: AireKioskActionResponse, forceCategory = false) => {
     setEmployee(response.employee)
@@ -141,6 +194,11 @@ export default function AireKiosk() {
   }
 
   const handleVerify = async () => {
+    if (!kioskUnlocked) {
+      setError('Kiosk is locked. Ask an admin to unlock it first.')
+      return
+    }
+
     if (pin.length < 4) {
       setError('Enter your full staff PIN first.')
       return
@@ -150,9 +208,13 @@ export default function AireKiosk() {
     setError(null)
     setSuccess(null)
 
-    const result = await api.aireKioskVerify(pin)
+    const result = await api.aireKioskVerify(pin, kioskAccessToken || '')
     if (result.error || !result.data) {
       setError(result.error || 'PIN verification failed.')
+      if (result.error?.match(/kiosk is locked/i)) {
+        setKioskAccessSession(null)
+        if (typeof window !== 'undefined') window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+      }
       setLoading(false)
       return
     }
@@ -169,6 +231,11 @@ export default function AireKiosk() {
   }
 
   const runAction = async (action: KioskAction) => {
+    if (!kioskUnlocked) {
+      setError('Kiosk is locked. Ask an admin to unlock it first.')
+      return
+    }
+
     if (!kioskToken || !employee) {
       setError('Session expired. Please enter your PIN again.')
       return
@@ -191,15 +258,15 @@ export default function AireKiosk() {
     const request = (() => {
       switch (action) {
         case 'clock_in':
-          return api.aireKioskClockIn(kioskToken, selectedCategoryId)
+          return api.aireKioskClockIn(kioskAccessToken || '', kioskToken, selectedCategoryId)
         case 'clock_out':
-          return api.aireKioskClockOut(kioskToken)
+          return api.aireKioskClockOut(kioskAccessToken || '', kioskToken)
         case 'start_break':
-          return api.aireKioskStartBreak(kioskToken)
+          return api.aireKioskStartBreak(kioskAccessToken || '', kioskToken)
         case 'end_break':
-          return api.aireKioskEndBreak(kioskToken)
+          return api.aireKioskEndBreak(kioskAccessToken || '', kioskToken)
         case 'switch_category':
-          return api.aireKioskSwitchCategory(kioskToken, selectedCategoryId!)
+          return api.aireKioskSwitchCategory(kioskAccessToken || '', kioskToken, selectedCategoryId!)
       }
     })()
 
@@ -217,6 +284,45 @@ export default function AireKiosk() {
       : selectedCategory
     setSuccess(formatSuccessMessage(action, data.employee, responseCategory))
     setActionLoading(null)
+  }
+
+  const handleUnlock = async () => {
+    if (!canUnlockKiosk) {
+      setError('An admin account is required to unlock this kiosk.')
+      return
+    }
+
+    if (!isClerkEnabled) {
+      setError(null)
+      return
+    }
+
+    setUnlocking(true)
+    setError(null)
+
+    const result = await api.createAdminKioskSession()
+    if (result.error || !result.data) {
+      setError(result.error || 'Failed to unlock the kiosk.')
+      setUnlocking(false)
+      return
+    }
+
+    const session: StoredKioskAccessSession = {
+      token: result.data.kiosk_access_token,
+      expiresAt: result.data.expires_at,
+      unlockedBy: result.data.unlocked_by.full_name,
+    }
+    window.sessionStorage.setItem(KIOSK_ACCESS_STORAGE_KEY, JSON.stringify(session))
+    setKioskAccessSession(session)
+    setUnlocking(false)
+  }
+
+  const handleLock = () => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+    }
+    setKioskAccessSession(null)
+    clearSession()
   }
 
   const canClockIn = !!employee && !status?.clocked_in && status?.can_clock_in !== false && categories.length > 0
@@ -265,6 +371,47 @@ export default function AireKiosk() {
             Enter your staff PIN, verify your identity, then clock in or out on this shared kiosk.
           </p>
 
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm">
+            <div>
+              <p className="font-semibold text-white">
+                {kioskUnlocked ? 'Kiosk unlocked' : 'Kiosk locked'}
+              </p>
+              <p className="mt-1 text-slate-400">
+                {!isClerkEnabled
+                  ? 'Local development mode is bypassing the admin unlock requirement.'
+                  : kioskAccessSession
+                    ? `Unlocked by ${kioskAccessSession.unlockedBy} until ${new Date(kioskAccessSession.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}.`
+                    : 'An admin has to unlock this kiosk before staff can enter a PIN.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {kioskUnlocked ? (
+                <button
+                  onClick={handleLock}
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+                >
+                  Lock kiosk
+                </button>
+              ) : canUnlockKiosk ? (
+                <button
+                  onClick={handleUnlock}
+                  disabled={unlocking || (isClerkEnabled && !isSignedIn)}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    unlocking || (isClerkEnabled && !isSignedIn)
+                      ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                      : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
+                  }`}
+                >
+                  {unlocking ? 'Unlocking…' : 'Unlock kiosk'}
+                </button>
+              ) : (
+                <Link to="/admin" className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10">
+                  Admin unlock
+                </Link>
+              )}
+            </div>
+          </div>
+
           <div className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -297,7 +444,7 @@ export default function AireKiosk() {
 
           {!employee ? (
             <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-400">
-              Verify a PIN to get started.
+              {kioskUnlocked ? 'Verify a PIN to get started.' : 'Unlock the kiosk first, then verify a PIN to get started.'}
             </div>
           ) : categories.length > 0 ? (
             <div className="mt-8 space-y-3">
@@ -370,9 +517,9 @@ export default function AireKiosk() {
 
           <button
             onClick={handleVerify}
-            disabled={loading || !!employee || pin.length < 4}
+            disabled={loading || !kioskUnlocked || !!employee || pin.length < 4}
             className={`mt-4 w-full rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-              loading || employee || pin.length < 4
+              loading || !kioskUnlocked || employee || pin.length < 4
                 ? 'cursor-not-allowed bg-slate-800 text-slate-500'
                 : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
             }`}

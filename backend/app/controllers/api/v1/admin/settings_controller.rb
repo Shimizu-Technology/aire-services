@@ -9,6 +9,11 @@ module Api
           overtime_weekly_threshold_hours
           early_clock_in_buffer_minutes
           schedule_required_for_clock_in
+          clock_in_location_enforced
+          clock_in_location_name
+          clock_in_location_latitude
+          clock_in_location_longitude
+          clock_in_location_radius_meters
         ].freeze
 
         before_action :authenticate_user!
@@ -19,6 +24,19 @@ module Api
             settings: serialized_settings,
             approval_groups: Setting.approval_groups
           }
+        end
+
+        def geocode
+          query = params[:query].to_s.strip
+          return render json: { error: "query is required" }, status: :unprocessable_entity if query.blank?
+
+          results = AddressGeocodingService.search(query: query)
+
+          render json: {
+            results: results
+          }
+        rescue AddressGeocodingService::GeocodingError => e
+          render json: { error: e.message }, status: :unprocessable_entity
         end
 
         def update
@@ -116,6 +134,36 @@ module Api
             return "Early clock-in buffer must be 0 or greater" if v.negative?
           end
 
+          if payload.key?("clock_in_location_radius_meters")
+            v = payload["clock_in_location_radius_meters"].to_i
+            return "Clock-in radius must be greater than 0 meters" if v <= 0
+          end
+
+          if payload.key?("clock_in_location_latitude")
+            v = Setting.safe_float(payload["clock_in_location_latitude"])
+            return "Clock-in latitude must be between -90 and 90" if v.nil? || v < -90 || v > 90
+          end
+
+          if payload.key?("clock_in_location_longitude")
+            v = Setting.safe_float(payload["clock_in_location_longitude"])
+            return "Clock-in longitude must be between -180 and 180" if v.nil? || v < -180 || v > 180
+          end
+
+          location_enforced = if payload.key?("clock_in_location_enforced")
+            ActiveModel::Type::Boolean.new.cast(payload["clock_in_location_enforced"])
+          else
+            Setting.get("clock_in_location_enforced") == "true"
+          end
+
+          if location_enforced
+            latitude = payload.key?("clock_in_location_latitude") ? Setting.safe_float(payload["clock_in_location_latitude"]) : Setting.safe_float(Setting.get("clock_in_location_latitude"))
+            longitude = payload.key?("clock_in_location_longitude") ? Setting.safe_float(payload["clock_in_location_longitude"]) : Setting.safe_float(Setting.get("clock_in_location_longitude"))
+            radius_meters = payload.key?("clock_in_location_radius_meters") ? payload["clock_in_location_radius_meters"].to_i : Setting.get("clock_in_location_radius_meters").to_i
+
+            return "Set a valid clock-in latitude and longitude before enabling location enforcement" if latitude.nil? || longitude.nil?
+            return "Clock-in radius must be greater than 0 meters before enabling location enforcement" if radius_meters <= 0
+          end
+
           nil
         end
 
@@ -133,7 +181,7 @@ module Api
           labels = in_use_keys.map do |key|
             current_groups.find { |group| group["key"] == key }&.fetch("label", nil) || key.to_s.humanize
           end
-          "Reassign users before removing approval groups currently in use: #{labels.join(', ')}"
+          "Reassign users before removing departments currently in use: #{labels.join(', ')}"
         rescue ArgumentError => e
           e.message
         end
