@@ -42,7 +42,9 @@ RSpec.describe AddressGeocodingService do
       bucket = "address_geocoding:rate_limit:#{frozen_time.to_i / AddressGeocodingService::RATE_LIMIT_WINDOW.to_i}"
 
       allow(Time).to receive(:current).and_return(frozen_time)
-      allow(Rails.cache).to receive(:read).with(bucket).and_return(AddressGeocodingService::RATE_LIMIT_MAX_REQUESTS)
+      expect(Rails.cache).to receive(:increment)
+        .with(bucket, 1, expires_in: AddressGeocodingService::RATE_LIMIT_WINDOW)
+        .and_return(AddressGeocodingService::RATE_LIMIT_MAX_REQUESTS + 1)
       expect(Rails.cache).not_to receive(:write)
 
       expect do

@@ -32,7 +32,7 @@ export default function Settings() {
     overtime_daily_threshold_hours: '',
     overtime_weekly_threshold_hours: '',
     early_clock_in_buffer_minutes: '',
-    clock_in_location_enforced: 'true',
+    clock_in_location_enforced: 'false',
     clock_in_location_name: '',
     clock_in_location_latitude: '',
     clock_in_location_longitude: '',

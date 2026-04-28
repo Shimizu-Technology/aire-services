@@ -79,13 +79,15 @@ class AddressGeocodingService
     def enforce_rate_limit!
       bucket = (Time.current.to_i / RATE_LIMIT_WINDOW.to_i).to_s
       key = "address_geocoding:rate_limit:#{bucket}"
-      request_count = Rails.cache.read(key).to_i
-
-      if request_count >= RATE_LIMIT_MAX_REQUESTS
-        raise GeocodingError, "Geocoding search is temporarily rate-limited. Please try again in a minute."
+      request_count = Rails.cache.increment(key, 1, expires_in: RATE_LIMIT_WINDOW)
+      if request_count.nil?
+        Rails.cache.write(key, 1, expires_in: RATE_LIMIT_WINDOW)
+        request_count = 1
       end
 
-      Rails.cache.write(key, request_count + 1, expires_in: RATE_LIMIT_WINDOW)
+      if request_count > RATE_LIMIT_MAX_REQUESTS
+        raise GeocodingError, "Geocoding search is temporarily rate-limited. Please try again in a minute."
+      end
     end
   end
 end

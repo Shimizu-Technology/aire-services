@@ -91,7 +91,11 @@ module Api
       end
 
       def review_request!(status)
-        unless @leave_request.reviewable_by?(current_user)
+        if @leave_request.user_id == current_user.id
+          return render json: { error: "Admins cannot approve or decline their own leave requests" }, status: :unprocessable_entity
+        end
+
+        unless @leave_request.pending?
           return render json: { error: "Only pending leave requests can be reviewed" }, status: :unprocessable_entity
         end
 
