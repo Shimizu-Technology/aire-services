@@ -22,7 +22,7 @@ class Setting < ApplicationRecord
     "overtime_weekly_threshold_hours" => "40",
     "early_clock_in_buffer_minutes" => "5",
     "schedule_required_for_clock_in" => "false",
-    "clock_in_location_enforced" => "true",
+    "clock_in_location_enforced" => "false",
     "clock_in_location_name" => "AIRE Services Guam",
     "clock_in_location_latitude" => "13.46913",
     "clock_in_location_longitude" => "144.79901",

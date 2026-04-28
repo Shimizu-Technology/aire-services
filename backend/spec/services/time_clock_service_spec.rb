@@ -91,6 +91,7 @@ RSpec.describe TimeClockService, type: :service do
 
     it "requires a nearby location for mobile clock-in when geofencing is enabled" do
       Setting.set("schedule_required_for_clock_in", "false")
+      Setting.set("clock_in_location_enforced", "true")
       time_category = create(:time_category)
       UserTimeCategory.create!(user: user, time_category: time_category)
 
@@ -106,6 +107,7 @@ RSpec.describe TimeClockService, type: :service do
 
     it "allows a nearby mobile clock-in when the location is within the configured radius" do
       Setting.set("schedule_required_for_clock_in", "false")
+      Setting.set("clock_in_location_enforced", "true")
       time_category = create(:time_category)
       UserTimeCategory.create!(user: user, time_category: time_category)
 
@@ -229,6 +231,8 @@ RSpec.describe TimeClockService, type: :service do
     end
 
     it "includes the location policy for the frontend clock-in guard" do
+      Setting.set("clock_in_location_enforced", "true")
+
       status = described_class.current_status(user: user)
 
       expect(status[:clock_in_location_required]).to be(true)

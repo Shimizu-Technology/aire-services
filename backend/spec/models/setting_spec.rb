@@ -3,6 +3,16 @@
 require "rails_helper"
 
 RSpec.describe Setting, type: :model do
+  describe ".clock_in_location_policy" do
+    it "defaults geofence enforcement to disabled until an admin opts in" do
+      policy = described_class.clock_in_location_policy
+
+      expect(policy[:enabled]).to be(false)
+      expect(policy[:configured]).to be(true)
+      expect(policy[:name]).to eq("AIRE Services Guam")
+    end
+  end
+
   describe ".approval_groups" do
     it "returns default approval groups when nothing is configured" do
       expect(described_class.approval_groups).to eq(
