@@ -72,8 +72,10 @@ class AddressGeocodingService
     end
 
     def geocoding_user_agent
-      contact_email = Setting.contact_notification_emails.first.presence || "admin@aireservicesguam.com"
-      "AIRE Ops/1.0 (admin-geofence-setup; contact: #{contact_email})"
+      Rails.cache.fetch("address_geocoding:user_agent", expires_in: 10.minutes) do
+        contact_email = Setting.contact_notification_emails.first.presence || "admin@aireservicesguam.com"
+        "AIRE Ops/1.0 (admin-geofence-setup; contact: #{contact_email})"
+      end
     end
 
     def enforce_rate_limit!
@@ -81,9 +83,11 @@ class AddressGeocodingService
       key = "address_geocoding:rate_limit:#{bucket}"
       request_count = Rails.cache.increment(key, 1, expires_in: RATE_LIMIT_WINDOW)
       if request_count.nil?
-        Rails.cache.write(key, 1, expires_in: RATE_LIMIT_WINDOW)
-        request_count = 1
+        initialized = Rails.cache.write(key, 1, expires_in: RATE_LIMIT_WINDOW, unless_exist: true)
+        request_count = initialized ? 1 : Rails.cache.increment(key, 1, expires_in: RATE_LIMIT_WINDOW)
       end
+
+      request_count ||= RATE_LIMIT_MAX_REQUESTS + 1
 
       if request_count > RATE_LIMIT_MAX_REQUESTS
         raise GeocodingError, "Geocoding search is temporarily rate-limited. Please try again in a minute."

@@ -243,7 +243,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <h3 className="text-lg font-semibold text-slate-900">
-            {isAdmin ? `Pending approvals (${pendingRequests.length})` : 'My requests'}
+            {isAdmin ? 'Pending approvals' : 'My requests'}
           </h3>
         </div>
         {loading ? (

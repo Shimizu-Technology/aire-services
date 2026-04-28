@@ -51,5 +51,20 @@ RSpec.describe AddressGeocodingService do
         described_class.send(:enforce_rate_limit!)
       end.to raise_error(AddressGeocodingService::GeocodingError, /temporarily rate-limited/i)
     end
+
+    it "retries the counter increment when the first cache increment returns nil" do
+      frozen_time = Time.zone.parse("2026-04-28 10:00:00")
+      bucket = "address_geocoding:rate_limit:#{frozen_time.to_i / AddressGeocodingService::RATE_LIMIT_WINDOW.to_i}"
+
+      allow(Time).to receive(:current).and_return(frozen_time)
+      expect(Rails.cache).to receive(:increment)
+        .with(bucket, 1, expires_in: AddressGeocodingService::RATE_LIMIT_WINDOW)
+        .and_return(nil, 2)
+      expect(Rails.cache).to receive(:write)
+        .with(bucket, 1, expires_in: AddressGeocodingService::RATE_LIMIT_WINDOW, unless_exist: true)
+        .and_return(false)
+
+      expect { described_class.send(:enforce_rate_limit!) }.not_to raise_error
+    end
   end
 end
