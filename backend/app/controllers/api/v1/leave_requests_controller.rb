@@ -78,7 +78,7 @@ module Api
           end
 
           @leave_request.update!(status: "cancelled", reviewed_by: nil, reviewed_at: nil, review_note: nil)
-          cancel_result = @leave_request.reload
+          cancel_result = @leave_request
         end
 
         if cancel_error
@@ -135,7 +135,7 @@ module Api
             reviewed_at: Time.current,
             review_note: params[:review_note].presence
           )
-          review_result = @leave_request.reload
+          review_result = @leave_request
         end
 
         if error_response
