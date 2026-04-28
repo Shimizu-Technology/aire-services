@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
-import type { LeaveRequest } from '../../lib/api'
+import type { LeaveRequest, PaginationMeta } from '../../lib/api'
 
 const LEAVE_TYPE_OPTIONS: Array<{ value: LeaveRequest['leave_type']; label: string }> = [
   { value: 'paid_time_off', label: 'Paid time off' },
@@ -35,6 +35,8 @@ interface LeaveRequestsPanelProps {
 
 export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps) {
   const [requests, setRequests] = useState<LeaveRequest[]>([])
+  const [pagination, setPagination] = useState<PaginationMeta | null>(null)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null)
@@ -47,11 +49,11 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     reason: '',
   })
 
-  const loadRequests = async () => {
+  const loadRequests = async (targetPage: number = page) => {
     setLoading(true)
     setError(null)
 
-    const result = await api.getLeaveRequests()
+    const result = await api.getLeaveRequests(undefined, targetPage)
     if (result.error || !result.data) {
       setError(result.error || 'Failed to load leave requests.')
       setLoading(false)
@@ -59,12 +61,13 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     }
 
     setRequests(result.data.leave_requests)
+    setPagination(result.data.pagination)
     setLoading(false)
   }
 
   useEffect(() => {
     void loadRequests()
-  }, [])
+  }, [page])
 
   const pendingRequests = useMemo(
     () => requests.filter((request) => request.status === 'pending'),
@@ -100,7 +103,8 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       end_date: '',
       reason: '',
     })
-    await loadRequests()
+    setPage(1)
+    await loadRequests(1)
     setSubmitting(false)
   }
 
@@ -295,6 +299,31 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                   )}
                 </article>
               ))
+            )}
+            {pagination && pagination.total_pages > 1 && (
+              <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-sm text-slate-500">
+                <span>
+                  Page {pagination.current_page} of {pagination.total_pages}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={pagination.current_page <= 1}
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pagination.current_page >= pagination.total_pages}
+                    onClick={() => setPage((current) => current + 1)}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

@@ -67,6 +67,7 @@ Rails.application.routes.draw do
       namespace :admin do
         resource :kiosk_session, only: [ :create ]
         resource :settings, only: [ :show, :update ]
+        post "settings/geocode", to: "settings#geocode"
         resources :users, only: [ :index, :show, :create, :update, :destroy ] do
           member do
             post :resend_invite

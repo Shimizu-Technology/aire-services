@@ -99,4 +99,37 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
     end
   end
+
+  describe "POST /api/v1/admin/settings/geocode" do
+    it "returns geocoding matches for admins" do
+      allow(AddressGeocodingService).to receive(:search).with(query: "AIRE Guam").and_return([
+        {
+          display_name: "AIRE Services Guam, Barrigada, Guam",
+          latitude: "13.469130",
+          longitude: "144.799010"
+        }
+      ])
+
+      post "/api/v1/admin/settings/geocode",
+           params: { query: "AIRE Guam" },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:results]).to eq([
+        {
+          display_name: "AIRE Services Guam, Barrigada, Guam",
+          latitude: "13.469130",
+          longitude: "144.799010"
+        }
+      ])
+    end
+
+    it "blocks non-admin geocoding" do
+      post "/api/v1/admin/settings/geocode",
+           params: { query: "AIRE Guam" },
+           headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:forbidden)
+    end
+  end
 end

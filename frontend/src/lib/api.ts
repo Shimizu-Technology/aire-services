@@ -224,6 +224,12 @@ export interface AdminAppSettingsResponse {
   approval_groups: ApprovalGroupOption[];
 }
 
+export interface GeocodeResult {
+  display_name: string;
+  latitude: string;
+  longitude: string;
+}
+
 export interface ContactSettings {
   contact_notification_emails: string[];
   inquiry_topics: string[];
@@ -452,6 +458,13 @@ export interface LeaveRequest {
     id: number;
     full_name: string;
   } | null;
+}
+
+export interface PaginationMeta {
+  current_page: number;
+  per_page: number;
+  total_count: number;
+  total_pages: number;
 }
 
 export interface ClockLocationPayload {
@@ -827,9 +840,13 @@ export const api = {
       body: JSON.stringify({ note }),
     }),
 
-  getLeaveRequests: (status?: LeaveRequest['status']) => {
-    const query = status ? `?status=${encodeURIComponent(status)}` : '';
-    return fetchApi<{ leave_requests: LeaveRequest[] }>(`/api/v1/leave_requests${query}`);
+  getLeaveRequests: (status?: LeaveRequest['status'], page: number = 1, perPage: number = 25) => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    params.set('page', String(page));
+    params.set('per_page', String(perPage));
+    const query = params.toString();
+    return fetchApi<{ leave_requests: LeaveRequest[]; pagination: PaginationMeta }>(`/api/v1/leave_requests?${query}`);
   },
 
   createLeaveRequest: (payload: Pick<LeaveRequest, 'leave_type' | 'start_date' | 'end_date'> & { reason?: string }) =>
@@ -869,6 +886,12 @@ export const api = {
 
   getAdminAppSettings: () =>
     fetchApi<AdminAppSettingsResponse>('/api/v1/admin/settings'),
+
+  geocodeAdminClockLocation: (query: string) =>
+    fetchApi<{ results: GeocodeResult[] }>('/api/v1/admin/settings/geocode', {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    }),
 
   updateAdminAppSettings: (payload: { settings?: Partial<TimeClockAppSettings>; approval_groups?: ApprovalGroupOption[] }) =>
     fetchApi<AdminAppSettingsResponse>('/api/v1/admin/settings', {

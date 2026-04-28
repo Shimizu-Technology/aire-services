@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockStatus, type TimeCategory } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
@@ -97,7 +97,7 @@ export default function AireKiosk() {
   const kioskUnlocked = !isClerkEnabled || !!kioskAccessToken
   const canUnlockKiosk = !isClerkEnabled || userRole === 'admin'
 
-  const clearSession = () => {
+  const clearSession = useCallback(() => {
     setPin('')
     setEmployee(null)
     setKioskToken(null)
@@ -108,7 +108,16 @@ export default function AireKiosk() {
     setActionLoading(null)
     setError(null)
     setSuccess(null)
-  }
+  }, [])
+
+  const clearExpiredKioskAccessSession = useCallback(() => {
+    if (!kioskAccessSession) return
+    if (new Date(kioskAccessSession.expiresAt).getTime() > Date.now()) return
+
+    window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+    setKioskAccessSession(null)
+    clearSession()
+  }, [clearSession, kioskAccessSession])
 
   const bumpIdleTimer = () => {
     if (idleResetRef.current) clearTimeout(idleResetRef.current)
@@ -131,13 +140,18 @@ export default function AireKiosk() {
   }, [])
 
   useEffect(() => {
-    if (!kioskAccessSession) return
-    if (new Date(kioskAccessSession.expiresAt).getTime() > Date.now()) return
+    clearExpiredKioskAccessSession()
+  }, [clearExpiredKioskAccessSession, kioskAccessSession])
 
-    window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
-    setKioskAccessSession(null)
-    clearSession()
-  }, [kioskAccessSession])
+  useEffect(() => {
+    if (!kioskAccessSession) return
+
+    const interval = setInterval(() => {
+      clearExpiredKioskAccessSession()
+    }, 60_000)
+
+    return () => clearInterval(interval)
+  }, [clearExpiredKioskAccessSession, kioskAccessSession])
 
   useEffect(() => {
     if (!success) return

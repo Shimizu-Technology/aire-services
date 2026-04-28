@@ -148,7 +148,8 @@ module Api
             hours: @time_entry.hours.to_f,
             work_date: @time_entry.work_date.iso8601,
             description: @time_entry.description,
-            time_category_id: @time_entry.time_category_id
+            time_category_id: @time_entry.time_category_id,
+            overtime_status: @time_entry.overtime_status
           }
 
           changes = old_values.each_with_object({}) do |(key, old_val), hash|
@@ -585,10 +586,11 @@ module Api
       end
 
       def append_review_note(existing_note)
-        notes = existing_note.to_s.split(" | ").map(&:strip).reject(&:blank?)
         review_note = "Employee edited time entry — awaiting admin review"
-        notes << review_note unless notes.include?(review_note)
-        notes.join(" | ")
+        return review_note if existing_note.blank?
+        return existing_note if existing_note.include?(review_note)
+
+        "#{existing_note}\n\n#{review_note}"
       end
     end
   end

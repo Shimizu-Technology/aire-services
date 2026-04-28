@@ -9,6 +9,7 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   getAdminContactSettings: vi.fn(),
   updateAdminContactSettings: vi.fn(),
+  geocodeAdminClockLocation: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -17,6 +18,7 @@ vi.mock('../../lib/api', () => ({
     getAdminAppSettings: apiMock.getAdminAppSettings,
     getAdminContactSettings: apiMock.getAdminContactSettings,
     updateAdminContactSettings: apiMock.updateAdminContactSettings,
+    geocodeAdminClockLocation: apiMock.geocodeAdminClockLocation,
   },
 }))
 
@@ -30,6 +32,7 @@ describe('Admin Settings contact settings', () => {
     apiMock.getAdminAppSettings.mockReset()
     apiMock.getAdminContactSettings.mockReset()
     apiMock.updateAdminContactSettings.mockReset()
+    apiMock.geocodeAdminClockLocation.mockReset()
 
     apiMock.getAdminTimeCategories.mockResolvedValue({
       data: { time_categories: [] },
@@ -65,6 +68,17 @@ describe('Admin Settings contact settings', () => {
         message: 'Contact inquiry settings updated',
       },
     })
+    apiMock.geocodeAdminClockLocation.mockResolvedValue({
+      data: {
+        results: [
+          {
+            display_name: 'AIRE Services Guam, Barrigada, Guam',
+            latitude: '13.469130',
+            longitude: '144.799010',
+          },
+        ],
+      },
+    })
   })
 
   it('loads and updates contact settings', async () => {
@@ -91,5 +105,23 @@ describe('Admin Settings contact settings', () => {
     })
 
     expect(await screen.findByText('Contact inquiry settings updated')).toBeInTheDocument()
+  })
+
+  it('can search by address and apply a geocoding result', async () => {
+    render(<Settings />)
+
+    fireEvent.change(await screen.findByPlaceholderText('1780 Admiral Sherman Boulevard, Barrigada, Guam'), {
+      target: { value: 'AIRE Guam' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Find address' }))
+
+    expect(await screen.findByText('AIRE Services Guam, Barrigada, Guam')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AIRE Services Guam, Barrigada, Guam' }))
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('13.469130')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('144.799010')).toBeInTheDocument()
+    })
   })
 })

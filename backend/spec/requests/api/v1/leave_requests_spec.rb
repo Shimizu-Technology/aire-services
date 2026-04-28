@@ -52,6 +52,21 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(response).to have_http_status(:ok)
       expect(json[:leave_requests].map { |request| request.dig(:user, :id) }).to include(employee.id, other_employee.id)
     end
+
+    it "paginates the admin index" do
+      create_list(:leave_request, 30, user: employee)
+
+      get "/api/v1/leave_requests",
+          params: { page: 2, per_page: 10 },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:leave_requests].length).to eq(10)
+      expect(json.dig(:pagination, :current_page)).to eq(2)
+      expect(json.dig(:pagination, :per_page)).to eq(10)
+      expect(json.dig(:pagination, :total_count)).to eq(32)
+      expect(json.dig(:pagination, :total_pages)).to eq(4)
+    end
   end
 
   describe "POST /api/v1/leave_requests/:id/approve" do

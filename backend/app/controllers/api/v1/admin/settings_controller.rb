@@ -26,6 +26,19 @@ module Api
           }
         end
 
+        def geocode
+          query = params[:query].to_s.strip
+          return render json: { error: "query is required" }, status: :unprocessable_entity if query.blank?
+
+          results = AddressGeocodingService.search(query: query)
+
+          render json: {
+            results: results
+          }
+        rescue AddressGeocodingService::GeocodingError => e
+          render json: { error: e.message }, status: :unprocessable_entity
+        end
+
         def update
           payload = settings_update_params
           approval_groups_payload = approval_groups_update_params

@@ -12,9 +12,23 @@ module Api
         requests = current_user.admin? ? LeaveRequest.all : current_user.leave_requests
         requests = requests.includes(:user, :reviewed_by)
         requests = requests.where(status: params[:status]) if params[:status].present?
+        requests = requests.recent
+
+        page = [ params[:page].to_i, 1 ].max
+        per_page = params[:per_page].to_i
+        per_page = 25 if per_page <= 0
+        per_page = [ per_page, 100 ].min
+        total_count = requests.count
+        paged_requests = requests.offset((page - 1) * per_page).limit(per_page)
 
         render json: {
-          leave_requests: requests.recent.map { |request| serialize_leave_request(request) }
+          leave_requests: paged_requests.map { |request| serialize_leave_request(request) },
+          pagination: {
+            current_page: page,
+            per_page: per_page,
+            total_count: total_count,
+            total_pages: [ (total_count.to_f / per_page).ceil, 1 ].max
+          }
         }
       end
 
