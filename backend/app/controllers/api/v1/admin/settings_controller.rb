@@ -166,7 +166,7 @@ module Api
           labels = in_use_keys.map do |key|
             current_groups.find { |group| group["key"] == key }&.fetch("label", nil) || key.to_s.humanize
           end
-          "Reassign users before removing approval groups currently in use: #{labels.join(', ')}"
+          "Reassign users before removing departments currently in use: #{labels.join(', ')}"
         rescue ArgumentError => e
           e.message
         end

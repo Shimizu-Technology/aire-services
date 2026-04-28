@@ -159,6 +159,7 @@ export interface AdminUser {
   display_name: string;
   full_name: string;
   role: 'admin' | 'employee';
+  staff_title: string | null;
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string;
   is_active: boolean;
@@ -646,6 +647,7 @@ export const api = {
     email?: string;
     first_name?: string;
     last_name?: string;
+    staff_title?: string | null;
     role: 'admin' | 'employee';
     approval_group?: ApprovalGroup | null;
     send_invitation?: boolean;
@@ -667,6 +669,7 @@ export const api = {
     last_name?: string;
     email?: string | null;
     role?: 'admin' | 'employee';
+    staff_title?: string | null;
     approval_group?: ApprovalGroup | null;
     is_active?: boolean;
     public_team_enabled?: boolean;

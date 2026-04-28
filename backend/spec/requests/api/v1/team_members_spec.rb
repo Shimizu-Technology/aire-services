@@ -46,5 +46,27 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
       )
       expect(json[:team_members]).not_to include(include(name: hidden_user.full_name))
     end
+
+    it "falls back to staff title when no public title override is set" do
+      create(
+        :user,
+        :employee,
+        first_name: "Nadia",
+        last_name: "Petrovic",
+        staff_title: "Chief Flight Instructor",
+        public_team_enabled: true,
+        public_team_title: nil
+      )
+
+      get "/api/v1/team_members"
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:team_members]).to include(
+        {
+          name: "Nadia Petrovic",
+          title: "Chief Flight Instructor"
+        }
+      )
+    end
   end
 end

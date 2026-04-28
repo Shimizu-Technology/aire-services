@@ -68,7 +68,8 @@ class AddressGeocodingService
     end
 
     def geocoding_user_agent
-      "AIRE Ops/1.0 (admin-geofence-setup)"
+      contact_email = Setting.contact_notification_emails.first.presence || "admin@aireservicesguam.com"
+      "AIRE Ops/1.0 (admin-geofence-setup; contact: #{contact_email})"
     end
   end
 end

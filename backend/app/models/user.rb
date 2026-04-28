@@ -118,8 +118,12 @@ class User < ApplicationRecord
     public_team_name.presence || profile_name
   end
 
+  def staff_title_text
+    staff_title.to_s.strip.presence
+  end
+
   def public_team_title_text
-    public_team_title.to_s.strip.presence
+    public_team_title.to_s.strip.presence || staff_title_text
   end
 
   def uses_clerk_profile?
@@ -213,7 +217,7 @@ class User < ApplicationRecord
   def public_team_profile_is_complete
     return unless public_team_enabled?
 
-    errors.add(:public_team_title, "is required when showing this user on the Team page") if public_team_title_text.blank?
+    errors.add(:public_team_title, "or staff title is required when showing this user on the Team page") if public_team_title_text.blank?
 
     return if public_team_display_name.present?
 

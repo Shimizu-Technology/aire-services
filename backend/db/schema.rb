@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_27_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_28_121000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -205,6 +205,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_27_010000) do
     t.integer "public_team_sort_order", default: 0, null: false
     t.string "public_team_title"
     t.string "role", default: "employee"
+    t.string "staff_title"
     t.datetime "updated_at", null: false
     t.index ["approval_group"], name: "index_users_on_approval_group"
     t.index ["clerk_id"], name: "index_users_on_clerk_id", unique: true

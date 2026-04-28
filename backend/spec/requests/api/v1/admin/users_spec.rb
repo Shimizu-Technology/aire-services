@@ -21,6 +21,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
              first_name: "Cfi",
              last_name: "Pilot",
              email: "cfi@example.com",
+             staff_title: "Certified Flight Instructor",
              role: "employee",
              approval_group: "cfi",
              send_invitation: false
@@ -28,6 +29,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
            headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:created)
+      expect(json.dig(:user, :staff_title)).to eq("Certified Flight Instructor")
       expect(json.dig(:user, :approval_group)).to eq("cfi")
       expect(json.dig(:user, :approval_group_label)).to eq("CFI")
     end
@@ -61,7 +63,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
            headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/Approval group/)
+      expect(json[:error]).to match(/Department/)
     end
   end
 
@@ -128,22 +130,24 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
     it "updates public Team page profile fields" do
       patch "/api/v1/admin/users/#{employee.id}",
             params: {
+              staff_title: "Certified Flight Instructor",
               public_team_enabled: true,
               public_team_name: "Captain Test",
-              public_team_title: "Certified Flight Instructor",
               public_team_sort_order: 2
             },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:ok)
+      expect(json.dig(:user, :staff_title)).to eq("Certified Flight Instructor")
       expect(json.dig(:user, :public_team_enabled)).to eq(true)
       expect(json.dig(:user, :public_team_name)).to eq("Captain Test")
-      expect(json.dig(:user, :public_team_title)).to eq("Certified Flight Instructor")
+      expect(json.dig(:user, :public_team_title)).to be_nil
       expect(json.dig(:user, :public_team_sort_order)).to eq(2)
       expect(employee.reload).to have_attributes(
+        staff_title: "Certified Flight Instructor",
         public_team_enabled: true,
         public_team_name: "Captain Test",
-        public_team_title: "Certified Flight Instructor",
+        public_team_title: nil,
         public_team_sort_order: 2
       )
     end
@@ -175,12 +179,30 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       patch "/api/v1/admin/users/#{employee.id}",
             params: {
               public_team_enabled: true,
-              public_team_title: ""
+              public_team_title: "",
+              staff_title: ""
             },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/public team title/i)
+      expect(json[:error]).to match(/public team title or staff title/i)
+    end
+
+    it "allows a staff title to satisfy public Team page requirements" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              public_team_enabled: true,
+              public_team_title: "",
+              staff_title: "Lead CFI"
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(employee.reload).to have_attributes(
+        public_team_enabled: true,
+        public_team_title: nil,
+        staff_title: "Lead CFI"
+      )
     end
 
     it "updates kiosk-only profile fields and assigned categories together" do

@@ -351,26 +351,26 @@ export default function Settings() {
       .filter((group) => group.key || group.label)
 
     if (normalizedGroups.length === 0) {
-      setApprovalGroupsError('At least one approval group is required.')
+      setApprovalGroupsError('At least one department is required.')
       setApprovalGroupsMessage('')
       return
     }
 
     if (normalizedGroups.some((group) => !group.label)) {
-      setApprovalGroupsError('Each approval group needs a label.')
+      setApprovalGroupsError('Each department needs a label.')
       setApprovalGroupsMessage('')
       return
     }
 
     const normalizedKeys = normalizedGroups.map((group) => normalizeApprovalGroupKey(group.key || group.label))
     if (normalizedKeys.some((key) => !key)) {
-      setApprovalGroupsError('Approval group keys may only contain letters, numbers, and underscores.')
+      setApprovalGroupsError('Department keys may only contain letters, numbers, and underscores.')
       setApprovalGroupsMessage('')
       return
     }
 
     if (new Set(normalizedKeys).size !== normalizedKeys.length) {
-      setApprovalGroupsError('Approval group keys must be unique.')
+      setApprovalGroupsError('Department keys must be unique.')
       setApprovalGroupsMessage('')
       return
     }
@@ -383,7 +383,7 @@ export default function Settings() {
         approval_groups: normalizedGroups,
       })
       if (res.error || !res.data) {
-        setApprovalGroupsError(res.error || 'Failed to save approval groups')
+        setApprovalGroupsError(res.error || 'Failed to save departments')
         return
       }
 
@@ -393,7 +393,7 @@ export default function Settings() {
           ? res.data.approval_groups
           : [{ key: '', label: '' }]
       )
-      setApprovalGroupsMessage('Approval routing groups saved.')
+      setApprovalGroupsMessage('Departments saved.')
     } finally {
       setSavingApprovalGroups(false)
     }
@@ -479,7 +479,7 @@ export default function Settings() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Manage approval routing, work categories, overtime rules, and public contact settings.
+            Manage departments, work categories, overtime rules, and public contact settings.
           </p>
         </div>
       </FadeUp>
@@ -730,9 +730,9 @@ export default function Settings() {
           <FadeUp delay={0.08}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
-                <h2 className="text-lg font-semibold text-slate-900">Approval routing groups</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Departments</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Configure the review groups used on Users and pending approvals. Labels are what admins see; keys stay stable for routing.
+                  Configure the departments used on Users and pending approvals. Labels are what admins see; keys stay stable for routing.
                 </p>
               </div>
               <form onSubmit={handleSaveApprovalGroups} className="space-y-5 px-5 py-5">
@@ -780,14 +780,14 @@ export default function Settings() {
                   <div>
                     {approvalGroups.length > 0
                       ? `Currently configured: ${approvalGroups.map((group) => `${group.label} (${group.key})`).join(', ')}.`
-                      : 'Approval groups load with the internal admin settings.'}
+                      : 'Departments load with the internal admin settings.'}
                   </div>
                   <button
                     type="button"
                     onClick={addApprovalGroupDraft}
                     className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
                   >
-                    Add approval group
+                    Add department
                   </button>
                 </div>
                 <p className="text-xs text-slate-500">
@@ -799,7 +799,7 @@ export default function Settings() {
                     disabled={savingApprovalGroups}
                     className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
                   >
-                    {savingApprovalGroups ? 'Saving…' : 'Save approval groups'}
+                    {savingApprovalGroups ? 'Saving…' : 'Save departments'}
                   </button>
                 </div>
               </form>

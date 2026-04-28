@@ -84,7 +84,7 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/Reassign users before removing approval groups/i)
+      expect(json[:error]).to match(/Reassign users before removing departments/i)
     end
 
     it "rejects invalid thresholds" do
