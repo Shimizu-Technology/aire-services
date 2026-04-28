@@ -12,7 +12,7 @@ class LeaveRequest < ApplicationRecord
   validates :start_date, presence: true
   validates :end_date, presence: true
   validate :end_date_on_or_after_start_date
-  validate :does_not_overlap_active_request
+  validate :does_not_overlap_active_request, if: :requires_overlap_validation?
 
   scope :pending_review, -> { where(status: "pending") }
   scope :recent, -> { order(start_date: :desc, created_at: :desc) }
@@ -36,6 +36,16 @@ class LeaveRequest < ApplicationRecord
   end
 
   private
+
+  def requires_overlap_validation?
+    return false if user_id.blank? || start_date.blank? || end_date.blank?
+    return false unless status.in?(%w[pending approved])
+
+    return true if new_record?
+    return true if will_save_change_to_user_id? || will_save_change_to_start_date? || will_save_change_to_end_date?
+
+    !status_in_database.in?(%w[pending approved])
+  end
 
   def end_date_on_or_after_start_date
     return if start_date.blank? || end_date.blank?

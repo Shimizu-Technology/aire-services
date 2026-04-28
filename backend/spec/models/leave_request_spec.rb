@@ -26,5 +26,20 @@ RSpec.describe LeaveRequest, type: :model do
       expect(request).not_to be_valid
       expect(request.errors[:base]).to include("overlaps with another pending or approved leave request")
     end
+
+    it "skips overlap locking for status-only updates that stay within active statuses" do
+      employee = create(:user, :employee)
+      request = create(
+        :leave_request,
+        user: employee,
+        status: "pending",
+        start_date: Date.new(2026, 5, 20),
+        end_date: Date.new(2026, 5, 22)
+      )
+
+      expect(employee).not_to receive(:with_lock)
+
+      request.update!(status: "approved")
+    end
   end
 end
