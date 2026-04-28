@@ -269,6 +269,7 @@ export default function Settings() {
 
     setGeocodeLoading(true)
     setGeocodeError('')
+    setGeocodeResults([])
     const result = await api.geocodeAdminClockLocation(query)
     if (result.error || !result.data) {
       setGeocodeError(result.error || 'Address lookup failed.')

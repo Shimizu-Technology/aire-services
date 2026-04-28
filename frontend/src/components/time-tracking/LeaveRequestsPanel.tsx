@@ -77,6 +77,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
         return
       }
 
+      setError(null)
       setRequests(result.data.leave_requests)
       setPagination(result.data.pagination)
       setLoading(false)
