@@ -177,5 +177,22 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
 
       expect(response).to have_http_status(:not_found)
     end
+
+    it "rejects cancel after the request is no longer pending" do
+      post "/api/v1/leave_requests/#{request_record.id}/approve",
+           params: { review_note: "Approved first" },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+
+      post "/api/v1/leave_requests/#{request_record.id}/cancel", headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:forbidden)
+      expect(json[:error]).to match(/Only the request owner can cancel a pending leave request/i)
+
+      request_record.reload
+      expect(request_record.status).to eq("approved")
+      expect(request_record.review_note).to eq("Approved first")
+    end
   end
 end

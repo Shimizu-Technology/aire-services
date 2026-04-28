@@ -68,19 +68,31 @@ module Api
       end
 
       def cancel
-        unless @leave_request.cancelable_by?(current_user)
-          return render json: { error: "Only the request owner can cancel a pending leave request" }, status: :forbidden
+        cancel_result = nil
+        cancel_error = nil
+
+        @leave_request.with_lock do
+          unless @leave_request.cancelable_by?(current_user)
+            cancel_error = "Only the request owner can cancel a pending leave request"
+            next
+          end
+
+          @leave_request.update!(status: "cancelled", reviewed_by: nil, reviewed_at: nil, review_note: nil)
+          cancel_result = @leave_request.reload
         end
 
-        @leave_request.update!(status: "cancelled", reviewed_by: nil, reviewed_at: nil, review_note: nil)
+        if cancel_error
+          return render json: { error: cancel_error }, status: :forbidden
+        end
+
         AuditLog.log(
-          auditable: @leave_request,
+          auditable: cancel_result,
           action: "updated",
           user: current_user,
           metadata: "leave_request_status=cancelled"
         )
 
-        render json: { leave_request: serialize_leave_request(@leave_request.reload) }
+        render json: { leave_request: serialize_leave_request(cancel_result) }
       end
 
       private
