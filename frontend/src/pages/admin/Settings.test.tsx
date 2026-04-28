@@ -110,7 +110,7 @@ describe('Admin Settings contact settings', () => {
   it('can search by address and apply a geocoding result', async () => {
     render(<Settings />)
 
-    fireEvent.change(await screen.findByPlaceholderText('1780 Admiral Sherman Boulevard, Barrigada, Guam'), {
+    fireEvent.change(await screen.findByPlaceholderText('1780 Admiral Sherman Boulevard, Tiyan, 96913, Guam'), {
       target: { value: 'AIRE Guam' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Find address' }))

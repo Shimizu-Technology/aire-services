@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { SignInButton } from '@clerk/clerk-react'
 import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockStatus, type TimeCategory } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
 
@@ -96,6 +97,7 @@ export default function AireKiosk() {
   const kioskAccessToken = !isClerkEnabled ? null : kioskAccessSession?.token ?? null
   const kioskUnlocked = !isClerkEnabled || !!kioskAccessToken
   const canUnlockKiosk = !isClerkEnabled || userRole === 'admin'
+  const canViewKiosk = !isClerkEnabled || userRole === 'admin' || kioskUnlocked
 
   const clearSession = useCallback(() => {
     setPin('')
@@ -342,6 +344,62 @@ export default function AireKiosk() {
     { action: 'start_break', enabled: canStartBreak, className: 'bg-indigo-400 text-indigo-950 hover:bg-indigo-300' },
     { action: 'end_break', enabled: canEndBreak, className: 'bg-fuchsia-400 text-fuchsia-950 hover:bg-fuchsia-300' },
   ]
+
+  if (!canViewKiosk) {
+    return (
+      <div className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6">
+        <div className="mx-auto max-w-3xl">
+          <div className="flex items-center justify-end gap-4 text-xs">
+            <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
+          </div>
+          <section className="mt-12 rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center shadow-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white md:text-4xl">
+              Admin launch required
+            </h1>
+            <p className="mx-auto mt-4 max-w-2xl text-sm text-slate-300 md:text-base">
+              This shared kiosk should only be opened by an admin on the device that staff will use.
+              Once an admin unlocks it here, employees can enter their PIN until the kiosk is locked again or the unlock session expires.
+            </p>
+            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              {!isClerkEnabled ? (
+                <Link
+                  to="/admin"
+                  className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+                >
+                  Open admin workspace
+                </Link>
+              ) : !isSignedIn ? (
+                <SignInButton mode="modal" forceRedirectUrl="/kiosk" fallbackRedirectUrl="/kiosk">
+                  <button className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+                    Admin sign in to open kiosk
+                  </button>
+                </SignInButton>
+              ) : (
+                <>
+                  <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                    You are signed in, but only admins can open this kiosk. Ask an admin to unlock it, or sign out and use an admin account.
+                  </div>
+                  <Link
+                    to="/admin"
+                    className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+                  >
+                    Back to admin workspace
+                  </Link>
+                </>
+              )}
+              <Link
+                to="/"
+                className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10"
+              >
+                Back to site
+              </Link>
+            </div>
+          </section>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">

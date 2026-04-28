@@ -806,22 +806,6 @@ export default function TimeTracking() {
       </div>
       </FadeUp>
 
-      {/* Clock In/Out Card - full width, horizontal on desktop */}
-      <ClockInOutCard onStatusChange={() => loadEntries()} />
-
-      {/* Admin Panels */}
-      {isAdmin && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ApprovalQueue
-            approvalGroups={approvalGroups}
-            approvalGroupsLoaded={approvalGroupsLoaded}
-            onUpdate={() => loadEntries()}
-            canDeleteEntry={canDeleteEntry}
-          />
-          <WhosWorking />
-        </div>
-      )}
-      
       {/* Tab Navigation */}
       <div className="border-b border-neutral-warm">
         <nav className="flex gap-4">
@@ -862,6 +846,26 @@ export default function TimeTracking() {
           </button>
         </nav>
       </div>
+
+      {activeTab !== 'leave' && (
+        <>
+          {/* Clock In/Out Card - full width, horizontal on desktop */}
+          <ClockInOutCard onStatusChange={() => loadEntries()} />
+
+          {/* Admin Panels */}
+          {isAdmin && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <ApprovalQueue
+                approvalGroups={approvalGroups}
+                approvalGroupsLoaded={approvalGroupsLoaded}
+                onUpdate={() => loadEntries()}
+                canDeleteEntry={canDeleteEntry}
+              />
+              <WhosWorking />
+            </div>
+          )}
+        </>
+      )}
 
       {/* Entries Tab */}
       {activeTab === 'entries' && (

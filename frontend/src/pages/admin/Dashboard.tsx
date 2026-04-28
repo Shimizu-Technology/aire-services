@@ -13,6 +13,11 @@ const actionLinks = [
     href: '/admin/time',
   },
   {
+    title: 'Leave Requests',
+    description: 'Submit your own time off and review employee leave requests.',
+    href: '/admin/time?tab=leave',
+  },
+  {
     title: 'Reports',
     description: 'Inspect payroll summaries, exports, and category totals.',
     href: '/admin/time?tab=reports',
@@ -172,6 +177,18 @@ function EmployeeDashboard() {
           <div>
             <h3 className="text-sm font-semibold text-slate-900">My Time Entries</h3>
             <p className="mt-0.5 text-xs text-slate-500">View and manage your logged hours.</p>
+          </div>
+          <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </Link>
+        <Link
+          to="/admin/time?tab=leave"
+          className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm transition hover:bg-slate-50"
+        >
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Request Leave</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Submit and track your time-off requests.</p>
           </div>
           <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
