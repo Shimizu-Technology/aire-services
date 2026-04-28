@@ -217,6 +217,20 @@ export default function Settings() {
     else refreshCategories()
   }
 
+  const handleDeleteCategory = async (cat: AdminTimeCategory) => {
+    const hasUsage = cat.time_entries_count > 0 || (cat.employee_pay_rates_count ?? 0) > 0
+    if (hasUsage) {
+      alert('This category already has saved time history or pay-rate data, so it cannot be permanently deleted. Deactivate it instead.')
+      return
+    }
+
+    if (!confirm(`Permanently delete "${cat.name}"? This cannot be undone.`)) return
+
+    const res = await api.deleteTimeCategory(cat.id)
+    if (res.error) alert(res.error)
+    else refreshCategories()
+  }
+
   const handleSaveThresholds = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!clockSettings) return
@@ -925,7 +939,7 @@ export default function Settings() {
                       <tr>
                         <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Name</th>
                         <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Key</th>
-                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Entries</th>
+                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Usage</th>
                         <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</th>
                         <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Actions</th>
                       </tr>
@@ -938,7 +952,14 @@ export default function Settings() {
                             {cat.description && <div className="mt-1 max-w-md text-xs text-slate-500">{cat.description}</div>}
                           </td>
                           <td className="px-5 py-4 font-mono text-xs">{cat.key ?? '—'}</td>
-                          <td className="px-5 py-4 text-sm">{cat.time_entries_count}</td>
+                          <td className="px-5 py-4 text-sm">
+                            <div>{cat.time_entries_count} entr{cat.time_entries_count === 1 ? 'y' : 'ies'}</div>
+                            {(cat.employee_pay_rates_count ?? 0) > 0 && (
+                              <div className="mt-1 text-xs text-slate-500">
+                                {cat.employee_pay_rates_count} pay rate{cat.employee_pay_rates_count === 1 ? '' : 's'}
+                              </div>
+                            )}
+                          </td>
                           <td className="px-5 py-4">
                             {cat.is_active ? (
                               <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
@@ -956,9 +977,15 @@ export default function Settings() {
                                 Edit
                               </button>
                               {cat.is_active ? (
-                                <button type="button" onClick={() => handleDeactivateCategory(cat)} className="text-slate-600 hover:text-slate-900">
-                                  Deactivate
-                                </button>
+                                cat.deletable ? (
+                                  <button type="button" onClick={() => handleDeleteCategory(cat)} className="text-rose-700 hover:text-rose-900">
+                                    Delete
+                                  </button>
+                                ) : (
+                                  <button type="button" onClick={() => handleDeactivateCategory(cat)} className="text-slate-600 hover:text-slate-900">
+                                    Deactivate
+                                  </button>
+                                )
                               ) : (
                                 <button type="button" onClick={() => handleReactivateCategory(cat)} className="text-cyan-700 hover:text-cyan-900">
                                   Reactivate

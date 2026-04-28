@@ -4,6 +4,7 @@ class TimeCategory < ApplicationRecord
   has_many :time_entries, dependent: :nullify
   has_many :user_time_categories, dependent: :destroy
   has_many :assigned_users, through: :user_time_categories, source: :user
+  has_many :employee_pay_rates, dependent: :restrict_with_error
 
   validates :name, presence: true
   validates :key, uniqueness: true, allow_nil: true
@@ -15,5 +16,17 @@ class TimeCategory < ApplicationRecord
     return nil if hourly_rate_cents.blank?
 
     (hourly_rate_cents.to_f / 100).round(2)
+  end
+
+  def deletable?
+    time_entries_count.zero? && employee_pay_rates_count.zero?
+  end
+
+  def time_entries_count
+    @time_entries_count ||= time_entries.count
+  end
+
+  def employee_pay_rates_count
+    @employee_pay_rates_count ||= employee_pay_rates.count
   end
 end
