@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { LeaveRequest, PaginationMeta } from '../../lib/api'
 
@@ -46,6 +46,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [reviewNotes, setReviewNotes] = useState<Record<number, string>>({})
+  const latestLoadRequestId = useRef(0)
   const [formData, setFormData] = useState({
     leave_type: 'paid_time_off' as LeaveRequest['leave_type'],
     start_date: '',
@@ -53,12 +54,16 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     reason: '',
   })
 
-  const loadRequests = useCallback(async (targetPage: number, targetReviewedPage: number = reviewedPage) => {
+  const loadRequests = useCallback(async (targetPage: number, targetReviewedPage: number) => {
+    const requestId = ++latestLoadRequestId.current
+
     if (isAdmin) {
       const [pendingResult, reviewedResult] = await Promise.all([
         api.getLeaveRequests('pending', targetPage),
         api.getLeaveRequests('reviewed', targetReviewedPage),
       ])
+
+      if (requestId !== latestLoadRequestId.current) return false
 
       if (pendingResult.error || !pendingResult.data || reviewedResult.error || !reviewedResult.data) {
         setError(pendingResult.error || reviewedResult.error || 'Failed to load leave requests.')
@@ -77,6 +82,8 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     }
 
     const result = await api.getLeaveRequests(undefined, targetPage)
+    if (requestId !== latestLoadRequestId.current) return false
+
     if (result.error || !result.data) {
       setError(result.error || 'Failed to load leave requests.')
       setLoading(false)
@@ -91,59 +98,18 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     setReviewedPagination(null)
     setLoading(false)
     return true
-  }, [isAdmin, reviewedPage])
+  }, [isAdmin])
 
   useEffect(() => {
-    let cancelled = false
-
-    const run = async () => {
-      if (isAdmin) {
-        const [pendingResult, reviewedResult] = await Promise.all([
-          api.getLeaveRequests('pending', page),
-          api.getLeaveRequests('reviewed', reviewedPage),
-        ])
-        if (cancelled) return
-
-        if (pendingResult.error || !pendingResult.data || reviewedResult.error || !reviewedResult.data) {
-          setError(pendingResult.error || reviewedResult.error || 'Failed to load leave requests.')
-          setLoading(false)
-          return
-        }
-
-        setError(null)
-        setRequests(pendingResult.data.leave_requests)
-        setPagination(pendingResult.data.pagination)
-        setPendingPagination(pendingResult.data.pagination)
-        setReviewedRequests(reviewedResult.data.leave_requests)
-        setReviewedPagination(reviewedResult.data.pagination)
-        setLoading(false)
-        return
-      }
-
-      const result = await api.getLeaveRequests(undefined, page)
-      if (cancelled) return
-
-      if (result.error || !result.data) {
-        setError(result.error || 'Failed to load leave requests.')
-        setLoading(false)
-        return
-      }
-
-      setError(null)
-      setRequests(result.data.leave_requests)
-      setPagination(result.data.pagination)
-      setPendingPagination(null)
-      setReviewedRequests([])
-      setReviewedPagination(null)
-      setLoading(false)
-    }
-
-    void run()
+    const timeoutId = window.setTimeout(() => {
+      void loadRequests(page, reviewedPage)
+    }, 0)
 
     return () => {
-      cancelled = true
+      window.clearTimeout(timeoutId)
+      latestLoadRequestId.current += 1
     }
-  }, [isAdmin, page, reviewedPage])
+  }, [loadRequests, page, reviewedPage])
 
   const historyRequests = useMemo(
     () => (isAdmin ? reviewedRequests : requests.filter((request) => request.status !== 'pending')),
