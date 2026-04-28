@@ -96,5 +96,17 @@ RSpec.describe AddressGeocodingService do
         }
       ])
     end
+
+    it "only consumes one rate-limit slot when fallback variants are needed" do
+      empty_response = double("empty_response", body: "[]")
+      matched_response = double("matched_response", body: '[{"display_name":"Aire Services, LLC, Barrigada, Guam","lat":"13.493135","lon":"144.821518"}]')
+
+      allow(empty_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+      allow(matched_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+      expect(described_class).to receive(:enforce_rate_limit!).once
+      allow(described_class).to receive(:perform_request).and_return(empty_response, matched_response)
+
+      described_class.search(query: "1780 Admiral Sherman Boulevard, Tiyan, 96913, Guam")
+    end
   end
 end

@@ -19,10 +19,14 @@ class AddressGeocodingService
 
       normalized_query = query.to_s.strip
       normalized_limit = limit.to_i.clamp(1, 10)
+      rate_limit_reserved = false
 
       build_query_variants(normalized_query).each do |candidate_query|
         results = Rails.cache.fetch(cache_key(candidate_query, normalized_limit), expires_in: CACHE_TTL) do
-          enforce_rate_limit!
+          unless rate_limit_reserved
+            enforce_rate_limit!
+            rate_limit_reserved = true
+          end
           perform_search(candidate_query, normalized_limit)
         end
 

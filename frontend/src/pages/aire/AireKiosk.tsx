@@ -362,19 +362,31 @@ export default function AireKiosk() {
               Once an admin unlocks it here, employees can enter their PIN until the kiosk is locked again or the unlock session expires.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              {isClerkEnabled ? (
-                <SignInButton mode="modal" forceRedirectUrl="/kiosk" fallbackRedirectUrl="/kiosk">
-                  <button className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
-                    Admin sign in to open kiosk
-                  </button>
-                </SignInButton>
-              ) : (
+              {!isClerkEnabled ? (
                 <Link
                   to="/admin"
                   className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
                 >
                   Open admin workspace
                 </Link>
+              ) : !isSignedIn ? (
+                <SignInButton mode="modal" forceRedirectUrl="/kiosk" fallbackRedirectUrl="/kiosk">
+                  <button className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+                    Admin sign in to open kiosk
+                  </button>
+                </SignInButton>
+              ) : (
+                <>
+                  <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                    You are signed in, but only admins can open this kiosk. Ask an admin to unlock it, or sign out and use an admin account.
+                  </div>
+                  <Link
+                    to="/admin"
+                    className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+                  >
+                    Back to admin workspace
+                  </Link>
+                </>
               )}
               <Link
                 to="/"
