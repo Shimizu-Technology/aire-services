@@ -233,8 +233,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         await fetchStatus()
         onStatusChange?.()
       }
-    } catch {
-      setError('Action failed. Please try again.')
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Action failed. Please try again.')
       await fetchStatus()
     } finally {
       setActionLoading(false)
@@ -268,8 +268,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         await fetchStatus()
         onStatusChange?.()
       }
-    } catch {
-      setError('Action failed. Please try again.')
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Action failed. Please try again.')
       await fetchStatus()
     } finally {
       setActionLoading(false)
