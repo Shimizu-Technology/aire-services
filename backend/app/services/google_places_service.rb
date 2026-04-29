@@ -57,7 +57,7 @@ class GooglePlacesService
         "suggestions.placePrediction.text",
         "suggestions.placePrediction.structuredFormat"
       ].join(","))
-      payload = JSON.parse(response.body)
+      payload = parse_success_response(response.body)
       suggestions = payload.fetch("suggestions", [])
       raise PlacesError, "Unexpected places autocomplete response" unless suggestions.is_a?(Array)
 
@@ -78,7 +78,7 @@ class GooglePlacesService
       uri = URI("#{BASE_URL}/places/#{URI.encode_www_form_component(place_id)}")
       uri.query = URI.encode_www_form(sessionToken: session_token)
       response = perform_request(uri, method: :get, field_mask: "id,displayName,formattedAddress,location,plusCode")
-      payload = JSON.parse(response.body)
+      payload = parse_success_response(response.body)
       location = payload["location"]
       raise PlacesError, "Selected place did not include coordinates" unless location.is_a?(Hash)
 
@@ -126,6 +126,15 @@ class GooglePlacesService
 
     def details_cache_key(place_id)
       "google_places:details:v1:#{Digest::SHA256.hexdigest(place_id)}"
+    end
+
+    def parse_success_response(body)
+      payload = JSON.parse(body)
+      raise PlacesError, "Unexpected Google Places response" unless payload.is_a?(Hash)
+
+      payload
+    rescue JSON::ParserError => e
+      raise PlacesError, "Google Places response could not be parsed: #{e.message}"
     end
 
     def parse_error_message(body)

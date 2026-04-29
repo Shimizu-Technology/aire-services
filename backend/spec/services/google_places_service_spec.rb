@@ -60,6 +60,22 @@ RSpec.describe GooglePlacesService do
         "includedRegionCodes" => [ "gu" ]
       )
     end
+
+    it "wraps malformed success responses in a places error" do
+      http = instance_double(Net::HTTP)
+      response = double("response", body: "not-json")
+
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_return(response)
+      allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+
+      expect do
+        described_class.autocomplete(query: "AIRE", session_token: "session-123")
+      end.to raise_error(GooglePlacesService::PlacesError, /could not be parsed/i)
+    end
   end
 
   describe ".details" do
@@ -108,6 +124,22 @@ RSpec.describe GooglePlacesService do
       )
       expect(captured_request.path).to include("sessionToken=session-123")
       expect(captured_request["X-Goog-FieldMask"]).to eq("id,displayName,formattedAddress,location,plusCode")
+    end
+
+    it "wraps malformed success responses in a places error" do
+      http = instance_double(Net::HTTP)
+      response = double("response", body: "not-json")
+
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:use_ssl=)
+      allow(http).to receive(:open_timeout=)
+      allow(http).to receive(:read_timeout=)
+      allow(http).to receive(:request).and_return(response)
+      allow(response).to receive(:is_a?).with(Net::HTTPSuccess).and_return(true)
+
+      expect do
+        described_class.details(place_id: "places/aire", session_token: "session-123")
+      end.to raise_error(GooglePlacesService::PlacesError, /could not be parsed/i)
     end
   end
 
