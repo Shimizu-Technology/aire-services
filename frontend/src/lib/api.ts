@@ -197,6 +197,8 @@ export interface TimeCategory {
 export interface AdminTimeCategory extends TimeCategory {
   is_active: boolean;
   time_entries_count: number;
+  employee_pay_rates_count?: number;
+  deletable?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -10,7 +10,7 @@ module Api
 
         # GET /api/v1/admin/time_categories
         def index
-          @categories = TimeCategory.order(:name)
+          @categories = TimeCategory.with_usage_counts.order(:name)
 
           # Filter by active status
           if params[:active].present?
@@ -48,10 +48,19 @@ module Api
         end
 
         # DELETE /api/v1/admin/time_categories/:id
-        # Soft delete by deactivating
         def destroy
-          @category.update(is_active: false)
+          unless @category.deletable?
+            return render json: {
+              error: "This category already has saved time history or pay-rate data. Deactivate it instead of deleting it."
+            }, status: :unprocessable_entity
+          end
+
+          @category.destroy!
           head :no_content
+        rescue ActiveRecord::RecordNotDestroyed
+          render json: {
+            error: "This category already has saved time history or pay-rate data. Deactivate it instead of deleting it."
+          }, status: :unprocessable_entity
         end
 
         private
@@ -75,7 +84,9 @@ module Api
             is_active: category.is_active,
             hourly_rate_cents: category.hourly_rate_cents,
             hourly_rate: category.hourly_rate,
-            time_entries_count: category.time_entries.count,
+            time_entries_count: category.time_entries_count,
+            employee_pay_rates_count: category.employee_pay_rates_count,
+            deletable: category.deletable?,
             created_at: category.created_at.iso8601,
             updated_at: category.updated_at.iso8601
           }
