@@ -67,6 +67,8 @@ Rails.application.routes.draw do
       namespace :admin do
         resource :kiosk_session, only: [ :create ]
         get "settings/geocode", to: "settings#geocode"
+        get "settings/place_autocomplete", to: "settings#place_autocomplete"
+        get "settings/place_details", to: "settings#place_details"
         resource :settings, only: [ :show, :update ]
         resources :users, only: [ :index, :show, :create, :update, :destroy ] do
           member do

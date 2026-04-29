@@ -39,6 +39,38 @@ module Api
           render json: { error: e.message }, status: :unprocessable_entity
         end
 
+        def place_autocomplete
+          query = params[:query].to_s.strip
+          return render json: { error: "query is required" }, status: :unprocessable_entity if query.blank?
+
+          suggestions = GooglePlacesService.autocomplete(
+            query: query,
+            session_token: params[:session_token]
+          )
+
+          render json: {
+            suggestions: suggestions
+          }
+        rescue GooglePlacesService::PlacesError => e
+          render json: { error: e.message }, status: :unprocessable_entity
+        end
+
+        def place_details
+          place_id = params[:place_id].to_s.strip
+          return render json: { error: "place_id is required" }, status: :unprocessable_entity if place_id.blank?
+
+          place = GooglePlacesService.details(
+            place_id: place_id,
+            session_token: params[:session_token]
+          )
+
+          render json: {
+            place: place
+          }
+        rescue GooglePlacesService::PlacesError => e
+          render json: { error: e.message }, status: :unprocessable_entity
+        end
+
         def update
           payload = settings_update_params
           approval_groups_payload = approval_groups_update_params

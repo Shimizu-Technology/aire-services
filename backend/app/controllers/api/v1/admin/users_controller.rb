@@ -403,8 +403,12 @@ module Api
                 permitted[:email] = email
               end
             elsif email.present?
-              render json: { error: "Kiosk-only users cannot be converted to email sign-in from this form" }, status: :unprocessable_entity
-              return { local_attributes: {}, clerk_attributes: {} }
+              unless @user.pending_invite?
+                render json: { error: "Only pending kiosk-only users can be converted to email sign-in" }, status: :unprocessable_entity
+                return { local_attributes: {}, clerk_attributes: {} }
+              end
+
+              permitted[:email] = email
             end
 
             if email.present? && !email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)

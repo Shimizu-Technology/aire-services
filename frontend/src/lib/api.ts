@@ -233,6 +233,22 @@ export interface GeocodeResult {
   longitude: string;
 }
 
+export interface PlaceAutocompleteSuggestion {
+  place_id: string;
+  description: string;
+  main_text?: string | null;
+  secondary_text?: string | null;
+}
+
+export interface PlaceDetails {
+  place_id: string;
+  display_name?: string | null;
+  formatted_address?: string | null;
+  latitude: string;
+  longitude: string;
+  plus_code?: string | null;
+}
+
 export interface ContactSettings {
   contact_notification_emails: string[];
   inquiry_topics: string[];
@@ -896,6 +912,16 @@ export const api = {
 
   geocodeAdminClockLocation: (query: string) =>
     fetchApi<{ results: GeocodeResult[] }>(`/api/v1/admin/settings/geocode?query=${encodeURIComponent(query)}`),
+
+  autocompleteAdminClockLocation: (query: string, sessionToken: string) =>
+    fetchApi<{ suggestions: PlaceAutocompleteSuggestion[] }>(
+      `/api/v1/admin/settings/place_autocomplete?query=${encodeURIComponent(query)}&session_token=${encodeURIComponent(sessionToken)}`
+    ),
+
+  getAdminClockPlaceDetails: (placeId: string, sessionToken: string) =>
+    fetchApi<{ place: PlaceDetails }>(
+      `/api/v1/admin/settings/place_details?place_id=${encodeURIComponent(placeId)}&session_token=${encodeURIComponent(sessionToken)}`
+    ),
 
   updateAdminAppSettings: (payload: { settings?: Partial<TimeClockAppSettings>; approval_groups?: ApprovalGroupOption[] }) =>
     fetchApi<AdminAppSettingsResponse>('/api/v1/admin/settings', {

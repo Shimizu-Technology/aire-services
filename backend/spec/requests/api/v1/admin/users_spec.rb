@@ -340,7 +340,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(employee.reload.email).not_to eq("new.email@example.com")
     end
 
-    it "does not allow converting a kiosk-only user to email sign-in from the edit form" do
+    it "allows converting a pending kiosk-only user to email sign-in from the edit form" do
       kiosk_only_user = create(
         :user,
         :employee,
@@ -353,9 +353,11 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
             params: { email: "new.invite@example.com" },
             headers: auth_headers_for[admin]
 
-      expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/cannot be converted to email sign-in/i)
-      expect(kiosk_only_user.reload.email).to be_nil
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:user, :email)).to eq("new.invite@example.com")
+      expect(json.dig(:user, :uses_clerk_profile)).to eq(true)
+      expect(json.dig(:user, :is_pending)).to eq(true)
+      expect(kiosk_only_user.reload.email).to eq("new.invite@example.com")
     end
 
     it "deactivates another user" do
