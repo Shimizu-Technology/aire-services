@@ -121,7 +121,8 @@ export default function Users() {
   const canEditPendingInviteEmail = Boolean(editingUserUsesClerkProfile && editingUser?.is_pending)
   const canEditActiveClerkProfile = Boolean(editingUserUsesClerkProfile && editingUser && !editingUser.is_pending)
   const editingUserIsKioskOnly = Boolean(editingUser && !editingUserUsesClerkProfile)
-  const canEditEmail = Boolean(canEditPendingInviteEmail || editingUserIsKioskOnly)
+  const canConvertPendingKioskUser = Boolean(editingUserIsKioskOnly && editingUser?.is_pending)
+  const canEditEmail = Boolean(canEditPendingInviteEmail || canConvertPendingKioskUser)
   const routedUsersCount = users.filter((user) => !!user.approval_group).length
   const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
 
@@ -778,7 +779,9 @@ export default function Users() {
                       ? 'Active Clerk users keep their sign-in email managed in Clerk. Use this form for names, status, routing, and Team page details.'
                       : editingUserUsesClerkProfile
                         ? 'Clerk invite email stays editable until the account is activated.'
-                      : 'Add an email to convert this kiosk-only user into a pending invited user. Save, then use Resend invite from the table.'}
+                      : canConvertPendingKioskUser
+                        ? 'Add an email to convert this kiosk-only user into a pending invited user. Save, then use Resend invite from the table.'
+                        : 'This kiosk-only user is no longer pending, so create a new invited user if they need email sign-in.'}
                 </p>
               </div>
 
