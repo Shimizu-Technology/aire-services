@@ -213,5 +213,13 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
         plus_code: "7R65FQ9X+MM"
       )
     end
+
+    it "blocks non-admin place details" do
+      get "/api/v1/admin/settings/place_details",
+          params: { place_id: "places/aire", session_token: "session-123" },
+          headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:forbidden)
+    end
   end
 end

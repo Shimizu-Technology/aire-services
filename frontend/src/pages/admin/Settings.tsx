@@ -366,22 +366,33 @@ export default function Settings() {
     setPlaceLoading(true)
     setGeocodeError('')
 
-    const timeoutId = window.setTimeout(async () => {
-      const result = await api.autocompleteAdminClockLocation(query, placeSessionTokenRef.current)
-      if (cancelled) return
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await api.autocompleteAdminClockLocation(query, placeSessionTokenRef.current)
+          if (cancelled) return
 
-      if (result.error || !result.data) {
-        setGeocodeError(result.error || 'Address lookup failed.')
-        setPlaceSuggestions([])
-        setPlaceLoading(false)
-        return
-      }
+          if (result.error || !result.data) {
+            setGeocodeError(result.error || 'Address lookup failed.')
+            setPlaceSuggestions([])
+            return
+          }
 
-      setPlaceSuggestions(result.data.suggestions)
-      setPlaceLoading(false)
-      if (result.data.suggestions.length === 0) {
-        setGeocodeError('No matching locations were found. Try the business name, full street address, or use current location.')
-      }
+          setPlaceSuggestions(result.data.suggestions)
+          if (result.data.suggestions.length === 0) {
+            setGeocodeError('No matching locations were found. Try the business name, full street address, or use current location.')
+          }
+        } catch {
+          if (!cancelled) {
+            setGeocodeError('Address lookup failed.')
+            setPlaceSuggestions([])
+          }
+        } finally {
+          if (!cancelled) {
+            setPlaceLoading(false)
+          }
+        }
+      })()
     }, 300)
 
     return () => {
