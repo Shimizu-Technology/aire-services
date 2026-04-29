@@ -10,7 +10,7 @@ module Api
 
         # GET /api/v1/admin/time_categories
         def index
-          @categories = TimeCategory.order(:name)
+          @categories = TimeCategory.with_usage_counts.order(:name)
 
           # Filter by active status
           if params[:active].present?
@@ -57,6 +57,10 @@ module Api
 
           @category.destroy!
           head :no_content
+        rescue ActiveRecord::RecordNotDestroyed
+          render json: {
+            error: "This category already has saved time history or pay-rate data. Deactivate it instead of deleting it."
+          }, status: :unprocessable_entity
         end
 
         private

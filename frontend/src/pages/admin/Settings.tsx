@@ -977,15 +977,16 @@ export default function Settings() {
                                 Edit
                               </button>
                               {cat.is_active ? (
-                                cat.deletable ? (
-                                  <button type="button" onClick={() => handleDeleteCategory(cat)} className="text-rose-700 hover:text-rose-900">
-                                    Delete
-                                  </button>
-                                ) : (
+                                <>
                                   <button type="button" onClick={() => handleDeactivateCategory(cat)} className="text-slate-600 hover:text-slate-900">
                                     Deactivate
                                   </button>
-                                )
+                                  {cat.deletable && (
+                                    <button type="button" onClick={() => handleDeleteCategory(cat)} className="text-rose-700 hover:text-rose-900">
+                                      Delete
+                                    </button>
+                                  )}
+                                </>
                               ) : (
                                 <button type="button" onClick={() => handleReactivateCategory(cat)} className="text-cyan-700 hover:text-cyan-900">
                                   Reactivate
