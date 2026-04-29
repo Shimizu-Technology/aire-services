@@ -148,4 +148,78 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       expect(response).to have_http_status(:forbidden)
     end
   end
+
+  describe "GET /api/v1/admin/settings/place_autocomplete" do
+    it "returns Google Places suggestions for admins" do
+      allow(GooglePlacesService).to receive(:autocomplete)
+        .with(query: "AIRE", session_token: "session-123")
+        .and_return([
+          {
+            place_id: "places/aire",
+            description: "AIRE Services Guam, Barrigada, Guam",
+            main_text: "AIRE Services Guam",
+            secondary_text: "Barrigada, Guam"
+          }
+        ])
+
+      get "/api/v1/admin/settings/place_autocomplete",
+          params: { query: "AIRE", session_token: "session-123" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:suggestions]).to eq([
+        {
+          place_id: "places/aire",
+          description: "AIRE Services Guam, Barrigada, Guam",
+          main_text: "AIRE Services Guam",
+          secondary_text: "Barrigada, Guam"
+        }
+      ])
+    end
+
+    it "blocks non-admin autocomplete" do
+      get "/api/v1/admin/settings/place_autocomplete",
+          params: { query: "AIRE", session_token: "session-123" },
+          headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:forbidden)
+    end
+  end
+
+  describe "GET /api/v1/admin/settings/place_details" do
+    it "returns selected place details for admins" do
+      allow(GooglePlacesService).to receive(:details)
+        .with(place_id: "places/aire", session_token: "session-123")
+        .and_return(
+          place_id: "places/aire",
+          display_name: "AIRE Services Guam",
+          formatted_address: "1780 Admiral Sherman Boulevard, Barrigada, Guam 96913",
+          latitude: "13.46913",
+          longitude: "144.79901",
+          plus_code: "7R65FQ9X+MM"
+        )
+
+      get "/api/v1/admin/settings/place_details",
+          params: { place_id: "places/aire", session_token: "session-123" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:place]).to eq(
+        place_id: "places/aire",
+        display_name: "AIRE Services Guam",
+        formatted_address: "1780 Admiral Sherman Boulevard, Barrigada, Guam 96913",
+        latitude: "13.46913",
+        longitude: "144.79901",
+        plus_code: "7R65FQ9X+MM"
+      )
+    end
+
+    it "blocks non-admin place details" do
+      get "/api/v1/admin/settings/place_details",
+          params: { place_id: "places/aire", session_token: "session-123" },
+          headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:forbidden)
+    end
+  end
 end

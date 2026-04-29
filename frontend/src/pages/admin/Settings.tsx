@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, GeocodeResult, TimeClockAppSettings } from '../../lib/api'
+import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
 const emptyCategoryForm = {
@@ -18,6 +18,77 @@ const normalizeApprovalGroupKey = (value: string) => (
     .replace(/^_+|_+$/g, '')
     .replace(/_+/g, '_')
 )
+
+const GOOGLE_MAPS_BROWSER_KEY = import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY
+const IS_TEST = import.meta.env.MODE === 'test'
+
+const createPlaceSessionToken = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function GoogleMapPreview({ latitude, longitude }: { latitude: number; longitude: number }) {
+  const mapRef = useRef<HTMLDivElement>(null)
+  const [mapError, setMapError] = useState('')
+
+  useEffect(() => {
+    if (!GOOGLE_MAPS_BROWSER_KEY || IS_TEST || !mapRef.current) return
+
+    let cancelled = false
+    const scriptId = 'google-maps-js'
+
+    const renderMap = () => {
+      if (cancelled || !mapRef.current || !window.google?.maps) return
+
+      const center = { lat: latitude, lng: longitude }
+      const map = new window.google.maps.Map(mapRef.current, {
+        center,
+        zoom: 17,
+        mapTypeControl: false,
+        fullscreenControl: false,
+        streetViewControl: false,
+      })
+      new window.google.maps.Marker({ position: center, map })
+    }
+
+    const existingScript = document.getElementById(scriptId) as HTMLScriptElement | null
+    if (window.google?.maps) {
+      renderMap()
+    } else if (existingScript) {
+      existingScript.addEventListener('load', renderMap, { once: true })
+    } else {
+      const script = document.createElement('script')
+      script.id = scriptId
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_BROWSER_KEY)}`
+      script.async = true
+      script.defer = true
+      script.addEventListener('load', renderMap, { once: true })
+      script.addEventListener('error', () => {
+        if (!cancelled) setMapError('Google map preview could not be loaded.')
+      })
+      document.head.appendChild(script)
+    }
+
+    return () => {
+      cancelled = true
+      existingScript?.removeEventListener('load', renderMap)
+    }
+  }, [latitude, longitude])
+
+  if (!GOOGLE_MAPS_BROWSER_KEY || IS_TEST) {
+    return null
+  }
+
+  return (
+    <>
+      {mapError && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{mapError}</div>}
+      <div ref={mapRef} className="h-72 w-full" />
+    </>
+  )
+}
 
 export default function Settings() {
   useEffect(() => {
@@ -53,8 +124,9 @@ export default function Settings() {
   const [savingApprovalGroups, setSavingApprovalGroups] = useState(false)
   const [savingContactSettings, setSavingContactSettings] = useState(false)
   const [locationSearchQuery, setLocationSearchQuery] = useState('')
-  const [geocodeResults, setGeocodeResults] = useState<GeocodeResult[]>([])
-  const [geocodeLoading, setGeocodeLoading] = useState(false)
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceAutocompleteSuggestion[]>([])
+  const [placeLoading, setPlaceLoading] = useState(false)
+  const [selectedPlaceLoading, setSelectedPlaceLoading] = useState(false)
   const [geocodeError, setGeocodeError] = useState('')
   const [currentLocationLoading, setCurrentLocationLoading] = useState(false)
   const [showInactive, setShowInactive] = useState(true)
@@ -62,6 +134,7 @@ export default function Settings() {
   const [editingCategory, setEditingCategory] = useState<AdminTimeCategory | null>(null)
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm)
   const modalRef = useRef<HTMLDivElement>(null)
+  const placeSessionTokenRef = useRef(createPlaceSessionToken())
 
   const applyFetchedData = useCallback((
     catRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>,
@@ -273,41 +346,83 @@ export default function Settings() {
     }
   }
 
-  const handleGeocodeSearch = async () => {
+  useEffect(() => {
     const query = locationSearchQuery.trim()
     if (!query) {
-      setGeocodeError('Enter an address or place name first.')
-      setGeocodeResults([])
-      return
+      setPlaceSuggestions([])
+      setGeocodeError('')
+      setPlaceLoading(false)
+      return undefined
     }
 
-    setGeocodeLoading(true)
+    if (query.length < 3) {
+      setPlaceSuggestions([])
+      setGeocodeError('')
+      setPlaceLoading(false)
+      return undefined
+    }
+
+    let cancelled = false
+    setPlaceLoading(true)
     setGeocodeError('')
-    setGeocodeResults([])
+
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await api.autocompleteAdminClockLocation(query, placeSessionTokenRef.current)
+          if (cancelled) return
+
+          if (result.error || !result.data) {
+            setGeocodeError(result.error || 'Address lookup failed.')
+            setPlaceSuggestions([])
+            return
+          }
+
+          setPlaceSuggestions(result.data.suggestions)
+          if (result.data.suggestions.length === 0) {
+            setGeocodeError('No matching locations were found. Try the business name, full street address, or use current location.')
+          }
+        } catch {
+          if (!cancelled) {
+            setGeocodeError('Address lookup failed.')
+            setPlaceSuggestions([])
+          }
+        } finally {
+          if (!cancelled) {
+            setPlaceLoading(false)
+          }
+        }
+      })()
+    }, 300)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [locationSearchQuery])
+
+  const handleSelectPlaceSuggestion = async (suggestion: PlaceAutocompleteSuggestion) => {
+    setSelectedPlaceLoading(true)
+    setGeocodeError('')
     try {
-      const result = await api.geocodeAdminClockLocation(query)
+      const result = await api.getAdminClockPlaceDetails(suggestion.place_id, placeSessionTokenRef.current)
       if (result.error || !result.data) {
-        setGeocodeError(result.error || 'Address lookup failed.')
-        setGeocodeResults([])
+        setGeocodeError(result.error || 'Could not load the selected location.')
         return
       }
 
-      setGeocodeResults(result.data.results)
-      if (result.data.results.length === 0) {
-        setGeocodeError('No matching locations were found. Try the business name or the full street address.')
-      }
+      const place = result.data.place
+      applyClockLocation({
+        latitude: place.latitude,
+        longitude: place.longitude,
+        label: thresholdDraft.clock_in_location_name.trim() ? thresholdDraft.clock_in_location_name : place.display_name || suggestion.main_text || suggestion.description,
+      })
+      setLocationSearchQuery(place.formatted_address || suggestion.description)
+      setPlaceSuggestions([])
+      placeSessionTokenRef.current = createPlaceSessionToken()
     } finally {
-      setGeocodeLoading(false)
+      setSelectedPlaceLoading(false)
     }
-  }
-
-  const handleSelectGeocodeResult = (result: GeocodeResult) => {
-    applyClockLocation({
-      latitude: result.latitude,
-      longitude: result.longitude,
-      label: thresholdDraft.clock_in_location_name.trim() ? thresholdDraft.clock_in_location_name : result.display_name.split(',')[0],
-    })
-    setGeocodeError('')
   }
 
   const handleUseCurrentLocation = async () => {
@@ -325,6 +440,8 @@ export default function Settings() {
           latitude: position.coords.latitude.toFixed(6),
           longitude: position.coords.longitude.toFixed(6),
         })
+        setPlaceSuggestions([])
+        placeSessionTokenRef.current = createPlaceSessionToken()
         setCurrentLocationLoading(false)
       },
       (error) => {
@@ -587,26 +704,27 @@ export default function Settings() {
                           <div>
                             <label className="mb-2 block text-sm font-medium text-slate-700">Find location by address</label>
                             <div className="flex flex-col gap-3 sm:flex-row">
-                              <input
-                                value={locationSearchQuery}
-                                onChange={(e) => setLocationSearchQuery(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    void handleGeocodeSearch()
-                                  }
-                                }}
-                                placeholder="1780 Admiral Sherman Boulevard, Tiyan, 96913, Guam"
-                                className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => void handleGeocodeSearch()}
-                                disabled={geocodeLoading}
-                                className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-800 ring-1 ring-slate-300 transition hover:bg-slate-50 disabled:opacity-50"
-                              >
-                                {geocodeLoading ? 'Searching…' : 'Find address'}
-                              </button>
+                              <div className="relative flex-1">
+                                <input
+                                  value={locationSearchQuery}
+                                  onChange={(e) => setLocationSearchQuery(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && placeSuggestions[0]) {
+                                      e.preventDefault()
+                                      void handleSelectPlaceSuggestion(placeSuggestions[0])
+                                    }
+                                  }}
+                                  placeholder="Start typing AIRE, Admiral Sherman, Tiyan, or a Guam address"
+                                  aria-autocomplete="list"
+                                  aria-expanded={placeSuggestions.length > 0}
+                                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                                />
+                                {(placeLoading || selectedPlaceLoading) && (
+                                  <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">
+                                    {selectedPlaceLoading ? 'Loading…' : 'Searching…'}
+                                  </div>
+                                )}
+                              </div>
                               <button
                                 type="button"
                                 onClick={handleUseCurrentLocation}
@@ -620,17 +738,21 @@ export default function Settings() {
                           {geocodeError && (
                             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{geocodeError}</div>
                           )}
-                          {geocodeResults.length > 0 && (
+                          {placeSuggestions.length > 0 && (
                             <div className="space-y-2">
-                              <p className="text-sm font-medium text-slate-700">Address matches</p>
-                              {geocodeResults.map((result) => (
+                              <p className="text-sm font-medium text-slate-700">Suggested matches</p>
+                              {placeSuggestions.map((suggestion) => (
                                 <button
-                                  key={`${result.latitude}-${result.longitude}-${result.display_name}`}
+                                  key={suggestion.place_id}
                                   type="button"
-                                  onClick={() => handleSelectGeocodeResult(result)}
+                                  onClick={() => void handleSelectPlaceSuggestion(suggestion)}
+                                  disabled={selectedPlaceLoading}
                                   className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
                                 >
-                                  {result.display_name}
+                                  <span className="block font-semibold text-slate-900">{suggestion.main_text || suggestion.description}</span>
+                                  {suggestion.secondary_text && (
+                                    <span className="mt-1 block text-xs text-slate-500">{suggestion.secondary_text}</span>
+                                  )}
                                 </button>
                               ))}
                             </div>
@@ -697,12 +819,16 @@ export default function Settings() {
                         {hasPreviewCoordinates && mapIframeSrc ? (
                           <>
                             <div className="overflow-hidden rounded-2xl border border-slate-200">
-                              <iframe
-                                title="Clock-in location preview"
-                                src={mapIframeSrc}
-                                className="h-72 w-full"
-                                loading="lazy"
-                              />
+                              {GOOGLE_MAPS_BROWSER_KEY ? (
+                                <GoogleMapPreview latitude={previewLatitude} longitude={previewLongitude} />
+                              ) : (
+                                <iframe
+                                  title="Clock-in location preview"
+                                  src={mapIframeSrc}
+                                  className="h-72 w-full"
+                                  loading="lazy"
+                                />
+                              )}
                             </div>
                             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
                               <p><span className="font-semibold text-slate-800">Latitude:</span> {thresholdDraft.clock_in_location_latitude}</p>

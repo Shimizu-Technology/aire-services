@@ -121,6 +121,8 @@ export default function Users() {
   const canEditPendingInviteEmail = Boolean(editingUserUsesClerkProfile && editingUser?.is_pending)
   const canEditActiveClerkProfile = Boolean(editingUserUsesClerkProfile && editingUser && !editingUser.is_pending)
   const editingUserIsKioskOnly = Boolean(editingUser && !editingUserUsesClerkProfile)
+  const canConvertPendingKioskUser = Boolean(editingUserIsKioskOnly && editingUser?.is_pending)
+  const canEditEmail = Boolean(canEditPendingInviteEmail || canConvertPendingKioskUser)
   const routedUsersCount = users.filter((user) => !!user.approval_group).length
   const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
 
@@ -296,6 +298,9 @@ export default function Users() {
       } else {
         payload.first_name = nextFirstName
         payload.last_name = nextLastName || ''
+        if (nextEmail) {
+          payload.email = nextEmail
+        }
       }
 
       const res = await api.updateUser(targetUserId, payload)
@@ -764,7 +769,7 @@ export default function Users() {
                   type="email"
                   value={editEmail}
                   onChange={(event) => setEditEmail(event.target.value)}
-                  disabled={editingUserIsKioskOnly || canEditActiveClerkProfile}
+                  disabled={!canEditEmail}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-50 disabled:text-slate-400"
                 />
                 <p className="mt-2 text-xs text-slate-500">
@@ -774,7 +779,9 @@ export default function Users() {
                       ? 'Active Clerk users keep their sign-in email managed in Clerk. Use this form for names, status, routing, and Team page details.'
                       : editingUserUsesClerkProfile
                         ? 'Clerk invite email stays editable until the account is activated.'
-                      : 'Kiosk-only users do not sign in with email. Create a new invited user if they need Clerk access.'}
+                      : canConvertPendingKioskUser
+                        ? 'Add an email to convert this kiosk-only user into a pending invited user. Save, then use Resend invite from the table.'
+                        : 'This kiosk-only user is no longer pending, so create a new invited user if they need email sign-in.'}
                 </p>
               </div>
 

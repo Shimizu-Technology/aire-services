@@ -10,6 +10,8 @@ const apiMock = vi.hoisted(() => ({
   getAdminContactSettings: vi.fn(),
   updateAdminContactSettings: vi.fn(),
   geocodeAdminClockLocation: vi.fn(),
+  autocompleteAdminClockLocation: vi.fn(),
+  getAdminClockPlaceDetails: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -19,6 +21,8 @@ vi.mock('../../lib/api', () => ({
     getAdminContactSettings: apiMock.getAdminContactSettings,
     updateAdminContactSettings: apiMock.updateAdminContactSettings,
     geocodeAdminClockLocation: apiMock.geocodeAdminClockLocation,
+    autocompleteAdminClockLocation: apiMock.autocompleteAdminClockLocation,
+    getAdminClockPlaceDetails: apiMock.getAdminClockPlaceDetails,
   },
 }))
 
@@ -33,6 +37,8 @@ describe('Admin Settings contact settings', () => {
     apiMock.getAdminContactSettings.mockReset()
     apiMock.updateAdminContactSettings.mockReset()
     apiMock.geocodeAdminClockLocation.mockReset()
+    apiMock.autocompleteAdminClockLocation.mockReset()
+    apiMock.getAdminClockPlaceDetails.mockReset()
 
     apiMock.getAdminTimeCategories.mockResolvedValue({
       data: { time_categories: [] },
@@ -79,6 +85,29 @@ describe('Admin Settings contact settings', () => {
         ],
       },
     })
+    apiMock.autocompleteAdminClockLocation.mockResolvedValue({
+      data: {
+        suggestions: [
+          {
+            place_id: 'places/aire',
+            description: 'AIRE Services Guam, Barrigada, Guam',
+            main_text: 'AIRE Services Guam',
+            secondary_text: 'Barrigada, Guam',
+          },
+        ],
+      },
+    })
+    apiMock.getAdminClockPlaceDetails.mockResolvedValue({
+      data: {
+        place: {
+          place_id: 'places/aire',
+          display_name: 'AIRE Services Guam',
+          formatted_address: '1780 Admiral Sherman Boulevard, Barrigada, Guam 96913',
+          latitude: '13.469130',
+          longitude: '144.799010',
+        },
+      },
+    })
   })
 
   it('loads and updates contact settings', async () => {
@@ -107,19 +136,20 @@ describe('Admin Settings contact settings', () => {
     expect(await screen.findByText('Contact inquiry settings updated')).toBeInTheDocument()
   })
 
-  it('can search by address and apply a geocoding result', async () => {
+  it('can choose an address suggestion and apply its coordinates', async () => {
     render(<Settings />)
 
-    fireEvent.change(await screen.findByPlaceholderText('1780 Admiral Sherman Boulevard, Tiyan, 96913, Guam'), {
+    fireEvent.change(await screen.findByPlaceholderText('Start typing AIRE, Admiral Sherman, Tiyan, or a Guam address'), {
       target: { value: 'AIRE Guam' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Find address' }))
 
-    expect(await screen.findByText('AIRE Services Guam, Barrigada, Guam')).toBeInTheDocument()
+    expect(await screen.findByText('AIRE Services Guam')).toBeInTheDocument()
+    expect(screen.getByText('Barrigada, Guam')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'AIRE Services Guam, Barrigada, Guam' }))
+    fireEvent.click(screen.getByRole('button', { name: /AIRE Services Guam/i }))
 
     await waitFor(() => {
+      expect(apiMock.getAdminClockPlaceDetails).toHaveBeenCalledWith('places/aire', expect.any(String))
       expect(screen.getByDisplayValue('13.469130')).toBeInTheDocument()
       expect(screen.getByDisplayValue('144.799010')).toBeInTheDocument()
     })

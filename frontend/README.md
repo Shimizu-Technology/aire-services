@@ -13,6 +13,7 @@ Create a `.env.local` file:
 ```bash
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_xxxxx
 VITE_API_URL=http://localhost:3100
+VITE_GOOGLE_MAPS_BROWSER_KEY=AIza...
 ```
 
 **Note:** If `VITE_CLERK_PUBLISHABLE_KEY` is not set, the app runs without authentication (dev mode only — production will log an error).
