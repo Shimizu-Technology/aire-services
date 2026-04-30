@@ -20,6 +20,7 @@ export const SITE_MEDIA_PLACEMENTS: Array<{ key: SiteMediaPlacement; label: stri
 ]
 
 export function useSiteMedia(placements: SiteMediaPlacement[]) {
+  const placementKey = placements.join(',')
   const [items, setItems] = useState<SiteMedia[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -34,7 +35,8 @@ export function useSiteMedia(placements: SiteMediaPlacement[]) {
         return
       }
 
-      const response = await api.getPublicSiteMedia(placements)
+      const requestedPlacements = placementKey.split(',').filter(Boolean) as SiteMediaPlacement[]
+      const response = await api.getPublicSiteMedia(requestedPlacements)
       if (cancelled) return
       setItems(response.data?.site_media || [])
       setLoading(false)
@@ -42,7 +44,7 @@ export function useSiteMedia(placements: SiteMediaPlacement[]) {
 
     load()
     return () => { cancelled = true }
-  }, [placements.join(',')])
+  }, [placementKey])
 
   const byPlacement = useMemo(() => {
     return items.reduce<Partial<Record<SiteMediaPlacement, SiteMedia[]>>>((acc, item) => {

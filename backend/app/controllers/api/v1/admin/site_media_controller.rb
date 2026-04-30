@@ -33,9 +33,10 @@ module Api
 
         def update
           @site_media.assign_attributes(site_media_params)
-          attach_uploads(@site_media)
+          replaced_blobs = attach_uploads(@site_media)
 
           if @site_media.save
+            purge_replaced_blobs(replaced_blobs)
             render json: { site_media: serialize_site_media(@site_media.reload) }
           else
             render json: { error: @site_media.errors.full_messages.to_sentence, errors: @site_media.errors.full_messages }, status: :unprocessable_entity
@@ -43,9 +44,9 @@ module Api
         end
 
         def destroy
-          @site_media.file.purge if @site_media.file.attached?
-          @site_media.poster.purge if @site_media.poster.attached?
-          @site_media.destroy
+          blobs = [ @site_media.file, @site_media.poster ].filter_map { |attachment| attachment.blob if attachment.attached? }
+          @site_media.destroy!
+          purge_replaced_blobs(blobs)
           head :no_content
         end
 
@@ -71,18 +72,24 @@ module Api
 
         def attach_uploads(media)
           media_type = site_media_params.fetch("media_type", media.media_type)
+          replaced_blobs = []
 
           if params[:file].present?
             validate_media_upload!(params[:file], media_type: media_type)
-            media.file.purge if media.file.attached?
+            replaced_blobs << media.file.blob if media.file.attached?
             media.file.attach(params[:file])
           end
 
-          return unless params[:poster].present?
+          return replaced_blobs unless params[:poster].present?
 
           validate_media_upload!(params[:poster], media_type: media_type, attachment_name: :poster)
-          media.poster.purge if media.poster.attached?
+          replaced_blobs << media.poster.blob if media.poster.attached?
           media.poster.attach(params[:poster])
+          replaced_blobs
+        end
+
+        def purge_replaced_blobs(blobs)
+          blobs.compact.uniq.each(&:purge_later)
         end
 
         def serialize_site_media(item)

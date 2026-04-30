@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type SiteMedia, type SiteMediaInput, type SiteMediaPlacement, type SiteMediaType } from '../../lib/api'
 import { SITE_MEDIA_PLACEMENTS } from '../../lib/siteMedia'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
@@ -19,11 +19,6 @@ const emptyForm = {
 const imageAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
 const videoAccept = 'video/mp4,video/webm,video/quicktime'
 
-function filePreview(file: File | null) {
-  if (!file) return null
-  return URL.createObjectURL(file)
-}
-
 export default function Media() {
   useEffect(() => { document.title = 'Media | AIRE Ops' }, [])
 
@@ -36,34 +31,38 @@ export default function Media() {
   const [form, setForm] = useState(emptyForm)
   const [file, setFile] = useState<File | null>(null)
   const [poster, setPoster] = useState<File | null>(null)
-  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null)
-  const [posterPreviewUrl, setPosterPreviewUrl] = useState<string | null>(null)
   const [placementFilter, setPlacementFilter] = useState<SiteMediaPlacement | 'all'>('all')
   const formRef = useRef<HTMLFormElement>(null)
 
-  const loadMedia = async () => {
-    setLoading(true)
+  const loadMedia = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     const response = await api.getAdminSiteMedia()
     if (response.error) setError(response.error)
     else setItems(response.data?.site_media || [])
     setLoading(false)
-  }
-
-  useEffect(() => {
-    loadMedia()
   }, [])
 
   useEffect(() => {
-    const next = filePreview(file)
-    setFilePreviewUrl(next)
-    return () => { if (next) URL.revokeObjectURL(next) }
-  }, [file])
+    let cancelled = false
+    api.getAdminSiteMedia().then((response) => {
+      if (cancelled) return
+      if (response.error) setError(response.error)
+      else setItems(response.data?.site_media || [])
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const filePreviewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
+  const posterPreviewUrl = useMemo(() => (poster ? URL.createObjectURL(poster) : null), [poster])
 
   useEffect(() => {
-    const next = filePreview(poster)
-    setPosterPreviewUrl(next)
-    return () => { if (next) URL.revokeObjectURL(next) }
-  }, [poster])
+    return () => { if (filePreviewUrl) URL.revokeObjectURL(filePreviewUrl) }
+  }, [filePreviewUrl])
+
+  useEffect(() => {
+    return () => { if (posterPreviewUrl) URL.revokeObjectURL(posterPreviewUrl) }
+  }, [posterPreviewUrl])
 
   const visibleItems = useMemo(() => {
     return placementFilter === 'all' ? items : items.filter((item) => item.placement === placementFilter)
@@ -168,7 +167,7 @@ export default function Media() {
       featured: item.featured,
     })
     if (response.error) setError(response.error)
-    else loadMedia()
+    else await loadMedia()
   }
 
   return (
