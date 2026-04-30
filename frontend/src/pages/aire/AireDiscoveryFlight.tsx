@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
+import SiteMediaFrame from '../../components/site/SiteMediaFrame'
+import { useSiteMedia } from '../../lib/siteMedia'
+import type { SiteMediaPlacement } from '../../lib/api'
 
 const details = [
   'Introductory flight with a certified flight instructor',
@@ -17,6 +20,8 @@ const reasons = [
 
 export default function AireDiscoveryFlight() {
   useEffect(() => { document.title = 'Discovery Flight | AIRE Services Guam' }, [])
+  const placements: SiteMediaPlacement[] = ['discovery_hero']
+  const { firstFor } = useSiteMedia(placements)
   return (
     <>
       <Seo
@@ -27,7 +32,14 @@ export default function AireDiscoveryFlight() {
       <div className="bg-white">
         <section className="relative overflow-hidden bg-slate-950 py-16 text-white md:py-24">
           <div className="absolute inset-0">
-            <img src="/assets/aire/hero.jpg" alt="Discovery flight with AIRE Services" className="h-full w-full object-cover opacity-25" />
+            <SiteMediaFrame
+              media={firstFor('discovery_hero')}
+              fallbackSrc="/assets/aire/hero.jpg"
+              fallbackAlt="Discovery flight with AIRE Services"
+              hero
+              className="h-full w-full"
+              mediaClassName="h-full w-full object-cover opacity-30"
+            />
             <div className="absolute inset-0 bg-[linear-gradient(140deg,rgba(2,6,23,0.94),rgba(2,6,23,0.80),rgba(8,145,178,0.28))]" />
           </div>
           <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">

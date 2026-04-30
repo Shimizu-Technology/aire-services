@@ -89,6 +89,17 @@ const adminNavigation = [
     ),
   },
   {
+    name: 'Media',
+    href: '/admin/media',
+    icon: (
+      <NavIcon>
+        <rect x="4" y="5" width="16" height="14" rx="2.5" strokeWidth={1.8} />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="m7.5 15 3.1-3.1a1.2 1.2 0 0 1 1.7 0L16.5 16" />
+        <circle cx="16" cy="9" r="1.3" strokeWidth={1.8} />
+      </NavIcon>
+    ),
+  },
+  {
     name: 'Settings',
     href: '/admin/settings',
     icon: (

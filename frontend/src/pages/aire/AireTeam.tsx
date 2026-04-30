@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api, type PublicTeamMember } from '../../lib/api'
+import SiteMediaFrame from '../../components/site/SiteMediaFrame'
+import { useSiteMedia } from '../../lib/siteMedia'
+import type { SiteMediaPlacement } from '../../lib/api'
 
 const credibilityPoints = [
   'Guam-based instructors who understand local flying conditions and student needs.',
@@ -10,6 +13,8 @@ const credibilityPoints = [
 export default function AireTeam() {
   const [teamMembers, setTeamMembers] = useState<PublicTeamMember[] | null>(null)
   const [teamLoadFailed, setTeamLoadFailed] = useState(false)
+  const placements: SiteMediaPlacement[] = ['team_hero']
+  const { firstFor } = useSiteMedia(placements)
 
   useEffect(() => {
     document.title = 'Meet the Team | AIRE Services Guam'
@@ -44,6 +49,14 @@ export default function AireTeam() {
             Training works best when you know who you are flying with. Meet the instructors and training team members helping students on Guam build skill, confidence, and a steady path into aviation.
           </p>
         </div>
+
+        <SiteMediaFrame
+          media={firstFor('team_hero')}
+          fallbackSrc="/assets/aire/hero.jpg"
+          fallbackAlt="AIRE Services Guam flight training team"
+          className="mt-10 aspect-[16/7] rounded-[2rem] shadow-sm"
+          mediaClassName="h-full w-full object-cover"
+        />
 
         <div className="mt-10 grid gap-6 lg:grid-cols-[1fr_0.9fr] lg:items-start">
           <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-7">

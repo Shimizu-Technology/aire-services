@@ -1,5 +1,8 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import SiteMediaFrame from '../../components/site/SiteMediaFrame'
+import { useSiteMedia } from '../../lib/siteMedia'
+import type { SiteMediaPlacement } from '../../lib/api'
 
 const pillars = [
   {
@@ -78,14 +81,36 @@ const quickStats = [
   { label: 'Local + Military', value: 'Contact for rates', href: '/contact' },
 ]
 
+const homeMediaPlacements: SiteMediaPlacement[] = ['home_hero', 'home_training', 'home_tours', 'home_video', 'tour_bay', 'tour_island', 'tour_sunset', 'programs_video']
+
 export default function AireHome() {
   useEffect(() => { document.title = 'AIRE Services Guam | Pilot Training, Tours, and Video Packages' }, [])
+  const { firstFor } = useSiteMedia(homeMediaPlacements)
+
+  const pillarMedia: Record<string, ReturnType<typeof firstFor>> = {
+    'Pilot Training': firstFor('home_training'),
+    'Guam Aerial Tours': firstFor('home_tours'),
+    'Video Packages': firstFor('home_video'),
+  }
+
+  const tourMedia: Record<string, ReturnType<typeof firstFor>> = {
+    'Bay Tour': firstFor('tour_bay'),
+    'Island Tour': firstFor('tour_island'),
+    'Sunset Tour': firstFor('tour_sunset'),
+  }
 
   return (
     <div className="bg-white text-slate-900">
       <section className="relative overflow-hidden bg-slate-950 text-white">
         <div className="absolute inset-0">
-          <img src="/assets/aire/hero.jpg" alt="AIRE Services aircraft flying over Guam" className="h-full w-full object-cover opacity-30" />
+          <SiteMediaFrame
+            media={firstFor('home_hero')}
+            fallbackSrc="/assets/aire/hero.jpg"
+            fallbackAlt="AIRE Services aircraft flying over Guam"
+            hero
+            className="h-full w-full"
+            mediaClassName="h-full w-full object-cover opacity-35"
+          />
           <div className="absolute inset-0 bg-[linear-gradient(122deg,rgba(2,6,23,0.96),rgba(15,23,42,0.82),rgba(14,116,144,0.32))]" />
         </div>
         <div className="relative mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 md:py-28 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
@@ -169,11 +194,20 @@ export default function AireHome() {
               <Link
                 key={pillar.title}
                 to={pillar.href}
-                className="rounded-[1.75rem] border border-slate-200 bg-slate-50/70 p-6 transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-50/40"
+                className="group overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-50/70 transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-50/40"
               >
-                <h3 className="text-lg font-semibold tracking-tight text-slate-900">{pillar.title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-slate-600">{pillar.description}</p>
-                <div className="mt-6 text-sm font-semibold text-cyan-700">{pillar.cta}</div>
+                <SiteMediaFrame
+                  media={pillarMedia[pillar.title]}
+                  fallbackSrc="/assets/aire/hero.jpg"
+                  fallbackAlt={pillar.title}
+                  className="aspect-[4/3]"
+                  mediaClassName="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                />
+                <div className="p-6">
+                  <h3 className="text-lg font-semibold tracking-tight text-slate-900">{pillar.title}</h3>
+                  <p className="mt-3 text-sm leading-relaxed text-slate-600">{pillar.description}</p>
+                  <div className="mt-6 text-sm font-semibold text-cyan-700">{pillar.cta}</div>
+                </div>
               </Link>
             ))}
           </div>
@@ -189,17 +223,26 @@ export default function AireHome() {
 
           <div className="mt-10 grid gap-5 lg:grid-cols-3">
             {tours.map((tour) => (
-              <div key={tour.title} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tour.title}</p>
-                    <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{tour.price}</h3>
+              <div key={tour.title} className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+                <SiteMediaFrame
+                  media={tourMedia[tour.title]}
+                  fallbackSrc="/assets/aire/hero.jpg"
+                  fallbackAlt={`${tour.title} aerial route`}
+                  className="aspect-[16/10]"
+                  mediaClassName="h-full w-full object-cover"
+                />
+                <div className="p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tour.title}</p>
+                      <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{tour.price}</h3>
+                    </div>
+                    <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+                      {tour.duration}
+                    </div>
                   </div>
-                  <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
-                    {tour.duration}
-                  </div>
+                  <p className="mt-5 text-sm leading-relaxed text-slate-600">{tour.landmarks}</p>
                 </div>
-                <p className="mt-5 text-sm leading-relaxed text-slate-600">{tour.landmarks}</p>
               </div>
             ))}
           </div>
@@ -213,7 +256,15 @@ export default function AireHome() {
       <section className="py-16 md:py-24">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-[2rem] bg-slate-950 p-8 text-white">
+            <div className="overflow-hidden rounded-[2rem] bg-slate-950 text-white">
+              <SiteMediaFrame
+                media={firstFor('programs_video')}
+                fallbackSrc="/assets/aire/hero.jpg"
+                fallbackAlt="AIRE aerial video package sample"
+                className="aspect-video"
+                controls
+              />
+              <div className="p-8">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Video Packages</p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight">Add edited content that matches the experience.</h2>
               <p className="mt-4 text-sm leading-relaxed text-slate-300">
@@ -232,6 +283,7 @@ export default function AireHome() {
                   <div className="text-lg font-bold text-white">7 Days</div>
                   <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-slate-300">To download</div>
                 </div>
+              </div>
               </div>
             </div>
 

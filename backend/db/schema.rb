@@ -10,9 +10,37 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_28_121000) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_30_010100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "active_storage_attachments", force: :cascade do |t|
+    t.bigint "blob_id", null: false
+    t.datetime "created_at", null: false
+    t.string "name", null: false
+    t.bigint "record_id", null: false
+    t.string "record_type", null: false
+    t.index ["blob_id"], name: "index_active_storage_attachments_on_blob_id"
+    t.index ["record_type", "record_id", "name", "blob_id"], name: "index_active_storage_attachments_uniqueness", unique: true
+  end
+
+  create_table "active_storage_blobs", force: :cascade do |t|
+    t.bigint "byte_size", null: false
+    t.string "checksum"
+    t.string "content_type"
+    t.datetime "created_at", null: false
+    t.string "filename", null: false
+    t.string "key", null: false
+    t.text "metadata"
+    t.string "service_name", null: false
+    t.index ["key"], name: "index_active_storage_blobs_on_key", unique: true
+  end
+
+  create_table "active_storage_variant_records", force: :cascade do |t|
+    t.bigint "blob_id", null: false
+    t.string "variation_digest", null: false
+    t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
 
   create_table "audit_logs", force: :cascade do |t|
     t.string "action", null: false
@@ -93,6 +121,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_28_121000) do
     t.datetime "updated_at", null: false
     t.text "value"
     t.index ["key"], name: "index_settings_on_key"
+  end
+
+  create_table "site_media", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.string "alt_text"
+    t.string "caption"
+    t.datetime "created_at", null: false
+    t.string "external_url"
+    t.boolean "featured", default: false, null: false
+    t.string "media_type", default: "image", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.string "placement", null: false
+    t.integer "sort_order", default: 0, null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "uploaded_by_id"
+    t.index ["media_type"], name: "index_site_media_on_media_type"
+    t.index ["placement", "active", "sort_order"], name: "index_site_media_on_placement_and_active_and_sort_order"
+    t.index ["placement"], name: "index_site_media_on_placement"
+    t.index ["uploaded_by_id"], name: "index_site_media_on_uploaded_by_id"
   end
 
   create_table "time_categories", force: :cascade do |t|
@@ -216,9 +264,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_28_121000) do
     t.index ["kiosk_pin_lookup_hash"], name: "index_users_on_kiosk_pin_lookup_hash", unique: true
     t.index ["public_team_enabled", "public_team_sort_order"], name: "index_users_on_public_team_visibility_and_sort"
     t.index ["role"], name: "index_users_on_role"
-    t.check_constraint "role::text = ANY (ARRAY['admin'::character varying, 'employee'::character varying]::text[])", name: "check_valid_role"
+    t.check_constraint "role::text = ANY (ARRAY['admin'::character varying::text, 'employee'::character varying::text])", name: "check_valid_role"
   end
 
+  add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "audit_logs", "users"
   add_foreign_key "employee_pay_rates", "time_categories"
   add_foreign_key "employee_pay_rates", "users"
@@ -226,6 +276,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_28_121000) do
   add_foreign_key "leave_requests", "users", column: "reviewed_by_id"
   add_foreign_key "schedules", "users"
   add_foreign_key "schedules", "users", column: "created_by_id"
+  add_foreign_key "site_media", "users", column: "uploaded_by_id"
   add_foreign_key "time_entries", "schedules"
   add_foreign_key "time_entries", "time_categories"
   add_foreign_key "time_entries", "users"
