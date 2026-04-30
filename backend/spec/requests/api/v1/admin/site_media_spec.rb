@@ -92,6 +92,27 @@ RSpec.describe "Api::V1::Admin::SiteMedia", type: :request do
       expect(json.dig(:site_media, :active)).to eq(false)
     end
 
+    it "normalizes blank optional text fields to nil" do
+      media = create(:site_media, media_type: "video", alt_text: nil, caption: "Old caption", external_url: "https://vimeo.com/123456789")
+
+      patch "/api/v1/admin/site-media/#{media.id}",
+            params: {
+              title: "Video reel",
+              placement: media.placement,
+              media_type: "video",
+              alt_text: " ",
+              caption: "",
+              external_url: " https://vimeo.com/987654321 "
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      media.reload
+      expect(media.alt_text).to be_nil
+      expect(media.caption).to be_nil
+      expect(media.external_url).to eq("https://vimeo.com/987654321")
+    end
+
     it "does not purge the existing file when a replacement update fails validation" do
       media = create(:site_media)
       media.file.attach(io: StringIO.new("old image"), filename: "old.jpg", content_type: "image/jpeg")

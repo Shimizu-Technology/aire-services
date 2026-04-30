@@ -58,7 +58,7 @@ export function useSiteMedia(placements: SiteMediaPlacement[]) {
   return { items, byPlacement, firstFor, loading }
 }
 
-export function youtubeEmbedUrl(url: string) {
+export function videoEmbedUrl(url: string) {
   try {
     const parsed = new URL(url)
     if (parsed.hostname.includes('youtu.be')) {
@@ -72,6 +72,14 @@ export function youtubeEmbedUrl(url: string) {
       const parts = parsed.pathname.split('/').filter(Boolean)
       const id = parts[0] === 'shorts' || parts[0] === 'embed' || parts[0] === 'live' ? parts[1] : null
       return id ? `https://www.youtube.com/embed/${id}` : null
+    }
+
+    if (parsed.hostname.includes('vimeo.com')) {
+      const parts = parsed.pathname.split('/').filter(Boolean)
+      const id = parsed.hostname.includes('player.vimeo.com')
+        ? parts[0] === 'video' ? parts[1] : null
+        : parts.find((part) => /^\d+$/.test(part))
+      return id ? `https://player.vimeo.com/video/${id}` : null
     }
   } catch {
     return null

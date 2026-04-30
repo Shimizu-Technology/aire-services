@@ -57,7 +57,7 @@ module Api
         end
 
         def site_media_params
-          params.permit(
+          attributes = params.permit(
             :title,
             :alt_text,
             :caption,
@@ -68,6 +68,19 @@ module Api
             :active,
             :featured
           ).to_h.compact
+
+          normalize_blank_optional_strings(attributes)
+        end
+
+        def normalize_blank_optional_strings(attributes)
+          %w[alt_text caption external_url].each do |field|
+            next unless attributes.key?(field) && attributes[field].is_a?(String)
+
+            value = attributes[field].strip
+            attributes[field] = value.presence
+          end
+
+          attributes
         end
 
         def attach_uploads(media)

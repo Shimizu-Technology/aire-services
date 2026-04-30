@@ -1,5 +1,5 @@
 import type { SiteMedia } from '../../lib/api'
-import { youtubeEmbedUrl } from '../../lib/siteMedia'
+import { videoEmbedUrl } from '../../lib/siteMedia'
 
 interface SiteMediaFrameProps {
   media?: SiteMedia | null;
@@ -23,7 +23,7 @@ export default function SiteMediaFrame({
   const alt = media?.alt_text || fallbackAlt
   const poster = media?.poster_url || fallbackSrc
   const imageSource = media?.media_type === 'image' ? (media.file_url || media.external_url) : poster
-  const embedUrl = media?.external_url ? youtubeEmbedUrl(media.external_url) : null
+  const embedUrl = media?.external_url ? videoEmbedUrl(media.external_url) : null
 
   return (
     <div className={`relative overflow-hidden bg-slate-200 ${className}`}>
