@@ -45,9 +45,7 @@ module Api
         end
 
         def destroy
-          blobs = [ @site_media.file, @site_media.poster ].filter_map { |attachment| attachment.blob if attachment.attached? }
           @site_media.destroy!
-          purge_replaced_blobs(blobs)
           head :no_content
         end
 

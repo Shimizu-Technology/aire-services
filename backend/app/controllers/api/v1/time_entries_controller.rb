@@ -122,8 +122,9 @@ module Api
           end_time: @time_entry.formatted_end_time
         }
 
-        update_params = time_entry_params.except(:user_id)
-        normalize_clock_entry_time_update(@time_entry, update_params)
+        update_params = time_entry_params.except(:user_id).to_h.symbolize_keys
+        raw_clock_params = raw_time_entry_params.slice(:work_date, :start_time, :end_time)
+        normalize_clock_entry_time_update(@time_entry, update_params, raw_clock_params)
         return if performed?
 
         unless current_user.admin?
@@ -458,11 +459,12 @@ module Api
         params_hash[field] = tz.local(2000, 1, 1, h, m, 0)
       end
 
-      def normalize_clock_entry_time_update(entry, params_hash)
+      def normalize_clock_entry_time_update(entry, params_hash, raw_params = {})
         return unless entry.clock_entry?
 
-        target_work_date = params_hash[:work_date].presence || entry.work_date
-        corrected_start = clock_time_on_work_date(params_hash[:start_time], target_work_date) if params_hash[:start_time].present?
+        target_work_date = raw_params[:work_date].presence || params_hash[:work_date].presence || entry.work_date
+        start_value = raw_params[:start_time].presence || params_hash[:start_time]
+        corrected_start = clock_time_on_work_date(start_value, target_work_date) if start_value.present?
 
         if corrected_start
           if entry.active? && corrected_start > Time.current
@@ -481,9 +483,12 @@ module Api
         if entry.active?
           params_hash.delete(:end_time)
           params_hash.delete(:hours)
-        elsif params_hash[:end_time].present?
+        else
+          end_value = raw_params[:end_time].presence || params_hash[:end_time]
+          return unless end_value.present?
+
           start_reference = corrected_start || entry.start_time
-          corrected_end = clock_time_on_work_date(params_hash[:end_time], target_work_date, after: start_reference)
+          corrected_end = clock_time_on_work_date(end_value, target_work_date, after: start_reference)
 
           if corrected_end > Time.current
             return render json: { error: "Clock-out time cannot be in the future" }, status: :unprocessable_entity
@@ -501,6 +506,10 @@ module Api
         corrected = tz.local(date.year, date.month, date.day, local_time.hour, local_time.min, 0)
         corrected += 1.day if after.present? && corrected <= after
         corrected
+      end
+
+      def raw_time_entry_params
+        params.require(:time_entry).permit(:work_date, :start_time, :end_time).to_h.symbolize_keys
       end
 
       def resolve_entry_owner
