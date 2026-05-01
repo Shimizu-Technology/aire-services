@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
 import { api } from '../../lib/api'
 import { socialLinks } from '../../lib/socialLinks'
+import SiteMediaFrame from '../../components/site/SiteMediaFrame'
+import { useSiteMedia } from '../../lib/siteMedia'
+import type { SiteMediaPlacement } from '../../lib/api'
 
 const contactPoints = [
   { label: 'Phone', value: '(671) 477-4243', href: 'tel:+16714774243' },
@@ -29,6 +32,8 @@ const pricingSnapshot = [
 
 export default function AireContact() {
   useEffect(() => { document.title = 'Contact | AIRE Services Guam' }, [])
+  const placements: SiteMediaPlacement[] = ['contact_feature']
+  const { firstFor } = useSiteMedia(placements)
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -110,6 +115,14 @@ export default function AireContact() {
 
           <div className="mt-10 grid gap-6 lg:grid-cols-[0.88fr_1.12fr]">
             <section className="rounded-[2rem] border border-slate-200 bg-slate-50/70 p-7">
+              {firstFor('contact_feature') && (
+                <SiteMediaFrame
+                  media={firstFor('contact_feature')}
+                  fallbackAlt="AIRE Services Guam aircraft and office"
+                  className="-mx-1 mb-6 aspect-[16/10] rounded-[1.5rem]"
+                  mediaClassName="h-full w-full object-cover"
+                />
+              )}
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Direct contact information</h2>
               <div className="mt-6 space-y-4">
                 {contactPoints.map((item) => (

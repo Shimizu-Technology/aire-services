@@ -103,6 +103,63 @@ async function fetchApiPublic<T>(
   return fetchApi(endpoint, options, false);
 }
 
+async function fetchApiUpload<T>(
+  endpoint: string,
+  formData: FormData,
+  options: RequestInit = {},
+  requireAuth: boolean = true
+): Promise<ApiResponse<T>> {
+  try {
+    const headers: Record<string, string> = {
+      ...(options.headers as Record<string, string>),
+    };
+
+    if (requireAuth && getAuthToken) {
+      const token = await getAuthToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      method: options.method || 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (response.status === 204) return { data: undefined as unknown as T };
+
+    const responseText = await response.text();
+    let data;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      console.error('Upload API Error: Failed to parse response as JSON', {
+        status: response.status,
+        body: responseText.substring(0, 200),
+      });
+      return {
+        error: `Server returned an invalid response (${response.status})`,
+        errors: ['The server may be temporarily unavailable. Please try again.'],
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        error: data?.error || 'Something went wrong',
+        errors: data?.errors || [],
+      };
+    }
+
+    return { data };
+  } catch (error) {
+    console.error('Upload API Error:', error);
+    return {
+      error: error instanceof Error ? error.message : 'Upload failed',
+      errors: [],
+    };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -256,6 +313,73 @@ export interface ContactSettings {
 
 export interface PublicContactSettings {
   inquiry_topics: string[];
+}
+
+export type SiteMediaType = 'image' | 'video';
+
+export type SiteMediaPlacement =
+  | 'home_hero'
+  | 'home_training'
+  | 'home_tours'
+  | 'home_video'
+  | 'programs_hero'
+  | 'programs_training'
+  | 'tour_bay'
+  | 'tour_island'
+  | 'tour_sunset'
+  | 'programs_video'
+  | 'discovery_hero'
+  | 'team_hero'
+  | 'careers_hero'
+  | 'contact_feature';
+
+export interface SiteMedia {
+  id: number;
+  title: string;
+  alt_text: string | null;
+  caption: string | null;
+  placement: SiteMediaPlacement;
+  media_type: SiteMediaType;
+  external_url: string | null;
+  file_url: string | null;
+  poster_url: string | null;
+  sort_order: number;
+  active: boolean;
+  featured: boolean;
+  metadata: Record<string, unknown>;
+  uploaded_by_id?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SiteMediaInput {
+  title: string;
+  alt_text?: string;
+  caption?: string;
+  placement: SiteMediaPlacement;
+  media_type: SiteMediaType;
+  external_url?: string;
+  sort_order?: number;
+  active?: boolean;
+  featured?: boolean;
+  file?: File | null;
+  poster?: File | null;
+}
+
+function siteMediaFormData(input: SiteMediaInput) {
+  const formData = new FormData();
+  formData.append('title', input.title);
+  formData.append('placement', input.placement);
+  formData.append('media_type', input.media_type);
+  formData.append('alt_text', input.alt_text || '');
+  formData.append('caption', input.caption || '');
+  formData.append('external_url', input.external_url || '');
+  formData.append('sort_order', String(input.sort_order ?? 0));
+  formData.append('active', String(input.active ?? true));
+  formData.append('featured', String(input.featured ?? false));
+  if (input.file) formData.append('file', input.file);
+  if (input.poster) formData.append('poster', input.poster);
+  return formData;
 }
 
 export interface PublicTeamMember {
@@ -608,6 +732,13 @@ export const api = {
   getPublicTeamMembers: () =>
     fetchApiPublic<{ team_members: PublicTeamMember[] }>('/api/v1/team_members'),
 
+  getPublicSiteMedia: (placements?: SiteMediaPlacement[]) => {
+    const query = placements && placements.length > 0
+      ? `?placements=${encodeURIComponent(placements.join(','))}`
+      : '';
+    return fetchApiPublic<{ site_media: SiteMedia[]; by_placement: Partial<Record<SiteMediaPlacement, SiteMedia[]>> }>(`/api/v1/site-media${query}`);
+  },
+
   submitContact: (data: { name: string; email: string; phone?: string; subject: string; message: string }) =>
     fetchApiPublic<{ success: boolean; message: string }>('/api/v1/contact', {
       method: 'POST',
@@ -936,6 +1067,20 @@ export const api = {
     fetchApi<ContactSettings & { message: string }>('/api/v1/admin/contact_settings', {
       method: 'PATCH',
       body: JSON.stringify(settings),
+    }),
+
+  getAdminSiteMedia: () =>
+    fetchApi<{ site_media: SiteMedia[] }>('/api/v1/admin/site-media'),
+
+  createSiteMedia: (input: SiteMediaInput) =>
+    fetchApiUpload<{ site_media: SiteMedia }>('/api/v1/admin/site-media', siteMediaFormData(input)),
+
+  updateSiteMedia: (id: number, input: SiteMediaInput) =>
+    fetchApiUpload<{ site_media: SiteMedia }>(`/api/v1/admin/site-media/${id}`, siteMediaFormData(input), { method: 'PATCH' }),
+
+  deleteSiteMedia: (id: number) =>
+    fetchApi<void>(`/api/v1/admin/site-media/${id}`, {
+      method: 'DELETE',
     }),
 
   createTimeCategory: (data: AdminTimeCategoryInput) =>

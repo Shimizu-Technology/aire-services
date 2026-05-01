@@ -1,5 +1,8 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import SiteMediaFrame from '../../components/site/SiteMediaFrame'
+import type { SiteMediaPlacement } from '../../lib/api'
+import { useSiteMedia } from '../../lib/siteMedia'
 
 const trainingHighlights = [
   'Private Pilot Certificate training is the foundation of the AIRE flight-training program.',
@@ -50,22 +53,48 @@ const notes = [
   'AIRE Services may exclude footage that could affect U.S. national security or the privacy of individuals who have not granted permission.',
 ]
 
+const programsMediaPlacements: SiteMediaPlacement[] = ['programs_hero', 'programs_training', 'tour_bay', 'tour_island', 'tour_sunset', 'programs_video']
+
 export default function AirePrograms() {
   useEffect(() => { document.title = 'Programs & Services | AIRE Services Guam' }, [])
+  const { firstFor } = useSiteMedia(programsMediaPlacements)
+  const tourMedia = {
+    'Bay Tour': firstFor('tour_bay'),
+    'Island Tour': firstFor('tour_island'),
+    'Sunset Tour': firstFor('tour_sunset'),
+  }
 
   return (
     <div className="bg-white py-14 md:py-20">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-        <div className="max-w-3xl">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Programs & Services</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Pilot training, scenic tours, and video packages</h1>
-          <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-            Explore AIRE's flight training, scenic aerial tours, and add-on media packages. Reach out for scheduling, local and military rates, or discovery flight questions.
-          </p>
+        <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Programs & Services</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Pilot training, scenic tours, and video packages</h1>
+            <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
+              Explore AIRE's flight training, scenic aerial tours, and add-on media packages. Reach out for scheduling, local and military rates, or discovery flight questions.
+            </p>
+          </div>
+          <SiteMediaFrame
+            media={firstFor('programs_hero')}
+            fallbackSrc="/assets/aire/hero.jpg"
+            fallbackAlt="AIRE Services scenic Guam flight"
+            className="aspect-[16/10] rounded-[2rem] shadow-sm"
+            mediaClassName="h-full w-full object-cover"
+          />
         </div>
 
         <section className="mt-10 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="rounded-[2rem] border border-slate-200 bg-slate-50/70 p-7">
+          <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70">
+            {firstFor('programs_training') && (
+              <SiteMediaFrame
+                media={firstFor('programs_training')}
+                fallbackAlt="Private pilot training with AIRE Services Guam"
+                className="aspect-[16/9]"
+                mediaClassName="h-full w-full object-cover"
+              />
+            )}
+            <div className="p-7">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Pilot Training</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">Private Pilot Certificate training</h2>
             <div className="mt-6 space-y-3 text-sm leading-relaxed text-slate-600">
@@ -78,6 +107,7 @@ export default function AirePrograms() {
             </div>
             <div className="mt-6 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 text-sm leading-relaxed text-slate-700">
               Interested in a first flight before committing to training? Ask about a discovery flight.
+            </div>
             </div>
           </div>
 
@@ -111,56 +141,76 @@ export default function AirePrograms() {
 
           <div className="mt-8 grid gap-5 lg:grid-cols-3">
             {tours.map((tour) => (
-              <div key={tour.title} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tour.title}</p>
-                    <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{tour.price}</h3>
-                  </div>
-                  <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
-                    {tour.duration}
-                  </div>
-                </div>
-                <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
-                  {tour.details.map((item) => (
-                    <div key={item} className="flex gap-3">
-                      <span className="mt-1 text-cyan-700">•</span>
-                      <span>{item}</span>
+              <div key={tour.title} className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+                {tourMedia[tour.title as keyof typeof tourMedia] && (
+                  <SiteMediaFrame
+                    media={tourMedia[tour.title as keyof typeof tourMedia]}
+                    fallbackAlt={`${tour.title} route over Guam`}
+                    className="aspect-[16/10]"
+                    mediaClassName="h-full w-full object-cover"
+                  />
+                )}
+                <div className="p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tour.title}</p>
+                      <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{tour.price}</h3>
                     </div>
-                  ))}
+                    <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+                      {tour.duration}
+                    </div>
+                  </div>
+                  <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
+                    {tour.details.map((item) => (
+                      <div key={item} className="flex gap-3">
+                        <span className="mt-1 text-cyan-700">•</span>
+                        <span>{item}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="mt-12 rounded-[2rem] border border-slate-200 bg-slate-50/70 p-7">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Video Packages</p>
-            <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Standard and all-inclusive add-ons</h2>
-          </div>
-
-          <div className="mt-8 grid gap-5 lg:grid-cols-2">
-            {videoPackages.map((tier) => (
-              <div key={tier.title} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tier.title}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {tier.prices.map((price) => (
-                    <span key={price} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-700">
-                      {price}
-                    </span>
-                  ))}
+        <section className="mt-12 overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70">
+          {firstFor('programs_video') && (
+            <SiteMediaFrame
+              media={firstFor('programs_video')}
+              fallbackAlt="AIRE video package sample"
+              className="aspect-video max-h-[32rem]"
+              mediaClassName="h-full w-full object-cover"
+              controls
+            />
+          )}
+          <div className="p-7">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Video Packages</p>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Standard and all-inclusive add-ons</h2>
+            </div>
+            <div className="mt-8 grid gap-5 lg:grid-cols-2">
+              {videoPackages.map((tier) => (
+                <div key={tier.title} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tier.title}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {tier.prices.map((price) => (
+                      <span key={price} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-700">
+                        {price}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
+                    {tier.features.map((feature) => (
+                      <div key={feature} className="flex gap-3">
+                        <span className="mt-1 text-cyan-700">•</span>
+                        <span>{feature}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
-                  {tier.features.map((feature) => (
-                    <div key={feature} className="flex gap-3">
-                      <span className="mt-1 text-cyan-700">•</span>
-                      <span>{feature}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </section>
 

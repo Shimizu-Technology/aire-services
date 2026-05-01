@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
+import SiteMediaFrame from '../../components/site/SiteMediaFrame'
+import { useSiteMedia } from '../../lib/siteMedia'
+import type { SiteMediaPlacement } from '../../lib/api'
 
 const responsibilities = [
   'Safely transport customers between designated locations in the Tumon Bay area and AIRE\'s main office in Barrigada.',
@@ -17,6 +20,8 @@ const requirements = [
 
 export default function AireCareers() {
   useEffect(() => { document.title = 'Careers | AIRE Services Guam' }, [])
+  const placements: SiteMediaPlacement[] = ['careers_hero']
+  const { firstFor } = useSiteMedia(placements)
   return (
     <>
       <Seo
@@ -27,7 +32,14 @@ export default function AireCareers() {
       <div className="bg-white">
       <section className="relative overflow-hidden bg-slate-950 py-16 text-white md:py-24">
         <div className="absolute inset-0">
-          <img src="/assets/aire/careers.jpg" alt="AIRE Services hiring" className="h-full w-full object-cover opacity-30" />
+          <SiteMediaFrame
+            media={firstFor('careers_hero')}
+            fallbackSrc="/assets/aire/careers.jpg"
+            fallbackAlt="AIRE Services hiring"
+            hero
+            className="h-full w-full"
+            mediaClassName="h-full w-full object-cover opacity-35"
+          />
           <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(2,6,23,0.94),rgba(2,6,23,0.82),rgba(8,145,178,0.25))]" />
         </div>
         <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">

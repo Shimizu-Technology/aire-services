@@ -3,6 +3,8 @@
 require "rails_helper"
 
 RSpec.describe "Api::V1::TimeEntries", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:admin) { create(:user, :admin) }
   let(:employee) { create(:user, :employee, first_name: "Alice", last_name: "Smith") }
   let(:other_employee) { create(:user, :employee, first_name: "Bob", last_name: "Jones") }
@@ -115,6 +117,101 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:ok)
         expect(json.dig(:time_entry, :description)).to eq("admin edit")
+      end
+
+      it "syncs corrected active clock-in time with the live clock state" do
+        guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+        work_date = Date.new(2026, 4, 30)
+
+        travel_to guam.local(2026, 4, 30, 10, 0, 0) do
+          active_entry = create(
+            :time_entry,
+            user: employee,
+            work_date: work_date,
+            entry_method: "clock",
+            status: "clocked_in",
+            start_time: guam.local(2026, 4, 30, 9, 30, 0),
+            end_time: nil,
+            clock_in_at: guam.local(2026, 4, 30, 9, 30, 0),
+            clock_out_at: nil,
+            hours: 0
+          )
+
+          patch "/api/v1/time_entries/#{active_entry.id}",
+                params: { time_entry: { work_date: work_date.iso8601, start_time: "08:15", end_time: "17:00" } },
+                headers: auth_headers_for[admin]
+
+          expect(response).to have_http_status(:ok)
+          active_entry.reload
+          expect(active_entry.status).to eq("clocked_in")
+          expect(active_entry.end_time).to be_nil
+          expect(active_entry.clock_out_at).to be_nil
+          expect(active_entry.start_time.in_time_zone(guam).strftime("%H:%M")).to eq("08:15")
+          expect(active_entry.clock_in_at.in_time_zone(guam).strftime("%H:%M")).to eq("08:15")
+          expect(json.dig(:time_entry, :clock_in_at)).to be_present
+        end
+      end
+
+      it "syncs corrected completed clock times with clock timestamps" do
+        guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+        work_date = Date.new(2026, 4, 29)
+        completed_entry = create(
+          :time_entry,
+          user: employee,
+          work_date: work_date,
+          entry_method: "clock",
+          status: "completed",
+          start_time: guam.local(2026, 4, 29, 9, 0, 0),
+          end_time: guam.local(2026, 4, 29, 17, 0, 0),
+          clock_in_at: guam.local(2026, 4, 29, 9, 0, 0),
+          clock_out_at: guam.local(2026, 4, 29, 17, 0, 0),
+          hours: 8
+        )
+
+        travel_to guam.local(2026, 4, 30, 10, 0, 0) do
+          patch "/api/v1/time_entries/#{completed_entry.id}",
+                params: { time_entry: { work_date: work_date.iso8601, start_time: "08:00", end_time: "16:30" } },
+                headers: auth_headers_for[admin]
+        end
+
+        expect(response).to have_http_status(:ok)
+        completed_entry.reload
+        expect(completed_entry.hours.to_f).to eq(8.5)
+        expect(completed_entry.start_time.in_time_zone(guam).strftime("%H:%M")).to eq("08:00")
+        expect(completed_entry.clock_in_at.in_time_zone(guam).strftime("%H:%M")).to eq("08:00")
+        expect(completed_entry.end_time.in_time_zone(guam).strftime("%H:%M")).to eq("16:30")
+        expect(completed_entry.clock_out_at.in_time_zone(guam).strftime("%H:%M")).to eq("16:30")
+      end
+
+      it "uses the incoming start time when normalizing a completed overnight clock-out edit" do
+        guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+        work_date = Date.new(2026, 4, 29)
+        overnight_entry = create(
+          :time_entry,
+          user: employee,
+          work_date: work_date,
+          entry_method: "clock",
+          status: "completed",
+          start_time: guam.local(2026, 4, 29, 22, 0, 0),
+          end_time: guam.local(2026, 4, 30, 2, 0, 0),
+          clock_in_at: guam.local(2026, 4, 29, 22, 0, 0),
+          clock_out_at: guam.local(2026, 4, 30, 2, 0, 0),
+          hours: 4
+        )
+
+        travel_to guam.local(2026, 4, 30, 10, 0, 0) do
+          patch "/api/v1/time_entries/#{overnight_entry.id}",
+                params: { time_entry: { work_date: work_date.iso8601, start_time: "23:00", end_time: "01:30" } },
+                headers: auth_headers_for[admin]
+        end
+
+        expect(response).to have_http_status(:ok)
+        overnight_entry.reload
+        expect(overnight_entry.start_time.in_time_zone(guam).strftime("%H:%M")).to eq("23:00")
+        expect(overnight_entry.end_time.in_time_zone(guam).strftime("%H:%M")).to eq("01:30")
+        expect(overnight_entry.clock_in_at.in_time_zone(guam).strftime("%Y-%m-%d %H:%M")).to eq("2026-04-29 23:00")
+        expect(overnight_entry.clock_out_at.in_time_zone(guam).strftime("%Y-%m-%d %H:%M")).to eq("2026-04-30 01:30")
+        expect(overnight_entry.hours.to_f).to eq(2.5)
       end
     end
 

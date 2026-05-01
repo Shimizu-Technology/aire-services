@@ -89,6 +89,17 @@ const adminNavigation = [
     ),
   },
   {
+    name: 'Media',
+    href: '/admin/media',
+    icon: (
+      <NavIcon>
+        <rect x="4" y="5" width="16" height="14" rx="2.5" strokeWidth={1.8} />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="m7.5 15 3.1-3.1a1.2 1.2 0 0 1 1.7 0L16.5 16" />
+        <circle cx="16" cy="9" r="1.3" strokeWidth={1.8} />
+      </NavIcon>
+    ),
+  },
+  {
     name: 'Settings',
     href: '/admin/settings',
     icon: (
@@ -127,7 +138,7 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.08),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#f3f4f6_100%)]">
       <div className="border-b border-slate-200/90 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-16 w-full max-w-[104rem] items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button onClick={() => setMobileOpen((v) => !v)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Toggle sidebar" aria-expanded={mobileOpen}>
               <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={mobileOpen ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'} /></svg>
@@ -160,7 +171,7 @@ export default function AdminLayout() {
         </div>
       </div>
 
-      <div className="mx-auto flex max-w-7xl">
+      <div className="mx-auto flex w-full max-w-[104rem]">
         {/* Backdrop overlay for mobile */}
         {mobileOpen && (
           <div

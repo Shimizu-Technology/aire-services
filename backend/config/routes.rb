@@ -14,6 +14,7 @@ Rails.application.routes.draw do
       post "contact", to: "contact#create"
       resource :contact_settings, only: [ :show ]
       resources :team_members, only: [ :index ]
+      resources :site_media, only: [ :index ], path: "site-media"
 
       # Public kiosk endpoints
       namespace :aire do
@@ -77,6 +78,7 @@ Rails.application.routes.draw do
           end
         end
         resource :contact_settings, only: [ :show, :update ], controller: "contact_settings"
+        resources :site_media, path: "site-media"
         get "settings", to: "settings#index"
         patch "settings", to: "settings#update"
         resources :time_categories, only: [ :index, :show, :create, :update, :destroy ]
