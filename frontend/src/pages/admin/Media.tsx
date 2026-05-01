@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type SiteMedia, type SiteMediaInput, type SiteMediaPlacement, type SiteMediaType } from '../../lib/api'
-import { SITE_MEDIA_PLACEMENTS } from '../../lib/siteMedia'
+import { SITE_MEDIA_PLACEMENT_GROUPS, SITE_MEDIA_PLACEMENTS } from '../../lib/siteMedia'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
@@ -18,6 +18,12 @@ const emptyForm = {
 
 const imageAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
 const videoAccept = 'video/mp4,video/webm,video/quicktime'
+
+const placementMap = new Map(SITE_MEDIA_PLACEMENTS.map((placement) => [placement.key, placement]))
+const groupedPlacements = SITE_MEDIA_PLACEMENT_GROUPS.map((group) => ({
+  group,
+  placements: SITE_MEDIA_PLACEMENTS.filter((placement) => placement.group === group),
+}))
 
 export default function Media() {
   useEffect(() => { document.title = 'Media | AIRE Ops' }, [])
@@ -75,8 +81,17 @@ export default function Media() {
     }, {})
   }, [items])
 
-  const selectedPlacement = SITE_MEDIA_PLACEMENTS.find((item) => item.key === form.placement)
+  const selectedPlacement = placementMap.get(form.placement)
   const currentPreview: SiteMedia | null = editing || null
+
+  const handlePlacementChange = (placement: SiteMediaPlacement) => {
+    const guide = placementMap.get(placement)
+    setForm((draft) => ({
+      ...draft,
+      placement,
+      media_type: guide?.preferredType === 'either' || !guide ? draft.media_type : guide.preferredType,
+    }))
+  }
 
   const resetForm = () => {
     setEditing(null)
@@ -178,7 +193,7 @@ export default function Media() {
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Site Media</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Photos and videos</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
-              Upload real AIRE photos, short hero clips, video posters, and linked reels for the public site.
+              Choose a public-site spot, then upload the photo, clip, poster, or linked reel that should appear there.
             </p>
           </div>
           <button
@@ -189,6 +204,41 @@ export default function Media() {
             New media
           </button>
         </div>
+
+        <section className="rounded-3xl border border-cyan-100 bg-cyan-50/50 p-5 shadow-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-base font-semibold tracking-tight text-slate-900">Placement guide</h2>
+              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-600">
+                These are the editable public-site image and video spots. Shared tour and video placements update every page listed under "Appears on."
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {groupedPlacements.map(({ group, placements }) => (
+              <div key={group} className="rounded-2xl border border-cyan-100 bg-white/80 p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{group}</div>
+                <div className="mt-3 space-y-2">
+                  {placements.map((placement) => (
+                    <button
+                      key={placement.key}
+                      type="button"
+                      onClick={() => handlePlacementChange(placement.key)}
+                      className={`block w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
+                        form.placement === placement.key
+                          ? 'border-cyan-300 bg-cyan-50 text-cyan-950'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/60'
+                      }`}
+                    >
+                      <span className="block font-semibold">{placement.shortLabel}</span>
+                      <span className="mt-0.5 block text-xs text-slate-500">{placement.appearsOn.join(', ')}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
 
         <div className="grid gap-6 xl:grid-cols-[0.88fr_1.12fr]">
           <form ref={formRef} onSubmit={handleSave} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -202,17 +252,55 @@ export default function Media() {
 
             <div className="mt-6 grid gap-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Placement</label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Public site placement</label>
                 <select
                   value={form.placement}
-                  onChange={(event) => setForm((draft) => ({ ...draft, placement: event.target.value as SiteMediaPlacement }))}
+                  onChange={(event) => handlePlacementChange(event.target.value as SiteMediaPlacement)}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                 >
-                  {SITE_MEDIA_PLACEMENTS.map((placement) => (
-                    <option key={placement.key} value={placement.key}>{placement.label}</option>
+                  {groupedPlacements.map(({ group, placements }) => (
+                    <optgroup key={group} label={group}>
+                      {placements.map((placement) => (
+                        <option key={placement.key} value={placement.key}>{placement.label}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>
+
+              {selectedPlacement && (
+                <div className="rounded-2xl border border-cyan-100 bg-cyan-50/70 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{selectedPlacement.group}</p>
+                      <h3 className="mt-1 text-base font-semibold text-slate-950">{selectedPlacement.shortLabel}</h3>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-700">{selectedPlacement.section}</p>
+                    </div>
+                    <a
+                      href={selectedPlacement.pageHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 rounded-xl border border-cyan-200 bg-white px-3 py-2 text-center text-xs font-semibold text-cyan-800 transition hover:bg-cyan-50"
+                    >
+                      View page
+                    </a>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-white/70 bg-white/70 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Appears on</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {selectedPlacement.appearsOn.map((location) => (
+                          <span key={location} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{location}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-white/70 bg-white/70 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Recommended media</div>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-700">{selectedPlacement.recommended}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -365,8 +453,12 @@ export default function Media() {
                 className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
               >
                 <option value="all">All placements</option>
-                {SITE_MEDIA_PLACEMENTS.map((placement) => (
-                  <option key={placement.key} value={placement.key}>{placement.label} ({placementCounts[placement.key] || 0})</option>
+                {groupedPlacements.map(({ group, placements }) => (
+                  <optgroup key={group} label={group}>
+                    {placements.map((placement) => (
+                      <option key={placement.key} value={placement.key}>{placement.label} ({placementCounts[placement.key] || 0})</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
@@ -382,7 +474,7 @@ export default function Media() {
             ) : (
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 {visibleItems.map((item) => {
-                  const placement = SITE_MEDIA_PLACEMENTS.find((entry) => entry.key === item.placement)
+                  const placement = placementMap.get(item.placement)
                   return (
                     <article key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                       <SiteMediaFrame media={item} fallbackAlt={item.alt_text || item.title} className="aspect-video" />
@@ -390,12 +482,19 @@ export default function Media() {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <h3 className="font-semibold text-slate-900">{item.title}</h3>
-                            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{placement?.label || item.placement}</p>
+                            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{placement?.group || 'Site placement'}</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-700">{placement?.shortLabel || item.placement}</p>
                           </div>
                           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
                             {item.active ? 'Active' : 'Hidden'}
                           </span>
                         </div>
+                        {placement && (
+                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Appears on</div>
+                            <p className="mt-1 text-xs leading-relaxed text-slate-600">{placement.appearsOn.join(', ')}</p>
+                          </div>
+                        )}
                         {item.caption && <p className="mt-3 text-sm leading-relaxed text-slate-600">{item.caption}</p>}
                         <div className="mt-4 flex flex-wrap gap-2">
                           <button onClick={() => loadEdit(item)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
