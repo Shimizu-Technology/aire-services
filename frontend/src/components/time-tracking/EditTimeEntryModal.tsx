@@ -17,6 +17,10 @@ interface EditableTimeEntry {
   approval_status?: 'pending' | 'approved' | 'denied' | null
   approval_note?: string | null
   approved_by?: { id: number; full_name: string } | null
+  entry_method?: 'clock' | 'manual'
+  status?: 'clocked_in' | 'on_break' | 'completed'
+  clock_in_at?: string | null
+  clock_out_at?: string | null
   locked_at: string | null
   user: {
     id: number
@@ -103,6 +107,7 @@ export default function EditTimeEntryModal({
 
   const ownerName = entry?.user.full_name || entry?.user.display_name || entry?.user.email.split('@')[0] || ''
   const isLocked = !!entry?.locked_at
+  const isActiveClockEntry = entry?.entry_method === 'clock' && (entry.status === 'clocked_in' || entry.status === 'on_break')
 
   const setLocalError = (message: string | null) => {
     setError(message)
@@ -116,14 +121,15 @@ export default function EditTimeEntryModal({
     setLocalError(null)
 
     try {
-      const response = await api.updateTimeEntry(entry.id, {
+      const payload = {
         work_date: formData.work_date,
         start_time: formData.start_time,
-        end_time: formData.end_time,
         description: formData.description || undefined,
         time_category_id: formData.time_category_id ? parseInt(formData.time_category_id, 10) : undefined,
-        break_minutes: formData.break_minutes,
-      })
+        ...(isActiveClockEntry ? {} : { end_time: formData.end_time, break_minutes: formData.break_minutes }),
+      }
+
+      const response = await api.updateTimeEntry(entry.id, payload)
 
       if (response.error) {
         setLocalError(response.error)
@@ -207,6 +213,11 @@ export default function EditTimeEntryModal({
                     )}
                   </div>
                 )}
+                {isActiveClockEntry && (
+                  <div className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-800">
+                    This person is still clocked in. Updating the start time corrects their live clock-in time; clock-out and final hours are calculated when they clock out.
+                  </div>
+                )}
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -222,9 +233,9 @@ export default function EditTimeEntryModal({
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className={`grid gap-4 ${isActiveClockEntry ? 'grid-cols-1' : 'grid-cols-2'}`}>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-primary-dark">Start Time *</label>
+                    <label className="mb-1 block text-sm font-medium text-primary-dark">{isActiveClockEntry ? 'Clock-in Time *' : 'Start Time *'}</label>
                     <input
                       type="time"
                       value={formData.start_time}
@@ -233,68 +244,78 @@ export default function EditTimeEntryModal({
                       required
                     />
                   </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-primary-dark">End Time *</label>
-                    <input
-                      type="time"
-                      value={formData.end_time}
-                      onChange={(event) => setFormData({ ...formData, end_time: event.target.value })}
-                      className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between rounded-lg bg-neutral-warm/30 p-3">
-                  <span className="text-sm text-primary-dark">Calculated Hours:</span>
-                  <span className="text-lg font-bold text-primary">{calculatedHours.toFixed(2)}h</span>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-primary-dark">Break Duration</label>
-                  <div className="mb-2 flex flex-wrap gap-2">
-                    {BREAK_PRESETS.map((preset) => (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => {
-                          if (preset.minutes === -1) {
-                            setFormData({ ...formData, break_minutes: formData.break_minutes || 0 })
-                          } else {
-                            setFormData({ ...formData, break_minutes: preset.minutes })
-                          }
-                        }}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                          (preset.minutes === null && formData.break_minutes === null) ||
-                          (preset.minutes === formData.break_minutes) ||
-                          (preset.minutes === -1 &&
-                            formData.break_minutes !== null &&
-                            !BREAK_PRESETS.slice(0, -1).some((item) => item.minutes === formData.break_minutes))
-                            ? 'bg-primary text-white'
-                            : 'bg-neutral-warm text-primary-dark hover:bg-primary/20'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                  {formData.break_minutes !== null &&
-                    !BREAK_PRESETS.slice(0, -1).some((preset) => preset.minutes === formData.break_minutes) && (
+                  {!isActiveClockEntry && (
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-primary-dark">End Time *</label>
                       <input
-                        type="number"
-                        min="0"
-                        max="480"
-                        value={formData.break_minutes || ''}
-                        onChange={(event) => setFormData({
-                          ...formData,
-                          break_minutes: event.target.value ? parseInt(event.target.value, 10) : null,
-                        })}
-                        placeholder="Minutes"
+                        type="time"
+                        value={formData.end_time}
+                        onChange={(event) => setFormData({ ...formData, end_time: event.target.value })}
                         className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                        required
                       />
-                    )}
-                  <p className="mt-1 text-xs text-text-muted">Break time is not counted toward work hours</p>
+                    </div>
+                  )}
                 </div>
+
+                {isActiveClockEntry ? (
+                  <div className="rounded-lg bg-neutral-warm/30 p-3 text-sm text-primary-dark">
+                    Final hours will be calculated after clock-out.
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between rounded-lg bg-neutral-warm/30 p-3">
+                    <span className="text-sm text-primary-dark">Calculated Hours:</span>
+                    <span className="text-lg font-bold text-primary">{calculatedHours.toFixed(2)}h</span>
+                  </div>
+                )}
+
+                {!isActiveClockEntry && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-primary-dark">Break Duration</label>
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {BREAK_PRESETS.map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => {
+                            if (preset.minutes === -1) {
+                              setFormData({ ...formData, break_minutes: formData.break_minutes || 0 })
+                            } else {
+                              setFormData({ ...formData, break_minutes: preset.minutes })
+                            }
+                          }}
+                          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                            (preset.minutes === null && formData.break_minutes === null) ||
+                            (preset.minutes === formData.break_minutes) ||
+                            (preset.minutes === -1 &&
+                              formData.break_minutes !== null &&
+                              !BREAK_PRESETS.slice(0, -1).some((item) => item.minutes === formData.break_minutes))
+                              ? 'bg-primary text-white'
+                              : 'bg-neutral-warm text-primary-dark hover:bg-primary/20'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                    {formData.break_minutes !== null &&
+                      !BREAK_PRESETS.slice(0, -1).some((preset) => preset.minutes === formData.break_minutes) && (
+                        <input
+                          type="number"
+                          min="0"
+                          max="480"
+                          value={formData.break_minutes || ''}
+                          onChange={(event) => setFormData({
+                            ...formData,
+                            break_minutes: event.target.value ? parseInt(event.target.value, 10) : null,
+                          })}
+                          placeholder="Minutes"
+                          className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      )}
+                    <p className="mt-1 text-xs text-text-muted">Break time is not counted toward work hours</p>
+                  </div>
+                )}
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-primary-dark">Category</label>

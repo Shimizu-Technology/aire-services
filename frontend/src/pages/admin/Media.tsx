@@ -153,8 +153,9 @@ export default function Media() {
       return
     }
 
-    setMessage(editing ? 'Media updated.' : 'Media uploaded.')
+    const successMessage = editing ? 'Media updated.' : 'Media uploaded.'
     resetForm()
+    setMessage(successMessage)
     await loadMedia()
     setSaving(false)
   }
