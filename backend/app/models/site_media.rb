@@ -7,7 +7,6 @@ class SiteMedia < ApplicationRecord
     home_training
     home_tours
     home_video
-    home_gallery
     programs_hero
     programs_training
     tour_bay

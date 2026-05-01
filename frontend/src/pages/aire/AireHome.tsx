@@ -196,13 +196,14 @@ export default function AireHome() {
                 to={pillar.href}
                 className="group overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-50/70 transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-50/40"
               >
-                <SiteMediaFrame
-                  media={pillarMedia[pillar.title]}
-                  fallbackSrc="/assets/aire/hero.jpg"
-                  fallbackAlt={pillar.title}
-                  className="aspect-[4/3]"
-                  mediaClassName="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                />
+                {pillarMedia[pillar.title] && (
+                  <SiteMediaFrame
+                    media={pillarMedia[pillar.title]}
+                    fallbackAlt={pillar.title}
+                    className="aspect-[4/3]"
+                    mediaClassName="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                  />
+                )}
                 <div className="p-6">
                   <h3 className="text-lg font-semibold tracking-tight text-slate-900">{pillar.title}</h3>
                   <p className="mt-3 text-sm leading-relaxed text-slate-600">{pillar.description}</p>
@@ -224,13 +225,14 @@ export default function AireHome() {
           <div className="mt-10 grid gap-5 lg:grid-cols-3">
             {tours.map((tour) => (
               <div key={tour.title} className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
-                <SiteMediaFrame
-                  media={tourMedia[tour.title]}
-                  fallbackSrc="/assets/aire/hero.jpg"
-                  fallbackAlt={`${tour.title} aerial route`}
-                  className="aspect-[16/10]"
-                  mediaClassName="h-full w-full object-cover"
-                />
+                {tourMedia[tour.title] && (
+                  <SiteMediaFrame
+                    media={tourMedia[tour.title]}
+                    fallbackAlt={`${tour.title} aerial route`}
+                    className="aspect-[16/10]"
+                    mediaClassName="h-full w-full object-cover"
+                  />
+                )}
                 <div className="p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -257,13 +259,14 @@ export default function AireHome() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
             <div className="overflow-hidden rounded-[2rem] bg-slate-950 text-white">
-              <SiteMediaFrame
-                media={firstFor('programs_video')}
-                fallbackSrc="/assets/aire/hero.jpg"
-                fallbackAlt="AIRE aerial video package sample"
-                className="aspect-video"
-                controls
-              />
+              {firstFor('programs_video') && (
+                <SiteMediaFrame
+                  media={firstFor('programs_video')}
+                  fallbackAlt="AIRE aerial video package sample"
+                  className="aspect-video"
+                  controls
+                />
+              )}
               <div className="p-8">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Video Packages</p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight">Add edited content that matches the experience.</h2>

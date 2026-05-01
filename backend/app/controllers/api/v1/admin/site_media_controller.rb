@@ -9,6 +9,7 @@ module Api
         before_action :authenticate_user!
         before_action :require_admin!
         before_action :set_site_media, only: [ :show, :update, :destroy ]
+        rescue_from MediaUploadValidation::InvalidMediaUpload, with: :invalid_media_upload
 
         def index
           media = SiteMedia.ordered.with_attached_file.with_attached_poster
@@ -103,6 +104,10 @@ module Api
 
         def purge_replaced_blobs(blobs)
           blobs.compact.uniq.each(&:purge_later)
+        end
+
+        def invalid_media_upload(exception)
+          render json: { error: exception.message, errors: exception.messages }, status: :unprocessable_entity
         end
 
         def serialize_site_media(item)

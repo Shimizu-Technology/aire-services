@@ -86,13 +86,14 @@ export default function AirePrograms() {
 
         <section className="mt-10 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70">
-            <SiteMediaFrame
-              media={firstFor('programs_training')}
-              fallbackSrc="/assets/aire/hero.jpg"
-              fallbackAlt="Private pilot training with AIRE Services Guam"
-              className="aspect-[16/9]"
-              mediaClassName="h-full w-full object-cover"
-            />
+            {firstFor('programs_training') && (
+              <SiteMediaFrame
+                media={firstFor('programs_training')}
+                fallbackAlt="Private pilot training with AIRE Services Guam"
+                className="aspect-[16/9]"
+                mediaClassName="h-full w-full object-cover"
+              />
+            )}
             <div className="p-7">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Pilot Training</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">Private Pilot Certificate training</h2>
@@ -141,13 +142,14 @@ export default function AirePrograms() {
           <div className="mt-8 grid gap-5 lg:grid-cols-3">
             {tours.map((tour) => (
               <div key={tour.title} className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
-                <SiteMediaFrame
-                  media={tourMedia[tour.title as keyof typeof tourMedia]}
-                  fallbackSrc="/assets/aire/hero.jpg"
-                  fallbackAlt={`${tour.title} route over Guam`}
-                  className="aspect-[16/10]"
-                  mediaClassName="h-full w-full object-cover"
-                />
+                {tourMedia[tour.title as keyof typeof tourMedia] && (
+                  <SiteMediaFrame
+                    media={tourMedia[tour.title as keyof typeof tourMedia]}
+                    fallbackAlt={`${tour.title} route over Guam`}
+                    className="aspect-[16/10]"
+                    mediaClassName="h-full w-full object-cover"
+                  />
+                )}
                 <div className="p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -173,14 +175,15 @@ export default function AirePrograms() {
         </section>
 
         <section className="mt-12 overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70">
-          <SiteMediaFrame
-            media={firstFor('programs_video')}
-            fallbackSrc="/assets/aire/hero.jpg"
-            fallbackAlt="AIRE video package sample"
-            className="aspect-video max-h-[32rem]"
-            mediaClassName="h-full w-full object-cover"
-            controls
-          />
+          {firstFor('programs_video') && (
+            <SiteMediaFrame
+              media={firstFor('programs_video')}
+              fallbackAlt="AIRE video package sample"
+              className="aspect-video max-h-[32rem]"
+              mediaClassName="h-full w-full object-cover"
+              controls
+            />
+          )}
           <div className="p-7">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Video Packages</p>

@@ -40,24 +40,25 @@ export default function Media() {
   const [placementFilter, setPlacementFilter] = useState<SiteMediaPlacement | 'all'>('all')
   const formRef = useRef<HTMLFormElement>(null)
 
-  const loadMedia = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true)
-    const response = await api.getAdminSiteMedia()
+  const handleMediaResponse = useCallback((response: Awaited<ReturnType<typeof api.getAdminSiteMedia>>) => {
     if (response.error) setError(response.error)
     else setItems(response.data?.site_media || [])
     setLoading(false)
   }, [])
 
+  const loadMedia = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
+    const response = await api.getAdminSiteMedia()
+    handleMediaResponse(response)
+  }, [handleMediaResponse])
+
   useEffect(() => {
     let cancelled = false
     api.getAdminSiteMedia().then((response) => {
-      if (cancelled) return
-      if (response.error) setError(response.error)
-      else setItems(response.data?.site_media || [])
-      setLoading(false)
+      if (!cancelled) handleMediaResponse(response)
     })
     return () => { cancelled = true }
-  }, [])
+  }, [handleMediaResponse])
 
   const filePreviewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
   const posterPreviewUrl = useMemo(() => (poster ? URL.createObjectURL(poster) : null), [poster])

@@ -50,13 +50,14 @@ export default function AireTeam() {
           </p>
         </div>
 
-        <SiteMediaFrame
-          media={firstFor('team_hero')}
-          fallbackSrc="/assets/aire/hero.jpg"
-          fallbackAlt="AIRE Services Guam flight training team"
-          className="mt-10 aspect-[16/7] rounded-[2rem] shadow-sm"
-          mediaClassName="h-full w-full object-cover"
-        />
+        {firstFor('team_hero') && (
+          <SiteMediaFrame
+            media={firstFor('team_hero')}
+            fallbackAlt="AIRE Services Guam flight training team"
+            className="mt-10 aspect-[16/7] rounded-[2rem] shadow-sm"
+            mediaClassName="h-full w-full object-cover"
+          />
+        )}
 
         <div className="mt-10 grid gap-6 lg:grid-cols-[1fr_0.9fr] lg:items-start">
           <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-7">

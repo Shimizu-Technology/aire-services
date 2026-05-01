@@ -11,12 +11,21 @@ module MediaUploadValidation
   MAX_IMAGE_SIZE = 15.megabytes
   MAX_VIDEO_SIZE = 250.megabytes
 
+  class InvalidMediaUpload < StandardError
+    attr_reader :messages
+
+    def initialize(message)
+      @messages = [ message ]
+      super(message)
+    end
+  end
+
   private
 
   def validate_media_upload!(upload, media_type:, attachment_name: :file)
     return if upload.blank?
     unless upload.respond_to?(:tempfile)
-      raise ActiveRecord::RecordInvalid.new(invalid_upload_record("#{attachment_name} is not a valid upload"))
+      raise InvalidMediaUpload, "#{attachment_name} is not a valid upload"
     end
 
     allowed_types = attachment_name.to_sym == :poster ? IMAGE_TYPES : allowed_content_types_for(media_type)
@@ -24,21 +33,15 @@ module MediaUploadValidation
     detected_type = Marcel::MimeType.for(Pathname.new(upload.tempfile.path), name: upload.original_filename)
 
     unless allowed_types.include?(detected_type)
-      raise ActiveRecord::RecordInvalid.new(invalid_upload_record("#{attachment_name} must be a valid #{attachment_name.to_sym == :poster ? "image" : media_type} file"))
+      raise InvalidMediaUpload, "#{attachment_name} must be a valid #{attachment_name.to_sym == :poster ? "image" : media_type} file"
     end
 
     if upload.size > max_size
-      raise ActiveRecord::RecordInvalid.new(invalid_upload_record("#{attachment_name} must be smaller than #{max_size / 1.megabyte}MB"))
+      raise InvalidMediaUpload, "#{attachment_name} must be smaller than #{max_size / 1.megabyte}MB"
     end
   end
 
   def allowed_content_types_for(media_type)
     media_type == "video" ? VIDEO_TYPES : IMAGE_TYPES
-  end
-
-  def invalid_upload_record(message)
-    record = SiteMedia.new
-    record.errors.add(:base, message)
-    record
   end
 end

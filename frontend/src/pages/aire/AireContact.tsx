@@ -115,13 +115,14 @@ export default function AireContact() {
 
           <div className="mt-10 grid gap-6 lg:grid-cols-[0.88fr_1.12fr]">
             <section className="rounded-[2rem] border border-slate-200 bg-slate-50/70 p-7">
-              <SiteMediaFrame
-                media={firstFor('contact_feature')}
-                fallbackSrc="/assets/aire/hero.jpg"
-                fallbackAlt="AIRE Services Guam aircraft and office"
-                className="-mx-1 mb-6 aspect-[16/10] rounded-[1.5rem]"
-                mediaClassName="h-full w-full object-cover"
-              />
+              {firstFor('contact_feature') && (
+                <SiteMediaFrame
+                  media={firstFor('contact_feature')}
+                  fallbackAlt="AIRE Services Guam aircraft and office"
+                  className="-mx-1 mb-6 aspect-[16/10] rounded-[1.5rem]"
+                  mediaClassName="h-full w-full object-cover"
+                />
+              )}
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Direct contact information</h2>
               <div className="mt-6 space-y-4">
                 {contactPoints.map((item) => (
