@@ -17,6 +17,8 @@ module Payroll
     def call
       entries = entries_in_range.where.not(user_id: nil).includes(:time_category).to_a
       users = User.staff.where(id: entries.map(&:user_id).uniq).order(:last_name, :first_name, :email).to_a
+      staff_user_ids = users.map(&:id)
+      entries = entries.select { |entry| staff_user_ids.include?(entry.user_id) }
       entries_by_user_id = entries.group_by(&:user_id)
 
       {
