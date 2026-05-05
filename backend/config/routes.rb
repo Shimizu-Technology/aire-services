@@ -26,6 +26,10 @@ Rails.application.routes.draw do
         post "kiosk/switch_category", to: "kiosk#switch_category"
       end
 
+      namespace :payroll do
+        resource :time_summary, only: [ :show ], controller: :time_summaries
+      end
+
       # Staff/admin routes
       resources :users, only: [ :index ]
       resources :leave_requests, only: [ :index, :show, :create ] do
