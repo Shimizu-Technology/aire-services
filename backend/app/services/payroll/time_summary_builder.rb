@@ -15,8 +15,8 @@ module Payroll
     end
 
     def call
-      entries = entries_in_range.includes(:time_category).to_a
-      users = User.staff.where(id: entries.filter_map(&:user_id).uniq).order(:last_name, :first_name, :email).to_a
+      entries = entries_in_range.where.not(user_id: nil).includes(:time_category).to_a
+      users = User.staff.where(id: entries.map(&:user_id).uniq).order(:last_name, :first_name, :email).to_a
       entries_by_user_id = entries.group_by(&:user_id)
 
       {
@@ -107,7 +107,7 @@ module Payroll
     def summary(entries)
       countable = entries.select { |entry| countable?(entry) }
       {
-        employee_count: entries.filter_map(&:user_id).uniq.size,
+        employee_count: entries.map(&:user_id).uniq.size,
         countable_hours: sum_hours(countable),
         pending_count: entries.count { |entry| entry.approval_status == "pending" },
         denied_count: entries.count { |entry| entry.approval_status == "denied" },
