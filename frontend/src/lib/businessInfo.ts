@@ -5,6 +5,24 @@ const envValue = (key: string) => {
 
 const digitsOnly = (value: string) => value.replace(/\D/g, '')
 
+const normalizePhoneE164 = (value: string) => {
+  const digits = digitsOnly(value)
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length > 0) return `+${digits}`
+  return value
+}
+
+const formatSchemaPhone = (value: string) => {
+  const digits = digitsOnly(value)
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `+1-${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`
+  }
+  if (digits.length === 10) {
+    return `+1-${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
+  }
+  return value
+}
+
 const parenthesizedAreaLabel = (value: string) => {
   const parts = value.split('/').map((part) => part.trim()).filter(Boolean)
   return parts.length > 1 ? `${parts[0]} (${parts.slice(1).join(' / ')})` : value
@@ -12,7 +30,7 @@ const parenthesizedAreaLabel = (value: string) => {
 
 const phoneDisplay = envValue('VITE_AIRE_PHONE_DISPLAY') || '(671) 477-4243'
 const phoneDigits = digitsOnly(phoneDisplay)
-const phoneE164 = envValue('VITE_AIRE_PHONE_E164') || (phoneDigits.length === 10 ? `+1${phoneDigits}` : '+16714774243')
+const phoneE164 = normalizePhoneE164(envValue('VITE_AIRE_PHONE_E164') || (phoneDigits.length === 10 ? `+1${phoneDigits}` : '+16714774243'))
 const publicEmail = envValue('VITE_AIRE_PUBLIC_EMAIL') || 'admin@aireservicesguam.com'
 
 export const aireBusinessInfo = {
@@ -21,7 +39,7 @@ export const aireBusinessInfo = {
     display: phoneDisplay,
     e164: phoneE164,
     href: `tel:${phoneE164}`,
-    schema: phoneE164.replace(/^\+1/, '+1-').replace(/(\d{3})(\d{3})(\d{4})$/, '$1-$2-$3'),
+    schema: formatSchemaPhone(phoneE164),
   },
   email: {
     display: publicEmail,
