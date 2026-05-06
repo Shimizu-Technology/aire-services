@@ -1,22 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
-import { api } from '../../lib/api'
 import { socialLinks } from '../../lib/socialLinks'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
 import { aireAddressDisplayFor } from '../../lib/businessInfo'
-import { usePublicBusinessInfo } from '../../contexts/publicBusinessInfo'
-
-const defaultInquiryTopics = [
-  'Pilot Training',
-  'Guam Aerial Tours',
-  'Video Packages',
-  'Discovery Flight',
-  'Careers',
-  'General Inquiry',
-]
+import { usePublicBusinessInfo, usePublicInquiryTopics } from '../../contexts/publicBusinessInfo'
+import { api } from '../../lib/api'
 
 const pricingSnapshot = [
   { label: 'Bay Tour', value: '$275' },
@@ -31,6 +22,7 @@ export default function AireContact() {
   const placements: SiteMediaPlacement[] = ['contact_feature']
   const { firstFor } = useSiteMedia(placements)
   const businessInfo = usePublicBusinessInfo()
+  const inquiryTopics = usePublicInquiryTopics()
   const contactPoints = [
     { label: 'Phone', value: businessInfo.phone.display, href: businessInfo.phone.href },
     { label: 'Email', value: businessInfo.email.display, href: businessInfo.email.href },
@@ -40,32 +32,13 @@ export default function AireContact() {
     name: '',
     email: '',
     phone: '',
-    subject: defaultInquiryTopics[0],
+    subject: '',
     message: '',
   })
-  const [inquiryTopics, setInquiryTopics] = useState(defaultInquiryTopics)
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadContactSettings() {
-      const response = await api.getPublicContactSettings()
-      const nextTopics = response.data?.inquiry_topics?.filter(Boolean)
-      if (!cancelled && nextTopics && nextTopics.length > 0) {
-        setInquiryTopics(nextTopics)
-        setForm((current) => ({
-          ...current,
-          subject: nextTopics.includes(current.subject) ? current.subject : nextTopics[0],
-        }))
-      }
-    }
-
-    loadContactSettings()
-    return () => { cancelled = true }
-  }, [])
+  const selectedSubject = inquiryTopics.includes(form.subject) ? form.subject : inquiryTopics[0]
 
   const updateField = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }))
@@ -81,7 +54,7 @@ export default function AireContact() {
       name: form.name.trim(),
       email: form.email.trim(),
       phone: form.phone.trim(),
-      subject: form.subject.trim(),
+      subject: selectedSubject.trim(),
       message: form.message.trim(),
     }
 
@@ -94,7 +67,7 @@ export default function AireContact() {
     }
 
     setSuccess(response.data.message || 'Your message has been sent successfully!')
-    setForm({ name: '', email: '', phone: '', subject: inquiryTopics[0] || defaultInquiryTopics[0], message: '' })
+    setForm({ name: '', email: '', phone: '', subject: '', message: '' })
     setSubmitting(false)
   }
 
@@ -191,7 +164,7 @@ export default function AireContact() {
                   <legend className="mb-2 block text-sm font-medium text-slate-700">Subject</legend>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {inquiryTopics.map((topic) => {
-                      const selected = form.subject === topic
+                      const selected = selectedSubject === topic
 
                       return (
                         <button
@@ -252,7 +225,7 @@ export default function AireContact() {
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Selected topic</p>
-                    <p className="mt-2 text-sm font-medium text-slate-900">{form.subject}</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">{selectedSubject}</p>
                   </div>
                 </div>
 

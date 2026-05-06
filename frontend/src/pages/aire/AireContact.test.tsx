@@ -4,42 +4,39 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AireContact from './AireContact'
 import { aireAddressDisplay, aireBusinessInfo } from '../../lib/businessInfo'
+import { PublicBusinessInfoContext } from '../../contexts/publicBusinessInfo'
 
 const apiMock = vi.hoisted(() => ({
-  getPublicContactSettings: vi.fn(),
   submitContact: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
   api: {
-    getPublicContactSettings: apiMock.getPublicContactSettings,
     submitContact: apiMock.submitContact,
   },
 }))
 
-function renderPage() {
+const fixtureInquiryTopics = [
+  'Private Pilot Certificate',
+  'Discovery Flight',
+  'Aircraft Rental',
+  'Careers',
+  'General Inquiry',
+]
+
+function renderPage(inquiryTopics = fixtureInquiryTopics) {
   return render(
     <MemoryRouter>
-      <AireContact />
+      <PublicBusinessInfoContext.Provider value={{ businessInfo: aireBusinessInfo, inquiryTopics }}>
+        <AireContact />
+      </PublicBusinessInfoContext.Provider>
     </MemoryRouter>,
   )
 }
 
 describe('AireContact', () => {
   beforeEach(() => {
-    apiMock.getPublicContactSettings.mockReset()
     apiMock.submitContact.mockReset()
-    apiMock.getPublicContactSettings.mockResolvedValue({
-      data: {
-        inquiry_topics: [
-          'Private Pilot Certificate',
-          'Discovery Flight',
-          'Aircraft Rental',
-          'Careers',
-          'General Inquiry',
-        ],
-      },
-    })
   })
 
   it('renders direct phone and email links', async () => {
@@ -81,11 +78,7 @@ describe('AireContact', () => {
   })
 
   it('renders configured inquiry topics from the API', async () => {
-    apiMock.getPublicContactSettings.mockResolvedValue({
-      data: { inquiry_topics: ['Aerial Tours', 'Video Packages', 'General Inquiry'] },
-    })
-
-    renderPage()
+    renderPage(['Aerial Tours', 'Video Packages', 'General Inquiry'])
 
     const aerialToursButton = await screen.findByRole('button', { name: 'Aerial Tours' })
     expect(aerialToursButton).toHaveAttribute('aria-pressed', 'true')

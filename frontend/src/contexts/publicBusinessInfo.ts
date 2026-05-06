@@ -1,9 +1,21 @@
 import { createContext, useContext } from 'react'
-import { aireBusinessInfo } from '../lib/businessInfo'
+import { aireBusinessInfo, defaultInquiryTopics } from '../lib/businessInfo'
 import type { AireBusinessInfo } from '../lib/businessInfo'
 
-export const PublicBusinessInfoContext = createContext<AireBusinessInfo>(aireBusinessInfo)
+export interface PublicBusinessInfoContextValue {
+  businessInfo: AireBusinessInfo
+  inquiryTopics: string[]
+}
+
+export const PublicBusinessInfoContext = createContext<PublicBusinessInfoContextValue>({
+  businessInfo: aireBusinessInfo,
+  inquiryTopics: defaultInquiryTopics,
+})
 
 export function usePublicBusinessInfo() {
-  return useContext(PublicBusinessInfoContext)
+  return useContext(PublicBusinessInfoContext).businessInfo
+}
+
+export function usePublicInquiryTopics() {
+  return useContext(PublicBusinessInfoContext).inquiryTopics
 }

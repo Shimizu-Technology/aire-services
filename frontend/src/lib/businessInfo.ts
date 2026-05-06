@@ -33,6 +33,15 @@ export interface AireBusinessInfo {
   }
 }
 
+export const defaultInquiryTopics = [
+  'Pilot Training',
+  'Guam Aerial Tours',
+  'Video Packages',
+  'Discovery Flight',
+  'Careers',
+  'General Inquiry',
+]
+
 export const defaultPublicContactSettings: PublicContactInfoSettings = {
   phone_display: '(671) 477-4243',
   phone_e164: '+16714774243',
