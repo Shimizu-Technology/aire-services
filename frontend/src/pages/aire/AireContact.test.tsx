@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AireContact from './AireContact'
-import { aireAddressDisplay } from '../../lib/businessInfo'
+import { aireAddressDisplay, aireBusinessInfo } from '../../lib/businessInfo'
 
 const apiMock = vi.hoisted(() => ({
   getPublicContactSettings: vi.fn(),
@@ -47,8 +47,8 @@ describe('AireContact', () => {
 
     await screen.findByRole('button', { name: 'Private Pilot Certificate' })
 
-    expect(screen.getByRole('link', { name: '(671) 477-4243' })).toHaveAttribute('href', 'tel:+16714774243')
-    expect(screen.getByRole('link', { name: 'admin@aireservicesguam.com' })).toHaveAttribute('href', 'mailto:admin@aireservicesguam.com')
+    expect(screen.getByRole('link', { name: aireBusinessInfo.phone.display })).toHaveAttribute('href', aireBusinessInfo.phone.href)
+    expect(screen.getByRole('link', { name: aireBusinessInfo.email.display })).toHaveAttribute('href', aireBusinessInfo.email.href)
     expect(screen.getByText(aireAddressDisplay)).toBeInTheDocument()
   })
 
