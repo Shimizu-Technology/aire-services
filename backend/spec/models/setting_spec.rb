@@ -63,12 +63,36 @@ RSpec.describe Setting, type: :model do
       expect {
         described_class.update_contact_settings!(
           emails: [ "ops@example.com" ],
-          topics: [ "Discovery Flight" ]
+          topics: [ "Discovery Flight" ],
+          public_contact: described_class.public_contact_settings
         )
       }.to raise_error(ActiveRecord::RecordInvalid)
 
       expect(described_class.contact_notification_emails).to eq([ "admin@aireservicesguam.com" ])
       expect(described_class.contact_inquiry_topics).to eq([ "Private Pilot Certificate" ])
+    end
+  end
+
+  describe ".public_contact_settings" do
+    it "defaults to AIRE's public website contact details" do
+      settings = described_class.public_contact_settings
+
+      expect(settings["phone_display"]).to eq("(671) 477-4243")
+      expect(settings["email"]).to eq("admin@aireservicesguam.com")
+      expect(settings["street_address"]).to eq("353 Admiral Sherman Boulevard")
+      expect(settings["postal_code"]).to eq("96913")
+    end
+
+    it "normalizes partial values onto the defaults" do
+      described_class.set_public_contact_settings!(
+        "phone_display" => "(671) 555-0100",
+        "email" => "frontdesk@example.com"
+      )
+
+      settings = described_class.public_contact_settings
+      expect(settings["phone_display"]).to eq("(671) 555-0100")
+      expect(settings["email"]).to eq("frontdesk@example.com")
+      expect(settings["street_address"]).to eq("353 Admiral Sherman Boulevard")
     end
   end
 end

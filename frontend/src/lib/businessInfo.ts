@@ -1,6 +1,48 @@
-const envValue = (key: string) => {
-  const value = import.meta.env[key]
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+export interface PublicContactInfoSettings {
+  phone_display: string
+  phone_e164: string
+  email: string
+  street_address: string
+  address_area_label: string
+  address_locality: string
+  address_region: string
+  postal_code: string
+  address_country: string
+}
+
+export interface AireBusinessInfo {
+  name: 'AIRE Services Guam'
+  phone: {
+    display: string
+    e164: string
+    href: string
+    schema: string
+  }
+  email: {
+    display: string
+    href: string
+    careerHref: string
+  }
+  address: {
+    street: string
+    locality: string
+    region: string
+    postalCode: string
+    country: string
+    areaLabel: string
+  }
+}
+
+export const defaultPublicContactSettings: PublicContactInfoSettings = {
+  phone_display: '(671) 477-4243',
+  phone_e164: '+16714774243',
+  email: 'admin@aireservicesguam.com',
+  street_address: '353 Admiral Sherman Boulevard',
+  address_area_label: 'Tiyan / Barrigada',
+  address_locality: 'Barrigada',
+  address_region: 'Guam',
+  postal_code: '96913',
+  address_country: 'GU',
 }
 
 const digitsOnly = (value: string) => value.replace(/\D/g, '')
@@ -23,46 +65,63 @@ const formatSchemaPhone = (value: string) => {
   return value
 }
 
+const valueOrDefault = (value: string | null | undefined, fallback: string) => {
+  const trimmed = value?.trim()
+  return trimmed || fallback
+}
+
 const parenthesizedAreaLabel = (value: string) => {
   const parts = value.split('/').map((part) => part.trim()).filter(Boolean)
   return parts.length > 1 ? `${parts[0]} (${parts.slice(1).join(' / ')})` : value
 }
 
-const phoneDisplay = envValue('VITE_AIRE_PHONE_DISPLAY') || '(671) 477-4243'
-const phoneDigits = digitsOnly(phoneDisplay)
-const phoneE164 = normalizePhoneE164(envValue('VITE_AIRE_PHONE_E164') || (phoneDigits.length === 10 ? `+1${phoneDigits}` : '+16714774243'))
-const publicEmail = envValue('VITE_AIRE_PUBLIC_EMAIL') || 'admin@aireservicesguam.com'
+export function buildAireBusinessInfo(settings?: Partial<PublicContactInfoSettings> | null): AireBusinessInfo {
+  const merged = {
+    ...defaultPublicContactSettings,
+    ...settings,
+  }
 
-export const aireBusinessInfo = {
-  name: 'AIRE Services Guam',
-  phone: {
-    display: phoneDisplay,
-    e164: phoneE164,
-    href: `tel:${phoneE164}`,
-    schema: formatSchemaPhone(phoneE164),
-  },
-  email: {
-    display: publicEmail,
-    href: `mailto:${publicEmail}`,
-    careerHref: `mailto:${publicEmail}?subject=AIRE%20Career%20Inquiry`,
-  },
-  address: {
-    street: envValue('VITE_AIRE_STREET_ADDRESS') || '353 Admiral Sherman Boulevard',
-    locality: envValue('VITE_AIRE_ADDRESS_LOCALITY') || 'Barrigada',
-    region: envValue('VITE_AIRE_ADDRESS_REGION') || 'Guam',
-    postalCode: envValue('VITE_AIRE_POSTAL_CODE') || '96913',
-    country: envValue('VITE_AIRE_ADDRESS_COUNTRY') || 'GU',
-    areaLabel: envValue('VITE_AIRE_ADDRESS_AREA_LABEL') || 'Tiyan / Barrigada',
-  },
-} as const
+  const phoneDisplay = valueOrDefault(merged.phone_display, defaultPublicContactSettings.phone_display)
+  const phoneE164 = normalizePhoneE164(valueOrDefault(merged.phone_e164, defaultPublicContactSettings.phone_e164))
+  const publicEmail = valueOrDefault(merged.email, defaultPublicContactSettings.email)
 
-export const aireAddressDisplay =
-  `${aireBusinessInfo.address.street}, ${aireBusinessInfo.address.areaLabel}, ${aireBusinessInfo.address.region} ${aireBusinessInfo.address.postalCode}`
+  return {
+    name: 'AIRE Services Guam',
+    phone: {
+      display: phoneDisplay,
+      e164: phoneE164,
+      href: `tel:${phoneE164}`,
+      schema: formatSchemaPhone(phoneE164),
+    },
+    email: {
+      display: publicEmail,
+      href: `mailto:${publicEmail}`,
+      careerHref: `mailto:${publicEmail}?subject=AIRE%20Career%20Inquiry`,
+    },
+    address: {
+      street: valueOrDefault(merged.street_address, defaultPublicContactSettings.street_address),
+      locality: valueOrDefault(merged.address_locality, defaultPublicContactSettings.address_locality),
+      region: valueOrDefault(merged.address_region, defaultPublicContactSettings.address_region),
+      postalCode: valueOrDefault(merged.postal_code, defaultPublicContactSettings.postal_code),
+      country: valueOrDefault(merged.address_country, defaultPublicContactSettings.address_country),
+      areaLabel: valueOrDefault(merged.address_area_label, defaultPublicContactSettings.address_area_label),
+    },
+  }
+}
 
-export const aireAddressFooter =
-  `${aireBusinessInfo.address.street}, ${aireBusinessInfo.address.areaLabel}, ${aireBusinessInfo.address.region}`
+export const aireBusinessInfo = buildAireBusinessInfo()
 
-export const aireAddressLines = [
-  aireBusinessInfo.address.street,
-  `${parenthesizedAreaLabel(aireBusinessInfo.address.areaLabel)}, ${aireBusinessInfo.address.region} ${aireBusinessInfo.address.postalCode}`,
+export const aireAddressDisplayFor = (businessInfo: AireBusinessInfo = aireBusinessInfo) =>
+  `${businessInfo.address.street}, ${businessInfo.address.areaLabel}, ${businessInfo.address.region} ${businessInfo.address.postalCode}`
+
+export const aireAddressFooterFor = (businessInfo: AireBusinessInfo = aireBusinessInfo) =>
+  `${businessInfo.address.street}, ${businessInfo.address.areaLabel}, ${businessInfo.address.region}`
+
+export const aireAddressLinesFor = (businessInfo: AireBusinessInfo = aireBusinessInfo) => [
+  businessInfo.address.street,
+  `${parenthesizedAreaLabel(businessInfo.address.areaLabel)}, ${businessInfo.address.region} ${businessInfo.address.postalCode}`,
 ] as const
+
+export const aireAddressDisplay = aireAddressDisplayFor()
+export const aireAddressFooter = aireAddressFooterFor()
+export const aireAddressLines = aireAddressLinesFor()

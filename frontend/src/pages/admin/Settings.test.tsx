@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Settings from './Settings'
+import { defaultPublicContactSettings } from '../../lib/businessInfo'
 
 const apiMock = vi.hoisted(() => ({
   getAdminTimeCategories: vi.fn(),
@@ -65,12 +66,17 @@ describe('Admin Settings contact settings', () => {
       data: {
         contact_notification_emails: ['ops@example.com'],
         inquiry_topics: ['Aerial Tours', 'General Inquiry'],
+        public_contact: defaultPublicContactSettings,
       },
     })
     apiMock.updateAdminContactSettings.mockResolvedValue({
       data: {
         contact_notification_emails: ['ops@example.com', 'owner@example.com'],
         inquiry_topics: ['Aerial Tours', 'Video Packages'],
+        public_contact: {
+          ...defaultPublicContactSettings,
+          phone_display: '(671) 555-0100',
+        },
         message: 'Contact inquiry settings updated',
       },
     })
@@ -117,6 +123,7 @@ describe('Admin Settings contact settings', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Public inquiry topics')).toHaveValue('Aerial Tours')
       expect(screen.getByLabelText('Public inquiry topic 2')).toHaveValue('General Inquiry')
+      expect(screen.getByLabelText('Street address')).toHaveValue('353 Admiral Sherman Boulevard')
     })
 
     fireEvent.change(screen.getByLabelText('Notification recipient emails'), {
@@ -130,6 +137,7 @@ describe('Admin Settings contact settings', () => {
       expect(apiMock.updateAdminContactSettings).toHaveBeenCalledWith({
         contact_notification_emails: ['ops@example.com', 'owner@example.com'],
         inquiry_topics: ['Aerial Tours', 'Video Packages'],
+        public_contact: defaultPublicContactSettings,
       })
     })
 

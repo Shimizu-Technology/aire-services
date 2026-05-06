@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom'
 import { socialLinks } from '../../lib/socialLinks'
-import { aireAddressFooter, aireBusinessInfo } from '../../lib/businessInfo'
+import { aireAddressFooterFor } from '../../lib/businessInfo'
+import { usePublicBusinessInfo } from '../../contexts/publicBusinessInfo'
 
 export default function Footer() {
   const year = new Date().getFullYear()
+  const businessInfo = usePublicBusinessInfo()
 
   return (
     <footer className="bg-slate-950 text-slate-300">
@@ -36,9 +38,9 @@ export default function Footer() {
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-200">Contact</h3>
           <ul className="mt-4 space-y-3 text-sm text-slate-400">
-            <li>{aireAddressFooter}</li>
-            <li>{aireBusinessInfo.phone.display}</li>
-            <li>{aireBusinessInfo.email.display}</li>
+            <li>{aireAddressFooterFor(businessInfo)}</li>
+            <li>{businessInfo.phone.display}</li>
+            <li>{businessInfo.email.display}</li>
           </ul>
         </div>
       </div>

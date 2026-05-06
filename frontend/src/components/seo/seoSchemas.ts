@@ -1,5 +1,6 @@
 import { getAbsoluteUrl, SITE_URL } from '../../lib/site'
 import { aireBusinessInfo } from '../../lib/businessInfo'
+import type { AireBusinessInfo } from '../../lib/businessInfo'
 
 export function buildWebsiteSchema() {
   return {
@@ -10,24 +11,24 @@ export function buildWebsiteSchema() {
   }
 }
 
-export function buildLocalBusinessSchema() {
+export function buildLocalBusinessSchema(info: AireBusinessInfo = aireBusinessInfo) {
   return {
     '@context': 'https://schema.org',
     '@type': 'SportsActivityLocation',
-    name: aireBusinessInfo.name,
+    name: info.name,
     description: 'Flight training, discovery flights, and aviation services in Guam.',
     url: SITE_URL,
     logo: getAbsoluteUrl('/assets/aire/logo.png'),
     image: getAbsoluteUrl('/assets/aire/hero.jpg'),
-    telephone: aireBusinessInfo.phone.schema,
-    email: aireBusinessInfo.email.display,
+    telephone: info.phone.schema,
+    email: info.email.display,
     address: {
       '@type': 'PostalAddress',
-      streetAddress: aireBusinessInfo.address.street,
-      addressLocality: aireBusinessInfo.address.locality,
-      addressRegion: aireBusinessInfo.address.region,
-      postalCode: aireBusinessInfo.address.postalCode,
-      addressCountry: aireBusinessInfo.address.country,
+      streetAddress: info.address.street,
+      addressLocality: info.address.locality,
+      addressRegion: info.address.region,
+      postalCode: info.address.postalCode,
+      addressCountry: info.address.country,
     },
     areaServed: {
       '@type': 'Place',

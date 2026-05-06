@@ -6,13 +6,8 @@ import { socialLinks } from '../../lib/socialLinks'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
-import { aireAddressDisplay, aireBusinessInfo } from '../../lib/businessInfo'
-
-const contactPoints = [
-  { label: 'Phone', value: aireBusinessInfo.phone.display, href: aireBusinessInfo.phone.href },
-  { label: 'Email', value: aireBusinessInfo.email.display, href: aireBusinessInfo.email.href },
-  { label: 'Location', value: aireAddressDisplay },
-]
+import { aireAddressDisplayFor } from '../../lib/businessInfo'
+import { usePublicBusinessInfo } from '../../contexts/publicBusinessInfo'
 
 const defaultInquiryTopics = [
   'Pilot Training',
@@ -35,6 +30,12 @@ export default function AireContact() {
   useEffect(() => { document.title = 'Contact | AIRE Services Guam' }, [])
   const placements: SiteMediaPlacement[] = ['contact_feature']
   const { firstFor } = useSiteMedia(placements)
+  const businessInfo = usePublicBusinessInfo()
+  const contactPoints = [
+    { label: 'Phone', value: businessInfo.phone.display, href: businessInfo.phone.href },
+    { label: 'Email', value: businessInfo.email.display, href: businessInfo.email.href },
+    { label: 'Location', value: aireAddressDisplayFor(businessInfo) },
+  ]
   const [form, setForm] = useState({
     name: '',
     email: '',

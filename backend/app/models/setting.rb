@@ -3,6 +3,17 @@
 class Setting < ApplicationRecord
   APPROVAL_GROUPS_ADVISORY_LOCK_KEY = 92_144_007
   DEFAULT_CONTACT_NOTIFICATION_EMAILS = [ "admin@aireservicesguam.com" ].freeze
+  DEFAULT_PUBLIC_CONTACT_SETTINGS = {
+    "phone_display" => "(671) 477-4243",
+    "phone_e164" => "+16714774243",
+    "email" => "admin@aireservicesguam.com",
+    "street_address" => "353 Admiral Sherman Boulevard",
+    "address_area_label" => "Tiyan / Barrigada",
+    "address_locality" => "Barrigada",
+    "address_region" => "Guam",
+    "postal_code" => "96913",
+    "address_country" => "GU"
+  }.freeze
   DEFAULT_CONTACT_INQUIRY_TOPICS = [
     "Private Pilot Certificate",
     "Discovery Flight",
@@ -28,7 +39,8 @@ class Setting < ApplicationRecord
     "clock_in_location_longitude" => "144.79901",
     "clock_in_location_radius_meters" => "1000",
     "contact_email" => DEFAULT_CONTACT_NOTIFICATION_EMAILS.join(", "),
-    "contact_inquiry_topics" => DEFAULT_CONTACT_INQUIRY_TOPICS.to_json
+    "contact_inquiry_topics" => DEFAULT_CONTACT_INQUIRY_TOPICS.to_json,
+    "public_contact_settings" => DEFAULT_PUBLIC_CONTACT_SETTINGS.to_json
   }.freeze
 
   def self.get(key)
@@ -86,6 +98,11 @@ class Setting < ApplicationRecord
     parse_contact_inquiry_topics(value)
   rescue JSON::ParserError
     DEFAULT_CONTACT_INQUIRY_TOPICS
+  end
+
+  def self.public_contact_settings
+    value = get("public_contact_settings")
+    parse_public_contact_settings(value)
   end
 
   def self.approval_groups
@@ -147,10 +164,20 @@ class Setting < ApplicationRecord
     )
   end
 
-  def self.update_contact_settings!(emails:, topics:)
+  def self.set_public_contact_settings!(settings)
+    normalized_settings = normalize_public_contact_settings(settings)
+    set(
+      "public_contact_settings",
+      normalized_settings.to_json,
+      description: "JSON object of public phone, email, and address shown on the marketing website"
+    )
+  end
+
+  def self.update_contact_settings!(emails:, topics:, public_contact:)
     transaction do
       set_contact_notification_emails!(emails)
       set_contact_inquiry_topics!(topics)
+      set_public_contact_settings!(public_contact)
     end
   end
 
@@ -168,6 +195,15 @@ class Setting < ApplicationRecord
       .map(&:strip)
       .reject(&:blank?)
       .uniq
+  end
+
+  def self.normalize_public_contact_settings(value)
+    raw = value.respond_to?(:to_h) ? value.to_h : {}
+    defaults = DEFAULT_PUBLIC_CONTACT_SETTINGS
+
+    defaults.keys.index_with do |key|
+      raw[key].presence || raw[key.to_sym].presence || defaults.fetch(key)
+    end.transform_values { |setting| setting.to_s.strip }
   end
 
   def self.normalize_approval_groups(value)
@@ -207,6 +243,15 @@ class Setting < ApplicationRecord
     parsed = JSON.parse(value)
     topics = normalize_contact_inquiry_topics(parsed)
     topics.presence || DEFAULT_CONTACT_INQUIRY_TOPICS
+  end
+
+  def self.parse_public_contact_settings(value)
+    return DEFAULT_PUBLIC_CONTACT_SETTINGS.dup if value.blank?
+
+    parsed = JSON.parse(value)
+    normalize_public_contact_settings(parsed)
+  rescue JSON::ParserError
+    DEFAULT_PUBLIC_CONTACT_SETTINGS.dup
   end
 
   def self.parse_approval_groups(value)

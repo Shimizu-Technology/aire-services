@@ -2,11 +2,13 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import Header from './Header'
 import Footer from './Footer'
+import { PublicBusinessInfoProvider } from '../../contexts/PublicBusinessInfoContext'
 
 export default function PublicLayout() {
   const location = useLocation()
 
   return (
+    <PublicBusinessInfoProvider>
     <div className="min-h-screen flex flex-col">
       <a
         href="#main-content"
@@ -30,5 +32,6 @@ export default function PublicLayout() {
       </main>
       <Footer />
     </div>
+    </PublicBusinessInfoProvider>
   )
 }

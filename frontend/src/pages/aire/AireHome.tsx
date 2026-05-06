@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
-import { aireBusinessInfo } from '../../lib/businessInfo'
+import { usePublicBusinessInfo } from '../../contexts/publicBusinessInfo'
 
 const pillars = [
   {
@@ -75,18 +75,18 @@ const trainingPath = [
   },
 ]
 
-const quickStats = [
-  { label: 'Call AIRE', value: aireBusinessInfo.phone.display, href: aireBusinessInfo.phone.href },
-  { label: 'Bay Tour', value: 'From $275', href: '/programs' },
-  { label: 'Video Add-On', value: 'From $79', href: '/programs' },
-  { label: 'Local + Military', value: 'Contact for rates', href: '/contact' },
-]
-
 const homeMediaPlacements: SiteMediaPlacement[] = ['home_hero', 'home_training', 'home_tours', 'home_video', 'tour_bay', 'tour_island', 'tour_sunset', 'programs_video']
 
 export default function AireHome() {
   useEffect(() => { document.title = 'AIRE Services Guam | Pilot Training, Tours, and Video Packages' }, [])
   const { firstFor } = useSiteMedia(homeMediaPlacements)
+  const businessInfo = usePublicBusinessInfo()
+  const quickStats = [
+    { label: 'Call AIRE', value: businessInfo.phone.display, href: businessInfo.phone.href },
+    { label: 'Bay Tour', value: 'From $275', href: '/programs' },
+    { label: 'Video Add-On', value: 'From $79', href: '/programs' },
+    { label: 'Local + Military', value: 'Contact for rates', href: '/contact' },
+  ]
 
   const pillarMedia: Record<string, ReturnType<typeof firstFor>> = {
     'Pilot Training': firstFor('home_training'),
