@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
+import { aireBusinessInfo } from '../../lib/businessInfo'
 
 const pillars = [
   {
@@ -75,7 +76,7 @@ const trainingPath = [
 ]
 
 const quickStats = [
-  { label: 'Call AIRE', value: '(671) 477-4243', href: 'tel:+16714774243' },
+  { label: 'Call AIRE', value: aireBusinessInfo.phone.display, href: aireBusinessInfo.phone.href },
   { label: 'Bay Tour', value: 'From $275', href: '/programs' },
   { label: 'Video Add-On', value: 'From $79', href: '/programs' },
   { label: 'Local + Military', value: 'Contact for rates', href: '/contact' },

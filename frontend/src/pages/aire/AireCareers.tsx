@@ -4,6 +4,7 @@ import Seo from '../../components/seo/Seo'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
+import { aireAddressLines, aireBusinessInfo } from '../../lib/businessInfo'
 
 const responsibilities = [
   'Safely transport customers between designated locations in the Tumon Bay area and AIRE\'s main office in Barrigada.',
@@ -50,7 +51,7 @@ export default function AireCareers() {
               AIRE is looking for dependable team members who bring a strong work ethic, good communication, and a willingness to learn. Review the current opening below and reach out if it sounds like a fit.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <a href="mailto:admin@aireservicesguam.com?subject=AIRE%20Career%20Inquiry" className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+              <a href={aireBusinessInfo.email.careerHref} className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
                 Email Your Resume
               </a>
               <Link to="/contact" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
@@ -94,8 +95,8 @@ export default function AireCareers() {
 
               <div className="mt-8 rounded-2xl bg-slate-950 p-5 text-sm text-slate-300">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Send resume or hand deliver to</p>
-                <p className="mt-3 font-medium text-white">admin@aireservicesguam.com</p>
-                <p className="mt-2 leading-relaxed">1780 Admiral Sherman Boulevard<br />Tiyan (Barrigada), Guam 96913</p>
+                <p className="mt-3 font-medium text-white">{aireBusinessInfo.email.display}</p>
+                <p className="mt-2 leading-relaxed">{aireAddressLines[0]}<br />{aireAddressLines[1]}</p>
               </div>
             </section>
           </div>

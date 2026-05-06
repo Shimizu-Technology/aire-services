@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { socialLinks } from '../../lib/socialLinks'
+import { aireAddressFooter, aireBusinessInfo } from '../../lib/businessInfo'
 
 export default function Footer() {
   const year = new Date().getFullYear()
@@ -35,9 +36,9 @@ export default function Footer() {
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-200">Contact</h3>
           <ul className="mt-4 space-y-3 text-sm text-slate-400">
-            <li>1780 Admiral Sherman Boulevard, Tiyan / Barrigada, Guam</li>
-            <li>(671) 477-4243</li>
-            <li>admin@aireservicesguam.com</li>
+            <li>{aireAddressFooter}</li>
+            <li>{aireBusinessInfo.phone.display}</li>
+            <li>{aireBusinessInfo.email.display}</li>
           </ul>
         </div>
       </div>

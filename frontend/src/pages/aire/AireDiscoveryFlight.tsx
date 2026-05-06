@@ -4,6 +4,7 @@ import Seo from '../../components/seo/Seo'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
+import { aireBusinessInfo } from '../../lib/businessInfo'
 
 const details = [
   'Introductory flight with a certified flight instructor',
@@ -74,7 +75,7 @@ export default function AireDiscoveryFlight() {
                   ))}
                 </div>
                 <div className="mt-8 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 text-sm leading-relaxed text-slate-700">
-                  Current details, pricing, and scheduling should be confirmed directly with AIRE at <strong>(671) 477-4243</strong> or <strong>admin@aireservicesguam.com</strong>.
+                  Current details, pricing, and scheduling should be confirmed directly with AIRE at <strong>{aireBusinessInfo.phone.display}</strong> or <strong>{aireBusinessInfo.email.display}</strong>.
                 </div>
                 <div className="mt-6 flex flex-wrap gap-3">
                   <Link to="/contact" className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">

@@ -18,6 +18,20 @@ VITE_GOOGLE_MAPS_BROWSER_KEY=AIza...
 
 **Note:** If `VITE_CLERK_PUBLISHABLE_KEY` is not set, the app runs without authentication (dev mode only — production will log an error).
 
+Public business contact details are centralized in `src/lib/businessInfo.ts`. Defaults are suitable for production, but deployments can override them at build time:
+
+```bash
+VITE_AIRE_PHONE_DISPLAY="(671) 477-4243"
+VITE_AIRE_PHONE_E164="+16714774243"
+VITE_AIRE_PUBLIC_EMAIL=admin@aireservicesguam.com
+VITE_AIRE_STREET_ADDRESS="353 Admiral Sherman Boulevard"
+VITE_AIRE_ADDRESS_AREA_LABEL="Tiyan / Barrigada"
+VITE_AIRE_ADDRESS_LOCALITY=Barrigada
+VITE_AIRE_ADDRESS_REGION=Guam
+VITE_AIRE_POSTAL_CODE=96913
+VITE_AIRE_ADDRESS_COUNTRY=GU
+```
+
 ## Run Development Server
 
 ```bash

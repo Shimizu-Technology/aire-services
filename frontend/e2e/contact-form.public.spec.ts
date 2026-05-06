@@ -60,7 +60,7 @@ test.describe('Contact Form', () => {
     await expect(page.getByText('Direct contact information')).toBeVisible();
     await expect(page.locator('a[href="tel:+16714774243"]')).toBeVisible();
     await expect(page.locator('a[href="mailto:admin@aireservicesguam.com"]')).toBeVisible();
-    await expect(page.getByText(/Admiral Sherman Boulevard/i).first()).toBeVisible();
+    await expect(page.getByText('353 Admiral Sherman Boulevard, Tiyan / Barrigada, Guam 96913')).toBeVisible();
   });
 
   test('validates required fields before submission', async ({ page }) => {

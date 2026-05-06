@@ -6,11 +6,12 @@ import { socialLinks } from '../../lib/socialLinks'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
+import { aireAddressDisplay, aireBusinessInfo } from '../../lib/businessInfo'
 
 const contactPoints = [
-  { label: 'Phone', value: '(671) 477-4243', href: 'tel:+16714774243' },
-  { label: 'Email', value: 'admin@aireservicesguam.com', href: 'mailto:admin@aireservicesguam.com' },
-  { label: 'Location', value: '1780 Admiral Sherman Boulevard, Tiyan / Barrigada, Guam 96913' },
+  { label: 'Phone', value: aireBusinessInfo.phone.display, href: aireBusinessInfo.phone.href },
+  { label: 'Email', value: aireBusinessInfo.email.display, href: aireBusinessInfo.email.href },
+  { label: 'Location', value: aireAddressDisplay },
 ]
 
 const defaultInquiryTopics = [
