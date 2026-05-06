@@ -86,13 +86,38 @@ RSpec.describe "Api::V1::Admin::ContactSettings", type: :request do
       expect(json[:error]).to match(/At least one inquiry topic/)
     end
 
+    it "rejects missing required public contact fields instead of falling back to defaults" do
+      patch "/api/v1/admin/contact_settings",
+            params: {
+              contact_notification_emails: [ "ops@example.com" ],
+              inquiry_topics: [ "Aerial Tours" ],
+              public_contact: {
+                phone_display: "",
+                phone_e164: "+16715550100",
+                email: "frontdesk@example.com",
+                street_address: "353 Admiral Sherman Boulevard",
+                address_region: "Guam",
+                postal_code: "96913"
+              }
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/Public phone, email, street address, region, and postal code are required/)
+    end
+
     it "rejects invalid public contact email" do
       patch "/api/v1/admin/contact_settings",
             params: {
               contact_notification_emails: [ "ops@example.com" ],
               inquiry_topics: [ "Aerial Tours" ],
               public_contact: {
-                email: "bad-email"
+                phone_display: "(671) 555-0100",
+                phone_e164: "+16715550100",
+                email: "bad-email",
+                street_address: "353 Admiral Sherman Boulevard",
+                address_region: "Guam",
+                postal_code: "96913"
               }
             },
             headers: auth_headers_for[admin]

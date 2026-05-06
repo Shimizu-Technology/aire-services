@@ -18,7 +18,8 @@ module Api
         def update
           emails = Setting.normalize_emails(params[:contact_notification_emails])
           topics = Setting.normalize_contact_inquiry_topics(params[:inquiry_topics])
-          public_contact = Setting.normalize_public_contact_settings(public_contact_params)
+          raw_public_contact = public_contact_params
+          public_contact = Setting.normalize_public_contact_settings(raw_public_contact)
 
           if emails.empty?
             return render json: { error: "At least one notification email is required" }, status: :unprocessable_entity
@@ -33,7 +34,7 @@ module Api
             return render json: { error: "At least one inquiry topic is required" }, status: :unprocessable_entity
           end
 
-          if public_contact.values_at("phone_display", "phone_e164", "email", "street_address", "address_region", "postal_code").any?(&:blank?)
+          if missing_required_public_contact_fields?(raw_public_contact)
             return render json: { error: "Public phone, email, street address, region, and postal code are required" }, status: :unprocessable_entity
           end
 
@@ -67,6 +68,11 @@ module Api
             :postal_code,
             :address_country
           ).to_h
+        end
+
+        def missing_required_public_contact_fields?(raw_public_contact)
+          required_keys = %w[phone_display phone_e164 email street_address address_region postal_code]
+          raw_public_contact.blank? || required_keys.any? { |key| raw_public_contact[key].blank? }
         end
       end
     end
