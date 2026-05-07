@@ -1,32 +1,34 @@
 import { getAbsoluteUrl, SITE_URL } from '../../lib/site'
+import { aireBusinessInfo } from '../../lib/businessInfo'
+import type { AireBusinessInfo } from '../../lib/businessInfo'
 
 export function buildWebsiteSchema() {
   return {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
-    name: 'AIRE Services Guam',
+    name: aireBusinessInfo.name,
     url: SITE_URL,
   }
 }
 
-export function buildLocalBusinessSchema() {
+export function buildLocalBusinessSchema(info: AireBusinessInfo = aireBusinessInfo) {
   return {
     '@context': 'https://schema.org',
     '@type': 'SportsActivityLocation',
-    name: 'AIRE Services Guam',
+    name: info.name,
     description: 'Flight training, discovery flights, and aviation services in Guam.',
     url: SITE_URL,
     logo: getAbsoluteUrl('/assets/aire/logo.png'),
     image: getAbsoluteUrl('/assets/aire/hero.jpg'),
-    telephone: '+1-671-477-4243',
-    email: 'admin@aireservicesguam.com',
+    telephone: info.phone.schema,
+    email: info.email.display,
     address: {
       '@type': 'PostalAddress',
-      streetAddress: '1780 Admiral Sherman Boulevard',
-      addressLocality: 'Barrigada',
-      addressRegion: 'Guam',
-      postalCode: '96913',
-      addressCountry: 'GU',
+      streetAddress: info.address.street,
+      addressLocality: info.address.locality,
+      addressRegion: info.address.region,
+      postalCode: info.address.postalCode,
+      addressCountry: info.address.country,
     },
     areaServed: {
       '@type': 'Place',

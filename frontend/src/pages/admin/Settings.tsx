@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
+import { defaultPublicContactSettings } from '../../lib/businessInfo'
+import type { PublicContactInfoSettings } from '../../lib/businessInfo'
 
 const emptyCategoryForm = {
   name: '',
@@ -112,6 +114,7 @@ export default function Settings() {
   const [approvalGroupDrafts, setApprovalGroupDrafts] = useState<ApprovalGroupOption[]>([{ key: '', label: '' }])
   const [contactNotificationEmailsDraft, setContactNotificationEmailsDraft] = useState('')
   const [inquiryTopicsDraft, setInquiryTopicsDraft] = useState<string[]>([''])
+  const [publicContactDraft, setPublicContactDraft] = useState<PublicContactInfoSettings>(defaultPublicContactSettings)
   const [loading, setLoading] = useState(true)
   const [categoriesError, setCategoriesError] = useState('')
   const [settingsError, setSettingsError] = useState('')
@@ -171,6 +174,7 @@ export default function Settings() {
       setContactSettings(contactRes.data)
       setContactNotificationEmailsDraft(contactRes.data.contact_notification_emails.join('\n'))
       setInquiryTopicsDraft(contactRes.data.inquiry_topics.length > 0 ? contactRes.data.inquiry_topics : [''])
+      setPublicContactDraft(contactRes.data.public_contact || defaultPublicContactSettings)
     }
   }, [])
 
@@ -543,6 +547,17 @@ export default function Settings() {
     const inquiry_topics = inquiryTopicsDraft
       .map((topic) => topic.trim())
       .filter(Boolean)
+    const public_contact: PublicContactInfoSettings = {
+      phone_display: publicContactDraft.phone_display.trim(),
+      phone_e164: publicContactDraft.phone_e164.trim(),
+      email: publicContactDraft.email.trim(),
+      street_address: publicContactDraft.street_address.trim(),
+      address_area_label: publicContactDraft.address_area_label.trim(),
+      address_locality: publicContactDraft.address_locality.trim(),
+      address_region: publicContactDraft.address_region.trim(),
+      postal_code: publicContactDraft.postal_code.trim(),
+      address_country: publicContactDraft.address_country.trim(),
+    }
 
     if (contact_notification_emails.length === 0) {
       setContactSettingsError('At least one notification email is required.')
@@ -556,6 +571,12 @@ export default function Settings() {
       return
     }
 
+    if (!public_contact.phone_display || !public_contact.phone_e164 || !public_contact.email || !public_contact.street_address || !public_contact.address_region || !public_contact.postal_code) {
+      setContactSettingsError('Public phone, email, street address, region, and postal code are required.')
+      setContactSettingsMessage('')
+      return
+    }
+
     setSavingContactSettings(true)
     setContactSettingsError('')
     setContactSettingsMessage('')
@@ -563,6 +584,7 @@ export default function Settings() {
       const res = await api.updateAdminContactSettings({
         contact_notification_emails,
         inquiry_topics,
+        public_contact,
       })
       if (res.error || !res.data) {
         setContactSettingsError(res.error || 'Failed to save contact settings')
@@ -572,9 +594,11 @@ export default function Settings() {
       setContactSettings({
         contact_notification_emails: res.data.contact_notification_emails,
         inquiry_topics: res.data.inquiry_topics,
+        public_contact: res.data.public_contact,
       })
       setContactNotificationEmailsDraft(res.data.contact_notification_emails.join('\n'))
       setInquiryTopicsDraft(res.data.inquiry_topics.length > 0 ? res.data.inquiry_topics : [''])
+      setPublicContactDraft(res.data.public_contact)
       setContactSettingsMessage(res.data.message || 'Contact settings saved.')
     } finally {
       setSavingContactSettings(false)
@@ -583,6 +607,10 @@ export default function Settings() {
 
   const updateInquiryTopicDraft = (index: number, value: string) => {
     setInquiryTopicsDraft((current) => current.map((topic, topicIndex) => (topicIndex === index ? value : topic)))
+  }
+
+  const updatePublicContactDraft = (key: keyof PublicContactInfoSettings, value: string) => {
+    setPublicContactDraft((current) => ({ ...current, [key]: value }))
   }
 
   const addInquiryTopicDraft = () => {
@@ -951,6 +979,106 @@ export default function Settings() {
                 {contactSettingsMessage && (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{contactSettingsMessage}</div>
                 )}
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Public website contact details</h3>
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <div>
+                      <label htmlFor="public-contact-phone-display" className="mb-2 block text-sm font-medium text-slate-700">Public phone display</label>
+                      <input
+                        id="public-contact-phone-display"
+                        value={publicContactDraft.phone_display}
+                        onChange={(e) => updatePublicContactDraft('phone_display', e.target.value)}
+                        placeholder="(671) 477-4243"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="public-contact-phone-e164" className="mb-2 block text-sm font-medium text-slate-700">Phone link number</label>
+                      <input
+                        id="public-contact-phone-e164"
+                        value={publicContactDraft.phone_e164}
+                        onChange={(e) => updatePublicContactDraft('phone_e164', e.target.value)}
+                        placeholder="+16714774243"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                    <div className="lg:col-span-2">
+                      <label htmlFor="public-contact-email" className="mb-2 block text-sm font-medium text-slate-700">Public email</label>
+                      <input
+                        id="public-contact-email"
+                        type="email"
+                        value={publicContactDraft.email}
+                        onChange={(e) => updatePublicContactDraft('email', e.target.value)}
+                        placeholder="admin@aireservicesguam.com"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                    <div className="lg:col-span-2">
+                      <label htmlFor="public-contact-street" className="mb-2 block text-sm font-medium text-slate-700">Street address</label>
+                      <input
+                        id="public-contact-street"
+                        value={publicContactDraft.street_address}
+                        onChange={(e) => updatePublicContactDraft('street_address', e.target.value)}
+                        placeholder="353 Admiral Sherman Boulevard"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="public-contact-area" className="mb-2 block text-sm font-medium text-slate-700">Area label</label>
+                      <input
+                        id="public-contact-area"
+                        value={publicContactDraft.address_area_label}
+                        onChange={(e) => updatePublicContactDraft('address_area_label', e.target.value)}
+                        placeholder="Tiyan / Barrigada"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="public-contact-locality" className="mb-2 block text-sm font-medium text-slate-700">Locality</label>
+                      <input
+                        id="public-contact-locality"
+                        value={publicContactDraft.address_locality}
+                        onChange={(e) => updatePublicContactDraft('address_locality', e.target.value)}
+                        placeholder="Barrigada"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="public-contact-region" className="mb-2 block text-sm font-medium text-slate-700">Region</label>
+                      <input
+                        id="public-contact-region"
+                        value={publicContactDraft.address_region}
+                        onChange={(e) => updatePublicContactDraft('address_region', e.target.value)}
+                        placeholder="Guam"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="public-contact-postal" className="mb-2 block text-sm font-medium text-slate-700">Postal code</label>
+                      <input
+                        id="public-contact-postal"
+                        value={publicContactDraft.postal_code}
+                        onChange={(e) => updatePublicContactDraft('postal_code', e.target.value)}
+                        placeholder="96913"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="public-contact-country" className="mb-2 block text-sm font-medium text-slate-700">Country code</label>
+                      <input
+                        id="public-contact-country"
+                        value={publicContactDraft.address_country}
+                        onChange={(e) => updatePublicContactDraft('address_country', e.target.value)}
+                        placeholder="GU"
+                        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    These values appear on the public website contact blocks, footer, and search-engine business schema.
+                  </p>
+                </div>
+
                 <div className="grid gap-5 lg:grid-cols-2">
                   <div>
                     <label htmlFor="contact-notification-emails" className="mb-2 block text-sm font-medium text-slate-700">Notification recipient emails</label>

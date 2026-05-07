@@ -3,42 +3,40 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AireContact from './AireContact'
+import { aireAddressDisplay, aireBusinessInfo } from '../../lib/businessInfo'
+import { PublicBusinessInfoContext } from '../../contexts/publicBusinessInfo'
 
 const apiMock = vi.hoisted(() => ({
-  getPublicContactSettings: vi.fn(),
   submitContact: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
   api: {
-    getPublicContactSettings: apiMock.getPublicContactSettings,
     submitContact: apiMock.submitContact,
   },
 }))
 
-function renderPage() {
+const fixtureInquiryTopics = [
+  'Private Pilot Certificate',
+  'Aerial Tours',
+  'Aircraft Rental',
+  'Careers',
+  'General Inquiry',
+]
+
+function renderPage(inquiryTopics = fixtureInquiryTopics) {
   return render(
     <MemoryRouter>
-      <AireContact />
+      <PublicBusinessInfoContext.Provider value={{ businessInfo: aireBusinessInfo, inquiryTopics }}>
+        <AireContact />
+      </PublicBusinessInfoContext.Provider>
     </MemoryRouter>,
   )
 }
 
 describe('AireContact', () => {
   beforeEach(() => {
-    apiMock.getPublicContactSettings.mockReset()
     apiMock.submitContact.mockReset()
-    apiMock.getPublicContactSettings.mockResolvedValue({
-      data: {
-        inquiry_topics: [
-          'Private Pilot Certificate',
-          'Discovery Flight',
-          'Aircraft Rental',
-          'Careers',
-          'General Inquiry',
-        ],
-      },
-    })
   })
 
   it('renders direct phone and email links', async () => {
@@ -46,8 +44,9 @@ describe('AireContact', () => {
 
     await screen.findByRole('button', { name: 'Private Pilot Certificate' })
 
-    expect(screen.getByRole('link', { name: '(671) 477-4243' })).toHaveAttribute('href', 'tel:+16714774243')
-    expect(screen.getByRole('link', { name: 'admin@aireservicesguam.com' })).toHaveAttribute('href', 'mailto:admin@aireservicesguam.com')
+    expect(screen.getByRole('link', { name: aireBusinessInfo.phone.display })).toHaveAttribute('href', aireBusinessInfo.phone.href)
+    expect(screen.getByRole('link', { name: aireBusinessInfo.email.display })).toHaveAttribute('href', aireBusinessInfo.email.href)
+    expect(screen.getByText(aireAddressDisplay)).toBeInTheDocument()
   })
 
   it('trims form values before submitting', async () => {
@@ -79,11 +78,7 @@ describe('AireContact', () => {
   })
 
   it('renders configured inquiry topics from the API', async () => {
-    apiMock.getPublicContactSettings.mockResolvedValue({
-      data: { inquiry_topics: ['Aerial Tours', 'Video Packages', 'General Inquiry'] },
-    })
-
-    renderPage()
+    renderPage(['Aerial Tours', 'Video Packages', 'General Inquiry'])
 
     const aerialToursButton = await screen.findByRole('button', { name: 'Aerial Tours' })
     expect(aerialToursButton).toHaveAttribute('aria-pressed', 'true')
@@ -95,10 +90,10 @@ describe('AireContact', () => {
   it('lets visitors pick the subject from topic buttons', async () => {
     renderPage()
 
-    const discoveryFlightButton = await screen.findByRole('button', { name: 'Discovery Flight' })
-    fireEvent.click(discoveryFlightButton)
+    const aerialToursButton = await screen.findByRole('button', { name: 'Aerial Tours' })
+    fireEvent.click(aerialToursButton)
 
-    expect(discoveryFlightButton).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('Selected topic').parentElement).toHaveTextContent('Discovery Flight')
+    expect(aerialToursButton).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Selected topic').parentElement).toHaveTextContent('Aerial Tours')
   })
 })

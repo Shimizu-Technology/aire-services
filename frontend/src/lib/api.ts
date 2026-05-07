@@ -1,4 +1,5 @@
 // AIRE Services API client
+import type { PublicContactInfoSettings } from './businessInfo'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3100';
 
@@ -309,10 +310,12 @@ export interface PlaceDetails {
 export interface ContactSettings {
   contact_notification_emails: string[];
   inquiry_topics: string[];
+  public_contact: PublicContactInfoSettings;
 }
 
 export interface PublicContactSettings {
   inquiry_topics: string[];
+  public_contact: PublicContactInfoSettings;
 }
 
 export type SiteMediaType = 'image' | 'video';

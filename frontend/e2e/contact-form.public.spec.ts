@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 const fixtureInquiryTopics = [
   'Admissions',
-  'Discovery Flight',
+  'Aerial Tours',
   'Aircraft Rental',
   'General Questions',
 ];

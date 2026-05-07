@@ -18,6 +18,8 @@ VITE_GOOGLE_MAPS_BROWSER_KEY=AIza...
 
 **Note:** If `VITE_CLERK_PUBLISHABLE_KEY` is not set, the app runs without authentication (dev mode only — production will log an error).
 
+Public business contact defaults are centralized in `src/lib/businessInfo.ts`. Admins can update the live website phone, email, and address from the admin dashboard under Settings → Contact settings.
+
 ## Run Development Server
 
 ```bash
