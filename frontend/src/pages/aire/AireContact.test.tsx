@@ -18,7 +18,7 @@ vi.mock('../../lib/api', () => ({
 
 const fixtureInquiryTopics = [
   'Private Pilot Certificate',
-  'Discovery Flight',
+  'Aerial Tours',
   'Aircraft Rental',
   'Careers',
   'General Inquiry',
@@ -90,10 +90,10 @@ describe('AireContact', () => {
   it('lets visitors pick the subject from topic buttons', async () => {
     renderPage()
 
-    const discoveryFlightButton = await screen.findByRole('button', { name: 'Discovery Flight' })
-    fireEvent.click(discoveryFlightButton)
+    const aerialToursButton = await screen.findByRole('button', { name: 'Aerial Tours' })
+    fireEvent.click(aerialToursButton)
 
-    expect(discoveryFlightButton).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('Selected topic').parentElement).toHaveTextContent('Discovery Flight')
+    expect(aerialToursButton).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Selected topic').parentElement).toHaveTextContent('Aerial Tours')
   })
 })

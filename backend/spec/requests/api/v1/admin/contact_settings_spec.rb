@@ -20,7 +20,7 @@ RSpec.describe "Api::V1::Admin::ContactSettings", type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(json[:contact_notification_emails]).to include("admin@aireservicesguam.com")
-      expect(json[:inquiry_topics]).to include("Private Pilot Certificate", "Discovery Flight")
+      expect(json[:inquiry_topics]).to include("Private Pilot Certificate", "Aerial Tours")
       expect(json.dig(:public_contact, :street_address)).to eq("353 Admiral Sherman Boulevard")
       expect(json.dig(:public_contact, :email)).to eq("admin@aireservicesguam.com")
     end

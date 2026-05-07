@@ -16,7 +16,7 @@ class Setting < ApplicationRecord
   }.freeze
   DEFAULT_CONTACT_INQUIRY_TOPICS = [
     "Private Pilot Certificate",
-    "Discovery Flight",
+    "Aerial Tours",
     "Aircraft Rental",
     "Careers",
     "General Inquiry"

@@ -34,10 +34,9 @@ export interface AireBusinessInfo {
 }
 
 export const defaultInquiryTopics = [
-  'Pilot Training',
-  'Guam Aerial Tours',
-  'Video Packages',
-  'Discovery Flight',
+  'Private Pilot Certificate',
+  'Aerial Tours',
+  'Aircraft Rental',
   'Careers',
   'General Inquiry',
 ]
