@@ -131,6 +131,11 @@ describe('Users filters', () => {
     expect(screen.getByText('Alice Pilot')).toBeInTheDocument()
     expect(screen.queryByText('Blake Ops')).not.toBeInTheDocument()
 
+    fireEvent.change(screen.getByLabelText(/search/i), { target: { value: 'active' } })
+    expect(screen.getByText('Alice Pilot')).toBeInTheDocument()
+    expect(screen.getByText('Blake Ops')).toBeInTheDocument()
+    expect(screen.queryByText('Casey Inactive')).not.toBeInTheDocument()
+
     fireEvent.change(screen.getByLabelText(/search/i), { target: { value: '' } })
     fireEvent.change(screen.getByLabelText(/role/i), { target: { value: 'admin' } })
     expect(screen.getByText('Blake Ops')).toBeInTheDocument()

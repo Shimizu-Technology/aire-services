@@ -159,6 +159,11 @@ export default function Users() {
       if (publicTeamFilter === 'hidden' && user.is_active && user.public_team_enabled) return false
 
       if (!normalizedSearchTerm) return true
+      const statusTokens = user.is_pending ? ['pending'] : [user.is_active ? 'active' : 'inactive']
+
+      if (['active', 'inactive', 'pending'].includes(normalizedSearchTerm)) {
+        return statusTokens.includes(normalizedSearchTerm)
+      }
 
       const searchableText = [
         user.full_name,
@@ -171,8 +176,7 @@ export default function Users() {
         user.public_team_title,
         user.approval_group_label,
         user.role,
-        user.is_pending ? 'pending sign-in kiosk only invited' : 'active',
-        user.is_active ? 'active' : 'inactive',
+        user.is_pending ? 'pending sign-in kiosk only invited' : statusTokens[0],
         user.public_team_enabled ? 'public team visible' : 'public team hidden',
         user.kiosk_pin_configured ? 'pin ready kiosk' : 'no pin kiosk not set',
         ...(user.time_categories ?? []).map((category) => category.name),
