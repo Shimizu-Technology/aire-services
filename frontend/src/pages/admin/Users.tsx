@@ -4,6 +4,13 @@ import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption }
 import { formatDateTime } from '../../lib/dateUtils'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
+function isKioskLocked(user: AdminUser) {
+  if (!user.kiosk_locked_until) return false
+
+  const lockedUntil = new Date(user.kiosk_locked_until).getTime()
+  return Number.isFinite(lockedUntil) && lockedUntil > Date.now()
+}
+
 export default function Users() {
   useEffect(() => {
     document.title = 'Users | AIRE Ops'
@@ -153,7 +160,7 @@ export default function Users() {
 
       if (kioskFilter === 'pin_ready' && !user.kiosk_pin_configured) return false
       if (kioskFilter === 'no_pin' && user.kiosk_pin_configured) return false
-      if (kioskFilter === 'locked' && !user.kiosk_locked_until) return false
+      if (kioskFilter === 'locked' && !isKioskLocked(user)) return false
 
       if (publicTeamFilter === 'visible' && !(user.is_active && user.public_team_enabled)) return false
       if (publicTeamFilter === 'hidden' && user.is_active && user.public_team_enabled) return false
@@ -720,7 +727,7 @@ export default function Users() {
                           )}
                         </div>
                         {user.kiosk_pin_last_rotated_at && <div className="text-xs text-slate-500">Rotated {formatDateTime(user.kiosk_pin_last_rotated_at)}</div>}
-                        {user.kiosk_locked_until && <div className="text-xs text-red-600">Locked until {formatDateTime(user.kiosk_locked_until)}</div>}
+                        {isKioskLocked(user) && <div className="text-xs text-red-600">Locked until {formatDateTime(user.kiosk_locked_until!)}</div>}
                       </div>
                     </td>
                     <td className="px-5 py-4">

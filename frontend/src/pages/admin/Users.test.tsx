@@ -113,6 +113,13 @@ describe('Users filters', () => {
             is_active: false,
             kiosk_locked_until: '2026-05-02T00:00:00Z',
           }),
+          makeUser({
+            id: 4,
+            full_name: 'Dana Locked',
+            display_name: 'Dana Locked',
+            email: 'dana@aire.test',
+            kiosk_locked_until: '2099-05-02T00:00:00Z',
+          }),
         ],
       },
     })
@@ -126,6 +133,7 @@ describe('Users filters', () => {
     expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
     expect(screen.getByText('Blake Ops')).toBeInTheDocument()
     expect(screen.getByText('Casey Inactive')).toBeInTheDocument()
+    expect(screen.getByText('Dana Locked')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/search/i), { target: { value: 'instructor' } })
     expect(screen.getByText('Alice Pilot')).toBeInTheDocument()
@@ -149,7 +157,8 @@ describe('Users filters', () => {
     fireEvent.click(screen.getByRole('button', { name: /clear filters/i }))
     fireEvent.change(screen.getByLabelText(/kiosk/i), { target: { value: 'locked' } })
     const table = screen.getByRole('table')
-    expect(within(table).getByText('Casey Inactive')).toBeInTheDocument()
+    expect(within(table).getByText('Dana Locked')).toBeInTheDocument()
+    expect(within(table).queryByText('Casey Inactive')).not.toBeInTheDocument()
     expect(within(table).queryByText('Alice Pilot')).not.toBeInTheDocument()
   })
 })
