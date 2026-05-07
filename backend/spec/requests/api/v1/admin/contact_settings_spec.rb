@@ -125,5 +125,25 @@ RSpec.describe "Api::V1::Admin::ContactSettings", type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       expect(json[:error]).to match(/Invalid public email address/)
     end
+
+    it "rejects invalid public phone link numbers" do
+      patch "/api/v1/admin/contact_settings",
+            params: {
+              contact_notification_emails: [ "ops@example.com" ],
+              inquiry_topics: [ "Aerial Tours" ],
+              public_contact: {
+                phone_display: "(671) 555-0100",
+                phone_e164: "671-555-0100",
+                email: "frontdesk@example.com",
+                street_address: "353 Admiral Sherman Boulevard",
+                address_region: "Guam",
+                postal_code: "96913"
+              }
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/E.164 format/)
+    end
   end
 end
