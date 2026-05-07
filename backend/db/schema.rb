@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_30_010100) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_07_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -69,6 +69,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_30_010100) do
   end
 
   create_table "leave_requests", force: :cascade do |t|
+    t.datetime "cancelled_at"
+    t.bigint "cancelled_by_id"
     t.datetime "created_at", null: false
     t.date "end_date", null: false
     t.string "leave_type", null: false
@@ -80,6 +82,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_30_010100) do
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.index ["cancelled_by_id"], name: "index_leave_requests_on_cancelled_by_id"
     t.index ["reviewed_by_id"], name: "index_leave_requests_on_reviewed_by_id"
     t.index ["status", "start_date"], name: "index_leave_requests_on_status_and_start_date"
     t.index ["status"], name: "index_leave_requests_on_status"
@@ -264,7 +267,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_30_010100) do
     t.index ["kiosk_pin_lookup_hash"], name: "index_users_on_kiosk_pin_lookup_hash", unique: true
     t.index ["public_team_enabled", "public_team_sort_order"], name: "index_users_on_public_team_visibility_and_sort"
     t.index ["role"], name: "index_users_on_role"
-    t.check_constraint "role::text = ANY (ARRAY['admin'::character varying::text, 'employee'::character varying::text])", name: "check_valid_role"
+    t.check_constraint "role::text = ANY (ARRAY['admin'::character varying, 'employee'::character varying]::text[])", name: "check_valid_role"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
@@ -273,6 +276,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_30_010100) do
   add_foreign_key "employee_pay_rates", "time_categories"
   add_foreign_key "employee_pay_rates", "users"
   add_foreign_key "leave_requests", "users"
+  add_foreign_key "leave_requests", "users", column: "cancelled_by_id"
   add_foreign_key "leave_requests", "users", column: "reviewed_by_id"
   add_foreign_key "schedules", "users"
   add_foreign_key "schedules", "users", column: "created_by_id"

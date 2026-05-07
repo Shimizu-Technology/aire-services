@@ -10,7 +10,7 @@ module Api
 
       def index
         requests = current_user.admin? ? LeaveRequest.all : current_user.leave_requests
-        requests = requests.includes(:user, :reviewed_by)
+        requests = requests.includes(:user, :reviewed_by, :cancelled_by)
         if params[:status].present?
           requests = if params[:status] == "reviewed"
             requests.where.not(status: "pending")
@@ -77,7 +77,14 @@ module Api
             next
           end
 
-          @leave_request.update!(status: "cancelled", reviewed_by: nil, reviewed_at: nil, review_note: nil)
+          @leave_request.update!(
+            status: "cancelled",
+            reviewed_by: nil,
+            reviewed_at: nil,
+            review_note: nil,
+            cancelled_by: current_user,
+            cancelled_at: Time.current
+          )
           cancel_result = @leave_request
         end
 
@@ -99,7 +106,7 @@ module Api
 
       def set_leave_request
         scope = current_user.admin? ? LeaveRequest : current_user.leave_requests
-        @leave_request = scope.includes(:user, :reviewed_by).find(params[:id])
+        @leave_request = scope.includes(:user, :reviewed_by, :cancelled_by).find(params[:id])
       rescue ActiveRecord::RecordNotFound
         render json: { error: "Leave request not found" }, status: :not_found
       end
@@ -133,7 +140,9 @@ module Api
             status: status,
             reviewed_by: current_user,
             reviewed_at: Time.current,
-            review_note: params[:review_note].presence
+            review_note: params[:review_note].presence,
+            cancelled_by: nil,
+            cancelled_at: nil
           )
           review_result = @leave_request
         end
@@ -163,6 +172,7 @@ module Api
           review_note: request.review_note,
           total_days: request.total_days,
           reviewed_at: request.reviewed_at&.iso8601,
+          cancelled_at: request.cancelled_at&.iso8601,
           created_at: request.created_at.iso8601,
           updated_at: request.updated_at.iso8601,
           user: {
@@ -174,6 +184,10 @@ module Api
           reviewed_by: request.reviewed_by ? {
             id: request.reviewed_by.id,
             full_name: request.reviewed_by.full_name
+          } : nil,
+          cancelled_by: request.cancelled_by ? {
+            id: request.cancelled_by.id,
+            full_name: request.cancelled_by.full_name
           } : nil
         }
       end

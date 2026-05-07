@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
 import { formatDateTime } from '../../lib/dateUtils'
@@ -13,6 +13,12 @@ export default function Users() {
   const [allCategories, setAllCategories] = useState<AdminTimeCategory[]>([])
   const [approvalGroupOptions, setApprovalGroupOptions] = useState<ApprovalGroupOption[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all' | AdminUser['role']>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive'>('all')
+  const [departmentFilter, setDepartmentFilter] = useState<'all' | 'unassigned' | ApprovalGroup>('all')
+  const [kioskFilter, setKioskFilter] = useState<'all' | 'pin_ready' | 'no_pin' | 'locked'>('all')
+  const [publicTeamFilter, setPublicTeamFilter] = useState<'all' | 'visible' | 'hidden'>('all')
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createFirstName, setCreateFirstName] = useState('')
@@ -125,6 +131,68 @@ export default function Users() {
   const canEditEmail = Boolean(canEditPendingInviteEmail || canConvertPendingKioskUser)
   const routedUsersCount = users.filter((user) => !!user.approval_group).length
   const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase()
+  const hasActiveFilters = Boolean(
+    normalizedSearchTerm ||
+    roleFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    departmentFilter !== 'all' ||
+    kioskFilter !== 'all' ||
+    publicTeamFilter !== 'all',
+  )
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
+      if (roleFilter !== 'all' && user.role !== roleFilter) return false
+
+      if (statusFilter === 'active' && (!user.is_active || user.is_pending)) return false
+      if (statusFilter === 'pending' && (!user.is_active || !user.is_pending)) return false
+      if (statusFilter === 'inactive' && user.is_active) return false
+
+      if (departmentFilter === 'unassigned' && user.approval_group) return false
+      if (departmentFilter !== 'all' && departmentFilter !== 'unassigned' && user.approval_group !== departmentFilter) return false
+
+      if (kioskFilter === 'pin_ready' && !user.kiosk_pin_configured) return false
+      if (kioskFilter === 'no_pin' && user.kiosk_pin_configured) return false
+      if (kioskFilter === 'locked' && !user.kiosk_locked_until) return false
+
+      if (publicTeamFilter === 'visible' && !(user.is_active && user.public_team_enabled)) return false
+      if (publicTeamFilter === 'hidden' && user.is_active && user.public_team_enabled) return false
+
+      if (!normalizedSearchTerm) return true
+
+      const searchableText = [
+        user.full_name,
+        user.display_name,
+        user.first_name,
+        user.last_name,
+        user.email,
+        user.staff_title,
+        user.public_team_name,
+        user.public_team_title,
+        user.approval_group_label,
+        user.role,
+        user.is_pending ? 'pending sign-in kiosk only invited' : 'active',
+        user.is_active ? 'active' : 'inactive',
+        user.public_team_enabled ? 'public team visible' : 'public team hidden',
+        user.kiosk_pin_configured ? 'pin ready kiosk' : 'no pin kiosk not set',
+        ...(user.time_categories ?? []).map((category) => category.name),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      return searchableText.includes(normalizedSearchTerm)
+    })
+  }, [departmentFilter, kioskFilter, normalizedSearchTerm, publicTeamFilter, roleFilter, statusFilter, users])
+
+  const resetFilters = () => {
+    setSearchTerm('')
+    setRoleFilter('all')
+    setStatusFilter('all')
+    setDepartmentFilter('all')
+    setKioskFilter('all')
+    setPublicTeamFilter('all')
+  }
 
   const patchLocalUser = useCallback((userId: number, updater: (user: AdminUser) => AdminUser) => {
     setUsers((prev) => prev.map((user) => (user.id === userId ? updater(user) : user)))
@@ -463,8 +531,17 @@ export default function Users() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">AIRE Team</h2>
-          <p className="mt-1 text-sm text-slate-500">Roles, departments, work categories, and kiosk access.</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">AIRE Team</h2>
+              <p className="mt-1 text-sm text-slate-500">Roles, departments, work categories, and kiosk access.</p>
+            </div>
+            {!loading && (
+              <div className="text-sm text-slate-500">
+                Showing <span className="font-semibold text-slate-800">{filteredUsers.length}</span> of {users.length}
+              </div>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -472,22 +549,116 @@ export default function Users() {
         ) : users.length === 0 ? (
           <div className="px-5 py-10 text-center text-sm text-slate-500">No team members yet.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1200px]">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Team Member</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Public Team</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Department</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Work Categories</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Kiosk</th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {users.map((user) => (
+          <>
+            <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4">
+              <div className="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_repeat(5,minmax(8rem,auto))]">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Search</span>
+                  <input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Name, email, title, category..."
+                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</span>
+                  <select
+                    value={roleFilter}
+                    onChange={(event) => setRoleFilter(event.target.value as typeof roleFilter)}
+                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  >
+                    <option value="all">All roles</option>
+                    <option value="admin">Admins</option>
+                    <option value="employee">Employees</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</span>
+                  <select
+                    value={statusFilter}
+                    onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  >
+                    <option value="all">All statuses</option>
+                    <option value="active">Active</option>
+                    <option value="pending">Pending</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Department</span>
+                  <select
+                    value={departmentFilter}
+                    onChange={(event) => setDepartmentFilter(event.target.value as typeof departmentFilter)}
+                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  >
+                    <option value="all">All departments</option>
+                    <option value="unassigned">Unassigned</option>
+                    {approvalGroupOptions.map((option) => (
+                      <option key={option.key} value={option.key}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Kiosk</span>
+                  <select
+                    value={kioskFilter}
+                    onChange={(event) => setKioskFilter(event.target.value as typeof kioskFilter)}
+                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  >
+                    <option value="all">All kiosk states</option>
+                    <option value="pin_ready">PIN ready</option>
+                    <option value="no_pin">No PIN</option>
+                    <option value="locked">Locked</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Public</span>
+                  <select
+                    value={publicTeamFilter}
+                    onChange={(event) => setPublicTeamFilter(event.target.value as typeof publicTeamFilter)}
+                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  >
+                    <option value="all">All public states</option>
+                    <option value="visible">Visible</option>
+                    <option value="hidden">Hidden</option>
+                  </select>
+                </label>
+              </div>
+              {hasActiveFilters && (
+                <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-500">
+                  <span>Filters are narrowing the team list.</span>
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {filteredUsers.length === 0 ? (
+              <div className="px-5 py-10 text-center text-sm text-slate-500">No team members match those filters.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1200px]">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Team Member</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Public Team</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Department</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Work Categories</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Kiosk</th>
+                      <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-slate-50/80">
                     <td className="px-5 py-4">
                       <div className="font-medium text-slate-900">{user.full_name || user.display_name}</div>
@@ -585,10 +756,12 @@ export default function Users() {
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
 
