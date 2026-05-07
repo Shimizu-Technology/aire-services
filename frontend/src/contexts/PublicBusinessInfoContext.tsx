@@ -13,13 +13,17 @@ export function PublicBusinessInfoProvider({ children }: { children: ReactNode }
     let cancelled = false
 
     async function loadPublicContact() {
-      const response = await api.getPublicContactSettings()
-      if (!cancelled && response.data?.public_contact) {
-        setPublicContact(response.data.public_contact)
-      }
-      const nextTopics = response.data?.inquiry_topics?.filter(Boolean)
-      if (!cancelled && nextTopics && nextTopics.length > 0) {
-        setInquiryTopics(nextTopics)
+      try {
+        const response = await api.getPublicContactSettings()
+        if (!cancelled && response.data?.public_contact) {
+          setPublicContact(response.data.public_contact)
+        }
+        const nextTopics = response.data?.inquiry_topics?.filter(Boolean)
+        if (!cancelled && nextTopics && nextTopics.length > 0) {
+          setInquiryTopics(nextTopics)
+        }
+      } catch (error) {
+        console.warn('Unable to load public contact settings; using defaults.', error)
       }
     }
 
