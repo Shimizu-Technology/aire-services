@@ -6,6 +6,7 @@ class LeaveRequest < ApplicationRecord
 
   belongs_to :user
   belongs_to :reviewed_by, class_name: "User", optional: true
+  belongs_to :cancelled_by, class_name: "User", optional: true
 
   validates :leave_type, presence: true, inclusion: { in: LEAVE_TYPES }
   validates :status, presence: true, inclusion: { in: STATUSES }

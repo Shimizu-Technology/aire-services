@@ -594,6 +594,7 @@ export interface LeaveRequest {
   review_note: string | null;
   total_days: number;
   reviewed_at: string | null;
+  cancelled_at: string | null;
   created_at: string;
   updated_at: string;
   user: {
@@ -603,6 +604,10 @@ export interface LeaveRequest {
     full_name?: string;
   };
   reviewed_by: {
+    id: number;
+    full_name: string;
+  } | null;
+  cancelled_by: {
     id: number;
     full_name: string;
   } | null;

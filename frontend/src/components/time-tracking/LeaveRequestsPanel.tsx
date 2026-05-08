@@ -25,8 +25,86 @@ function formatDate(value: string) {
   })
 }
 
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function requestOwnerName(request: LeaveRequest) {
   return request.user.full_name || request.user.display_name || request.user.email.split('@')[0]
+}
+
+function requestReviewerName(request: LeaveRequest) {
+  return request.reviewed_by?.full_name || 'Reviewer'
+}
+
+function requestCancellerName(request: LeaveRequest) {
+  return request.cancelled_by?.full_name || requestOwnerName(request)
+}
+
+function reviewedSummary(request: LeaveRequest) {
+  if (request.reviewed_at) return `Reviewed ${formatDateTime(request.reviewed_at)}`
+  if (request.status === 'cancelled') {
+    return `Cancelled ${formatDateTime(request.cancelled_at || request.updated_at)}`
+  }
+
+  return 'Awaiting review'
+}
+
+function hasMeaningfulUpdate(request: LeaveRequest) {
+  const updatedAt = new Date(request.updated_at).getTime()
+  const createdAt = new Date(request.created_at).getTime()
+  const reviewedAt = request.reviewed_at ? new Date(request.reviewed_at).getTime() : null
+  const cancelledAt = request.cancelled_at ? new Date(request.cancelled_at).getTime() : null
+  const sameMoment = (left: number, right: number | null) => right !== null && Math.abs(left - right) < 1000
+
+  return updatedAt !== createdAt && !sameMoment(updatedAt, reviewedAt) && !sameMoment(updatedAt, cancelledAt)
+}
+
+function LeaveRequestTimeline({ request }: { request: LeaveRequest }) {
+  return (
+    <dl className="mt-3 grid gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-500 sm:grid-cols-2">
+      <div>
+        <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Sent</dt>
+        <dd className="mt-1 text-slate-700">
+          {formatDateTime(request.created_at)} by {requestOwnerName(request)}
+        </dd>
+      </div>
+      {request.status === 'pending' && (
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Review</dt>
+          <dd className="mt-1 text-slate-700">Awaiting admin review</dd>
+        </div>
+      )}
+      {request.reviewed_at && (
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Reviewed</dt>
+          <dd className="mt-1 text-slate-700">
+            {formatDateTime(request.reviewed_at)} by {requestReviewerName(request)}
+          </dd>
+        </div>
+      )}
+      {request.status === 'cancelled' && (
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Cancelled</dt>
+          <dd className="mt-1 text-slate-700">
+            {formatDateTime(request.cancelled_at || request.updated_at)} by {requestCancellerName(request)}
+          </dd>
+        </div>
+      )}
+      {hasMeaningfulUpdate(request) && (
+        <div>
+          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Last updated</dt>
+          <dd className="mt-1 text-slate-700">{formatDateTime(request.updated_at)}</dd>
+        </div>
+      )}
+    </dl>
+  )
 }
 
 interface LeaveRequestsPanelProps {
@@ -302,12 +380,8 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                           Review note: <span className="text-slate-700">{request.review_note}</span>
                         </p>
                       )}
+                      <LeaveRequestTimeline request={request} />
                     </div>
-                    {request.reviewed_by && request.status !== 'pending' && (
-                      <div className="text-sm text-slate-500">
-                        Reviewed by {request.reviewed_by.full_name}
-                      </div>
-                    )}
                   </div>
 
                   {isAdmin && request.status === 'pending' && (
@@ -387,7 +461,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       {isAdmin && (historyRequests.length > 0 || (reviewedPagination?.total_count ?? 0) > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-5 py-4">
-            <h3 className="text-lg font-semibold text-slate-900">Reviewed requests</h3>
+            <h3 className="text-lg font-semibold text-slate-900">Completed requests</h3>
           </div>
           <div className="space-y-4 px-5 py-5">
             {historyRequests.map((request) => (
@@ -404,10 +478,14 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                       {formatDate(request.start_date)} to {formatDate(request.end_date)} • {request.total_days} day{request.total_days === 1 ? '' : 's'}
                     </p>
                   </div>
-                  <div className="text-sm text-slate-500">
-                    {request.reviewed_by ? `Reviewed by ${request.reviewed_by.full_name}` : 'Awaiting review'}
-                  </div>
+                  <div className="text-sm text-slate-500">{reviewedSummary(request)}</div>
                 </div>
+                <LeaveRequestTimeline request={request} />
+                {request.review_note && (
+                  <p className="mt-3 text-sm text-slate-500">
+                    Review note: <span className="text-slate-700">{request.review_note}</span>
+                  </p>
+                )}
               </article>
             ))}
             {reviewedPagination && reviewedPagination.total_pages > 1 && (

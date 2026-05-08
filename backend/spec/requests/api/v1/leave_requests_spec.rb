@@ -32,6 +32,16 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(json.dig(:leave_request, :status)).to eq("pending")
       expect(json.dig(:leave_request, :user, :id)).to eq(employee.id)
       expect(json.dig(:leave_request, :total_days)).to eq(3)
+      expect(json.dig(:leave_request, :created_at)).to be_present
+      expect(json.dig(:leave_request, :reviewed_at)).to be_nil
+      expect(json.dig(:leave_request, :cancelled_at)).to be_nil
+
+      audit_log = AuditLog.where(auditable: LeaveRequest.last).order(created_at: :desc).first
+      expect(audit_log).to have_attributes(
+        action: "created",
+        user_id: employee.id,
+        metadata: "leave_request=paid_time_off;status=pending"
+      )
     end
 
     it "rejects overlapping pending or approved requests for the same employee" do
@@ -122,6 +132,16 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(json.dig(:leave_request, :status)).to eq("approved")
       expect(json.dig(:leave_request, :review_note)).to eq("Approved")
       expect(json.dig(:leave_request, :reviewed_by, :id)).to eq(admin.id)
+      expect(json.dig(:leave_request, :reviewed_at)).to be_present
+      expect(json.dig(:leave_request, :cancelled_by)).to be_nil
+      expect(json.dig(:leave_request, :cancelled_at)).to be_nil
+
+      audit_log = AuditLog.where(auditable: request_record).order(created_at: :desc).first
+      expect(audit_log).to have_attributes(
+        action: "updated",
+        user_id: admin.id,
+        metadata: "leave_request_status=approved"
+      )
     end
 
     it "blocks non-admin review" do
@@ -170,6 +190,17 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(json.dig(:leave_request, :status)).to eq("cancelled")
+      expect(json.dig(:leave_request, :cancelled_by, :id)).to eq(employee.id)
+      expect(json.dig(:leave_request, :cancelled_at)).to be_present
+      expect(json.dig(:leave_request, :reviewed_by)).to be_nil
+      expect(json.dig(:leave_request, :reviewed_at)).to be_nil
+
+      audit_log = AuditLog.where(auditable: request_record).order(created_at: :desc).first
+      expect(audit_log).to have_attributes(
+        action: "updated",
+        user_id: employee.id,
+        metadata: "leave_request_status=cancelled"
+      )
     end
 
     it "blocks other employees" do

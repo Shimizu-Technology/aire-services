@@ -114,60 +114,60 @@ export default function AireHome() {
           />
           <div className="absolute inset-0 bg-[linear-gradient(122deg,rgba(2,6,23,0.96),rgba(15,23,42,0.82),rgba(14,116,144,0.32))]" />
         </div>
-        <div className="relative mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 md:py-28 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
+        <div className="relative mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:px-6 sm:py-14 md:py-16 lg:grid-cols-[1.1fr_0.9fr] lg:gap-10 lg:px-8 lg:py-10 xl:py-12">
           <div>
-            <p className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200">
+            <p className="inline-flex max-w-full rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-200 sm:px-4 sm:text-xs">
               Guam aviation experiences
             </p>
-            <h1 className="mt-6 max-w-3xl text-4xl font-bold leading-tight tracking-tight md:text-6xl">
+            <h1 className="mt-5 max-w-3xl text-3xl font-bold leading-tight tracking-tight sm:text-4xl lg:text-5xl 2xl:text-6xl">
               Pilot training, Guam aerial tours, and cinematic video packages.
             </h1>
-            <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-200 md:text-lg">
+            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-200 sm:text-base md:text-lg">
               Train with Guam-based instructors, book a scenic aerial tour, or add a video package to capture the full experience.
             </p>
-            <div className="mt-10 flex flex-wrap gap-3">
-              <Link to="/programs" className="rounded-xl bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+            <div className="mt-7 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap">
+              <Link to="/programs" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 sm:px-6">
                 Explore Services
               </Link>
-              <Link to="/contact" className="rounded-xl border border-white/25 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
+              <Link to="/contact" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/25 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10 sm:px-6">
                 Contact AIRE
               </Link>
-              <Link to="/team" className="rounded-xl border border-cyan-300/70 px-6 py-3 text-sm font-semibold text-cyan-200 transition hover:bg-cyan-400/10">
+              <Link to="/team" className="col-span-2 inline-flex min-h-11 items-center justify-center rounded-xl border border-cyan-300/70 px-4 py-3 text-sm font-semibold text-cyan-200 transition hover:bg-cyan-400/10 sm:col-span-1 sm:px-6">
                 Meet the Team
               </Link>
             </div>
-            <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="mt-7 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
               {quickStats.map((item) => (
                 <a
                   key={item.label}
                   href={item.href}
                   {...(item.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-center backdrop-blur-sm transition hover:border-white/20 hover:bg-white/10"
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-center backdrop-blur-sm transition hover:border-white/20 hover:bg-white/10 sm:rounded-2xl sm:px-4 lg:py-3 xl:py-4"
                 >
-                  <div className="text-base font-bold text-white sm:text-lg">{item.value}</div>
-                  <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-slate-300">{item.label}</div>
+                  <div className="text-sm font-bold leading-tight text-white sm:text-lg">{item.value}</div>
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.12em] text-slate-300 sm:text-[11px]">{item.label}</div>
                 </a>
               ))}
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-white/10 bg-white/6 p-6 backdrop-blur-sm lg:mt-10">
+          <div className="hidden rounded-3xl border border-white/10 bg-white/6 p-5 backdrop-blur-sm lg:mt-5 lg:block xl:p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Ways to fly with AIRE</p>
-            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-white">Choose the experience that fits you.</h2>
-            <div className="mt-6 space-y-4">
-              <div className="rounded-2xl border border-white/10 bg-slate-900/35 px-4 py-4">
+            <h2 className="mt-3 text-xl font-semibold tracking-tight text-white xl:text-2xl">Choose the experience that fits you.</h2>
+            <div className="mt-5 space-y-3 xl:space-y-4">
+              <div className="rounded-2xl border border-white/10 bg-slate-900/35 px-4 py-3 xl:py-4">
                 <div className="text-sm font-semibold text-white">Flight training</div>
                 <p className="mt-2 text-sm leading-relaxed text-slate-200">
                   Start working toward a Private Pilot Certificate with a local instructor team.
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900/35 px-4 py-4">
+              <div className="rounded-2xl border border-white/10 bg-slate-900/35 px-4 py-3 xl:py-4">
                 <div className="text-sm font-semibold text-white">Scenic tours</div>
                 <p className="mt-2 text-sm leading-relaxed text-slate-200">
                   Choose from Bay, Island, and Sunset routes with clear pricing and memorable views.
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900/35 px-4 py-4">
+              <div className="rounded-2xl border border-white/10 bg-slate-900/35 px-4 py-3 xl:py-4">
                 <div className="text-sm font-semibold text-white">Video packages</div>
                 <p className="mt-2 text-sm leading-relaxed text-slate-200">
                   Add edited 4K video, social reels, stills, and optional raw footage.
@@ -178,7 +178,7 @@ export default function AireHome() {
         </div>
       </section>
 
-      <section className="py-16 md:py-24">
+      <section className="pt-4 pb-12 md:pt-6 md:pb-16 lg:pt-4">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="mb-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
