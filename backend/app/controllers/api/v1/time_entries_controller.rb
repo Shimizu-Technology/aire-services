@@ -122,10 +122,14 @@ module Api
           end_time: @time_entry.formatted_end_time
         }
 
-        update_params = time_entry_params.except(:user_id).to_h.symbolize_keys
+        update_params = time_entry_params.except(:user_id, :breaks).to_h.symbolize_keys
         raw_clock_params = raw_time_entry_params.slice(:work_date, :start_time, :end_time)
         normalize_clock_entry_time_update(@time_entry, update_params, raw_clock_params)
         return if performed?
+
+        break_update = build_break_update(@time_entry, update_params)
+        return if performed?
+        update_params[:break_minutes] = break_update[:total_minutes] if break_update
 
         unless current_user.admin?
           update_params[:approval_status] = "pending"
@@ -134,7 +138,20 @@ module Api
           update_params[:approval_note] = append_review_note(@time_entry.approval_note)
         end
 
-        if @time_entry.update(update_params)
+        saved = false
+        break_replace_error = nil
+        @time_entry.transaction do
+          saved = @time_entry.update(update_params)
+          if saved && break_update
+            break_replace_error = replace_break_records(@time_entry, break_update[:breaks])
+            raise ActiveRecord::Rollback if break_replace_error
+          end
+          raise ActiveRecord::Rollback unless saved
+        end
+
+        if break_replace_error
+          render json: { error: break_replace_error }, status: :unprocessable_entity
+        elsif saved
           if @time_entry.status == "completed" &&
              (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
             new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry, include_entry_hours: false)
@@ -441,7 +458,8 @@ module Api
           :description,
           :time_category_id,
           :break_minutes,
-          :user_id
+          :user_id,
+          breaks: [ :id, :start_time, :end_time, :_destroy ]
         )
         normalize_manual_time(permitted, :start_time)
         normalize_manual_time(permitted, :end_time)
@@ -510,6 +528,89 @@ module Api
 
       def raw_time_entry_params
         params.require(:time_entry).permit(:work_date, :start_time, :end_time).to_h.symbolize_keys
+      end
+
+      def build_break_update(entry, update_params)
+        raw_breaks = params.require(:time_entry)[:breaks]
+        return nil if raw_breaks.nil?
+
+        raw_break_rows = Array(raw_breaks).filter { |raw_break| raw_break.respond_to?(:to_h) || raw_break.respond_to?(:to_unsafe_h) }
+        return nil if raw_break_rows.empty? && !entry.time_entry_breaks.exists?
+
+        if entry.active?
+          render json: { error: "Break details can only be corrected after clock-out" }, status: :unprocessable_entity
+          return nil
+        end
+
+        work_date = Date.parse((update_params[:work_date].presence || entry.work_date).to_s)
+        start_boundary = time_on_work_date(update_params[:start_time].presence || entry.start_time, work_date)
+        end_boundary = time_on_work_date(update_params[:end_time].presence || entry.end_time, work_date, after: start_boundary)
+
+        normalized = raw_break_rows.filter_map do |raw_break|
+          raw_break = raw_break.respond_to?(:to_unsafe_h) ? raw_break.to_unsafe_h : raw_break.to_h
+          next if ActiveModel::Type::Boolean.new.cast(raw_break[:_destroy] || raw_break["_destroy"])
+
+          start_value = raw_break[:start_time] || raw_break["start_time"]
+          end_value = raw_break[:end_time] || raw_break["end_time"]
+          next if start_value.blank? && end_value.blank?
+
+          if start_value.blank? || end_value.blank?
+            render json: { error: "Each break needs both a start and end time" }, status: :unprocessable_entity
+            return nil
+          end
+
+          break_start = time_on_work_date(start_value, work_date, after: start_boundary - 1.second)
+          break_end = time_on_work_date(end_value, work_date, after: break_start)
+
+          if break_start < start_boundary || break_end > end_boundary
+            render json: { error: "Breaks must fall within the entry start and end time" }, status: :unprocessable_entity
+            return nil
+          end
+
+          { start_time: break_start, end_time: break_end, duration_minutes: ((break_end - break_start) / 60).round }
+        end
+
+        sorted = normalized.sort_by { |row| row[:start_time] }
+        sorted.each_cons(2) do |left, right|
+          if left[:end_time] > right[:start_time]
+            render json: { error: "Breaks cannot overlap" }, status: :unprocessable_entity
+            return nil
+          end
+        end
+
+        { breaks: sorted, total_minutes: sorted.sum { |row| row[:duration_minutes].to_i } }
+      rescue Date::Error, ArgumentError
+        render json: { error: "Break times are invalid" }, status: :unprocessable_entity
+        nil
+      end
+
+      def time_on_work_date(value, work_date, after: nil)
+        if value.respond_to?(:in_time_zone)
+          local = value.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
+          hour = local.hour
+          minute = local.min
+        else
+          match = value.to_s.match(/\A(\d{1,2}):(\d{2})\z/)
+          raise ArgumentError, "Invalid time" unless match
+
+          hour = match[1].to_i
+          minute = match[2].to_i
+          raise ArgumentError, "Invalid time" unless hour.between?(0, 23) && minute.between?(0, 59)
+        end
+
+        tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+        resolved = tz.local(work_date.year, work_date.month, work_date.day, hour, minute, 0)
+        resolved += 1.day if after.present? && resolved <= after
+        resolved
+      end
+
+      def replace_break_records(entry, break_rows)
+        entry.time_entry_breaks.destroy_all
+        break_rows.each do |row|
+          entry_break = entry.time_entry_breaks.create(row)
+          return entry_break.errors.full_messages.to_sentence unless entry_break.persisted?
+        end
+        nil
       end
 
       def resolve_entry_owner

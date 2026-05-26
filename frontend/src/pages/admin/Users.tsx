@@ -22,7 +22,7 @@ export default function Users() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | AdminUser['role']>('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive'>('active')
   const [departmentFilter, setDepartmentFilter] = useState<'all' | 'unassigned' | ApprovalGroup>('all')
   const [kioskFilter, setKioskFilter] = useState<'all' | 'pin_ready' | 'no_pin' | 'locked'>('all')
   const [publicTeamFilter, setPublicTeamFilter] = useState<'all' | 'visible' | 'hidden'>('all')
@@ -142,7 +142,7 @@ export default function Users() {
   const hasActiveFilters = Boolean(
     normalizedSearchTerm ||
     roleFilter !== 'all' ||
-    statusFilter !== 'all' ||
+    statusFilter !== 'active' ||
     departmentFilter !== 'all' ||
     kioskFilter !== 'all' ||
     publicTeamFilter !== 'all',
@@ -199,7 +199,7 @@ export default function Users() {
   const resetFilters = () => {
     setSearchTerm('')
     setRoleFilter('all')
-    setStatusFilter('all')
+    setStatusFilter('active')
     setDepartmentFilter('all')
     setKioskFilter('all')
     setPublicTeamFilter('all')
@@ -756,14 +756,17 @@ export default function Users() {
                             {resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(user)}
-                          disabled={deletingIds.has(user.id)}
-                          className="text-red-600 transition hover:text-red-800 disabled:opacity-50"
-                        >
-                          {deletingIds.has(user.id) ? 'Removing…' : 'Remove'}
-                        </button>
+                        {!user.is_active && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(user)}
+                            disabled={deletingIds.has(user.id)}
+                            className="text-red-600 transition hover:text-red-800 disabled:opacity-50"
+                            title="Permanent removal is only shown for inactive users. Make inactive is preferred for payroll history."
+                          >
+                            {deletingIds.has(user.id) ? 'Removing…' : 'Remove'}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

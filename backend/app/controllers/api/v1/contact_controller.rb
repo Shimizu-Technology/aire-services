@@ -16,8 +16,14 @@ module Api
         errors = []
         errors << "Name is required" if name.blank?
         errors << "Email is required" if email.blank?
+        errors << "Email format is invalid" if email.present? && !email.to_s.match?(URI::MailTo::EMAIL_REGEXP)
         errors << "Subject is required" if subject.blank?
         errors << "Message is required" if message.blank?
+        errors << "Name is too long" if name.to_s.length > 120
+        errors << "Email is too long" if email.to_s.length > 254
+        errors << "Phone is too long" if phone.to_s.length > 40
+        errors << "Subject is too long" if subject.to_s.length > 120
+        errors << "Message is too long" if message.to_s.length > 5_000
 
         if errors.any?
           return render json: { error: errors.join(", ") }, status: :unprocessable_entity

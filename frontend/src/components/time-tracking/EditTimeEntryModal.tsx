@@ -32,6 +32,13 @@ interface EditableTimeEntry {
     id: number
     name: string
   } | null
+  breaks?: Array<{
+    id?: number
+    start_time: string | null
+    end_time: string | null
+    duration_minutes?: number | null
+    active?: boolean
+  }>
 }
 
 interface EditTimeEntryModalProps {
@@ -45,6 +52,8 @@ interface EditTimeEntryModalProps {
   onError?: (message: string | null) => void
 }
 
+const BUSINESS_TIME_ZONE = 'Pacific/Guam'
+
 const BREAK_PRESETS = [
   { label: 'None', minutes: null },
   { label: '15m', minutes: 15 },
@@ -53,6 +62,29 @@ const BREAK_PRESETS = [
   { label: '1h', minutes: 60 },
   { label: 'Custom', minutes: -1 },
 ]
+
+function timeInputValue(value: string | null | undefined) {
+  if (!value) return ''
+
+  const plainTime = value.match(/^(\d{1,2}):(\d{2})$/)
+  if (plainTime) {
+    return `${plainTime[1].padStart(2, '0')}:${plainTime[2]}`
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const hour = parts.find((part) => part.type === 'hour')?.value
+  const minute = parts.find((part) => part.type === 'minute')?.value
+
+  return hour && minute ? `${hour}:${minute}` : ''
+}
 
 export default function EditTimeEntryModal({
   isOpen,
@@ -72,6 +104,7 @@ export default function EditTimeEntryModal({
     time_category_id: '',
     break_minutes: null as number | null,
   })
+  const [breakRows, setBreakRows] = useState<Array<{ id?: number; start_time: string; end_time: string }>>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -87,6 +120,14 @@ export default function EditTimeEntryModal({
       time_category_id: entry.time_category?.id.toString() || '',
       break_minutes: entry.break_minutes,
     })
+    setBreakRows((entry.breaks || [])
+      .filter((row) => row.start_time && row.end_time)
+      .map((row) => ({
+        id: row.id,
+        start_time: timeInputValue(row.start_time),
+        end_time: timeInputValue(row.end_time),
+      }))
+      .filter((row) => row.start_time && row.end_time))
     setError(null)
   }, [entry, isOpen])
 
@@ -121,12 +162,17 @@ export default function EditTimeEntryModal({
     setLocalError(null)
 
     try {
+      const shouldSubmitDetailedBreaks = breakRows.length > 0 || (entry.breaks?.length ?? 0) > 0
       const payload = {
         work_date: formData.work_date,
         start_time: formData.start_time,
         description: formData.description || undefined,
         time_category_id: formData.time_category_id ? parseInt(formData.time_category_id, 10) : undefined,
-        ...(isActiveClockEntry ? {} : { end_time: formData.end_time, break_minutes: formData.break_minutes }),
+        ...(isActiveClockEntry ? {} : {
+          end_time: formData.end_time,
+          break_minutes: formData.break_minutes,
+          ...(shouldSubmitDetailedBreaks ? { breaks: breakRows } : {}),
+        }),
       }
 
       const response = await api.updateTimeEntry(entry.id, payload)
@@ -271,6 +317,9 @@ export default function EditTimeEntryModal({
 
                 {!isActiveClockEntry && (
                   <div>
+                    <div className="mb-3 rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2 text-xs text-cyan-900">
+                      If someone forgot to clock out for a break, add the actual break start and end time here. Detailed breaks replace the total break duration and recalculate hours.
+                    </div>
                     <label className="mb-1 block text-sm font-medium text-primary-dark">Break Duration</label>
                     <div className="mb-2 flex flex-wrap gap-2">
                       {BREAK_PRESETS.map((preset) => (
@@ -314,6 +363,50 @@ export default function EditTimeEntryModal({
                         />
                       )}
                     <p className="mt-1 text-xs text-text-muted">Break time is not counted toward work hours</p>
+
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-semibold text-primary-dark">Detailed breaks</h3>
+                        <button
+                          type="button"
+                          onClick={() => setBreakRows([...breakRows, { start_time: '12:00', end_time: '12:30' }])}
+                          className="rounded-lg border border-cyan-200 px-3 py-1.5 text-xs font-semibold text-cyan-700 hover:bg-cyan-50"
+                        >
+                          Add break
+                        </button>
+                      </div>
+                      {breakRows.length === 0 ? (
+                        <p className="text-xs text-text-muted">No detailed breaks logged.</p>
+                      ) : breakRows.map((row, index) => (
+                        <div key={`${row.id || 'new'}-${index}`} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 rounded-xl border border-neutral-warm bg-white p-2">
+                          <label className="block">
+                            <span className="mb-1 block text-[11px] font-medium text-text-muted">Start</span>
+                            <input
+                              type="time"
+                              value={row.start_time}
+                              onChange={(event) => setBreakRows(breakRows.map((item, i) => i === index ? { ...item, start_time: event.target.value } : item))}
+                              className="w-full rounded-lg border border-neutral-warm px-2 py-1.5 text-sm"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="mb-1 block text-[11px] font-medium text-text-muted">End</span>
+                            <input
+                              type="time"
+                              value={row.end_time}
+                              onChange={(event) => setBreakRows(breakRows.map((item, i) => i === index ? { ...item, end_time: event.target.value } : item))}
+                              className="w-full rounded-lg border border-neutral-warm px-2 py-1.5 text-sm"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setBreakRows(breakRows.filter((_, i) => i !== index))}
+                            className="rounded-lg px-2 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 

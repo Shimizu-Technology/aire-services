@@ -83,7 +83,7 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
 
     it "paginates the admin index" do
       30.times do |index|
-        start_date = Date.new(2026, 6, 1) + (index * 2)
+        start_date = Date.new(2027, 6, 1) + (index * 2)
         create(
           :leave_request,
           user: employee,

@@ -31,6 +31,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
   const [noteInput, setNoteInput] = useState<{ id: number; note: string } | null>(null)
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null)
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('aire_pending_approvals_collapsed') === 'true')
 
   const syncExpandedDescriptions = useCallback((visibleEntries: TimeEntry[]) => {
     const freshIds = new Set(visibleEntries.map((entry) => entry.id))
@@ -88,6 +89,14 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
       })
       .catch(() => undefined)
   }, [])
+
+  const toggleCollapsed = () => {
+    setCollapsed((value) => {
+      const next = !value
+      localStorage.setItem('aire_pending_approvals_collapsed', String(next))
+      return next
+    })
+  }
 
   const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
     { value: 'all', label: 'All', count: allEntries.length },
@@ -231,22 +240,35 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
       <div className="h-1 bg-amber-400" />
       <div className="p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
+          <button type="button" onClick={toggleCollapsed} className="flex min-h-[44px] items-center gap-2.5 text-left">
             <div className="w-6 h-6 bg-amber-50 border border-amber-200 rounded-full flex items-center justify-center">
-              <span className="text-amber-600 text-xs font-bold">{entries.length}</span>
+              <span className="text-amber-600 text-xs font-bold">{allEntries.length}</span>
             </div>
-            <h3 className="font-semibold text-primary-dark text-base">Pending Approvals</h3>
-          </div>
-          <button
-            type="button"
-            onClick={handleBulkApprove}
-            disabled={bulkActionLoading || entries.length === 0}
-            className="min-h-[44px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {bulkActionLoading ? 'Approving…' : `Approve Visible (${entries.length})`}
+            <div>
+              <h3 className="font-semibold text-primary-dark text-base">Pending Approvals</h3>
+              <p className="text-xs text-text-muted">{collapsed ? 'Collapsed — expand to review, edit, or approve entries.' : 'Review manual entries, unscheduled time, and overtime.'}</p>
+            </div>
+            <svg className={`h-4 w-4 text-text-muted transition-transform ${collapsed ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={handleBulkApprove}
+              disabled={bulkActionLoading || entries.length === 0}
+              className="min-h-[44px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkActionLoading ? 'Approving…' : `Approve Visible (${entries.length})`}
+            </button>
+          )}
         </div>
 
+        {collapsed ? (
+          <div className="flex flex-wrap gap-2 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-xs text-amber-900">
+            {filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold">{option.label}: {option.count}</span>)}
+          </div>
+        ) : <>
         <div className="-mx-1 mb-4 overflow-x-auto pb-1">
           <div className="flex min-w-max flex-nowrap gap-2 px-1">
           {approvalGroupsLoaded ? filterOptions.map((option) => (
@@ -417,6 +439,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
             </AnimatePresence>
           )}
         </div>
+        </>}
       </div>
     </div>
     <EditTimeEntryModal

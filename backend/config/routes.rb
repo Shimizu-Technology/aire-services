@@ -87,6 +87,7 @@ Rails.application.routes.draw do
         patch "settings", to: "settings#update"
         resources :time_categories, only: [ :index, :show, :create, :update, :destroy ]
         resources :time_period_locks, only: [ :create, :destroy ]
+        resource :hours_report, only: [ :show ], controller: "hours_reports"
         resources :employee_pay_rates, only: [ :index, :create, :update, :destroy ] do
           collection do
             get "for_user/:user_id", action: :for_user, as: :for_user

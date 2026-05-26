@@ -215,6 +215,98 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       end
     end
 
+    it "lets admins replace detailed breaks and recalculates hours" do
+      guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+      work_date = Date.new(2026, 5, 4)
+      entry.update!(
+        work_date: work_date,
+        start_time: guam.local(2026, 5, 4, 9, 0, 0),
+        end_time: guam.local(2026, 5, 4, 17, 0, 0),
+        hours: 8,
+        break_minutes: nil
+      )
+
+      patch "/api/v1/time_entries/#{entry.id}",
+            params: {
+              time_entry: {
+                work_date: work_date.iso8601,
+                start_time: "09:00",
+                end_time: "17:00",
+                breaks: [
+                  { start_time: "12:00", end_time: "12:30" },
+                  { start_time: "15:00", end_time: "15:15" }
+                ]
+              }
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:time_entry, :break_minutes)).to eq(45)
+      expect(json.dig(:time_entry, :hours)).to eq(7.25)
+      expect(json.dig(:time_entry, :breaks).length).to eq(2)
+    end
+
+    it "does not zero aggregate break minutes when an empty breaks array is sent for an entry without detailed breaks" do
+      entry.update!(break_minutes: 30)
+
+      patch "/api/v1/time_entries/#{entry.id}",
+            params: { time_entry: { description: "admin note", breaks: [] } },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:time_entry, :break_minutes)).to eq(30)
+      expect(entry.reload.time_entry_breaks).to be_empty
+    end
+
+    it "allows detailed breaks after midnight on overnight entries" do
+      guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+      work_date = Date.new(2026, 5, 4)
+      entry.update!(
+        work_date: work_date,
+        entry_method: "clock",
+        clock_source: "admin",
+        clock_in_at: guam.local(2026, 5, 4, 22, 0, 0),
+        clock_out_at: guam.local(2026, 5, 5, 6, 0, 0),
+        start_time: guam.local(2026, 5, 4, 22, 0, 0),
+        end_time: guam.local(2026, 5, 5, 6, 0, 0),
+        hours: 8,
+        break_minutes: nil
+      )
+
+      patch "/api/v1/time_entries/#{entry.id}",
+            params: {
+              time_entry: {
+                work_date: work_date.iso8601,
+                start_time: "22:00",
+                end_time: "06:00",
+                breaks: [ { start_time: "01:00", end_time: "01:30" } ]
+              }
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:time_entry, :break_minutes)).to eq(30)
+      expect(json.dig(:time_entry, :hours)).to eq(7.5)
+      entry_break = entry.reload.time_entry_breaks.first
+      expect(entry_break.start_time.in_time_zone(guam).strftime("%Y-%m-%d %H:%M")).to eq("2026-05-05 01:00")
+    end
+
+    it "rejects overlapping detailed breaks" do
+      patch "/api/v1/time_entries/#{entry.id}",
+            params: {
+              time_entry: {
+                breaks: [
+                  { start_time: "12:00", end_time: "12:45" },
+                  { start_time: "12:30", end_time: "13:00" }
+                ]
+              }
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/cannot overlap/)
+    end
+
     context "employee edits a previously approved entry" do
       let!(:approved_entry) do
         create(
