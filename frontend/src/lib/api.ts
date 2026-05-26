@@ -1,7 +1,7 @@
 // AIRE Services API client
 import type { PublicContactInfoSettings } from './businessInfo'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3100';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 interface ApiResponse<T> {
   data?: T;
@@ -642,6 +642,138 @@ export interface TimeEntriesResponse {
   };
 }
 
+export interface HoursReportEntry {
+  id: number;
+  work_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  formatted_start_time: string | null;
+  formatted_end_time: string | null;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  break_minutes: number;
+  description: string | null;
+  entry_method: string;
+  clock_source: string | null;
+  approval_status: string | null;
+  overtime_status: string | null;
+  locked_at: string | null;
+  time_category: { id: number; key?: string | null; name: string } | null;
+  breaks: Array<{ id: number; start_time: string | null; end_time: string | null; duration_minutes: number | null }>;
+}
+
+export interface HoursReportDay {
+  work_date: string;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  break_hours: number;
+  entries: HoursReportEntry[];
+}
+
+export interface HoursReportCategory {
+  id: number | null;
+  key?: string | null;
+  name: string;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  break_hours: number;
+  entries_count: number;
+}
+
+export interface HoursReportWeek {
+  week_start: string;
+  week_end: string;
+  weekly_total_hours: number;
+  period_hours: number;
+  context_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  context_note: string | null;
+}
+
+export interface HoursReportEmployee {
+  id: number;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  display_name: string;
+  full_name: string;
+  role: 'admin' | 'employee';
+  status: 'active' | 'pending' | 'inactive';
+  approval_group?: ApprovalGroup | null;
+  approval_group_label?: string | null;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  break_hours: number;
+  entries_count: number;
+  ready: boolean;
+  issues: {
+    pending_count: number;
+    denied_count: number;
+    pending_overtime_count: number;
+    denied_overtime_count: number;
+    open_clock_count: number;
+  };
+  days: HoursReportDay[];
+  categories: HoursReportCategory[];
+  weeks: HoursReportWeek[];
+}
+
+export interface HoursReportFilters {
+  user_id?: string | number;
+  role?: string;
+  status?: string;
+  approval_group?: string;
+  time_category_id?: string | number;
+  clock_source?: string;
+  entry_method?: string;
+  approval_status?: string;
+  overtime_status?: string;
+  include_empty?: string | boolean;
+}
+
+export interface HoursReportResponse {
+  start_date: string;
+  end_date: string;
+  context_start_date: string;
+  context_end_date: string;
+  generated_at: string;
+  filters: HoursReportFilters;
+  summary: {
+    employee_count: number;
+    total_hours: number;
+    regular_hours: number;
+    overtime_hours: number;
+    break_hours: number;
+    entries_count: number;
+    pending_count: number;
+    denied_count: number;
+    pending_overtime_count: number;
+    denied_overtime_count: number;
+    open_clock_count: number;
+  };
+  employees: HoursReportEmployee[];
+}
+
+export interface HoursReportParams {
+  start_date: string;
+  end_date: string;
+  user_id?: number;
+  role?: 'admin' | 'employee';
+  status?: 'active' | 'current' | 'pending' | 'inactive';
+  approval_group?: ApprovalGroupFilter | 'all';
+  time_category_id?: number;
+  clock_source?: 'kiosk' | 'mobile' | 'admin' | 'legacy';
+  entry_method?: 'clock' | 'manual';
+  approval_status?: 'pending' | 'approved' | 'denied' | 'approved_or_standard';
+  overtime_status?: 'none' | 'pending' | 'approved' | 'denied';
+  include_empty?: boolean;
+}
+
 export interface TimePeriodLock {
   id: number;
   start_date: string;
@@ -907,6 +1039,7 @@ export const api = {
     description: string;
     time_category_id: number;
     break_minutes: number | null;
+    breaks: Array<{ id?: number; start_time: string; end_time: string; _destroy?: boolean }>;
   }>) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}`, {
       method: 'PATCH',
@@ -1001,6 +1134,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ note }),
     }),
+
+  getHoursReport: (params: HoursReportParams) => {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') searchParams.set(key, String(value));
+    });
+    return fetchApi<HoursReportResponse>(`/api/v1/admin/hours_report?${searchParams.toString()}`);
+  },
 
   getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25) => {
     const params = new URLSearchParams();

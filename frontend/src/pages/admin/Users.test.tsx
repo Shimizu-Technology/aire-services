@@ -132,8 +132,12 @@ describe('Users filters', () => {
 
     expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
     expect(screen.getByText('Blake Ops')).toBeInTheDocument()
-    expect(screen.getByText('Casey Inactive')).toBeInTheDocument()
+    expect(screen.queryByText('Casey Inactive')).not.toBeInTheDocument()
     expect(screen.getByText('Dana Locked')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'all' } })
+    expect(screen.getByText('Casey Inactive')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'active' } })
 
     fireEvent.change(screen.getByLabelText(/search/i), { target: { value: 'instructor' } })
     expect(screen.getByText('Alice Pilot')).toBeInTheDocument()

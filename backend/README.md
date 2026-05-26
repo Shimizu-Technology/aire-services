@@ -47,7 +47,7 @@ rails server  # Runs on port 3000
 bundle exec rspec
 
 # Run specific spec file
-bundle exec rspec spec/models/client_spec.rb
+bundle exec rspec spec/requests/api/v1/time_entries_spec.rb
 
 # Run with verbose output
 bundle exec rspec --format documentation
@@ -57,5 +57,6 @@ bundle exec rspec --format documentation
 
 - `app/services/clerk_auth.rb` - JWT verification
 - `app/controllers/concerns/clerk_authenticatable.rb` - Auth middleware
-- `app/services/create_intake_service.rb` - Intake form processing
-- `db/seeds.rb` - Default workflow stages and time categories
+- `app/services/time_clock_service.rb` - Clock-in/out and overtime status logic
+- `app/services/payroll/hours_report_builder.rb` - Payroll-safe hours and OT report builder
+- `db/seeds.rb` - Default time categories and settings

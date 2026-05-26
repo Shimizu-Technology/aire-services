@@ -3,7 +3,7 @@ import { FadeUp, StaggerContainer, StaggerItem } from '../../components/ui/Motio
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
-import type { ApprovalGroupOption } from '../../lib/api'
+import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportEmployee, HoursReportResponse } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
 import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
@@ -43,6 +43,13 @@ interface TimeEntryItem {
   approved_by?: { id: number; full_name: string } | null
   approved_at?: string | null
   approval_note?: string | null
+  breaks?: Array<{
+    id?: number
+    start_time: string | null
+    end_time: string | null
+    duration_minutes?: number | null
+    active?: boolean
+  }>
   user: {
     id: number
     email: string
@@ -75,6 +82,8 @@ interface UserOption {
   display_name?: string
   full_name?: string
   role: string
+  approval_group?: string | null
+  approval_group_label?: string
 }
 
 // Icons
@@ -155,6 +164,36 @@ function isSameDay(date1: Date, date2: Date): boolean {
          date1.getDate() === date2.getDate()
 }
 
+function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
+  return report.employees.flatMap((employee) => employee.days.flatMap((day) => day.entries.map((entry) => ({
+    id: entry.id,
+    work_date: entry.work_date,
+    start_time: entry.start_time,
+    end_time: entry.end_time,
+    formatted_start_time: entry.formatted_start_time,
+    formatted_end_time: entry.formatted_end_time,
+    hours: entry.total_hours,
+    break_minutes: entry.break_minutes,
+    description: entry.description,
+    entry_method: entry.entry_method as TimeEntryItem['entry_method'],
+    clock_source: entry.clock_source as TimeEntryItem['clock_source'],
+    status: 'completed' as const,
+    approval_status: entry.approval_status as TimeEntryItem['approval_status'],
+    overtime_status: entry.overtime_status as TimeEntryItem['overtime_status'],
+    user: {
+      id: employee.id,
+      email: employee.email || '',
+      display_name: employee.display_name,
+      full_name: employee.full_name,
+    },
+    time_category: entry.time_category,
+    breaks: entry.breaks,
+    locked_at: entry.locked_at,
+    created_at: '',
+    updated_at: '',
+  }))))
+}
+
 export default function TimeTracking() {
   useEffect(() => { document.title = 'Time Tracking | AIRE Ops' }, [])
 
@@ -196,12 +235,18 @@ export default function TimeTracking() {
     end_date: formatDateISO(new Date()),
     user_id: '',
     time_category_id: '',
-    aire_only: false,
+    approval_group: 'all' as 'all' | ApprovalGroupFilter,
+    employee_status: 'current' as 'active' | 'current' | 'pending' | 'inactive',
+    role: '' as '' | 'admin' | 'employee',
+    clock_source: '' as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
+    entry_method: '' as '' | 'clock' | 'manual',
+    approval_status: 'approved_or_standard' as '' | 'pending' | 'approved' | 'denied' | 'approved_or_standard',
+    overtime_status: '' as '' | 'none' | 'pending' | 'approved' | 'denied',
   })
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
+  const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
+  const [selectedReportEmployee, setSelectedReportEmployee] = useState<HoursReportEmployee | null>(null)
   const [reportLoading, setReportLoading] = useState(false)
-  const [reportSummary, setReportSummary] = useState({ total_hours: 0, total_break_hours: 0, entry_count: 0 })
-  const [reportTruncated, setReportTruncated] = useState(false)
   
   const [currentWeekLocked, setCurrentWeekLocked] = useState(false)
   const [currentWeekLockId, setCurrentWeekLockId] = useState<number | null>(null)
@@ -407,40 +452,33 @@ export default function TimeTracking() {
     }
   }
 
-  // Load report data
+  // Load payroll-safe, backend-calculated report data.
   const loadReport = useCallback(async () => {
     setReportLoading(true)
     try {
-      const params: Parameters<typeof api.getTimeEntries>[0] = {
+      const response = await api.getHoursReport({
         start_date: reportFilters.start_date,
         end_date: reportFilters.end_date,
-        per_page: 500,
-        exclude_approval_statuses: ['denied', 'pending'],
-      }
-      
-      if (reportFilters.user_id) {
-        params.user_id = parseInt(reportFilters.user_id)
-      }
-      if (reportFilters.time_category_id) {
-        params.time_category_id = parseInt(reportFilters.time_category_id)
+        ...(reportFilters.user_id ? { user_id: parseInt(reportFilters.user_id) } : {}),
+        ...(reportFilters.time_category_id ? { time_category_id: parseInt(reportFilters.time_category_id) } : {}),
+        ...(reportFilters.approval_group !== 'all' ? { approval_group: reportFilters.approval_group } : {}),
+        status: reportFilters.employee_status,
+        ...(reportFilters.role ? { role: reportFilters.role } : {}),
+        ...(reportFilters.clock_source ? { clock_source: reportFilters.clock_source } : {}),
+        ...(reportFilters.entry_method ? { entry_method: reportFilters.entry_method } : {}),
+        ...(reportFilters.approval_status ? { approval_status: reportFilters.approval_status } : {}),
+        ...(reportFilters.overtime_status ? { overtime_status: reportFilters.overtime_status } : {}),
+      })
+
+      if (response.error) {
+        setError(response.error)
+        return
       }
 
-      const response = await api.getTimeEntries(params)
-      
       if (response.data) {
-        const incoming = response.data.time_entries as unknown as TimeEntryItem[]
-        const filtered = reportFilters.aire_only
-          ? incoming.filter(entry => entry.time_category?.key?.startsWith('aire_'))
-          : incoming
-        setReportData(filtered)
-        const totalHours = filtered.reduce((sum, entry) => sum + entry.hours, 0)
-        const totalBreakHours = filtered.reduce((sum, entry) => sum + ((entry.break_minutes || 0) / 60), 0)
-        setReportSummary({
-          total_hours: totalHours,
-          total_break_hours: totalBreakHours,
-          entry_count: filtered.length
-        })
-        setReportTruncated(response.data.pagination?.truncated === true)
+        setHoursReport(response.data)
+        setSelectedReportEmployee((current) => current ? response.data!.employees.find((employee) => employee.id === current.id) ?? null : null)
+        setReportData(reportEntriesForDetailTable(response.data))
       }
     } catch {
       console.error('Failed to load report')
@@ -708,50 +746,13 @@ export default function TimeTracking() {
   const deniedHours = entries.filter(e => e.approval_status === 'denied').reduce((sum, e) => sum + e.hours, 0)
   const visibleTotalHours = showDenied ? entrySummary.total_hours : entrySummary.total_hours - deniedHours
 
-  // Calculate report summaries by category and user
-  const reportByCategory = reportData.reduce((acc, entry) => {
-    const catName = entry.time_category?.name || 'Uncategorized'
-    if (!acc[catName]) acc[catName] = 0
-    acc[catName] += entry.hours
+  const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0 }
+  const hoursSummaryRows = hoursReport?.employees ?? []
+  const reportByCategory = (hoursReport?.employees ?? []).flatMap((employee) => employee.categories).reduce((acc, category) => {
+    if (!acc[category.name]) acc[category.name] = 0
+    acc[category.name] += category.total_hours
     return acc
   }, {} as Record<string, number>)
-
-  const reportByUser = reportData.reduce((acc, entry) => {
-    const name = entry.user.display_name || entry.user.email.split('@')[0]
-    if (!acc[name]) acc[name] = 0
-    acc[name] += entry.hours
-    return acc
-  }, {} as Record<string, number>)
-
-  const aireCategories = categories.filter(cat => cat.key?.startsWith('aire_'))
-
-  const hoursSummaryByEmployeeCategory = reportData.reduce((acc, entry) => {
-    const employeeName = entry.user.full_name || entry.user.display_name || entry.user.email.split('@')[0]
-    const categoryName = entry.time_category?.name || 'Uncategorized'
-    const key = `${employeeName}__${categoryName}`
-    if (!acc[key]) {
-      acc[key] = {
-        employeeName,
-        categoryName,
-        hours: 0,
-        breakHours: 0,
-        entries: 0,
-      }
-    }
-    acc[key].hours += entry.hours
-    acc[key].breakHours += (entry.break_minutes || 0) / 60
-    acc[key].entries += 1
-    return acc
-  }, {} as Record<string, { employeeName: string; categoryName: string; hours: number; breakHours: number; entries: number }>)
-
-  const hoursSummaryRows = Object.values(hoursSummaryByEmployeeCategory).sort((a, b) => {
-    if (a.employeeName === b.employeeName) return b.hours - a.hours
-    return a.employeeName.localeCompare(b.employeeName)
-  })
-
-  const hoursSummaryTotal = hoursSummaryRows.reduce((acc, row) => acc + row.hours, 0)
-  const hoursSummaryBreakTotal = hoursSummaryRows.reduce((acc, row) => acc + row.breakHours, 0)
-
   const reportBySource = reportData.reduce((acc, entry) => {
     const source = entry.clock_source || 'legacy'
     if (!acc[source]) acc[source] = 0
@@ -760,14 +761,16 @@ export default function TimeTracking() {
   }, {} as Record<string, number>)
 
   const exportHoursCsv = () => {
-    const headers = ['Employee','Category','Work Hours','Break Hours','Net Hours','Entries','Date Range Start','Date Range End']
+    const headers = ['Employee','Department','Regular Hours','OT Hours','Total Hours','Break Hours','Entries','Ready','Date Range Start','Date Range End']
     const rows = hoursSummaryRows.map(row => [
-      row.employeeName,
-      row.categoryName,
-      row.hours.toFixed(2),
-      row.breakHours.toFixed(2),
-      (row.hours - row.breakHours).toFixed(2),
-      row.entries.toString(),
+      row.full_name,
+      row.approval_group_label || 'Unassigned',
+      row.regular_hours.toFixed(2),
+      row.overtime_hours.toFixed(2),
+      row.total_hours.toFixed(2),
+      row.break_hours.toFixed(2),
+      row.entries_count.toString(),
+      row.ready ? 'Yes' : 'Needs review',
       reportFilters.start_date,
       reportFilters.end_date,
     ])
@@ -1657,176 +1660,164 @@ export default function TimeTracking() {
       {/* Reports Tab */}
       {activeTab === 'reports' && isAdmin && (
         <div className="space-y-6">
-          {/* Report Filters */}
-          <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-              <h3 className="text-sm font-medium text-primary-dark">Filter Report</h3>
-              <div className="flex flex-wrap items-center gap-3">
-                {aireCategories.length > 0 && aireCategories.length < categories.length && (
-                  <label className="inline-flex items-center gap-2 text-sm text-text-muted">
-                    <input
-                      type="checkbox"
-                      checked={reportFilters.aire_only}
-                      onChange={(e) => setReportFilters({ ...reportFilters, aire_only: e.target.checked, time_category_id: e.target.checked ? '' : reportFilters.time_category_id })}
-                      className="rounded border-neutral-warm text-primary focus:ring-primary"
-                    />
-                    AIRE categories only
-                  </label>
-                )}
-                <button
-                  onClick={exportHoursCsv}
-                  disabled={reportLoading || hoursSummaryRows.length === 0}
-                  className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark disabled:opacity-50"
-                >
-                  Export Hours CSV
-                </button>
+          <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-primary-dark">Payroll Hours Report</h3>
+                <p className="mt-1 text-xs text-text-muted">Employee-first totals with Sunday–Saturday overtime context across semi-monthly pay periods.</p>
               </div>
+              <button
+                onClick={exportHoursCsv}
+                disabled={reportLoading || hoursSummaryRows.length === 0}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+              >
+                Export Hours CSV
+              </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
-                <label className="block text-sm text-text-muted mb-1">Start Date</label>
-                <input
-                  type="date"
-                  value={reportFilters.start_date}
-                  onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                />
+                <label className="mb-1 block text-sm text-text-muted">Start Date</label>
+                <input type="date" value={reportFilters.start_date} onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
-                <label className="block text-sm text-text-muted mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={reportFilters.end_date}
-                  onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                />
+                <label className="mb-1 block text-sm text-text-muted">End Date</label>
+                <input type="date" value={reportFilters.end_date} onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
-              {isAdmin && (
-                <div>
-                  <label className="block text-sm text-text-muted mb-1">Employee</label>
-                  <select
-                    value={reportFilters.user_id}
-                    onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                    <option value="">All Employees</option>
-                    {users.map(user => (
-                      <option key={user.id} value={user.id}>{user.display_name || user.email.split('@')[0]}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <div>
-                <label className="block text-sm text-text-muted mb-1">Category</label>
-                <select
-                  value={reportFilters.time_category_id}
-                  onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value="">{reportFilters.aire_only ? 'All AIRE Categories' : 'All Categories'}</option>
-                  {(reportFilters.aire_only ? aireCategories : categories).map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                  ))}
+                <label className="mb-1 block text-sm text-text-muted">Employee</label>
+                <select value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">All employees</option>
+                  {users.map(user => <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-text-muted">Department</label>
+                <select value={reportFilters.approval_group} onChange={(e) => setReportFilters({ ...reportFilters, approval_group: e.target.value as typeof reportFilters.approval_group })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="all">All departments</option>
+                  <option value="unassigned">Unassigned</option>
+                  {approvalGroups.map(group => <option key={group.key} value={group.key}>{group.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-text-muted">Employee Status</label>
+                <select value={reportFilters.employee_status} onChange={(e) => setReportFilters({ ...reportFilters, employee_status: e.target.value as typeof reportFilters.employee_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="current">Current users</option>
+                  <option value="active">Active only</option>
+                  <option value="pending">Pending only</option>
+                  <option value="inactive">Inactive only</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-text-muted">Role</label>
+                <select value={reportFilters.role} onChange={(e) => setReportFilters({ ...reportFilters, role: e.target.value as typeof reportFilters.role })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">All roles</option>
+                  <option value="employee">Employees</option>
+                  <option value="admin">Admins</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-text-muted">Category</label>
+                <select value={reportFilters.time_category_id} onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">All categories</option>
+                  {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-text-muted">Source</label>
+                <select value={reportFilters.clock_source} onChange={(e) => setReportFilters({ ...reportFilters, clock_source: e.target.value as typeof reportFilters.clock_source })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">All sources</option>
+                  <option value="kiosk">Kiosk</option>
+                  <option value="mobile">Mobile</option>
+                  <option value="admin">Admin</option>
+                  <option value="legacy">Legacy</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-text-muted">Entry Method</label>
+                <select value={reportFilters.entry_method} onChange={(e) => setReportFilters({ ...reportFilters, entry_method: e.target.value as typeof reportFilters.entry_method })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">Clock + manual</option>
+                  <option value="clock">Clock only</option>
+                  <option value="manual">Manual only</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-text-muted">Approval Status</label>
+                <select value={reportFilters.approval_status} onChange={(e) => setReportFilters({ ...reportFilters, approval_status: e.target.value as typeof reportFilters.approval_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="approved_or_standard">Approved / standard</option>
+                  <option value="">All statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="denied">Denied</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-text-muted">Overtime Status</label>
+                <select value={reportFilters.overtime_status} onChange={(e) => setReportFilters({ ...reportFilters, overtime_status: e.target.value as typeof reportFilters.overtime_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">All OT statuses</option>
+                  <option value="none">No OT flag</option>
+                  <option value="pending">Pending OT review</option>
+                  <option value="approved">Approved OT</option>
+                  <option value="denied">Denied OT</option>
                 </select>
               </div>
             </div>
           </div>
 
-          {/* Summary Cards */}
-          <StaggerContainer className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <StaggerItem>
-              <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
-                <div className="text-sm text-text-muted">Work Hours</div>
-                <div className="text-3xl font-bold text-primary mt-1">
-                  {reportLoading ? '...' : reportSummary.total_hours.toFixed(1)}
-                </div>
-              </div>
-            </StaggerItem>
-            <StaggerItem>
-              <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
-                <div className="text-sm text-text-muted">Break Hours</div>
-                <div className="text-3xl font-bold text-text-muted mt-1">
-                  {reportLoading ? '...' : reportSummary.total_break_hours.toFixed(1)}
-                </div>
-              </div>
-            </StaggerItem>
-            <StaggerItem>
-              <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
-                <div className="text-sm text-text-muted">Total Entries</div>
-                <div className="text-3xl font-bold text-primary-dark mt-1">
-                  {reportLoading ? '...' : reportSummary.entry_count}
-                </div>
-              </div>
-            </StaggerItem>
-            <StaggerItem>
-              <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
-                <div className="text-sm text-text-muted">Avg Hours/Entry</div>
-                <div className="text-3xl font-bold text-text-muted mt-1">
-                  {reportLoading ? '...' : (reportSummary.entry_count > 0 ? (reportSummary.total_hours / reportSummary.entry_count).toFixed(1) : '0')}
-                </div>
-              </div>
-            </StaggerItem>
+          <StaggerContainer className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+            <StaggerItem><ReportMetric label="Total Hours" value={reportLoading ? '…' : reportSummary.total_hours.toFixed(1)} emphasize /></StaggerItem>
+            <StaggerItem><ReportMetric label="Regular" value={reportLoading ? '…' : reportSummary.regular_hours.toFixed(1)} /></StaggerItem>
+            <StaggerItem><ReportMetric label="Overtime" value={reportLoading ? '…' : reportSummary.overtime_hours.toFixed(1)} tone={reportSummary.overtime_hours > 0 ? 'warning' : 'normal'} /></StaggerItem>
+            <StaggerItem><ReportMetric label="Break Hours" value={reportLoading ? '…' : reportSummary.break_hours.toFixed(1)} /></StaggerItem>
+            <StaggerItem><ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} /></StaggerItem>
           </StaggerContainer>
 
-          {reportTruncated && !reportLoading && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
-              <svg className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-              </svg>
-              <div>
-                <p className="text-sm font-medium text-amber-800">
-                  Showing {reportData.length} of {reportSummary.entry_count} entries
-                </p>
-                <p className="text-xs text-amber-600 mt-0.5">
-                  The detail table below is capped at 500 rows. Summary totals above reflect all {reportSummary.entry_count} entries. Narrow your date range or filters to see all rows.
-                </p>
-              </div>
+          {hoursReport && (hoursReport.context_start_date !== hoursReport.start_date || hoursReport.context_end_date !== hoursReport.end_date) && (
+            <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+              OT is calculated by full Sunday–Saturday workweeks. This report uses context from {formatDate(hoursReport.context_start_date)} through {formatDate(hoursReport.context_end_date)} so pay periods that split a week still calculate overtime correctly.
             </div>
           )}
 
-          {/* Hours Summary by Employee & Category */}
-          <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
-            <div className="px-4 py-3 border-b border-neutral-warm bg-neutral-warm/30 flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold text-primary-dark">Hours Summary</h3>
-                <p className="text-xs text-text-muted mt-0.5">Grouped by employee and work category</p>
-              </div>
-              <div className="flex items-center gap-4 text-right">
-                <div>
-                  <div className="text-xs text-text-muted">Work Hours</div>
-                  <div className="text-lg font-bold text-primary">{hoursSummaryTotal.toFixed(2)}</div>
-                </div>
-                {hoursSummaryBreakTotal > 0 && (
-                  <div>
-                    <div className="text-xs text-text-muted">Break Hours</div>
-                    <div className="text-lg font-bold text-text-muted">{hoursSummaryBreakTotal.toFixed(2)}</div>
-                  </div>
-                )}
-              </div>
+          <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
+            <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
+              <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
+              <p className="mt-0.5 text-xs text-text-muted">Main payroll view. Click an employee to review daily hours, categories, breaks, and OT context.</p>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[980px]">
                 <thead className="bg-neutral-warm/40">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Employee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Category</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Entries</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Work Hours</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Breaks</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Employee</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Department</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Regular</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">OT</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Total</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Breaks</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Entries</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-warm">
                   {reportLoading ? (
-                    <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">Loading...</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
                   ) : hoursSummaryRows.length === 0 ? (
-                    <tr><td colSpan={5} className="px-4 py-8 text-center text-text-muted">No data for this range</td></tr>
-                  ) : hoursSummaryRows.map((row) => (
-                    <tr key={`${row.employeeName}-${row.categoryName}`} className="hover:bg-neutral-warm/20">
-                      <td className="px-4 py-3 text-sm text-primary-dark">{row.employeeName}</td>
-                      <td className="px-4 py-3 text-sm text-text-muted">{row.categoryName}</td>
-                      <td className="px-4 py-3 text-sm text-right text-text-muted">{row.entries}</td>
-                      <td className="px-4 py-3 text-sm text-right font-semibold text-primary-dark">{row.hours.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-sm text-right text-text-muted">{row.breakHours > 0 ? `${row.breakHours.toFixed(2)}` : '—'}</td>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-text-muted">No approved hours match this range.</td></tr>
+                  ) : hoursSummaryRows.map((employee) => (
+                    <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
+                      <td className="px-4 py-3 text-sm font-semibold text-primary-dark">{employee.full_name}</td>
+                      <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_label || 'Unassigned'}</td>
+                      <td className="px-4 py-3 text-right text-sm text-primary-dark">{employee.regular_hours.toFixed(2)}</td>
+                      <td className={`px-4 py-3 text-right text-sm font-semibold ${employee.overtime_hours > 0 ? 'text-orange-700' : 'text-text-muted'}`}>{employee.overtime_hours.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.break_hours > 0 ? employee.break_hours.toFixed(2) : '—'}</td>
+                      <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.entries_count}</td>
+                      <td className="px-4 py-3 text-sm">
+                        {employee.ready ? (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Ready</span>
+                        ) : (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Needs review</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1834,91 +1825,175 @@ export default function TimeTracking() {
             </div>
           </div>
 
-          {/* Summary Tables */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* By Category */}
-            <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
-              <div className="px-4 py-3 border-b border-neutral-warm bg-neutral-warm/30">
-                <h3 className="font-semibold text-primary-dark">Hours by Category</h3>
-              </div>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="rounded-2xl border border-neutral-warm bg-white shadow-sm">
+              <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3"><h3 className="font-semibold text-primary-dark">Hours by Category</h3></div>
               <div className="divide-y divide-neutral-warm">
-                {reportLoading ? (
-                  <div className="p-4 text-center text-text-muted">Loading...</div>
-                ) : Object.entries(reportByCategory).length === 0 ? (
-                  <div className="p-4 text-center text-text-muted">No data</div>
-                ) : (
-                  Object.entries(reportByCategory)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([name, hours]) => (
-                      <div key={name} className="px-4 py-3 flex justify-between items-center">
-                        <span className="text-primary-dark">{name}</span>
-                        <span className="font-semibold text-primary">{hours.toFixed(1)}h</span>
-                      </div>
-                    ))
-                )}
+                {Object.entries(reportByCategory).length === 0 ? <div className="p-4 text-center text-text-muted">No data</div> : Object.entries(reportByCategory).sort((a, b) => b[1] - a[1]).map(([name, hours]) => (
+                  <div key={name} className="flex items-center justify-between px-4 py-3"><span className="text-primary-dark">{name}</span><span className="font-semibold text-primary">{hours.toFixed(1)}h</span></div>
+                ))}
               </div>
             </div>
-
-            {/* By Employee */}
-            <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
-              <div className="px-4 py-3 border-b border-neutral-warm bg-neutral-warm/30">
-                <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              </div>
+            <div className="rounded-2xl border border-neutral-warm bg-white shadow-sm">
+              <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3"><h3 className="font-semibold text-primary-dark">Hours by Source</h3></div>
               <div className="divide-y divide-neutral-warm">
-                {reportLoading ? (
-                  <div className="p-4 text-center text-text-muted">Loading...</div>
-                ) : Object.entries(reportByUser).length === 0 ? (
-                  <div className="p-4 text-center text-text-muted">No data</div>
-                ) : (
-                  Object.entries(reportByUser)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([email, hours]) => (
-                      <div key={email} className="px-4 py-3 flex justify-between items-center">
-                        <span className="text-primary-dark truncate max-w-[150px]">{email}</span>
-                        <span className="font-semibold text-primary">{hours.toFixed(1)}h</span>
-                      </div>
-                    ))
-                )}
+                {Object.entries(reportBySource).length === 0 ? <div className="p-4 text-center text-text-muted">No data</div> : Object.entries(reportBySource).sort((a, b) => b[1] - a[1]).map(([name, hours]) => (
+                  <div key={name} className="flex items-center justify-between px-4 py-3"><span className="uppercase text-primary-dark">{name}</span><span className="font-semibold text-primary">{hours.toFixed(1)}h</span></div>
+                ))}
               </div>
             </div>
-
-            {/* By Source */}
-            <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
-              <div className="px-4 py-3 border-b border-neutral-warm bg-neutral-warm/30">
-                <h3 className="font-semibold text-primary-dark">Hours by Source</h3>
-              </div>
-              <div className="divide-y divide-neutral-warm">
-                {reportLoading ? (
-                  <div className="p-4 text-center text-text-muted">Loading...</div>
-                ) : Object.entries(reportBySource).length === 0 ? (
-                  <div className="p-4 text-center text-text-muted">No data</div>
-                ) : (
-                  Object.entries(reportBySource)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([name, hours]) => (
-                      <div key={name} className="px-4 py-3 flex justify-between items-center">
-                        <span className="text-primary-dark uppercase">{name}</span>
-                        <span className="font-semibold text-primary">{hours.toFixed(1)}h</span>
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
-
           </div>
 
-          {/* Detailed Entries Table */}
-          <DetailedEntriesTable
-            entries={reportData}
-            isAdmin={isAdmin}
-            loading={reportLoading}
-          />
+          <DetailedEntriesTable entries={reportData} isAdmin={isAdmin} loading={reportLoading} />
+          <EmployeeReportDrawer employee={selectedReportEmployee} onClose={() => setSelectedReportEmployee(null)} />
         </div>
       )}
 
       {activeTab === 'leave' && (
         <LeaveRequestsPanel isAdmin={isAdmin} />
       )}
+    </div>
+  )
+}
+
+function ReportMetric({ label, value, emphasize = false, tone = 'normal' }: { label: string; value: string; emphasize?: boolean; tone?: 'normal' | 'warning' }) {
+  return (
+    <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
+      <div className="text-sm text-text-muted">{label}</div>
+      <div className={`mt-1 text-3xl font-bold ${emphasize ? 'text-primary' : tone === 'warning' ? 'text-orange-700' : 'text-primary-dark'}`}>{value}</div>
+    </div>
+  )
+}
+
+function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmployee | null; onClose: () => void }) {
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const titleId = 'employee-report-drawer-title'
+
+  useEffect(() => {
+    if (!employee) return
+
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const focusDrawer = window.requestAnimationFrame(() => {
+      closeButtonRef.current?.focus()
+    })
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+        return
+      }
+
+      if (event.key !== 'Tab' || !drawerRef.current) return
+
+      const focusable = Array.from(drawerRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), details summary, [tabindex]:not([tabindex="-1"])'
+      )).filter((element) => !element.hasAttribute('disabled') && element.tabIndex !== -1)
+
+      if (focusable.length === 0) {
+        event.preventDefault()
+        drawerRef.current.focus()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.cancelAnimationFrame(focusDrawer)
+      document.removeEventListener('keydown', handleKeyDown)
+      previouslyFocused?.focus()
+    }
+  }, [employee, onClose])
+
+  if (!employee) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <div ref={drawerRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="h-full w-full max-w-3xl overflow-y-auto bg-white shadow-2xl">
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 id={titleId} className="text-xl font-bold text-primary-dark">{employee.full_name}</h2>
+              <p className="mt-1 text-sm text-text-muted">{employee.approval_group_label || 'Unassigned'} · {employee.total_hours.toFixed(2)}h total · {employee.overtime_hours.toFixed(2)}h OT</p>
+            </div>
+            <button ref={closeButtonRef} onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
+          </div>
+        </div>
+
+        <div className="space-y-5 p-6">
+          {employee.weeks.some((week) => week.context_note) && (
+            <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+              Some overtime calculations use hours from outside this pay period because AIRE overtime is calculated on full Sunday–Saturday workweeks.
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <ReportMetric label="Regular" value={employee.regular_hours.toFixed(2)} />
+            <ReportMetric label="Overtime" value={employee.overtime_hours.toFixed(2)} tone={employee.overtime_hours > 0 ? 'warning' : 'normal'} />
+            <ReportMetric label="Total" value={employee.total_hours.toFixed(2)} emphasize />
+            <ReportMetric label="Breaks" value={employee.break_hours.toFixed(2)} />
+          </div>
+
+          {employee.weeks.length > 0 && (
+            <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <h3 className="font-semibold text-primary-dark">Weekly overtime context</h3>
+              <div className="mt-3 space-y-2">
+                {employee.weeks.map((week) => (
+                  <div key={week.week_start} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-primary-dark">{formatDate(week.week_start)} – {formatDate(week.week_end)}</span>
+                      <span className="text-text-muted">Week {week.weekly_total_hours.toFixed(2)}h · Period {week.period_hours.toFixed(2)}h · OT {week.overtime_hours.toFixed(2)}h</span>
+                    </div>
+                    {week.context_note && <p className="mt-2 text-xs text-cyan-800">{week.context_note}</p>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-2xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 px-4 py-3"><h3 className="font-semibold text-primary-dark">Hours per day</h3></div>
+            <div className="divide-y divide-slate-200">
+              {employee.days.length === 0 ? (
+                <div className="p-4 text-sm text-text-muted">No approved hours in this period.</div>
+              ) : employee.days.map((day) => (
+                <details key={day.work_date} className="group">
+                  <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50">
+                    <div className="font-medium text-primary-dark">{formatDate(day.work_date)}</div>
+                    <div className="text-sm text-text-muted">Regular {day.regular_hours.toFixed(2)}h · OT {day.overtime_hours.toFixed(2)}h · Total {day.total_hours.toFixed(2)}h</div>
+                  </summary>
+                  <div className="space-y-2 bg-slate-50/60 px-4 pb-4">
+                    {day.entries.map((entry) => (
+                      <div key={entry.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-medium text-primary-dark">{entry.formatted_start_time || entry.start_time || '—'} – {entry.formatted_end_time || entry.end_time || '—'}</span>
+                          <span className="font-semibold text-primary">{entry.total_hours.toFixed(2)}h</span>
+                        </div>
+                        <div className="mt-1 text-xs text-text-muted">{entry.time_category?.name || 'Uncategorized'} · {entry.entry_method} · {entry.clock_source || 'legacy'}</div>
+                        {entry.breaks.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {entry.breaks.map((brk, index) => <span key={`${entry.id}-${index}`} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">Break {brk.start_time}–{brk.end_time} ({brk.duration_minutes}m)</span>)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   )
 }
