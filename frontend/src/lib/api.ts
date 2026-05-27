@@ -172,6 +172,7 @@ export interface CurrentUser {
   last_name: string | null;
   full_name: string;
   role: 'admin' | 'employee';
+  is_intern?: boolean;
   approval_group?: ApprovalGroup | null;
   is_active: boolean;
   is_admin: boolean;
@@ -199,6 +200,7 @@ export interface UserSummary {
   display_name: string;
   full_name: string;
   role: string;
+  is_intern?: boolean;
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string;
   approval_group_keys?: ApprovalGroup[];
@@ -221,6 +223,7 @@ export interface AdminUser {
   full_name: string;
   role: 'admin' | 'employee';
   staff_title: string | null;
+  is_intern?: boolean;
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string;
   approval_group_keys?: ApprovalGroup[];
@@ -444,6 +447,7 @@ export interface TimeEntry {
     email: string;
     display_name: string;
     full_name: string;
+    is_intern?: boolean;
     approval_group?: ApprovalGroup | null;
     approval_group_label?: string;
     approval_group_keys?: ApprovalGroup[];
@@ -711,6 +715,8 @@ export interface HoursReportEmployee {
   display_name: string;
   full_name: string;
   role: 'admin' | 'employee';
+  is_intern: boolean;
+  employee_type?: 'Intern' | 'Staff' | string;
   status: 'active' | 'pending' | 'inactive';
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string | null;
@@ -951,6 +957,7 @@ export const api = {
     first_name?: string;
     last_name?: string;
     staff_title?: string | null;
+    is_intern?: boolean;
     role: 'admin' | 'employee';
     approval_group?: ApprovalGroup | null;
     approval_groups?: ApprovalGroup[];
@@ -974,6 +981,7 @@ export const api = {
     email?: string | null;
     role?: 'admin' | 'employee';
     staff_title?: string | null;
+    is_intern?: boolean;
     approval_group?: ApprovalGroup | null;
     approval_groups?: ApprovalGroup[];
     is_active?: boolean;

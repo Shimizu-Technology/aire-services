@@ -16,7 +16,7 @@ module Payroll
 
     def call
       entries = entries_in_range.where.not(user_id: nil).includes(:time_category).to_a
-      users = User.staff.where(id: entries.map(&:user_id).uniq).order(:last_name, :first_name, :email).to_a
+      users = User.staff.includes(:user_approval_groups).where(id: entries.map(&:user_id).uniq).order(:last_name, :first_name, :email).to_a
       staff_user_ids = users.map(&:id)
       entries = entries.select { |entry| staff_user_ids.include?(entry.user_id) }
       entries_by_user_id = entries.group_by(&:user_id)
@@ -77,6 +77,10 @@ module Payroll
         last_name: user.last_name,
         display_name: user.full_name,
         approval_group: user.approval_group,
+        approval_group_keys: user.approval_group_keys,
+        approval_group_labels: user.approval_group_labels,
+        is_intern: user.is_intern,
+        employee_type: user.is_intern? ? "Intern" : "Staff",
         days: days,
         total_hours: round_hours(days.sum { |day| day[:hours].to_f }),
         entries_count: countable.size,

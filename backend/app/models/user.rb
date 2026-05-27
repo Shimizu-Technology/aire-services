@@ -28,6 +28,7 @@ class User < ApplicationRecord
   validates :email, uniqueness: { case_sensitive: false }, allow_nil: true
   validates :email, format: { with: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/ }, allow_blank: true
   validates :is_active, inclusion: { in: [ true, false ] }
+  validates :is_intern, inclusion: { in: [ true, false ] }
   validates :public_team_enabled, inclusion: { in: [ true, false ] }
   validates :role, inclusion: { in: %w[admin employee] }
   validate :approval_group_must_be_configured

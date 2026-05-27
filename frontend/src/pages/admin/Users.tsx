@@ -32,6 +32,7 @@ export default function Users() {
   const [createLastName, setCreateLastName] = useState('')
   const [createEmail, setCreateEmail] = useState('')
   const [createRole, setCreateRole] = useState<'admin' | 'employee'>('employee')
+  const [createIsIntern, setCreateIsIntern] = useState(false)
   const [createStaffTitle, setCreateStaffTitle] = useState('')
   const [createApprovalGroups, setCreateApprovalGroups] = useState<Set<ApprovalGroup>>(new Set())
   const [sendInvitationEmail, setSendInvitationEmail] = useState(true)
@@ -44,6 +45,7 @@ export default function Users() {
   const [editLastName, setEditLastName] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [editRole, setEditRole] = useState<'admin' | 'employee'>('employee')
+  const [editIsIntern, setEditIsIntern] = useState(false)
   const [editStaffTitle, setEditStaffTitle] = useState('')
   const [editApprovalGroups, setEditApprovalGroups] = useState<Set<ApprovalGroup>>(new Set())
   const [editPublicTeamEnabled, setEditPublicTeamEnabled] = useState(false)
@@ -217,6 +219,7 @@ export default function Users() {
     setEditLastName(user.last_name ?? '')
     setEditEmail(user.email ?? '')
     setEditRole(user.role)
+    setEditIsIntern(Boolean(user.is_intern))
     setEditStaffTitle(user.staff_title ?? '')
     setEditApprovalGroups(new Set(user.approval_group_keys ?? (user.approval_group ? [user.approval_group] : [])))
     setEditPublicTeamEnabled(user.public_team_enabled)
@@ -232,6 +235,7 @@ export default function Users() {
     setCreateLastName('')
     setCreateEmail('')
     setCreateRole('employee')
+    setCreateIsIntern(false)
     setCreateStaffTitle('')
     setCreateApprovalGroups(new Set())
     setSendInvitationEmail(true)
@@ -245,6 +249,7 @@ export default function Users() {
     setEditLastName('')
     setEditEmail('')
     setEditRole('employee')
+    setEditIsIntern(false)
     setEditStaffTitle('')
     setEditApprovalGroups(new Set())
     setEditPublicTeamEnabled(false)
@@ -277,6 +282,7 @@ export default function Users() {
           last_name: createLastName.trim() || undefined,
         }),
         staff_title: createStaffTitle.trim() || undefined,
+        is_intern: createIsIntern,
         role: createRole,
         approval_groups: Array.from(createApprovalGroups),
         send_invitation: sendInvitationEmail && !!createEmail.trim(),
@@ -356,6 +362,7 @@ export default function Users() {
     try {
       const payload: Parameters<typeof api.updateUser>[1] = {
         role: editRole,
+        is_intern: editIsIntern,
         staff_title: nextStaffTitle || null,
         approval_groups: Array.from(editApprovalGroups),
         public_team_enabled: editPublicTeamEnabled,
@@ -683,6 +690,11 @@ export default function Users() {
                     <td className="px-5 py-4">
                       <div className="font-medium text-slate-900">{user.full_name || user.display_name}</div>
                       {user.staff_title && <div className="mt-1 text-sm text-slate-500">{user.staff_title}</div>}
+                      {user.is_intern && (
+                        <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          Intern
+                        </span>
+                      )}
                       {user.email && <div className="mt-1 text-sm text-slate-500">{user.email}</div>}
                       {!user.email && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — no email</div>}
                     </td>
@@ -845,6 +857,21 @@ export default function Users() {
                   <option value="admin">Admin</option>
                 </select>
               </div>
+
+              <label className="flex cursor-pointer gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={createIsIntern}
+                  onChange={(event) => setCreateIsIntern(event.target.checked)}
+                  className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-slate-800">Mark as intern</span>
+                  <span className="mt-0.5 block text-xs text-slate-600">
+                    Interns can belong to any department, but payroll reports will clearly flag their intern status.
+                  </span>
+                </span>
+              </label>
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">Departments</label>
                 <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
@@ -1004,6 +1031,18 @@ export default function Users() {
                     <option value="employee">Employee</option>
                     <option value="admin">Admin</option>
                   </select>
+                  <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={editIsIntern}
+                      onChange={(event) => setEditIsIntern(event.target.checked)}
+                      className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-slate-800">Intern</span>
+                      <span className="mt-0.5 block text-xs text-slate-600">Shown on payroll reports.</span>
+                    </span>
+                  </label>
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">Departments</label>

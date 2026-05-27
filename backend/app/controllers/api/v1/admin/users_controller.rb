@@ -86,6 +86,7 @@ module Api
                   last_name: kiosk_only_user ? last_name.presence : nil,
                   staff_title: params[:staff_title]&.to_s&.strip&.presence,
                   role: role,
+                  is_intern: params.key?(:is_intern) ? ActiveModel::Type::Boolean.new.cast(params[:is_intern]) : false,
                   approval_group: approval_group,
                   clerk_id: "pending_#{SecureRandom.hex(8)}",
                   is_active: true
@@ -226,6 +227,7 @@ module Api
             full_name: user.full_name,
             role: user.role,
             staff_title: user.staff_title,
+            is_intern: user.is_intern,
             approval_group: user.approval_group,
             approval_group_label: user.approval_group_label,
             approval_group_keys: user.approval_group_keys,
@@ -285,6 +287,7 @@ module Api
               "first_name",
               "last_name",
               "staff_title",
+              "is_intern",
               "role",
               "approval_group",
               "is_active",
@@ -464,6 +467,10 @@ module Api
 
           if params.key?(:staff_title)
             permitted[:staff_title] = params[:staff_title].to_s.strip.presence
+          end
+
+          if params.key?(:is_intern)
+            permitted[:is_intern] = ActiveModel::Type::Boolean.new.cast(params[:is_intern])
           end
 
           if params.key?(:is_active)

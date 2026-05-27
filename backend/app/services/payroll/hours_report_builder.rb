@@ -137,6 +137,8 @@ module Payroll
         display_name: user.display_name,
         full_name: user.full_name,
         role: user.role,
+        is_intern: user.is_intern,
+        employee_type: user.is_intern? ? "Intern" : "Staff",
         status: user_status(user),
         approval_group: user.approval_group,
         approval_group_label: user.approval_group_label,

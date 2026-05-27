@@ -9,7 +9,7 @@ module Api
       # GET /api/v1/users
       # Returns list of staff users (for assignment dropdowns)
       def index
-        users = User.staff.order(:first_name, :last_name)
+        users = User.staff.includes(:user_approval_groups).order(:first_name, :last_name)
 
         render json: {
           users: users.map do |user|
@@ -21,8 +21,11 @@ module Api
               display_name: user.display_name,
               full_name: user.full_name,
               role: user.role,
+              is_intern: user.is_intern,
               approval_group: user.approval_group,
-              approval_group_label: user.approval_group_label
+              approval_group_label: user.approval_group_label,
+              approval_group_keys: user.approval_group_keys,
+              approval_group_labels: user.approval_group_labels
             }
           end
         }

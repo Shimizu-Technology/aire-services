@@ -82,6 +82,7 @@ interface UserOption {
   display_name?: string
   full_name?: string
   role: string
+  is_intern?: boolean
   approval_group?: string | null
   approval_group_label?: string
   approval_group_keys?: string[]
@@ -763,9 +764,10 @@ export default function TimeTracking() {
   }, {} as Record<string, number>)
 
   const exportHoursCsv = () => {
-    const headers = ['Employee','Departments','Hour Types','Regular Hours','OT Hours','Total Hours','Break Hours','Entries','Ready','Date Range Start','Date Range End']
+    const headers = ['Employee','Employee Type','Departments','Hour Types','Regular Hours','OT Hours','Total Hours','Break Hours','Entries','Ready','Date Range Start','Date Range End']
     const rows = hoursSummaryRows.map(row => [
       row.full_name,
+      row.is_intern ? 'Intern' : 'Staff',
       row.approval_group_labels?.join('; ') || row.approval_group_label || 'Unassigned',
       row.categories.map((category) => `${category.name}: ${category.total_hours.toFixed(2)}h`).join('; '),
       row.regular_hours.toFixed(2),
@@ -1792,6 +1794,7 @@ export default function TimeTracking() {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Employee</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Departments</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Type</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Hour Types</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Regular</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">OT</th>
@@ -1803,13 +1806,20 @@ export default function TimeTracking() {
                 </thead>
                 <tbody className="divide-y divide-neutral-warm">
                   {reportLoading ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
                   ) : hoursSummaryRows.length === 0 ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-text-muted">No approved hours match this range.</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-8 text-center text-text-muted">No approved hours match this range.</td></tr>
                   ) : hoursSummaryRows.map((employee) => (
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
                       <td className="px-4 py-3 text-sm font-semibold text-primary-dark">{employee.full_name}</td>
                       <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
+                      <td className="px-4 py-3 text-sm">
+                        {employee.is_intern ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Intern</span>
+                        ) : (
+                          <span className="text-xs text-text-muted">Staff</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-sm text-text-muted">
                         {employee.categories.length > 0 ? (
                           <div className="flex flex-wrap gap-1.5">
@@ -1939,7 +1949,9 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 id={titleId} className="text-xl font-bold text-primary-dark">{employee.full_name}</h2>
-              <p className="mt-1 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'} · {employee.total_hours.toFixed(2)}h total · {employee.overtime_hours.toFixed(2)}h OT</p>
+              <p className="mt-1 text-sm text-text-muted">
+                {employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'} · {employee.is_intern ? 'Intern' : 'Staff'} · {employee.total_hours.toFixed(2)}h total · {employee.overtime_hours.toFixed(2)}h OT
+              </p>
             </div>
             <button ref={closeButtonRef} onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
           </div>
