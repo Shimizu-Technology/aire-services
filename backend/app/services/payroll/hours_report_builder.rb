@@ -52,7 +52,7 @@ module Payroll
     end
 
     def users_scope
-      scope = User.staff.includes(:assigned_time_categories, :user_approval_groups).order(:last_name, :first_name, :email, :id)
+      scope = User.staff.preload(:assigned_time_categories, :user_approval_groups).order(:last_name, :first_name, :email, :id)
       scope = scope.where(id: params[:user_id]) if params[:user_id].present?
       scope = scope.where(role: params[:role]) if params[:role].present? && %w[admin employee].include?(params[:role].to_s)
 
