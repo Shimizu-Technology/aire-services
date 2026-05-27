@@ -1794,7 +1794,7 @@ export default function TimeTracking() {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Employee</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Departments</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Type</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium uppercase text-text-muted">Type</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Hour Types</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Regular</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">OT</th>
@@ -1813,11 +1813,11 @@ export default function TimeTracking() {
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
                       <td className="px-4 py-3 text-sm font-semibold text-primary-dark">{employee.full_name}</td>
                       <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
-                      <td className="px-4 py-3 text-sm">
+                      <td className="px-4 py-3 text-center text-sm">
                         {employee.is_intern ? (
-                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Intern</span>
+                          <span className="inline-flex min-w-[4.25rem] justify-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Intern</span>
                         ) : (
-                          <span className="text-xs text-text-muted">Staff</span>
+                          <span className="inline-flex min-w-[4.25rem] justify-center text-xs text-text-muted">Staff</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm text-text-muted">
