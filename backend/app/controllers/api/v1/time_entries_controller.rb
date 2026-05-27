@@ -11,7 +11,7 @@ module Api
       # GET /api/v1/time_entries
       def index
         @time_entries = current_user.admin? ? TimeEntry.all : TimeEntry.for_user(current_user)
-        @time_entries = @time_entries.eager_load(:user, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks)
+        @time_entries = @time_entries.eager_load({ user: :user_approval_groups }, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks)
 
         if params[:user_id].present? && current_user.admin?
           @time_entries = @time_entries.where(user_id: params[:user_id])
@@ -424,7 +424,7 @@ module Api
       private
 
       def eager_reload(entry)
-        TimeEntry.eager_load(:user, :time_category, :schedule, :approved_by,
+        TimeEntry.eager_load({ user: :user_approval_groups }, :time_category, :schedule, :approved_by,
                              :overtime_approved_by, :time_entry_breaks).find(entry.id)
       end
 
@@ -691,8 +691,12 @@ module Api
             email: entry.user.email,
             display_name: entry.user.display_name,
             full_name: entry.user.full_name,
+            is_intern: entry.user.is_intern,
             approval_group: entry.user.approval_group,
-            approval_group_label: entry.user.approval_group_label
+            approval_group_label: entry.user.approval_group_label,
+            approval_group_keys: entry.user.approval_group_keys,
+            approval_group_labels: entry.user.approval_group_labels,
+            approval_groups: entry.user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } }
           },
           time_category: entry.time_category ? {
             id: entry.time_category.id,
@@ -723,7 +727,7 @@ module Api
       end
 
       def pending_approval_entries_scope
-        base_scope = TimeEntry.eager_load(:user, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
+        base_scope = TimeEntry.eager_load({ user: :user_approval_groups }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
         entries = base_scope.where(approval_status: "pending").or(base_scope.where(overtime_status: "pending"))
 
         approval_group = params[:approval_group].to_s
@@ -731,9 +735,9 @@ module Api
 
         case approval_group
         when "unassigned"
-          entries.where(users: { approval_group: nil })
+          entries.left_outer_joins(user: :user_approval_groups).where(user_approval_groups: { id: nil })
         when *Setting.approval_group_keys
-          entries.where(users: { approval_group: approval_group })
+          entries.joins(user: :user_approval_groups).where(user_approval_groups: { approval_group: approval_group }).distinct
         else
           entries
         end

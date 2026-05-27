@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_07_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_27_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -225,6 +225,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_07_010000) do
     t.index ["start_date", "end_date"], name: "index_time_period_locks_on_start_date_and_end_date", unique: true
   end
 
+  create_table "user_approval_groups", force: :cascade do |t|
+    t.string "approval_group", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["approval_group"], name: "index_user_approval_groups_on_approval_group"
+    t.index ["user_id", "approval_group"], name: "index_user_approval_groups_on_user_id_and_approval_group", unique: true
+    t.index ["user_id"], name: "index_user_approval_groups_on_user_id"
+  end
+
   create_table "user_time_categories", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.integer "hourly_rate_cents"
@@ -243,6 +253,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_07_010000) do
     t.string "email"
     t.string "first_name"
     t.boolean "is_active", default: true, null: false
+    t.boolean "is_intern", default: false, null: false
     t.boolean "kiosk_enabled", default: false, null: false
     t.integer "kiosk_failed_attempts_count", default: 0, null: false
     t.datetime "kiosk_locked_until"
@@ -262,6 +273,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_07_010000) do
     t.index ["clerk_id"], name: "index_users_on_clerk_id", unique: true
     t.index ["email"], name: "index_users_on_email"
     t.index ["is_active"], name: "index_users_on_is_active"
+    t.index ["is_intern"], name: "index_users_on_is_intern"
     t.index ["kiosk_enabled"], name: "index_users_on_kiosk_enabled"
     t.index ["kiosk_locked_until"], name: "index_users_on_kiosk_locked_until"
     t.index ["kiosk_pin_lookup_hash"], name: "index_users_on_kiosk_pin_lookup_hash", unique: true
@@ -288,6 +300,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_07_010000) do
   add_foreign_key "time_entries", "users", column: "overtime_approved_by_id"
   add_foreign_key "time_entry_breaks", "time_entries"
   add_foreign_key "time_period_locks", "users", column: "locked_by_id"
+  add_foreign_key "user_approval_groups", "users"
   add_foreign_key "user_time_categories", "time_categories"
   add_foreign_key "user_time_categories", "users"
 end

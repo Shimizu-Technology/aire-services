@@ -9,7 +9,7 @@ module Api
         before_action :set_user, only: [ :show, :update, :destroy, :resend_invite, :reset_kiosk_pin ]
 
         def index
-          @users = User.includes(user_time_categories: :time_category).order(created_at: :desc)
+          @users = User.includes(:user_approval_groups, user_time_categories: :time_category).order(created_at: :desc)
 
           if params[:role].present?
             @users = @users.where(role: params[:role])
@@ -39,7 +39,8 @@ module Api
           first_name = params[:first_name]&.strip
           last_name = params[:last_name]&.strip
           role = params[:role] || "employee"
-          approval_group = normalized_approval_group(params[:approval_group])
+          approval_groups = normalized_approval_groups(params.key?(:approval_groups) ? params[:approval_groups] : params[:approval_group])
+          approval_group = approval_groups.first
           kiosk_only_user = email.blank?
 
           if kiosk_only_user && first_name.blank?
@@ -74,7 +75,7 @@ module Api
           begin
             ActiveRecord::Base.transaction do
               with_approval_group_lock_if_needed do
-                unless valid_approval_group?(approval_group)
+                unless valid_approval_groups?(approval_groups)
                   render json: { error: approval_group_error_message }, status: :unprocessable_entity
                   raise ActiveRecord::Rollback
                 end
@@ -85,12 +86,14 @@ module Api
                   last_name: kiosk_only_user ? last_name.presence : nil,
                   staff_title: params[:staff_title]&.to_s&.strip&.presence,
                   role: role,
+                  is_intern: params.key?(:is_intern) ? ActiveModel::Type::Boolean.new.cast(params[:is_intern]) : false,
                   approval_group: approval_group,
                   clerk_id: "pending_#{SecureRandom.hex(8)}",
                   is_active: true
                 )
 
                 @user.save!
+                sync_approval_groups(@user, approval_groups)
                 sync_time_categories(@user) if params[:time_category_ids].present?
               end
             end
@@ -126,6 +129,9 @@ module Api
 
                 @user.assign_attributes(permitted)
                 @user.save!
+                if params.key?(:approval_group) || params.key?(:approval_groups)
+                  sync_approval_groups(@user, normalized_approval_groups(params.key?(:approval_groups) ? params[:approval_groups] : params[:approval_group]))
+                end
                 sync_time_categories(@user) if params.key?(:time_category_ids)
               end
             end
@@ -221,8 +227,12 @@ module Api
             full_name: user.full_name,
             role: user.role,
             staff_title: user.staff_title,
+            is_intern: user.is_intern,
             approval_group: user.approval_group,
             approval_group_label: user.approval_group_label,
+            approval_group_keys: user.approval_group_keys,
+            approval_group_labels: user.approval_group_labels,
+            approval_groups: user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } },
             is_active: user.is_active,
             is_pending: user.pending_invite?,
             uses_clerk_profile: user.uses_clerk_profile?,
@@ -277,6 +287,7 @@ module Api
               "first_name",
               "last_name",
               "staff_title",
+              "is_intern",
               "role",
               "approval_group",
               "is_active",
@@ -286,7 +297,8 @@ module Api
               "public_team_sort_order",
               "updated_at"
             ),
-            time_categories: user.user_time_categories.pluck(:time_category_id, :hourly_rate_cents)
+            time_categories: user.user_time_categories.pluck(:time_category_id, :hourly_rate_cents),
+            approval_groups: user.user_approval_groups.order(:id).pluck(:approval_group)
           }
         end
 
@@ -295,6 +307,7 @@ module Api
             user.reload
             user.update_columns(snapshot.fetch(:attributes))
             restore_user_time_categories!(user, snapshot.fetch(:time_categories))
+            sync_approval_groups(user, snapshot.fetch(:approval_groups))
           end
         end
 
@@ -328,12 +341,32 @@ module Api
           normalized
         end
 
+        def normalized_approval_groups(value)
+          Array(value).filter_map { |group| normalized_approval_group(group) }.uniq
+        end
+
         def valid_approval_group?(value)
           value.nil? || Setting.approval_group_keys.include?(value)
         end
 
+        def valid_approval_groups?(values)
+          values.all? { |value| valid_approval_group?(value) }
+        end
+
+        def sync_approval_groups(user, approval_groups)
+          desired_groups = Array(approval_groups).compact.uniq
+          user.user_approval_groups.where.not(approval_group: desired_groups).destroy_all
+
+          desired_groups.each do |approval_group|
+            user.user_approval_groups.find_or_create_by!(approval_group: approval_group)
+          end
+
+          primary = desired_groups.first
+          user.update_column(:approval_group, primary) if user.approval_group != primary
+        end
+
         def with_approval_group_lock_if_needed
-          return yield unless params.key?(:approval_group)
+          return yield unless params.key?(:approval_group) || params.key?(:approval_groups)
 
           Setting.with_approval_groups_lock { yield }
         end
@@ -422,18 +455,22 @@ module Api
             end
           end
 
-          if params.key?(:approval_group)
-            approval_group = normalized_approval_group(params[:approval_group])
-            unless valid_approval_group?(approval_group)
+          if params.key?(:approval_group) || params.key?(:approval_groups)
+            approval_groups = normalized_approval_groups(params.key?(:approval_groups) ? params[:approval_groups] : params[:approval_group])
+            unless valid_approval_groups?(approval_groups)
               render json: { error: approval_group_error_message }, status: :unprocessable_entity
               return { local_attributes: {}, clerk_attributes: {} }
             end
 
-            permitted[:approval_group] = approval_group
+            permitted[:approval_group] = approval_groups.first
           end
 
           if params.key?(:staff_title)
             permitted[:staff_title] = params[:staff_title].to_s.strip.presence
+          end
+
+          if params.key?(:is_intern)
+            permitted[:is_intern] = ActiveModel::Type::Boolean.new.cast(params[:is_intern])
           end
 
           if params.key?(:is_active)

@@ -205,9 +205,9 @@ module Api
           removed_keys = current_groups.map { |group| group.fetch("key") } - normalized.map { |group| group.fetch("key") }
           return if removed_keys.empty?
 
-          users_scope = User.where(approval_group: removed_keys)
-          users_scope = users_scope.lock if live
-          in_use_keys = users_scope.pluck(:approval_group).compact.uniq
+          groups_scope = UserApprovalGroup.where(approval_group: removed_keys)
+          groups_scope = groups_scope.lock if live
+          in_use_keys = groups_scope.pluck(:approval_group).uniq
           return if in_use_keys.empty?
 
           labels = in_use_keys.map do |key|

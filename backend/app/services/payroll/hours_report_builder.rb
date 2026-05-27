@@ -52,7 +52,7 @@ module Payroll
     end
 
     def users_scope
-      scope = User.staff.includes(:assigned_time_categories).order(:last_name, :first_name, :email, :id)
+      scope = User.staff.preload(:assigned_time_categories, :user_approval_groups).order(:last_name, :first_name, :email, :id)
       scope = scope.where(id: params[:user_id]) if params[:user_id].present?
       scope = scope.where(role: params[:role]) if params[:role].present? && %w[admin employee].include?(params[:role].to_s)
 
@@ -67,14 +67,7 @@ module Payroll
         scope = scope.where(is_active: false)
       end
 
-      case params[:approval_group].to_s
-      when "", "all"
-        scope
-      when "unassigned"
-        scope.where(approval_group: nil)
-      else
-        scope.where(approval_group: params[:approval_group])
-      end
+      scope.for_approval_group(params[:approval_group])
     end
 
     def overtime_context_entries_scope(range, user_ids)
@@ -144,9 +137,14 @@ module Payroll
         display_name: user.display_name,
         full_name: user.full_name,
         role: user.role,
+        is_intern: user.is_intern,
+        employee_type: user.is_intern? ? "Intern" : "Staff",
         status: user_status(user),
         approval_group: user.approval_group,
         approval_group_label: user.approval_group_label,
+        approval_group_keys: user.approval_group_keys,
+        approval_group_labels: user.approval_group_labels,
+        approval_groups: user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } },
         total_hours: total_hours,
         regular_hours: regular_hours,
         overtime_hours: overtime_hours,

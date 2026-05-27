@@ -41,6 +41,7 @@ module Api
           last_name: user.last_name,
           full_name: user.full_name,
           role: user.role,
+          is_intern: user.is_intern,
           approval_group: user.approval_group,
           is_active: user.is_active,
           is_admin: user.admin?,

@@ -32,8 +32,9 @@ export default function Users() {
   const [createLastName, setCreateLastName] = useState('')
   const [createEmail, setCreateEmail] = useState('')
   const [createRole, setCreateRole] = useState<'admin' | 'employee'>('employee')
+  const [createIsIntern, setCreateIsIntern] = useState(false)
   const [createStaffTitle, setCreateStaffTitle] = useState('')
-  const [createApprovalGroup, setCreateApprovalGroup] = useState<ApprovalGroup | ''>('')
+  const [createApprovalGroups, setCreateApprovalGroups] = useState<Set<ApprovalGroup>>(new Set())
   const [sendInvitationEmail, setSendInvitationEmail] = useState(true)
   const [createCategoryIds, setCreateCategoryIds] = useState<Set<number>>(new Set())
   const [creating, setCreating] = useState(false)
@@ -44,8 +45,9 @@ export default function Users() {
   const [editLastName, setEditLastName] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [editRole, setEditRole] = useState<'admin' | 'employee'>('employee')
+  const [editIsIntern, setEditIsIntern] = useState(false)
   const [editStaffTitle, setEditStaffTitle] = useState('')
-  const [editApprovalGroup, setEditApprovalGroup] = useState<ApprovalGroup | ''>('')
+  const [editApprovalGroups, setEditApprovalGroups] = useState<Set<ApprovalGroup>>(new Set())
   const [editPublicTeamEnabled, setEditPublicTeamEnabled] = useState(false)
   const [editPublicTeamName, setEditPublicTeamName] = useState('')
   const [editPublicTeamTitle, setEditPublicTeamTitle] = useState('')
@@ -136,7 +138,7 @@ export default function Users() {
   const editingUserIsKioskOnly = Boolean(editingUser && !editingUserUsesClerkProfile)
   const canConvertPendingKioskUser = Boolean(editingUserIsKioskOnly && editingUser?.is_pending)
   const canEditEmail = Boolean(canEditPendingInviteEmail || canConvertPendingKioskUser)
-  const routedUsersCount = users.filter((user) => !!user.approval_group).length
+  const routedUsersCount = users.filter((user) => (user.approval_group_keys?.length ?? (user.approval_group ? 1 : 0)) > 0).length
   const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
   const normalizedSearchTerm = searchTerm.trim().toLowerCase()
   const hasActiveFilters = Boolean(
@@ -155,8 +157,9 @@ export default function Users() {
       if (statusFilter === 'pending' && (!user.is_active || !user.is_pending)) return false
       if (statusFilter === 'inactive' && user.is_active) return false
 
-      if (departmentFilter === 'unassigned' && user.approval_group) return false
-      if (departmentFilter !== 'all' && departmentFilter !== 'unassigned' && user.approval_group !== departmentFilter) return false
+      const userDepartmentKeys = user.approval_group_keys ?? (user.approval_group ? [user.approval_group] : [])
+      if (departmentFilter === 'unassigned' && userDepartmentKeys.length > 0) return false
+      if (departmentFilter !== 'all' && departmentFilter !== 'unassigned' && !userDepartmentKeys.includes(departmentFilter)) return false
 
       if (kioskFilter === 'pin_ready' && !user.kiosk_pin_configured) return false
       if (kioskFilter === 'no_pin' && user.kiosk_pin_configured) return false
@@ -182,6 +185,7 @@ export default function Users() {
         user.public_team_name,
         user.public_team_title,
         user.approval_group_label,
+        ...(user.approval_group_labels ?? []),
         user.role,
         user.is_pending ? 'pending sign-in kiosk only invited' : statusTokens[0],
         user.public_team_enabled ? 'public team visible' : 'public team hidden',
@@ -215,8 +219,9 @@ export default function Users() {
     setEditLastName(user.last_name ?? '')
     setEditEmail(user.email ?? '')
     setEditRole(user.role)
+    setEditIsIntern(Boolean(user.is_intern))
     setEditStaffTitle(user.staff_title ?? '')
-    setEditApprovalGroup(user.approval_group ?? '')
+    setEditApprovalGroups(new Set(user.approval_group_keys ?? (user.approval_group ? [user.approval_group] : [])))
     setEditPublicTeamEnabled(user.public_team_enabled)
     setEditPublicTeamName(user.public_team_name ?? '')
     setEditPublicTeamTitle(user.public_team_title ?? '')
@@ -230,8 +235,9 @@ export default function Users() {
     setCreateLastName('')
     setCreateEmail('')
     setCreateRole('employee')
+    setCreateIsIntern(false)
     setCreateStaffTitle('')
-    setCreateApprovalGroup('')
+    setCreateApprovalGroups(new Set())
     setSendInvitationEmail(true)
     setCreateCategoryIds(new Set())
     setCreateError('')
@@ -243,8 +249,9 @@ export default function Users() {
     setEditLastName('')
     setEditEmail('')
     setEditRole('employee')
+    setEditIsIntern(false)
     setEditStaffTitle('')
-    setEditApprovalGroup('')
+    setEditApprovalGroups(new Set())
     setEditPublicTeamEnabled(false)
     setEditPublicTeamName('')
     setEditPublicTeamTitle('')
@@ -275,8 +282,9 @@ export default function Users() {
           last_name: createLastName.trim() || undefined,
         }),
         staff_title: createStaffTitle.trim() || undefined,
+        is_intern: createIsIntern,
         role: createRole,
-        approval_group: createApprovalGroup || undefined,
+        approval_groups: Array.from(createApprovalGroups),
         send_invitation: sendInvitationEmail && !!createEmail.trim(),
         time_category_ids: Array.from(createCategoryIds),
       })
@@ -354,8 +362,9 @@ export default function Users() {
     try {
       const payload: Parameters<typeof api.updateUser>[1] = {
         role: editRole,
+        is_intern: editIsIntern,
         staff_title: nextStaffTitle || null,
-        approval_group: editApprovalGroup || null,
+        approval_groups: Array.from(editApprovalGroups),
         public_team_enabled: editPublicTeamEnabled,
         public_team_name: nextPublicTeamName || null,
         public_team_title: nextPublicTeamTitle || null,
@@ -475,6 +484,13 @@ export default function Users() {
   function toggleCategoryId(set: Set<number>, setter: (s: Set<number>) => void, id: number) {
     const next = new Set(set)
     if (next.has(id)) { next.delete(id) } else { next.add(id) }
+    setter(next)
+  }
+
+  function toggleApprovalGroup(set: Set<ApprovalGroup>, setter: (s: Set<ApprovalGroup>) => void, key: ApprovalGroup) {
+    const next = new Set(set)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
     setter(next)
   }
 
@@ -674,6 +690,11 @@ export default function Users() {
                     <td className="px-5 py-4">
                       <div className="font-medium text-slate-900">{user.full_name || user.display_name}</div>
                       {user.staff_title && <div className="mt-1 text-sm text-slate-500">{user.staff_title}</div>}
+                      {user.is_intern && (
+                        <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          Intern
+                        </span>
+                      )}
                       {user.email && <div className="mt-1 text-sm text-slate-500">{user.email}</div>}
                       {!user.email && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — no email</div>}
                     </td>
@@ -697,9 +718,17 @@ export default function Users() {
                       )}
                     </td>
                     <td className="px-5 py-4">
-                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
-                        {user.approval_group_label ?? 'Unassigned'}
-                      </span>
+                      {(user.approval_group_labels?.length ?? 0) > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {user.approval_group_labels!.map((label) => (
+                            <span key={label} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                              {label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">Unassigned</span>
+                      )}
                     </td>
                     <td className="px-5 py-4">
                       {(user.time_categories ?? []).length > 0 ? (
@@ -828,20 +857,39 @@ export default function Users() {
                   <option value="admin">Admin</option>
                 </select>
               </div>
+
+              <label className="flex cursor-pointer gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={createIsIntern}
+                  onChange={(event) => setCreateIsIntern(event.target.checked)}
+                  className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-slate-800">Mark as intern</span>
+                  <span className="mt-0.5 block text-xs text-slate-600">
+                    Interns can belong to any department, but payroll reports will clearly flag their intern status.
+                  </span>
+                </span>
+              </label>
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Department</label>
-                <select
-                  value={createApprovalGroup}
-                  onChange={(e) => setCreateApprovalGroup(e.target.value as ApprovalGroup | '')}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                >
-                  <option value="">Unassigned</option>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Departments</label>
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
                   {approvalGroupOptions.map((option) => (
-                    <option key={option.key} value={option.key}>{option.label}</option>
+                    <label key={option.key} className="flex cursor-pointer items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={createApprovalGroups.has(option.key)}
+                        onChange={() => toggleApprovalGroup(createApprovalGroups, setCreateApprovalGroups, option.key)}
+                        className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                      />
+                      <span className="text-sm font-medium text-slate-800">{option.label}</span>
+                    </label>
                   ))}
-                </select>
+                  {approvalGroupOptions.length === 0 && <div className="text-sm text-slate-500">No departments configured.</div>}
+                </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  This controls review routing and department filters across the admin tools.
+                  Select every department this person belongs to. This controls review routing and department filters across admin tools.
                 </p>
               </div>
               <div>
@@ -983,19 +1031,35 @@ export default function Users() {
                     <option value="employee">Employee</option>
                     <option value="admin">Admin</option>
                   </select>
+                  <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={editIsIntern}
+                      onChange={(event) => setEditIsIntern(event.target.checked)}
+                      className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-slate-800">Intern</span>
+                      <span className="mt-0.5 block text-xs text-slate-600">Shown on payroll reports.</span>
+                    </span>
+                  </label>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Department</label>
-                  <select
-                    value={editApprovalGroup}
-                    onChange={(event) => setEditApprovalGroup(event.target.value as ApprovalGroup | '')}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  >
-                    <option value="">Unassigned</option>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Departments</label>
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
                     {approvalGroupOptions.map((option) => (
-                      <option key={option.key} value={option.key}>{option.label}</option>
+                      <label key={option.key} className="flex cursor-pointer items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={editApprovalGroups.has(option.key)}
+                          onChange={() => toggleApprovalGroup(editApprovalGroups, setEditApprovalGroups, option.key)}
+                          className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                        />
+                        <span className="text-sm font-medium text-slate-800">{option.label}</span>
+                      </label>
                     ))}
-                  </select>
+                    {approvalGroupOptions.length === 0 && <div className="text-sm text-slate-500">No departments configured.</div>}
+                  </div>
                 </div>
               </div>
 
