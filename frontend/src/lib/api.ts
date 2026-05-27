@@ -201,6 +201,9 @@ export interface UserSummary {
   role: string;
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string;
+  approval_group_keys?: ApprovalGroup[];
+  approval_group_labels?: string[];
+  approval_groups?: ApprovalGroupOption[];
 }
 
 export interface UserTimeCategoryAssignment {
@@ -220,6 +223,9 @@ export interface AdminUser {
   staff_title: string | null;
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string;
+  approval_group_keys?: ApprovalGroup[];
+  approval_group_labels?: string[];
+  approval_groups?: ApprovalGroupOption[];
   is_active: boolean;
   is_pending: boolean;
   uses_clerk_profile: boolean;
@@ -440,6 +446,9 @@ export interface TimeEntry {
     full_name: string;
     approval_group?: ApprovalGroup | null;
     approval_group_label?: string;
+    approval_group_keys?: ApprovalGroup[];
+    approval_group_labels?: string[];
+    approval_groups?: ApprovalGroupOption[];
   };
   time_category: {
     id: number;
@@ -705,6 +714,9 @@ export interface HoursReportEmployee {
   status: 'active' | 'pending' | 'inactive';
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string | null;
+  approval_group_keys?: ApprovalGroup[];
+  approval_group_labels?: string[];
+  approval_groups?: ApprovalGroupOption[];
   total_hours: number;
   regular_hours: number;
   overtime_hours: number;
@@ -941,6 +953,7 @@ export const api = {
     staff_title?: string | null;
     role: 'admin' | 'employee';
     approval_group?: ApprovalGroup | null;
+    approval_groups?: ApprovalGroup[];
     send_invitation?: boolean;
     time_category_ids?: number[];
   }) =>
@@ -962,6 +975,7 @@ export const api = {
     role?: 'admin' | 'employee';
     staff_title?: string | null;
     approval_group?: ApprovalGroup | null;
+    approval_groups?: ApprovalGroup[];
     is_active?: boolean;
     public_team_enabled?: boolean;
     public_team_name?: string | null;

@@ -20,6 +20,7 @@ class User < ApplicationRecord
   has_many :employee_pay_rates, dependent: :destroy
   has_many :user_time_categories, dependent: :destroy
   has_many :assigned_time_categories, through: :user_time_categories, source: :time_category
+  has_many :user_approval_groups, dependent: :destroy
 
   attr_accessor :skip_kiosk_pin_presence_validation
 
@@ -37,6 +38,7 @@ class User < ApplicationRecord
 
   before_validation :set_default_kiosk_enabled
   before_validation :sync_kiosk_pin_lookup_hash
+  after_save :sync_primary_approval_group_assignment, if: :saved_change_to_approval_group?
 
   scope :admins, -> { where(role: "admin") }
   scope :employees, -> { where(role: "employee") }
@@ -49,12 +51,12 @@ class User < ApplicationRecord
   }
   scope :for_approval_group, ->(approval_group) {
     case approval_group.to_s
-    when ""
+    when "", "all"
       all
     when "unassigned"
-      where(approval_group: nil)
+      left_outer_joins(:user_approval_groups).where(user_approval_groups: { id: nil })
     else
-      where(approval_group: approval_group)
+      joins(:user_approval_groups).where(user_approval_groups: { approval_group: approval_group }).distinct
     end
   }
 
@@ -103,8 +105,18 @@ class User < ApplicationRecord
     admin? || employee?
   end
 
+  def approval_group_keys
+    loaded_groups = association(:user_approval_groups).loaded? ? user_approval_groups : user_approval_groups.order(:id)
+    keys = loaded_groups.map(&:approval_group).compact
+    keys.presence || Array(approval_group).compact
+  end
+
+  def approval_group_labels
+    approval_group_keys.map { |key| Setting.approval_group_label_for(key) }
+  end
+
   def approval_group_label
-    Setting.approval_group_label_for(approval_group)
+    approval_group_labels.first || Setting.approval_group_label_for(approval_group)
   end
 
   def pending_invite?
@@ -213,6 +225,16 @@ class User < ApplicationRecord
     return if Setting.approval_group_keys.include?(approval_group)
 
     errors.add(:approval_group, "must match a configured approval group")
+  end
+
+  def sync_primary_approval_group_assignment
+    return unless persisted?
+
+    if approval_group.present?
+      user_approval_groups.find_or_create_by!(approval_group: approval_group)
+    else
+      user_approval_groups.destroy_all
+    end
   end
 
   def public_team_profile_is_complete

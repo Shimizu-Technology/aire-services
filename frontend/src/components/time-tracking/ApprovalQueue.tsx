@@ -11,10 +11,14 @@ interface ApprovalQueueProps {
   canDeleteEntry?: (entry: TimeEntry) => boolean
 }
 
+function entryApprovalGroupKeys(entry: TimeEntry) {
+  return entry.user.approval_group_keys ?? (entry.user.approval_group ? [entry.user.approval_group] : [])
+}
+
 function filterEntriesByGroup(entries: TimeEntry[], filter: 'all' | ApprovalGroupFilter) {
   if (filter === 'all') return entries
-  if (filter === 'unassigned') return entries.filter((entry) => !entry.user.approval_group)
-  return entries.filter((entry) => entry.user.approval_group === filter)
+  if (filter === 'unassigned') return entries.filter((entry) => entryApprovalGroupKeys(entry).length === 0)
+  return entries.filter((entry) => entryApprovalGroupKeys(entry).includes(filter))
 }
 
 export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
@@ -103,9 +107,9 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
     ...approvalGroups.map((group) => ({
       value: group.key,
       label: group.label,
-      count: allEntries.filter((entry) => entry.user.approval_group === group.key).length,
+      count: allEntries.filter((entry) => entryApprovalGroupKeys(entry).includes(group.key)).length,
     })),
-    { value: 'unassigned', label: 'Unassigned', count: allEntries.filter((entry) => !entry.user.approval_group).length },
+    { value: 'unassigned', label: 'Unassigned', count: allEntries.filter((entry) => entryApprovalGroupKeys(entry).length === 0).length },
   ]
 
   const handleApprove = async (entry: TimeEntry, note?: string) => {

@@ -692,7 +692,10 @@ module Api
             display_name: entry.user.display_name,
             full_name: entry.user.full_name,
             approval_group: entry.user.approval_group,
-            approval_group_label: entry.user.approval_group_label
+            approval_group_label: entry.user.approval_group_label,
+            approval_group_keys: entry.user.approval_group_keys,
+            approval_group_labels: entry.user.approval_group_labels,
+            approval_groups: entry.user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } }
           },
           time_category: entry.time_category ? {
             id: entry.time_category.id,
@@ -731,9 +734,9 @@ module Api
 
         case approval_group
         when "unassigned"
-          entries.where(users: { approval_group: nil })
+          entries.left_outer_joins(user: :user_approval_groups).where(user_approval_groups: { id: nil })
         when *Setting.approval_group_keys
-          entries.where(users: { approval_group: approval_group })
+          entries.joins(user: :user_approval_groups).where(user_approval_groups: { approval_group: approval_group }).distinct
         else
           entries
         end
