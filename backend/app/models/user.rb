@@ -109,6 +109,8 @@ class User < ApplicationRecord
   def approval_group_keys
     loaded_groups = association(:user_approval_groups).loaded? ? user_approval_groups : user_approval_groups.order(:id)
     keys = loaded_groups.map(&:approval_group).compact
+    primary_key = approval_group.presence
+    keys = [ primary_key, *keys ].compact.uniq if primary_key
     keys.presence || Array(approval_group).compact
   end
 
@@ -117,7 +119,8 @@ class User < ApplicationRecord
   end
 
   def approval_group_label
-    approval_group_labels.first || Setting.approval_group_label_for(approval_group)
+    primary_key = approval_group.presence || approval_group_keys.first
+    primary_key ? Setting.approval_group_label_for(primary_key) : nil
   end
 
   def pending_invite?
@@ -232,7 +235,7 @@ class User < ApplicationRecord
     return unless persisted?
 
     if approval_group.present?
-      user_approval_groups.find_or_create_by!(approval_group: approval_group)
+      user_approval_groups.create_or_find_by!(approval_group: approval_group)
     else
       user_approval_groups.destroy_all
     end
