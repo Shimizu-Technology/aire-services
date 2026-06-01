@@ -125,10 +125,16 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
         setAuthError(null)
         setCachedRole(clerkUserId, role)
         setRoleFetched(true)
+      } else if (response.status === 401 || response.status === 403) {
+        setCurrentUser(null)
+        setUserRole(null)
+        setAuthError(response.error || 'Unable to verify your staff access')
+        setCachedRole(clerkUserId, null)
+        setRoleFetched(true)
       } else {
         throw new Error(response.error || 'No user in response')
       }
-    } catch (error) {
+    } catch {
       fetchedRef.current = false
       if (retryCount < 2) {
         const delay = (retryCount + 1) * 1500
@@ -137,7 +143,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
         const fallback = getCachedRole(clerkUserId)
         setCurrentUser(null)
         setUserRole(fallback)
-        setAuthError(error instanceof Error ? error.message : 'Unable to verify your staff access')
+        setAuthError(null)
         setRoleFetched(true)
       }
     }

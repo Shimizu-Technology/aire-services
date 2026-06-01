@@ -7,6 +7,7 @@ interface ApiResponse<T> {
   data?: T;
   error?: string;
   errors?: string[];
+  status?: number;
 }
 
 let getAuthToken: (() => Promise<string | null>) | null = null;
@@ -43,7 +44,7 @@ async function fetchApi<T>(
     });
 
     if (response.status === 204) {
-      return { data: undefined as unknown as T };
+      return { data: undefined as unknown as T, status: response.status };
     }
 
     let data;
@@ -58,6 +59,7 @@ async function fetchApi<T>(
       return {
         error: `Server returned an invalid response (${response.status})`,
         errors: ['The server may be temporarily unavailable. Please try again.'],
+        status: response.status,
       };
     }
 
@@ -65,6 +67,7 @@ async function fetchApi<T>(
       return {
         error: `Server returned an empty response (${response.status})`,
         errors: ['The server may be temporarily unavailable. Please try again.'],
+        status: response.status,
       };
     }
 
@@ -73,21 +76,24 @@ async function fetchApi<T>(
         return {
           error: data.error || 'Authentication required',
           errors: data.errors || ['Please sign in to continue'],
+          status: response.status,
         };
       }
       if (response.status === 403) {
         return {
           error: data.error || 'Access denied',
           errors: data.errors || ['You do not have permission to perform this action'],
+          status: response.status,
         };
       }
       return {
         error: data.error || 'Something went wrong',
         errors: data.errors || [],
+        status: response.status,
       };
     }
 
-    return { data };
+    return { data, status: response.status };
   } catch (error) {
     console.error('API Error:', error);
     return {

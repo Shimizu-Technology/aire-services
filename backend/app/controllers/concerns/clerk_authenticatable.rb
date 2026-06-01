@@ -105,7 +105,7 @@ module ClerkAuthenticatable
       Rails.logger.warn "No email available for clerk_id=#{clerk_id}. Cannot link invited user. Verify Clerk JWT template includes email claim or set CLERK_SECRET_KEY."
     end
 
-    Rails.logger.warn "No invited user found for clerk_id=#{clerk_id}, email=#{normalized_email.presence || '(none)'}" if normalized_email.present?
+    Rails.logger.warn "No invited user found for clerk_id=#{clerk_id}, email=#{normalized_email}" if normalized_email.present?
 
     # Bootstrap is disabled by default. Only allow it when explicitly enabled.
     if allow_first_user_bootstrap? && User.count.zero?
