@@ -133,6 +133,10 @@ export default function Header() {
                       </Link>
                     </>
                   )}
+                  <div className={`flex items-center justify-between rounded-xl border border-slate-200 px-3 py-3 ${!isLoading && isStaff ? 'mt-2' : ''}`}>
+                    <span className="text-sm font-medium text-slate-600">Account</span>
+                    <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
+                  </div>
                 </SignedIn>
               </div>
             )}
