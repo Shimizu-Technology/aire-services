@@ -10,12 +10,16 @@ interface ClerkProtectedContentProps {
 export default function ClerkProtectedContent({ children, requiredRole }: ClerkProtectedContentProps) {
   const { isLoaded, isSignedIn } = useAuth()
   const { user: clerkUser } = useUser()
-  const { userRole, isLoading: authLoading, isStaff } = useAuthContext()
+  const { userRole, isLoading: authLoading, isStaff, authError } = useAuthContext()
 
   const authStatus = useMemo(() => {
     if (!isLoaded || authLoading) return 'loading' as const
 
-    if (!isSignedIn || !userRole) return 'unauthorized' as const
+    if (authError) return 'access_denied' as const
+
+    if (!isSignedIn) return 'unauthorized' as const
+
+    if (!userRole) return 'access_denied' as const
 
     if (requiredRole) {
       const hasAccess =
@@ -27,7 +31,7 @@ export default function ClerkProtectedContent({ children, requiredRole }: ClerkP
     }
 
     return 'authorized' as const
-  }, [isLoaded, isSignedIn, authLoading, userRole, requiredRole, isStaff])
+  }, [isLoaded, isSignedIn, authLoading, authError, userRole, requiredRole, isStaff])
 
   if (!isLoaded || authStatus === 'loading') {
     return (
@@ -52,8 +56,8 @@ export default function ClerkProtectedContent({ children, requiredRole }: ClerkP
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
           <p className="text-gray-600 mb-6">
-            You don't have permission to access this area.
-            {requiredRole && ` This page requires ${requiredRole} access.`}
+            {authError || "You don't have permission to access this area."}
+            {!authError && requiredRole && ` This page requires ${requiredRole} access.`}
           </p>
           <p className="text-sm text-gray-500">
             Signed in as: {clerkUser?.primaryEmailAddress?.emailAddress}

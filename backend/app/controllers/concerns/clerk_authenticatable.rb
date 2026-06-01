@@ -102,8 +102,10 @@ module ClerkAuthenticatable
         return user
       end
     else
-      Rails.logger.warn "No email in JWT for clerk_id=#{clerk_id}. Cannot link invited user. Verify Clerk JWT template includes email claim."
+      Rails.logger.warn "No email available for clerk_id=#{clerk_id}. Cannot link invited user. Verify Clerk JWT template includes email claim or set CLERK_SECRET_KEY."
     end
+
+    Rails.logger.warn "No invited user found for clerk_id=#{clerk_id}, email=#{normalized_email}" if normalized_email.present?
 
     # Bootstrap is disabled by default. Only allow it when explicitly enabled.
     if allow_first_user_bootstrap? && User.count.zero?
@@ -129,7 +131,7 @@ module ClerkAuthenticatable
 
   def identity_attributes_from(decoded)
     clerk_id = decoded["sub"]
-    email = decoded["email"] || decoded["primary_email_address"]
+    email = email_from_claims(decoded)
 
     if email.blank? && clerk_id.present?
       Rails.logger.info "JWT for clerk_id=#{clerk_id} has no email claim. Attempting Clerk API fallback."
@@ -144,9 +146,27 @@ module ClerkAuthenticatable
     {
       clerk_id: clerk_id,
       email: email,
-      first_name: decoded["first_name"],
-      last_name: decoded["last_name"]
+      first_name: decoded["first_name"] || decoded.dig("user", "first_name"),
+      last_name: decoded["last_name"] || decoded.dig("user", "last_name")
     }
+  end
+
+  def email_from_claims(decoded)
+    direct = decoded["email"] || decoded["email_address"] || decoded["primary_email_address"]
+    return direct if direct.present?
+
+    nested = decoded.dig("user", "email") || decoded.dig("user", "email_address") || decoded.dig("user", "primary_email_address")
+    return nested if nested.present?
+
+    emails = decoded["email_addresses"] || decoded.dig("user", "email_addresses")
+    if emails.is_a?(Array)
+      primary_id = decoded["primary_email_address_id"] || decoded.dig("user", "primary_email_address_id")
+      primary = emails.find { |address| address.is_a?(Hash) && address["id"] == primary_id }
+      first = primary || emails.find { |address| address.is_a?(Hash) }
+      return first["email_address"] || first["email"] if first
+    end
+
+    nil
   end
 
   def allow_first_user_bootstrap?
