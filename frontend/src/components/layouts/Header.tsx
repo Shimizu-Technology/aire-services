@@ -14,7 +14,7 @@ const navigation = [
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
-  const { isClerkEnabled, userRole } = useAuthContext()
+  const { isClerkEnabled, userRole, isStaff, isLoading } = useAuthContext()
 
   const isActive = (href: string) => location.pathname === href
 
@@ -55,17 +55,21 @@ export default function Header() {
                   </SignInButton>
                 </SignedOut>
                 <SignedIn>
-                  {userRole === 'admin' && (
-                    <Link
-                      to="/kiosk"
-                      className="inline-flex h-10 items-center rounded-xl border border-cyan-300 px-4 text-sm font-semibold leading-none text-cyan-700 transition hover:bg-cyan-50"
-                    >
-                      Staff Kiosk
-                    </Link>
+                  {!isLoading && isStaff && (
+                    <>
+                      {userRole === 'admin' && (
+                        <Link
+                          to="/kiosk"
+                          className="inline-flex h-10 items-center rounded-xl border border-cyan-300 px-4 text-sm font-semibold leading-none text-cyan-700 transition hover:bg-cyan-50"
+                        >
+                          Staff Kiosk
+                        </Link>
+                      )}
+                      <Link to="/admin" className="inline-flex h-10 items-center rounded-xl px-3 text-sm font-medium leading-none text-slate-600 transition hover:bg-slate-50 hover:text-slate-900">
+                        Admin
+                      </Link>
+                    </>
                   )}
-                  <Link to="/admin" className="inline-flex h-10 items-center rounded-xl px-3 text-sm font-medium leading-none text-slate-600 transition hover:bg-slate-50 hover:text-slate-900">
-                    Admin
-                  </Link>
                   <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
                 </SignedIn>
               </>
@@ -109,22 +113,26 @@ export default function Header() {
                   </SignInButton>
                 </SignedOut>
                 <SignedIn>
-                  {userRole === 'admin' && (
-                    <Link
-                      to="/kiosk"
-                      onClick={() => setMobileOpen(false)}
-                      className="block rounded-xl border border-cyan-200 px-3 py-3 text-sm font-semibold text-cyan-700"
-                    >
-                      Staff Kiosk
-                    </Link>
+                  {!isLoading && isStaff && (
+                    <>
+                      {userRole === 'admin' && (
+                        <Link
+                          to="/kiosk"
+                          onClick={() => setMobileOpen(false)}
+                          className="block rounded-xl border border-cyan-200 px-3 py-3 text-sm font-semibold text-cyan-700"
+                        >
+                          Staff Kiosk
+                        </Link>
+                      )}
+                      <Link
+                        to="/admin"
+                        onClick={() => setMobileOpen(false)}
+                        className={`block rounded-xl bg-cyan-50 px-3 py-3 text-sm font-semibold text-cyan-700 ${userRole === 'admin' ? 'mt-2' : ''}`}
+                      >
+                        Open Admin Dashboard
+                      </Link>
+                    </>
                   )}
-                  <Link
-                    to="/admin"
-                    onClick={() => setMobileOpen(false)}
-                    className={`block rounded-xl bg-cyan-50 px-3 py-3 text-sm font-semibold text-cyan-700 ${userRole === 'admin' ? 'mt-2' : ''}`}
-                  >
-                    Open Admin Dashboard
-                  </Link>
                 </SignedIn>
               </div>
             )}
