@@ -11,6 +11,7 @@ interface AuthContextType {
   userRole: 'admin' | 'employee' | null
   isStaff: boolean
   currentUser: CurrentUser | null
+  authError: string | null
   refreshCurrentUser: () => Promise<void>
 }
 
@@ -21,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
   userRole: null,
   isStaff: false,
   currentUser: null,
+  authError: null,
   refreshCurrentUser: async () => {},
 })
 
@@ -36,6 +38,7 @@ interface AuthProviderProps {
 
 const ROLE_CACHE_PREFIX = 'aire_role_'
 const ROLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const CLERK_JWT_TEMPLATE = import.meta.env.VITE_CLERK_JWT_TEMPLATE
 type UserRole = 'admin' | 'employee' | null
 
 function getCachedRole(clerkId: string | undefined): UserRole {
@@ -68,6 +71,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
   const { user: clerkUser } = useUser()
   const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
   const [roleFetched, setRoleFetched] = useState(false)
   const fetchedRef = useRef(false)
   const fetchRoleRef = useRef<((retryCount?: number, force?: boolean) => Promise<void>) | undefined>(undefined)
@@ -89,7 +93,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setAuthTokenGetter(async () => {
       try {
-        const token = await getToken()
+        const token = await getToken(CLERK_JWT_TEMPLATE ? { template: CLERK_JWT_TEMPLATE } : undefined)
         return token
       } catch (error) {
         console.error('Error getting auth token:', error)
@@ -118,12 +122,13 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
         const role = nextUser.role
         setCurrentUser(nextUser)
         setUserRole(role)
+        setAuthError(null)
         setCachedRole(clerkUserId, role)
         setRoleFetched(true)
       } else {
-        throw new Error('No user in response')
+        throw new Error(response.error || 'No user in response')
       }
-    } catch {
+    } catch (error) {
       fetchedRef.current = false
       if (retryCount < 2) {
         const delay = (retryCount + 1) * 1500
@@ -132,6 +137,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
         const fallback = getCachedRole(clerkUserId)
         setCurrentUser(null)
         setUserRole(fallback)
+        setAuthError(error instanceof Error ? error.message : 'Unable to verify your staff access')
         setRoleFetched(true)
       }
     }
@@ -149,6 +155,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
       fetchedRef.current = false
       setCurrentUser(null)
       setUserRole(null)
+      setAuthError(null)
       setRoleFetched(true)
     }
     return () => clearTimeout(retryTimerRef.current)
@@ -167,6 +174,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
       userRole,
       isStaff: userRole === 'admin' || userRole === 'employee',
       currentUser,
+      authError,
       refreshCurrentUser,
     }}>
       {children}
@@ -187,6 +195,7 @@ function NoAuthProvider({ children }: { children: ReactNode }) {
       userRole: null,
       isStaff: false,
       currentUser: null,
+      authError: null,
       refreshCurrentUser: async () => {},
     }}>
       {children}

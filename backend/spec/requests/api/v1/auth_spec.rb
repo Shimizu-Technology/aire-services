@@ -68,6 +68,27 @@ RSpec.describe "Api::V1::Auth", type: :request do
     expect(JSON.parse(response.body).dig("user", "needs_kiosk_pin_setup")).to eq(true)
   end
 
+  it "links an invited user from nested Clerk email-address claims" do
+    invited = create(
+      :user,
+      clerk_id: "pending_123",
+      email: "invited@example.com",
+      role: "employee"
+    )
+    allow(ClerkAuth).to receive(:verify).with("live_token").and_return(
+      "sub" => "user_nested_123",
+      "primary_email_address_id" => "email_primary",
+      "email_addresses" => [
+        { "id" => "email_primary", "email_address" => "invited@example.com" }
+      ]
+    )
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(invited.reload.clerk_id).to eq("user_nested_123")
+  end
+
   it "blocks inactive staff users from signing in" do
     create(
       :user,
