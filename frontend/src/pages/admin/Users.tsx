@@ -4,11 +4,42 @@ import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption }
 import { formatDateTime } from '../../lib/dateUtils'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
+const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
+const maxPublicTeamPhotoSize = 15 * 1024 * 1024
+
 function isKioskLocked(user: AdminUser) {
   if (!user.kiosk_locked_until) return false
 
   const lockedUntil = new Date(user.kiosk_locked_until).getTime()
   return Number.isFinite(lockedUntil) && lockedUntil > Date.now()
+}
+
+function initialsForUser(user: AdminUser) {
+  const source = user.public_team_name || user.full_name || user.display_name || user.email || 'AIRE Team'
+  const initials = source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+
+  return initials || 'AT'
+}
+
+function TeamMemberAvatar({ user, className = 'h-12 w-12' }: { user: AdminUser; className?: string }) {
+  const src = user.public_team_photo_thumb_url || user.public_team_photo_url
+
+  return (
+    <div className={`relative shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 ${className}`}>
+      {src ? (
+        <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.22),_transparent_45%),linear-gradient(135deg,_#0f172a,_#1e3a5f)] text-sm font-semibold tracking-tight text-white">
+          {initialsForUser(user)}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function Users() {
@@ -52,6 +83,8 @@ export default function Users() {
   const [editPublicTeamName, setEditPublicTeamName] = useState('')
   const [editPublicTeamTitle, setEditPublicTeamTitle] = useState('')
   const [editPublicTeamSortOrder, setEditPublicTeamSortOrder] = useState('0')
+  const [editPublicTeamPhotoFile, setEditPublicTeamPhotoFile] = useState<File | null>(null)
+  const [editRemovePublicTeamPhoto, setEditRemovePublicTeamPhoto] = useState(false)
   const [editCategoryIds, setEditCategoryIds] = useState<Set<number>>(new Set())
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState('')
@@ -129,6 +162,20 @@ export default function Users() {
     ])
     applyFetchedData(usersRes, catsRes, settingsRes)
   }, [applyFetchedData])
+
+  const editPublicTeamPhotoPreviewUrl = useMemo(
+    () => (editPublicTeamPhotoFile ? URL.createObjectURL(editPublicTeamPhotoFile) : null),
+    [editPublicTeamPhotoFile],
+  )
+  const currentEditPublicTeamPhotoUrl = editPublicTeamPhotoPreviewUrl || (
+    editRemovePublicTeamPhoto ? null : editingUser?.public_team_photo_thumb_url || editingUser?.public_team_photo_url || null
+  )
+
+  useEffect(() => {
+    return () => {
+      if (editPublicTeamPhotoPreviewUrl) URL.revokeObjectURL(editPublicTeamPhotoPreviewUrl)
+    }
+  }, [editPublicTeamPhotoPreviewUrl])
 
   const activeCategories = allCategories.filter((c) => c.is_active)
   const createUsesClerkProfile = createEmail.trim().length > 0
@@ -226,6 +273,8 @@ export default function Users() {
     setEditPublicTeamName(user.public_team_name ?? '')
     setEditPublicTeamTitle(user.public_team_title ?? '')
     setEditPublicTeamSortOrder(String(user.public_team_sort_order ?? 0))
+    setEditPublicTeamPhotoFile(null)
+    setEditRemovePublicTeamPhoto(false)
     setEditCategoryIds(new Set(user.time_category_ids ?? []))
     setEditError('')
   }, [])
@@ -256,6 +305,8 @@ export default function Users() {
     setEditPublicTeamName('')
     setEditPublicTeamTitle('')
     setEditPublicTeamSortOrder('0')
+    setEditPublicTeamPhotoFile(null)
+    setEditRemovePublicTeamPhoto(false)
     setEditCategoryIds(new Set())
     setSavingEdit(false)
     setEditError('')
@@ -326,6 +377,12 @@ export default function Users() {
     const nextPublicTeamSortOrder = hasPublicTeamSortOrder ? Number.parseInt(editPublicTeamSortOrder, 10) : null
     const nextCategoryIds = Array.from(editCategoryIds)
 
+    if (editPublicTeamPhotoFile && editPublicTeamPhotoFile.size > maxPublicTeamPhotoSize) {
+      setEditError('Team photos must be smaller than 15MB.')
+      setSavingEdit(false)
+      return
+    }
+
     if ((editingUserIsKioskOnly || canEditActiveClerkProfile) && !nextFirstName) {
       setEditError('First name is required.')
       setSavingEdit(false)
@@ -395,8 +452,28 @@ export default function Users() {
       if (res.error) {
         setEditError(res.error)
       } else {
-        if (res.data?.user) {
-          patchLocalUser(targetUserId, () => res.data!.user)
+        let savedUser = res.data?.user
+
+        if (editPublicTeamPhotoFile) {
+          const photoResponse = await api.updateUserPublicTeamPhoto(targetUserId, editPublicTeamPhotoFile)
+          if (photoResponse.error) {
+            if (savedUser) patchLocalUser(targetUserId, () => savedUser!)
+            setEditError(`Profile saved, but the team photo could not be uploaded: ${photoResponse.error}`)
+            return
+          }
+          savedUser = photoResponse.data?.user ?? savedUser
+        } else if (editRemovePublicTeamPhoto) {
+          const photoResponse = await api.removeUserPublicTeamPhoto(targetUserId)
+          if (photoResponse.error) {
+            if (savedUser) patchLocalUser(targetUserId, () => savedUser!)
+            setEditError(`Profile saved, but the team photo could not be removed: ${photoResponse.error}`)
+            return
+          }
+          savedUser = photoResponse.data?.user ?? savedUser
+        }
+
+        if (savedUser) {
+          patchLocalUser(targetUserId, () => savedUser!)
         }
         closeEditModal()
       }
@@ -688,15 +765,20 @@ export default function Users() {
                     {filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-slate-50/80">
                     <td className="px-5 py-4">
-                      <div className="font-medium text-slate-900">{user.full_name || user.display_name}</div>
-                      {user.staff_title && <div className="mt-1 text-sm text-slate-500">{user.staff_title}</div>}
-                      {user.is_intern && (
-                        <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                          Intern
-                        </span>
-                      )}
-                      {user.email && <div className="mt-1 text-sm text-slate-500">{user.email}</div>}
-                      {!user.email && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — no email</div>}
+                      <div className="flex items-start gap-3">
+                        <TeamMemberAvatar user={user} />
+                        <div className="min-w-0">
+                          <div className="font-medium text-slate-900">{user.full_name || user.display_name}</div>
+                          {user.staff_title && <div className="mt-1 text-sm text-slate-500">{user.staff_title}</div>}
+                          {user.is_intern && (
+                            <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                              Intern
+                            </span>
+                          )}
+                          {user.email && <div className="mt-1 truncate text-sm text-slate-500">{user.email}</div>}
+                          {!user.email && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — no email</div>}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-5 py-4">
                       <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
@@ -712,6 +794,9 @@ export default function Users() {
                           {(user.public_team_title || user.staff_title) && (
                             <div className="text-xs text-slate-500">{user.public_team_title || user.staff_title}</div>
                           )}
+                          <div className={`text-xs ${user.public_team_photo_thumb_url || user.public_team_photo_url ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            {user.public_team_photo_thumb_url || user.public_team_photo_url ? 'Portrait ready' : 'Text listing until photo'}
+                          </div>
                         </div>
                       ) : (
                         <span className="text-xs text-slate-400">Hidden</span>
@@ -1094,6 +1179,77 @@ export default function Users() {
 
                 {editPublicTeamEnabled && (
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2 rounded-2xl border border-cyan-100 bg-white p-4">
+                      <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                          <div className="aspect-[4/5]">
+                            {currentEditPublicTeamPhotoUrl ? (
+                              <img src={currentEditPublicTeamPhotoUrl} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.22),_transparent_45%),linear-gradient(135deg,_#0f172a,_#1e3a5f)] text-xl font-semibold tracking-tight text-white">
+                                {initialsForUser(editingUser)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-800">Public team photo</label>
+                          <p className="text-xs leading-relaxed text-slate-500">
+                            Upload a clean portrait for the public Team page. Square or vertical photos work best and will be cropped consistently on mobile and desktop.
+                          </p>
+                          <label className="mt-3 block rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm transition hover:border-cyan-300 hover:bg-cyan-50/60">
+                            <span className="flex items-center gap-2 font-semibold text-slate-800">
+                              <svg className="h-4 w-4 text-cyan-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m0 0 4.5 4.5M12 4 7.5 8.5M4 20h16" />
+                              </svg>
+                              Choose photo
+                            </span>
+                            <span className="mt-1 block text-xs text-slate-500">JPG, PNG, WebP, AVIF, or GIF up to 15MB.</span>
+                            <input
+                              type="file"
+                              accept={publicTeamPhotoAccept}
+                              onChange={(event) => {
+                                const selected = event.target.files?.[0] || null
+                                setEditPublicTeamPhotoFile(selected)
+                                if (selected) setEditRemovePublicTeamPhoto(false)
+                              }}
+                              className="mt-3 block w-full text-xs text-slate-500"
+                            />
+                          </label>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {editPublicTeamPhotoFile && (
+                              <button
+                                type="button"
+                                onClick={() => setEditPublicTeamPhotoFile(null)}
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                              >
+                                Clear selected photo
+                              </button>
+                            )}
+                            {!editPublicTeamPhotoFile && !editRemovePublicTeamPhoto && (editingUser.public_team_photo_url || editingUser.public_team_photo_thumb_url) && (
+                              <button
+                                type="button"
+                                onClick={() => setEditRemovePublicTeamPhoto(true)}
+                                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+                              >
+                                Remove current photo
+                              </button>
+                            )}
+                            {editRemovePublicTeamPhoto && (
+                              <button
+                                type="button"
+                                onClick={() => setEditRemovePublicTeamPhoto(false)}
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                              >
+                                Undo removal
+                              </button>
+                            )}
+                          </div>
+                          {editRemovePublicTeamPhoto && <p className="mt-3 text-xs font-medium text-amber-700">The current photo will be removed when you save changes.</p>}
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="sm:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-slate-700">Public display name</label>
                       <input

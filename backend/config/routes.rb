@@ -79,6 +79,8 @@ Rails.application.routes.draw do
           member do
             post :resend_invite
             post :reset_kiosk_pin
+            post :public_team_photo
+            delete :public_team_photo, action: :destroy_public_team_photo
           end
         end
         resource :contact_settings, only: [ :show, :update ], controller: "contact_settings"
