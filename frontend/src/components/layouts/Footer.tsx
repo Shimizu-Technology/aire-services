@@ -1,11 +1,11 @@
 import { Link } from 'react-router-dom'
-import { socialLinks } from '../../lib/socialLinks'
 import { aireAddressFooterFor } from '../../lib/businessInfo'
-import { usePublicBusinessInfo } from '../../contexts/publicBusinessInfo'
+import { usePublicBusinessInfo, usePublicSocialLinks } from '../../contexts/publicBusinessInfo'
 
 export default function Footer() {
   const year = new Date().getFullYear()
   const businessInfo = usePublicBusinessInfo()
+  const socialLinks = usePublicSocialLinks()
 
   return (
     <footer className="bg-slate-950 text-slate-300">
@@ -17,7 +17,7 @@ export default function Footer() {
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             {socialLinks.map((link) => (
-              <a key={link.label} href={link.href} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400 hover:text-white">
+              <a key={link.key} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400 hover:text-white">
                 {link.label}
               </a>
             ))}

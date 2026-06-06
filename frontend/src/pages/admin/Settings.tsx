@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, TimeClockAppSettings } from '../../lib/api'
+import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
 import { defaultPublicContactSettings } from '../../lib/businessInfo'
+import { defaultSocialLinks } from '../../lib/socialLinks'
 import type { PublicContactInfoSettings } from '../../lib/businessInfo'
 
 const emptyCategoryForm = {
@@ -115,6 +116,7 @@ export default function Settings() {
   const [contactNotificationEmailsDraft, setContactNotificationEmailsDraft] = useState('')
   const [inquiryTopicsDraft, setInquiryTopicsDraft] = useState<string[]>([''])
   const [publicContactDraft, setPublicContactDraft] = useState<PublicContactInfoSettings>(defaultPublicContactSettings)
+  const [socialLinksDraft, setSocialLinksDraft] = useState<SocialLink[]>(defaultSocialLinks)
   const [loading, setLoading] = useState(true)
   const [categoriesError, setCategoriesError] = useState('')
   const [settingsError, setSettingsError] = useState('')
@@ -175,6 +177,7 @@ export default function Settings() {
       setContactNotificationEmailsDraft(contactRes.data.contact_notification_emails.join('\n'))
       setInquiryTopicsDraft(contactRes.data.inquiry_topics.length > 0 ? contactRes.data.inquiry_topics : [''])
       setPublicContactDraft(contactRes.data.public_contact || defaultPublicContactSettings)
+      setSocialLinksDraft(contactRes.data.social_links?.length > 0 ? contactRes.data.social_links : [{ key: '', label: '', url: '' }])
     }
   }, [])
 
@@ -558,6 +561,13 @@ export default function Settings() {
       postal_code: publicContactDraft.postal_code.trim(),
       address_country: publicContactDraft.address_country.trim(),
     }
+    const social_links = socialLinksDraft
+      .map((link) => ({
+        key: normalizeApprovalGroupKey(link.key || link.label),
+        label: link.label.trim(),
+        url: link.url.trim(),
+      }))
+      .filter((link) => link.label || link.url)
 
     if (contact_notification_emails.length === 0) {
       setContactSettingsError('At least one notification email is required.')
@@ -577,6 +587,18 @@ export default function Settings() {
       return
     }
 
+    if (social_links.some((link) => !link.label || !link.url)) {
+      setContactSettingsError('Each social link needs a label and URL, or remove the incomplete row.')
+      setContactSettingsMessage('')
+      return
+    }
+
+    if (social_links.some((link) => !/^https?:\/\//i.test(link.url))) {
+      setContactSettingsError('Social links must start with http:// or https://.')
+      setContactSettingsMessage('')
+      return
+    }
+
     setSavingContactSettings(true)
     setContactSettingsError('')
     setContactSettingsMessage('')
@@ -585,6 +607,7 @@ export default function Settings() {
         contact_notification_emails,
         inquiry_topics,
         public_contact,
+        social_links,
       })
       if (res.error || !res.data) {
         setContactSettingsError(res.error || 'Failed to save contact settings')
@@ -595,10 +618,12 @@ export default function Settings() {
         contact_notification_emails: res.data.contact_notification_emails,
         inquiry_topics: res.data.inquiry_topics,
         public_contact: res.data.public_contact,
+        social_links: res.data.social_links,
       })
       setContactNotificationEmailsDraft(res.data.contact_notification_emails.join('\n'))
       setInquiryTopicsDraft(res.data.inquiry_topics.length > 0 ? res.data.inquiry_topics : [''])
       setPublicContactDraft(res.data.public_contact)
+      setSocialLinksDraft(res.data.social_links.length > 0 ? res.data.social_links : [{ key: '', label: '', url: '' }])
       setContactSettingsMessage(res.data.message || 'Contact settings saved.')
     } finally {
       setSavingContactSettings(false)
@@ -611,6 +636,23 @@ export default function Settings() {
 
   const updatePublicContactDraft = (key: keyof PublicContactInfoSettings, value: string) => {
     setPublicContactDraft((current) => ({ ...current, [key]: value }))
+  }
+
+  const updateSocialLinkDraft = (index: number, key: keyof SocialLink, value: string) => {
+    setSocialLinksDraft((current) => current.map((link, linkIndex) => (
+      linkIndex === index ? { ...link, [key]: value } : link
+    )))
+  }
+
+  const addSocialLinkDraft = () => {
+    setSocialLinksDraft((current) => [...current, { key: '', label: '', url: '' }])
+  }
+
+  const removeSocialLinkDraft = (index: number) => {
+    setSocialLinksDraft((current) => {
+      if (current.length === 1) return [{ key: '', label: '', url: '' }]
+      return current.filter((_, linkIndex) => linkIndex !== index)
+    })
   }
 
   const addInquiryTopicDraft = () => {
@@ -1079,6 +1121,59 @@ export default function Settings() {
                   </p>
                 </div>
 
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Public social links</h3>
+                      <p className="mt-1 text-xs text-slate-500">Shown in the website footer and contact page.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addSocialLinkDraft}
+                      className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                    >
+                      Add social link
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {socialLinksDraft.map((link, index) => (
+                      <div key={`social-link-${index}`} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 lg:grid-cols-[0.8fr_1.5fr_auto]">
+                        <div>
+                          <label htmlFor={`social-link-label-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Label</label>
+                          <input
+                            id={`social-link-label-${index}`}
+                            value={link.label}
+                            onChange={(e) => updateSocialLinkDraft(index, 'label', e.target.value)}
+                            placeholder={index === 0 ? 'Instagram' : 'TikTok'}
+                            className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor={`social-link-url-${index}`} className="mb-2 block text-sm font-medium text-slate-700">URL</label>
+                          <input
+                            id={`social-link-url-${index}`}
+                            type="url"
+                            value={link.url}
+                            onChange={(e) => updateSocialLinkDraft(index, 'url', e.target.value)}
+                            placeholder="https://www.tiktok.com/@aireservicesguam"
+                            className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            type="button"
+                            onClick={() => removeSocialLinkDraft(index)}
+                            disabled={socialLinksDraft.length === 1 && !link.label.trim() && !link.url.trim()}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid gap-5 lg:grid-cols-2">
                   <div>
                     <label htmlFor="contact-notification-emails" className="mb-2 block text-sm font-medium text-slate-700">Notification recipient emails</label>
@@ -1135,7 +1230,7 @@ export default function Settings() {
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
                   {contactSettings
-                    ? `Currently configured: ${contactSettings.contact_notification_emails.length} recipient${contactSettings.contact_notification_emails.length === 1 ? '' : 's'} and ${contactSettings.inquiry_topics.length} public topic${contactSettings.inquiry_topics.length === 1 ? '' : 's'}.`
+                    ? `Currently configured: ${contactSettings.contact_notification_emails.length} recipient${contactSettings.contact_notification_emails.length === 1 ? '' : 's'}, ${contactSettings.inquiry_topics.length} public topic${contactSettings.inquiry_topics.length === 1 ? '' : 's'}, and ${contactSettings.social_links.length} social link${contactSettings.social_links.length === 1 ? '' : 's'}.`
                     : 'Contact settings load separately from time clock settings.'}
                 </div>
                 <div className="flex justify-end">

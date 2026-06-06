@@ -64,12 +64,35 @@ RSpec.describe Setting, type: :model do
         described_class.update_contact_settings!(
           emails: [ "ops@example.com" ],
           topics: [ "Discovery Flight" ],
-          public_contact: described_class.public_contact_settings
+          public_contact: described_class.public_contact_settings,
+          social_links: described_class.public_social_links
         )
       }.to raise_error(ActiveRecord::RecordInvalid)
 
       expect(described_class.contact_notification_emails).to eq([ "admin@aireservicesguam.com" ])
       expect(described_class.contact_inquiry_topics).to eq([ "Private Pilot Certificate" ])
+    end
+  end
+
+  describe ".public_social_links" do
+    it "defaults to AIRE's public social links" do
+      expect(described_class.public_social_links).to include(
+        { "key" => "instagram", "label" => "Instagram", "url" => "https://www.instagram.com/aire.services/" },
+        { "key" => "facebook", "label" => "Facebook", "url" => "https://www.facebook.com/AireServicesGuam/" }
+      )
+    end
+
+    it "normalizes labels and requires absolute URLs" do
+      described_class.set_public_social_links!([
+        { label: "TikTok", url: "https://www.tiktok.com/@aireservicesguam" }
+      ])
+
+      expect(described_class.public_social_links).to eq([
+        { "key" => "tiktok", "label" => "TikTok", "url" => "https://www.tiktok.com/@aireservicesguam" }
+      ])
+      expect {
+        described_class.set_public_social_links!([ { label: "TikTok", url: "tiktok.com/@aireservicesguam" } ])
+      }.to raise_error(ArgumentError, /http:\/\/ or https:\/\//)
     end
   end
 

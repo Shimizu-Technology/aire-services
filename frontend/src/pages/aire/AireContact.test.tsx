@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AireContact from './AireContact'
 import { aireAddressDisplay, aireBusinessInfo } from '../../lib/businessInfo'
 import { PublicBusinessInfoContext } from '../../contexts/publicBusinessInfo'
+import { defaultSocialLinks } from '../../lib/socialLinks'
 
 const apiMock = vi.hoisted(() => ({
   submitContact: vi.fn(),
@@ -27,7 +28,7 @@ const fixtureInquiryTopics = [
 function renderPage(inquiryTopics = fixtureInquiryTopics) {
   return render(
     <MemoryRouter>
-      <PublicBusinessInfoContext.Provider value={{ businessInfo: aireBusinessInfo, inquiryTopics }}>
+      <PublicBusinessInfoContext.Provider value={{ businessInfo: aireBusinessInfo, inquiryTopics, socialLinks: defaultSocialLinks }}>
         <AireContact />
       </PublicBusinessInfoContext.Provider>
     </MemoryRouter>,

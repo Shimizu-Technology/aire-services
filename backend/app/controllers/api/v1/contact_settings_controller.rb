@@ -6,7 +6,8 @@ module Api
       def show
         render json: {
           inquiry_topics: Setting.contact_inquiry_topics,
-          public_contact: Setting.public_contact_settings
+          public_contact: Setting.public_contact_settings,
+          social_links: Setting.public_social_links
         }
       end
     end

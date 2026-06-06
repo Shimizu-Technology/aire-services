@@ -21,6 +21,10 @@ class Setting < ApplicationRecord
     "Careers",
     "General Inquiry"
   ].freeze
+  DEFAULT_PUBLIC_SOCIAL_LINKS = [
+    { "key" => "instagram", "label" => "Instagram", "url" => "https://www.instagram.com/aire.services/" },
+    { "key" => "facebook", "label" => "Facebook", "url" => "https://www.facebook.com/AireServicesGuam/" }
+  ].freeze
   DEFAULT_APPROVAL_GROUPS = [
     { "key" => "cfi", "label" => "CFI" },
     { "key" => "ops_maintenance", "label" => "Ops / Maintenance" }
@@ -40,7 +44,8 @@ class Setting < ApplicationRecord
     "clock_in_location_radius_meters" => "1000",
     "contact_email" => DEFAULT_CONTACT_NOTIFICATION_EMAILS.join(", "),
     "contact_inquiry_topics" => DEFAULT_CONTACT_INQUIRY_TOPICS.to_json,
-    "public_contact_settings" => DEFAULT_PUBLIC_CONTACT_SETTINGS.to_json
+    "public_contact_settings" => DEFAULT_PUBLIC_CONTACT_SETTINGS.to_json,
+    "public_social_links" => DEFAULT_PUBLIC_SOCIAL_LINKS.to_json
   }.freeze
 
   def self.get(key)
@@ -103,6 +108,11 @@ class Setting < ApplicationRecord
   def self.public_contact_settings
     value = get("public_contact_settings")
     parse_public_contact_settings(value)
+  end
+
+  def self.public_social_links
+    value = get("public_social_links")
+    parse_public_social_links(value)
   end
 
   def self.approval_groups
@@ -173,11 +183,21 @@ class Setting < ApplicationRecord
     )
   end
 
-  def self.update_contact_settings!(emails:, topics:, public_contact:)
+  def self.set_public_social_links!(links)
+    normalized_links = normalize_public_social_links(links)
+    set(
+      "public_social_links",
+      normalized_links.to_json,
+      description: "JSON array of public social media links shown on the marketing website"
+    )
+  end
+
+  def self.update_contact_settings!(emails:, topics:, public_contact:, social_links:)
     transaction do
       set_contact_notification_emails!(emails)
       set_contact_inquiry_topics!(topics)
       set_public_contact_settings!(public_contact)
+      set_public_social_links!(social_links)
     end
   end
 
@@ -204,6 +224,25 @@ class Setting < ApplicationRecord
     defaults.keys.index_with do |key|
       raw[key].presence || raw[key.to_sym].presence || defaults.fetch(key)
     end.transform_values { |setting| setting.to_s.strip }
+  end
+
+  def self.normalize_public_social_links(value)
+    Array(value).filter_map do |link|
+      raw_link = link.respond_to?(:to_h) ? link.to_h : {}
+      label = raw_link["label"].presence || raw_link[:label].presence
+      url = raw_link["url"].presence || raw_link[:url].presence
+      next if label.blank? && url.blank?
+      raise ArgumentError, "Each social link needs a label and URL" if label.blank? || url.blank?
+
+      url = url.to_s.strip
+      raise ArgumentError, "Social link URLs must start with http:// or https://" unless valid_public_social_url?(url)
+
+      raw_key = raw_link["key"].presence || raw_link[:key].presence || label
+      key = normalize_approval_group_key(raw_key)
+      raise ArgumentError, "Social link keys may only contain letters, numbers, and underscores" if key.blank?
+
+      { "key" => key, "label" => label.to_s.strip, "url" => url }
+    end.uniq { |link| link["key"] }
   end
 
   def self.normalize_approval_groups(value)
@@ -254,6 +293,15 @@ class Setting < ApplicationRecord
     DEFAULT_PUBLIC_CONTACT_SETTINGS.dup
   end
 
+  def self.parse_public_social_links(value)
+    return DEFAULT_PUBLIC_SOCIAL_LINKS.map(&:dup) if value.blank?
+
+    parsed = JSON.parse(value)
+    normalize_public_social_links(parsed)
+  rescue JSON::ParserError, ArgumentError
+    DEFAULT_PUBLIC_SOCIAL_LINKS.map(&:dup)
+  end
+
   def self.parse_approval_groups(value)
     return DEFAULT_APPROVAL_GROUPS.map(&:dup) if value.blank?
 
@@ -261,6 +309,13 @@ class Setting < ApplicationRecord
     normalize_approval_groups(parsed)
   rescue JSON::ParserError, ArgumentError
     DEFAULT_APPROVAL_GROUPS.map(&:dup)
+  end
+
+  def self.valid_public_social_url?(value)
+    uri = URI.parse(value)
+    uri.is_a?(URI::HTTP) && uri.host.present?
+  rescue URI::InvalidURIError
+    false
   end
 
   def self.safe_float(value)
