@@ -242,6 +242,9 @@ export interface AdminUser {
   public_team_name: string | null;
   public_team_title: string | null;
   public_team_sort_order: number;
+  public_team_photo_url?: string | null;
+  public_team_photo_thumb_url?: string | null;
+  public_team_photo_card_url?: string | null;
   kiosk_enabled?: boolean;
   kiosk_pin_configured?: boolean;
   kiosk_pin_last_rotated_at?: string | null;
@@ -401,8 +404,12 @@ function siteMediaFormData(input: SiteMediaInput) {
 }
 
 export interface PublicTeamMember {
+  id: number;
   name: string;
   title: string;
+  photo_url: string | null;
+  photo_thumb_url: string | null;
+  photo_alt: string | null;
 }
 
 export interface TimeEntry {
@@ -1000,6 +1007,17 @@ export const api = {
     fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
+    }),
+
+  updateUserPublicTeamPhoto: (id: number, photo: File) => {
+    const formData = new FormData();
+    formData.append('photo', photo);
+    return fetchApiUpload<{ user: AdminUser }>(`/api/v1/admin/users/${id}/public_team_photo`, formData);
+  },
+
+  removeUserPublicTeamPhoto: (id: number) =>
+    fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}/public_team_photo`, {
+      method: 'DELETE',
     }),
 
   deleteUser: (id: number) =>

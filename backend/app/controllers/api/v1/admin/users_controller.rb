@@ -4,12 +4,28 @@ module Api
   module V1
     module Admin
       class UsersController < BaseController
+        include AttachmentUrlHelpers
+        include MediaUploadValidation
+
         before_action :authenticate_user!
         before_action :require_admin!
-        before_action :set_user, only: [ :show, :update, :destroy, :resend_invite, :reset_kiosk_pin ]
+        before_action :set_user,
+                      only: [
+                        :show,
+                        :update,
+                        :destroy,
+                        :resend_invite,
+                        :reset_kiosk_pin,
+                        :public_team_photo,
+                        :destroy_public_team_photo
+                      ]
+        rescue_from MediaUploadValidation::InvalidMediaUpload, with: :invalid_media_upload
 
         def index
-          @users = User.includes(:user_approval_groups, user_time_categories: :time_category).order(created_at: :desc)
+          @users = User
+                   .with_attached_public_team_photo
+                   .includes(:user_approval_groups, user_time_categories: :time_category)
+                   .order(created_at: :desc)
 
           if params[:role].present?
             @users = @users.where(role: params[:role])
@@ -208,6 +224,25 @@ module Api
           render json: { error: messages.join(", ") }, status: :unprocessable_entity
         end
 
+        def public_team_photo
+          upload = params[:photo].presence || params[:public_team_photo].presence
+          return render json: { error: "Upload a team photo" }, status: :unprocessable_entity unless upload.present?
+
+          validate_media_upload!(upload, media_type: "image", attachment_name: :photo)
+
+          replaced_blob = @user.public_team_photo.blob if @user.public_team_photo.attached?
+          @user.public_team_photo.attach(upload)
+          replaced_blob&.purge_later
+
+          render json: { user: serialize_user(@user.reload) }
+        end
+
+        def destroy_public_team_photo
+          @user.public_team_photo.purge_later if @user.public_team_photo.attached?
+
+          render json: { user: serialize_user(@user.reload) }
+        end
+
         private
 
         def set_user
@@ -240,6 +275,9 @@ module Api
             public_team_name: user.public_team_name,
             public_team_title: user.public_team_title,
             public_team_sort_order: user.public_team_sort_order,
+            public_team_photo_url: attachment_url(user.public_team_photo),
+            public_team_photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_fill: [ 160, 160 ]),
+            public_team_photo_card_url: attachment_variant_url(user.public_team_photo, resize_to_fill: [ 640, 800 ]),
             kiosk_enabled: user.kiosk_enabled,
             kiosk_pin_configured: user.kiosk_pin_configured?,
             kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
@@ -507,6 +545,10 @@ module Api
           end
 
           { local_attributes: permitted, clerk_attributes: clerk_attributes }
+        end
+
+        def invalid_media_upload(exception)
+          render json: { error: exception.message, errors: exception.messages }, status: :unprocessable_entity
         end
 
         def approval_group_error_message
