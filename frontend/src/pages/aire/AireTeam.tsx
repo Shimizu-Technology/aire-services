@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type PublicTeamMember } from '../../lib/api'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
+import { initialsForName } from '../../lib/initials'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
 
@@ -12,14 +13,7 @@ const credibilityPoints = [
 ]
 
 function initialsFor(member: PublicTeamMember) {
-  const initials = member.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('')
-
-  return initials || 'AT'
+  return initialsForName(member.name)
 }
 
 function CheckIcon() {
@@ -77,10 +71,12 @@ function TextRosterCard({ member }: { member: PublicTeamMember }) {
 }
 
 function TeamSkeleton() {
+  const skeletonCards = ['', 'hidden sm:block', 'hidden lg:block']
+
   return (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+      {skeletonCards.map((visibilityClass, index) => (
+        <div key={index} className={`overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm ${visibilityClass}`}>
           <div className="aspect-[5/4] animate-pulse bg-slate-200 sm:aspect-[4/5]" />
           <div className="p-5">
             <div className="h-5 w-40 animate-pulse rounded bg-slate-200" />

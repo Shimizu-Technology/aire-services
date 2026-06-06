@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
 import { formatDateTime } from '../../lib/dateUtils'
+import { initialsForName } from '../../lib/initials'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
 const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
@@ -15,15 +16,7 @@ function isKioskLocked(user: AdminUser) {
 }
 
 function initialsForUser(user: AdminUser) {
-  const source = user.public_team_name || user.full_name || user.display_name || user.email || 'AIRE Team'
-  const initials = source
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('')
-
-  return initials || 'AT'
+  return initialsForName(user.public_team_name || user.full_name || user.display_name || user.email || 'AIRE Team')
 }
 
 function TeamMemberAvatar({ user, className = 'h-12 w-12' }: { user: AdminUser; className?: string }) {
