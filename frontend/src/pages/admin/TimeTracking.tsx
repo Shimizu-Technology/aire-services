@@ -167,6 +167,19 @@ function isSameDay(date1: Date, date2: Date): boolean {
          date1.getDate() === date2.getDate()
 }
 
+function sumEntryHours(entries: TimeEntryItem[]): number {
+  return entries.reduce((sum, entry) => sum + entry.hours, 0)
+}
+
+function sortEntriesChronologically(a: TimeEntryItem, b: TimeEntryItem): number {
+  const aStart = a.start_time || ''
+  const bStart = b.start_time || ''
+
+  if (aStart && bStart && aStart !== bStart) return aStart.localeCompare(bStart)
+  if (aStart !== bStart) return aStart ? -1 : 1
+  return a.id - b.id
+}
+
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
   return report.employees.flatMap((employee) => employee.days.flatMap((day) => day.entries.map((entry) => ({
     id: entry.id,
@@ -202,7 +215,6 @@ export default function TimeTracking() {
 
   const [searchParams, setSearchParams] = useSearchParams()
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
-  const [entrySummary, setEntrySummary] = useState({ total_hours: 0, total_break_hours: 0, entry_count: 0 })
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [users, setUsers] = useState<UserOption[]>([])
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
@@ -341,11 +353,6 @@ export default function TimeTracking() {
       
       if (response.data) {
         setEntries(response.data.time_entries as unknown as TimeEntryItem[])
-        setEntrySummary({
-          total_hours: response.data.summary.total_hours,
-          total_break_hours: response.data.summary.total_break_hours || 0,
-          entry_count: response.data.summary.entry_count
-        })
       } else {
         setError(response.error || 'Failed to load time entries')
       }
@@ -741,13 +748,12 @@ export default function TimeTracking() {
   const hoursPerDay = weekDates.reduce((acc, date) => {
     const dateStr = formatDateISO(date)
     const dayEntries = entriesByDate[dateStr] || []
-    acc[dateStr] = dayEntries.reduce((sum, e) => sum + e.hours, 0)
+    acc[dateStr] = sumEntryHours(dayEntries)
     return acc
   }, {} as Record<string, number>)
 
   const deniedCount = entries.filter(e => e.approval_status === 'denied').length
-  const deniedHours = entries.filter(e => e.approval_status === 'denied').reduce((sum, e) => sum + e.hours, 0)
-  const visibleTotalHours = showDenied ? entrySummary.total_hours : entrySummary.total_hours - deniedHours
+  const visibleTotalHours = sumEntryHours(visibleEntries)
 
   const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0 }
   const hoursSummaryRows = hoursReport?.employees ?? []
@@ -1192,7 +1198,7 @@ export default function TimeTracking() {
                   return acc
                 }, {} as Record<number, TimeEntryItem[]>)
 
-                const userGroups = Object.values(groupedByUser)
+                const userGroups = Object.values(groupedByUser).map(group => [...group].sort(sortEntriesChronologically))
                 
                 return (
                   <div
@@ -1202,7 +1208,7 @@ export default function TimeTracking() {
                     }`}
                   >
                     {userGroups.map(userEntries => {
-                      const totalHours = userEntries.reduce((s, e) => s + e.hours, 0)
+                      const totalHours = sumEntryHours(userEntries)
                       const name = ownerLabel(userEntries[0])
                       const hasMultiple = userEntries.length > 1
                       const hasPending = userEntries.some(e => e.approval_status === 'pending')

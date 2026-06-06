@@ -712,11 +712,15 @@ module Api
       end
 
       def calculate_summary(entries)
-        # Drop ordering and eager-loads; pick() runs a single aggregate SELECT.
-        row = entries.reorder(nil).unscope(:includes).pick(
-          Arel.sql("COALESCE(SUM(hours), 0)"),
-          Arel.sql("COALESCE(SUM(break_minutes), 0)"),
-          Arel.sql("COUNT(*)")
+        # Aggregate against the filtered TimeEntry scope only. The index relation
+        # eager-loads associations for serialization; leaving those eager-loads
+        # in place makes Active Record apply pick()/LIMIT through join aliases and
+        # can summarize only one matching row.
+        aggregate_scope = entries.except(:includes, :eager_load, :preload, :order, :limit, :offset)
+        row = aggregate_scope.pick(
+          Arel.sql("COALESCE(SUM(time_entries.hours), 0)"),
+          Arel.sql("COALESCE(SUM(time_entries.break_minutes), 0)"),
+          Arel.sql("COUNT(time_entries.id)")
         )
         total_hours, total_break_minutes, entry_count = row || [ 0, 0, 0 ]
         {

@@ -462,6 +462,31 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         expect(ids).to include(emp_entry.id)
         expect(ids).not_to include(other_entry.id)
       end
+
+      it "summarizes every matching entry in a requested week" do
+        week_start = Date.new(2026, 5, 10)
+        create(
+          :time_entry,
+          user: employee,
+          work_date: week_start + 6.days,
+          start_time: ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE].local(2000, 1, 1, 12, 0),
+          end_time: ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE].local(2000, 1, 1, 12, 36)
+        )
+        create(
+          :time_entry,
+          user: employee,
+          work_date: week_start + 6.days,
+          start_time: ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE].local(2000, 1, 1, 13, 30),
+          end_time: ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE].local(2000, 1, 1, 14, 30)
+        )
+
+        get "/api/v1/time_entries", params: { week: week_start.iso8601, per_page: 500 }, headers: auth_headers_for[employee]
+
+        expect(response).to have_http_status(:ok)
+        expect(json.dig(:summary, :entry_count)).to eq(2)
+        expect(json.dig(:summary, :total_hours)).to eq(1.6)
+        expect(json[:time_entries].size).to eq(2)
+      end
     end
   end
 
