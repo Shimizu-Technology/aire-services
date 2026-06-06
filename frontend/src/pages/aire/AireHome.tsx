@@ -4,6 +4,7 @@ import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
 import { usePublicBusinessInfo } from '../../contexts/publicBusinessInfo'
+import { isInternalHref } from '../../lib/publicLinks'
 import {
   ArrowRightIcon,
   CameraIcon,
@@ -110,7 +111,7 @@ const heroTracks = [
 const homeMediaPlacements: SiteMediaPlacement[] = ['home_hero', 'home_training', 'home_tours', 'home_video', 'tour_bay', 'tour_island', 'tour_sunset', 'programs_video']
 
 function SmartStatLink({ href, children, className = '' }: { href: string; children: ReactNode; className?: string }) {
-  if (href.startsWith('/')) {
+  if (isInternalHref(href)) {
     return <Link to={href} className={className}>{children}</Link>
   }
 

@@ -2,11 +2,8 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { SiteMedia } from '../../lib/api'
 import { cx } from '../../lib/cx'
+import { isInternalHref } from '../../lib/publicLinks'
 import SiteMediaFrame from '../site/SiteMediaFrame'
-
-function isInternalHref(href: string) {
-  return href.startsWith('/') && !href.startsWith('//')
-}
 
 export type PublicButtonVariant = 'primary' | 'secondary' | 'dark' | 'light' | 'outline' | 'text'
 
@@ -297,11 +294,11 @@ export function PublicPageHero({
   )
 }
 
-export function CheckList({ items, light = false }: { items: ReactNode[]; light?: boolean }) {
+export function CheckList({ items, light = false }: { items: string[]; light?: boolean }) {
   return (
     <div className="space-y-3">
-      {items.map((item, index) => (
-        <div key={index} className={cx('flex gap-3 text-sm leading-7', light ? 'text-slate-300' : 'text-slate-600')}>
+      {items.map((item) => (
+        <div key={item} className={cx('flex gap-3 text-sm leading-7', light ? 'text-slate-300' : 'text-slate-600')}>
           <span className={cx('mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full', light ? 'bg-cyan-300/15 text-cyan-200' : 'bg-cyan-50 text-cyan-700')}>
             <CheckIcon className="h-3.5 w-3.5" />
           </span>
