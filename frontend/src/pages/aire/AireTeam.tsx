@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { api, type PublicTeamMember } from '../../lib/api'
-import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { initialsForName } from '../../lib/initials'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
+import {
+  ArrowRightIcon,
+  CheckList,
+  PublicButtonLink,
+  PublicPageHero,
+  SectionHeader,
+  UsersIcon,
+} from '../../components/public/PublicPrimitives'
 
 const credibilityPoints = [
   'Guam-based instructors who understand local flying conditions and student needs.',
@@ -14,16 +20,6 @@ const credibilityPoints = [
 
 function initialsFor(member: PublicTeamMember) {
   return initialsForName(member.name)
-}
-
-function CheckIcon() {
-  return (
-    <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
-      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.4} d="m5 12 4 4L19 7" />
-      </svg>
-    </span>
-  )
 }
 
 function TeamPortrait({ member, index }: { member: PublicTeamMember; index: number }) {
@@ -43,14 +39,14 @@ function TeamPortrait({ member, index }: { member: PublicTeamMember; index: numb
 
 function TeamCard({ member, index }: { member: PublicTeamMember; index: number }) {
   return (
-    <article className="group overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-cyan-200 hover:shadow-xl hover:shadow-slate-200/70">
+    <article className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.07)] transition duration-300 hover:-translate-y-1 hover:border-cyan-200 hover:shadow-[0_24px_70px_rgba(14,116,144,0.12)]">
       <div className="relative aspect-[5/4] overflow-hidden bg-slate-950 sm:aspect-[4/5]">
         <TeamPortrait member={member} index={index} />
-        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/70 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-slate-950/72 to-transparent" />
       </div>
       <div className="p-5 sm:p-6">
-        <h3 className="text-lg font-semibold tracking-tight text-slate-950">{member.name}</h3>
-        <p className="mt-2 text-sm leading-relaxed text-slate-600">{member.title}</p>
+        <h3 className="text-xl font-bold tracking-tight text-slate-950">{member.name}</h3>
+        <p className="mt-2 text-sm leading-7 text-slate-600">{member.title}</p>
       </div>
     </article>
   )
@@ -58,13 +54,13 @@ function TeamCard({ member, index }: { member: PublicTeamMember; index: number }
 
 function TextRosterCard({ member }: { member: PublicTeamMember }) {
   return (
-    <article className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-700">
+    <article className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm transition hover:border-cyan-200 hover:bg-cyan-50/30">
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-cyan-100 bg-cyan-50 text-sm font-bold text-cyan-800">
         {initialsFor(member)}
       </div>
       <div className="min-w-0">
-        <h3 className="font-semibold leading-snug text-slate-950">{member.name}</h3>
-        <p className="mt-1 text-sm leading-relaxed text-slate-600">{member.title}</p>
+        <h3 className="font-bold leading-snug text-slate-950">{member.name}</h3>
+        <p className="mt-1 text-sm leading-6 text-slate-600">{member.title}</p>
       </div>
     </article>
   )
@@ -76,7 +72,7 @@ function TeamSkeleton() {
   return (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
       {skeletonCards.map((visibilityClass, index) => (
-        <div key={index} className={`overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm ${visibilityClass}`}>
+        <div key={index} className={`overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm ${visibilityClass}`}>
           <div className="aspect-[5/4] animate-pulse bg-slate-200 sm:aspect-[4/5]" />
           <div className="p-5">
             <div className="h-5 w-40 animate-pulse rounded bg-slate-200" />
@@ -121,49 +117,30 @@ export default function AireTeam() {
   const textOnlyMembers = teamMembers?.filter((member) => !member.photo_url && !member.photo_thumb_url) ?? []
 
   return (
-    <div className="bg-white">
-      <section className="relative overflow-hidden bg-slate-950 text-white">
-        <div className="absolute inset-0 opacity-50">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.22),_transparent_34%),linear-gradient(135deg,_#020617,_#0f172a_48%,_#164e63)]" />
-          <div className="absolute inset-0 dot-pattern opacity-30" />
-        </div>
-        <div className="relative mx-auto grid max-w-6xl gap-8 px-4 py-14 sm:px-6 md:py-20 lg:grid-cols-[0.9fr_1.1fr] lg:items-center lg:px-8">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-200">Meet the Team</p>
-            <h1 className="mt-3 max-w-3xl text-3xl font-bold leading-tight tracking-tight sm:text-4xl md:text-5xl">
-              Meet the people behind AIRE flight training.
-            </h1>
-            <p className="mt-5 max-w-2xl text-sm leading-relaxed text-slate-200 sm:text-base">
-              Training works best when you know who you are flying with. Meet the instructors and training team members helping students on Guam build skill, confidence, and a steady path into aviation.
-            </p>
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link to="/programs" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
-                Explore training
-              </Link>
-              <Link to="/contact" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
-                Ask a question
-              </Link>
-            </div>
-          </div>
+    <div className="bg-white text-slate-950">
+      <PublicPageHero
+        eyebrow="Meet the team"
+        title="Meet the people behind AIRE flight training"
+        description="Training works best when you know who you are flying with. Meet the instructors and training team members helping students on Guam build skill, confidence, and a steady path into aviation."
+        media={firstFor('team_hero')}
+        fallbackSrc="/assets/aire/hero.jpg"
+        fallbackAlt="AIRE Services Guam flight training team"
+        mediaMode="background"
+        actions={(
+          <>
+            <PublicButtonLink to="/programs" variant="primary">Explore training <ArrowRightIcon /></PublicButtonLink>
+            <PublicButtonLink to="/contact" variant="secondary">Ask a question</PublicButtonLink>
+          </>
+        )}
+      />
 
-          <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 p-2 shadow-2xl shadow-slate-950/40">
-            <SiteMediaFrame
-              media={firstFor('team_hero')}
-              fallbackSrc="/assets/aire/hero.jpg"
-              fallbackAlt="AIRE Services Guam flight training team"
-              className="aspect-[16/11] rounded-[1.5rem]"
-              mediaClassName="h-full w-full object-cover"
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-slate-50 py-14 md:py-20">
+      <section className="bg-slate-50 py-16 md:py-24">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="mb-8 max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Training team</p>
-            <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">Instructors and aviation staff</h2>
-          </div>
+          <SectionHeader
+            eyebrow="Training team"
+            title="Instructors and aviation staff"
+            description="A clean look at the instructors and support team members helping students move through training with confidence."
+          />
 
           {teamMembers === null ? (
             <TeamSkeleton />
@@ -178,12 +155,17 @@ export default function AireTeam() {
               )}
 
               {textOnlyMembers.length > 0 && (
-                <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Additional team members</p>
-                    <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Flight training support team</h3>
+                <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] sm:p-6">
+                  <div className="flex items-start gap-4">
+                    <span className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-cyan-200 sm:inline-flex">
+                      <UsersIcon />
+                    </span>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Additional team members</p>
+                      <h3 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Flight training support team</h3>
+                    </div>
                   </div>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {textOnlyMembers.map((member) => (
                       <TextRosterCard key={`${member.id}-${member.name}-${member.title}`} member={member} />
                     ))}
@@ -192,7 +174,7 @@ export default function AireTeam() {
               )}
             </div>
           ) : (
-            <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-white p-8 text-sm leading-relaxed text-slate-600 shadow-sm">
+            <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white p-8 text-sm leading-7 text-slate-600 shadow-sm">
               {teamLoadFailed
                 ? 'We could not load the instructor roster right now. Reach out to AIRE for the latest training availability.'
                 : 'Reach out to AIRE for the latest instructor roster and training availability.'}
@@ -201,26 +183,19 @@ export default function AireTeam() {
         </div>
       </section>
 
-      <section className="py-14 md:py-20">
+      <section className="py-16 md:py-24">
         <div className="mx-auto grid max-w-6xl gap-6 px-4 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8">
-          <div className="rounded-[2rem] bg-slate-950 p-7 text-white md:p-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Why train with AIRE</p>
-            <h2 className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl">A Guam-based team focused on students.</h2>
-            <p className="mt-4 text-sm leading-relaxed text-slate-300">
+          <div className="rounded-[2rem] bg-slate-950 p-7 text-white shadow-[0_24px_70px_rgba(15,23,42,0.16)] md:p-8">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Why train with AIRE</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">A Guam-based team focused on students.</h2>
+            <p className="mt-4 text-sm leading-7 text-slate-300">
               The right instructor relationship makes every lesson clearer. AIRE pairs practical local knowledge with a steady training path.
             </p>
           </div>
 
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-8">
-            <div className="space-y-4">
-              {credibilityPoints.map((point) => (
-                <div key={point} className="flex gap-3 text-sm leading-relaxed text-slate-700">
-                  <CheckIcon />
-                  <span>{point}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-7 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 text-sm leading-relaxed text-slate-700">
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-[0_18px_50px_rgba(15,23,42,0.06)] md:p-8">
+            <CheckList items={credibilityPoints} />
+            <div className="mt-7 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 text-sm leading-7 text-slate-700">
               Have questions before your first lesson or discovery flight? Reach out and the team can help you choose the right next step.
             </div>
           </div>
