@@ -227,7 +227,7 @@ class Setting < ApplicationRecord
   end
 
   def self.normalize_public_social_links(value)
-    Array(value).filter_map do |link|
+    links = Array(value).filter_map do |link|
       raw_link = link.respond_to?(:to_h) ? link.to_h : {}
       label = raw_link["label"].presence || raw_link[:label].presence
       url = raw_link["url"].presence || raw_link[:url].presence
@@ -242,7 +242,12 @@ class Setting < ApplicationRecord
       raise ArgumentError, "Social link keys may only contain letters, numbers, and underscores" if key.blank?
 
       { "key" => key, "label" => label.to_s.strip, "url" => url }
-    end.uniq { |link| link["key"] }
+    end
+
+    duplicate_keys = links.group_by { |link| link["key"] }.select { |_key, rows| rows.size > 1 }.keys
+    raise ArgumentError, "Social link keys must be unique" if duplicate_keys.any?
+
+    links
   end
 
   def self.normalize_approval_groups(value)

@@ -623,7 +623,7 @@ export default function Settings() {
       setContactNotificationEmailsDraft(res.data.contact_notification_emails.join('\n'))
       setInquiryTopicsDraft(res.data.inquiry_topics.length > 0 ? res.data.inquiry_topics : [''])
       setPublicContactDraft(res.data.public_contact)
-      setSocialLinksDraft(res.data.social_links.length > 0 ? res.data.social_links : [{ key: '', label: '', url: '' }])
+      setSocialLinksDraft((res.data.social_links?.length ?? 0) > 0 ? res.data.social_links : [{ key: '', label: '', url: '' }])
       setContactSettingsMessage(res.data.message || 'Contact settings saved.')
     } finally {
       setSavingContactSettings(false)

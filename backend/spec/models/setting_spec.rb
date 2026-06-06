@@ -94,6 +94,15 @@ RSpec.describe Setting, type: :model do
         described_class.set_public_social_links!([ { label: "TikTok", url: "tiktok.com/@aireservicesguam" } ])
       }.to raise_error(ArgumentError, /http:\/\/ or https:\/\//)
     end
+
+    it "rejects duplicate normalized keys instead of silently dropping links" do
+      expect {
+        described_class.set_public_social_links!([
+          { label: "My Page", url: "https://example.com/one" },
+          { label: "my_page", url: "https://example.com/two" }
+        ])
+      }.to raise_error(ArgumentError, /Social link keys must be unique/)
+    end
   end
 
   describe ".public_contact_settings" do
