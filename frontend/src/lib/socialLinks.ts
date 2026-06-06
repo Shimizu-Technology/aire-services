@@ -1,7 +1,12 @@
-export const INSTAGRAM_URL = 'https://www.instagram.com/aire.services/'
-export const FACEBOOK_URL = 'https://www.facebook.com/AireServicesGuam/'
+import type { SocialLink } from './api'
 
-export const socialLinks = [
-  { label: 'Instagram', href: INSTAGRAM_URL },
-  { label: 'Facebook', href: FACEBOOK_URL },
-] as const
+export const defaultSocialLinks: SocialLink[] = [
+  { key: 'instagram', label: 'Instagram', url: 'https://www.instagram.com/aire.services/' },
+  { key: 'facebook', label: 'Facebook', url: 'https://www.facebook.com/AireServicesGuam/' },
+]
+
+export function visibleSocialLinks(links: SocialLink[] | null | undefined) {
+  const source = links ?? defaultSocialLinks
+
+  return source.filter((link) => link.label.trim() && link.url.trim())
+}

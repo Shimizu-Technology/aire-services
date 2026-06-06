@@ -11,7 +11,8 @@ module Api
           render json: {
             contact_notification_emails: Setting.contact_notification_emails,
             inquiry_topics: Setting.contact_inquiry_topics,
-            public_contact: Setting.public_contact_settings
+            public_contact: Setting.public_contact_settings,
+            social_links: Setting.public_social_links
           }
         end
 
@@ -20,6 +21,7 @@ module Api
           topics = Setting.normalize_contact_inquiry_topics(params[:inquiry_topics])
           raw_public_contact = public_contact_params
           public_contact = Setting.normalize_public_contact_settings(raw_public_contact)
+          social_links = params.key?(:social_links) ? Setting.normalize_public_social_links(social_links_params) : Setting.public_social_links
 
           if emails.empty?
             return render json: { error: "At least one notification email is required" }, status: :unprocessable_entity
@@ -46,14 +48,17 @@ module Api
             return render json: { error: "Public phone link number must use E.164 format, such as +16714774243" }, status: :unprocessable_entity
           end
 
-          Setting.update_contact_settings!(emails: emails, topics: topics, public_contact: public_contact)
+          Setting.update_contact_settings!(emails: emails, topics: topics, public_contact: public_contact, social_links: social_links)
 
           render json: {
             contact_notification_emails: emails,
             inquiry_topics: topics,
             public_contact: public_contact,
+            social_links: social_links,
             message: "Contact inquiry settings updated"
           }
+        rescue ArgumentError => e
+          render json: { error: e.message }, status: :unprocessable_entity
         end
 
         private
@@ -72,6 +77,14 @@ module Api
             :postal_code,
             :address_country
           ).to_h
+        end
+
+        def social_links_params
+          return [] unless params[:social_links].respond_to?(:map)
+
+          params[:social_links].map do |link|
+            link.respond_to?(:permit) ? link.permit(:key, :label, :url).to_h : link
+          end
         end
 
         def missing_required_public_contact_fields?(raw_public_contact)

@@ -325,15 +325,23 @@ export interface PlaceDetails {
   plus_code?: string | null;
 }
 
+export interface SocialLink {
+  key: string;
+  label: string;
+  url: string;
+}
+
 export interface ContactSettings {
   contact_notification_emails: string[];
   inquiry_topics: string[];
   public_contact: PublicContactInfoSettings;
+  social_links: SocialLink[];
 }
 
 export interface PublicContactSettings {
   inquiry_topics: string[];
   public_contact: PublicContactInfoSettings;
+  social_links: SocialLink[];
 }
 
 export type SiteMediaType = 'image' | 'video';

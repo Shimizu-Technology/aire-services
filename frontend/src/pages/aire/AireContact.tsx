@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Seo from '../../components/seo/Seo'
-import { socialLinks } from '../../lib/socialLinks'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { useSiteMedia } from '../../lib/siteMedia'
 import type { SiteMediaPlacement } from '../../lib/api'
 import { aireAddressDisplayFor } from '../../lib/businessInfo'
-import { usePublicBusinessInfo, usePublicInquiryTopics } from '../../contexts/publicBusinessInfo'
+import { usePublicBusinessInfo, usePublicInquiryTopics, usePublicSocialLinks } from '../../contexts/publicBusinessInfo'
 import { api } from '../../lib/api'
 
 const pricingSnapshot = [
@@ -23,6 +22,7 @@ export default function AireContact() {
   const { firstFor } = useSiteMedia(placements)
   const businessInfo = usePublicBusinessInfo()
   const inquiryTopics = usePublicInquiryTopics()
+  const socialLinks = usePublicSocialLinks()
   const contactPoints = [
     { label: 'Phone', value: businessInfo.phone.display, href: businessInfo.phone.href },
     { label: 'Email', value: businessInfo.email.display, href: businessInfo.email.href },
@@ -130,7 +130,7 @@ export default function AireContact() {
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Social</p>
                 <div className="mt-3 flex flex-wrap gap-3">
                   {socialLinks.map((link) => (
-                    <a key={link.label} href={link.href} target="_blank" rel="noreferrer" className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2.5 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-100">
+                    <a key={link.key} href={link.url} target="_blank" rel="noreferrer" className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2.5 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-100">
                       {link.label}
                     </a>
                   ))}

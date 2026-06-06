@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Settings from './Settings'
 import { defaultPublicContactSettings } from '../../lib/businessInfo'
+import { defaultSocialLinks } from '../../lib/socialLinks'
 
 const apiMock = vi.hoisted(() => ({
   getAdminTimeCategories: vi.fn(),
@@ -67,6 +68,7 @@ describe('Admin Settings contact settings', () => {
         contact_notification_emails: ['ops@example.com'],
         inquiry_topics: ['Aerial Tours', 'General Inquiry'],
         public_contact: defaultPublicContactSettings,
+        social_links: defaultSocialLinks,
       },
     })
     apiMock.updateAdminContactSettings.mockResolvedValue({
@@ -77,6 +79,10 @@ describe('Admin Settings contact settings', () => {
           ...defaultPublicContactSettings,
           phone_display: '(671) 555-0100',
         },
+        social_links: [
+          ...defaultSocialLinks,
+          { key: 'tiktok', label: 'TikTok', url: 'https://www.tiktok.com/@aireservicesguam' },
+        ],
         message: 'Contact inquiry settings updated',
       },
     })
@@ -130,6 +136,9 @@ describe('Admin Settings contact settings', () => {
       target: { value: 'ops@example.com\nowner@example.com' },
     })
     fireEvent.change(screen.getByLabelText('Public inquiry topic 2'), { target: { value: 'Video Packages' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add social link' }))
+    fireEvent.change(screen.getByLabelText('Label', { selector: '#social-link-label-2' }), { target: { value: 'TikTok' } })
+    fireEvent.change(screen.getByLabelText('URL', { selector: '#social-link-url-2' }), { target: { value: 'https://www.tiktok.com/@aireservicesguam' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Save contact settings' }))
 
@@ -138,6 +147,10 @@ describe('Admin Settings contact settings', () => {
         contact_notification_emails: ['ops@example.com', 'owner@example.com'],
         inquiry_topics: ['Aerial Tours', 'Video Packages'],
         public_contact: defaultPublicContactSettings,
+        social_links: [
+          ...defaultSocialLinks,
+          { key: 'tiktok', label: 'TikTok', url: 'https://www.tiktok.com/@aireservicesguam' },
+        ],
       })
     })
 
