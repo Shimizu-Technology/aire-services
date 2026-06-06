@@ -1,6 +1,15 @@
 import { Link } from 'react-router-dom'
 import { aireAddressFooterFor } from '../../lib/businessInfo'
 import { usePublicBusinessInfo, usePublicSocialLinks } from '../../contexts/publicBusinessInfo'
+import { ArrowRightIcon, MailIcon, PhoneIcon, PinIcon, PublicButtonLink, SocialIcon } from '../public/PublicPrimitives'
+
+const siteLinks = [
+  { label: 'Home', href: '/' },
+  { label: 'Programs', href: '/programs' },
+  { label: 'Team', href: '/team' },
+  { label: 'Careers', href: '/careers' },
+  { label: 'Contact', href: '/contact' },
+]
 
 export default function Footer() {
   const year = new Date().getFullYear()
@@ -9,39 +18,80 @@ export default function Footer() {
 
   return (
     <footer className="bg-slate-950 text-slate-300">
-      <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:px-6 lg:grid-cols-[1.1fr_0.9fr_0.9fr] lg:px-8">
-        <div>
-          <img src="/assets/aire/logo.png" alt="AIRE Services Guam" className="h-14 w-auto rounded bg-white/95 p-2" />
-          <p className="mt-4 max-w-sm text-sm leading-relaxed text-slate-400">
-            Pilot training, Guam aerial tours, and video packages from a Guam-based aviation team.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-3">
-            {socialLinks.map((link) => (
-              <a key={link.key} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400 hover:text-white">
-                {link.label}
-              </a>
-            ))}
+      <div className="mx-auto max-w-6xl px-4 pt-12 sm:px-6 lg:px-8">
+        <div className="grid gap-6 rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/20 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Ready to plan with AIRE?</p>
+            <h2 className="mt-3 max-w-2xl text-2xl font-bold tracking-tight text-white md:text-3xl">
+              Talk with the Guam-based aviation team about training, tours, or media add-ons.
+            </h2>
+          </div>
+          <div className="flex flex-wrap gap-3 lg:justify-end">
+            <PublicButtonLink to="/contact" variant="primary">
+              Contact AIRE <ArrowRightIcon />
+            </PublicButtonLink>
+            <PublicButtonLink to={businessInfo.phone.href} variant="secondary">
+              Call {businessInfo.phone.display}
+            </PublicButtonLink>
           </div>
         </div>
 
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-200">Site</h3>
-          <ul className="mt-4 space-y-3 text-sm">
-            <li><Link to="/" className="hover:text-white">Home</Link></li>
-            <li><Link to="/programs" className="hover:text-white">Programs</Link></li>
-            <li><Link to="/team" className="hover:text-white">Team</Link></li>
-            <li><Link to="/careers" className="hover:text-white">Careers</Link></li>
-            <li><Link to="/contact" className="hover:text-white">Contact</Link></li>
-          </ul>
-        </div>
+        <div className="grid gap-10 py-12 lg:grid-cols-[1.2fr_0.7fr_1fr] lg:py-14">
+          <div>
+            <img src="/assets/aire/logo.png" alt="AIRE Services Guam" className="h-14 w-auto rounded-xl bg-white p-2" />
+            <p className="mt-5 max-w-sm text-sm leading-7 text-slate-400">
+              Pilot training, Guam aerial tours, and cinematic media packages from a local aviation team.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2.5">
+              {socialLinks.map((link) => (
+                <a
+                  key={link.key}
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/70 px-3.5 py-2 text-sm font-semibold text-slate-300 transition hover:-translate-y-0.5 hover:border-cyan-400 hover:text-white"
+                >
+                  <SocialIcon socialKey={link.key || link.label} />
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          </div>
 
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-200">Contact</h3>
-          <ul className="mt-4 space-y-3 text-sm text-slate-400">
-            <li>{aireAddressFooterFor(businessInfo)}</li>
-            <li>{businessInfo.phone.display}</li>
-            <li>{businessInfo.email.display}</li>
-          </ul>
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-200">Site</h3>
+            <ul className="mt-4 space-y-1 text-sm">
+              {siteLinks.map((link) => (
+                <li key={link.href}>
+                  <Link to={link.href} className="inline-flex min-h-10 items-center text-slate-400 transition hover:text-white">
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-200">Contact</h3>
+            <ul className="mt-5 space-y-4 text-sm text-slate-400">
+              <li className="flex gap-3">
+                <span className="mt-0.5 text-cyan-200"><PinIcon className="h-4 w-4" /></span>
+                <span>{aireAddressFooterFor(businessInfo)}</span>
+              </li>
+              <li>
+                <a href={businessInfo.phone.href} className="flex min-h-10 items-center gap-3 transition hover:text-white">
+                  <span className="text-cyan-200"><PhoneIcon className="h-4 w-4" /></span>
+                  <span>{businessInfo.phone.display}</span>
+                </a>
+              </li>
+              <li>
+                <a href={businessInfo.email.href} className="flex min-h-10 items-center gap-3 transition hover:text-white">
+                  <span className="text-cyan-200"><MailIcon className="h-4 w-4" /></span>
+                  <span>{businessInfo.email.display}</span>
+                </a>
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
       <div className="border-t border-slate-800 px-4 py-5 text-center text-xs text-slate-500">© {year} AIRE Services Guam. All rights reserved.</div>

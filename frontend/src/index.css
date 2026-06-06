@@ -24,6 +24,14 @@ body {
   margin: 0;
   min-height: 100vh;
   background: #ffffff;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.24);
+  color: #0f172a;
 }
 
 h1, h2, h3, h4, h5, h6 {

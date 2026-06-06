@@ -1,8 +1,20 @@
 import { useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import type { SiteMediaPlacement } from '../../lib/api'
 import { useSiteMedia } from '../../lib/siteMedia'
+import {
+  ArrowRightIcon,
+  CameraIcon,
+  CardIcon,
+  CheckIcon,
+  CheckList,
+  ClockIcon,
+  PlaneIcon,
+  PublicButtonLink,
+  PublicPageHero,
+  RouteIcon,
+  SectionHeader,
+} from '../../components/public/PublicPrimitives'
 
 const trainingHighlights = [
   'Private Pilot Certificate training is the foundation of the AIRE flight-training program.',
@@ -65,184 +77,190 @@ export default function AirePrograms() {
   }
 
   return (
-    <div className="bg-white py-14 md:py-20">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-        <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Programs & Services</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">Pilot training, scenic tours, and video packages</h1>
-            <p className="mt-4 text-sm leading-relaxed text-slate-600 md:text-base">
-              Explore AIRE's flight training, scenic aerial tours, and add-on media packages. Reach out for scheduling, local and military rates, or discovery flight questions.
-            </p>
-          </div>
-          <SiteMediaFrame
-            media={firstFor('programs_hero')}
-            fallbackSrc="/assets/aire/hero.jpg"
-            fallbackAlt="AIRE Services scenic Guam flight"
-            className="aspect-[16/10] rounded-[2rem] shadow-sm"
-            mediaClassName="h-full w-full object-cover"
-          />
-        </div>
+    <div className="bg-white text-slate-950">
+      <PublicPageHero
+        eyebrow="Programs & Services"
+        title="Pilot training, scenic tours, and media packages"
+        description="Explore AIRE's flight training, scenic aerial tours, and add-on media packages. Reach out for scheduling, local and military rates, or discovery flight questions."
+        media={firstFor('programs_hero')}
+        fallbackSrc="/assets/aire/hero.jpg"
+        fallbackAlt="AIRE Services scenic Guam flight"
+        actions={(
+          <>
+            <PublicButtonLink to="/contact" variant="primary">Ask about scheduling <ArrowRightIcon /></PublicButtonLink>
+            <PublicButtonLink to="/discovery-flight" variant="secondary">Discovery flight</PublicButtonLink>
+          </>
+        )}
+      />
 
-        <section className="mt-10 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70">
-            {firstFor('programs_training') && (
-              <SiteMediaFrame
-                media={firstFor('programs_training')}
-                fallbackAlt="Private pilot training with AIRE Services Guam"
-                className="aspect-[16/9]"
-                mediaClassName="h-full w-full object-cover"
-              />
-            )}
-            <div className="p-7">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Pilot Training</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">Private Pilot Certificate training</h2>
-            <div className="mt-6 space-y-3 text-sm leading-relaxed text-slate-600">
-              {trainingHighlights.map((item) => (
-                <div key={item} className="flex gap-3">
-                  <span className="mt-1 text-cyan-700">•</span>
-                  <span>{item}</span>
+      <section className="py-16 md:py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+              {firstFor('programs_training') && (
+                <SiteMediaFrame
+                  media={firstFor('programs_training')}
+                  fallbackAlt="Private pilot training with AIRE Services Guam"
+                  className="aspect-[16/9]"
+                  mediaClassName="h-full w-full object-cover"
+                />
+              )}
+              <div className="p-7 sm:p-8">
+                <CardIcon><PlaneIcon /></CardIcon>
+                <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Pilot Training</p>
+                <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Private Pilot Certificate training</h2>
+                <div className="mt-6">
+                  <CheckList items={trainingHighlights} />
                 </div>
-              ))}
-            </div>
-            <div className="mt-6 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 text-sm leading-relaxed text-slate-700">
-              Interested in a first flight before committing to training? Ask about a discovery flight.
-            </div>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] bg-slate-950 p-7 text-white">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Tours and Media</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Scenic tours with optional video packages</h2>
-            <p className="mt-4 text-sm leading-relaxed text-slate-300">
-              Guests can choose scenic tour options and then add a standard or all-inclusive video package depending on how much finished content they want.
-            </p>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-                <div className="text-sm font-semibold text-white">Tours</div>
-                <p className="mt-2 text-sm text-slate-300">Bay, Island, and Sunset routes with fixed durations and published pricing.</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-                <div className="text-sm font-semibold text-white">Add-on content</div>
-                <p className="mt-2 text-sm text-slate-300">4K edited delivery, reels, stills, and optional raw footage.</p>
+                <div className="mt-7 rounded-2xl border border-cyan-200 bg-cyan-50/70 p-5 text-sm leading-7 text-slate-700">
+                  Interested in a first flight before committing to training? Ask about a discovery flight.
+                </div>
               </div>
             </div>
-          </div>
-        </section>
 
-        <section className="mt-10">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Guam Aerial Tours</p>
-              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Route options and pricing</h2>
+            <div className="rounded-[2rem] bg-slate-950 p-7 text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)] sm:p-8">
+              <CardIcon dark><RouteIcon /></CardIcon>
+              <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Tours and media</p>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight">Scenic routes with optional video packages</h2>
+              <p className="mt-4 text-sm leading-7 text-slate-300">
+                Guests can choose scenic tour options and then add a standard or all-inclusive video package depending on how much finished content they want.
+              </p>
+              <div className="mt-7 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-4">
+                  <div className="text-sm font-bold text-white">Tours</div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">Bay, Island, and Sunset routes with fixed durations and published pricing.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-4">
+                  <div className="text-sm font-bold text-white">Add-on content</div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">4K edited delivery, reels, stills, and optional raw footage.</p>
+                </div>
+              </div>
+              <div className="mt-7">
+                <PublicButtonLink to="/contact" variant="secondary">Talk to AIRE</PublicButtonLink>
+              </div>
             </div>
-            <div className="text-sm text-slate-500">All tours list max capacity as 3 passengers per flight.</div>
           </div>
+        </div>
+      </section>
 
-          <div className="mt-8 grid gap-5 lg:grid-cols-3">
+      <section className="bg-slate-50 py-16 md:py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <SectionHeader
+            eyebrow="Guam aerial tours"
+            title="Route options and pricing"
+            description="Each tour lists max capacity as three passengers per flight. Contact AIRE for local and military discount details."
+          />
+
+          <div className="grid gap-5 lg:grid-cols-3">
             {tours.map((tour) => (
-              <div key={tour.title} className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+              <div key={tour.title} className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.07)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_70px_rgba(15,23,42,0.1)]">
                 {tourMedia[tour.title as keyof typeof tourMedia] && (
                   <SiteMediaFrame
                     media={tourMedia[tour.title as keyof typeof tourMedia]}
                     fallbackAlt={`${tour.title} route over Guam`}
                     className="aspect-[16/10]"
-                    mediaClassName="h-full w-full object-cover"
+                    mediaClassName="h-full w-full object-cover transition duration-700 group-hover:scale-105"
                   />
                 )}
                 <div className="p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tour.title}</p>
-                      <h3 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{tour.price}</h3>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">{tour.title}</p>
+                      <h3 className="mt-2 text-4xl font-bold tracking-tight text-slate-950">{tour.price}</h3>
                     </div>
-                    <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
+                      <ClockIcon className="h-3.5 w-3.5" />
                       {tour.duration}
                     </div>
                   </div>
-                  <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
-                    {tour.details.map((item) => (
-                      <div key={item} className="flex gap-3">
-                        <span className="mt-1 text-cyan-700">•</span>
-                        <span>{item}</span>
-                      </div>
-                    ))}
+                  <div className="mt-5">
+                    <CheckList items={tour.details} />
                   </div>
                 </div>
               </div>
             ))}
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="mt-12 overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70">
-          {firstFor('programs_video') && (
-            <SiteMediaFrame
-              media={firstFor('programs_video')}
-              fallbackAlt="AIRE video package sample"
-              className="aspect-video max-h-[32rem]"
-              mediaClassName="h-full w-full object-cover"
-              controls
-            />
-          )}
-          <div className="p-7">
-            <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Video Packages</p>
-              <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Standard and all-inclusive add-ons</h2>
-            </div>
-            <div className="mt-8 grid gap-5 lg:grid-cols-2">
-              {videoPackages.map((tier) => (
-                <div key={tier.title} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">{tier.title}</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {tier.prices.map((price) => (
-                      <span key={price} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-slate-700">
-                        {price}
-                      </span>
-                    ))}
+      <section className="py-16 md:py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            {firstFor('programs_video') && (
+              <SiteMediaFrame
+                media={firstFor('programs_video')}
+                fallbackAlt="AIRE video package sample"
+                className="aspect-video max-h-[32rem]"
+                mediaClassName="h-full w-full object-cover"
+                controls
+              />
+            )}
+            <div className="p-7 sm:p-8">
+              <SectionHeader
+                eyebrow="Video packages"
+                title="Standard and all-inclusive add-ons"
+                description="Choose a media package based on how much finished content you want from the flight."
+                className="mb-8"
+              />
+              <div className="grid gap-5 lg:grid-cols-2">
+                {videoPackages.map((tier) => (
+                  <div key={tier.title} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+                    <CardIcon><CameraIcon /></CardIcon>
+                    <p className="mt-5 text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">{tier.title}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {tier.prices.map((price) => (
+                        <span key={price} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.1em] text-slate-700">
+                          {price}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-5">
+                      <CheckList items={tier.features} />
+                    </div>
                   </div>
-                  <div className="mt-5 space-y-3 text-sm leading-relaxed text-slate-600">
-                    {tier.features.map((feature) => (
-                      <div key={feature} className="flex gap-3">
-                        <span className="mt-1 text-cyan-700">•</span>
-                        <span>{feature}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="mt-12 rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-700">Important Notes</p>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <section className="bg-amber-50/70 py-16 md:py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <SectionHeader
+            eyebrow="Important notes"
+            title="Helpful details before you book"
+            description="These details keep expectations clear before scheduling a training conversation, tour, or media package."
+            className="mb-8"
+          />
+          <div className="grid gap-4 md:grid-cols-2">
             {notes.map((note) => (
-              <div key={note} className="rounded-2xl border border-amber-200/80 bg-white/70 px-4 py-4 text-sm leading-relaxed text-slate-700">
-                {note}
+              <div key={note} className="flex gap-3 rounded-2xl border border-amber-200/90 bg-white/80 px-4 py-4 text-sm leading-7 text-slate-700 shadow-sm">
+                <span className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                  <CheckIcon className="h-3.5 w-3.5" />
+                </span>
+                <span>{note}</span>
               </div>
             ))}
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="mt-12 grid gap-6 rounded-[2rem] bg-slate-950 px-6 py-8 text-white sm:px-8 lg:grid-cols-[1fr_auto] lg:items-center">
+      <section className="py-16 md:py-24">
+        <div className="mx-auto grid max-w-6xl gap-6 rounded-[2rem] bg-slate-950 px-6 py-10 text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)] sm:px-8 lg:grid-cols-[1fr_auto] lg:items-center lg:px-10">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200">Need help choosing?</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Need help choosing?</p>
             <h2 className="mt-2 text-3xl font-bold tracking-tight">Talk with AIRE before booking.</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300">
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
               Contact the team if you need help picking the right tour, understanding training, or confirming local and military discount details.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 lg:justify-end">
-            <Link to="/contact" className="rounded-xl bg-cyan-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
-              Contact AIRE
-            </Link>
-            <Link to="/team" className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
-              Meet the Team
-            </Link>
+            <PublicButtonLink to="/contact" variant="primary">Contact AIRE</PublicButtonLink>
+            <PublicButtonLink to="/team" variant="secondary">Meet the team</PublicButtonLink>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   )
 }

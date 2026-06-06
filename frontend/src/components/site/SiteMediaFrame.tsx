@@ -22,7 +22,7 @@ export default function SiteMediaFrame({
 }: SiteMediaFrameProps) {
   const alt = media?.alt_text || fallbackAlt
   const poster = media?.poster_url || fallbackSrc
-  const imageSource = media?.media_type === 'image' ? (media.file_url || media.external_url) : poster
+  const imageSource = media?.media_type === 'image' ? (media.file_url || media.external_url || poster) : poster
   const embedUrl = media?.external_url ? videoEmbedUrl(media.external_url) : null
 
   return (
