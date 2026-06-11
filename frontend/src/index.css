@@ -98,6 +98,11 @@ input[type="button"],
   animation: subtle-pulse 4s ease-in-out infinite;
 }
 
+@keyframes site-media-shimmer {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(300%); }
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

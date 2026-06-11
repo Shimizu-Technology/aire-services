@@ -373,7 +373,13 @@ export interface SiteMedia {
   media_type: SiteMediaType;
   external_url: string | null;
   file_url: string | null;
+  file_thumb_url?: string | null;
+  file_card_url?: string | null;
+  file_hero_url?: string | null;
   poster_url: string | null;
+  poster_thumb_url?: string | null;
+  poster_card_url?: string | null;
+  poster_hero_url?: string | null;
   sort_order: number;
   active: boolean;
   featured: boolean;

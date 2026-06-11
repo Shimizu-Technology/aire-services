@@ -29,7 +29,7 @@ const pricingSnapshot = [
 export default function AireContact() {
   useEffect(() => { document.title = 'Contact | AIRE Services Guam' }, [])
   const placements: SiteMediaPlacement[] = ['contact_feature']
-  const { firstFor } = useSiteMedia(placements)
+  const { firstFor, loading: mediaLoading } = useSiteMedia(placements)
   const businessInfo = usePublicBusinessInfo()
   const inquiryTopics = usePublicInquiryTopics()
   const socialLinks = usePublicSocialLinks()
@@ -95,6 +95,7 @@ export default function AireContact() {
           description="Reach out if you are planning flight training, comparing tour options, adding a video package, or checking local and military rates."
           media={firstFor('contact_feature')}
           fallbackSrc="/assets/aire/hero.jpg"
+          mediaLoading={mediaLoading}
           fallbackAlt="AIRE Services Guam aircraft and office"
           mediaMode="side"
           compact
@@ -110,10 +111,11 @@ export default function AireContact() {
           <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
               <aside className="space-y-6 rounded-[2rem] border border-slate-200 bg-slate-50/70 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)] sm:p-7">
-                {firstFor('contact_feature') && (
+                {(mediaLoading || firstFor('contact_feature')) && (
                   <SiteMediaFrame
                     media={firstFor('contact_feature')}
                     fallbackAlt="AIRE Services Guam aircraft and office"
+                    loading={mediaLoading}
                     className="aspect-[16/10] rounded-[1.5rem]"
                     mediaClassName="h-full w-full object-cover"
                   />

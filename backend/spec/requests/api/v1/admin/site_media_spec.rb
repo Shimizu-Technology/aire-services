@@ -23,6 +23,8 @@ RSpec.describe "Api::V1::Admin::SiteMedia", type: :request do
   end
 
   describe "GET /api/v1/admin/site-media" do
+    let(:photo_path) { Rails.root.join("spec/fixtures/files/team_photo.png") }
+
     it "lists media for admins" do
       create(:site_media, title: "Hero")
 
@@ -30,6 +32,21 @@ RSpec.describe "Api::V1::Admin::SiteMedia", type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(json[:site_media].first[:title]).to eq("Hero")
+    end
+
+    it "includes optimized image variants for admin previews" do
+      media = build(:site_media, title: "Hero", external_url: nil)
+      media.file.attach(
+        io: File.open(photo_path),
+        filename: "team_photo.png",
+        content_type: "image/png"
+      )
+      media.save!
+
+      get "/api/v1/admin/site-media", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:site_media].first[:file_card_url]).to include("/rails/active_storage/representations")
     end
 
     it "blocks non-admins" do

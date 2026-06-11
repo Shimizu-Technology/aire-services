@@ -1,6 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type SiteMedia, type SiteMediaPlacement, type SiteMediaType } from './api'
 
+const siteMediaCache = new Map<string, SiteMedia[]>()
+const siteMediaInFlight = new Map<string, Promise<SiteMedia[]>>()
+
+async function fetchSiteMediaForPlacements(cacheKey: string, placements: SiteMediaPlacement[]) {
+  const inFlight = siteMediaInFlight.get(cacheKey)
+  if (inFlight) return inFlight
+
+  const request = api.getPublicSiteMedia(placements)
+    .then((response) => {
+      const items = response.data?.site_media || []
+      siteMediaCache.set(cacheKey, items)
+      return items
+    })
+    .finally(() => siteMediaInFlight.delete(cacheKey))
+
+  siteMediaInFlight.set(cacheKey, request)
+  return request
+}
+
 export interface SiteMediaPlacementGuide {
   key: SiteMediaPlacement;
   group: string;
@@ -194,25 +213,41 @@ export const SITE_MEDIA_PLACEMENTS: SiteMediaPlacementGuide[] = [
 
 export function useSiteMedia(placements: SiteMediaPlacement[]) {
   const placementKey = placements.join(',')
-  const [items, setItems] = useState<SiteMedia[]>([])
-  const [loading, setLoading] = useState(true)
+  const cachedItems = siteMediaCache.get(placementKey)
+  const [items, setItems] = useState<SiteMedia[]>(cachedItems || [])
+  const [loading, setLoading] = useState(!cachedItems)
 
   useEffect(() => {
     let cancelled = false
 
     async function load() {
-      setLoading(true)
       if (typeof api.getPublicSiteMedia !== 'function') {
         setItems([])
         setLoading(false)
         return
       }
 
+      const cached = siteMediaCache.get(placementKey)
+      if (cached) {
+        setItems(cached)
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
       const requestedPlacements = placementKey.split(',').filter(Boolean) as SiteMediaPlacement[]
-      const response = await api.getPublicSiteMedia(requestedPlacements)
-      if (cancelled) return
-      setItems(response.data?.site_media || [])
-      setLoading(false)
+
+      try {
+        const nextItems = await fetchSiteMediaForPlacements(placementKey, requestedPlacements)
+        if (cancelled) return
+        setItems(nextItems)
+      } catch (error) {
+        console.error('Failed to load public site media:', error)
+        if (cancelled) return
+        setItems([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
 
     load()

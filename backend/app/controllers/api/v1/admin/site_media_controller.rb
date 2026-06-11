@@ -4,6 +4,7 @@ module Api
   module V1
     module Admin
       class SiteMediaController < BaseController
+        include AttachmentUrlHelpers
         include MediaUploadValidation
 
         before_action :authenticate_user!
@@ -118,7 +119,13 @@ module Api
             media_type: item.media_type,
             external_url: item.external_url,
             file_url: attachment_url(item.file),
+            file_thumb_url: image_variant_url(item.file, width: 480),
+            file_card_url: image_variant_url(item.file, width: 900),
+            file_hero_url: image_variant_url(item.file, width: 1800),
             poster_url: attachment_url(item.poster),
+            poster_thumb_url: image_variant_url(item.poster, width: 480),
+            poster_card_url: image_variant_url(item.poster, width: 900),
+            poster_hero_url: image_variant_url(item.poster, width: 1800),
             sort_order: item.sort_order,
             active: item.active,
             featured: item.featured,
@@ -127,12 +134,6 @@ module Api
             created_at: item.created_at,
             updated_at: item.updated_at
           }
-        end
-
-        def attachment_url(attachment)
-          return nil unless attachment.attached?
-
-          Rails.application.routes.url_helpers.rails_blob_url(attachment, host: request.base_url)
         end
       end
     end

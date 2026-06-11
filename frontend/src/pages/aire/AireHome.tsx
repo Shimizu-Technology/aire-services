@@ -120,7 +120,7 @@ function SmartStatLink({ href, children, className = '' }: { href: string; child
 
 export default function AireHome() {
   useEffect(() => { document.title = 'AIRE Services Guam | Pilot Training, Tours, and Video Packages' }, [])
-  const { firstFor } = useSiteMedia(homeMediaPlacements)
+  const { firstFor, loading: mediaLoading } = useSiteMedia(homeMediaPlacements)
   const businessInfo = usePublicBusinessInfo()
   const quickStats = [
     { label: 'Call AIRE', value: businessInfo.phone.display, href: businessInfo.phone.href },
@@ -150,6 +150,7 @@ export default function AireHome() {
             fallbackSrc="/assets/aire/hero.jpg"
             fallbackAlt="AIRE Services aircraft flying over Guam"
             hero
+            loading={mediaLoading}
             className="h-full w-full"
             mediaClassName="h-full w-full object-cover opacity-[0.34]"
           />
@@ -249,10 +250,11 @@ export default function AireHome() {
                   to={pillar.href}
                   className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)] transition duration-300 hover:-translate-y-1 hover:border-cyan-200 hover:shadow-[0_24px_70px_rgba(14,116,144,0.12)]"
                 >
-                  {pillarMedia[pillar.title] ? (
+                  {mediaLoading || pillarMedia[pillar.title] ? (
                     <SiteMediaFrame
                       media={pillarMedia[pillar.title]}
                       fallbackAlt={pillar.title}
+                      loading={mediaLoading}
                       className="aspect-[16/10]"
                       mediaClassName="h-full w-full object-cover transition duration-700 group-hover:scale-105"
                     />
@@ -287,10 +289,11 @@ export default function AireHome() {
           <div className="grid gap-5 lg:grid-cols-3">
             {tours.map((tour) => (
               <div key={tour.title} className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.07)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_70px_rgba(15,23,42,0.1)]">
-                {tourMedia[tour.title] && (
+                {(mediaLoading || tourMedia[tour.title]) && (
                   <SiteMediaFrame
                     media={tourMedia[tour.title]}
                     fallbackAlt={`${tour.title} aerial route`}
+                    loading={mediaLoading}
                     className="aspect-[16/10]"
                     mediaClassName="h-full w-full object-cover transition duration-700 group-hover:scale-105"
                   />
@@ -325,10 +328,11 @@ export default function AireHome() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
             <div className="overflow-hidden rounded-[2rem] bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,0.2)]">
-              {firstFor('programs_video') && (
+              {(mediaLoading || firstFor('programs_video')) && (
                 <SiteMediaFrame
                   media={firstFor('programs_video')}
                   fallbackAlt="AIRE aerial video package sample"
+                  loading={mediaLoading}
                   className="aspect-video"
                   controls
                 />
