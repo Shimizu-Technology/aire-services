@@ -15,6 +15,8 @@ const apiMock = vi.hoisted(() => ({
   deleteUser: vi.fn(),
   resendInvite: vi.fn(),
   resetKioskPin: vi.fn(),
+  updateUserPublicTeamPhoto: vi.fn(),
+  removeUserPublicTeamPhoto: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -62,6 +64,8 @@ function makeUser(overrides: Partial<AdminUser>): AdminUser {
     public_team_name: null,
     public_team_title: null,
     public_team_sort_order: 0,
+    public_team_photo_position_x: 50,
+    public_team_photo_position_y: 50,
     kiosk_enabled: true,
     kiosk_pin_configured: false,
     kiosk_pin_last_rotated_at: null,

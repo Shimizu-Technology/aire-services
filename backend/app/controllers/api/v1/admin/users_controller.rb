@@ -275,9 +275,11 @@ module Api
             public_team_name: user.public_team_name,
             public_team_title: user.public_team_title,
             public_team_sort_order: user.public_team_sort_order,
+            public_team_photo_position_x: user.public_team_photo_position_x,
+            public_team_photo_position_y: user.public_team_photo_position_y,
             public_team_photo_url: attachment_url(user.public_team_photo),
-            public_team_photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_fill: [ 160, 160 ]),
-            public_team_photo_card_url: attachment_variant_url(user.public_team_photo, resize_to_fill: [ 640, 800 ]),
+            public_team_photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 160, nil ]),
+            public_team_photo_card_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 640, nil ]),
             kiosk_enabled: user.kiosk_enabled,
             kiosk_pin_configured: user.kiosk_pin_configured?,
             kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
@@ -333,6 +335,8 @@ module Api
               "public_team_name",
               "public_team_title",
               "public_team_sort_order",
+              "public_team_photo_position_x",
+              "public_team_photo_position_y",
               "updated_at"
             ),
             time_categories: user.user_time_categories.pluck(:time_category_id, :hourly_rate_cents),
@@ -544,7 +548,30 @@ module Api
             end
           end
 
+          if params.key?(:public_team_photo_position_x)
+            position_x = normalized_photo_position(params[:public_team_photo_position_x], "horizontal")
+            return { local_attributes: {}, clerk_attributes: {} } if performed?
+            permitted[:public_team_photo_position_x] = position_x
+          end
+
+          if params.key?(:public_team_photo_position_y)
+            position_y = normalized_photo_position(params[:public_team_photo_position_y], "vertical")
+            return { local_attributes: {}, clerk_attributes: {} } if performed?
+            permitted[:public_team_photo_position_y] = position_y
+          end
+
           { local_attributes: permitted, clerk_attributes: clerk_attributes }
+        end
+
+        def normalized_photo_position(value, axis_label)
+          position = Integer(value)
+          return position if position.between?(0, 100)
+
+          render json: { error: "Public team photo #{axis_label} position must be between 0 and 100" }, status: :unprocessable_entity
+          nil
+        rescue ArgumentError, TypeError
+          render json: { error: "Public team photo #{axis_label} position must be a whole number" }, status: :unprocessable_entity
+          nil
         end
 
         def invalid_media_upload(exception)

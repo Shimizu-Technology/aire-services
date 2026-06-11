@@ -242,6 +242,8 @@ export interface AdminUser {
   public_team_name: string | null;
   public_team_title: string | null;
   public_team_sort_order: number;
+  public_team_photo_position_x: number;
+  public_team_photo_position_y: number;
   public_team_photo_url?: string | null;
   public_team_photo_thumb_url?: string | null;
   public_team_photo_card_url?: string | null;
@@ -418,6 +420,8 @@ export interface PublicTeamMember {
   photo_url: string | null;
   photo_thumb_url: string | null;
   photo_alt: string | null;
+  photo_position_x: number;
+  photo_position_y: number;
 }
 
 export interface TimeEntry {
@@ -1010,6 +1014,8 @@ export const api = {
     public_team_name?: string | null;
     public_team_title?: string | null;
     public_team_sort_order?: number;
+    public_team_photo_position_x?: number;
+    public_team_photo_position_y?: number;
     time_category_ids?: number[];
   }) =>
     fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {

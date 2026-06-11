@@ -152,6 +152,33 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       )
     end
 
+    it "updates public Team page photo focal point" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: {
+              public_team_photo_position_x: 48,
+              public_team_photo_position_y: 28
+            },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:user, :public_team_photo_position_x)).to eq(48)
+      expect(json.dig(:user, :public_team_photo_position_y)).to eq(28)
+      expect(employee.reload).to have_attributes(
+        public_team_photo_position_x: 48,
+        public_team_photo_position_y: 28
+      )
+    end
+
+    it "rejects invalid public Team page photo focal points" do
+      patch "/api/v1/admin/users/#{employee.id}",
+            params: { public_team_photo_position_y: 125 },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/vertical position must be between 0 and 100/i)
+      expect(employee.reload.public_team_photo_position_y).to eq(50)
+    end
+
     it "does not call Clerk when only public Team page fields change" do
       allow(ClerkUserService).to receive(:update_user!)
 
