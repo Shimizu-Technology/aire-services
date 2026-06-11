@@ -31,6 +31,8 @@ class User < ApplicationRecord
   validates :is_active, inclusion: { in: [ true, false ] }
   validates :is_intern, inclusion: { in: [ true, false ] }
   validates :public_team_enabled, inclusion: { in: [ true, false ] }
+  validates :public_team_photo_position_x, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
+  validates :public_team_photo_position_y, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
   validates :role, inclusion: { in: %w[admin employee] }
   validate :approval_group_must_be_configured
   validate :public_team_profile_is_complete

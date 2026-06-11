@@ -15,9 +15,11 @@ module Api
             id: user.id,
             name: name,
             title: title,
-            photo_url: attachment_variant_url(user.public_team_photo, resize_to_fill: [ 720, 900 ]),
-            photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_fill: [ 320, 320 ]),
-            photo_alt: user.public_team_photo.attached? ? "#{name}, #{title} at AIRE Services Guam" : nil
+            photo_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 900, 1200 ]),
+            photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 480, 640 ]),
+            photo_alt: user.public_team_photo.attached? ? "#{name}, #{title} at AIRE Services Guam" : nil,
+            photo_position_x: user.public_team_photo_position_x,
+            photo_position_y: user.public_team_photo_position_y
           }
         end
 

@@ -43,7 +43,9 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
             title: "Certified Flight Instructor",
             photo_url: nil,
             photo_thumb_url: nil,
-            photo_alt: nil
+            photo_alt: nil,
+            photo_position_x: 50,
+            photo_position_y: 50
           },
           {
             id: second_user.id,
@@ -51,7 +53,9 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
             title: "Chief Instructor",
             photo_url: nil,
             photo_thumb_url: nil,
-            photo_alt: nil
+            photo_alt: nil,
+            photo_position_x: 50,
+            photo_position_y: 50
           }
         ]
       )
@@ -78,7 +82,9 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
           title: "Chief Flight Instructor",
           photo_url: nil,
           photo_thumb_url: nil,
-          photo_alt: nil
+          photo_alt: nil,
+          photo_position_x: 50,
+          photo_position_y: 50
         )
       )
     end
@@ -91,7 +97,9 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
         last_name: "Wilson",
         staff_title: "Chief Pilot",
         public_team_enabled: true,
-        public_team_title: "Certified Flight Instructor, Chief Pilot"
+        public_team_title: "Certified Flight Instructor, Chief Pilot",
+        public_team_photo_position_x: 47,
+        public_team_photo_position_y: 28
       )
       user.public_team_photo.attach(
         io: File.open(photo_path),
@@ -107,7 +115,9 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
         id: user.id,
         name: "Mindy Wilson",
         title: "Certified Flight Instructor, Chief Pilot",
-        photo_alt: "Mindy Wilson, Certified Flight Instructor, Chief Pilot at AIRE Services Guam"
+        photo_alt: "Mindy Wilson, Certified Flight Instructor, Chief Pilot at AIRE Services Guam",
+        photo_position_x: 47,
+        photo_position_y: 28
       )
       expect(member[:photo_url]).to include("/rails/active_storage/representations")
       expect(member[:photo_thumb_url]).to include("/rails/active_storage/representations")

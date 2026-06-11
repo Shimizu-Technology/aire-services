@@ -28,11 +28,12 @@ function TeamPortrait({ member, index }: { member: PublicTeamMember; index: numb
   return (
     <img
       src={src || ''}
-      srcSet={member.photo_thumb_url && member.photo_url ? `${member.photo_thumb_url} 320w, ${member.photo_url} 720w` : undefined}
+      srcSet={member.photo_thumb_url && member.photo_url ? `${member.photo_thumb_url} 480w, ${member.photo_url} 900w` : undefined}
       sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
       alt={member.photo_alt || `${member.name}, ${member.title}`}
       loading={index < 3 ? 'eager' : 'lazy'}
       className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+      style={{ objectPosition: `${member.photo_position_x ?? 50}% ${member.photo_position_y ?? 50}%` }}
     />
   )
 }
@@ -40,7 +41,7 @@ function TeamPortrait({ member, index }: { member: PublicTeamMember; index: numb
 function TeamCard({ member, index }: { member: PublicTeamMember; index: number }) {
   return (
     <article className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.07)] transition duration-300 hover:-translate-y-1 hover:border-cyan-200 hover:shadow-[0_24px_70px_rgba(14,116,144,0.12)]">
-      <div className="relative aspect-[5/4] overflow-hidden bg-slate-950 sm:aspect-[4/5]">
+      <div className="relative aspect-[4/5] overflow-hidden bg-slate-950">
         <TeamPortrait member={member} index={index} />
         <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-slate-950/72 to-transparent" />
       </div>
@@ -73,7 +74,7 @@ function TeamSkeleton() {
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
       {skeletonCards.map((visibilityClass, index) => (
         <div key={index} className={`overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm ${visibilityClass}`}>
-          <div className="aspect-[5/4] animate-pulse bg-slate-200 sm:aspect-[4/5]" />
+          <div className="aspect-[4/5] animate-pulse bg-slate-200" />
           <div className="p-5">
             <div className="h-5 w-40 animate-pulse rounded bg-slate-200" />
             <div className="mt-3 h-4 w-52 animate-pulse rounded bg-slate-100" />

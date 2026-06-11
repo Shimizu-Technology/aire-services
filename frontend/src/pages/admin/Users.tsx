@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api } from '../../lib/api'
 import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
 import { formatDateTime } from '../../lib/dateUtils'
@@ -7,6 +7,27 @@ import { FadeUp } from '../../components/ui/MotionComponents'
 
 const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
 const maxPublicTeamPhotoSize = 15 * 1024 * 1024
+const defaultPublicTeamPhotoPosition = 50
+
+function photoPositionInputValue(value: number | null | undefined) {
+  return String(typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : defaultPublicTeamPhotoPosition)
+}
+
+function parsedPhotoPosition(value: string) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null
+  return parsed
+}
+
+function publicTeamPhotoObjectPosition(x: number | string | null | undefined, y: number | string | null | undefined) {
+  const parsedX = typeof x === 'number' ? x : parsedPhotoPosition(String(x ?? defaultPublicTeamPhotoPosition))
+  const parsedY = typeof y === 'number' ? y : parsedPhotoPosition(String(y ?? defaultPublicTeamPhotoPosition))
+  return `${parsedX ?? defaultPublicTeamPhotoPosition}% ${parsedY ?? defaultPublicTeamPhotoPosition}%`
+}
+
+function publicTeamPhotoStyle(x: number | string | null | undefined, y: number | string | null | undefined): CSSProperties {
+  return { objectPosition: publicTeamPhotoObjectPosition(x, y) }
+}
 
 function isKioskLocked(user: AdminUser) {
   if (!user.kiosk_locked_until) return false
@@ -25,7 +46,13 @@ function TeamMemberAvatar({ user, className = 'h-12 w-12' }: { user: AdminUser; 
   return (
     <div className={`relative shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 ${className}`}>
       {src ? (
-        <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />
+        <img
+          src={src}
+          alt=""
+          className="h-full w-full object-cover"
+          loading="lazy"
+          style={publicTeamPhotoStyle(user.public_team_photo_position_x, user.public_team_photo_position_y)}
+        />
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.22),_transparent_45%),linear-gradient(135deg,_#0f172a,_#1e3a5f)] text-sm font-semibold tracking-tight text-white">
           {initialsForUser(user)}
@@ -76,6 +103,8 @@ export default function Users() {
   const [editPublicTeamName, setEditPublicTeamName] = useState('')
   const [editPublicTeamTitle, setEditPublicTeamTitle] = useState('')
   const [editPublicTeamSortOrder, setEditPublicTeamSortOrder] = useState('0')
+  const [editPublicTeamPhotoPositionX, setEditPublicTeamPhotoPositionX] = useState(String(defaultPublicTeamPhotoPosition))
+  const [editPublicTeamPhotoPositionY, setEditPublicTeamPhotoPositionY] = useState(String(defaultPublicTeamPhotoPosition))
   const [editPublicTeamPhotoFile, setEditPublicTeamPhotoFile] = useState<File | null>(null)
   const [editRemovePublicTeamPhoto, setEditRemovePublicTeamPhoto] = useState(false)
   const [editCategoryIds, setEditCategoryIds] = useState<Set<number>>(new Set())
@@ -161,8 +190,11 @@ export default function Users() {
     [editPublicTeamPhotoFile],
   )
   const currentEditPublicTeamPhotoUrl = editPublicTeamPhotoPreviewUrl || (
-    editRemovePublicTeamPhoto ? null : editingUser?.public_team_photo_thumb_url || editingUser?.public_team_photo_url || null
+    editRemovePublicTeamPhoto
+      ? null
+      : editingUser?.public_team_photo_card_url || editingUser?.public_team_photo_url || editingUser?.public_team_photo_thumb_url || null
   )
+  const currentEditPublicTeamPhotoStyle = publicTeamPhotoStyle(editPublicTeamPhotoPositionX, editPublicTeamPhotoPositionY)
 
   useEffect(() => {
     return () => {
@@ -266,6 +298,8 @@ export default function Users() {
     setEditPublicTeamName(user.public_team_name ?? '')
     setEditPublicTeamTitle(user.public_team_title ?? '')
     setEditPublicTeamSortOrder(String(user.public_team_sort_order ?? 0))
+    setEditPublicTeamPhotoPositionX(photoPositionInputValue(user.public_team_photo_position_x))
+    setEditPublicTeamPhotoPositionY(photoPositionInputValue(user.public_team_photo_position_y))
     setEditPublicTeamPhotoFile(null)
     setEditRemovePublicTeamPhoto(false)
     setEditCategoryIds(new Set(user.time_category_ids ?? []))
@@ -298,6 +332,8 @@ export default function Users() {
     setEditPublicTeamName('')
     setEditPublicTeamTitle('')
     setEditPublicTeamSortOrder('0')
+    setEditPublicTeamPhotoPositionX(String(defaultPublicTeamPhotoPosition))
+    setEditPublicTeamPhotoPositionY(String(defaultPublicTeamPhotoPosition))
     setEditPublicTeamPhotoFile(null)
     setEditRemovePublicTeamPhoto(false)
     setEditCategoryIds(new Set())
@@ -368,7 +404,15 @@ export default function Users() {
     const nextPublicTeamTitle = editPublicTeamTitle.trim()
     const hasPublicTeamSortOrder = editPublicTeamSortOrder.trim().length > 0
     const nextPublicTeamSortOrder = hasPublicTeamSortOrder ? Number.parseInt(editPublicTeamSortOrder, 10) : null
+    const nextPublicTeamPhotoPositionX = parsedPhotoPosition(editPublicTeamPhotoPositionX)
+    const nextPublicTeamPhotoPositionY = parsedPhotoPosition(editPublicTeamPhotoPositionY)
     const nextCategoryIds = Array.from(editCategoryIds)
+
+    if (nextPublicTeamPhotoPositionX === null || nextPublicTeamPhotoPositionY === null) {
+      setEditError('Photo focal point must stay between 0 and 100.')
+      setSavingEdit(false)
+      return
+    }
 
     if (editPublicTeamPhotoFile && editPublicTeamPhotoFile.size > maxPublicTeamPhotoSize) {
       setEditError('Team photos must be smaller than 15MB.')
@@ -418,6 +462,8 @@ export default function Users() {
         public_team_enabled: editPublicTeamEnabled,
         public_team_name: nextPublicTeamName || null,
         public_team_title: nextPublicTeamTitle || null,
+        public_team_photo_position_x: nextPublicTeamPhotoPositionX,
+        public_team_photo_position_y: nextPublicTeamPhotoPositionY,
         time_category_ids: nextCategoryIds,
       }
 
@@ -1177,7 +1223,7 @@ export default function Users() {
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
                           <div className="aspect-[4/5]">
                             {currentEditPublicTeamPhotoUrl ? (
-                              <img src={currentEditPublicTeamPhotoUrl} alt="" className="h-full w-full object-cover" />
+                              <img src={currentEditPublicTeamPhotoUrl} alt="" className="h-full w-full object-cover" style={currentEditPublicTeamPhotoStyle} />
                             ) : (
                               <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.22),_transparent_45%),linear-gradient(135deg,_#0f172a,_#1e3a5f)] text-xl font-semibold tracking-tight text-white">
                                 {initialsForUser(editingUser)}
@@ -1188,7 +1234,7 @@ export default function Users() {
                         <div>
                           <label className="mb-2 block text-sm font-medium text-slate-800">Public team photo</label>
                           <p className="text-xs leading-relaxed text-slate-500">
-                            Upload a clean portrait for the public Team page. Square or vertical photos work best and will be cropped consistently on mobile and desktop.
+                            Upload a clean portrait for the public Team page. Use the focal-point controls below to keep faces centered when cards crop on phones.
                           </p>
                           <label className="mt-3 block rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm transition hover:border-cyan-300 hover:bg-cyan-50/60">
                             <span className="flex items-center gap-2 font-semibold text-slate-800">
@@ -1239,6 +1285,73 @@ export default function Users() {
                             )}
                           </div>
                           {editRemovePublicTeamPhoto && <p className="mt-3 text-xs font-medium text-amber-700">The current photo will be removed when you save changes.</p>}
+
+                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-semibold text-slate-800">Photo focal point</div>
+                                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                                  Move the focal point toward the face or logo area. AIRE Ops will use this position anywhere the public Team photo has to crop.
+                                </p>
+                              </div>
+                              <span className="shrink-0 rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-800">
+                                {editPublicTeamPhotoPositionX}% / {editPublicTeamPhotoPositionY}%
+                              </span>
+                            </div>
+
+                            <div className="mt-4 space-y-4">
+                              <label className="block">
+                                <span className="flex justify-between text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                  <span>Horizontal focus</span>
+                                  <span>Left · Center · Right</span>
+                                </span>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="100"
+                                  value={editPublicTeamPhotoPositionX}
+                                  onChange={(event) => setEditPublicTeamPhotoPositionX(event.target.value)}
+                                  className="mt-2 w-full accent-cyan-700"
+                                />
+                              </label>
+                              <label className="block">
+                                <span className="flex justify-between text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                  <span>Vertical focus</span>
+                                  <span>Top · Center · Bottom</span>
+                                </span>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="100"
+                                  value={editPublicTeamPhotoPositionY}
+                                  onChange={(event) => setEditPublicTeamPhotoPositionY(event.target.value)}
+                                  className="mt-2 w-full accent-cyan-700"
+                                />
+                              </label>
+                            </div>
+
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              {[
+                                { label: 'Center', x: 50, y: 50 },
+                                { label: 'Face higher', x: 50, y: 30 },
+                                { label: 'Face lower', x: 50, y: 65 },
+                                { label: 'Focus left', x: 35, y: 50 },
+                                { label: 'Focus right', x: 65, y: 50 },
+                              ].map((preset) => (
+                                <button
+                                  key={preset.label}
+                                  type="button"
+                                  onClick={() => {
+                                    setEditPublicTeamPhotoPositionX(String(preset.x))
+                                    setEditPublicTeamPhotoPositionY(String(preset.y))
+                                  }}
+                                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
+                                >
+                                  {preset.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>

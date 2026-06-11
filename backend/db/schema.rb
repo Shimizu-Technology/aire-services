@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_27_020000) do
+ActiveRecord::Schema[8.1].define(version: 2026_06_11_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -264,6 +264,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_27_020000) do
     t.string "phone"
     t.boolean "public_team_enabled", default: false, null: false
     t.string "public_team_name"
+    t.integer "public_team_photo_position_x", default: 50, null: false
+    t.integer "public_team_photo_position_y", default: 50, null: false
     t.integer "public_team_sort_order", default: 0, null: false
     t.string "public_team_title"
     t.string "role", default: "employee"
@@ -279,6 +281,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_27_020000) do
     t.index ["kiosk_pin_lookup_hash"], name: "index_users_on_kiosk_pin_lookup_hash", unique: true
     t.index ["public_team_enabled", "public_team_sort_order"], name: "index_users_on_public_team_visibility_and_sort"
     t.index ["role"], name: "index_users_on_role"
+    t.check_constraint "public_team_photo_position_x >= 0 AND public_team_photo_position_x <= 100", name: "check_public_team_photo_position_x_range"
+    t.check_constraint "public_team_photo_position_y >= 0 AND public_team_photo_position_y <= 100", name: "check_public_team_photo_position_y_range"
     t.check_constraint "role::text = ANY (ARRAY['admin'::character varying, 'employee'::character varying]::text[])", name: "check_valid_role"
   end
 
