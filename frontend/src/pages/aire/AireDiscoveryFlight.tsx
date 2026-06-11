@@ -28,7 +28,7 @@ const reasons = [
 export default function AireDiscoveryFlight() {
   useEffect(() => { document.title = 'Discovery Flight | AIRE Services Guam' }, [])
   const placements: SiteMediaPlacement[] = ['discovery_hero']
-  const { firstFor } = useSiteMedia(placements)
+  const { firstFor, loading: mediaLoading } = useSiteMedia(placements)
   const businessInfo = usePublicBusinessInfo()
   return (
     <>
@@ -44,6 +44,7 @@ export default function AireDiscoveryFlight() {
           description="A discovery flight is a simple way to meet an instructor, experience the aircraft, and see whether flight training feels like the right next step for you."
           media={firstFor('discovery_hero')}
           fallbackSrc="/assets/aire/hero.jpg"
+          mediaLoading={mediaLoading}
           fallbackAlt="Discovery flight with AIRE Services"
           mediaMode="background"
           compact

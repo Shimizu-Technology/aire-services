@@ -89,7 +89,7 @@ export default function AireTeam() {
   const [teamMembers, setTeamMembers] = useState<PublicTeamMember[] | null>(null)
   const [teamLoadFailed, setTeamLoadFailed] = useState(false)
   const placements: SiteMediaPlacement[] = ['team_hero']
-  const { firstFor } = useSiteMedia(placements)
+  const { firstFor, loading: mediaLoading } = useSiteMedia(placements)
 
   useEffect(() => {
     document.title = 'Meet the Team | AIRE Services Guam'
@@ -125,6 +125,7 @@ export default function AireTeam() {
         description="Training works best when you know who you are flying with. Meet the instructors and training team members helping students on Guam build skill, confidence, and a steady path into aviation."
         media={firstFor('team_hero')}
         fallbackSrc="/assets/aire/hero.jpg"
+        mediaLoading={mediaLoading}
         fallbackAlt="AIRE Services Guam flight training team"
         mediaMode="background"
         actions={(

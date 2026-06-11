@@ -222,6 +222,7 @@ interface PublicPageHeroProps {
   actions?: ReactNode
   children?: ReactNode
   mediaMode?: 'background' | 'side' | 'none'
+  mediaLoading?: boolean
   compact?: boolean
 }
 
@@ -235,6 +236,7 @@ export function PublicPageHero({
   actions,
   children,
   mediaMode = 'side',
+  mediaLoading = false,
   compact = false,
 }: PublicPageHeroProps) {
   const hasMedia = Boolean(media || fallbackSrc)
@@ -250,6 +252,7 @@ export function PublicPageHero({
             fallbackSrc={fallbackSrc}
             fallbackAlt={fallbackAlt}
             hero
+            loading={mediaLoading}
             className="h-full w-full"
             mediaClassName="h-full w-full object-cover opacity-30"
           />
@@ -282,6 +285,8 @@ export function PublicPageHero({
               media={media}
               fallbackSrc={fallbackSrc}
               fallbackAlt={fallbackAlt}
+              priority
+              loading={mediaLoading}
               className="aspect-[16/10] rounded-[1.45rem]"
               mediaClassName="h-full w-full object-cover"
             />

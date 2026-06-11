@@ -3,6 +3,8 @@
 module Api
   module V1
     class SiteMediaController < ApplicationController
+      include AttachmentUrlHelpers
+
       def index
         media = SiteMedia.active.ordered.with_attached_file.with_attached_poster
         placements = requested_placements
@@ -34,7 +36,13 @@ module Api
           media_type: item.media_type,
           external_url: item.external_url,
           file_url: attachment_url(item.file),
+          file_thumb_url: image_variant_url(item.file, width: 480),
+          file_card_url: image_variant_url(item.file, width: 900),
+          file_hero_url: image_variant_url(item.file, width: 1800),
           poster_url: attachment_url(item.poster),
+          poster_thumb_url: image_variant_url(item.poster, width: 480),
+          poster_card_url: image_variant_url(item.poster, width: 900),
+          poster_hero_url: image_variant_url(item.poster, width: 1800),
           sort_order: item.sort_order,
           active: item.active,
           featured: item.featured,
@@ -42,10 +50,11 @@ module Api
         }
       end
 
-      def attachment_url(attachment)
-        return nil unless attachment.attached?
+      def image_variant_url(attachment, width:)
+        return nil unless attachment&.attached?
+        return nil unless attachment.variable?
 
-        Rails.application.routes.url_helpers.rails_blob_url(attachment, host: request.base_url)
+        attachment_variant_url(attachment, resize_to_limit: [ width, nil ])
       end
     end
   end

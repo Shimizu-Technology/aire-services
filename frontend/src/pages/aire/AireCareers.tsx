@@ -29,7 +29,7 @@ const requirements = [
 export default function AireCareers() {
   useEffect(() => { document.title = 'Careers | AIRE Services Guam' }, [])
   const placements: SiteMediaPlacement[] = ['careers_hero']
-  const { firstFor } = useSiteMedia(placements)
+  const { firstFor, loading: mediaLoading } = useSiteMedia(placements)
   const businessInfo = usePublicBusinessInfo()
   const addressLines = aireAddressLinesFor(businessInfo)
 
@@ -47,6 +47,7 @@ export default function AireCareers() {
           description="AIRE is looking for dependable team members who bring a strong work ethic, clear communication, and a willingness to learn. Review the current opening below and reach out if it sounds like a fit."
           media={firstFor('careers_hero')}
           fallbackSrc="/assets/aire/careers.jpg"
+          mediaLoading={mediaLoading}
           fallbackAlt="AIRE Services hiring"
           mediaMode="background"
           compact

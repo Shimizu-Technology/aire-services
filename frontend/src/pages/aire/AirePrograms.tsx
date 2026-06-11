@@ -69,7 +69,7 @@ const programsMediaPlacements: SiteMediaPlacement[] = ['programs_hero', 'program
 
 export default function AirePrograms() {
   useEffect(() => { document.title = 'Programs & Services | AIRE Services Guam' }, [])
-  const { firstFor } = useSiteMedia(programsMediaPlacements)
+  const { firstFor, loading: mediaLoading } = useSiteMedia(programsMediaPlacements)
   const tourMedia = {
     'Bay Tour': firstFor('tour_bay'),
     'Island Tour': firstFor('tour_island'),
@@ -84,6 +84,7 @@ export default function AirePrograms() {
         description="Explore AIRE's flight training, scenic aerial tours, and add-on media packages. Reach out for scheduling, local and military rates, or discovery flight questions."
         media={firstFor('programs_hero')}
         fallbackSrc="/assets/aire/hero.jpg"
+        mediaLoading={mediaLoading}
         fallbackAlt="AIRE Services scenic Guam flight"
         actions={(
           <>
@@ -97,10 +98,11 @@ export default function AirePrograms() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
             <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
-              {firstFor('programs_training') && (
+              {(mediaLoading || firstFor('programs_training')) && (
                 <SiteMediaFrame
                   media={firstFor('programs_training')}
                   fallbackAlt="Private pilot training with AIRE Services Guam"
+                  loading={mediaLoading}
                   className="aspect-[16/9]"
                   mediaClassName="h-full w-full object-cover"
                 />
@@ -154,10 +156,11 @@ export default function AirePrograms() {
           <div className="grid gap-5 lg:grid-cols-3">
             {tours.map((tour) => (
               <div key={tour.title} className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.07)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_70px_rgba(15,23,42,0.1)]">
-                {tourMedia[tour.title as keyof typeof tourMedia] && (
+                {(mediaLoading || tourMedia[tour.title as keyof typeof tourMedia]) && (
                   <SiteMediaFrame
                     media={tourMedia[tour.title as keyof typeof tourMedia]}
                     fallbackAlt={`${tour.title} route over Guam`}
+                    loading={mediaLoading}
                     className="aspect-[16/10]"
                     mediaClassName="h-full w-full object-cover transition duration-700 group-hover:scale-105"
                   />
@@ -186,10 +189,11 @@ export default function AirePrograms() {
       <section className="py-16 md:py-24">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50/70 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
-            {firstFor('programs_video') && (
+            {(mediaLoading || firstFor('programs_video')) && (
               <SiteMediaFrame
                 media={firstFor('programs_video')}
                 fallbackAlt="AIRE video package sample"
+                loading={mediaLoading}
                 className="aspect-video max-h-[32rem]"
                 mediaClassName="h-full w-full object-cover"
                 controls
