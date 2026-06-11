@@ -49,13 +49,6 @@ module Api
           metadata: item.metadata
         }
       end
-
-      def image_variant_url(attachment, width:)
-        return nil unless attachment&.attached?
-        return nil unless attachment.variable?
-
-        attachment_variant_url(attachment, resize_to_limit: [ width, nil ])
-      end
     end
   end
 end

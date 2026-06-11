@@ -236,10 +236,18 @@ export function useSiteMedia(placements: SiteMediaPlacement[]) {
 
       setLoading(true)
       const requestedPlacements = placementKey.split(',').filter(Boolean) as SiteMediaPlacement[]
-      const nextItems = await fetchSiteMediaForPlacements(placementKey, requestedPlacements)
-      if (cancelled) return
-      setItems(nextItems)
-      setLoading(false)
+
+      try {
+        const nextItems = await fetchSiteMediaForPlacements(placementKey, requestedPlacements)
+        if (cancelled) return
+        setItems(nextItems)
+      } catch (error) {
+        console.error('Failed to load public site media:', error)
+        if (cancelled) return
+        setItems([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
 
     load()
