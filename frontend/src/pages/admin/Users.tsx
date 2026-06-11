@@ -1086,7 +1086,7 @@ export default function Users() {
 
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div ref={editModalRef} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+          <div ref={editModalRef} className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">
@@ -1218,9 +1218,9 @@ export default function Users() {
 
                 {editPublicTeamEnabled && (
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <div className="sm:col-span-2 rounded-2xl border border-cyan-100 bg-white p-4">
-                      <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                    <div className="sm:col-span-2 rounded-[1.75rem] border border-cyan-100 bg-white p-4 shadow-sm sm:p-5">
+                      <div className="grid gap-5 lg:grid-cols-[minmax(16rem,20rem)_1fr] lg:items-start">
+                        <div className="self-start overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
                           <div className="aspect-[4/5]">
                             {currentEditPublicTeamPhotoUrl ? (
                               <img src={currentEditPublicTeamPhotoUrl} alt="" className="h-full w-full object-cover" style={currentEditPublicTeamPhotoStyle} />
@@ -1231,7 +1231,7 @@ export default function Users() {
                             )}
                           </div>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <label className="mb-2 block text-sm font-medium text-slate-800">Public team photo</label>
                           <p className="text-xs leading-relaxed text-slate-500">
                             Upload a clean portrait for the public Team page. Use the focal-point controls below to keep faces centered when cards crop on phones.
@@ -1286,7 +1286,7 @@ export default function Users() {
                           </div>
                           {editRemovePublicTeamPhoto && <p className="mt-3 text-xs font-medium text-amber-700">The current photo will be removed when you save changes.</p>}
 
-                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <div className="text-sm font-semibold text-slate-800">Photo focal point</div>
