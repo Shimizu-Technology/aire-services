@@ -307,7 +307,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
     })
   }
 
-  const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = [
+  const filterOptions: Array<{ value: 'all' | ApprovalGroupFilter; label: string; count: number }> = useMemo(() => [
     { value: 'all', label: 'All', count: allSummary?.entry_count ?? allEntries.length },
     ...approvalGroups.map((group) => ({
       value: group.key,
@@ -315,7 +315,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
       count: summaryCountForApprovalGroup(allSummary, group.key) ?? allEntries.filter((entry) => entryApprovalGroupKeys(entry).includes(group.key)).length,
     })),
     { value: 'unassigned', label: 'Unassigned', count: summaryCountForApprovalGroup(allSummary, 'unassigned') ?? allEntries.filter((entry) => entryApprovalGroupKeys(entry).length === 0).length },
-  ]
+  ], [allEntries, allSummary, approvalGroups])
 
   const userOptions = useMemo(() => {
     const usersById = new Map<number, { id: number; label: string }>()

@@ -325,7 +325,8 @@ module Api
 
         page = [ (params[:page] || 1).to_i, 1 ].max
         per_page = (params[:per_page] || 250).to_i.clamp(1, 500)
-        total_count = pending_approval_count(filtered_entries)
+        summary = pending_approvals_summary(filtered_entries)
+        total_count = summary[:entry_count]
         entries = sorted_entries.offset((page - 1) * per_page).limit(per_page)
 
         render json: {
@@ -338,7 +339,7 @@ module Api
             total_pages: (total_count.to_f / per_page).ceil,
             truncated: total_count > page * per_page
           },
-          summary: pending_approvals_summary(filtered_entries),
+          summary: summary,
           filters: serialize_pending_approval_filters(filters),
           sort: {
             field: filters[:sort],
@@ -938,10 +939,6 @@ module Api
           .when(time_entries_table[:overtime_status].eq("pending")).then(2)
           .else(3)
           .public_send(direction)
-      end
-
-      def pending_approval_count(entries)
-        pending_approval_summary_scope(entries).count
       end
 
       def pending_approvals_summary(entries)
