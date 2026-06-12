@@ -593,6 +593,11 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(response).to have_http_status(:ok)
       ids = json[:pending_entries].map { |entry| entry[:id] }
       expect(ids).to include(cfi_entry.id, ops_entry.id, unassigned_entry.id)
+
+      counts_by_group = json.dig(:summary, :counts_by_approval_group).index_by { |row| row[:key] }
+      expect(counts_by_group.dig("cfi", :count)).to eq(1)
+      expect(counts_by_group.dig("ops_maintenance", :count)).to eq(1)
+      expect(counts_by_group.dig("unassigned", :count)).to eq(1)
     end
 
     it "filters pending entries by approval group" do

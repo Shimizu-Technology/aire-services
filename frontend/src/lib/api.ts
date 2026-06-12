@@ -702,6 +702,7 @@ export interface PendingApprovalsSummary {
   manual_count: number;
   clock_count: number;
   counts_by_date: Array<{ work_date: string; count: number; hours: number }>;
+  counts_by_approval_group?: Array<{ key: ApprovalGroupFilter; label: string; count: number }>;
 }
 
 export interface PendingApprovalsParams {

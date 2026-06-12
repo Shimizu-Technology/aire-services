@@ -110,6 +110,11 @@ const summary: PendingApprovalsSummary = {
     { work_date: '2026-06-05', count: 1, hours: 2 },
     { work_date: '2026-06-06', count: 1, hours: 1.5 },
   ],
+  counts_by_approval_group: [
+    { key: 'cfi', label: 'CFI', count: 99 },
+    { key: 'ops_maintenance', label: 'Maintenance', count: 14 },
+    { key: 'unassigned', label: 'Unassigned', count: 7 },
+  ],
 }
 
 describe('ApprovalQueue review workflow', () => {
@@ -130,6 +135,8 @@ describe('ApprovalQueue review workflow', () => {
     expect(screen.getByText('Fri, Jun 5, 2026')).toBeInTheDocument()
     expect(screen.getByText('Sat, Jun 6, 2026')).toBeInTheDocument()
     expect(screen.getByText('Approve Selected (0)')).toBeInTheDocument()
+    expect(screen.getByText('CFI (99)')).toBeInTheDocument()
+    expect(screen.getByText('Unassigned (7)')).toBeInTheDocument()
   })
 
   it('sends through-date filters to the pending approvals endpoint', async () => {

@@ -890,7 +890,6 @@ module Api
 
       def apply_pending_approval_sort(entries, sort, direction)
         dir = direction == "desc" ? :desc : :asc
-        direction_method = dir == :desc ? :desc : :asc
         time_entries_table = TimeEntry.arel_table
 
         case sort
@@ -899,9 +898,9 @@ module Api
         when "employee"
           users_table = User.arel_table
           entries.joins(:user).order(
-            lower_order(users_table[:last_name], direction_method),
-            lower_order(users_table[:first_name], direction_method),
-            lower_order(users_table[:email], direction_method),
+            lower_order(users_table[:last_name], dir),
+            lower_order(users_table[:first_name], dir),
+            lower_order(users_table[:email], dir),
             work_date: :asc,
             start_time: :asc,
             id: :asc
@@ -910,7 +909,7 @@ module Api
           entries.order(hours: dir, work_date: :asc, start_time: :asc, id: :asc)
         when "approval_type"
           entries.order(
-            approval_type_order(time_entries_table, direction_method),
+            approval_type_order(time_entries_table, dir),
             work_date: :asc,
             start_time: :asc,
             id: :asc
@@ -918,7 +917,7 @@ module Api
         when "category"
           categories_table = TimeCategory.arel_table
           entries.left_outer_joins(:time_category).order(
-            lower_order(categories_table[:name], direction_method),
+            lower_order(categories_table[:name], dir),
             work_date: :asc,
             start_time: :asc,
             id: :asc
@@ -928,17 +927,17 @@ module Api
         end
       end
 
-      def lower_order(attribute, direction_method)
-        Arel::Nodes::NamedFunction.new("LOWER", [ attribute ]).public_send(direction_method)
+      def lower_order(attribute, direction)
+        Arel::Nodes::NamedFunction.new("LOWER", [ attribute ]).public_send(direction)
       end
 
-      def approval_type_order(time_entries_table, direction_method)
+      def approval_type_order(time_entries_table, direction)
         Arel::Nodes::Case.new
           .when(time_entries_table[:approval_status].eq("pending").and(time_entries_table[:overtime_status].eq("pending"))).then(0)
           .when(time_entries_table[:approval_status].eq("pending")).then(1)
           .when(time_entries_table[:overtime_status].eq("pending")).then(2)
           .else(3)
-          .public_send(direction_method)
+          .public_send(direction)
       end
 
       def pending_approval_count(entries)
@@ -976,8 +975,29 @@ module Api
           pending_overtime_count: pending_overtime_count.to_i,
           manual_count: manual_count.to_i,
           clock_count: clock_count.to_i,
-          counts_by_date: counts_by_date
+          counts_by_date: counts_by_date,
+          counts_by_approval_group: pending_approval_counts_by_approval_group(scope)
         }
+      end
+
+      def pending_approval_counts_by_approval_group(scope)
+        group_counts = scope
+          .joins(user: :user_approval_groups)
+          .group(UserApprovalGroup.arel_table[:approval_group])
+          .count
+        unassigned_count = scope
+          .left_outer_joins(user: :user_approval_groups)
+          .where(user_approval_groups: { id: nil })
+          .count
+
+        group_keys = (Setting.approval_group_keys + group_counts.keys.compact).uniq
+        group_keys.map do |key|
+          {
+            key: key,
+            label: Setting.approval_group_label_for(key),
+            count: group_counts.fetch(key, 0).to_i
+          }
+        end + [ { key: "unassigned", label: "Unassigned", count: unassigned_count.to_i } ]
       end
 
       def pending_approval_summary_scope(entries)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
 import type {
@@ -193,6 +193,10 @@ function SummaryMetric({ label, value, sublabel, tone = 'default' }: { label: st
   )
 }
 
+function summaryCountForApprovalGroup(summary: PendingApprovalsSummary | null, key: ApprovalGroupFilter) {
+  return summary?.counts_by_approval_group?.find((row) => row.key === key)?.count
+}
+
 export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
@@ -212,6 +216,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('aire_pending_approvals_collapsed') === 'true')
+  const fetchGenerationRef = useRef(0)
 
   const activeReviewFilters = hasActiveReviewFilters(reviewFilters)
 
@@ -227,12 +232,16 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
   }, [])
 
   const fetchPending = useCallback(async (filter: 'all' | ApprovalGroupFilter) => {
+    const requestId = ++fetchGenerationRef.current
+
     try {
       const baseParams = buildPendingApprovalParams(reviewFilters)
       const [allResult, filteredResult] = await Promise.all([
         api.getPendingApprovals(baseParams),
         filter === 'all' ? Promise.resolve(null) : api.getPendingApprovals({ ...baseParams, approval_group: filter }),
       ])
+
+      if (requestId !== fetchGenerationRef.current) return
 
       const allData = allResult.data
       const visibleData = filter === 'all' ? allData : filteredResult?.data
@@ -250,10 +259,14 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
         setFetchError(true)
       }
     } catch {
-      setFetchError(true)
+      if (requestId === fetchGenerationRef.current) {
+        setFetchError(true)
+      }
     } finally {
-      setLoading(false)
-      setRefreshingFilter(false)
+      if (requestId === fetchGenerationRef.current) {
+        setLoading(false)
+        setRefreshingFilter(false)
+      }
     }
   }, [reviewFilters, syncExpandedDescriptions])
 
@@ -299,9 +312,9 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
     ...approvalGroups.map((group) => ({
       value: group.key,
       label: group.label,
-      count: allEntries.filter((entry) => entryApprovalGroupKeys(entry).includes(group.key)).length,
+      count: summaryCountForApprovalGroup(allSummary, group.key) ?? allEntries.filter((entry) => entryApprovalGroupKeys(entry).includes(group.key)).length,
     })),
-    { value: 'unassigned', label: 'Unassigned', count: allEntries.filter((entry) => entryApprovalGroupKeys(entry).length === 0).length },
+    { value: 'unassigned', label: 'Unassigned', count: summaryCountForApprovalGroup(allSummary, 'unassigned') ?? allEntries.filter((entry) => entryApprovalGroupKeys(entry).length === 0).length },
   ]
 
   const userOptions = useMemo(() => {
@@ -548,6 +561,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
     manual_count: entries.filter((entry) => entry.entry_method === 'manual').length,
     clock_count: entries.filter((entry) => entry.entry_method === 'clock').length,
     counts_by_date: [],
+    counts_by_approval_group: [],
   }
   const throughDate = reviewFilters.dateMode === 'through' ? reviewFilters.throughDate : ''
 
