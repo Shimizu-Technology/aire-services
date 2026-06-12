@@ -21,13 +21,15 @@ module Payroll
       entries = entries.select { |entry| staff_user_ids.include?(entry.user_id) }
       entries_by_user_id = entries.group_by(&:user_id)
 
+      employees = users.map { |user| serialize_user(user, entries_by_user_id.fetch(user.id, [])) }
+
       {
         source: SOURCE,
         start_date: start_date.iso8601,
         end_date: end_date.iso8601,
         generated_at: Time.current.iso8601,
-        employees: users.map { |user| serialize_user(user, entries_by_user_id.fetch(user.id, [])) },
-        summary: summary(entries)
+        employees: employees,
+        summary: summary(entries, employees)
       }
     end
 
@@ -124,14 +126,13 @@ module Payroll
       }
     end
 
-    def summary(entries)
+    def summary(entries, employees)
       countable = entries.select { |entry| countable?(entry) }
-      overtime_allocations = allocate_weekly_overtime(countable)
       {
         employee_count: entries.map(&:user_id).uniq.size,
         countable_hours: sum_hours(countable),
-        regular_hours: round_hours(countable.sum { |entry| overtime_allocations.fetch(entry.id, {})[:regular_hours].to_f }),
-        overtime_hours: round_hours(countable.sum { |entry| overtime_allocations.fetch(entry.id, {})[:overtime_hours].to_f }),
+        regular_hours: round_hours(employees.sum { |employee| employee[:regular_hours].to_f }),
+        overtime_hours: round_hours(employees.sum { |employee| employee[:overtime_hours].to_f }),
         pending_count: entries.count { |entry| entry.approval_status == "pending" },
         denied_count: entries.count { |entry| entry.approval_status == "denied" },
         pending_overtime_count: entries.count { |entry| entry.overtime_status == "pending" },
