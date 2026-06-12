@@ -430,6 +430,11 @@ export interface PublicTeamMember {
   photo_position_y: number;
 }
 
+export interface ApprovalReason {
+  key: string;
+  label: string;
+}
+
 export interface TimeEntry {
   id: number;
   work_date: string;
@@ -447,6 +452,7 @@ export interface TimeEntry {
   attendance_status: 'early' | 'on_time' | 'late' | null;
   approval_status: 'pending' | 'approved' | 'denied' | null;
   overtime_status: 'none' | 'pending' | 'approved' | 'denied' | null;
+  approval_reasons?: ApprovalReason[];
   clock_in_at: string | null;
   clock_out_at: string | null;
   approved_by: {
@@ -684,6 +690,45 @@ export interface TimeEntriesResponse {
     total_break_hours: number;
     entry_count: number;
   };
+}
+
+export interface PendingApprovalsSummary {
+  total_hours: number;
+  entry_count: number;
+  oldest_work_date: string | null;
+  newest_work_date: string | null;
+  pending_time_entry_count: number;
+  pending_overtime_count: number;
+  manual_count: number;
+  clock_count: number;
+  counts_by_date: Array<{ work_date: string; count: number; hours: number }>;
+}
+
+export interface PendingApprovalsParams {
+  approval_group?: ApprovalGroupFilter;
+  date?: string;
+  start_date?: string;
+  end_date?: string;
+  through_date?: string;
+  since_date?: string;
+  user_id?: number;
+  time_category_id?: number;
+  approval_type?: 'time_entry' | 'overtime' | 'both';
+  entry_method?: 'clock' | 'manual';
+  clock_source?: 'kiosk' | 'mobile' | 'admin' | 'legacy';
+  sort?: 'work_date' | 'created_at' | 'employee' | 'hours' | 'approval_type' | 'category';
+  direction?: 'asc' | 'desc';
+  page?: number;
+  per_page?: number;
+}
+
+export interface PendingApprovalsResponse {
+  pending_entries: TimeEntry[];
+  count: number;
+  pagination?: PaginationMeta & { truncated?: boolean };
+  summary?: PendingApprovalsSummary;
+  filters?: Record<string, string | number>;
+  sort?: { field: string; direction: 'asc' | 'desc' };
 }
 
 export interface HoursReportEntry {
@@ -1163,9 +1208,28 @@ export const api = {
   getClockStatus: () =>
     fetchApi<ClockStatus>('/api/v1/time_entries/current_status'),
 
-  getPendingApprovals: (approvalGroup?: ApprovalGroupFilter) => {
-    const query = approvalGroup ? `?approval_group=${encodeURIComponent(approvalGroup)}` : '';
-    return fetchApi<{ pending_entries: TimeEntry[]; count: number }>(`/api/v1/time_entries/pending_approvals${query}`);
+  getPendingApprovals: (params?: ApprovalGroupFilter | PendingApprovalsParams) => {
+    const searchParams = new URLSearchParams();
+    const normalizedParams: PendingApprovalsParams = typeof params === 'string' ? { approval_group: params } : (params ?? {});
+
+    if (normalizedParams.approval_group) searchParams.set('approval_group', normalizedParams.approval_group);
+    if (normalizedParams.date) searchParams.set('date', normalizedParams.date);
+    if (normalizedParams.start_date) searchParams.set('start_date', normalizedParams.start_date);
+    if (normalizedParams.end_date) searchParams.set('end_date', normalizedParams.end_date);
+    if (normalizedParams.through_date) searchParams.set('through_date', normalizedParams.through_date);
+    if (normalizedParams.since_date) searchParams.set('since_date', normalizedParams.since_date);
+    if (normalizedParams.user_id) searchParams.set('user_id', normalizedParams.user_id.toString());
+    if (normalizedParams.time_category_id) searchParams.set('time_category_id', normalizedParams.time_category_id.toString());
+    if (normalizedParams.approval_type) searchParams.set('approval_type', normalizedParams.approval_type);
+    if (normalizedParams.entry_method) searchParams.set('entry_method', normalizedParams.entry_method);
+    if (normalizedParams.clock_source) searchParams.set('clock_source', normalizedParams.clock_source);
+    if (normalizedParams.sort) searchParams.set('sort', normalizedParams.sort);
+    if (normalizedParams.direction) searchParams.set('direction', normalizedParams.direction);
+    if (normalizedParams.page) searchParams.set('page', normalizedParams.page.toString());
+    if (normalizedParams.per_page) searchParams.set('per_page', normalizedParams.per_page.toString());
+
+    const query = searchParams.toString();
+    return fetchApi<PendingApprovalsResponse>(`/api/v1/time_entries/pending_approvals${query ? `?${query}` : ''}`);
   },
 
   getWhosWorking: () =>

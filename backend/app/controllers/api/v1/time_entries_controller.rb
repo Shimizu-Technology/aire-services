@@ -3,6 +3,10 @@
 module Api
   module V1
     class TimeEntriesController < BaseController
+      PENDING_APPROVAL_SORTS = %w[work_date created_at employee hours approval_type category].freeze
+      PENDING_APPROVAL_DIRECTIONS = %w[asc desc].freeze
+      PENDING_APPROVAL_TYPES = %w[time_entry overtime both].freeze
+
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
@@ -313,11 +317,33 @@ module Api
       def pending_approvals
         return render json: { error: "Admin access required" }, status: :forbidden unless current_user.admin?
 
-        entries = pending_approval_entries_scope.order(created_at: :desc)
+        filters = pending_approval_filter_params
+        return if performed?
+
+        filtered_entries = apply_pending_approval_filters(pending_approval_entries_scope, filters)
+        sorted_entries = apply_pending_approval_sort(filtered_entries, filters[:sort], filters[:direction])
+
+        page = [ (params[:page] || 1).to_i, 1 ].max
+        per_page = (params[:per_page] || 250).to_i.clamp(1, 500)
+        total_count = pending_approval_count(filtered_entries)
+        entries = sorted_entries.offset((page - 1) * per_page).limit(per_page)
 
         render json: {
           pending_entries: entries.map { |e| serialize_time_entry(e) },
-          count: entries.length
+          count: total_count,
+          pagination: {
+            current_page: page,
+            per_page: per_page,
+            total_count: total_count,
+            total_pages: (total_count.to_f / per_page).ceil,
+            truncated: total_count > page * per_page
+          },
+          summary: pending_approvals_summary(filtered_entries),
+          filters: serialize_pending_approval_filters(filters),
+          sort: {
+            field: filters[:sort],
+            direction: filters[:direction]
+          }
         }
       end
 
@@ -658,6 +684,7 @@ module Api
           attendance_status: entry.attendance_status,
           approval_status: entry.approval_status,
           overtime_status: entry.overtime_status,
+          approval_reasons: approval_reasons_for(entry),
           clock_in_at: entry.clock_in_at&.iso8601,
           clock_out_at: entry.clock_out_at&.iso8601,
           approved_by: entry.approved_by ? {
@@ -730,9 +757,238 @@ module Api
         }
       end
 
+      def pending_approval_filter_params
+        exact_date = parse_pending_date_param(:date)
+        return if performed?
+
+        start_date = parse_pending_date_param(:start_date)
+        return if performed?
+
+        end_date = parse_pending_date_param(:end_date)
+        return if performed?
+
+        through_date = parse_pending_date_param(:through_date)
+        return if performed?
+
+        since_date = parse_pending_date_param(:since_date)
+        return if performed?
+
+        if exact_date
+          start_date = exact_date
+          end_date = exact_date
+        end
+
+        if start_date && end_date && end_date < start_date
+          render json: { error: "end_date must be on or after start_date" }, status: :unprocessable_entity
+          return
+        end
+
+        sort = params[:sort].presence || "work_date"
+        sort = "work_date" unless PENDING_APPROVAL_SORTS.include?(sort)
+
+        direction = params[:direction].to_s.downcase
+        direction = "asc" unless PENDING_APPROVAL_DIRECTIONS.include?(direction)
+
+        user_id = positive_integer_filter_param(:user_id)
+        return if performed?
+
+        time_category_id = positive_integer_filter_param(:time_category_id)
+        return if performed?
+
+        approval_type = allowed_filter_param(:approval_type, PENDING_APPROVAL_TYPES)
+        return if performed?
+
+        entry_method = allowed_filter_param(:entry_method, TimeEntry::ENTRY_METHODS)
+        return if performed?
+
+        clock_source = allowed_filter_param(:clock_source, TimeEntry::CLOCK_SOURCES)
+        return if performed?
+
+        {
+          approval_group: params[:approval_group].presence,
+          start_date: start_date,
+          end_date: end_date,
+          through_date: through_date,
+          since_date: since_date,
+          user_id: user_id,
+          time_category_id: time_category_id,
+          approval_type: approval_type,
+          entry_method: entry_method,
+          clock_source: clock_source,
+          sort: sort,
+          direction: direction
+        }
+      end
+
+      def parse_pending_date_param(key)
+        return nil if params[key].blank?
+
+        Date.iso8601(params[key].to_s)
+      rescue Date::Error
+        render json: { error: "#{key} must be a valid ISO 8601 date (YYYY-MM-DD)" }, status: :unprocessable_entity
+        nil
+      end
+
+      def positive_integer_filter_param(key)
+        return nil if params[key].blank?
+
+        value = Integer(params[key], 10)
+        return value if value.positive?
+
+        render json: { error: "#{key} must be a positive integer" }, status: :unprocessable_entity
+        nil
+      rescue ArgumentError
+        render json: { error: "#{key} must be a positive integer" }, status: :unprocessable_entity
+        nil
+      end
+
+      def allowed_filter_param(key, allowed_values)
+        return nil if params[key].blank?
+
+        value = params[key].to_s
+        return value if allowed_values.include?(value)
+
+        render json: { error: "#{key} is not supported" }, status: :unprocessable_entity
+        nil
+      end
+
+      def serialize_pending_approval_filters(filters)
+        filters.compact.transform_values do |value|
+          value.respond_to?(:iso8601) ? value.iso8601 : value
+        end
+      end
+
+      def apply_pending_approval_filters(entries, filters)
+        return entries if performed?
+
+        if filters[:start_date] && filters[:end_date]
+          entries = entries.where(work_date: filters[:start_date]..filters[:end_date])
+        elsif filters[:start_date]
+          entries = entries.where("time_entries.work_date >= ?", filters[:start_date])
+        elsif filters[:end_date]
+          entries = entries.where("time_entries.work_date <= ?", filters[:end_date])
+        end
+
+        entries = entries.where("time_entries.work_date <= ?", filters[:through_date]) if filters[:through_date]
+        entries = entries.where("time_entries.work_date >= ?", filters[:since_date]) if filters[:since_date]
+        entries = entries.where(user_id: filters[:user_id]) if filters[:user_id]
+        entries = entries.where(time_category_id: filters[:time_category_id]) if filters[:time_category_id]
+        entries = entries.where(entry_method: filters[:entry_method]) if filters[:entry_method]
+        entries = entries.where(clock_source: filters[:clock_source]) if filters[:clock_source]
+
+        case filters[:approval_type]
+        when "time_entry"
+          entries = entries.where(approval_status: "pending")
+        when "overtime"
+          entries = entries.where(overtime_status: "pending")
+        when "both"
+          entries = entries.where(approval_status: "pending", overtime_status: "pending")
+        end
+
+        entries
+      end
+
+      def apply_pending_approval_sort(entries, sort, direction)
+        dir = direction == "desc" ? :desc : :asc
+        direction_method = dir == :desc ? :desc : :asc
+        time_entries_table = TimeEntry.arel_table
+
+        case sort
+        when "created_at"
+          entries.order(created_at: dir, work_date: :asc, start_time: :asc, id: :asc)
+        when "employee"
+          users_table = User.arel_table
+          entries.joins(:user).order(
+            lower_order(users_table[:last_name], direction_method),
+            lower_order(users_table[:first_name], direction_method),
+            lower_order(users_table[:email], direction_method),
+            work_date: :asc,
+            start_time: :asc,
+            id: :asc
+          )
+        when "hours"
+          entries.order(hours: dir, work_date: :asc, start_time: :asc, id: :asc)
+        when "approval_type"
+          entries.order(
+            approval_type_order(time_entries_table, direction_method),
+            work_date: :asc,
+            start_time: :asc,
+            id: :asc
+          )
+        when "category"
+          categories_table = TimeCategory.arel_table
+          entries.left_outer_joins(:time_category).order(
+            lower_order(categories_table[:name], direction_method),
+            work_date: :asc,
+            start_time: :asc,
+            id: :asc
+          )
+        else
+          entries.order(work_date: dir, start_time: dir, created_at: dir, id: dir)
+        end
+      end
+
+      def lower_order(attribute, direction_method)
+        Arel::Nodes::NamedFunction.new("LOWER", [ attribute ]).public_send(direction_method)
+      end
+
+      def approval_type_order(time_entries_table, direction_method)
+        Arel::Nodes::Case.new
+          .when(time_entries_table[:approval_status].eq("pending").and(time_entries_table[:overtime_status].eq("pending"))).then(0)
+          .when(time_entries_table[:approval_status].eq("pending")).then(1)
+          .when(time_entries_table[:overtime_status].eq("pending")).then(2)
+          .else(3)
+          .public_send(direction_method)
+      end
+
+      def pending_approval_count(entries)
+        pending_approval_summary_scope(entries).count
+      end
+
+      def pending_approvals_summary(entries)
+        scope = pending_approval_summary_scope(entries)
+        row = scope.pick(
+          Arel.sql("COALESCE(SUM(time_entries.hours), 0)"),
+          Arel.sql("COUNT(time_entries.id)"),
+          Arel.sql("MIN(time_entries.work_date)"),
+          Arel.sql("MAX(time_entries.work_date)"),
+          Arel.sql("SUM(CASE WHEN time_entries.approval_status = 'pending' THEN 1 ELSE 0 END)"),
+          Arel.sql("SUM(CASE WHEN time_entries.overtime_status = 'pending' THEN 1 ELSE 0 END)"),
+          Arel.sql("SUM(CASE WHEN time_entries.entry_method = 'manual' THEN 1 ELSE 0 END)"),
+          Arel.sql("SUM(CASE WHEN time_entries.entry_method = 'clock' THEN 1 ELSE 0 END)")
+        )
+        total_hours, entry_count, oldest_work_date, newest_work_date, pending_time_count, pending_overtime_count, manual_count, clock_count = row || [ 0, 0, nil, nil, 0, 0, 0, 0 ]
+
+        counts_by_date = scope.group(:work_date).order(:work_date).pluck(
+          :work_date,
+          Arel.sql("COUNT(time_entries.id)"),
+          Arel.sql("COALESCE(SUM(time_entries.hours), 0)")
+        ).map do |date, count, hours|
+          { work_date: date.iso8601, count: count.to_i, hours: hours.to_f.round(2) }
+        end
+
+        {
+          total_hours: total_hours.to_f.round(2),
+          entry_count: entry_count.to_i,
+          oldest_work_date: oldest_work_date&.iso8601,
+          newest_work_date: newest_work_date&.iso8601,
+          pending_time_entry_count: pending_time_count.to_i,
+          pending_overtime_count: pending_overtime_count.to_i,
+          manual_count: manual_count.to_i,
+          clock_count: clock_count.to_i,
+          counts_by_date: counts_by_date
+        }
+      end
+
+      def pending_approval_summary_scope(entries)
+        ids_scope = entries.except(:includes, :eager_load, :preload, :order, :limit, :offset).select("time_entries.id")
+        TimeEntry.where(id: ids_scope)
+      end
+
       def pending_approval_entries_scope
-        base_scope = TimeEntry.eager_load({ user: :user_approval_groups }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
-        entries = base_scope.where(approval_status: "pending").or(base_scope.where(overtime_status: "pending"))
+        entries = TimeEntry
+          .preload({ user: :user_approval_groups }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
+          .where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
 
         approval_group = params[:approval_group].to_s
         return entries if approval_group.blank?
@@ -745,6 +1001,34 @@ module Api
         else
           entries
         end
+      end
+
+      def approval_reasons_for(entry)
+        reasons = []
+        note = entry.approval_note.to_s.downcase
+
+        if entry.approval_status == "pending"
+          if note.include?("corrected clock-out")
+            reasons << { key: "corrected_clock_out", label: "Corrected clock-out" }
+          end
+
+          if note.include?("employee edited")
+            reasons << { key: "employee_edited", label: "Employee edited" }
+          end
+
+          if entry.manual_entry?
+            reasons << { key: "manual_entry", label: "Manual entry" }
+          elsif entry.clock_entry? && (entry.schedule_id.blank? || note.include?("without a schedule"))
+            reasons << { key: "unscheduled_clock", label: "Unscheduled clock" }
+          elsif reasons.empty?
+            reasons << { key: "time_review", label: "Needs time review" }
+          end
+        end
+
+        reasons << { key: "overtime", label: "Overtime" } if entry.overtime_status == "pending"
+        reasons << { key: "admin_override", label: "Admin override" } if entry.admin_override?
+
+        reasons.uniq { |reason| reason[:key] }
       end
 
       def clock_location_params
