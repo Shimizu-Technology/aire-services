@@ -46,16 +46,25 @@ module Payroll
 
     def serialize_user(user, user_entries)
       countable = user_entries.select { |entry| countable?(entry) }
+      overtime_allocations = allocate_weekly_overtime(countable)
       grouped_days = countable.group_by(&:work_date).sort_by { |date, _| date }
 
       days = grouped_days.map do |date, entries|
         categories = entries.group_by(&:time_category).map do |category, category_entries|
+          regular_hours = category_entries.sum { |entry| overtime_allocations.fetch(entry.id, {})[:regular_hours].to_f }
+          overtime_hours = category_entries.sum { |entry| overtime_allocations.fetch(entry.id, {})[:overtime_hours].to_f }
+          effective_rate_values = category_entries.filter_map(&:effective_rate_cents_snapshot).uniq
+
           {
             source_category_id: category&.id&.to_s,
             key: category&.key,
             name: category&.name || "Uncategorized",
             hours: round_hours(category_entries.sum { |entry| entry.hours.to_f }),
-            effective_rate_cents: category_entries.filter_map(&:effective_rate_cents_snapshot).first,
+            total_hours: round_hours(category_entries.sum { |entry| entry.hours.to_f }),
+            regular_hours: round_hours(regular_hours),
+            overtime_hours: round_hours(overtime_hours),
+            effective_rate_cents: effective_rate_values.first,
+            effective_rate_cents_values: effective_rate_values,
             entry_ids: category_entries.map(&:id)
           }
         end
@@ -63,6 +72,9 @@ module Payroll
         {
           work_date: date.iso8601,
           hours: round_hours(entries.sum { |entry| entry.hours.to_f }),
+          total_hours: round_hours(entries.sum { |entry| entry.hours.to_f }),
+          regular_hours: round_hours(entries.sum { |entry| overtime_allocations.fetch(entry.id, {})[:regular_hours].to_f }),
+          overtime_hours: round_hours(entries.sum { |entry| overtime_allocations.fetch(entry.id, {})[:overtime_hours].to_f }),
           entry_ids: entries.map(&:id),
           categories: categories
         }
@@ -82,7 +94,9 @@ module Payroll
         is_intern: user.is_intern,
         employee_type: user.is_intern? ? "Intern" : "Staff",
         days: days,
-        total_hours: round_hours(days.sum { |day| day[:hours].to_f }),
+        total_hours: round_hours(days.sum { |day| day[:total_hours].to_f }),
+        regular_hours: round_hours(days.sum { |day| day[:regular_hours].to_f }),
+        overtime_hours: round_hours(days.sum { |day| day[:overtime_hours].to_f }),
         entries_count: countable.size,
         issues: issues,
         ready: issues.values_at(:pending_count, :pending_overtime_count, :denied_count, :denied_overtime_count, :open_clock_count).all?(&:zero?)
@@ -112,15 +126,40 @@ module Payroll
 
     def summary(entries)
       countable = entries.select { |entry| countable?(entry) }
+      overtime_allocations = allocate_weekly_overtime(countable)
       {
         employee_count: entries.map(&:user_id).uniq.size,
         countable_hours: sum_hours(countable),
+        regular_hours: round_hours(countable.sum { |entry| overtime_allocations.fetch(entry.id, {})[:regular_hours].to_f }),
+        overtime_hours: round_hours(countable.sum { |entry| overtime_allocations.fetch(entry.id, {})[:overtime_hours].to_f }),
         pending_count: entries.count { |entry| entry.approval_status == "pending" },
         denied_count: entries.count { |entry| entry.approval_status == "denied" },
         pending_overtime_count: entries.count { |entry| entry.overtime_status == "pending" },
         denied_overtime_count: entries.count { |entry| entry.overtime_status == "denied" },
         open_clock_count: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) }
       }
+    end
+
+    def allocate_weekly_overtime(entries)
+      allocations = {}
+      entries.group_by { |entry| entry.work_date.beginning_of_week(:sunday) }.each_value do |week_entries|
+        cumulative = 0.0
+        week_entries.sort_by { |entry| [ entry.work_date, entry_sort_seconds(entry), entry.created_at, entry.id ] }.each do |entry|
+          hours = entry.hours.to_f
+          regular = [ [ 40.0 - cumulative, 0.0 ].max, hours ].min
+          overtime = [ hours - regular, 0.0 ].max
+          allocations[entry.id] = {
+            regular_hours: round_hours(regular),
+            overtime_hours: round_hours(overtime)
+          }
+          cumulative += hours
+        end
+      end
+      allocations
+    end
+
+    def entry_sort_seconds(entry)
+      entry.start_time&.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)&.seconds_since_midnight || 0
     end
 
     def countable?(entry)
