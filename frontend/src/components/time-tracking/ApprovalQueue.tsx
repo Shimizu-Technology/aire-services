@@ -536,7 +536,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
       <div className="bg-white rounded-2xl shadow-sm border border-red-200 p-5">
         <div className="flex items-center gap-2.5 mb-2">
           <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
           </svg>
           <h3 className="font-semibold text-red-700 text-sm">Could not load pending approvals</h3>
         </div>
