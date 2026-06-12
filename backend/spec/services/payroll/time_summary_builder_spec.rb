@@ -29,6 +29,33 @@ RSpec.describe Payroll::TimeSummaryBuilder do
       expect(payload.fetch(:employees)).to all(include(regular_hours: 30.0, overtime_hours: 0.0))
     end
 
+    it "uses same-week context outside a mid-week report range for overtime allocation" do
+      user = create(:user, first_name: "Carla", last_name: "CFI")
+      category = create(:time_category, name: "Flight Instruction", key: "aire_flight_instruction")
+      zone = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+
+      (Date.new(2026, 5, 18)..Date.new(2026, 5, 22)).each do |work_date|
+        create(:time_entry,
+          user: user,
+          time_category: category,
+          work_date: work_date,
+          start_time: zone.local(2000, 1, 1, 0, 0, 0),
+          end_time: zone.local(2000, 1, 1, 10, 0, 0))
+      end
+
+      payload = described_class.new(start_date: "2026-05-21", end_date: "2026-05-22").call
+      employee = payload.fetch(:employees).first
+
+      expect(employee).to include(
+        total_hours: 20.0,
+        regular_hours: 10.0,
+        overtime_hours: 10.0
+      )
+      expect(payload.dig(:summary, :countable_hours)).to eq(20.0)
+      expect(payload.dig(:summary, :regular_hours)).to eq(10.0)
+      expect(payload.dig(:summary, :overtime_hours)).to eq(10.0)
+    end
+
     it "exports category-level regular and overtime hours for payroll imports" do
       user = create(:user, first_name: "Carla", last_name: "CFI")
       flight = create(:time_category, name: "Flight Instruction", key: "aire_flight_instruction", hourly_rate_cents: 7_500)

@@ -20,8 +20,11 @@ module Payroll
       staff_user_ids = users.map(&:id)
       entries = entries.select { |entry| staff_user_ids.include?(entry.user_id) }
       entries_by_user_id = entries.group_by(&:user_id)
+      overtime_entries_by_user_id = overtime_context_entries_for(staff_user_ids).group_by(&:user_id)
 
-      employees = users.map { |user| serialize_user(user, entries_by_user_id.fetch(user.id, [])) }
+      employees = users.map do |user|
+        serialize_user(user, entries_by_user_id.fetch(user.id, []), overtime_entries_by_user_id.fetch(user.id, []))
+      end
 
       {
         source: SOURCE,
@@ -46,9 +49,18 @@ module Payroll
       TimeEntry.where(work_date: start_date..end_date)
     end
 
-    def serialize_user(user, user_entries)
+    def overtime_context_entries_for(user_ids)
+      return [] if user_ids.blank?
+
+      TimeEntry.where(
+        user_id: user_ids,
+        work_date: start_date.beginning_of_week(:sunday)..end_date.end_of_week(:sunday)
+      ).to_a
+    end
+
+    def serialize_user(user, user_entries, overtime_entries)
       countable = user_entries.select { |entry| countable?(entry) }
-      overtime_allocations = allocate_weekly_overtime(countable)
+      overtime_allocations = allocate_weekly_overtime(overtime_entries.select { |entry| countable?(entry) })
       grouped_days = countable.group_by(&:work_date).sort_by { |date, _| date }
 
       days = grouped_days.map do |date, entries|
