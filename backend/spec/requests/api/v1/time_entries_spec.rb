@@ -593,6 +593,11 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(response).to have_http_status(:ok)
       ids = json[:pending_entries].map { |entry| entry[:id] }
       expect(ids).to include(cfi_entry.id, ops_entry.id, unassigned_entry.id)
+
+      counts_by_group = json.dig(:summary, :counts_by_approval_group).index_by { |row| row[:key] }
+      expect(counts_by_group.dig("cfi", :count)).to eq(1)
+      expect(counts_by_group.dig("ops_maintenance", :count)).to eq(1)
+      expect(counts_by_group.dig("unassigned", :count)).to eq(1)
     end
 
     it "filters pending entries by approval group" do
@@ -615,6 +620,71 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       ids = json[:pending_entries].map { |entry| entry[:id] }
       expect(ids).to contain_exactly(unassigned_entry.id)
       expect(json.dig(:pending_entries, 0, :user, :approval_group)).to be_nil
+    end
+
+    it "orders pending approvals by oldest worked time first by default" do
+      tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+      cfi_entry.update!(work_date: Date.new(2026, 6, 7), start_time: tz.local(2000, 1, 1, 12, 0), end_time: tz.local(2000, 1, 1, 14, 0))
+      ops_entry.update!(work_date: Date.new(2026, 5, 31), start_time: tz.local(2000, 1, 1, 8, 0), end_time: tz.local(2000, 1, 1, 9, 30))
+      unassigned_entry.update!(work_date: Date.new(2026, 6, 2), start_time: tz.local(2000, 1, 1, 9, 0), end_time: tz.local(2000, 1, 1, 11, 0))
+
+      get "/api/v1/time_entries/pending_approvals", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:pending_entries].map { |entry| entry[:id] }).to eq([ ops_entry.id, unassigned_entry.id, cfi_entry.id ])
+      expect(json.dig(:summary, :oldest_work_date)).to eq("2026-05-31")
+      expect(json.dig(:summary, :newest_work_date)).to eq("2026-06-07")
+      expect(json.dig(:summary, :entry_count)).to eq(3)
+    end
+
+    it "filters pending approvals on or before a selected date" do
+      cfi_entry.update!(work_date: Date.new(2026, 6, 7))
+      ops_entry.update!(work_date: Date.new(2026, 5, 31))
+      unassigned_entry.update!(work_date: Date.new(2026, 6, 2))
+
+      get "/api/v1/time_entries/pending_approvals",
+          params: { through_date: "2026-06-02" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:pending_entries].map { |entry| entry[:id] }).to eq([ ops_entry.id, unassigned_entry.id ])
+      expect(json.dig(:summary, :entry_count)).to eq(2)
+    end
+
+    it "combines date range and approval type filters" do
+      cfi_entry.update!(work_date: Date.new(2026, 6, 5))
+      ops_entry.update!(work_date: Date.new(2026, 6, 6), approval_status: "approved", overtime_status: "pending")
+      unassigned_entry.update!(work_date: Date.new(2026, 6, 7))
+
+      get "/api/v1/time_entries/pending_approvals",
+          params: { start_date: "2026-06-06", end_date: "2026-06-07", approval_type: "overtime" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:pending_entries].map { |entry| entry[:id] }).to eq([ ops_entry.id ])
+      expect(json.dig(:summary, :pending_overtime_count)).to eq(1)
+    end
+
+    it "sorts pending approvals by created time when requested" do
+      cfi_entry.update_columns(created_at: Time.zone.parse("2026-06-01 10:00:00"), updated_at: Time.zone.parse("2026-06-01 10:00:00"))
+      ops_entry.update_columns(created_at: Time.zone.parse("2026-06-03 10:00:00"), updated_at: Time.zone.parse("2026-06-03 10:00:00"))
+      unassigned_entry.update_columns(created_at: Time.zone.parse("2026-06-02 10:00:00"), updated_at: Time.zone.parse("2026-06-02 10:00:00"))
+
+      get "/api/v1/time_entries/pending_approvals",
+          params: { sort: "created_at", direction: "desc" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:pending_entries].map { |entry| entry[:id] }).to eq([ ops_entry.id, unassigned_entry.id, cfi_entry.id ])
+    end
+
+    it "returns a validation error for invalid date filters" do
+      get "/api/v1/time_entries/pending_approvals",
+          params: { through_date: "not-a-date" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to eq("through_date must be a valid ISO 8601 date (YYYY-MM-DD)")
     end
   end
 

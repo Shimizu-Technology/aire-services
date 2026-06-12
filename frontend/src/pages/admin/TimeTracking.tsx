@@ -224,13 +224,15 @@ export default function TimeTracking() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  // Tab: 'entries', 'reports', or 'leave' — respect ?tab=... from deep links
-  const [activeTab, setActiveTab] = useState<'entries' | 'reports' | 'leave'>(
+  // Tab: 'entries', 'approvals', 'reports', or 'leave' — respect ?tab=... from deep links
+  const [activeTab, setActiveTab] = useState<'entries' | 'approvals' | 'reports' | 'leave'>(
     searchParams.get('tab') === 'reports'
       ? 'reports'
-      : searchParams.get('tab') === 'leave'
-        ? 'leave'
-        : 'entries'
+      : searchParams.get('tab') === 'approvals'
+        ? 'approvals'
+        : searchParams.get('tab') === 'leave'
+          ? 'leave'
+          : 'entries'
   )
   
   // View mode: 'day' or 'week'
@@ -836,6 +838,19 @@ export default function TimeTracking() {
           </button>
           {isAdmin && (
             <button
+              onClick={() => setActiveTab('approvals')}
+              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+                activeTab === 'approvals'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-text-muted hover:text-primary-dark'
+              }`}
+            >
+              <ClockIcon />
+              Approvals
+            </button>
+          )}
+          {isAdmin && (
+            <button
               onClick={() => setActiveTab('reports')}
               className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
                 activeTab === 'reports'
@@ -861,24 +876,22 @@ export default function TimeTracking() {
         </nav>
       </div>
 
-      {activeTab !== 'leave' && (
+      {activeTab === 'entries' && (
         <>
           {/* Clock In/Out Card - full width, horizontal on desktop */}
           <ClockInOutCard onStatusChange={() => loadEntries()} />
 
-          {/* Admin Panels */}
-          {isAdmin && (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <ApprovalQueue
-                approvalGroups={approvalGroups}
-                approvalGroupsLoaded={approvalGroupsLoaded}
-                onUpdate={() => loadEntries()}
-                canDeleteEntry={canDeleteEntry}
-              />
-              <WhosWorking />
-            </div>
-          )}
+          {isAdmin && <WhosWorking />}
         </>
+      )}
+
+      {activeTab === 'approvals' && isAdmin && (
+        <ApprovalQueue
+          approvalGroups={approvalGroups}
+          approvalGroupsLoaded={approvalGroupsLoaded}
+          onUpdate={() => loadEntries()}
+          canDeleteEntry={canDeleteEntry}
+        />
       )}
 
       {/* Entries Tab */}

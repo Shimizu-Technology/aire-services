@@ -13,6 +13,11 @@ const actionLinks = [
     href: '/admin/time',
   },
   {
+    title: 'Pending Approvals',
+    description: 'Filter by date, review oldest hours first, and clear payroll cutoffs.',
+    href: '/admin/time?tab=approvals',
+  },
+  {
     title: 'Leave Requests',
     description: 'Submit your own time off and review employee leave requests.',
     href: '/admin/time?tab=leave',
