@@ -4,7 +4,7 @@ import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAuto
 import { FadeUp } from '../../components/ui/MotionComponents'
 import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
-import type { PublicContactInfoSettings, PublicPhoneContactChannel } from '../../lib/businessInfo'
+import type { PublicContactInfoSettings, PublicPhoneContactChannel, PublicPhoneContactSettings } from '../../lib/businessInfo'
 
 const emptyCategoryForm = {
   name: '',
@@ -13,16 +13,33 @@ const emptyCategoryForm = {
   is_active: true,
 }
 
-const emptyPhoneContact = {
+type PublicPhoneContactDraft = PublicPhoneContactSettings & { draft_id: string }
+type PublicContactDraft = Omit<PublicContactInfoSettings, 'phone_contacts'> & { phone_contacts: PublicPhoneContactDraft[] }
+
+const createPhoneContactDraftId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `phone-contact-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+const toPhoneContactDraft = (contact: PublicPhoneContactSettings): PublicPhoneContactDraft => ({
+  ...contact,
+  draft_id: createPhoneContactDraftId(),
+})
+
+const createEmptyPhoneContact = (): PublicPhoneContactDraft => ({
+  draft_id: createPhoneContactDraftId(),
   label: '',
   phone_display: '',
   phone_e164: '',
   channel: 'phone' as PublicPhoneContactChannel,
-}
+})
 
-const withDefaultPhoneContacts = (settings: PublicContactInfoSettings): PublicContactInfoSettings => ({
+const withDefaultPhoneContacts = (settings: PublicContactInfoSettings): PublicContactDraft => ({
   ...settings,
-  phone_contacts: settings.phone_contacts?.length ? settings.phone_contacts : defaultPublicPhoneContacts,
+  phone_contacts: (settings.phone_contacts?.length ? settings.phone_contacts : defaultPublicPhoneContacts).map(toPhoneContactDraft),
 })
 
 const normalizeApprovalGroupKey = (value: string) => (
@@ -127,7 +144,7 @@ export default function Settings() {
   const [approvalGroupDrafts, setApprovalGroupDrafts] = useState<ApprovalGroupOption[]>([{ key: '', label: '' }])
   const [contactNotificationEmailsDraft, setContactNotificationEmailsDraft] = useState('')
   const [inquiryTopicsDraft, setInquiryTopicsDraft] = useState<string[]>([''])
-  const [publicContactDraft, setPublicContactDraft] = useState<PublicContactInfoSettings>(defaultPublicContactSettings)
+  const [publicContactDraft, setPublicContactDraft] = useState<PublicContactDraft>(withDefaultPhoneContacts(defaultPublicContactSettings))
   const [socialLinksDraft, setSocialLinksDraft] = useState<SocialLink[]>(defaultSocialLinks)
   const [loading, setLoading] = useState(true)
   const [categoriesError, setCategoriesError] = useState('')
@@ -711,7 +728,7 @@ export default function Settings() {
   const addPublicPhoneContactDraft = () => {
     setPublicContactDraft((current) => ({
       ...current,
-      phone_contacts: [...current.phone_contacts, { ...emptyPhoneContact }],
+      phone_contacts: [...current.phone_contacts, createEmptyPhoneContact()],
     }))
   }
 
@@ -719,7 +736,7 @@ export default function Settings() {
     setPublicContactDraft((current) => ({
       ...current,
       phone_contacts: current.phone_contacts.length === 1
-        ? [{ ...emptyPhoneContact }]
+        ? [createEmptyPhoneContact()]
         : current.phone_contacts.filter((_, contactIndex) => contactIndex !== index),
     }))
   }
@@ -1225,7 +1242,7 @@ export default function Settings() {
 
                     <div className="mt-4 space-y-3">
                       {publicContactDraft.phone_contacts.map((contact, index) => (
-                        <div key={`public-phone-contact-${index}`} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.7fr_auto]">
+                        <div key={contact.draft_id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.7fr_auto]">
                           <div>
                             <label htmlFor={`public-phone-contact-label-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Purpose label</label>
                             <input
