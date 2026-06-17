@@ -164,8 +164,15 @@ export function buildAireBusinessInfo(settings?: Partial<PublicContactInfoSettin
     ...settings,
   }
 
-  const phoneDisplay = valueOrDefault(merged.phone_display, defaultPublicContactSettings.phone_display)
-  const phoneE164 = normalizePhoneE164(valueOrDefault(merged.phone_e164, defaultPublicContactSettings.phone_e164))
+  const phoneContacts = buildPhoneContacts(merged)
+  const configuredPhoneDisplay = valueOrDefault(merged.phone_display, defaultPublicContactSettings.phone_display)
+  const configuredPrimaryE164 = normalizePhoneE164(valueOrDefault(merged.phone_e164, defaultPublicContactSettings.phone_e164))
+  const hasConfiguredPhoneContacts = Array.isArray(settings?.phone_contacts) && settings.phone_contacts.length > 0
+  const primaryPhone = hasConfiguredPhoneContacts
+    ? phoneContacts.find((contact) => contact.e164 === configuredPrimaryE164) || phoneContacts[0]
+    : null
+  const phoneDisplay = primaryPhone?.display || configuredPhoneDisplay
+  const phoneE164 = primaryPhone?.e164 || configuredPrimaryE164
   const publicEmail = valueOrDefault(merged.email, defaultPublicContactSettings.email)
 
   return {
@@ -176,7 +183,7 @@ export function buildAireBusinessInfo(settings?: Partial<PublicContactInfoSettin
       href: `tel:${phoneE164}`,
       schema: formatSchemaPhone(phoneE164),
     },
-    phoneContacts: buildPhoneContacts(merged),
+    phoneContacts,
     email: {
       display: publicEmail,
       href: `mailto:${publicEmail}`,
