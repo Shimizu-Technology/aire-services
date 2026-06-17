@@ -108,6 +108,15 @@ export function PhoneIcon({ className = 'h-5 w-5' }: { className?: string }) {
   )
 }
 
+export function MessageIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.9} d="M5.25 6.75A3.25 3.25 0 0 1 8.5 3.5h7A3.25 3.25 0 0 1 18.75 6.75v5.5A3.25 3.25 0 0 1 15.5 15.5h-3.6l-4.15 4v-4A3.25 3.25 0 0 1 5.25 12.25v-5.5Z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.9} d="M8.75 8.25h6.5M8.75 11.25h4.75" />
+    </svg>
+  )
+}
+
 export function MailIcon({ className = 'h-5 w-5' }: { className?: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

@@ -40,12 +40,20 @@ describe('AireContact', () => {
     apiMock.submitContact.mockReset()
   })
 
-  it('renders direct phone and email links', async () => {
+  it('renders direct phone, WhatsApp, and email links', async () => {
     renderPage()
 
     await screen.findByRole('button', { name: 'Private Pilot Certificate' })
 
-    expect(screen.getByRole('link', { name: aireBusinessInfo.phone.display })).toHaveAttribute('href', aireBusinessInfo.phone.href)
+    const primaryPhone = aireBusinessInfo.phoneContacts[0]
+    const whatsappPhone = aireBusinessInfo.phoneContacts.find((contact) => contact.channel === 'whatsapp')
+
+    expect(screen.getByText(primaryPhone.display).closest('a')).toHaveAttribute('href', primaryPhone.href)
+    expect(whatsappPhone).toBeTruthy()
+    const whatsappLink = screen.getByText(whatsappPhone!.display).closest('a')
+    expect(whatsappLink).toHaveAttribute('href', whatsappPhone!.href)
+    expect(whatsappLink).toHaveAttribute('target', '_blank')
+    expect(whatsappLink).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByRole('link', { name: aireBusinessInfo.email.display })).toHaveAttribute('href', aireBusinessInfo.email.href)
     expect(screen.getByText(aireAddressDisplay)).toBeInTheDocument()
   })

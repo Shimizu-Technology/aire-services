@@ -56,7 +56,16 @@ describe('PublicBusinessInfoProvider', () => {
         public_contact: {
           ...defaultPublicContactSettings,
           phone_display: '(671) 555-0100',
+          phone_e164: '+16715550100',
           email: 'frontdesk@example.com',
+          phone_contacts: [
+            {
+              label: 'Tours and training',
+              phone_display: '(671) 555-0100',
+              phone_e164: '+16715550100',
+              channel: 'phone',
+            },
+          ],
         },
         inquiry_topics: ['Tours', 'Training'],
         social_links: [

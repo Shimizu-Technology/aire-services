@@ -11,6 +11,7 @@ import {
   ArrowRightIcon,
   CameraIcon,
   MailIcon,
+  MessageIcon,
   PhoneIcon,
   PinIcon,
   PublicButtonLink,
@@ -34,7 +35,6 @@ export default function AireContact() {
   const inquiryTopics = usePublicInquiryTopics()
   const socialLinks = usePublicSocialLinks()
   const contactPoints = [
-    { label: 'Phone', value: businessInfo.phone.display, href: businessInfo.phone.href, icon: PhoneIcon },
     { label: 'Email', value: businessInfo.email.display, href: businessInfo.email.href, icon: MailIcon },
     { label: 'Location', value: aireAddressDisplayFor(businessInfo), icon: PinIcon },
   ]
@@ -124,6 +124,37 @@ export default function AireContact() {
                 <div>
                   <h2 className="text-2xl font-bold tracking-tight text-slate-950">Direct contact information</h2>
                   <div className="mt-5 space-y-3">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Phone & messaging</p>
+                      <div className="mt-4 space-y-3">
+                        {businessInfo.phoneContacts.map((contact) => {
+                          const Icon = contact.channel === 'whatsapp' ? MessageIcon : PhoneIcon
+                          const isWhatsApp = contact.channel === 'whatsapp'
+
+                          return (
+                            <a
+                              key={`${contact.channel}-${contact.e164}-${contact.label}`}
+                              href={contact.href}
+                              target={isWhatsApp ? '_blank' : undefined}
+                              rel={isWhatsApp ? 'noopener noreferrer' : undefined}
+                              className="group grid min-h-16 grid-cols-[auto_1fr_auto] items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-50/70"
+                            >
+                              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm ring-1 ring-slate-200 group-hover:ring-cyan-200">
+                                <Icon className="h-5 w-5" />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{contact.label}</span>
+                                <span className="mt-1 block text-sm font-bold text-slate-950">{contact.display}</span>
+                              </span>
+                              <span className="hidden rounded-full border border-cyan-200 bg-white px-3 py-1 text-xs font-bold text-cyan-700 sm:inline-flex">
+                                {contact.actionLabel}
+                              </span>
+                            </a>
+                          )
+                        })}
+                      </div>
+                    </div>
+
                     {contactPoints.map((item) => {
                       const Icon = item.icon
                       return (
