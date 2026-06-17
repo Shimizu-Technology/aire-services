@@ -92,7 +92,6 @@ module Api
           required_keys = %w[phone_display phone_e164 email street_address address_region postal_code]
           raw_public_contact.blank? || required_keys.any? { |key| raw_public_contact[key].blank? }
         end
-
       end
     end
   end

@@ -50,7 +50,10 @@ describe('AireContact', () => {
 
     expect(screen.getByText(primaryPhone.display).closest('a')).toHaveAttribute('href', primaryPhone.href)
     expect(whatsappPhone).toBeTruthy()
-    expect(screen.getByText(whatsappPhone!.display).closest('a')).toHaveAttribute('href', whatsappPhone!.href)
+    const whatsappLink = screen.getByText(whatsappPhone!.display).closest('a')
+    expect(whatsappLink).toHaveAttribute('href', whatsappPhone!.href)
+    expect(whatsappLink).toHaveAttribute('target', '_blank')
+    expect(whatsappLink).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByRole('link', { name: aireBusinessInfo.email.display })).toHaveAttribute('href', aireBusinessInfo.email.href)
     expect(screen.getByText(aireAddressDisplay)).toBeInTheDocument()
   })

@@ -176,7 +176,7 @@ export function buildAireBusinessInfo(settings?: Partial<PublicContactInfoSettin
       href: `tel:${phoneE164}`,
       schema: formatSchemaPhone(phoneE164),
     },
-    phoneContacts: buildPhoneContacts(settings),
+    phoneContacts: buildPhoneContacts(merged),
     email: {
       display: publicEmail,
       href: `mailto:${publicEmail}`,
