@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { aireAddressFooterFor } from '../../lib/businessInfo'
 import { usePublicBusinessInfo, usePublicSocialLinks } from '../../contexts/publicBusinessInfo'
-import { ArrowRightIcon, MailIcon, PhoneIcon, PinIcon, PublicButtonLink, SocialIcon } from '../public/PublicPrimitives'
+import { ArrowRightIcon, MailIcon, MessageIcon, PhoneIcon, PinIcon, PublicButtonLink, SocialIcon } from '../public/PublicPrimitives'
 
 const siteLinks = [
   { label: 'Home', href: '/' },
@@ -78,12 +78,27 @@ export default function Footer() {
                 <span className="mt-0.5 text-cyan-200"><PinIcon className="h-4 w-4" /></span>
                 <span>{aireAddressFooterFor(businessInfo)}</span>
               </li>
-              <li>
-                <a href={businessInfo.phone.href} className="flex min-h-10 items-center gap-3 transition hover:text-white">
-                  <span className="text-cyan-200"><PhoneIcon className="h-4 w-4" /></span>
-                  <span>{businessInfo.phone.display}</span>
-                </a>
-              </li>
+              {businessInfo.phoneContacts.map((contact) => {
+                const Icon = contact.channel === 'whatsapp' ? MessageIcon : PhoneIcon
+                const isWhatsApp = contact.channel === 'whatsapp'
+
+                return (
+                  <li key={`${contact.channel}-${contact.e164}-${contact.label}`}>
+                    <a
+                      href={contact.href}
+                      target={isWhatsApp ? '_blank' : undefined}
+                      rel={isWhatsApp ? 'noopener noreferrer' : undefined}
+                      className="flex min-h-10 items-start gap-3 transition hover:text-white"
+                    >
+                      <span className="mt-1 text-cyan-200"><Icon className="h-4 w-4" /></span>
+                      <span>
+                        <span className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{contact.label}</span>
+                        <span className="mt-1 block text-slate-300">{contact.display}</span>
+                      </span>
+                    </a>
+                  </li>
+                )
+              })}
               <li>
                 <a href={businessInfo.email.href} className="flex min-h-10 items-center gap-3 transition hover:text-white">
                   <span className="text-cyan-200"><MailIcon className="h-4 w-4" /></span>

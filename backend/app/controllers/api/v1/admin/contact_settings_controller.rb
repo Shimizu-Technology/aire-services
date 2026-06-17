@@ -44,7 +44,7 @@ module Api
             return render json: { error: "Invalid public email address: #{public_contact['email']}" }, status: :unprocessable_entity
           end
 
-          unless valid_e164_phone?(public_contact["phone_e164"])
+          unless Setting.valid_e164_phone?(public_contact["phone_e164"])
             return render json: { error: "Public phone link number must use E.164 format, such as +16714774243" }, status: :unprocessable_entity
           end
 
@@ -75,7 +75,8 @@ module Api
             :address_locality,
             :address_region,
             :postal_code,
-            :address_country
+            :address_country,
+            phone_contacts: [ :label, :phone_display, :phone_e164, :channel ]
           ).to_h
         end
 
@@ -92,9 +93,6 @@ module Api
           raw_public_contact.blank? || required_keys.any? { |key| raw_public_contact[key].blank? }
         end
 
-        def valid_e164_phone?(value)
-          value.to_s.match?(/\A\+[1-9]\d{7,14}\z/)
-        end
       end
     end
   end

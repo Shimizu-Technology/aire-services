@@ -3,6 +3,27 @@
 class Setting < ApplicationRecord
   APPROVAL_GROUPS_ADVISORY_LOCK_KEY = 92_144_007
   DEFAULT_CONTACT_NOTIFICATION_EMAILS = [ "admin@aireservicesguam.com" ].freeze
+  PUBLIC_PHONE_CONTACT_CHANNELS = %w[phone whatsapp].freeze
+  DEFAULT_PUBLIC_PHONE_CONTACTS = [
+    {
+      "label" => "Tours, flight training & payments",
+      "phone_display" => "(671) 477-4243",
+      "phone_e164" => "+16714774243",
+      "channel" => "phone"
+    },
+    {
+      "label" => "Admin, management & business operations",
+      "phone_display" => "(671) 922-2243",
+      "phone_e164" => "+16719222243",
+      "channel" => "phone"
+    },
+    {
+      "label" => "WhatsApp contact",
+      "phone_display" => "(671) 997-4243",
+      "phone_e164" => "+16719974243",
+      "channel" => "whatsapp"
+    }
+  ].freeze
   DEFAULT_PUBLIC_CONTACT_SETTINGS = {
     "phone_display" => "(671) 477-4243",
     "phone_e164" => "+16714774243",
@@ -12,7 +33,8 @@ class Setting < ApplicationRecord
     "address_locality" => "Barrigada",
     "address_region" => "Guam",
     "postal_code" => "96913",
-    "address_country" => "GU"
+    "address_country" => "GU",
+    "phone_contacts" => DEFAULT_PUBLIC_PHONE_CONTACTS
   }.freeze
   DEFAULT_CONTACT_INQUIRY_TOPICS = [
     "Private Pilot Certificate",
@@ -179,7 +201,7 @@ class Setting < ApplicationRecord
     set(
       "public_contact_settings",
       normalized_settings.to_json,
-      description: "JSON object of public phone, email, and address shown on the marketing website"
+      description: "JSON object of public phone directory, email, and address shown on the marketing website"
     )
   end
 
@@ -217,13 +239,66 @@ class Setting < ApplicationRecord
       .uniq
   end
 
+  def self.default_public_phone_contacts
+    DEFAULT_PUBLIC_PHONE_CONTACTS.map(&:dup)
+  end
+
+  def self.default_public_contact_settings
+    DEFAULT_PUBLIC_CONTACT_SETTINGS
+      .except("phone_contacts")
+      .merge("phone_contacts" => default_public_phone_contacts)
+  end
+
   def self.normalize_public_contact_settings(value)
     raw = value.respond_to?(:to_h) ? value.to_h : {}
-    defaults = DEFAULT_PUBLIC_CONTACT_SETTINGS
+    string_defaults = DEFAULT_PUBLIC_CONTACT_SETTINGS.except("phone_contacts")
 
-    defaults.keys.index_with do |key|
-      raw[key].presence || raw[key.to_sym].presence || defaults.fetch(key)
+    normalized = string_defaults.keys.index_with do |key|
+      raw[key].presence || raw[key.to_sym].presence || string_defaults.fetch(key)
     end.transform_values { |setting| setting.to_s.strip }
+
+    raw_phone_contacts = raw.key?("phone_contacts") ? raw["phone_contacts"] : raw[:phone_contacts]
+    normalized["phone_contacts"] = normalize_public_phone_contacts(raw_phone_contacts.presence || default_public_phone_contacts)
+    normalized
+  end
+
+  def self.normalize_public_phone_contacts(value)
+    contacts = Array(value).filter_map do |contact|
+      raw_contact = contact.respond_to?(:to_h) ? contact.to_h : {}
+      label = raw_contact["label"].presence || raw_contact[:label].presence
+      phone_display = raw_contact["phone_display"].presence || raw_contact[:phone_display].presence
+      phone_e164 = raw_contact["phone_e164"].presence || raw_contact[:phone_e164].presence
+      channel = (raw_contact["channel"].presence || raw_contact[:channel].presence || "phone").to_s.strip.downcase
+
+      next if label.blank? && phone_display.blank? && phone_e164.blank?
+
+      if label.blank? || phone_display.blank? || phone_e164.blank?
+        raise ArgumentError, "Each public phone contact needs a label, display number, and link number"
+      end
+
+      unless PUBLIC_PHONE_CONTACT_CHANNELS.include?(channel)
+        raise ArgumentError, "Public phone contact channel must be phone or WhatsApp"
+      end
+
+      phone_e164 = phone_e164.to_s.strip
+      unless valid_e164_phone?(phone_e164)
+        raise ArgumentError, "Public phone contact link numbers must use E.164 format, such as +16714774243"
+      end
+
+      {
+        "label" => label.to_s.strip,
+        "phone_display" => phone_display.to_s.strip,
+        "phone_e164" => phone_e164,
+        "channel" => channel
+      }
+    end
+
+    return default_public_phone_contacts if contacts.empty?
+
+    duplicate_numbers = contacts.group_by { |contact| contact["phone_e164"] }.select { |_phone, rows| rows.size > 1 }.keys
+    raise ArgumentError, "Public phone contact link numbers must be unique" if duplicate_numbers.any?
+
+    contacts
   end
 
   def self.normalize_public_social_links(value)
@@ -290,12 +365,12 @@ class Setting < ApplicationRecord
   end
 
   def self.parse_public_contact_settings(value)
-    return DEFAULT_PUBLIC_CONTACT_SETTINGS.dup if value.blank?
+    return default_public_contact_settings if value.blank?
 
     parsed = JSON.parse(value)
     normalize_public_contact_settings(parsed)
-  rescue JSON::ParserError
-    DEFAULT_PUBLIC_CONTACT_SETTINGS.dup
+  rescue JSON::ParserError, ArgumentError
+    default_public_contact_settings
   end
 
   def self.parse_public_social_links(value)
@@ -321,6 +396,10 @@ class Setting < ApplicationRecord
     uri.is_a?(URI::HTTP) && uri.host.present?
   rescue URI::InvalidURIError
     false
+  end
+
+  def self.valid_e164_phone?(value)
+    value.to_s.match?(/\A\+[1-9]\d{7,14}\z/)
   end
 
   def self.safe_float(value)

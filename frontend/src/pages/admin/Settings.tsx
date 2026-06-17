@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
-import { defaultPublicContactSettings } from '../../lib/businessInfo'
+import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
-import type { PublicContactInfoSettings } from '../../lib/businessInfo'
+import type { PublicContactInfoSettings, PublicPhoneContactChannel } from '../../lib/businessInfo'
 
 const emptyCategoryForm = {
   name: '',
@@ -12,6 +12,18 @@ const emptyCategoryForm = {
   description: '',
   is_active: true,
 }
+
+const emptyPhoneContact = {
+  label: '',
+  phone_display: '',
+  phone_e164: '',
+  channel: 'phone' as PublicPhoneContactChannel,
+}
+
+const withDefaultPhoneContacts = (settings: PublicContactInfoSettings): PublicContactInfoSettings => ({
+  ...settings,
+  phone_contacts: settings.phone_contacts?.length ? settings.phone_contacts : defaultPublicPhoneContacts,
+})
 
 const normalizeApprovalGroupKey = (value: string) => (
   value
@@ -173,10 +185,13 @@ export default function Settings() {
 
     if (contactRes.error) setContactSettingsError(contactRes.error)
     else if (contactRes.data) {
-      setContactSettings(contactRes.data)
+      setContactSettings({
+        ...contactRes.data,
+        public_contact: withDefaultPhoneContacts(contactRes.data.public_contact || defaultPublicContactSettings),
+      })
       setContactNotificationEmailsDraft(contactRes.data.contact_notification_emails.join('\n'))
       setInquiryTopicsDraft(contactRes.data.inquiry_topics.length > 0 ? contactRes.data.inquiry_topics : [''])
-      setPublicContactDraft(contactRes.data.public_contact || defaultPublicContactSettings)
+      setPublicContactDraft(withDefaultPhoneContacts(contactRes.data.public_contact || defaultPublicContactSettings))
       setSocialLinksDraft(contactRes.data.social_links?.length > 0 ? contactRes.data.social_links : [{ key: '', label: '', url: '' }])
     }
   }, [])
@@ -550,6 +565,14 @@ export default function Settings() {
     const inquiry_topics = inquiryTopicsDraft
       .map((topic) => topic.trim())
       .filter(Boolean)
+    const phone_contacts = (publicContactDraft.phone_contacts || [])
+      .map((contact) => ({
+        label: contact.label.trim(),
+        phone_display: contact.phone_display.trim(),
+        phone_e164: contact.phone_e164.trim(),
+        channel: (contact.channel === 'whatsapp' ? 'whatsapp' : 'phone') as PublicPhoneContactChannel,
+      }))
+      .filter((contact) => contact.label || contact.phone_display || contact.phone_e164)
     const public_contact: PublicContactInfoSettings = {
       phone_display: publicContactDraft.phone_display.trim(),
       phone_e164: publicContactDraft.phone_e164.trim(),
@@ -560,6 +583,7 @@ export default function Settings() {
       address_region: publicContactDraft.address_region.trim(),
       postal_code: publicContactDraft.postal_code.trim(),
       address_country: publicContactDraft.address_country.trim(),
+      phone_contacts,
     }
     const social_links = socialLinksDraft
       .map((link) => ({
@@ -583,6 +607,37 @@ export default function Settings() {
 
     if (!public_contact.phone_display || !public_contact.phone_e164 || !public_contact.email || !public_contact.street_address || !public_contact.address_region || !public_contact.postal_code) {
       setContactSettingsError('Public phone, email, street address, region, and postal code are required.')
+      setContactSettingsMessage('')
+      return
+    }
+
+    const e164Pattern = /^\+[1-9]\d{7,14}$/
+    if (!e164Pattern.test(public_contact.phone_e164)) {
+      setContactSettingsError('Primary public phone link number must use E.164 format, such as +16714774243.')
+      setContactSettingsMessage('')
+      return
+    }
+
+    if (phone_contacts.length === 0) {
+      setContactSettingsError('At least one public phone contact is required.')
+      setContactSettingsMessage('')
+      return
+    }
+
+    if (phone_contacts.some((contact) => !contact.label || !contact.phone_display || !contact.phone_e164)) {
+      setContactSettingsError('Each public phone contact needs a purpose label, display number, and link number.')
+      setContactSettingsMessage('')
+      return
+    }
+
+    if (phone_contacts.some((contact) => !e164Pattern.test(contact.phone_e164))) {
+      setContactSettingsError('Public phone contact link numbers must use E.164 format, such as +16714774243.')
+      setContactSettingsMessage('')
+      return
+    }
+
+    if (new Set(phone_contacts.map((contact) => contact.phone_e164)).size !== phone_contacts.length) {
+      setContactSettingsError('Public phone contact link numbers must be unique.')
       setContactSettingsMessage('')
       return
     }
@@ -617,12 +672,12 @@ export default function Settings() {
       setContactSettings({
         contact_notification_emails: res.data.contact_notification_emails,
         inquiry_topics: res.data.inquiry_topics,
-        public_contact: res.data.public_contact,
+        public_contact: withDefaultPhoneContacts(res.data.public_contact),
         social_links: res.data.social_links,
       })
       setContactNotificationEmailsDraft(res.data.contact_notification_emails.join('\n'))
       setInquiryTopicsDraft(res.data.inquiry_topics.length > 0 ? res.data.inquiry_topics : [''])
-      setPublicContactDraft(res.data.public_contact)
+      setPublicContactDraft(withDefaultPhoneContacts(res.data.public_contact))
       setSocialLinksDraft((res.data.social_links?.length ?? 0) > 0 ? res.data.social_links : [{ key: '', label: '', url: '' }])
       setContactSettingsMessage(res.data.message || 'Contact settings saved.')
     } finally {
@@ -634,8 +689,39 @@ export default function Settings() {
     setInquiryTopicsDraft((current) => current.map((topic, topicIndex) => (topicIndex === index ? value : topic)))
   }
 
-  const updatePublicContactDraft = (key: keyof PublicContactInfoSettings, value: string) => {
+  const updatePublicContactDraft = (key: keyof Omit<PublicContactInfoSettings, 'phone_contacts'>, value: string) => {
     setPublicContactDraft((current) => ({ ...current, [key]: value }))
+  }
+
+  const updatePublicPhoneContactDraft = (
+    index: number,
+    key: 'label' | 'phone_display' | 'phone_e164' | 'channel',
+    value: string,
+  ) => {
+    setPublicContactDraft((current) => ({
+      ...current,
+      phone_contacts: current.phone_contacts.map((contact, contactIndex) => {
+        if (contactIndex !== index) return contact
+        if (key === 'channel') return { ...contact, channel: value === 'whatsapp' ? 'whatsapp' : 'phone' }
+        return { ...contact, [key]: value }
+      }),
+    }))
+  }
+
+  const addPublicPhoneContactDraft = () => {
+    setPublicContactDraft((current) => ({
+      ...current,
+      phone_contacts: [...current.phone_contacts, { ...emptyPhoneContact }],
+    }))
+  }
+
+  const removePublicPhoneContactDraft = (index: number) => {
+    setPublicContactDraft((current) => ({
+      ...current,
+      phone_contacts: current.phone_contacts.length === 1
+        ? [{ ...emptyPhoneContact }]
+        : current.phone_contacts.filter((_, contactIndex) => contactIndex !== index),
+    }))
   }
 
   const updateSocialLinkDraft = (index: number, key: keyof SocialLink, value: string) => {
@@ -1117,8 +1203,88 @@ export default function Settings() {
                     </div>
                   </div>
                   <p className="mt-2 text-xs text-slate-500">
-                    These values appear on the public website contact blocks, footer, and search-engine business schema.
+                    These primary values appear in headline call-to-action buttons and search-engine business schema.
                   </p>
+
+                  <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900">Public phone directory</h4>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">
+                          These are shown on the contact page and footer so visitors can choose the right line.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addPublicPhoneContactDraft}
+                        className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50"
+                      >
+                        Add phone contact
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {publicContactDraft.phone_contacts.map((contact, index) => (
+                        <div key={`public-phone-contact-${index}`} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.7fr_auto]">
+                          <div>
+                            <label htmlFor={`public-phone-contact-label-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Purpose label</label>
+                            <input
+                              id={`public-phone-contact-label-${index}`}
+                              value={contact.label}
+                              onChange={(e) => updatePublicPhoneContactDraft(index, 'label', e.target.value)}
+                              placeholder={index === 0 ? 'Tours, flight training & payments' : 'Admin, WhatsApp, or another line'}
+                              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor={`public-phone-contact-display-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Display number</label>
+                            <input
+                              id={`public-phone-contact-display-${index}`}
+                              value={contact.phone_display}
+                              onChange={(e) => updatePublicPhoneContactDraft(index, 'phone_display', e.target.value)}
+                              placeholder="(671) 477-4243"
+                              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor={`public-phone-contact-e164-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Link number</label>
+                            <input
+                              id={`public-phone-contact-e164-${index}`}
+                              value={contact.phone_e164}
+                              onChange={(e) => updatePublicPhoneContactDraft(index, 'phone_e164', e.target.value)}
+                              placeholder="+16714774243"
+                              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor={`public-phone-contact-channel-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Channel</label>
+                            <select
+                              id={`public-phone-contact-channel-${index}`}
+                              value={contact.channel}
+                              onChange={(e) => updatePublicPhoneContactDraft(index, 'channel', e.target.value)}
+                              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                            >
+                              <option value="phone">Phone call</option>
+                              <option value="whatsapp">WhatsApp</option>
+                            </select>
+                          </div>
+                          <div className="flex items-end">
+                            <button
+                              type="button"
+                              onClick={() => removePublicPhoneContactDraft(index)}
+                              disabled={publicContactDraft.phone_contacts.length === 1 && !contact.label.trim() && !contact.phone_display.trim() && !contact.phone_e164.trim()}
+                              className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs text-slate-500">
+                      Link numbers must use E.164 format with the country code. WhatsApp rows open a WhatsApp chat link instead of a telephone link.
+                    </p>
+                  </div>
                 </div>
 
                 <div>
@@ -1230,7 +1396,7 @@ export default function Settings() {
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
                   {contactSettings
-                    ? `Currently configured: ${contactSettings.contact_notification_emails.length} recipient${contactSettings.contact_notification_emails.length === 1 ? '' : 's'}, ${contactSettings.inquiry_topics.length} public topic${contactSettings.inquiry_topics.length === 1 ? '' : 's'}, and ${contactSettings.social_links.length} social link${contactSettings.social_links.length === 1 ? '' : 's'}.`
+                    ? `Currently configured: ${contactSettings.contact_notification_emails.length} recipient${contactSettings.contact_notification_emails.length === 1 ? '' : 's'}, ${contactSettings.inquiry_topics.length} public topic${contactSettings.inquiry_topics.length === 1 ? '' : 's'}, ${contactSettings.public_contact.phone_contacts.length} phone contact${contactSettings.public_contact.phone_contacts.length === 1 ? '' : 's'}, and ${contactSettings.social_links.length} social link${contactSettings.social_links.length === 1 ? '' : 's'}.`
                     : 'Contact settings load separately from time clock settings.'}
                 </div>
                 <div className="flex justify-end">

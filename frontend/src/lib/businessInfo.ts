@@ -1,3 +1,12 @@
+export type PublicPhoneContactChannel = 'phone' | 'whatsapp'
+
+export interface PublicPhoneContactSettings {
+  label: string
+  phone_display: string
+  phone_e164: string
+  channel: PublicPhoneContactChannel
+}
+
 export interface PublicContactInfoSettings {
   phone_display: string
   phone_e164: string
@@ -8,6 +17,17 @@ export interface PublicContactInfoSettings {
   address_region: string
   postal_code: string
   address_country: string
+  phone_contacts: PublicPhoneContactSettings[]
+}
+
+export interface AirePhoneContact {
+  label: string
+  display: string
+  e164: string
+  href: string
+  schema: string
+  channel: PublicPhoneContactChannel
+  actionLabel: string
 }
 
 export interface AireBusinessInfo {
@@ -18,6 +38,7 @@ export interface AireBusinessInfo {
     href: string
     schema: string
   }
+  phoneContacts: AirePhoneContact[]
   email: {
     display: string
     href: string
@@ -41,6 +62,27 @@ export const defaultInquiryTopics = [
   'General Inquiry',
 ]
 
+export const defaultPublicPhoneContacts: PublicPhoneContactSettings[] = [
+  {
+    label: 'Tours, flight training & payments',
+    phone_display: '(671) 477-4243',
+    phone_e164: '+16714774243',
+    channel: 'phone',
+  },
+  {
+    label: 'Admin, management & business operations',
+    phone_display: '(671) 922-2243',
+    phone_e164: '+16719222243',
+    channel: 'phone',
+  },
+  {
+    label: 'WhatsApp contact',
+    phone_display: '(671) 997-4243',
+    phone_e164: '+16719974243',
+    channel: 'whatsapp',
+  },
+]
+
 export const defaultPublicContactSettings: PublicContactInfoSettings = {
   phone_display: '(671) 477-4243',
   phone_e164: '+16714774243',
@@ -51,6 +93,7 @@ export const defaultPublicContactSettings: PublicContactInfoSettings = {
   address_region: 'Guam',
   postal_code: '96913',
   address_country: 'GU',
+  phone_contacts: defaultPublicPhoneContacts,
 }
 
 const digitsOnly = (value: string) => value.replace(/\D/g, '')
@@ -83,6 +126,38 @@ const parenthesizedAreaLabel = (value: string) => {
   return parts.length > 1 ? `${parts[0]} (${parts.slice(1).join(' / ')})` : value
 }
 
+const normalizePhoneChannel = (value: string | null | undefined): PublicPhoneContactChannel => (
+  value?.toLowerCase() === 'whatsapp' ? 'whatsapp' : 'phone'
+)
+
+const phoneHrefFor = (phoneE164: string, channel: PublicPhoneContactChannel) => {
+  if (channel === 'whatsapp') return `https://wa.me/${digitsOnly(phoneE164)}`
+  return `tel:${phoneE164}`
+}
+
+function buildPhoneContact(contact: Partial<PublicPhoneContactSettings>, fallback: PublicPhoneContactSettings): AirePhoneContact {
+  const channel = normalizePhoneChannel(contact.channel || fallback.channel)
+  const phoneDisplay = valueOrDefault(contact.phone_display, fallback.phone_display)
+  const phoneE164 = normalizePhoneE164(valueOrDefault(contact.phone_e164, fallback.phone_e164))
+
+  return {
+    label: valueOrDefault(contact.label, fallback.label),
+    display: phoneDisplay,
+    e164: phoneE164,
+    href: phoneHrefFor(phoneE164, channel),
+    schema: formatSchemaPhone(phoneE164),
+    channel,
+    actionLabel: channel === 'whatsapp' ? 'Open WhatsApp' : 'Call',
+  }
+}
+
+function buildPhoneContacts(settings?: Partial<PublicContactInfoSettings> | null) {
+  const configuredContacts = Array.isArray(settings?.phone_contacts) ? settings?.phone_contacts : []
+  const source = configuredContacts.length > 0 ? configuredContacts : defaultPublicPhoneContacts
+
+  return source.map((contact, index) => buildPhoneContact(contact, defaultPublicPhoneContacts[index] || defaultPublicPhoneContacts[0]))
+}
+
 export function buildAireBusinessInfo(settings?: Partial<PublicContactInfoSettings> | null): AireBusinessInfo {
   const merged = {
     ...defaultPublicContactSettings,
@@ -101,6 +176,7 @@ export function buildAireBusinessInfo(settings?: Partial<PublicContactInfoSettin
       href: `tel:${phoneE164}`,
       schema: formatSchemaPhone(phoneE164),
     },
+    phoneContacts: buildPhoneContacts(settings),
     email: {
       display: publicEmail,
       href: `mailto:${publicEmail}`,

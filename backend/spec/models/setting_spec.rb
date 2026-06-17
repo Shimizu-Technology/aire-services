@@ -113,6 +113,20 @@ RSpec.describe Setting, type: :model do
       expect(settings["email"]).to eq("admin@aireservicesguam.com")
       expect(settings["street_address"]).to eq("353 Admiral Sherman Boulevard")
       expect(settings["postal_code"]).to eq("96913")
+      expect(settings["phone_contacts"]).to include(
+        {
+          "label" => "Tours, flight training & payments",
+          "phone_display" => "(671) 477-4243",
+          "phone_e164" => "+16714774243",
+          "channel" => "phone"
+        },
+        {
+          "label" => "WhatsApp contact",
+          "phone_display" => "(671) 997-4243",
+          "phone_e164" => "+16719974243",
+          "channel" => "whatsapp"
+        }
+      )
     end
 
     it "normalizes partial values onto the defaults" do
@@ -125,6 +139,44 @@ RSpec.describe Setting, type: :model do
       expect(settings["phone_display"]).to eq("(671) 555-0100")
       expect(settings["email"]).to eq("frontdesk@example.com")
       expect(settings["street_address"]).to eq("353 Admiral Sherman Boulevard")
+      expect(settings["phone_contacts"].map { |contact| contact["phone_e164"] }).to include("+16714774243", "+16719222243", "+16719974243")
+    end
+
+    it "normalizes configured phone contacts" do
+      described_class.set_public_contact_settings!(
+        "phone_contacts" => [
+          {
+            "label" => "WhatsApp",
+            "phone_display" => "671-997-4243",
+            "phone_e164" => "+16719974243",
+            "channel" => "whatsapp"
+          }
+        ]
+      )
+
+      expect(described_class.public_contact_settings["phone_contacts"]).to eq([
+        {
+          "label" => "WhatsApp",
+          "phone_display" => "671-997-4243",
+          "phone_e164" => "+16719974243",
+          "channel" => "whatsapp"
+        }
+      ])
+    end
+
+    it "rejects invalid phone contact link numbers" do
+      expect {
+        described_class.set_public_contact_settings!(
+          "phone_contacts" => [
+            {
+              "label" => "Bad phone",
+              "phone_display" => "671-997-4243",
+              "phone_e164" => "671-997-4243",
+              "channel" => "phone"
+            }
+          ]
+        )
+      }.to raise_error(ArgumentError, /E.164 format/)
     end
   end
 end
