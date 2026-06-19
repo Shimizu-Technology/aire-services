@@ -268,6 +268,9 @@ export default function TimeTracking() {
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
   const [selectedReportEmployee, setSelectedReportEmployee] = useState<HoursReportEmployee | null>(null)
+  const handleCloseEmployeeReportDrawer = useCallback(() => {
+    setSelectedReportEmployee(null)
+  }, [])
   const [reportLoading, setReportLoading] = useState(false)
   
   const [currentWeekLocked, setCurrentWeekLocked] = useState(false)
@@ -890,7 +893,7 @@ export default function TimeTracking() {
               <span>Approvals</span>
               {pendingApprovalCount > 0 && (
                 <span className="relative inline-flex items-center" title={`${pendingApprovalCount} pending approval${pendingApprovalCount === 1 ? '' : 's'}${pendingOvertimeApprovalCount > 0 ? ` · ${pendingOvertimeApprovalCount} OT` : ''}`}>
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-30" aria-hidden="true" />
+                  <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-amber-400 opacity-30" aria-hidden="true" />
                   <span className="relative inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-bold leading-none text-amber-700 shadow-sm">
                     {formatBadgeCount(pendingApprovalCount)}
                   </span>
@@ -1961,7 +1964,7 @@ export default function TimeTracking() {
           </div>
 
           <DetailedEntriesTable entries={reportData} isAdmin={isAdmin} loading={reportLoading} />
-          <EmployeeReportDrawer employee={selectedReportEmployee} onClose={() => setSelectedReportEmployee(null)} />
+          <EmployeeReportDrawer employee={selectedReportEmployee} onClose={handleCloseEmployeeReportDrawer} />
         </div>
       )}
 
@@ -2044,7 +2047,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                 {employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'} · {employee.is_intern ? 'Intern' : 'Staff'} · {employee.total_hours.toFixed(2)}h total · {employee.overtime_hours.toFixed(2)}h OT
               </p>
             </div>
-            <button ref={closeButtonRef} onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
+            <button ref={closeButtonRef} type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
           </div>
         </div>
 
@@ -2090,7 +2093,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                     </div>
                     {week.overtime_hours > 0 && (
                       <p className="mt-2 text-xs font-medium text-orange-800">
-                        OT reason: this week totaled {week.weekly_total_hours.toFixed(2)}h, {Math.max(0, week.weekly_total_hours - 40).toFixed(2)}h over the 40.00h weekly threshold.
+                        OT reason: this week totaled {week.weekly_total_hours.toFixed(2)}h, with {week.overtime_hours.toFixed(2)}h classified as overtime after the 40.00h weekly threshold.
                       </p>
                     )}
                     {week.context_note && <p className="mt-2 text-xs text-cyan-800">{week.context_note}</p>}
