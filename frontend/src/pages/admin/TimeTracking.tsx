@@ -432,8 +432,8 @@ export default function TimeTracking() {
 
     try {
       const response = await api.getPendingApprovals({ page: 1, per_page: 1 })
-      if (response.data?.summary) {
-        setPendingApprovalSummary(response.data.summary)
+      if (response.data) {
+        setPendingApprovalSummary(response.data.summary ?? null)
       }
     } catch {
       // The approvals queue itself will surface errors when the tab is open.
