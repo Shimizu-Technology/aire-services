@@ -560,6 +560,12 @@ export default function TimeTracking() {
     }
   }, [activeTab, loadReport])
 
+  useEffect(() => {
+    if (activeTab !== 'reports') {
+      setSelectedReportEmployee(null)
+    }
+  }, [activeTab])
+
   // Clean up ?tab= from URL after reading it on mount
   useEffect(() => {
     if (searchParams.has('tab')) {
