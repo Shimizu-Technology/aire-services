@@ -3,7 +3,7 @@ import { FadeUp, StaggerContainer, StaggerItem } from '../../components/ui/Motio
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
-import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportEmployee, HoursReportResponse } from '../../lib/api'
+import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportEmployee, HoursReportResponse, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
 import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
@@ -180,6 +180,10 @@ function sortEntriesChronologically(a: TimeEntryItem, b: TimeEntryItem): number 
   return a.id - b.id
 }
 
+function formatBadgeCount(count: number): string {
+  return count > 99 ? '99+' : String(count)
+}
+
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
   return report.employees.flatMap((employee) => employee.days.flatMap((day) => day.entries.map((entry) => ({
     id: entry.id,
@@ -219,6 +223,7 @@ export default function TimeTracking() {
   const [users, setUsers] = useState<UserOption[]>([])
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
+  const [pendingApprovalSummary, setPendingApprovalSummary] = useState<PendingApprovalsSummary | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
@@ -263,6 +268,9 @@ export default function TimeTracking() {
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
   const [selectedReportEmployee, setSelectedReportEmployee] = useState<HoursReportEmployee | null>(null)
+  const handleCloseEmployeeReportDrawer = useCallback(() => {
+    setSelectedReportEmployee(null)
+  }, [])
   const [reportLoading, setReportLoading] = useState(false)
   
   const [currentWeekLocked, setCurrentWeekLocked] = useState(false)
@@ -415,6 +423,22 @@ export default function TimeTracking() {
       setApprovalGroupsLoaded(true)
     }
   }, [isAdmin])
+
+  const loadPendingApprovalSummary = useCallback(async () => {
+    if (!isAdmin) {
+      setPendingApprovalSummary(null)
+      return
+    }
+
+    try {
+      const response = await api.getPendingApprovals({ page: 1, per_page: 1 })
+      if (response.data) {
+        setPendingApprovalSummary(response.data.summary ?? null)
+      }
+    } catch {
+      // The approvals queue itself will surface errors when the tab is open.
+    }
+  }, [isAdmin])
   
   const loadWeekLockStatus = useCallback(async () => {
     try {
@@ -513,6 +537,20 @@ export default function TimeTracking() {
   }, [loadApprovalGroups])
 
   useEffect(() => {
+    if (!isAdmin) {
+      setPendingApprovalSummary(null)
+      return
+    }
+
+    void loadPendingApprovalSummary()
+    const interval = window.setInterval(() => {
+      void loadPendingApprovalSummary()
+    }, 60000)
+
+    return () => window.clearInterval(interval)
+  }, [isAdmin, loadPendingApprovalSummary])
+
+  useEffect(() => {
     loadWeekLockStatus()
   }, [loadWeekLockStatus])
   
@@ -521,6 +559,12 @@ export default function TimeTracking() {
       loadReport()
     }
   }, [activeTab, loadReport])
+
+  useEffect(() => {
+    if (activeTab !== 'reports') {
+      setSelectedReportEmployee(null)
+    }
+  }, [activeTab])
 
   // Clean up ?tab= from URL after reading it on mount
   useEffect(() => {
@@ -684,7 +728,8 @@ export default function TimeTracking() {
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
       returnToPersonDay.current = null
       setShowModal(false)
-      loadEntries()
+      await loadEntries()
+      await loadPendingApprovalSummary()
     } catch {
       setError('Failed to save time entry')
     } finally {
@@ -716,7 +761,8 @@ export default function TimeTracking() {
       returnToPersonDay.current = null
       setShowModal(false)
       setEditingEntry(null)
-      loadEntries()
+      await loadEntries()
+      await loadPendingApprovalSummary()
     } catch {
       setError('Failed to delete time entry')
     }
@@ -728,6 +774,7 @@ export default function TimeTracking() {
     setShowEditModal(false)
     setEditingEntry(null)
     await loadEntries()
+    await loadPendingApprovalSummary()
   }
 
   // Get week dates for week view
@@ -770,6 +817,8 @@ export default function TimeTracking() {
     acc[source] += entry.hours
     return acc
   }, {} as Record<string, number>)
+  const pendingApprovalCount = pendingApprovalSummary?.entry_count ?? 0
+  const pendingOvertimeApprovalCount = pendingApprovalSummary?.pending_overtime_count ?? 0
 
   const exportHoursCsv = () => {
     const headers = ['Employee','Employee Type','Departments','Hour Types','Regular Hours','OT Hours','Total Hours','Break Hours','Entries','Ready','Date Range Start','Date Range End']
@@ -839,6 +888,7 @@ export default function TimeTracking() {
           {isAdmin && (
             <button
               onClick={() => setActiveTab('approvals')}
+              aria-label={pendingApprovalCount > 0 ? `Approvals, ${pendingApprovalCount} pending` : 'Approvals'}
               className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
                 activeTab === 'approvals'
                   ? 'border-primary text-primary'
@@ -846,7 +896,15 @@ export default function TimeTracking() {
               }`}
             >
               <ClockIcon />
-              Approvals
+              <span>Approvals</span>
+              {pendingApprovalCount > 0 && (
+                <span className="relative inline-flex items-center" title={`${pendingApprovalCount} pending approval${pendingApprovalCount === 1 ? '' : 's'}${pendingOvertimeApprovalCount > 0 ? ` · ${pendingOvertimeApprovalCount} OT` : ''}`}>
+                  <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-amber-400 opacity-30" aria-hidden="true" />
+                  <span className="relative inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-bold leading-none text-amber-700 shadow-sm">
+                    {formatBadgeCount(pendingApprovalCount)}
+                  </span>
+                </span>
+              )}
             </button>
           )}
           {isAdmin && (
@@ -879,7 +937,10 @@ export default function TimeTracking() {
       {activeTab === 'entries' && (
         <>
           {/* Clock In/Out Card - full width, horizontal on desktop */}
-          <ClockInOutCard onStatusChange={() => loadEntries()} />
+          <ClockInOutCard onStatusChange={() => {
+            void loadEntries()
+            void loadPendingApprovalSummary()
+          }} />
 
           {isAdmin && <WhosWorking />}
         </>
@@ -889,7 +950,10 @@ export default function TimeTracking() {
         <ApprovalQueue
           approvalGroups={approvalGroups}
           approvalGroupsLoaded={approvalGroupsLoaded}
-          onUpdate={() => loadEntries()}
+          onUpdate={() => {
+            void loadEntries()
+            void loadPendingApprovalSummary()
+          }}
           canDeleteEntry={canDeleteEntry}
         />
       )}
@@ -1805,7 +1869,7 @@ export default function TimeTracking() {
           <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
             <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              <p className="mt-0.5 text-xs text-text-muted">Main payroll view. Click an employee to review daily hours, categories, breaks, and OT context.</p>
+              <p className="mt-0.5 text-xs text-text-muted">Main payroll view. Click an employee or an orange OT pill to review the weekly overtime breakdown.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px]">
@@ -1851,7 +1915,24 @@ export default function TimeTracking() {
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-primary-dark">{employee.regular_hours.toFixed(2)}</td>
-                      <td className={`px-4 py-3 text-right text-sm font-semibold ${employee.overtime_hours > 0 ? 'text-orange-700' : 'text-text-muted'}`}>{employee.overtime_hours.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold">
+                        {employee.overtime_hours > 0 ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedReportEmployee(employee)
+                            }}
+                            className="inline-flex items-center justify-end gap-1 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-bold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+                            title="View weekly overtime breakdown"
+                          >
+                            <span>{employee.overtime_hours.toFixed(2)}</span>
+                            <span className="text-[10px] uppercase tracking-[0.12em]">OT</span>
+                          </button>
+                        ) : (
+                          <span className="text-text-muted">{employee.overtime_hours.toFixed(2)}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.break_hours > 0 ? employee.break_hours.toFixed(2) : '—'}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.entries_count}</td>
@@ -1889,7 +1970,7 @@ export default function TimeTracking() {
           </div>
 
           <DetailedEntriesTable entries={reportData} isAdmin={isAdmin} loading={reportLoading} />
-          <EmployeeReportDrawer employee={selectedReportEmployee} onClose={() => setSelectedReportEmployee(null)} />
+          <EmployeeReportDrawer employee={selectedReportEmployee} onClose={handleCloseEmployeeReportDrawer} />
         </div>
       )}
 
@@ -1972,7 +2053,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                 {employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'} · {employee.is_intern ? 'Intern' : 'Staff'} · {employee.total_hours.toFixed(2)}h total · {employee.overtime_hours.toFixed(2)}h OT
               </p>
             </div>
-            <button ref={closeButtonRef} onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
+            <button ref={closeButtonRef} type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
           </div>
         </div>
 
@@ -2008,13 +2089,19 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
           {employee.weeks.length > 0 && (
             <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
               <h3 className="font-semibold text-primary-dark">Weekly overtime context</h3>
+              <p className="mt-1 text-xs text-text-muted">AIRE allocates overtime after 40.00 hours in a Sunday–Saturday week. Weeks with OT are highlighted below.</p>
               <div className="mt-3 space-y-2">
                 {employee.weeks.map((week) => (
-                  <div key={week.week_start} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+                  <div key={week.week_start} className={`rounded-xl border px-4 py-3 text-sm ${week.overtime_hours > 0 ? 'border-orange-200 bg-orange-50/70' : 'border-slate-200 bg-white'}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-semibold text-primary-dark">{formatDate(week.week_start)} – {formatDate(week.week_end)}</span>
                       <span className="text-text-muted">Week {week.weekly_total_hours.toFixed(2)}h · Period {week.period_hours.toFixed(2)}h · OT {week.overtime_hours.toFixed(2)}h</span>
                     </div>
+                    {week.overtime_hours > 0 && (
+                      <p className="mt-2 text-xs font-medium text-orange-800">
+                        OT reason: this week totaled {week.weekly_total_hours.toFixed(2)}h, with {week.overtime_hours.toFixed(2)}h classified as overtime after the 40.00h weekly threshold.
+                      </p>
+                    )}
                     {week.context_note && <p className="mt-2 text-xs text-cyan-800">{week.context_note}</p>}
                   </div>
                 ))}
