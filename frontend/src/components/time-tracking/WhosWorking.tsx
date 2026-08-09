@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { api, getAuthTokenValue } from '../../lib/api'
 import type { WorkerStatus, WorkerBreak, WorkerDayEntry, TimeCategory } from '../../lib/api'
 import { getOrCreateConsumer, disconnectConsumer, type Subscription } from '../../lib/cable'
+import { isPageVisible, startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 
 interface WhosWorkingProps {
   alwaysShow?: boolean
@@ -19,7 +20,6 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [cableConnected, setCableConnected] = useState(false)
   const [categories, setCategories] = useState<TimeCategory[]>([])
-  const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const subscriptionRef = useRef<Subscription | null>(null)
 
   const fetchWorkers = useCallback(async () => {
@@ -35,6 +35,10 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
       setLoading(false)
     }
   }, [])
+
+  const fetchWorkersIfVisible = useCallback(() => {
+    if (isPageVisible()) void fetchWorkers()
+  }, [fetchWorkers])
 
   useEffect(() => {
     fetchWorkers()
@@ -73,7 +77,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
             },
             received(data: { type: string }) {
               if (data.type === 'time_clock_update' && mounted) {
-                fetchWorkers()
+                fetchWorkersIfVisible()
               }
             },
           },
@@ -85,19 +89,20 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
 
     setupCable()
 
-    pollRef.current = setInterval(fetchWorkers, POLL_INTERVAL_MS)
-
     return () => {
       mounted = false
       if (reconnectTimer) clearTimeout(reconnectTimer)
-      if (pollRef.current) clearInterval(pollRef.current)
       if (subscriptionRef.current) {
         subscriptionRef.current.unsubscribe()
         subscriptionRef.current = null
       }
       disconnectConsumer()
     }
-  }, [fetchWorkers])
+  }, [fetchWorkers, fetchWorkersIfVisible])
+
+  useEffect(() => {
+    return startVisibilityAwarePolling(fetchWorkers, cableConnected ? null : POLL_INTERVAL_MS)
+  }, [cableConnected, fetchWorkers])
 
   const cardBorder = dashboardStyle ? 'border-secondary-dark' : 'border-neutral-warm'
   const cardClass = `bg-white rounded-2xl shadow-sm border ${cardBorder} overflow-hidden hover:shadow-md transition-shadow duration-300 ${dashboardStyle ? 'h-full w-full flex flex-col' : ''}`

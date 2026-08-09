@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
 import type { ClockLocationPayload, ClockStatus, TimeCategory } from '../../lib/api'
+import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 
 interface ClockInOutCardProps {
   onStatusChange?: () => void
@@ -59,7 +60,6 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   const [correctionTime, setCorrectionTime] = useState('')
   const [clockOutDescription, setClockOutDescription] = useState('')
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
-  const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const isOnBreakRef = useRef(false)
 
   const fetchStatus = useCallback(async () => {
@@ -104,9 +104,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   // Auto-poll every 60s when not clocked in (waiting for shift to start)
   useEffect(() => {
     if (!status?.clocked_in && !loading) {
-      pollRef.current = setInterval(() => fetchStatus(), 60_000)
+      return startVisibilityAwarePolling(fetchStatus, 60_000)
     }
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [status?.clocked_in, loading, fetchStatus])
 
   // Keep ref in sync so the single interval callback reads fresh state
@@ -129,8 +128,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   // Re-sync with server every 2 minutes while clocked in to prevent drift
   useEffect(() => {
     if (!status?.clocked_in) return
-    const syncInterval = setInterval(() => fetchStatus(), 120_000)
-    return () => clearInterval(syncInterval)
+    return startVisibilityAwarePolling(fetchStatus, 120_000)
   }, [status?.clocked_in, fetchStatus])
 
   // Reset break elapsed when break state changes

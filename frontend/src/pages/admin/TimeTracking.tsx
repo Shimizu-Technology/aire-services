@@ -7,6 +7,7 @@ import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportEmployee, Hou
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
 import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
+import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
 import EditTimeEntryModal from '../../components/time-tracking/EditTimeEntryModal'
@@ -543,11 +544,7 @@ export default function TimeTracking() {
     }
 
     void loadPendingApprovalSummary()
-    const interval = window.setInterval(() => {
-      void loadPendingApprovalSummary()
-    }, 60000)
-
-    return () => window.clearInterval(interval)
+    return startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
   }, [isAdmin, loadPendingApprovalSummary])
 
   useEffect(() => {

@@ -1,4 +1,5 @@
 require "active_support/core_ext/integer/time"
+require_relative "../../lib/queue_runtime"
 
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
@@ -46,9 +47,14 @@ Rails.application.configure do
   # Use memory cache (sufficient for JWKS caching, no DB table required)
   config.cache_store = :memory_store
 
-  # Replace the default in-process and non-durable queuing backend for Active Job.
-  config.active_job.queue_adapter = :solid_queue
-  config.solid_queue.connects_to = { database: { writing: :queue } }
+  # AIRE currently has no background jobs, so keep production work inline by
+  # default and avoid booting a database-backed queue that continuously polls
+  # Postgres. Deployments that add durable jobs must opt in explicitly.
+  active_job_queue_adapter = QueueRuntime.adapter
+  config.active_job.queue_adapter = active_job_queue_adapter.to_sym
+  if QueueRuntime.solid_queue?
+    config.solid_queue.connects_to = { database: { writing: :queue } }
+  end
 
   # Ignore bad email addresses and do not raise email delivery errors.
   # Set this to true and configure the email server for immediate delivery to raise delivery errors.

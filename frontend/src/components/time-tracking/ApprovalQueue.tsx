@@ -11,6 +11,7 @@ import type {
   TimeEntry,
 } from '../../lib/api'
 import { formatDateISO, formatWorkDate } from '../../lib/dateUtils'
+import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
@@ -271,11 +272,8 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, on
   }, [reviewFilters, syncExpandedDescriptions])
 
   useEffect(() => {
-    fetchPending(approvalGroupFilter)
-    const interval = setInterval(() => {
-      void fetchPending(approvalGroupFilter)
-    }, 30000)
-    return () => clearInterval(interval)
+    void fetchPending(approvalGroupFilter)
+    return startVisibilityAwarePolling(() => fetchPending(approvalGroupFilter), 30_000)
   }, [approvalGroupFilter, fetchPending])
 
   useEffect(() => {

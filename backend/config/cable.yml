@@ -1,3 +1,5 @@
+<% require Rails.root.join("lib/cable_runtime") %>
+
 # Async adapter only works within the same process, so for manually triggering cable updates from a console,
 # and seeing results in the browser, you must do so from the web console (running inside the dev process),
 # not a terminal started via bin/rails console! Add "console" to any action or any ERB template view
@@ -9,9 +11,14 @@ test:
   adapter: test
 
 production:
-  adapter: solid_cable
+  # AIRE currently runs one Puma process on one Render instance. The async
+  # adapter keeps live clock updates in-process without continuously polling
+  # Neon. Multi-process deployments must explicitly opt in to solid_cable.
+  adapter: <%= CableRuntime.adapter %>
+<% if CableRuntime.solid_cable? %>
   connects_to:
     database:
       writing: cable
   polling_interval: 0.1.seconds
   message_retention: 1.day
+<% end %>
