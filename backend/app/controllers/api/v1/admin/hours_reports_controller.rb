@@ -28,6 +28,30 @@ module Api
           render json: { error: e.message }, status: :unprocessable_entity
         end
 
+        # PDF is the primary human-readable export. A selected employee gets
+        # the official full-ledger timesheet; the default all-employee view
+        # gets a consolidated payroll report matching the visible filters.
+        def pdf
+          if params[:user_id].present?
+            report = build_timesheet_report
+            return if performed?
+
+            send_employee_timesheet(report)
+          else
+            report = build_report
+            return if performed? || !draft_acknowledged?(report)
+
+            pdf = ReportExport.transaction do
+              export = capture_export("payroll_hours_pdf", report)
+              Reports::PayrollHoursPdf.new(report: report, export: export, generated_by: current_user).render
+            end
+            send_data pdf,
+                      filename: "AIRE_Payroll_Hours_#{report[:start_date]}_to_#{report[:end_date]}.pdf",
+                      type: "application/pdf",
+                      disposition: "attachment"
+          end
+        end
+
         def timesheet_pdf
           unless params[:user_id].present?
             return render json: { error: "Select exactly one employee to download a timesheet PDF" }, status: :unprocessable_entity
@@ -36,20 +60,7 @@ module Api
           report = build_timesheet_report
           return if performed?
 
-          if report[:employees].length != 1
-            return render json: { error: "Select exactly one employee to download a timesheet PDF" }, status: :unprocessable_entity
-          end
-          return unless draft_acknowledged?(report)
-
-          employee = report[:employees].first
-          pdf = ReportExport.transaction do
-            export = capture_export("employee_timesheet_pdf", report)
-            Reports::EmployeeTimesheetPdf.new(report: report, export: export, generated_by: current_user).render
-          end
-          send_data pdf,
-                    filename: "AIRE_Timesheet_#{safe_filename(employee[:full_name])}_#{report[:start_date]}_to_#{report[:end_date]}.pdf",
-                    type: "application/pdf",
-                    disposition: "attachment"
+          send_employee_timesheet(report)
         end
 
         def detailed_csv
@@ -129,8 +140,29 @@ module Api
           )
         end
 
+        def send_employee_timesheet(report)
+          if report[:employees].length != 1
+            render json: { error: "Select exactly one employee to download a timesheet PDF" }, status: :unprocessable_entity
+            return
+          end
+          return unless draft_acknowledged?(report)
+
+          employee = report[:employees].first
+          pdf = ReportExport.transaction do
+            export = capture_export("employee_timesheet_pdf", report)
+            Reports::EmployeeTimesheetPdf.new(report: report, export: export, generated_by: current_user).render
+          end
+          send_data pdf,
+                    filename: "AIRE_Timesheet_#{safe_filename(employee[:full_name])}_#{report[:start_date]}_to_#{report[:end_date]}.pdf",
+                    type: "application/pdf",
+                    disposition: "attachment"
+        end
+
         def safe_filename(value)
-          value.to_s.gsub(/[^A-Za-z0-9]+/, "_").gsub(/\A_+|_+\z/, "").presence || "Employee"
+          ActiveSupport::Inflector.transliterate(value.to_s)
+            .gsub(/[^A-Za-z0-9]+/, "_")
+            .gsub(/\A_+|_+\z/, "")
+            .presence || "Employee"
         end
       end
     end

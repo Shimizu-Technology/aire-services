@@ -3,7 +3,7 @@
 require "digest"
 
 class ReportExport < ApplicationRecord
-  EXPORT_TYPES = %w[employee_timesheet_pdf detailed_entries_csv payroll_summary_csv payroll_time_summary].freeze
+  EXPORT_TYPES = %w[payroll_hours_pdf employee_timesheet_pdf detailed_entries_csv payroll_summary_csv payroll_time_summary].freeze
   READINESS_STATUSES = %w[complete draft].freeze
   STATES = %w[active stale].freeze
 
@@ -190,6 +190,7 @@ class ReportExport < ApplicationRecord
 
   def assign_public_id
     prefix = case export_type
+    when "payroll_hours_pdf" then "REPORT"
     when "employee_timesheet_pdf" then "TS"
     when "detailed_entries_csv" then "DETAIL"
     when "payroll_summary_csv" then "SUMMARY"

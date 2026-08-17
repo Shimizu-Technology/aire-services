@@ -180,6 +180,43 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(json.fetch(:export_references)).to eq([ ReportExport.last.public_id ])
   end
 
+  it "generates a consolidated PDF for the default all-employee report" do
+    employee.update!(first_name: "Māria", last_name: "Čamoru")
+    category.update!(name: "Māpåla Support")
+    other_employee = create(:user, :employee, first_name: "Bob", last_name: "Žukov", approval_group: "ops_maintenance")
+    alice_entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+    bob_entry = create_entry(user: other_employee, date: Date.new(2026, 6, 17), hours: 7)
+
+    expect do
+      get "/api/v1/admin/hours_report/pdf",
+          params: { start_date: "2026-06-16", end_date: "2026-06-30", status: "current" },
+          headers: auth_headers
+    end.to change(ReportExport, :count).by(1)
+
+    expect(response).to have_http_status(:ok)
+    expect(response.media_type).to eq("application/pdf")
+    expect(response.body).to start_with("%PDF")
+    expect(response.headers.fetch("Content-Disposition")).to include("AIRE_Payroll_Hours_2026-06-16_to_2026-06-30.pdf")
+    expect(ReportExport.last).to have_attributes(export_type: "payroll_hours_pdf", readiness_status: "complete", protects_entries: true)
+    expect(ReportExport.last.employee_ids).to contain_exactly(employee.id, other_employee.id)
+    expect(ReportExport.last.entry_ids).to contain_exactly(alice_entry.id, bob_entry.id)
+  end
+
+  it "uses the official employee timesheet for the primary PDF export when an employee is selected" do
+    employee.update!(first_name: "Māria", last_name: "Čamoru")
+    category.update!(name: "Māpåla Support")
+    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+
+    get "/api/v1/admin/hours_report/pdf",
+        params: { start_date: "2026-06-16", end_date: "2026-06-30", user_id: employee.id },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(response.media_type).to eq("application/pdf")
+    expect(response.headers.fetch("Content-Disposition")).to include("AIRE_Timesheet_Maria_Camoru_2026-06-16_to_2026-06-30.pdf")
+    expect(ReportExport.last.export_type).to eq("employee_timesheet_pdf")
+  end
+
   it "requires explicit acknowledgement before exporting a draft" do
     create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6).update!(approval_status: "pending")
 
@@ -196,5 +233,24 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(ReportExport.last.readiness_status).to eq("draft")
+  end
+
+  it "requires explicit acknowledgement for a draft consolidated PDF" do
+    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6).update!(approval_status: "pending")
+
+    get "/api/v1/admin/hours_report/pdf",
+        params: { start_date: "2026-06-16", end_date: "2026-06-30" },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:code)).to eq("draft_acknowledgement_required")
+    expect(ReportExport.where(export_type: "payroll_hours_pdf")).to be_empty
+
+    get "/api/v1/admin/hours_report/pdf",
+        params: { start_date: "2026-06-16", end_date: "2026-06-30", acknowledge_draft: true },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(ReportExport.last).to have_attributes(export_type: "payroll_hours_pdf", readiness_status: "draft")
   end
 end

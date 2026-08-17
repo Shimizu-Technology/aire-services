@@ -90,6 +90,7 @@ Rails.application.routes.draw do
         resources :time_categories, only: [ :index, :show, :create, :update, :destroy ]
         resources :time_period_locks, only: [ :create, :destroy ]
         resource :hours_report, only: [ :show ], controller: "hours_reports" do
+          get :pdf
           get :timesheet_pdf
           get :detailed_csv
           get :summary_csv
