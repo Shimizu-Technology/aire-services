@@ -116,6 +116,8 @@ module Api
           return render json: { error: message }, status: :forbidden
         end
 
+        return unless require_correction_reason_for_exported_entry!
+
         old_values = {
           hours: @time_entry.hours.to_f,
           work_date: @time_entry.work_date.iso8601,
@@ -190,8 +192,10 @@ module Api
             action: "updated",
             user: current_user,
             changes_made: changes.presence,
-            metadata: "#{@time_entry.hours}h on #{@time_entry.work_date}"
+            metadata: audit_metadata_with_correction("#{@time_entry.hours}h on #{@time_entry.work_date}")
           )
+
+          invalidate_payroll_exports!
 
           render json: { time_entry: serialize_time_entry(@time_entry) }
         else
@@ -210,6 +214,8 @@ module Api
           return render json: { error: message }, status: :forbidden
         end
 
+        return unless require_correction_reason_for_exported_entry!
+
         entry_info = "#{@time_entry.hours}h on #{@time_entry.work_date}"
         entry_id = @time_entry.id
 
@@ -220,8 +226,10 @@ module Api
           auditable_id: entry_id,
           action: "deleted",
           user: current_user,
-          metadata: entry_info
+          metadata: audit_metadata_with_correction(entry_info)
         )
+
+        invalidate_payroll_exports!
 
         head :no_content
       end
@@ -449,6 +457,40 @@ module Api
       end
 
       private
+
+      def require_correction_reason_for_exported_entry!
+        return true if active_payroll_exports.empty?
+        return true if correction_reason.present?
+
+        render json: {
+          error: "A correction reason is required because this entry was already exported to payroll.",
+          code: "correction_reason_required",
+          export_references: active_payroll_exports.map(&:public_id)
+        }, status: :unprocessable_entity
+        false
+      end
+
+      def active_payroll_exports
+        @active_payroll_exports ||= ReportExport.active_for_entry(@time_entry.id).order(generated_at: :desc).to_a
+      end
+
+      def correction_reason
+        @correction_reason ||= params[:correction_reason].to_s.strip.presence
+      end
+
+      def invalidate_payroll_exports!
+        return if active_payroll_exports.empty?
+
+        ReportExport.invalidate_for_entry!(
+          entry_id: @time_entry.id,
+          correction_reason: correction_reason,
+          changed_by: current_user
+        )
+      end
+
+      def audit_metadata_with_correction(base)
+        correction_reason.present? ? "#{base}; correction reason: #{correction_reason}" : base
+      end
 
       def eager_reload(entry)
         TimeEntry.eager_load({ user: :user_approval_groups }, :time_category, :schedule, :approved_by,

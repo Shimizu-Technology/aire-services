@@ -108,6 +108,9 @@ export default function EditTimeEntryModal({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [correctionReasonRequired, setCorrectionReasonRequired] = useState(false)
+  const [correctionReason, setCorrectionReason] = useState('')
+  const [exportReferences, setExportReferences] = useState<string[]>([])
 
   useEffect(() => {
     if (!isOpen || !entry) return
@@ -129,6 +132,9 @@ export default function EditTimeEntryModal({
       }))
       .filter((row) => row.start_time && row.end_time))
     setError(null)
+    setCorrectionReasonRequired(false)
+    setCorrectionReason('')
+    setExportReferences([])
   }, [entry, isOpen])
 
   const calculatedHours = useMemo(() => {
@@ -175,9 +181,13 @@ export default function EditTimeEntryModal({
         }),
       }
 
-      const response = await api.updateTimeEntry(entry.id, payload)
+      const response = await api.updateTimeEntry(entry.id, payload, correctionReason || undefined)
 
       if (response.error) {
+        if (response.code === 'correction_reason_required') {
+          setCorrectionReasonRequired(true)
+          setExportReferences(response.export_references || [])
+        }
         setLocalError(response.error)
         return
       }
@@ -198,8 +208,12 @@ export default function EditTimeEntryModal({
     setLocalError(null)
 
     try {
-      const response = await api.deleteTimeEntry(entry.id)
+      const response = await api.deleteTimeEntry(entry.id, correctionReason || undefined)
       if (response.error) {
+        if (response.code === 'correction_reason_required') {
+          setCorrectionReasonRequired(true)
+          setExportReferences(response.export_references || [])
+        }
         setLocalError(response.error)
         return
       }
@@ -434,6 +448,27 @@ export default function EditTimeEntryModal({
                     className="w-full resize-none rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
+
+                {correctionReasonRequired && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <label className="mb-1 block text-sm font-semibold text-amber-900" htmlFor="time-entry-correction-reason">
+                      Correction reason *
+                    </label>
+                    <p className="mb-2 text-xs leading-relaxed text-amber-800">
+                      This entry appeared in a payroll export{exportReferences.length > 0 ? ` (${exportReferences.join(', ')})` : ''}. Explain the correction so the prior export can be marked stale and the audit history stays clear.
+                    </p>
+                    <textarea
+                      id="time-entry-correction-reason"
+                      value={correctionReason}
+                      onChange={(event) => setCorrectionReason(event.target.value)}
+                      rows={3}
+                      required
+                      autoFocus
+                      className="w-full resize-none rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      placeholder="What changed and why?"
+                    />
+                  </div>
+                )}
                 </fieldset>
 
                 {error && (
@@ -451,7 +486,7 @@ export default function EditTimeEntryModal({
                       className={`rounded-lg px-4 py-2 transition-colors ${
                         canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
                       }`}
-                      title={canDelete ? 'Delete this time entry' : 'This entry is locked/finalized or cannot be deleted'}
+                      title={canDelete ? 'Delete this time entry' : 'This entry is locked or cannot be deleted'}
                     >
                       {deleting ? 'Deleting...' : 'Delete'}
                     </button>

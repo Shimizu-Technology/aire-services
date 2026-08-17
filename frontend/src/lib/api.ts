@@ -8,6 +8,8 @@ interface ApiResponse<T> {
   error?: string;
   errors?: string[];
   status?: number;
+  code?: string;
+  export_references?: string[];
 }
 
 let getAuthToken: (() => Promise<string | null>) | null = null;
@@ -90,6 +92,8 @@ async function fetchApi<T>(
         error: data.error || 'Something went wrong',
         errors: data.errors || [],
         status: response.status,
+        code: data.code,
+        export_references: data.export_references,
       };
     }
 
@@ -108,6 +112,47 @@ async function fetchApiPublic<T>(
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
   return fetchApi(endpoint, options, false);
+}
+
+export interface DownloadResponse {
+  blob?: Blob;
+  filename?: string;
+  error?: string;
+  code?: string;
+  issues?: Record<string, number>;
+  status?: number;
+}
+
+async function fetchDownload(endpoint: string): Promise<DownloadResponse> {
+  try {
+    const headers: Record<string, string> = {};
+    if (getAuthToken) {
+      const token = await getAuthToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, { headers });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return {
+        error: data.error || 'Unable to download report',
+        code: data.code,
+        issues: data.issues,
+        status: response.status,
+      };
+    }
+
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const plainFilename = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+    return {
+      blob: await response.blob(),
+      filename: encodedFilename ? decodeURIComponent(encodedFilename) : plainFilename || 'AIRE_Report',
+      status: response.status,
+    };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Network error' };
+  }
 }
 
 async function fetchApiUpload<T>(
@@ -747,6 +792,8 @@ export interface HoursReportEntry {
   entry_method: string;
   clock_source: string | null;
   approval_status: string | null;
+  approved_by: { id: number; full_name: string } | null;
+  approved_at: string | null;
   overtime_status: string | null;
   locked_at: string | null;
   time_category: { id: number; key?: string | null; name: string } | null;
@@ -837,6 +884,7 @@ export interface HoursReportResponse {
   context_start_date: string;
   context_end_date: string;
   generated_at: string;
+  ready: boolean;
   filters: HoursReportFilters;
   summary: {
     employee_count: number;
@@ -1152,15 +1200,16 @@ export const api = {
     time_category_id: number;
     break_minutes: number | null;
     breaks: Array<{ id?: number; start_time: string; end_time: string; _destroy?: boolean }>;
-  }>) =>
+  }>, correctionReason?: string) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ time_entry: data }),
+      body: JSON.stringify({ time_entry: data, correction_reason: correctionReason }),
     }),
 
-  deleteTimeEntry: (id: number) =>
+  deleteTimeEntry: (id: number, correctionReason?: string) =>
     fetchApi<void>(`/api/v1/time_entries/${id}`, {
       method: 'DELETE',
+      body: JSON.stringify({ correction_reason: correctionReason }),
     }),
 
   // Time Clock
@@ -1272,6 +1321,19 @@ export const api = {
       if (value !== undefined && value !== null && value !== '') searchParams.set(key, String(value));
     });
     return fetchApi<HoursReportResponse>(`/api/v1/admin/hours_report?${searchParams.toString()}`);
+  },
+
+  downloadHoursReport: (
+    type: 'timesheet_pdf' | 'detailed_csv' | 'summary_csv',
+    params: HoursReportParams,
+    acknowledgeDraft: boolean = false
+  ) => {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') searchParams.set(key, String(value));
+    });
+    if (acknowledgeDraft) searchParams.set('acknowledge_draft', 'true');
+    return fetchDownload(`/api/v1/admin/hours_report/${type}?${searchParams.toString()}`);
   },
 
   getLeaveRequests: (status?: LeaveRequestQueryStatus, page: number = 1, perPage: number = 25) => {

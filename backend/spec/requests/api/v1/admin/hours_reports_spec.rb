@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require "csv"
 
 RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
   let(:admin) { create(:user, :admin) }
@@ -97,5 +98,84 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(response).to have_http_status(:ok)
     expect(json.fetch(:employees).map { |row| row.fetch(:full_name) }).to eq([ "Bob Ops" ])
     expect(json.dig(:summary, :total_hours)).to eq(7.0)
+  end
+
+  it "keeps readiness in draft when the visible approval filter hides pending entries" do
+    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+    create_entry(user: employee, date: Date.new(2026, 6, 17), hours: 2).update!(approval_status: "pending")
+
+    get "/api/v1/admin/hours_report",
+        params: {
+          start_date: "2026-06-16",
+          end_date: "2026-06-30",
+          user_id: employee.id,
+          approval_status: "approved_or_standard"
+        },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:ready)).to be(false)
+    expect(json.dig(:summary, :total_hours)).to eq(6.0)
+    expect(json.dig(:summary, :pending_count)).to eq(1)
+    expect(json.dig(:employees, 0, :ready)).to be(false)
+  end
+
+  it "exports one detailed CSV row per entry segment with an immutable reference" do
+    first = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 3, start_hour: 9)
+    first.update!(approved_by: admin, approved_at: Time.zone.parse("2026-06-17 08:00:00"))
+    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 2, start_hour: 14)
+
+    expect do
+      get "/api/v1/admin/hours_report/detailed_csv",
+          params: { start_date: "2026-06-16", end_date: "2026-06-30", user_id: employee.id },
+          headers: auth_headers
+    end.to change(ReportExport, :count).by(1)
+
+    expect(response).to have_http_status(:ok)
+    expect(response.media_type).to eq("text/csv")
+    rows = CSV.parse(response.body, headers: true)
+    expect(rows.length).to eq(2)
+    expect(rows.map { |row| row["Start"] }).to contain_exactly("9:00 AM", "2:00 PM")
+    expect(rows.map { |row| row["Total Hours"] }).to contain_exactly("3.00", "2.00")
+    expect(rows.map { |row| row["Export Reference"] }.uniq).to eq([ ReportExport.last.public_id ])
+    expect(ReportExport.last.entry_ids).to contain_exactly(first.id, TimeEntry.order(:id).last.id)
+  end
+
+  it "generates a server-side employee timesheet PDF without requiring a finalized week" do
+    first_entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+    other_category = create(:time_category, name: "Office Support")
+    second_entry = create_entry(user: employee, date: Date.new(2026, 6, 17), hours: 2)
+    second_entry.update!(time_category: other_category)
+
+    expect do
+      get "/api/v1/admin/hours_report/timesheet_pdf",
+          params: { start_date: "2026-06-16", end_date: "2026-06-30", user_id: employee.id, time_category_id: category.id },
+          headers: auth_headers
+    end.to change(ReportExport, :count).by(1)
+
+    expect(response).to have_http_status(:ok)
+    expect(response.media_type).to eq("application/pdf")
+    expect(response.body).to start_with("%PDF")
+    expect(response.headers.fetch("Content-Disposition")).to include("AIRE_Timesheet_Alice_Pilot_2026-06-16_to_2026-06-30.pdf")
+    expect(ReportExport.last).to have_attributes(export_type: "employee_timesheet_pdf", readiness_status: "complete", protects_entries: false)
+    expect(ReportExport.last.entry_ids).to contain_exactly(first_entry.id, second_entry.id)
+  end
+
+  it "requires explicit acknowledgement before exporting a draft" do
+    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6).update!(approval_status: "pending")
+
+    get "/api/v1/admin/hours_report/timesheet_pdf",
+        params: { start_date: "2026-06-16", end_date: "2026-06-30", user_id: employee.id },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:code)).to eq("draft_acknowledgement_required")
+
+    get "/api/v1/admin/hours_report/timesheet_pdf",
+        params: { start_date: "2026-06-16", end_date: "2026-06-30", user_id: employee.id, acknowledge_draft: true },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(ReportExport.last.readiness_status).to eq("draft")
   end
 end

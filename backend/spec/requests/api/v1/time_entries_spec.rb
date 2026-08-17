@@ -119,6 +119,45 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         expect(json.dig(:time_entry, :description)).to eq("admin edit")
       end
 
+      it "requires a reason and invalidates a prior payroll export when corrected" do
+        export = ReportExport.create!(
+          public_id: "AIRE-PAYROLL-TEST0001",
+          export_type: "payroll_time_summary",
+          readiness_status: "complete",
+          state: "active",
+          start_date: entry.work_date,
+          end_date: entry.work_date,
+          employee_ids: [ employee.id ],
+          entry_ids: [ entry.id ],
+          filters: {},
+          summary: {},
+          issues: {},
+          entry_snapshot: [ { id: entry.id, hours: entry.hours.to_f } ],
+          checksum: "test-checksum",
+          protects_entries: true,
+          generated_at: Time.current,
+          last_downloaded_at: Time.current
+        )
+
+        patch "/api/v1/time_entries/#{entry.id}",
+              params: { time_entry: { description: "corrected" } },
+              headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(json.fetch(:code)).to eq("correction_reason_required")
+        expect(json.fetch(:export_references)).to eq([ export.public_id ])
+        expect(entry.reload.description).not_to eq("corrected")
+
+        patch "/api/v1/time_entries/#{entry.id}",
+              params: { time_entry: { description: "corrected" }, correction_reason: "Employee confirmed the shift ended earlier." },
+              headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:ok)
+        expect(export.reload.state).to eq("stale")
+        expect(export.stale_reason).to include("Employee confirmed the shift ended earlier")
+        expect(AuditLog.where(auditable: entry, action: "updated").order(:id).last.metadata).to include("correction reason")
+      end
+
       it "syncs corrected active clock-in time with the live clock state" do
         guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
         work_date = Date.new(2026, 4, 30)

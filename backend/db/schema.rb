@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_06_17_173000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_17_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -88,6 +88,38 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_17_173000) do
     t.index ["status"], name: "index_leave_requests_on_status"
     t.index ["user_id", "start_date"], name: "index_leave_requests_on_user_id_and_start_date"
     t.index ["user_id"], name: "index_leave_requests_on_user_id"
+  end
+
+  create_table "report_exports", force: :cascade do |t|
+    t.string "checksum", null: false
+    t.datetime "created_at", null: false
+    t.integer "download_count", default: 1, null: false
+    t.jsonb "employee_ids", default: [], null: false
+    t.date "end_date", null: false
+    t.jsonb "entry_ids", default: [], null: false
+    t.jsonb "entry_snapshot", default: [], null: false
+    t.string "export_type", null: false
+    t.jsonb "filters", default: {}, null: false
+    t.datetime "generated_at", null: false
+    t.bigint "generated_by_id"
+    t.jsonb "issues", default: {}, null: false
+    t.datetime "last_downloaded_at", null: false
+    t.boolean "protects_entries", default: false, null: false
+    t.string "public_id", null: false
+    t.string "readiness_status", null: false
+    t.datetime "stale_at"
+    t.text "stale_reason"
+    t.date "start_date", null: false
+    t.string "state", default: "active", null: false
+    t.jsonb "summary", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["checksum"], name: "index_report_exports_on_checksum"
+    t.index ["employee_ids"], name: "index_report_exports_on_employee_ids", using: :gin
+    t.index ["entry_ids"], name: "index_report_exports_on_entry_ids", using: :gin
+    t.index ["export_type", "start_date", "end_date"], name: "idx_on_export_type_start_date_end_date_1234e92c05"
+    t.index ["generated_by_id"], name: "index_report_exports_on_generated_by_id"
+    t.index ["protects_entries", "state"], name: "index_report_exports_on_protects_entries_and_state"
+    t.index ["public_id"], name: "index_report_exports_on_public_id", unique: true
   end
 
   create_table "schedule_time_presets", force: :cascade do |t|
@@ -294,6 +326,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_17_173000) do
   add_foreign_key "leave_requests", "users"
   add_foreign_key "leave_requests", "users", column: "cancelled_by_id"
   add_foreign_key "leave_requests", "users", column: "reviewed_by_id"
+  add_foreign_key "report_exports", "users", column: "generated_by_id"
   add_foreign_key "schedules", "users"
   add_foreign_key "schedules", "users", column: "created_by_id"
   add_foreign_key "site_media", "users", column: "uploaded_by_id"
