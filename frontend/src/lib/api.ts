@@ -123,6 +123,8 @@ export interface DownloadResponse {
   status?: number;
 }
 
+export type HoursReportDownloadType = 'pdf' | 'timesheet_pdf' | 'detailed_csv' | 'summary_csv';
+
 async function fetchDownload(endpoint: string): Promise<DownloadResponse> {
   try {
     const headers: Record<string, string> = {};
@@ -1324,7 +1326,7 @@ export const api = {
   },
 
   downloadHoursReport: (
-    type: 'timesheet_pdf' | 'detailed_csv' | 'summary_csv',
+    type: HoursReportDownloadType,
     params: HoursReportParams,
     acknowledgeDraft: boolean = false
   ) => {

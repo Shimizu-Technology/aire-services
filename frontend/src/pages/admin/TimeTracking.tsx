@@ -3,7 +3,7 @@ import { FadeUp, StaggerContainer, StaggerItem } from '../../components/ui/Motio
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
-import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportEmployee, HoursReportParams, HoursReportResponse, PendingApprovalsSummary } from '../../lib/api'
+import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportParams, HoursReportResponse, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
 import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
@@ -13,6 +13,7 @@ import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
 import EditTimeEntryModal from '../../components/time-tracking/EditTimeEntryModal'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 import LeaveRequestsPanel from '../../components/time-tracking/LeaveRequestsPanel'
+import ReportExportActions from '../../components/time-tracking/ReportExportActions'
 
 // Local types to avoid Vite caching issues
 interface TimeCategory {
@@ -273,7 +274,7 @@ export default function TimeTracking() {
     setSelectedReportEmployee(null)
   }, [])
   const [reportLoading, setReportLoading] = useState(false)
-  const [reportExporting, setReportExporting] = useState<'timesheet_pdf' | 'detailed_csv' | 'summary_csv' | null>(null)
+  const [reportExporting, setReportExporting] = useState<HoursReportDownloadType | null>(null)
   
   const [currentWeekLocked, setCurrentWeekLocked] = useState(false)
   const [currentWeekLockId, setCurrentWeekLockId] = useState<number | null>(null)
@@ -848,7 +849,7 @@ export default function TimeTracking() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  const downloadReport = async (type: 'timesheet_pdf' | 'detailed_csv' | 'summary_csv', acknowledgeDraft = false) => {
+  const downloadReport = async (type: HoursReportDownloadType, acknowledgeDraft = false) => {
     setReportExporting(type)
     setError(null)
     try {
@@ -1774,41 +1775,13 @@ export default function TimeTracking() {
                 <h3 className="text-sm font-semibold text-primary-dark">Payroll Hours Report</h3>
                 <p className="mt-1 text-xs text-text-muted">Employee-first totals with Sunday–Saturday overtime context across semi-monthly pay periods.</p>
               </div>
-              <div className="flex flex-col gap-2 lg:items-end">
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
-                  {reportFilters.user_id && (
-                    <button
-                      type="button"
-                      onClick={() => downloadReport('timesheet_pdf')}
-                      disabled={reportLoading || reportExporting !== null || hoursSummaryRows.length !== 1}
-                      className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {reportExporting === 'timesheet_pdf' ? 'Preparing PDF...' : 'Download Timesheet PDF'}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => downloadReport('detailed_csv')}
-                    disabled={reportLoading || reportExporting !== null || hoursSummaryRows.length === 0}
-                    className="rounded-lg border border-primary/30 bg-white px-4 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {reportExporting === 'detailed_csv' ? 'Preparing...' : 'Detailed Entries CSV'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => downloadReport('summary_csv')}
-                    disabled={reportLoading || reportExporting !== null || hoursSummaryRows.length === 0}
-                    className="rounded-lg border border-neutral-warm bg-white px-4 py-2 text-sm font-semibold text-primary-dark transition hover:bg-neutral-warm/40 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {reportExporting === 'summary_csv' ? 'Preparing...' : 'Payroll Summary CSV'}
-                  </button>
-                </div>
-                {reportFilters.user_id && (
-                  <p className="text-xs leading-relaxed text-text-muted lg:max-w-sm lg:text-right">
-                    The PDF always includes the employee's full approved/standard ledger for these dates; category and source filters do not remove entries from the timesheet.
-                  </p>
-                )}
-              </div>
+              <ReportExportActions
+                employeeSelected={Boolean(reportFilters.user_id)}
+                hasResults={hoursSummaryRows.length > 0}
+                loading={reportLoading}
+                exporting={reportExporting}
+                onExport={(type) => void downloadReport(type)}
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
