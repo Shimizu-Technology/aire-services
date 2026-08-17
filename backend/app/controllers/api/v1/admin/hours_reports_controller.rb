@@ -121,7 +121,12 @@ module Api
         end
 
         def capture_export(export_type, report)
-          ReportExport.capture!(export_type: export_type, report: report, generated_by: current_user)
+          ReportExport.capture!(
+            export_type: export_type,
+            report: report,
+            generated_by: current_user,
+            protects_entries: true
+          )
         end
 
         def safe_filename(value)

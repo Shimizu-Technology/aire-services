@@ -153,11 +153,7 @@ module Api
             raise ActiveRecord::Rollback if break_replace_error
           end
           raise ActiveRecord::Rollback unless saved
-        end
 
-        if break_replace_error
-          render json: { error: break_replace_error }, status: :unprocessable_entity
-        elsif saved
           if @time_entry.status == "completed" &&
              (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
             new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry, include_entry_hours: false)
@@ -196,7 +192,11 @@ module Api
           )
 
           invalidate_payroll_exports!
+        end
 
+        if break_replace_error
+          render json: { error: break_replace_error }, status: :unprocessable_entity
+        elsif saved
           render json: { time_entry: serialize_time_entry(@time_entry) }
         else
           render json: { error: @time_entry.errors.full_messages.join(", ") }, status: :unprocessable_entity
@@ -219,17 +219,19 @@ module Api
         entry_info = "#{@time_entry.hours}h on #{@time_entry.work_date}"
         entry_id = @time_entry.id
 
-        @time_entry.destroy
+        TimeEntry.transaction do
+          @time_entry.destroy!
 
-        AuditLog.create!(
-          auditable_type: "TimeEntry",
-          auditable_id: entry_id,
-          action: "deleted",
-          user: current_user,
-          metadata: audit_metadata_with_correction(entry_info)
-        )
+          AuditLog.create!(
+            auditable_type: "TimeEntry",
+            auditable_id: entry_id,
+            action: "deleted",
+            user: current_user,
+            metadata: audit_metadata_with_correction(entry_info)
+          )
 
-        invalidate_payroll_exports!
+          invalidate_payroll_exports!
+        end
 
         head :no_content
       end

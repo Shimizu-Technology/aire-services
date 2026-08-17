@@ -4,6 +4,8 @@ require "csv"
 
 module Reports
   class HoursReportCsv
+    FORMULA_PREFIX = /\A[ \t\r\n]*[=+\-@]/
+
     DETAILED_HEADERS = [
       "Export Reference", "Employee", "Date", "Start", "End", "Break Minutes", "Category",
       "Source", "Entry Method", "Regular Hours", "Overtime Hours", "Total Hours",
@@ -21,7 +23,7 @@ module Reports
         Array(report[:employees]).each do |employee|
           Array(employee[:days]).each do |day|
             Array(day[:entries]).each do |entry|
-              csv << [
+              csv << sanitize_row([
                 export.public_id,
                 employee[:full_name],
                 entry[:work_date],
@@ -38,7 +40,7 @@ module Reports
                 entry.dig(:approved_by, :full_name),
                 entry[:approved_at],
                 entry[:description]
-              ]
+              ])
             end
           end
         end
@@ -49,7 +51,7 @@ module Reports
       CSV.generate(headers: true) do |csv|
         csv << SUMMARY_HEADERS
         Array(report[:employees]).each do |employee|
-          csv << [
+          csv << sanitize_row([
             export.public_id,
             employee[:full_name],
             Array(employee[:approval_group_labels]).presence&.join(" | ") || employee[:approval_group_label],
@@ -60,7 +62,7 @@ module Reports
             format_hours(employee[:break_hours]),
             employee[:entries_count],
             employee[:ready] ? "Complete" : "Draft - needs review"
-          ]
+          ])
         end
       end
     end
@@ -68,6 +70,12 @@ module Reports
     def self.format_hours(value)
       format("%.2f", value.to_f)
     end
-    private_class_method :format_hours
+
+    def self.sanitize_row(values)
+      values.map do |value|
+        value.is_a?(String) && value.match?(FORMULA_PREFIX) ? "'#{value}" : value
+      end
+    end
+    private_class_method :format_hours, :sanitize_row
   end
 end

@@ -122,7 +122,11 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
 
   it "exports one detailed CSV row per entry segment with an immutable reference" do
     first = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 3, start_hour: 9)
-    first.update!(approved_by: admin, approved_at: Time.zone.parse("2026-06-17 08:00:00"))
+    first.update!(
+      approved_by: admin,
+      approved_at: Time.zone.parse("2026-06-17 08:00:00"),
+      description: "=HYPERLINK(\"https://example.test\", \"Open\")"
+    )
     create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 2, start_hour: 14)
 
     expect do
@@ -137,7 +141,9 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(rows.length).to eq(2)
     expect(rows.map { |row| row["Start"] }).to contain_exactly("9:00 AM", "2:00 PM")
     expect(rows.map { |row| row["Total Hours"] }).to contain_exactly("3.00", "2.00")
+    expect(rows.find { |row| row["Total Hours"] == "3.00" }["Description"]).to start_with("'=")
     expect(rows.map { |row| row["Export Reference"] }.uniq).to eq([ ReportExport.last.public_id ])
+    expect(ReportExport.last.protects_entries).to be(true)
     expect(ReportExport.last.entry_ids).to contain_exactly(first.id, TimeEntry.order(:id).last.id)
   end
 
@@ -157,7 +163,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(response.media_type).to eq("application/pdf")
     expect(response.body).to start_with("%PDF")
     expect(response.headers.fetch("Content-Disposition")).to include("AIRE_Timesheet_Alice_Pilot_2026-06-16_to_2026-06-30.pdf")
-    expect(ReportExport.last).to have_attributes(export_type: "employee_timesheet_pdf", readiness_status: "complete", protects_entries: false)
+    expect(ReportExport.last).to have_attributes(export_type: "employee_timesheet_pdf", readiness_status: "complete", protects_entries: true)
     expect(ReportExport.last.entry_ids).to contain_exactly(first_entry.id, second_entry.id)
   end
 
