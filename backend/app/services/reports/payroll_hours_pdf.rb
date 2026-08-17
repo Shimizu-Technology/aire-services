@@ -25,6 +25,7 @@ module Reports
 
     def render
       Prawn::Document.new(page_size: "LETTER", page_layout: :landscape, margin: [ 38, 36, 46, 36 ], info: metadata) do |pdf|
+        PdfTypography.apply(pdf)
         render_header(pdf, "PAYROLL HOURS REPORT")
         render_identity(pdf)
         render_status(pdf)

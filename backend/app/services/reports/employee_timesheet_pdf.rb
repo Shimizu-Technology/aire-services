@@ -25,6 +25,7 @@ module Reports
 
     def render
       Prawn::Document.new(page_size: "LETTER", margin: [ 42, 36, 48, 36 ], info: metadata) do |pdf|
+        PdfTypography.apply(pdf)
         render_header(pdf)
         render_identity(pdf)
         render_status(pdf)

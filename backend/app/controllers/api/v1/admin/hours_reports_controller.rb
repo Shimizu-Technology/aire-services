@@ -159,7 +159,10 @@ module Api
         end
 
         def safe_filename(value)
-          value.to_s.gsub(/[^A-Za-z0-9]+/, "_").gsub(/\A_+|_+\z/, "").presence || "Employee"
+          ActiveSupport::Inflector.transliterate(value.to_s)
+            .gsub(/[^A-Za-z0-9]+/, "_")
+            .gsub(/\A_+|_+\z/, "")
+            .presence || "Employee"
         end
       end
     end

@@ -181,7 +181,9 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
   end
 
   it "generates a consolidated PDF for the default all-employee report" do
-    other_employee = create(:user, :employee, first_name: "Bob", last_name: "Ops", approval_group: "ops_maintenance")
+    employee.update!(first_name: "Māria", last_name: "Čamoru")
+    category.update!(name: "Māpåla Support")
+    other_employee = create(:user, :employee, first_name: "Bob", last_name: "Žukov", approval_group: "ops_maintenance")
     alice_entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
     bob_entry = create_entry(user: other_employee, date: Date.new(2026, 6, 17), hours: 7)
 
@@ -201,6 +203,8 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
   end
 
   it "uses the official employee timesheet for the primary PDF export when an employee is selected" do
+    employee.update!(first_name: "Māria", last_name: "Čamoru")
+    category.update!(name: "Māpåla Support")
     create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
 
     get "/api/v1/admin/hours_report/pdf",
@@ -209,7 +213,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(response.media_type).to eq("application/pdf")
-    expect(response.headers.fetch("Content-Disposition")).to include("AIRE_Timesheet_Alice_Pilot_2026-06-16_to_2026-06-30.pdf")
+    expect(response.headers.fetch("Content-Disposition")).to include("AIRE_Timesheet_Maria_Camoru_2026-06-16_to_2026-06-30.pdf")
     expect(ReportExport.last.export_type).to eq("employee_timesheet_pdf")
   end
 
