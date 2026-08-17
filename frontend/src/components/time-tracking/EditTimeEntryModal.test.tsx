@@ -100,4 +100,54 @@ describe('EditTimeEntryModal break editing', () => {
     expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('breaks')
     expect(apiMock.updateTimeEntry.mock.calls[0][1]).toMatchObject({ break_minutes: 30 })
   })
+
+  it('collects and resubmits a correction reason for an entry already exported to payroll', async () => {
+    const onSaved = vi.fn()
+    apiMock.updateTimeEntry
+      .mockResolvedValueOnce({
+        error: 'A correction reason is required because this entry was already exported to payroll.',
+        code: 'correction_reason_required',
+        export_references: ['AIRE-PAYROLL-20260817-ABC12345'],
+      })
+      .mockResolvedValueOnce({ data: { time_entry: {} } })
+
+    render(
+      <EditTimeEntryModal
+        isOpen
+        entry={{
+          id: 3,
+          work_date: '2026-05-05',
+          start_time: '09:00',
+          end_time: '17:00',
+          break_minutes: 30,
+          description: null,
+          entry_method: 'manual',
+          status: 'completed',
+          locked_at: null,
+          user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
+          time_category: null,
+          breaks: [],
+        }}
+        categories={[]}
+        canDelete
+        onClose={vi.fn()}
+        onSaved={onSaved}
+        onDeleted={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+
+    const reason = await screen.findByLabelText(/correction reason/i)
+    expect(screen.getByText(/AIRE-PAYROLL-20260817-ABC12345/)).toBeInTheDocument()
+    fireEvent.change(reason, { target: { value: 'Employee confirmed the corrected clock-out time.' } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(apiMock.updateTimeEntry).toHaveBeenLastCalledWith(
+      3,
+      expect.any(Object),
+      'Employee confirmed the corrected clock-out time.',
+    )
+  })
 })

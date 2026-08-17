@@ -60,7 +60,7 @@ module Payroll
 
     def serialize_user(user, user_entries, overtime_entries)
       countable = user_entries.select { |entry| countable?(entry) }
-      overtime_allocations = allocate_weekly_overtime(overtime_entries.select { |entry| countable?(entry) })
+      overtime_allocations = WeeklyOvertimeAllocator.call(overtime_entries.select { |entry| countable?(entry) })
       grouped_days = countable.group_by(&:work_date).sort_by { |date, _| date }
 
       days = grouped_days.map do |date, entries|
@@ -151,28 +151,6 @@ module Payroll
         denied_overtime_count: entries.count { |entry| entry.overtime_status == "denied" },
         open_clock_count: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) }
       }
-    end
-
-    def allocate_weekly_overtime(entries)
-      allocations = {}
-      entries.group_by { |entry| entry.work_date.beginning_of_week(:sunday) }.each_value do |week_entries|
-        cumulative = 0.0
-        week_entries.sort_by { |entry| [ entry.work_date, entry_sort_seconds(entry), entry.created_at, entry.id ] }.each do |entry|
-          hours = entry.hours.to_f
-          regular = [ [ 40.0 - cumulative, 0.0 ].max, hours ].min
-          overtime = [ hours - regular, 0.0 ].max
-          allocations[entry.id] = {
-            regular_hours: round_hours(regular),
-            overtime_hours: round_hours(overtime)
-          }
-          cumulative += hours
-        end
-      end
-      allocations
-    end
-
-    def entry_sort_seconds(entry)
-      entry.start_time&.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)&.seconds_since_midnight || 0
     end
 
     def countable?(entry)

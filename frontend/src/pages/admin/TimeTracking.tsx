@@ -3,7 +3,7 @@ import { FadeUp, StaggerContainer, StaggerItem } from '../../components/ui/Motio
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
-import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportEmployee, HoursReportResponse, PendingApprovalsSummary } from '../../lib/api'
+import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportEmployee, HoursReportParams, HoursReportResponse, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
 import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
@@ -273,6 +273,7 @@ export default function TimeTracking() {
     setSelectedReportEmployee(null)
   }, [])
   const [reportLoading, setReportLoading] = useState(false)
+  const [reportExporting, setReportExporting] = useState<'timesheet_pdf' | 'detailed_csv' | 'summary_csv' | null>(null)
   
   const [currentWeekLocked, setCurrentWeekLocked] = useState(false)
   const [currentWeekLockId, setCurrentWeekLockId] = useState<number | null>(null)
@@ -455,11 +456,11 @@ export default function TimeTracking() {
 
   const finalizeWeek = async () => {
     if (!isAdmin) return
-    if (!confirm('Finalize and lock this week? No add/edit/delete will be allowed for this week.')) return
+    if (!confirm('Lock this week against edits? Reports and exports do not require this optional lock.')) return
 
     setLockingWeek(true)
     try {
-      const res = await api.lockTimePeriod(currentWeekStartIso(), 'Finalized from Time Tracking screen')
+      const res = await api.lockTimePeriod(currentWeekStartIso(), 'Optional edit lock from Time Tracking screen')
       if (res.error) {
         setError(res.error)
         return
@@ -742,7 +743,7 @@ export default function TimeTracking() {
 
   const handleDelete = async (entry: TimeEntryItem) => {
     if (!canDeleteEntry(entry)) {
-      setError('This time entry cannot be deleted (locked/finalized or insufficient permissions)')
+      setError('This time entry cannot be deleted (locked or insufficient permissions)')
       return
     }
 
@@ -751,6 +752,11 @@ export default function TimeTracking() {
     try {
       const response = await api.deleteTimeEntry(entry.id)
       if (response.error) {
+        if (response.code === 'correction_reason_required') {
+          openEditEntry(entry)
+          setError('This entry was already exported to payroll. Use the edit dialog to record a correction reason before deleting it.')
+          return
+        }
         setError(response.error)
         return
       }
@@ -817,32 +823,49 @@ export default function TimeTracking() {
   const pendingApprovalCount = pendingApprovalSummary?.entry_count ?? 0
   const pendingOvertimeApprovalCount = pendingApprovalSummary?.pending_overtime_count ?? 0
 
-  const exportHoursCsv = () => {
-    const headers = ['Employee','Employee Type','Departments','Hour Types','Regular Hours','OT Hours','Total Hours','Break Hours','Entries','Ready','Date Range Start','Date Range End']
-    const rows = hoursSummaryRows.map(row => [
-      row.full_name,
-      row.is_intern ? 'Intern' : 'Staff',
-      row.approval_group_labels?.join('; ') || row.approval_group_label || 'Unassigned',
-      row.categories.map((category) => `${category.name}: ${category.total_hours.toFixed(2)}h`).join('; '),
-      row.regular_hours.toFixed(2),
-      row.overtime_hours.toFixed(2),
-      row.total_hours.toFixed(2),
-      row.break_hours.toFixed(2),
-      row.entries_count.toString(),
-      row.ready ? 'Yes' : 'Needs review',
-      reportFilters.start_date,
-      reportFilters.end_date,
-    ])
-    const csv = [headers, ...rows]
-      .map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(','))
-      .join('\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const currentReportParams = (): HoursReportParams => ({
+    start_date: reportFilters.start_date,
+    end_date: reportFilters.end_date,
+    ...(reportFilters.user_id ? { user_id: parseInt(reportFilters.user_id) } : {}),
+    ...(reportFilters.time_category_id ? { time_category_id: parseInt(reportFilters.time_category_id) } : {}),
+    ...(reportFilters.approval_group !== 'all' ? { approval_group: reportFilters.approval_group } : {}),
+    status: reportFilters.employee_status,
+    ...(reportFilters.role ? { role: reportFilters.role } : {}),
+    ...(reportFilters.clock_source ? { clock_source: reportFilters.clock_source } : {}),
+    ...(reportFilters.entry_method ? { entry_method: reportFilters.entry_method } : {}),
+    ...(reportFilters.approval_status ? { approval_status: reportFilters.approval_status } : {}),
+    ...(reportFilters.overtime_status ? { overtime_status: reportFilters.overtime_status } : {}),
+  })
+
+  const saveReportDownload = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `aire-hours-summary-${reportFilters.start_date}-to-${reportFilters.end_date}.csv`
+    a.download = filename
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    a.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const downloadReport = async (type: 'timesheet_pdf' | 'detailed_csv' | 'summary_csv', acknowledgeDraft = false) => {
+    setReportExporting(type)
+    setError(null)
+    try {
+      const response = await api.downloadHoursReport(type, currentReportParams(), acknowledgeDraft)
+      if (response.code === 'draft_acknowledgement_required' && !acknowledgeDraft) {
+        const confirmed = confirm('This report has pending, denied, or open entries. Download a clearly marked draft anyway?')
+        if (confirmed) await downloadReport(type, true)
+        return
+      }
+      if (response.error || !response.blob) {
+        setError(response.error || 'Unable to download report')
+        return
+      }
+      saveReportDownload(response.blob, response.filename || 'AIRE_Report')
+    } finally {
+      setReportExporting(null)
+    }
   }
 
   return (
@@ -1141,9 +1164,9 @@ export default function TimeTracking() {
       <div className={`rounded-xl border p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${currentWeekLocked ? 'bg-amber-50 border-amber-200' : 'bg-white border-neutral-warm'}`}>
         <div className="text-sm">
           {currentWeekLocked ? (
-            <span className="text-amber-700 font-medium">This week is finalized and locked. Adding, editing, and deleting time entries is disabled.</span>
+            <span className="text-amber-700 font-medium">This week is locked against changes. Reports remain available.</span>
           ) : (
-            <span className="text-primary-dark">This week is currently open for time entry changes.</span>
+            <span className="text-primary-dark">This week is open for changes. Locking is optional and is not required for reports or exports.</span>
           )}
         </div>
         {isAdmin && (
@@ -1152,9 +1175,9 @@ export default function TimeTracking() {
               <button
                 onClick={finalizeWeek}
                 disabled={lockingWeek}
-                className="px-3 py-2 text-sm font-medium rounded-lg bg-primary text-white hover:bg-primary-dark disabled:opacity-60"
+                className="rounded-lg border border-neutral-warm bg-white px-3 py-2 text-sm font-medium text-primary-dark transition hover:bg-neutral-warm/40 disabled:opacity-60"
               >
-                {lockingWeek ? 'Locking...' : 'Finalize Week'}
+                {lockingWeek ? 'Locking...' : 'Lock Against Edits'}
               </button>
             ) : (
               <button
@@ -1452,7 +1475,7 @@ export default function TimeTracking() {
                         onClick={() => handleDelete(entry)}
                         disabled={!canDeleteEntry(entry)}
                         className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${!canDeleteEntry(entry) ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-red-600 hover:bg-red-50'}`}
-                        title={!canDeleteEntry(entry) ? 'This entry is locked/finalized or cannot be deleted' : 'Delete entry'}
+                        title={!canDeleteEntry(entry) ? 'This entry is locked or cannot be deleted' : 'Delete entry'}
                       >
                         <TrashIcon />
                       </button>
@@ -1746,18 +1769,46 @@ export default function TimeTracking() {
       {activeTab === 'reports' && isAdmin && (
         <div className="space-y-6">
           <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-primary-dark">Payroll Hours Report</h3>
                 <p className="mt-1 text-xs text-text-muted">Employee-first totals with Sunday–Saturday overtime context across semi-monthly pay periods.</p>
               </div>
-              <button
-                onClick={exportHoursCsv}
-                disabled={reportLoading || hoursSummaryRows.length === 0}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
-              >
-                Export Hours CSV
-              </button>
+              <div className="flex flex-col gap-2 lg:items-end">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
+                  {reportFilters.user_id && (
+                    <button
+                      type="button"
+                      onClick={() => downloadReport('timesheet_pdf')}
+                      disabled={reportLoading || reportExporting !== null || hoursSummaryRows.length !== 1}
+                      className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {reportExporting === 'timesheet_pdf' ? 'Preparing PDF...' : 'Download Timesheet PDF'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => downloadReport('detailed_csv')}
+                    disabled={reportLoading || reportExporting !== null || hoursSummaryRows.length === 0}
+                    className="rounded-lg border border-primary/30 bg-white px-4 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {reportExporting === 'detailed_csv' ? 'Preparing...' : 'Detailed Entries CSV'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadReport('summary_csv')}
+                    disabled={reportLoading || reportExporting !== null || hoursSummaryRows.length === 0}
+                    className="rounded-lg border border-neutral-warm bg-white px-4 py-2 text-sm font-semibold text-primary-dark transition hover:bg-neutral-warm/40 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {reportExporting === 'summary_csv' ? 'Preparing...' : 'Payroll Summary CSV'}
+                  </button>
+                </div>
+                {reportFilters.user_id && (
+                  <p className="text-xs leading-relaxed text-text-muted lg:max-w-sm lg:text-right">
+                    The PDF always includes the employee's full approved/standard ledger for these dates; category and source filters do not remove entries from the timesheet.
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1856,6 +1907,29 @@ export default function TimeTracking() {
             <StaggerItem><ReportMetric label="Break Hours" value={reportLoading ? '…' : reportSummary.break_hours.toFixed(1)} /></StaggerItem>
             <StaggerItem><ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} /></StaggerItem>
           </StaggerContainer>
+
+          {hoursReport && (
+            <div className={`rounded-xl border px-4 py-3 ${
+              hoursReport.ready
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                : 'border-amber-200 bg-amber-50 text-amber-900'
+            }`}>
+              <div className="font-semibold">
+                {hoursReport.ready ? 'Complete as of the generated time' : 'Draft - entries need review'}
+              </div>
+              <p className="mt-1 text-sm leading-relaxed">
+                {hoursReport.ready
+                  ? 'No pending, denied, or open time entries were found in this period. Exports do not require a finalized-week lock.'
+                  : [
+                      reportSummary.pending_count > 0 ? `${reportSummary.pending_count} pending` : null,
+                      reportSummary.denied_count > 0 ? `${reportSummary.denied_count} denied` : null,
+                      reportSummary.pending_overtime_count > 0 ? `${reportSummary.pending_overtime_count} pending overtime` : null,
+                      reportSummary.denied_overtime_count > 0 ? `${reportSummary.denied_overtime_count} denied overtime` : null,
+                      reportSummary.open_clock_count > 0 ? `${reportSummary.open_clock_count} open clock` : null,
+                    ].filter(Boolean).join(', ') + '. You can still export after explicitly confirming a draft.'}
+              </p>
+            </div>
+          )}
 
           {hoursReport && (hoursReport.context_start_date !== hoursReport.start_date || hoursReport.context_end_date !== hoursReport.end_date) && (
             <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">

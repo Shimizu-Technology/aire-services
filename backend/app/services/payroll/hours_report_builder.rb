@@ -5,7 +5,7 @@ require "set"
 module Payroll
   class HoursReportBuilder
     BUSINESS_TIMEZONE = TimeClockService::BUSINESS_TIMEZONE
-    WEEKLY_OVERTIME_THRESHOLD = 40.0
+    WEEKLY_OVERTIME_THRESHOLD = WeeklyOvertimeAllocator::STATUTORY_WEEKLY_THRESHOLD
     MAX_RANGE_DAYS = 62
 
     attr_reader :params, :start_date, :end_date, :context_start_date, :context_end_date
@@ -24,10 +24,10 @@ module Payroll
     def call
       scoped_users = users_scope.to_a
       user_ids = scoped_users.map(&:id)
-      overtime_context_entries = overtime_context_entries_scope(context_start_date..context_end_date, user_ids).to_a
+      control_entries = overtime_context_entries_scope(context_start_date..context_end_date, user_ids).to_a
       report_entries = report_entries_scope(context_start_date..context_end_date, user_ids).to_a
-      period_entries = report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
-      employees = build_employee_reports(scoped_users, overtime_context_entries, report_entries)
+      control_period_entries = control_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
+      employees = build_employee_reports(scoped_users, control_entries, report_entries)
 
       {
         start_date: start_date.iso8601,
@@ -36,7 +36,8 @@ module Payroll
         context_end_date: context_end_date.iso8601,
         generated_at: Time.current.iso8601,
         filters: serialized_filters,
-        summary: summary(employees, period_entries),
+        ready: report_ready?(issues_for(control_period_entries)),
+        summary: summary(employees, control_period_entries),
         employees: employees
       }
     end
@@ -89,7 +90,7 @@ module Payroll
 
       TimeEntry
         .where(user_id: user_ids, work_date: range)
-        .includes(:user, :time_category, :time_entry_breaks)
+        .includes(:user, :time_category, :time_entry_breaks, :approved_by, :overtime_approved_by)
         .order(:work_date, :start_time, :created_at, :id)
     end
 
@@ -105,9 +106,10 @@ module Payroll
         user_context_entries = context_entries_by_user.fetch(user.id, [])
         user_report_entries = report_entries_by_user.fetch(user.id, [])
         period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
-        next if period_entries.empty? && !include_empty_employees?
+        control_period_entries = user_context_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
+        next if period_entries.empty? && control_period_entries.empty? && !include_empty_employees?
 
-        build_employee_report(user, user_context_entries, user_report_entries)
+        build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
       end
     end
 
@@ -115,14 +117,17 @@ module Payroll
       ActiveModel::Type::Boolean.new.cast(params[:include_empty])
     end
 
-    def build_employee_report(user, user_context_entries, user_report_entries)
+    def build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
       overtime_allocations = allocate_weekly_overtime(user_context_entries)
       period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       countable_period_entries = period_entries.select { |entry| countable?(entry) }
       days = build_days(countable_period_entries, overtime_allocations)
       categories = build_categories(countable_period_entries, overtime_allocations)
       weeks = build_weeks(user_context_entries, countable_period_entries, overtime_allocations)
-      issues = issues_for(period_entries)
+      # Readiness is a control concern, not a display filter. A pending or open
+      # entry must keep the report in draft even when the visible report is
+      # filtered to approved entries only.
+      issues = issues_for(control_period_entries)
 
       regular_hours = sum(days, :regular_hours)
       overtime_hours = sum(days, :overtime_hours)
@@ -159,28 +164,12 @@ module Payroll
     end
 
     def allocate_weekly_overtime(entries)
-      allocations = {}
-      countable_entries = entries.select { |entry| countable?(entry) }
-      countable_entries.group_by { |entry| entry.work_date.beginning_of_week(:sunday) }.each_value do |week_entries|
-        cumulative = 0.0
-        week_entries.sort_by { |entry| [ entry.work_date, entry_sort_seconds(entry), entry.created_at, entry.id ] }.each do |entry|
-          hours = entry.hours.to_f
-          regular = [ [ WEEKLY_OVERTIME_THRESHOLD - cumulative, 0 ].max, hours ].min
-          overtime = hours - regular
-          allocations[entry.id] = {
-            regular_hours: round_hours(regular),
-            overtime_hours: round_hours(overtime),
-            weekly_cumulative_before: round_hours(cumulative),
-            weekly_cumulative_after: round_hours(cumulative + hours)
-          }
-          cumulative += hours
-        end
-      end
-      allocations
+      WeeklyOvertimeAllocator.call(entries.select { |entry| countable?(entry) })
     end
 
     def build_days(entries, allocations)
       entries.group_by(&:work_date).sort_by { |date, _| date }.map do |date, day_entries|
+        day_entries = day_entries.sort_by { |entry| [ entry_sort_seconds(entry), entry.created_at, entry.id ] }
         regular = day_entries.sum { |entry| allocations.fetch(entry.id, {})[:regular_hours].to_f }
         overtime = day_entries.sum { |entry| allocations.fetch(entry.id, {})[:overtime_hours].to_f }
         {
@@ -249,7 +238,11 @@ module Payroll
         entry_method: entry.entry_method,
         clock_source: entry.clock_source,
         approval_status: entry.approval_status,
+        approved_by: entry.approved_by ? { id: entry.approved_by.id, full_name: entry.approved_by.full_name } : nil,
+        approved_at: entry.approved_at&.iso8601,
         overtime_status: entry.overtime_status,
+        overtime_approved_by: entry.overtime_approved_by ? { id: entry.overtime_approved_by.id, full_name: entry.overtime_approved_by.full_name } : nil,
+        overtime_approved_at: entry.overtime_approved_at&.iso8601,
         locked_at: entry.locked_at&.iso8601,
         time_category: entry.time_category ? {
           id: entry.time_category.id,
@@ -297,12 +290,12 @@ module Payroll
       }
     end
 
-    def entry_sort_seconds(entry)
-      entry.start_time&.in_time_zone(BUSINESS_TIMEZONE)&.seconds_since_midnight || 0
-    end
-
     def serialized_filters
       params.to_h.slice(:user_id, :role, :status, :approval_group, :time_category_id, :clock_source, :entry_method, :approval_status, :overtime_status, :include_empty)
+    end
+
+    def entry_sort_seconds(entry)
+      entry.start_time&.in_time_zone(BUSINESS_TIMEZONE)&.seconds_since_midnight || 0
     end
 
     def countable?(entry)

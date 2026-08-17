@@ -79,6 +79,10 @@ class TimeEntry < ApplicationRecord
     status == "completed" && !approval_status.in?(%w[denied pending])
   end
 
+  def active_payroll_exports
+    ReportExport.active_for_entry(id)
+  end
+
   def total_break_minutes
     if time_entry_breaks.loaded?
       time_entry_breaks.select { |b| b.duration_minutes.present? }.sum(&:duration_minutes)
