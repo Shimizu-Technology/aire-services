@@ -16,7 +16,8 @@ RSpec.describe "Api::V1::Payroll::TimeSummaries", type: :request do
   end
 
   it "returns and deduplicates a protecting export snapshot for the same ledger" do
-    create(:time_entry, user: employee, work_date: Date.new(2026, 6, 16), approval_status: nil, status: "completed")
+    context_entry = create(:time_entry, user: employee, work_date: Date.new(2026, 6, 15), approval_status: nil, status: "completed")
+    period_entry = create(:time_entry, user: employee, work_date: Date.new(2026, 6, 16), approval_status: nil, status: "completed")
 
     expect do
       get "/api/v1/payroll/time_summary", params: { start_date: "2026-06-16", end_date: "2026-06-30" }, headers: headers
@@ -26,6 +27,7 @@ RSpec.describe "Api::V1::Payroll::TimeSummaries", type: :request do
     first_reference = JSON.parse(response.body).dig("export", "id")
     expect(first_reference).to start_with("AIRE-PAYROLL-")
     expect(ReportExport.last).to have_attributes(protects_entries: true, readiness_status: "complete")
+    expect(ReportExport.last.entry_ids).to contain_exactly(context_entry.id, period_entry.id)
 
     expect do
       get "/api/v1/payroll/time_summary", params: { start_date: "2026-06-16", end_date: "2026-06-30" }, headers: headers

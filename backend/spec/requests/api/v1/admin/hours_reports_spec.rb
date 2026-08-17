@@ -148,6 +148,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
   end
 
   it "generates a server-side employee timesheet PDF without requiring a finalized week" do
+    context_entry = create_entry(user: employee, date: Date.new(2026, 6, 15), hours: 8)
     first_entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
     other_category = create(:time_category, name: "Office Support")
     second_entry = create_entry(user: employee, date: Date.new(2026, 6, 17), hours: 2)
@@ -164,7 +165,19 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(response.body).to start_with("%PDF")
     expect(response.headers.fetch("Content-Disposition")).to include("AIRE_Timesheet_Alice_Pilot_2026-06-16_to_2026-06-30.pdf")
     expect(ReportExport.last).to have_attributes(export_type: "employee_timesheet_pdf", readiness_status: "complete", protects_entries: true)
-    expect(ReportExport.last.entry_ids).to contain_exactly(first_entry.id, second_entry.id)
+    expect(ReportExport.last.entry_ids).to contain_exactly(context_entry.id, first_entry.id, second_entry.id)
+    expect(ReportExport.last.entry_snapshot.find { |entry| entry["id"] == context_entry.id }).to include(
+      "snapshot_role" => "ledger_dependency",
+      "total_hours" => 8.0
+    )
+
+    patch "/api/v1/time_entries/#{context_entry.id}",
+          params: { time_entry: { description: "Corrected context entry" } },
+          headers: auth_headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:code)).to eq("correction_reason_required")
+    expect(json.fetch(:export_references)).to eq([ ReportExport.last.public_id ])
   end
 
   it "requires explicit acknowledgement before exporting a draft" do

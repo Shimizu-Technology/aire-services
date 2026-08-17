@@ -22,8 +22,8 @@ class ReportExport < ApplicationRecord
   scope :protecting_entries, -> { active.where(protects_entries: true) }
 
   def self.capture!(export_type:, report:, generated_by: nil, protects_entries: false, deduplicate: false)
-    entries = snapshot_entries(report)
     employee_ids = Array(report[:employees]).filter_map { |employee| employee[:id] || employee[:source_user_id] }.map(&:to_i).uniq.sort
+    entries = snapshot_entries(report, employee_ids: employee_ids)
     entry_ids = entries.map { |entry| entry.fetch("id").to_i }.uniq.sort
     checksum = Digest::SHA256.hexdigest(JSON.generate(entries))
     now = Time.current
@@ -77,8 +77,8 @@ class ReportExport < ApplicationRecord
     end
   end
 
-  private_class_method def self.snapshot_entries(report)
-    Array(report[:employees]).flat_map do |employee|
+  private_class_method def self.snapshot_entries(report, employee_ids:)
+    visible_entries = Array(report[:employees]).flat_map do |employee|
       employee_id = (employee[:id] || employee[:source_user_id]).to_i
       employee_name = employee[:full_name] || employee[:display_name]
       days = Array(employee[:days])
@@ -109,7 +109,71 @@ class ReportExport < ApplicationRecord
           end
         end
       end
-    end.sort_by { |entry| [ entry.fetch("employee_id"), entry.fetch("work_date").to_s, entry.fetch("id") ] }
+    end
+
+    # A report's regular/overtime and full-week totals can depend on entries
+    # outside the requested date range or hidden by display filters. Preserve
+    # the full weekly ledger dependency so any later correction invalidates the
+    # snapshot that was calculated from it.
+    dependencies = ledger_dependency_entries(report, employee_ids)
+    entries_by_id = dependencies.index_by { |entry| entry.fetch("id") }
+    visible_entries.each do |entry|
+      id = entry.fetch("id")
+      entries_by_id[id] = entries_by_id.fetch(id, {}).merge(entry).merge("snapshot_role" => "report")
+    end
+
+    entries_by_id.values.sort_by { |entry| [ entry.fetch("employee_id"), entry.fetch("work_date").to_s, entry.fetch("id") ] }
+  end
+
+  private_class_method def self.ledger_dependency_entries(report, employee_ids)
+    return [] if employee_ids.empty?
+
+    employee_names = Array(report[:employees]).to_h do |employee|
+      [
+        (employee[:id] || employee[:source_user_id]).to_i,
+        employee[:full_name] || employee[:display_name]
+      ]
+    end
+    context_start = Date.iso8601((report[:context_start_date] || report.fetch(:start_date)).to_s).beginning_of_week(:sunday)
+    context_end = Date.iso8601((report[:context_end_date] || report.fetch(:end_date)).to_s).end_of_week(:sunday)
+
+    TimeEntry
+      .where(user_id: employee_ids, work_date: context_start..context_end)
+      .includes(:time_category, :time_entry_breaks)
+      .map do |entry|
+        {
+          "id" => entry.id,
+          "employee_id" => entry.user_id,
+          "employee_name" => employee_names[entry.user_id],
+          "work_date" => entry.work_date.iso8601,
+          "start_time" => entry.start_time&.iso8601,
+          "end_time" => entry.end_time&.iso8601,
+          "total_hours" => entry.hours.to_f,
+          "break_minutes" => entry.break_minutes.to_i,
+          "description" => entry.description,
+          "entry_method" => entry.entry_method,
+          "clock_source" => entry.clock_source,
+          "status" => entry.status,
+          "approval_status" => entry.approval_status,
+          "overtime_status" => entry.overtime_status,
+          "approved_at" => entry.approved_at&.iso8601,
+          "overtime_approved_at" => entry.overtime_approved_at&.iso8601,
+          "time_category" => entry.time_category && {
+            "id" => entry.time_category.id,
+            "key" => entry.time_category.key,
+            "name" => entry.time_category.name
+          },
+          "breaks" => entry.time_entry_breaks.sort_by(&:start_time).map do |entry_break|
+            {
+              "id" => entry_break.id,
+              "start_time" => entry_break.start_time&.iso8601,
+              "end_time" => entry_break.end_time&.iso8601,
+              "duration_minutes" => entry_break.duration_minutes
+            }
+          end,
+          "snapshot_role" => "ledger_dependency"
+        }
+      end
   end
 
   private_class_method def self.report_ready?(report)
