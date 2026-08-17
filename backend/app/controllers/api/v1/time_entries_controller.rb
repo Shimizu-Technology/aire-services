@@ -360,7 +360,9 @@ module Api
 
       # POST /api/v1/time_entries/:id/approve
       def approve
-        entry = TimeClockService.approve_entry(entry: @time_entry, approved_by: current_user, note: params[:note])
+        entry = with_export_invalidation(@time_entry, approval_change_reason("Time entry approved")) do
+          TimeClockService.approve_entry(entry: @time_entry, approved_by: current_user, note: params[:note])
+        end
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
@@ -370,7 +372,9 @@ module Api
 
       # POST /api/v1/time_entries/:id/deny
       def deny
-        entry = TimeClockService.deny_entry(entry: @time_entry, denied_by: current_user, note: params[:note])
+        entry = with_export_invalidation(@time_entry, approval_change_reason("Time entry denied")) do
+          TimeClockService.deny_entry(entry: @time_entry, denied_by: current_user, note: params[:note])
+        end
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
@@ -380,7 +384,9 @@ module Api
 
       # POST /api/v1/time_entries/:id/approve_overtime
       def approve_overtime
-        entry = TimeClockService.approve_overtime(entry: @time_entry, approved_by: current_user, note: params[:note])
+        entry = with_export_invalidation(@time_entry, approval_change_reason("Overtime approved")) do
+          TimeClockService.approve_overtime(entry: @time_entry, approved_by: current_user, note: params[:note])
+        end
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
@@ -390,7 +396,9 @@ module Api
 
       # POST /api/v1/time_entries/:id/deny_overtime
       def deny_overtime
-        entry = TimeClockService.deny_overtime(entry: @time_entry, denied_by: current_user, note: params[:note])
+        entry = with_export_invalidation(@time_entry, approval_change_reason("Overtime denied")) do
+          TimeClockService.deny_overtime(entry: @time_entry, denied_by: current_user, note: params[:note])
+        end
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
@@ -430,8 +438,16 @@ module Api
               raise ActiveRecord::Rollback
             end
 
-            entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note) if entry.approval_status == "pending"
-            entry = TimeClockService.approve_overtime(entry: entry, approved_by: current_user, note: note) if entry.overtime_status == "pending"
+            approval_changes = []
+            if entry.approval_status == "pending"
+              entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note)
+              approval_changes << "Time entry approved"
+            end
+            if entry.overtime_status == "pending"
+              entry = TimeClockService.approve_overtime(entry: entry, approved_by: current_user, note: note)
+              approval_changes << "Overtime approved"
+            end
+            invalidate_exports_for_entry!(entry, approval_change_reason(approval_changes.join(" and "), note))
 
             updated_entries << eager_reload(entry)
           end
@@ -459,6 +475,26 @@ module Api
       end
 
       private
+
+      def with_export_invalidation(entry, reason)
+        TimeEntry.transaction do
+          updated_entry = yield
+          invalidate_exports_for_entry!(entry, reason)
+          updated_entry
+        end
+      end
+
+      def invalidate_exports_for_entry!(entry, reason)
+        ReportExport.invalidate_for_entry!(
+          entry_id: entry.id,
+          changed_by: current_user,
+          reason: reason
+        )
+      end
+
+      def approval_change_reason(action, note = params[:note])
+        note.present? ? "#{action}; note: #{note.to_s.strip}" : action
+      end
 
       def require_correction_reason_for_exported_entry!
         return true if active_payroll_exports.empty?

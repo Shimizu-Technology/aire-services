@@ -758,11 +758,60 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
     end
   end
 
+  describe "approval changes to exported entries" do
+    it "atomically marks an export stale when approving a time entry" do
+      entry = create(:time_entry, user: employee, approval_status: "pending")
+      export = create_protecting_export(entry)
+
+      post "/api/v1/time_entries/#{entry.id}/approve",
+           params: { note: "Supervisor verified" },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(entry.reload.approval_status).to eq("approved")
+      expect(export.reload).to have_attributes(state: "stale")
+      expect(export.stale_reason).to include("Time entry approved", "Supervisor verified")
+    end
+
+    it "marks exports stale for denial and both overtime decisions" do
+      actions = [
+        [ "deny", { approval_status: "pending", overtime_status: "none" }, "Time entry denied" ],
+        [ "approve_overtime", { approval_status: "approved", overtime_status: "pending" }, "Overtime approved" ],
+        [ "deny_overtime", { approval_status: "approved", overtime_status: "pending" }, "Overtime denied" ]
+      ]
+
+      actions.each do |action, attributes, expected_reason|
+        entry = create(:time_entry, user: employee, **attributes)
+        export = create_protecting_export(entry)
+
+        post "/api/v1/time_entries/#{entry.id}/#{action}", headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:ok)
+        expect(export.reload.state).to eq("stale")
+        expect(export.stale_reason).to include(expected_reason)
+      end
+    end
+
+    it "rolls back approval when export invalidation fails" do
+      entry = create(:time_entry, user: employee, approval_status: "pending")
+      create_protecting_export(entry)
+      allow(ReportExport).to receive(:invalidate_for_entry!).and_raise("invalidation failed")
+
+      post "/api/v1/time_entries/#{entry.id}/approve", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:internal_server_error)
+      expect(entry.reload.approval_status).to eq("pending")
+    end
+  end
+
   describe "POST /api/v1/time_entries/bulk_approve" do
     let!(:pending_manual_entry) { create(:time_entry, user: employee, approval_status: "pending") }
     let!(:pending_overtime_entry) { create(:time_entry, user: employee, approval_status: "approved", overtime_status: "pending") }
 
     it "approves all selected pending entries for an admin" do
+      manual_export = create_protecting_export(pending_manual_entry)
+      overtime_export = create_protecting_export(pending_overtime_entry)
+
       post "/api/v1/time_entries/bulk_approve",
            params: { entry_ids: [ pending_manual_entry.id, pending_overtime_entry.id ] },
            headers: auth_headers_for[admin]
@@ -771,6 +820,8 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(json[:count]).to eq(2)
       expect(pending_manual_entry.reload.approval_status).to eq("approved")
       expect(pending_overtime_entry.reload.overtime_status).to eq("approved")
+      expect(manual_export.reload.state).to eq("stale")
+      expect(overtime_export.reload.state).to eq("stale")
     end
 
     it "rejects empty selections" do

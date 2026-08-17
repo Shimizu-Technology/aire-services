@@ -67,12 +67,14 @@ class ReportExport < ApplicationRecord
     protecting_entries.where("entry_ids @> ?", [ entry_id.to_i ].to_json)
   end
 
-  def self.invalidate_for_entry!(entry_id:, correction_reason:, changed_by:)
+  def self.invalidate_for_entry!(entry_id:, changed_by:, reason: nil, correction_reason: nil)
+    change_reason = reason.presence || correction_reason.presence || "Ledger data changed"
+
     active_for_entry(entry_id).find_each do |report_export|
       report_export.update!(
         state: "stale",
         stale_at: Time.current,
-        stale_reason: "Entry ##{entry_id} corrected by #{changed_by.full_name}: #{correction_reason}"
+        stale_reason: "Entry ##{entry_id} changed by #{changed_by.full_name}: #{change_reason}"
       )
     end
   end
