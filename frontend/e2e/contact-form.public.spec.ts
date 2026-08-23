@@ -58,7 +58,9 @@ test.describe('Contact Form', () => {
 
   test('displays direct contact links and location', async ({ page }) => {
     await expect(page.getByText('Direct contact information')).toBeVisible();
-    await expect(page.getByRole('link', { name: /Tours, flight training & payments/ }).first()).toBeVisible();
+    const primaryPhoneLink = page.getByRole('link', { name: /Tours, flight training & payments/ }).first();
+    await expect(primaryPhoneLink).toBeVisible();
+    await expect(primaryPhoneLink).toHaveAttribute('href', 'tel:+16714774243');
     await expect(page.locator('a[href="mailto:admin@aireservicesguam.com"]').first()).toBeVisible();
     await expect(page.getByText(/Admiral Sherman Boulevard/i).first()).toBeVisible();
   });
