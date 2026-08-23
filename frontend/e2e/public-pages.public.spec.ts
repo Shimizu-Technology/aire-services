@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
 const publicRoutes = [
-  { path: '/', heading: /Pilot training|Guam aerial tours|video packages/i },
+  { path: '/', heading: /Fly Guam with AIRE/i },
   { path: '/programs', heading: /Pilot training|Programs/i },
   { path: '/team', heading: /Meet the people|Meet the instructors|Team/i },
-  { path: '/discovery-flight', heading: /discovery flight/i },
+  { path: '/discovery-flight', heading: /Get a real first look at flying/i },
   { path: '/careers', heading: /Join the AIRE team|Careers/i },
   { path: '/contact', heading: /Talk with AIRE|Contact/i },
 ];

@@ -103,7 +103,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort',
     url: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5174',
-    reuseExistingServer: false,
+    reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },
 });

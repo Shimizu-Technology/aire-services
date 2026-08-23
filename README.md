@@ -9,12 +9,19 @@ Standalone product for AIRE Services Guam.
 - Attendance visibility
 - Payroll-oriented summaries/export
 
+## Product boundary
+
+AIRE is currently a single-employer workforce/timekeeping application for AIRE Services Guam. It owns punches, schedules, work categories, approvals, leave requests, and auditable hours exports. It does **not** calculate payroll taxes, gross-to-net pay, checks, or payroll liabilities; Cornerstone Payroll remains authoritative for those results.
+
+The current schema is not a shared multi-customer SaaS tenancy model. Commercializing the workforce capability for multiple employers requires tenant-scoped ownership and authorization (or isolated per-customer deployments as a deliberate interim model), not only a branding change.
+
 ## Status
 Initial standalone foundation has been built and pushed.
 See:
 - `docs/PROJECT-STATUS-2026-03-31.md`
 - `docs/FINAL-PR-SUMMARY.md`
 - `docs/PUSH-AND-PR-CHECKLIST.md`
+- `docs/GATE_0_FRONTEND_DEPENDENCY_CLOSEOUT_2026-08-23.md`
 
 ## Payroll integration contract
 
