@@ -58,8 +58,10 @@ test.describe('Contact Form', () => {
 
   test('displays direct contact links and location', async ({ page }) => {
     await expect(page.getByText('Direct contact information')).toBeVisible();
-    await expect(page.locator('a[href="tel:+16714774243"]')).toBeVisible();
-    await expect(page.locator('a[href="mailto:admin@aireservicesguam.com"]')).toBeVisible();
+    const primaryPhoneLink = page.getByRole('link', { name: /Tours, flight training & payments/ }).first();
+    await expect(primaryPhoneLink).toBeVisible();
+    await expect(primaryPhoneLink).toHaveAttribute('href', 'tel:+16714774243');
+    await expect(page.locator('a[href="mailto:admin@aireservicesguam.com"]').first()).toBeVisible();
     await expect(page.getByText(/Admiral Sherman Boulevard/i).first()).toBeVisible();
   });
 
@@ -127,8 +129,8 @@ test.describe('Contact Form', () => {
   });
 
   test('has quick links to supporting pages', async ({ page }) => {
-    const servicesLink = page.getByRole('link', { name: /View Services/i });
-    const teamLink = page.getByRole('link', { name: /Meet the Team/i });
+    const servicesLink = page.getByRole('link', { name: 'View services', exact: true });
+    const teamLink = page.getByRole('link', { name: 'Meet the team', exact: true });
 
     await expect(servicesLink).toBeVisible();
     await expect(teamLink).toBeVisible();
