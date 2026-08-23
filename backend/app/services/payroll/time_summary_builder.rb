@@ -27,6 +27,7 @@ module Payroll
       end
 
       {
+        schema_version: "1.0",
         source: SOURCE,
         start_date: start_date.iso8601,
         end_date: end_date.iso8601,
@@ -61,9 +62,10 @@ module Payroll
     def serialize_user(user, user_entries, overtime_entries)
       countable = user_entries.select { |entry| countable?(entry) }
       overtime_allocations = WeeklyOvertimeAllocator.call(overtime_entries.select { |entry| countable?(entry) })
-      grouped_days = countable.group_by(&:work_date).sort_by { |date, _| date }
+      entries_by_work_date = countable.group_by(&:work_date)
 
-      days = grouped_days.map do |date, entries|
+      days = (start_date..end_date).map do |date|
+        entries = entries_by_work_date.fetch(date, [])
         categories = entries.group_by(&:time_category).map do |category, category_entries|
           regular_hours = category_entries.sum { |entry| overtime_allocations.fetch(entry.id, {})[:regular_hours].to_f }
           overtime_hours = category_entries.sum { |entry| overtime_allocations.fetch(entry.id, {})[:overtime_hours].to_f }
