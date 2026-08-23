@@ -23,10 +23,39 @@ RSpec.describe Payroll::TimeSummaryBuilder do
 
       payload = described_class.new(start_date: "2026-05-18", end_date: "2026-05-24").call
 
+      expect(payload[:schema_version]).to eq("1.0")
       expect(payload.dig(:summary, :countable_hours)).to eq(60.0)
       expect(payload.dig(:summary, :regular_hours)).to eq(60.0)
       expect(payload.dig(:summary, :overtime_hours)).to eq(0.0)
       expect(payload.fetch(:employees)).to all(include(regular_hours: 30.0, overtime_hours: 0.0))
+      expect(payload.fetch(:employees)).to all(satisfy do |employee|
+        employee.fetch(:days).map { |day| day.fetch(:work_date) } ==
+          (Date.new(2026, 5, 18)..Date.new(2026, 5, 24)).map(&:iso8601)
+      end)
+    end
+
+    it "emits explicit zero-hour rows for every requested date" do
+      user = create(:user, first_name: "Alex", last_name: "CFI")
+      category = create(:time_category, name: "Flight Instruction", key: "aire_flight_instruction")
+      zone = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+      create(:time_entry,
+        user: user,
+        time_category: category,
+        work_date: Date.new(2026, 5, 20),
+        start_time: zone.local(2000, 1, 1, 0, 0, 0),
+        end_time: zone.local(2000, 1, 1, 8, 0, 0))
+
+      employee = described_class.new(start_date: "2026-05-18", end_date: "2026-05-24").call.fetch(:employees).first
+
+      expect(employee.fetch(:days).length).to eq(7)
+      expect(employee.fetch(:days).find { |day| day.fetch(:work_date) == "2026-05-19" }).to include(
+        hours: 0.0,
+        total_hours: 0.0,
+        regular_hours: 0.0,
+        overtime_hours: 0.0,
+        entry_ids: [],
+        categories: []
+      )
     end
 
     it "uses same-week context outside a mid-week report range for overtime allocation" do

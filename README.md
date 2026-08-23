@@ -16,6 +16,10 @@ See:
 - `docs/FINAL-PR-SUMMARY.md`
 - `docs/PUSH-AND-PR-CHECKLIST.md`
 
+## Payroll integration contract
+
+`GET /api/v1/payroll/time_summary` implements Cornerstone Payroll's normative [Time Summary v1 contract](https://github.com/Shimizu-Technology/cornerstone-payroll/blob/main/docs/TIME_TRACKING_V1_CONTRACT.md). AIRE emits `schema_version: "1.0"`, the exact requested range, and one daily row per included employee per requested calendar date. Days without countable time are explicit zero-hour rows so Payroll can reject partial-workweek exports before calculating overtime.
+
 ## Source of truth for extraction/planning
 - `docs/PROJECT-OVERVIEW.md`
 - `docs/PORTING-CHECKLIST.md`
