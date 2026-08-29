@@ -145,10 +145,8 @@ module ClerkAuthenticatable
   def safely_sync_clerk_profile(user, updates)
     user.update!(updates)
     true
-  rescue ActiveRecord::RecordNotUnique => e
-    Rails.logger.warn(
-      "Clerk profile sync skipped for user=#{user.id}: unique email conflict (#{e.message})"
-    )
+  rescue ActiveRecord::RecordNotUnique
+    Rails.logger.warn("Clerk profile sync skipped for user=#{user.id}: unique email conflict")
     user.reload
     false
   rescue ActiveRecord::RecordInvalid => e

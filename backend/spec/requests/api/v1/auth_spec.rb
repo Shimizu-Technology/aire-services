@@ -113,13 +113,20 @@ RSpec.describe "Api::V1::Auth", type: :request do
     )
     allow(User).to receive(:find_by).and_call_original
     allow(User).to receive(:find_by).with(clerk_id: "user_clerk_123").and_return(user)
-    allow(user).to receive(:update!).and_raise(ActiveRecord::RecordNotUnique, "duplicate normalized email")
+    allow(user).to receive(:update!).and_raise(
+      ActiveRecord::RecordNotUnique,
+      "Key (lower(email))=(first.admin@example.com) already exists"
+    )
+    warning = nil
+    allow(Rails.logger).to receive(:warn) { |message| warning = message }
     expect(user).to receive(:reload).and_call_original
 
     post "/api/v1/auth/me", headers: headers
 
     expect(response).to have_http_status(:ok)
     expect(user.email).to eq("original@example.com")
+    expect(warning).to eq("Clerk profile sync skipped for user=#{user.id}: unique email conflict")
+    expect(warning).not_to include("first.admin@example.com")
   end
 
   it "links an invited user from nested Clerk email-address claims" do
