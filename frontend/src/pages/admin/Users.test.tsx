@@ -246,4 +246,34 @@ describe('Users filters', () => {
     }))
     expect(await screen.findByText('Team member added')).toBeInTheDocument()
   })
+
+  it('keeps time tracking and kiosk access enabled when changing a user to kiosk-only', async () => {
+    render(<Users />)
+
+    const aliceName = await screen.findByText('Alice Pilot')
+    const aliceRow = aliceName.closest('tr')
+    expect(aliceRow).not.toBeNull()
+    fireEvent.click(within(aliceRow!).getByRole('button', { name: /^edit$/i }))
+
+    const dialog = screen.getByRole('dialog', { name: /edit alice pilot/i })
+    const personalAccess = within(dialog).getByRole('checkbox', { name: /^personal sign-in/i })
+    fireEvent.click(personalAccess)
+
+    const timeTracking = within(dialog).getByRole('checkbox', { name: /^tracks work hours/i })
+    const kioskAccess = within(dialog).getByRole('checkbox', { name: /^kiosk access/i })
+    expect(personalAccess).not.toBeChecked()
+    expect(timeTracking).toBeChecked()
+    expect(timeTracking).toBeDisabled()
+    expect(kioskAccess).toBeChecked()
+    expect(kioskAccess).toBeDisabled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    expect(apiMock.updateUser).toHaveBeenCalledWith(1, expect.objectContaining({
+      personal_access_enabled: false,
+      time_tracking_enabled: true,
+      kiosk_enabled: true,
+      time_category_ids: [1],
+    }))
+  })
 })

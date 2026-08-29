@@ -104,6 +104,24 @@ RSpec.describe "Api::V1::Auth", type: :request do
     expect(user.reload.email).to eq("original@example.com")
   end
 
+  it "keeps authentication available when a concurrent profile sync hits the email unique index" do
+    user = create(
+      :user,
+      clerk_id: "user_clerk_123",
+      email: "original@example.com",
+      role: "employee"
+    )
+    allow(User).to receive(:find_by).and_call_original
+    allow(User).to receive(:find_by).with(clerk_id: "user_clerk_123").and_return(user)
+    allow(user).to receive(:update!).and_raise(ActiveRecord::RecordNotUnique, "duplicate normalized email")
+    expect(user).to receive(:reload).and_call_original
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(user.email).to eq("original@example.com")
+  end
+
   it "links an invited user from nested Clerk email-address claims" do
     invited = create(
       :user,
