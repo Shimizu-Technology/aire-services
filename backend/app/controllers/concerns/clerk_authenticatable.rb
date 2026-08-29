@@ -95,7 +95,7 @@ module ClerkAuthenticatable
         updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
       end
 
-      user.update!(updates) if updates.any?
+      safely_sync_clerk_profile(user, updates) if updates.any?
       return user
     end
 
@@ -111,8 +111,9 @@ module ClerkAuthenticatable
         updates = { clerk_id: clerk_id, profile_source: "clerk" }
         updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
         updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
-        user.update!(updates)
-        log_clerk_activation(user, previous_identity)
+        if safely_sync_clerk_profile(user, updates)
+          log_clerk_activation(user, previous_identity)
+        end
         return user
       end
     else
@@ -139,6 +140,17 @@ module ClerkAuthenticatable
 
     # User not invited - return nil (will trigger access denied)
     nil
+  end
+
+  def safely_sync_clerk_profile(user, updates)
+    user.update!(updates)
+    true
+  rescue ActiveRecord::RecordInvalid => e
+    Rails.logger.warn(
+      "Clerk profile sync skipped for user=#{user.id}: #{e.record.errors.full_messages.join(', ')}"
+    )
+    user.reload
+    false
   end
 
   def resolve_user_from_claims(decoded)

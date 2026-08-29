@@ -30,7 +30,7 @@ RSpec.describe UserAccessConfiguration, type: :service do
       email: "pilot@example.com",
       first_name: nil,
       last_name: nil,
-      profile_source: "clerk",
+      profile_source: "local",
       personal_access_enabled: true,
       time_tracking_enabled: false,
       kiosk_enabled: false
@@ -109,6 +109,7 @@ RSpec.describe UserAccessConfiguration, type: :service do
 
   it "converts an activated personal account to kiosk-only without replacing its record or history" do
     user = create(:user, clerk_id: "clerk_permanent", first_name: "Clerk", last_name: "Pilot")
+    original_email = user.email
     historical_entry = create(:time_entry, user: user, time_category: category)
 
     configuration = apply(
@@ -126,7 +127,7 @@ RSpec.describe UserAccessConfiguration, type: :service do
     expect(user.reload).to have_attributes(
       id: historical_entry.user_id,
       clerk_id: "clerk_permanent",
-      email: user.email,
+      email: original_email,
       profile_source: "local",
       personal_access_enabled: false,
       kiosk_enabled: true

@@ -328,7 +328,7 @@ export default function AireKiosk() {
     clearSession()
   }
 
-  const canClockIn = !!employee && !status?.clocked_in && status?.can_clock_in !== false && categories.length > 0
+  const canClockIn = !!employee && !status?.clocked_in && status?.can_clock_in !== false && categories.length > 0 && selectedCategoryId !== null
   const canClockOut = !!employee && !!status?.clocked_in
   const canStartBreak = !!employee && status?.status === 'clocked_in'
   const canEndBreak = !!employee && status?.status === 'on_break'

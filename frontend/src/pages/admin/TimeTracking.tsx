@@ -1651,7 +1651,7 @@ export default function TimeTracking() {
                       <option value="">Select user...</option>
                       {users.map(user => (
                         <option key={user.id} value={user.id}>
-                          {(user.full_name || user.display_name || user.email)} ({user.role})
+                          {(user.full_name || user.display_name || user.email || 'Team member')} ({user.role})
                         </option>
                       ))}
                     </select>
@@ -1797,7 +1797,7 @@ export default function TimeTracking() {
                 <label className="mb-1 block text-sm text-text-muted">Employee</label>
                 <select value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All employees</option>
-                  {users.map(user => <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email}</option>)}
+                  {users.map(user => <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email || 'Team member'}</option>)}
                 </select>
               </div>
               <div>

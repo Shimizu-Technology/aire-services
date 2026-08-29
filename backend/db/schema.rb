@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_29_011000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_29_012000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -306,6 +306,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_29_011000) do
     t.string "staff_title"
     t.boolean "time_tracking_enabled", default: false, null: false
     t.datetime "updated_at", null: false
+    t.index "lower((email)::text)", name: "index_users_on_lower_email", unique: true, where: "((email IS NOT NULL) AND (btrim((email)::text) <> ''::text))"
     t.index ["approval_group"], name: "index_users_on_approval_group"
     t.index ["clerk_id"], name: "index_users_on_clerk_id", unique: true
     t.index ["email"], name: "index_users_on_email"

@@ -23,6 +23,10 @@ module Api
           return render json: { error: "Clock out before changing your kiosk access" }, status: :unprocessable_entity
         end
 
+        unless current_user.kiosk_enabled?
+          return render json: { error: "Ask an administrator to enable kiosk access for your account" }, status: :unprocessable_entity
+        end
+
         pin = params[:pin].to_s.strip
 
         if pin.blank?
@@ -30,7 +34,7 @@ module Api
         end
 
         current_user.skip_kiosk_pin_presence_validation = true
-        current_user.rotate_kiosk_pin!(pin, enabled: true)
+        current_user.rotate_kiosk_pin!(pin, enabled: current_user.kiosk_enabled?)
 
         render json: {
           user: serialize_current_user(current_user.reload),

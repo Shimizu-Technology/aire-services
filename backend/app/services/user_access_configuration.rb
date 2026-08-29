@@ -25,7 +25,7 @@ class UserAccessConfiguration
     assign_identity!(configuration)
     assign_access!(configuration)
     configure_kiosk_pin!(configuration)
-    user.save!
+    save_user!
     sync_time_categories!(configuration) if configuration[:time_tracking_enabled]
     log_access_change!(previous_access)
 
@@ -134,7 +134,7 @@ class UserAccessConfiguration
 
     if configuration[:personal_access_enabled]
       if creating
-        user.profile_source = "clerk"
+        user.profile_source = "local"
         user.first_name = nil
         user.last_name = nil
       elsif !user.personal_access_enabled_was
@@ -184,6 +184,14 @@ class UserAccessConfiguration
       assignment.hourly_rate_cents = override.to_i if override.present?
       assignment.save!
     end
+  end
+
+  def save_user!
+    user.save!
+  rescue ActiveRecord::RecordNotUnique => e
+    raise unless e.message.include?("index_users_on_lower_email")
+
+    raise ConfigurationError, "A user with this email already exists"
   end
 
   def log_access_change!(previous_access)

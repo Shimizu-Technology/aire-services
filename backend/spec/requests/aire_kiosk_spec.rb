@@ -72,6 +72,20 @@ RSpec.describe "AIRE kiosk", type: :request do
     expect(entry.status).to eq("clocked_in")
   end
 
+  it "fails closed if time tracking is disabled after kiosk verification" do
+    post "/api/v1/aire/kiosk/verify", params: { pin: employee_pin, kiosk_access_token: kiosk_access_token }
+    token = JSON.parse(response.body).fetch("kiosk_token")
+    employee.update_columns(time_tracking_enabled: false)
+
+    expect {
+      post "/api/v1/aire/kiosk/clock_in",
+           params: { kiosk_access_token: kiosk_access_token, kiosk_token: token, time_category_id: time_category.id }
+    }.not_to change(TimeEntry, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(JSON.parse(response.body).fetch("error")).to match(/Kiosk access is unavailable/i)
+  end
+
   it "allows admins to reset a kiosk PIN" do
     post "/api/v1/admin/users/#{employee.id}/reset_kiosk_pin",
          params: { pin: "731249" },

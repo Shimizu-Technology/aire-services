@@ -14,6 +14,26 @@ RSpec.describe TimeClockService, type: :service do
   end
 
   describe ".clock_in" do
+    it "rejects disabled time tracking without creating an entry" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      user.update!(time_tracking_enabled: false)
+
+      expect {
+        described_class.clock_in(user: user)
+      }.to raise_error(TimeClockService::ClockError, /Time tracking is not enabled/i)
+
+      expect(user.time_entries).to be_empty
+    end
+
+    it "reports missing categories in the current status" do
+      Setting.set("schedule_required_for_clock_in", "false")
+
+      status = described_class.current_status(user: user)
+
+      expect(status[:can_clock_in]).to be(false)
+      expect(status[:clock_in_blocked_reason]).to eq("categories_missing")
+    end
+
     it "allows clock-in without a schedule when the schedule requirement is disabled" do
       Setting.set("schedule_required_for_clock_in", "false")
       time_category = create(:time_category)

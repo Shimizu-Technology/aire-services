@@ -494,6 +494,12 @@ export default function Users() {
       return
     }
 
+    if (!editPersonalAccess && (!editTimeTracking || !editKioskEnabled)) {
+      setEditError('Kiosk-only team members must keep time tracking and kiosk access enabled.')
+      setSavingEdit(false)
+      return
+    }
+
     if (editPublicTeamEnabled) {
       if (!nextPublicTeamTitle && !nextStaffTitle) {
         setEditError('Add a staff title or public title before showing someone on the Team page.')
@@ -1166,8 +1172,8 @@ export default function Users() {
                     }} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
                     <span><span className="block text-sm font-medium text-slate-900">Personal sign-in</span><span className="mt-1 block text-xs leading-5 text-slate-500">Email account managed by Clerk.</span></span>
                   </label>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-white p-4">
-                    <input type="checkbox" checked={editTimeTracking} onChange={(event) => {
+                  <label className={`flex items-start gap-3 rounded-xl border bg-white p-4 ${!editPersonalAccess ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
+                    <input type="checkbox" checked={editTimeTracking} disabled={!editPersonalAccess} onChange={(event) => {
                       setEditTimeTracking(event.target.checked)
                       if (!event.target.checked) setEditKioskEnabled(false)
                     }} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />

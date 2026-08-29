@@ -16,7 +16,10 @@ class AddAccessCapabilitiesToUsers < ActiveRecord::Migration[8.1]
     execute <<~SQL.squish
       UPDATE users
       SET personal_access_enabled = TRUE,
-          profile_source = 'clerk'
+          profile_source = CASE
+            WHEN clerk_id IS NULL OR clerk_id LIKE 'pending_%' THEN 'local'
+            ELSE 'clerk'
+          END
       WHERE email IS NOT NULL AND BTRIM(email) <> ''
     SQL
 
@@ -50,6 +53,20 @@ class AddAccessCapabilitiesToUsers < ActiveRecord::Migration[8.1]
     # staff record and history, but leave that unusable access disabled until
     # an administrator deliberately completes the new setup.
     execute <<~SQL.squish
+      INSERT INTO audit_logs (
+        action, auditable_id, auditable_type, changes_made, metadata,
+        created_at, updated_at
+      )
+      SELECT
+        'updated', users.id, 'User', '{"kiosk_enabled":[true,false]}'::json,
+        'access capability migration: disabled unusable kiosk',
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      FROM users
+      WHERE kiosk_enabled = TRUE
+        AND time_tracking_enabled = FALSE
+    SQL
+
+    execute <<~SQL.squish
       UPDATE users
       SET kiosk_enabled = FALSE
       WHERE kiosk_enabled = TRUE
@@ -58,6 +75,23 @@ class AddAccessCapabilitiesToUsers < ActiveRecord::Migration[8.1]
   end
 
   def down
+    execute <<~SQL.squish
+      UPDATE users
+      SET kiosk_enabled = TRUE
+      WHERE id IN (
+        SELECT auditable_id
+        FROM audit_logs
+        WHERE auditable_type = 'User'
+          AND metadata = 'access capability migration: disabled unusable kiosk'
+      )
+    SQL
+
+    execute <<~SQL.squish
+      DELETE FROM audit_logs
+      WHERE auditable_type = 'User'
+        AND metadata = 'access capability migration: disabled unusable kiosk'
+    SQL
+
     remove_check_constraint :users, name: "check_users_profile_source"
     remove_index :users, :time_tracking_enabled
     remove_index :users, :personal_access_enabled

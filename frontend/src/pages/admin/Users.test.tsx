@@ -244,5 +244,6 @@ describe('Users filters', () => {
       kiosk_enabled: false,
       time_category_ids: [],
     }))
+    expect(await screen.findByText('Team member added')).toBeInTheDocument()
   })
 })

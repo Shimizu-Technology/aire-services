@@ -1111,7 +1111,6 @@ export const api = {
     kiosk_enabled?: boolean;
     kiosk_pin?: string;
     time_category_ids?: number[];
-    time_category_rate_overrides?: Record<string, number>;
   }) =>
     fetchApi<{ user: AdminUser; invitation_email_sent: boolean | null; kiosk_pin: string | null }>('/api/v1/admin/users', {
       method: 'POST',
@@ -1146,7 +1145,6 @@ export const api = {
     kiosk_pin?: string;
     send_invitation?: boolean;
     time_category_ids?: number[];
-    time_category_rate_overrides?: Record<string, number>;
   }) =>
     fetchApi<{ user: AdminUser; invitation_email_sent?: boolean | null; kiosk_pin?: string | null }>(`/api/v1/admin/users/${id}`, {
       method: 'PATCH',

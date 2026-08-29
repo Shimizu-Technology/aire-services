@@ -70,6 +70,40 @@ RSpec.describe "Api::V1::Auth", type: :request do
     expect(JSON.parse(response.body).dig("user", "needs_kiosk_pin_setup")).to eq(false)
   end
 
+  it "reports when an enabled kiosk user still needs a PIN" do
+    user = build(
+      :user,
+      clerk_id: "user_clerk_123",
+      email: "first.admin@example.com",
+      role: "employee",
+      time_tracking_enabled: true,
+      kiosk_enabled: true
+    )
+    user.skip_kiosk_pin_presence_validation = true
+    user.save!
+    user.user_time_categories.create!(time_category: create(:time_category))
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(JSON.parse(response.body).dig("user", "needs_kiosk_pin_setup")).to eq(true)
+  end
+
+  it "keeps authentication available when Clerk supplies a conflicting email" do
+    user = create(
+      :user,
+      clerk_id: "user_clerk_123",
+      email: "original@example.com",
+      role: "employee"
+    )
+    create(:user, email: "first.admin@example.com")
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(user.reload.email).to eq("original@example.com")
+  end
+
   it "links an invited user from nested Clerk email-address claims" do
     invited = create(
       :user,
@@ -146,13 +180,18 @@ RSpec.describe "Api::V1::Auth", type: :request do
 
   describe "POST /api/v1/auth/kiosk_pin" do
     let!(:user) do
-      create(
+      build(
         :user,
         clerk_id: "user_clerk_123",
         email: "first.admin@example.com",
         role: "employee",
-        time_tracking_enabled: true
-      ).tap { |record| record.user_time_categories.create!(time_category: create(:time_category)) }
+        time_tracking_enabled: true,
+        kiosk_enabled: true
+      ).tap do |record|
+        record.skip_kiosk_pin_presence_validation = true
+        record.save!
+        record.user_time_categories.create!(time_category: create(:time_category))
+      end
     end
 
     it "lets a staff user set their own kiosk pin" do
@@ -164,6 +203,18 @@ RSpec.describe "Api::V1::Auth", type: :request do
       expect(JSON.parse(response.body).dig("user", "kiosk_pin_configured")).to eq(true)
       expect(user.reload.verify_kiosk_pin("4826")).to eq(true)
       expect(user.kiosk_enabled).to eq(true)
+    end
+
+    it "does not let a staff user enable their own kiosk access" do
+      user.update_columns(kiosk_enabled: false)
+
+      post "/api/v1/auth/kiosk_pin",
+           params: { pin: "4826" },
+           headers: headers
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body).fetch("error")).to match(/administrator to enable kiosk access/i)
+      expect(user.reload.kiosk_enabled).to eq(false)
     end
 
     it "rejects invalid pins" do

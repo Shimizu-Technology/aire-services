@@ -264,6 +264,7 @@ class User < ApplicationRecord
 
   def local_profiles_require_first_name
     return unless profile_source == "local"
+    return if personal_access_enabled?
     return if first_name.present?
 
     errors.add(:first_name, "is required for locally managed profiles")
