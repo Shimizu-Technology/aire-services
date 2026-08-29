@@ -35,6 +35,40 @@ class AlignTimeTrackingAndKioskAccess < ActiveRecord::Migration[8.1]
         AND (kiosk_pin_digest IS NULL OR BTRIM(kiosk_pin_digest) = '')
     SQL
 
+    # A legacy kiosk-only row could have kiosk access enabled while time
+    # tracking was disabled. Alignment removes that last access path, so keep
+    # the record and history but deactivate it for deliberate admin repair.
+    execute <<~SQL.squish
+      INSERT INTO audit_logs (
+        action, auditable_id, auditable_type, changes_made, metadata,
+        created_at, updated_at
+      )
+      SELECT
+        'updated', users.id, 'User',
+        json_build_object(
+          'time_tracking_enabled', json_build_array(users.time_tracking_enabled, FALSE),
+          'kiosk_enabled', json_build_array(users.kiosk_enabled, FALSE),
+          'is_active', json_build_array(users.is_active, FALSE)
+        ),
+        'access capability migration: deactivated kiosk-only user after access removal',
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      FROM users
+      WHERE personal_access_enabled = FALSE
+        AND time_tracking_enabled = FALSE
+        AND kiosk_enabled = TRUE
+        AND is_active = TRUE
+    SQL
+
+    execute <<~SQL.squish
+      UPDATE users
+      SET kiosk_enabled = FALSE,
+          is_active = FALSE
+      WHERE personal_access_enabled = FALSE
+        AND time_tracking_enabled = FALSE
+        AND kiosk_enabled = TRUE
+        AND is_active = TRUE
+    SQL
+
     execute <<~SQL.squish
       INSERT INTO audit_logs (
         action, auditable_id, auditable_type, changes_made, metadata,
@@ -92,6 +126,18 @@ class AlignTimeTrackingAndKioskAccess < ActiveRecord::Migration[8.1]
               OR users.kiosk_enabled IS DISTINCT FROM (audit_logs.changes_made->'kiosk_enabled'->>1)::boolean
               OR users.is_active IS DISTINCT FROM (audit_logs.changes_made->'is_active'->>1)::boolean
             )
+        ) OR EXISTS (
+          SELECT 1
+          FROM users
+          INNER JOIN audit_logs
+            ON audit_logs.auditable_type = 'User'
+           AND audit_logs.auditable_id = users.id
+          WHERE audit_logs.metadata = 'access capability migration: deactivated kiosk-only user after access removal'
+            AND (
+              users.time_tracking_enabled IS DISTINCT FROM (audit_logs.changes_made->'time_tracking_enabled'->>1)::boolean
+              OR users.kiosk_enabled IS DISTINCT FROM (audit_logs.changes_made->'kiosk_enabled'->>1)::boolean
+              OR users.is_active IS DISTINCT FROM (audit_logs.changes_made->'is_active'->>1)::boolean
+            )
         ) THEN
           RAISE EXCEPTION 'Cannot roll back access capability alignment because affected users were changed after migration; restore those users deliberately before retrying';
         END IF;
@@ -121,11 +167,23 @@ class AlignTimeTrackingAndKioskAccess < ActiveRecord::Migration[8.1]
     SQL
 
     execute <<~SQL.squish
+      UPDATE users
+      SET time_tracking_enabled = (audit_logs.changes_made->'time_tracking_enabled'->>0)::boolean,
+          kiosk_enabled = (audit_logs.changes_made->'kiosk_enabled'->>0)::boolean,
+          is_active = (audit_logs.changes_made->'is_active'->>0)::boolean
+      FROM audit_logs
+      WHERE audit_logs.auditable_type = 'User'
+        AND audit_logs.auditable_id = users.id
+        AND audit_logs.metadata = 'access capability migration: deactivated kiosk-only user after access removal'
+    SQL
+
+    execute <<~SQL.squish
       DELETE FROM audit_logs
       WHERE auditable_type = 'User'
         AND metadata IN (
           'access capability migration: aligned kiosk with time tracking',
-          'access capability migration: disabled kiosk-only user without PIN'
+          'access capability migration: disabled kiosk-only user without PIN',
+          'access capability migration: deactivated kiosk-only user after access removal'
         )
     SQL
   end
