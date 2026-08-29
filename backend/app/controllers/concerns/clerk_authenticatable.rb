@@ -113,8 +113,10 @@ module ClerkAuthenticatable
         updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
         if safely_sync_clerk_profile(user, updates)
           log_clerk_activation(user, previous_identity)
+          return user
         end
-        return user
+
+        return nil
       end
     else
       Rails.logger.warn "No email available for clerk_id=#{clerk_id}. Cannot link invited user. Verify Clerk JWT template includes email claim or set CLERK_SECRET_KEY."
@@ -146,7 +148,7 @@ module ClerkAuthenticatable
     user.update!(updates)
     true
   rescue ActiveRecord::RecordNotUnique
-    Rails.logger.warn("Clerk profile sync skipped for user=#{user.id}: unique email conflict")
+    Rails.logger.warn("Clerk profile sync skipped for user=#{user.id}: database uniqueness conflict")
     user.reload
     false
   rescue ActiveRecord::RecordInvalid => e

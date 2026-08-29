@@ -125,8 +125,35 @@ RSpec.describe "Api::V1::Auth", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(user.email).to eq("original@example.com")
-    expect(warning).to eq("Clerk profile sync skipped for user=#{user.id}: unique email conflict")
+    expect(warning).to eq("Clerk profile sync skipped for user=#{user.id}: database uniqueness conflict")
     expect(warning).not_to include("first.admin@example.com")
+  end
+
+  it "fails closed when an invited user cannot claim a concurrently assigned Clerk ID" do
+    invited = create(
+      :user,
+      clerk_id: "pending_race_123",
+      email: "first.admin@example.com",
+      role: "employee"
+    )
+    create(:user, clerk_id: "user_clerk_123", email: "other@example.com")
+    invited_relation = instance_double(ActiveRecord::Relation)
+    allow(User).to receive(:find_by).and_call_original
+    allow(User).to receive(:find_by).with(clerk_id: "user_clerk_123").and_return(nil)
+    allow(User).to receive(:where).with(personal_access_enabled: true).and_return(invited_relation)
+    allow(invited_relation).to receive(:find_by)
+      .with("LOWER(email) = ?", "first.admin@example.com")
+      .and_return(invited)
+    allow(invited).to receive(:update!).and_raise(
+      ActiveRecord::RecordNotUnique,
+      "duplicate key value violates unique constraint index_users_on_clerk_id"
+    )
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:forbidden)
+    expect(JSON.parse(response.body).fetch("error")).to match(/haven't been invited/i)
+    expect(invited.reload.clerk_id).to eq("pending_race_123")
   end
 
   it "links an invited user from nested Clerk email-address claims" do
