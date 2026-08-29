@@ -31,7 +31,9 @@ module Api
             @users = @users.where(role: params[:role])
           end
 
-          pending_scope = @users.where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
+          pending_scope = @users
+                          .where(personal_access_enabled: true)
+                          .where("clerk_id IS NULL OR clerk_id LIKE 'pending_%'")
 
           if params[:status] == "active"
             @users = @users.where(is_active: true).where.not(id: pending_scope.select(:id))
@@ -51,42 +53,17 @@ module Api
         end
 
         def create
-          email = params[:email]&.downcase&.strip.presence
-          first_name = params[:first_name]&.strip
-          last_name = params[:last_name]&.strip
           role = params[:role] || "employee"
           approval_groups = normalized_approval_groups(params.key?(:approval_groups) ? params[:approval_groups] : params[:approval_group])
           approval_group = approval_groups.first
-          kiosk_only_user = email.blank?
+          personal_access_enabled = params.key?(:personal_access_enabled) ? boolean_param(:personal_access_enabled) : params[:email].present?
+          send_invitation = params.key?(:send_invitation) ? boolean_param(:send_invitation) : personal_access_enabled
 
-          if kiosk_only_user && first_name.blank?
-            return render json: { error: "First name is required" }, status: :unprocessable_entity
+          if send_invitation && !personal_access_enabled
+            return render json: { error: "Personal sign-in must be enabled when sending an invitation" }, status: :unprocessable_entity
           end
 
-          unless %w[admin employee].include?(role)
-            return render json: { error: "Role must be admin or employee" }, status: :unprocessable_entity
-          end
-
-          send_invitation =
-            if params.key?(:send_invitation)
-              ActiveModel::Type::Boolean.new.cast(params[:send_invitation])
-            else
-              email.present?
-            end
-
-          if send_invitation && email.blank?
-            return render json: { error: "Email is required when sending an invitation" }, status: :unprocessable_entity
-          end
-
-          if email.present?
-            unless email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
-              return render json: { error: "Invalid email format" }, status: :unprocessable_entity
-            end
-
-            if User.exists?([ "LOWER(email) = ?", email ])
-              return render json: { error: "A user with this email already exists" }, status: :unprocessable_entity
-            end
-          end
+          access_configuration = nil
 
           begin
             ActiveRecord::Base.transaction do
@@ -97,22 +74,28 @@ module Api
                 end
 
                 @user = User.new(
-                  email: email,
-                  first_name: kiosk_only_user ? first_name : nil,
-                  last_name: kiosk_only_user ? last_name.presence : nil,
                   staff_title: params[:staff_title]&.to_s&.strip&.presence,
-                  role: role,
                   is_intern: params.key?(:is_intern) ? ActiveModel::Type::Boolean.new.cast(params[:is_intern]) : false,
                   approval_group: approval_group,
                   clerk_id: "pending_#{SecureRandom.hex(8)}",
                   is_active: true
                 )
 
-                @user.save!
+                access_configuration = UserAccessConfiguration.new(
+                  user: @user,
+                  attributes: access_params.to_h.merge(
+                    personal_access_enabled: personal_access_enabled,
+                    role: role
+                  ),
+                  actor: current_user,
+                  creating: true
+                )
+                access_configuration.apply!
                 sync_approval_groups(@user, approval_groups)
-                sync_time_categories(@user) if params[:time_category_ids].present?
               end
             end
+          rescue UserAccessConfiguration::ConfigurationError => e
+            return render json: { error: e.message }, status: :unprocessable_entity
           rescue ActiveRecord::RecordInvalid => e
             return render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
           end
@@ -121,7 +104,11 @@ module Api
 
           email_sent = send_invitation ? send_invitation_email(@user) : false
 
-          render json: { user: serialize_user(@user), invitation_email_sent: email_sent }, status: :created
+          render json: {
+            user: serialize_user(@user),
+            invitation_email_sent: email_sent,
+            kiosk_pin: access_configuration&.generated_pin
+          }, status: :created
         end
 
         def update
@@ -129,9 +116,20 @@ module Api
             return render json: { error: "You cannot change your own role" }, status: :unprocessable_entity
           end
 
-          permitted = {}
+          if @user.id == current_user.id && params.key?(:personal_access_enabled) && !boolean_param(:personal_access_enabled)
+            return render json: { error: "You cannot remove your own personal access" }, status: :unprocessable_entity
+          end
+
+          if @user.id == current_user.id && params.key?(:is_active) && !boolean_param(:is_active)
+            return render json: { error: "You cannot deactivate your own account" }, status: :unprocessable_entity
+          end
+
+          last_admin_error = validate_last_admin_transition
+          return render json: { error: last_admin_error }, status: :unprocessable_entity if last_admin_error
+
           clerk_attributes = {}
           previous_state = nil
+          access_configuration = nil
 
           begin
             ActiveRecord::Base.transaction do
@@ -144,13 +142,19 @@ module Api
                 previous_state = snapshot_local_user_state(@user) if clerk_attributes.present?
 
                 @user.assign_attributes(permitted)
-                @user.save!
+                access_configuration = UserAccessConfiguration.new(
+                  user: @user,
+                  attributes: access_params.to_h,
+                  actor: current_user
+                )
+                access_configuration.apply!
                 if params.key?(:approval_group) || params.key?(:approval_groups)
                   sync_approval_groups(@user, normalized_approval_groups(params.key?(:approval_groups) ? params[:approval_groups] : params[:approval_group]))
                 end
-                sync_time_categories(@user) if params.key?(:time_category_ids)
               end
             end
+          rescue UserAccessConfiguration::ConfigurationError => e
+            return render json: { error: e.message }, status: :unprocessable_entity
           rescue ActiveRecord::RecordInvalid => e
             return render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
           end
@@ -174,7 +178,16 @@ module Api
             end
           end
 
-          render json: { user: serialize_user(@user.reload) }
+          invitation_email_sent = nil
+          if boolean_param(:send_invitation) && @user.pending_invite?
+            invitation_email_sent = send_invitation_email(@user)
+          end
+
+          render json: {
+            user: serialize_user(@user.reload),
+            invitation_email_sent: invitation_email_sent,
+            kiosk_pin: access_configuration&.generated_pin
+          }
         end
 
         def destroy
@@ -187,7 +200,7 @@ module Api
         end
 
         def resend_invite
-          unless @user.clerk_id.blank? || @user.clerk_id.start_with?("pending_")
+          unless @user.personal_access_enabled? && @user.pending_invite?
             return render json: { error: "This user has already activated their account" }, status: :unprocessable_entity
           end
 
@@ -208,6 +221,9 @@ module Api
 
         def reset_kiosk_pin
           return render json: { error: "Kiosk PINs are only available for staff users" }, status: :unprocessable_entity unless @user.staff?
+          return render json: { error: "Enable time tracking before setting a kiosk PIN" }, status: :unprocessable_entity unless @user.time_tracking_enabled?
+          return render json: { error: "Assign at least one active work category before setting a kiosk PIN" }, status: :unprocessable_entity if @user.assigned_time_categories.active.none?
+          return render json: { error: "Clock this person out before changing their kiosk access" }, status: :unprocessable_entity if @user.time_entries.where(status: %w[clocked_in on_break]).exists?
 
           pin = params[:pin].presence || format("%06d", SecureRandom.random_number(1_000_000))
 
@@ -270,7 +286,11 @@ module Api
             approval_groups: user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } },
             is_active: user.is_active,
             is_pending: user.pending_invite?,
+            has_clerk_account: user.clerk_id.present? && !user.clerk_id.start_with?("pending_"),
             uses_clerk_profile: user.uses_clerk_profile?,
+            personal_access_enabled: user.personal_access_enabled,
+            profile_source: user.profile_source,
+            time_tracking_enabled: user.time_tracking_enabled,
             public_team_enabled: user.public_team_enabled,
             public_team_name: user.public_team_name,
             public_team_title: user.public_team_title,
@@ -302,22 +322,6 @@ module Api
           }
         end
 
-        def sync_time_categories(user)
-          desired_ids = Array(params[:time_category_ids]).map(&:to_i).uniq
-          overrides = params[:time_category_rate_overrides] || {}
-
-          ActiveRecord::Base.transaction do
-            user.user_time_categories.where.not(time_category_id: desired_ids).destroy_all
-
-            desired_ids.each do |cat_id|
-              utc = user.user_time_categories.find_or_initialize_by(time_category_id: cat_id)
-              override = overrides[cat_id.to_s]
-              utc.hourly_rate_cents = override.present? ? override.to_i : nil
-              utc.save!
-            end
-          end
-        end
-
         # Snapshot only the local fields we mutate before Clerk sync, plus
         # assigned time categories, so rollback restores the exact pre-sync state.
         def snapshot_local_user_state(user)
@@ -329,6 +333,15 @@ module Api
               "staff_title",
               "is_intern",
               "role",
+              "personal_access_enabled",
+              "profile_source",
+              "time_tracking_enabled",
+              "kiosk_enabled",
+              "kiosk_pin_digest",
+              "kiosk_pin_lookup_hash",
+              "kiosk_pin_last_rotated_at",
+              "kiosk_failed_attempts_count",
+              "kiosk_locked_until",
               "approval_group",
               "is_active",
               "public_team_enabled",
@@ -415,86 +428,25 @@ module Api
 
         def normalized_update_params
           permitted = {}
-          uses_clerk_profile = @user.uses_clerk_profile?
-          active_clerk_user = uses_clerk_profile && !@user.pending_invite?
+          keeps_personal_access = !params.key?(:personal_access_enabled) || boolean_param(:personal_access_enabled)
+          active_clerk_user = keeps_personal_access && @user.personal_access_enabled? && @user.uses_clerk_profile? && !@user.pending_invite?
           clerk_attributes = {}
 
-          if params[:role].present?
-            unless %w[admin employee].include?(params[:role])
-              render json: { error: "Role must be admin or employee" }, status: :unprocessable_entity
-              return { local_attributes: {}, clerk_attributes: {} }
-            end
-
-            permitted[:role] = params[:role]
-          end
-
-          if params.key?(:first_name) || params.key?(:last_name)
-            if uses_clerk_profile && !active_clerk_user
-              render json: { error: "Pending Clerk invites will pull names from Clerk after first sign-in" }, status: :unprocessable_entity
-              return { local_attributes: {}, clerk_attributes: {} }
-            end
-          end
-
-          if params.key?(:first_name)
+          if active_clerk_user && params.key?(:first_name)
             first_name = params[:first_name].to_s.strip
             if first_name.blank?
               render json: { error: "First name is required" }, status: :unprocessable_entity
               return { local_attributes: {}, clerk_attributes: {} }
             end
 
-            if active_clerk_user
-              permitted[:first_name] = first_name
-              clerk_attributes[:first_name] = first_name if first_name != @user.first_name.to_s
-            else
-              permitted[:first_name] = first_name
-            end
+            permitted[:first_name] = first_name
+            clerk_attributes[:first_name] = first_name if first_name != @user.first_name.to_s
           end
 
-          if params.key?(:last_name)
+          if active_clerk_user && params.key?(:last_name)
             last_name = params[:last_name].to_s.strip.presence
-            if active_clerk_user
-              permitted[:last_name] = last_name
-              clerk_attributes[:last_name] = last_name if last_name != @user.last_name.presence
-            else
-              permitted[:last_name] = last_name
-            end
-          end
-
-          if params.key?(:email)
-            email = params[:email].to_s.strip.downcase.presence
-
-            if uses_clerk_profile
-              if email.blank?
-                render json: { error: "Clerk-managed users must keep an email address" }, status: :unprocessable_entity
-                return { local_attributes: {}, clerk_attributes: {} }
-              end
-
-              if active_clerk_user
-                if email != @user.email&.downcase
-                  render json: { error: "Activated Clerk users must update their email from Clerk" }, status: :unprocessable_entity
-                  return { local_attributes: {}, clerk_attributes: {} }
-                end
-              else
-                permitted[:email] = email
-              end
-            elsif email.present?
-              unless @user.pending_invite?
-                render json: { error: "Only pending kiosk-only users can be converted to email sign-in" }, status: :unprocessable_entity
-                return { local_attributes: {}, clerk_attributes: {} }
-              end
-
-              permitted[:email] = email
-            end
-
-            if email.present? && !email.match?(/\A[^@\s]+@[^@\s]+\.[^@\s]+\z/)
-              render json: { error: "Invalid email format" }, status: :unprocessable_entity
-              return { local_attributes: {}, clerk_attributes: {} }
-            end
-
-            if email.present? && User.where.not(id: @user.id).exists?([ "LOWER(email) = ?", email ])
-              render json: { error: "A user with this email already exists" }, status: :unprocessable_entity
-              return { local_attributes: {}, clerk_attributes: {} }
-            end
+            permitted[:last_name] = last_name
+            clerk_attributes[:last_name] = last_name if last_name != @user.last_name.presence
           end
 
           if params.key?(:approval_group) || params.key?(:approval_groups)
@@ -561,6 +513,36 @@ module Api
           end
 
           { local_attributes: permitted, clerk_attributes: clerk_attributes }
+        end
+
+        def access_params
+          keys = %i[
+            email first_name last_name role personal_access_enabled
+            time_tracking_enabled kiosk_enabled kiosk_pin
+            time_category_ids time_category_rate_overrides
+          ]
+
+          keys.each_with_object({}) do |key, attributes|
+            attributes[key] = params[key] if params.key?(key)
+          end
+        end
+
+        def boolean_param(key)
+          return false unless params.key?(key)
+
+          ActiveModel::Type::Boolean.new.cast(params[key])
+        end
+
+        def validate_last_admin_transition
+          return nil unless @user.admin? && @user.is_active? && @user.personal_access_enabled?
+
+          remains_admin = params[:role].blank? || params[:role] == "admin"
+          remains_active = !params.key?(:is_active) || boolean_param(:is_active)
+          keeps_personal_access = !params.key?(:personal_access_enabled) || boolean_param(:personal_access_enabled)
+          return nil if remains_admin && remains_active && keeps_personal_access
+          return nil if User.admins.where(is_active: true, personal_access_enabled: true).where.not(id: @user.id).exists?
+
+          "AIRE Ops must keep at least one active admin with personal sign-in"
         end
 
         def normalized_photo_position(value, axis_label)

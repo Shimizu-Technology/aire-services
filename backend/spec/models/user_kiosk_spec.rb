@@ -5,7 +5,7 @@ require "rails_helper"
 RSpec.describe User, type: :model do
   describe "kiosk PIN support" do
     let(:user) do
-      build(:user).tap do |u|
+      build(:user, time_tracking_enabled: true).tap do |u|
         u.skip_kiosk_pin_presence_validation = true
       end
     end

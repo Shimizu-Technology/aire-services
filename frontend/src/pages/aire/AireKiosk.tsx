@@ -226,7 +226,8 @@ export default function AireKiosk() {
     setStatus(result.data.current_status)
     setCategories(result.data.available_categories)
     setSelectedCategoryId(
-      result.data.current_status.time_category?.id ?? result.data.available_categories[0]?.id ?? null,
+      result.data.current_status.time_category?.id
+        ?? (result.data.available_categories.length === 1 ? result.data.available_categories[0].id : null),
     )
     setPin('')
     setLoading(false)

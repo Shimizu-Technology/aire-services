@@ -54,7 +54,7 @@ interface TimeEntryItem {
   }>
   user: {
     id: number
-    email: string
+    email: string | null
     display_name?: string
     full_name?: string
   }
@@ -80,7 +80,7 @@ const BREAK_PRESETS = [
 
 interface UserOption {
   id: number
-  email: string
+  email: string | null
   display_name?: string
   full_name?: string
   role: string
@@ -316,7 +316,7 @@ export default function TimeTracking() {
 
   // Owner display: "You" for self, real name for others
   const ownerLabel = (entry: TimeEntryItem): string => {
-    const name = entry.user.display_name || entry.user.full_name || entry.user.email.split('@')[0]
+    const name = entry.user.display_name || entry.user.full_name || entry.user.email?.split('@')[0] || 'Team member'
     if (currentUserId && entry.user.id === currentUserId) return 'You'
     return name
   }
@@ -808,7 +808,7 @@ export default function TimeTracking() {
   const deniedCount = entries.filter(e => e.approval_status === 'denied').length
   const visibleTotalHours = sumEntryHours(visibleEntries)
 
-  const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0 }
+  const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, missing_rate_count: 0 }
   const hoursSummaryRows = hoursReport?.employees ?? []
   const reportByCategory = (hoursReport?.employees ?? []).flatMap((employee) => employee.categories).reduce((acc, category) => {
     if (!acc[category.name]) acc[category.name] = 0
@@ -995,7 +995,7 @@ export default function TimeTracking() {
               >
                 <option value="">All Employees</option>
                 {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.display_name || user.email.split('@')[0]}</option>
+                  <option key={user.id} value={user.id}>{user.display_name || user.email?.split('@')[0] || 'Team member'}</option>
                 ))}
               </select>
             </div>
@@ -1892,13 +1892,15 @@ export default function TimeTracking() {
               </div>
               <p className="mt-1 text-sm leading-relaxed">
                 {hoursReport.ready
-                  ? 'No pending, denied, or open time entries were found in this period. Exports do not require a finalized-week lock.'
+                  ? 'No pending, denied, open, uncategorized, or missing-rate time entries were found in this period. Exports do not require a finalized-week lock.'
                   : [
                       reportSummary.pending_count > 0 ? `${reportSummary.pending_count} pending` : null,
                       reportSummary.denied_count > 0 ? `${reportSummary.denied_count} denied` : null,
                       reportSummary.pending_overtime_count > 0 ? `${reportSummary.pending_overtime_count} pending overtime` : null,
                       reportSummary.denied_overtime_count > 0 ? `${reportSummary.denied_overtime_count} denied overtime` : null,
                       reportSummary.open_clock_count > 0 ? `${reportSummary.open_clock_count} open clock` : null,
+                      reportSummary.uncategorized_count > 0 ? `${reportSummary.uncategorized_count} uncategorized` : null,
+                      reportSummary.missing_rate_count > 0 ? `${reportSummary.missing_rate_count} missing pay rate` : null,
                     ].filter(Boolean).join(', ') + '. You can still export after explicitly confirming a draft.'}
               </p>
             </div>
@@ -2202,7 +2204,7 @@ function DetailedEntriesTable({
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
 
   const groups = entries.reduce((acc, entry) => {
-    const name = entry.user.full_name || entry.user.display_name || entry.user.email.split('@')[0]
+    const name = entry.user.full_name || entry.user.display_name || entry.user.email?.split('@')[0] || 'Team member'
     const key = `${entry.work_date}__${entry.user.id}`
     if (!acc[key]) {
       acc[key] = { date: entry.work_date, userId: entry.user.id, name, entries: [] }

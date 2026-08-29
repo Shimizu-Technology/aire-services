@@ -101,6 +101,11 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
     }).catch(() => undefined)
   }, [])
 
+  useEffect(() => {
+    if (categories.length === 1) setSelectedCategoryId(categories[0].id)
+    if (categories.length === 0) setSelectedCategoryId('')
+  }, [categories])
+
   // Auto-poll every 60s when not clocked in (waiting for shift to start)
   useEffect(() => {
     if (!status?.clocked_in && !loading) {
@@ -240,7 +245,11 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   }
 
   const handleAction = async (action: 'clock_in' | 'start_break' | 'end_break', adminOverride = false) => {
-    if (action === 'clock_in' && categories.length > 0 && !selectedCategoryId) {
+    if (action === 'clock_in' && categories.length === 0) {
+      setError('Ask an administrator to assign at least one work category before clocking in.')
+      return
+    }
+    if (action === 'clock_in' && categories.length > 1 && !selectedCategoryId) {
       setError('Choose a work category before clocking in.')
       return
     }
@@ -253,7 +262,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         : undefined
 
       const fn = {
-        clock_in: () => api.clockIn(undefined, adminOverride, Number(selectedCategoryId), location),
+        clock_in: () => api.clockIn(undefined, adminOverride, categories.length === 1 ? categories[0].id : Number(selectedCategoryId), location),
         start_break: () => api.startBreak(),
         end_break: () => api.endBreak(),
       }
@@ -285,18 +294,32 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
     )
   }
 
+  if (status && !status.time_tracking_enabled) {
+    return (
+      <div className="rounded-2xl border border-neutral-warm bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-primary-dark"><ClockIcon /></div>
+          <div>
+            <h3 className="font-semibold text-primary-dark">Time tracking is not enabled</h3>
+            <p className="mt-1 text-sm leading-6 text-text-muted">Your account does not require clock-ins or work categories. Contact an administrator if that should change.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const isClockedIn = status?.clocked_in
   const isOnBreak = status?.status === 'on_break'
   const isAdmin = status?.is_admin ?? false
   const blockedReason = status?.clock_in_blocked_reason
   const isAdminOverridable = isAdmin && (blockedReason === 'too_early' || blockedReason === 'shift_ended')
-  const canClockIn = status?.can_clock_in || isAdminOverridable
+  const canClockIn = categories.length > 0 && (status?.can_clock_in || isAdminOverridable)
 
   const hasMultipleSegments = (status?.session?.segments?.length ?? 0) > 1
   const sessionBreakMin = status?.session?.total_break_minutes ?? (status?.break_minutes || 0)
   const netSessionWorkSeconds = isClockedIn ? sessionElapsed - sessionBreakMin * 60 - (isOnBreak ? breakElapsed : 0) : 0
   const netCategoryWorkSeconds = isClockedIn ? categoryElapsed - (status?.break_minutes || 0) * 60 - (isOnBreak ? breakElapsed : 0) : 0
-  const activeCategoryLabel = status?.time_category?.name ?? 'General'
+  const activeCategoryLabel = status?.time_category?.name ?? 'Uncategorized'
 
   const stripeColor = isOnBreak ? 'bg-amber-400' : isClockedIn ? 'bg-emerald-500' : 'bg-neutral-warm'
   const borderColor = isOnBreak ? 'border-amber-300/60' : isClockedIn ? 'border-emerald-300/60' : 'border-neutral-warm'
@@ -416,7 +439,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         {!isClockedIn && categories.length === 0 && (
           <div className="mb-4 p-3.5 bg-secondary/40 rounded-xl border border-neutral-warm/50">
             <div className="text-sm text-text-muted">
-              No work categories are assigned. Your time will be tracked under <span className="font-semibold text-primary-dark">General</span>.
+              No work categories are assigned. Ask an administrator to finish your time-tracking setup before clocking in.
             </div>
           </div>
         )}
@@ -505,6 +528,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
               <span className="text-xs text-amber-600 font-medium">
                 {blockedReason === 'too_early' && (status?.minutes_until != null ? `Clock in available in ~${status.minutes_until}m` : 'Shift hasn\'t started yet')}
                 {blockedReason === 'shift_ended' && 'Shift has ended'}
+                {blockedReason === 'categories_missing' && 'Work categories need to be assigned'}
+                {blockedReason === 'no_schedule' && 'No shift scheduled today'}
                 {isAdmin && ' — admin override available'}
               </span>
             </div>
@@ -612,7 +637,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         {!isClockedIn && categories.length === 0 && (
           <div className="mt-4 pt-4 border-t border-neutral-warm/50 max-w-xl">
             <p className="text-sm text-text-muted">
-              No work categories are assigned. Your time will be tracked under <span className="font-semibold text-primary-dark">General</span>.
+              No work categories are assigned. Ask an administrator to finish your time-tracking setup before clocking in.
             </p>
           </div>
         )}

@@ -9,6 +9,10 @@ const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/
 const maxPublicTeamPhotoSize = 15 * 1024 * 1024
 const defaultPublicTeamPhotoPosition = 50
 
+function hourlyRateLabel(cents: number | null | undefined) {
+  return cents == null ? 'Rate not set' : `${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)}/hr`
+}
+
 function photoPositionInputValue(value: number | null | undefined) {
   return String(typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : defaultPublicTeamPhotoPosition)
 }
@@ -79,6 +83,12 @@ export default function Users() {
   const [publicTeamFilter, setPublicTeamFilter] = useState<'all' | 'visible' | 'hidden'>('all')
 
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createStep, setCreateStep] = useState<1 | 2>(1)
+  const [createPersonalAccess, setCreatePersonalAccess] = useState(true)
+  const [createTimeTracking, setCreateTimeTracking] = useState(true)
+  const [createKioskEnabled, setCreateKioskEnabled] = useState(false)
+  const [createKioskPin, setCreateKioskPin] = useState('')
+  const [createSuccess, setCreateSuccess] = useState<{ message: string; pin?: string | null } | null>(null)
   const [createFirstName, setCreateFirstName] = useState('')
   const [createLastName, setCreateLastName] = useState('')
   const [createEmail, setCreateEmail] = useState('')
@@ -108,6 +118,11 @@ export default function Users() {
   const [editPublicTeamPhotoFile, setEditPublicTeamPhotoFile] = useState<File | null>(null)
   const [editRemovePublicTeamPhoto, setEditRemovePublicTeamPhoto] = useState(false)
   const [editCategoryIds, setEditCategoryIds] = useState<Set<number>>(new Set())
+  const [editPersonalAccess, setEditPersonalAccess] = useState(true)
+  const [editTimeTracking, setEditTimeTracking] = useState(false)
+  const [editKioskEnabled, setEditKioskEnabled] = useState(false)
+  const [editKioskPin, setEditKioskPin] = useState('')
+  const [editSendInvitation, setEditSendInvitation] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState('')
 
@@ -203,13 +218,8 @@ export default function Users() {
   }, [editPublicTeamPhotoPreviewUrl])
 
   const activeCategories = allCategories.filter((c) => c.is_active)
-  const createUsesClerkProfile = createEmail.trim().length > 0
-  const editingUserUsesClerkProfile = editingUser?.uses_clerk_profile ?? false
-  const canEditPendingInviteEmail = Boolean(editingUserUsesClerkProfile && editingUser?.is_pending)
-  const canEditActiveClerkProfile = Boolean(editingUserUsesClerkProfile && editingUser && !editingUser.is_pending)
-  const editingUserIsKioskOnly = Boolean(editingUser && !editingUserUsesClerkProfile)
-  const canConvertPendingKioskUser = Boolean(editingUserIsKioskOnly && editingUser?.is_pending)
-  const canEditEmail = Boolean(canEditPendingInviteEmail || canConvertPendingKioskUser)
+  const createUsesClerkProfile = createPersonalAccess
+  const canEditEmail = Boolean(editPersonalAccess && (editingUser?.is_pending || !editingUser?.has_clerk_account))
   const routedUsersCount = users.filter((user) => (user.approval_group_keys?.length ?? (user.approval_group ? 1 : 0)) > 0).length
   const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
   const normalizedSearchTerm = searchTerm.trim().toLowerCase()
@@ -233,8 +243,8 @@ export default function Users() {
       if (departmentFilter === 'unassigned' && userDepartmentKeys.length > 0) return false
       if (departmentFilter !== 'all' && departmentFilter !== 'unassigned' && !userDepartmentKeys.includes(departmentFilter)) return false
 
-      if (kioskFilter === 'pin_ready' && !user.kiosk_pin_configured) return false
-      if (kioskFilter === 'no_pin' && user.kiosk_pin_configured) return false
+      if (kioskFilter === 'pin_ready' && (!user.kiosk_enabled || !user.kiosk_pin_configured)) return false
+      if (kioskFilter === 'no_pin' && (!user.time_tracking_enabled || !user.kiosk_enabled || user.kiosk_pin_configured)) return false
       if (kioskFilter === 'locked' && !isKioskLocked(user)) return false
 
       if (publicTeamFilter === 'visible' && !(user.is_active && user.public_team_enabled)) return false
@@ -303,10 +313,21 @@ export default function Users() {
     setEditPublicTeamPhotoFile(null)
     setEditRemovePublicTeamPhoto(false)
     setEditCategoryIds(new Set(user.time_category_ids ?? []))
+    setEditPersonalAccess(user.personal_access_enabled)
+    setEditTimeTracking(user.time_tracking_enabled)
+    setEditKioskEnabled(Boolean(user.kiosk_enabled))
+    setEditKioskPin('')
+    setEditSendInvitation(false)
     setEditError('')
   }, [])
 
   const resetCreateForm = () => {
+    setCreateStep(1)
+    setCreatePersonalAccess(true)
+    setCreateTimeTracking(true)
+    setCreateKioskEnabled(false)
+    setCreateKioskPin('')
+    setCreateSuccess(null)
     setCreateFirstName('')
     setCreateLastName('')
     setCreateEmail('')
@@ -337,6 +358,11 @@ export default function Users() {
     setEditPublicTeamPhotoFile(null)
     setEditRemovePublicTeamPhoto(false)
     setEditCategoryIds(new Set())
+    setEditPersonalAccess(true)
+    setEditTimeTracking(false)
+    setEditKioskEnabled(false)
+    setEditKioskPin('')
+    setEditSendInvitation(false)
     setSavingEdit(false)
     setEditError('')
   }
@@ -352,11 +378,30 @@ export default function Users() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setCreateError('')
+
+    if (createStep === 1) {
+      if (createPersonalAccess && !createEmail.trim()) {
+        setCreateError('Email is required for personal sign-in.')
+        return
+      }
+      if (!createPersonalAccess && !createFirstName.trim()) {
+        setCreateError('First name is required for a kiosk-only team member.')
+        return
+      }
+      setCreateStep(2)
+      return
+    }
+
+    if (createTimeTracking && createCategoryIds.size === 0) {
+      setCreateError('Choose at least one work category for a person who tracks work hours.')
+      return
+    }
+
     setCreating(true)
 
     try {
       const response = await api.inviteUser({
-        email: createEmail.trim() || undefined,
+        email: createPersonalAccess ? createEmail.trim() : undefined,
         ...(createUsesClerkProfile ? {} : {
           first_name: createFirstName.trim(),
           last_name: createLastName.trim() || undefined,
@@ -365,21 +410,26 @@ export default function Users() {
         is_intern: createIsIntern,
         role: createRole,
         approval_groups: Array.from(createApprovalGroups),
-        send_invitation: sendInvitationEmail && !!createEmail.trim(),
-        time_category_ids: Array.from(createCategoryIds),
+        personal_access_enabled: createPersonalAccess,
+        time_tracking_enabled: createTimeTracking,
+        kiosk_enabled: createKioskEnabled,
+        kiosk_pin: createKioskPin.trim() || undefined,
+        send_invitation: createPersonalAccess && sendInvitationEmail,
+        time_category_ids: createTimeTracking ? Array.from(createCategoryIds) : [],
       })
       if (response.error) {
         setCreateError(response.error)
       } else {
         const sent = response.data?.invitation_email_sent
-        if (sendInvitationEmail && createEmail.trim() && sent === false) {
-          alert('Team member created, but the invitation email could not be sent.')
-        } else if (!sendInvitationEmail || !createEmail.trim()) {
-          alert('Team member added. Set their kiosk PIN so they can clock in.')
-        }
-        setShowCreateModal(false)
-        resetCreateForm()
-        refreshData()
+        const inviteNote = createPersonalAccess
+          ? sent === false
+            ? 'The account was created, but the invitation email could not be sent. You can resend it from the user list.'
+            : sendInvitationEmail
+              ? 'Their invitation is on the way.'
+              : 'You can send their invitation later from the user list.'
+          : 'They can use the kiosk immediately with the PIN below.'
+        setCreateSuccess({ message: inviteNote, pin: response.data?.kiosk_pin })
+        void refreshData()
       }
     } catch {
       setCreateError('Failed to create team member')
@@ -420,14 +470,26 @@ export default function Users() {
       return
     }
 
-    if ((editingUserIsKioskOnly || canEditActiveClerkProfile) && !nextFirstName) {
+    if (!editPersonalAccess && !nextFirstName) {
       setEditError('First name is required.')
       setSavingEdit(false)
       return
     }
 
-    if (canEditPendingInviteEmail && !nextEmail) {
-      setEditError('Email is required for Clerk-managed users.')
+    if (editPersonalAccess && !nextEmail) {
+      setEditError('Email is required for personal sign-in.')
+      setSavingEdit(false)
+      return
+    }
+
+    if (editTimeTracking && nextCategoryIds.length === 0) {
+      setEditError('Choose at least one work category for a person who tracks work hours.')
+      setSavingEdit(false)
+      return
+    }
+
+    if (editKioskEnabled && !editTimeTracking) {
+      setEditError('Kiosk access requires time tracking.')
       setSavingEdit(false)
       return
     }
@@ -464,27 +526,23 @@ export default function Users() {
         public_team_title: nextPublicTeamTitle || null,
         public_team_photo_position_x: nextPublicTeamPhotoPositionX,
         public_team_photo_position_y: nextPublicTeamPhotoPositionY,
-        time_category_ids: nextCategoryIds,
+        personal_access_enabled: editPersonalAccess,
+        time_tracking_enabled: editTimeTracking,
+        kiosk_enabled: editKioskEnabled,
+        kiosk_pin: editKioskPin.trim() || undefined,
+        send_invitation: editPersonalAccess && editSendInvitation,
+        time_category_ids: editTimeTracking ? nextCategoryIds : [],
       }
 
       if (nextPublicTeamSortOrder !== null) {
         payload.public_team_sort_order = nextPublicTeamSortOrder
       }
 
-      if (editingUserUsesClerkProfile) {
-        if (canEditPendingInviteEmail) {
-          payload.email = nextEmail
-        }
-        if (canEditActiveClerkProfile) {
-          payload.first_name = nextFirstName
-          payload.last_name = nextLastName || ''
-        }
+      if (editPersonalAccess) {
+        if (canEditEmail) payload.email = nextEmail
       } else {
         payload.first_name = nextFirstName
         payload.last_name = nextLastName || ''
-        if (nextEmail) {
-          payload.email = nextEmail
-        }
       }
 
       const res = await api.updateUser(targetUserId, payload)
@@ -514,7 +572,12 @@ export default function Users() {
         if (savedUser) {
           patchLocalUser(targetUserId, () => savedUser!)
         }
+        const generatedPin = res.data?.kiosk_pin
         closeEditModal()
+        if (generatedPin && savedUser) {
+          setPinModalUser(savedUser)
+          setPinResult(generatedPin)
+        }
       }
     } finally {
       setSavingEdit(false)
@@ -814,8 +877,8 @@ export default function Users() {
                               Intern
                             </span>
                           )}
-                          {user.email && <div className="mt-1 truncate text-sm text-slate-500">{user.email}</div>}
-                          {!user.email && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — no email</div>}
+                          {user.personal_access_enabled && user.email && <div className="mt-1 truncate text-sm text-slate-500">{user.email}</div>}
+                          {!user.personal_access_enabled && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — personal sign-in off</div>}
                         </div>
                       </div>
                     </td>
@@ -823,6 +886,7 @@ export default function Users() {
                       <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
                         {user.role === 'admin' ? 'Admin' : 'Employee'}
                       </span>
+                      <div className="mt-1 text-xs text-slate-500">{user.personal_access_enabled ? 'Personal access' : 'Kiosk-only access'}</div>
                     </td>
                     <td className="px-5 py-4">
                       {user.public_team_enabled ? (
@@ -855,7 +919,9 @@ export default function Users() {
                       )}
                     </td>
                     <td className="px-5 py-4">
-                      {(user.time_categories ?? []).length > 0 ? (
+                      {!user.time_tracking_enabled ? (
+                        <span className="text-xs text-slate-400">Does not track hours</span>
+                      ) : (user.time_categories ?? []).length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {user.time_categories!.map((tc) => (
                             <span key={tc.id} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
@@ -873,14 +939,16 @@ export default function Users() {
                     <td className="px-5 py-4">
                       <div className="space-y-1 text-sm">
                         <div className="flex">
-                          {user.kiosk_pin_configured ? (
+                          {user.kiosk_enabled && user.kiosk_pin_configured ? (
                             <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-cyan-700">PIN ready</span>
+                          ) : !user.kiosk_enabled ? (
+                            <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-slate-500">Disabled</span>
                           ) : (
                             <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-slate-600">Not set</span>
                           )}
                         </div>
-                        {user.kiosk_pin_last_rotated_at && <div className="text-xs text-slate-500">Rotated {formatDateTime(user.kiosk_pin_last_rotated_at)}</div>}
-                        {isKioskLocked(user) && <div className="text-xs text-red-600">Locked until {formatDateTime(user.kiosk_locked_until!)}</div>}
+                        {user.kiosk_enabled && user.kiosk_pin_last_rotated_at && <div className="text-xs text-slate-500">Rotated {formatDateTime(user.kiosk_pin_last_rotated_at)}</div>}
+                        {user.kiosk_enabled && isKioskLocked(user) && <div className="text-xs text-red-600">Locked until {formatDateTime(user.kiosk_locked_until!)}</div>}
                       </div>
                     </td>
                     <td className="px-5 py-4">
@@ -892,13 +960,15 @@ export default function Users() {
                         >
                           Edit
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => openPinModal(user)}
-                          className="text-cyan-700 transition hover:text-cyan-900"
-                        >
-                          Reset PIN
-                        </button>
+                        {user.time_tracking_enabled && (
+                          <button
+                            type="button"
+                            onClick={() => openPinModal(user)}
+                            className="text-cyan-700 transition hover:text-cyan-900"
+                          >
+                            {user.kiosk_pin_configured ? 'Reset PIN' : 'Set kiosk PIN'}
+                          </button>
+                        )}
                         {user.is_active && user.is_pending && user.email && (
                           <button
                             type="button"
@@ -933,223 +1003,215 @@ export default function Users() {
       </div>
 
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div ref={createModalRef} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-900">Add team member</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Create a staff record. Email-based accounts get their name from Clerk after sign-in, while kiosk-only staff need a local name and PIN.
-                </p>
-              </div>
-              <button onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
-            </div>
-
-            <form onSubmit={handleCreate} className="mt-6 space-y-4">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Email {sendInvitationEmail ? <span className="text-slate-400">*</span> : <span className="text-xs font-normal text-slate-400">(optional for kiosk-only)</span>}
-                </label>
-                <input
-                  type="email"
-                  value={createEmail}
-                  onChange={(e) => setCreateEmail(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  required={sendInvitationEmail}
-                />
-              </div>
-              {createUsesClerkProfile ? (
-                <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
-                  First and last name will come from Clerk when this person signs in.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6" role="presentation">
+          <div ref={createModalRef} role="dialog" aria-modal="true" aria-labelledby="create-user-title" className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+            {createSuccess ? (
+              <div className="p-6 sm:p-8">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                  <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m5 12 4 4L19 6" /></svg>
                 </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
-                    <input value={createFirstName} onChange={(e) => setCreateFirstName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" required />
+                <h2 id="create-user-title" className="mt-4 text-center text-2xl font-semibold text-slate-950">Team member added</h2>
+                <p className="mx-auto mt-2 max-w-md text-center text-sm leading-6 text-slate-600">{createSuccess.message}</p>
+                {createSuccess.pin && (
+                  <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-cyan-200 bg-cyan-50 p-5 text-center">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-800">Kiosk PIN</div>
+                    <div className="mt-2 font-mono text-3xl font-semibold tracking-[0.28em] text-slate-950">{createSuccess.pin}</div>
+                    <p className="mt-2 text-xs text-slate-600">Share this securely. It will not be shown again.</p>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
-                    <input value={createLastName} onChange={(e) => setCreateLastName(e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                )}
+                <button type="button" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="mt-7 w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">Done</button>
+              </div>
+            ) : (
+              <form onSubmit={handleCreate} className="flex min-h-0 flex-1 flex-col">
+                <div className="border-b border-slate-200 px-5 py-5 sm:px-7">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 id="create-user-title" className="text-xl font-semibold text-slate-950">Add team member</h2>
+                      <p className="mt-1 text-sm text-slate-500">Set up access first, then choose their team and time-tracking details.</p>
+                    </div>
+                    <button type="button" aria-label="Close" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
+                    </button>
                   </div>
+                  <div className="mt-5 grid grid-cols-2 gap-2" aria-label={`Step ${createStep} of 2`}>
+                    {[1, 2].map((step) => <div key={step} className={`h-1.5 rounded-full ${step <= createStep ? 'bg-cyan-600' : 'bg-slate-200'}`} />)}
+                  </div>
+                  <div className="mt-2 text-xs font-medium text-slate-500">Step {createStep} of 2 · {createStep === 1 ? 'Identity and access' : 'Work setup'}</div>
                 </div>
-              )}
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Role</label>
-                <select value={createRole} onChange={(e) => setCreateRole(e.target.value as 'admin' | 'employee')} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
-                  <option value="employee">Employee</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
 
-              <label className="flex cursor-pointer gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={createIsIntern}
-                  onChange={(event) => setCreateIsIntern(event.target.checked)}
-                  className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-slate-800">Mark as intern</span>
-                  <span className="mt-0.5 block text-xs text-slate-600">
-                    Interns can belong to any department, but payroll reports will clearly flag their intern status.
-                  </span>
-                </span>
-              </label>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Departments</label>
-                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-                  {approvalGroupOptions.map((option) => (
-                    <label key={option.key} className="flex cursor-pointer items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={createApprovalGroups.has(option.key)}
-                        onChange={() => toggleApprovalGroup(createApprovalGroups, setCreateApprovalGroups, option.key)}
-                        className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                      />
-                      <span className="text-sm font-medium text-slate-800">{option.label}</span>
-                    </label>
-                  ))}
-                  {approvalGroupOptions.length === 0 && <div className="text-sm text-slate-500">No departments configured.</div>}
-                </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  Select every department this person belongs to. This controls review routing and department filters across admin tools.
-                </p>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Staff title</label>
-                <input
-                  value={createStaffTitle}
-                  onChange={(e) => setCreateStaffTitle(e.target.value)}
-                  placeholder="Certified Flight Instructor"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                />
-                <p className="mt-2 text-xs text-slate-500">
-                  Optional internal title. You can reuse this on the public Team page later.
-                </p>
-              </div>
+                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-6 sm:px-7">
+                  {createStep === 1 ? (
+                    <>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Role</label>
+                        <select value={createRole} onChange={(event) => {
+                          const role = event.target.value as 'admin' | 'employee'
+                          setCreateRole(role)
+                          if (role === 'admin') setCreatePersonalAccess(true)
+                        }} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
+                          <option value="employee">Employee</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                        {createRole === 'admin' && <p className="mt-2 text-xs text-slate-500">Admins always need personal sign-in.</p>}
+                      </div>
 
-              <label className="flex cursor-pointer gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={sendInvitationEmail}
-                  onChange={(e) => setSendInvitationEmail(e.target.checked)}
-                  className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-slate-800">Send invitation email</span>
-                  <span className="mt-0.5 block text-xs text-slate-500">
-                    Turn off for kiosk-only: add them and set a PIN without sending an email.
-                  </span>
-                </span>
-              </label>
-
-              {activeCategories.length > 0 && (
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Work categories</label>
-                  <p className="mb-3 text-xs text-slate-500">
-                    Select which types of work this person does. Only assigned categories will appear at the kiosk.
-                  </p>
-                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-                    {activeCategories.map((cat) => (
-                      <label key={cat.id} className="flex cursor-pointer items-start gap-3">
-                        <input
-                          type="checkbox"
-                          checked={createCategoryIds.has(cat.id)}
-                          onChange={() => toggleCategoryId(createCategoryIds, setCreateCategoryIds, cat.id)}
-                          className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-slate-800">{cat.name}</div>
-                          {cat.description && <div className="mt-0.5 text-xs text-slate-500">{cat.description}</div>}
+                      <fieldset>
+                        <legend className="text-sm font-medium text-slate-700">How will this person access AIRE Ops?</legend>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <label className={`cursor-pointer rounded-2xl border p-4 transition ${createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
+                            <input type="radio" name="create-access" checked={createPersonalAccess} onChange={() => { setCreatePersonalAccess(true); setSendInvitationEmail(true) }} className="sr-only" />
+                            <span className="block text-sm font-semibold text-slate-900">Personal account</span>
+                            <span className="mt-1 block text-xs leading-5 text-slate-600">They sign in with email. Clerk supplies their name after activation.</span>
+                          </label>
+                          <label className={`rounded-2xl border p-4 transition ${createRole === 'admin' ? 'cursor-not-allowed bg-slate-50 opacity-50' : 'cursor-pointer'} ${!createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
+                            <input type="radio" name="create-access" checked={!createPersonalAccess} disabled={createRole === 'admin'} onChange={() => { setCreateRole('employee'); setCreatePersonalAccess(false); setSendInvitationEmail(false); setCreateTimeTracking(true); setCreateKioskEnabled(true) }} className="sr-only" />
+                            <span className="block text-sm font-semibold text-slate-900">Kiosk only</span>
+                            <span className="mt-1 block text-xs leading-5 text-slate-600">No email or account. AIRE stores their name and they clock in with a PIN.</span>
+                          </label>
                         </div>
-                      </label>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-xs text-slate-400">
-                    If none are selected, no categories will appear at the kiosk for this person.
-                  </p>
-                </div>
-              )}
+                      </fieldset>
 
-              {createError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{createError}</div>}
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-                <button type="submit" disabled={creating} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50">
-                  {creating ? 'Saving…' : sendInvitationEmail && createEmail.trim() ? 'Send invite' : 'Add team member'}
-                </button>
-              </div>
-            </form>
+                      {createPersonalAccess ? (
+                        <>
+                          <div>
+                            <label htmlFor="create-email" className="mb-2 block text-sm font-medium text-slate-700">Email <span className="text-rose-600">*</span></label>
+                            <input id="create-email" type="email" value={createEmail} onChange={(event) => setCreateEmail(event.target.value)} autoComplete="off" className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" required />
+                          </div>
+                          <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-950">First and last name will come from Clerk when this person activates their account, so you do not need to enter them twice.</div>
+                          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4">
+                            <input type="checkbox" checked={sendInvitationEmail} onChange={(event) => setSendInvitationEmail(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                            <span><span className="block text-sm font-medium text-slate-900">Send invitation now</span><span className="mt-1 block text-xs text-slate-500">You can also send or resend it from the user list.</span></span>
+                          </label>
+                        </>
+                      ) : (
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div><label htmlFor="create-first-name" className="mb-2 block text-sm font-medium text-slate-700">First name <span className="text-rose-600">*</span></label><input id="create-first-name" value={createFirstName} onChange={(event) => setCreateFirstName(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" required /></div>
+                          <div><label htmlFor="create-last-name" className="mb-2 block text-sm font-medium text-slate-700">Last name</label><input id="create-last-name" value={createLastName} onChange={(event) => setCreateLastName(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <label className="flex cursor-pointer gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3"><input type="checkbox" checked={createIsIntern} onChange={(event) => setCreateIsIntern(event.target.checked)} className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500" /><span><span className="block text-sm font-medium text-slate-900">Mark as intern</span><span className="mt-1 block text-xs text-slate-600">Intern status is flagged in payroll reports.</span></span></label>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Departments</label>
+                        <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">{approvalGroupOptions.map((option) => <label key={option.key} className="flex cursor-pointer items-center gap-3"><input type="checkbox" checked={createApprovalGroups.has(option.key)} onChange={() => toggleApprovalGroup(createApprovalGroups, setCreateApprovalGroups, option.key)} className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="text-sm font-medium text-slate-800">{option.label}</span></label>)}{approvalGroupOptions.length === 0 && <div className="text-sm text-slate-500">No departments configured.</div>}</div>
+                        <p className="mt-2 text-xs text-slate-500">Departments control approval routing and admin filters; they do not determine clock-in categories.</p>
+                      </div>
+                      <div><label className="mb-2 block text-sm font-medium text-slate-700">Staff title</label><input value={createStaffTitle} onChange={(event) => setCreateStaffTitle(event.target.value)} placeholder="Certified Flight Instructor" className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></div>
+
+                      <label className={`flex items-start gap-3 rounded-2xl border p-4 ${!createPersonalAccess ? 'cursor-not-allowed border-cyan-200 bg-cyan-50/70' : 'cursor-pointer border-slate-200'}`}>
+                        <input type="checkbox" checked={createTimeTracking} disabled={!createPersonalAccess} onChange={(event) => { setCreateTimeTracking(event.target.checked); if (!event.target.checked) setCreateKioskEnabled(false) }} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                        <span><span className="block text-sm font-semibold text-slate-900">Tracks work hours</span><span className="mt-1 block text-xs leading-5 text-slate-600">Turn this off for salaried or non-clock-in staff. They will not appear as missing hours and do not need work categories.</span></span>
+                      </label>
+
+                      {createTimeTracking && (
+                        <>
+                          <div>
+                            <div className="text-sm font-medium text-slate-700">Work categories <span className="text-rose-600">*</span></div>
+                            <p className="mt-1 text-xs text-slate-500">At least one is required. If only one is assigned, it will be selected automatically at clock-in.</p>
+                            <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">{activeCategories.map((cat) => <label key={cat.id} className="flex cursor-pointer items-start gap-3"><input type="checkbox" checked={createCategoryIds.has(cat.id)} onChange={() => toggleCategoryId(createCategoryIds, setCreateCategoryIds, cat.id)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span><span className="block text-sm font-medium text-slate-800">{cat.name}</span><span className={`mt-0.5 block text-xs ${cat.hourly_rate_cents == null ? 'font-medium text-amber-700' : 'text-slate-500'}`}>{hourlyRateLabel(cat.hourly_rate_cents)}</span>{cat.description && <span className="mt-0.5 block text-xs text-slate-500">{cat.description}</span>}</span></label>)}{activeCategories.length === 0 && <div className="text-sm text-rose-700">Create an active work category before adding a time-tracking user.</div>}</div>
+                          </div>
+                          {createPersonalAccess && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4"><input type="checkbox" checked={createKioskEnabled} onChange={(event) => setCreateKioskEnabled(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span><span className="block text-sm font-medium text-slate-900">Also allow kiosk clock-in</span><span className="mt-1 block text-xs text-slate-500">Their personal account and kiosk access can be enabled independently.</span></span></label>}
+                          {createKioskEnabled && <div><label className="mb-2 block text-sm font-medium text-slate-700">Kiosk PIN <span className="text-xs font-normal text-slate-400">(optional)</span></label><input inputMode="numeric" pattern="[0-9]{4,8}" value={createKioskPin} onChange={(event) => setCreateKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Generate automatically" className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /><p className="mt-2 text-xs text-slate-500">Leave blank to generate a secure six-digit PIN.</p></div>}
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {createError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{createError}</div>}
+                </div>
+
+                <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:px-7">
+                  <button type="button" onClick={() => createStep === 2 ? (setCreateStep(1), setCreateError('')) : (setShowCreateModal(false), resetCreateForm())} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">{createStep === 2 ? 'Back' : 'Cancel'}</button>
+                  <button type="submit" disabled={creating || (createStep === 2 && createTimeTracking && activeCategories.length === 0)} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">{createStep === 1 ? 'Continue' : creating ? 'Saving…' : createPersonalAccess && sendInvitationEmail ? 'Add and send invite' : 'Add team member'}</button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
 
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div ref={editModalRef} className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl sm:p-6">
+          <div ref={editModalRef} role="dialog" aria-modal="true" aria-labelledby="edit-user-title" className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold text-slate-900">
+                <h2 id="edit-user-title" className="text-xl font-semibold text-slate-900">
                   Edit {editingUser.full_name || editingUser.display_name}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
                   Update profile details, department routing, public Team page visibility, and kiosk work categories in one place.
                 </p>
               </div>
-              <button type="button" onClick={closeEditModal} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
+              <button type="button" aria-label="Close" onClick={closeEditModal} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
+              </button>
             </div>
 
             <form onSubmit={handleSaveUser} className="mt-6 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">First Name *</label>
-                  <input
-                    value={editFirstName}
-                    onChange={(event) => setEditFirstName(event.target.value)}
-                    disabled={editingUserUsesClerkProfile && !canEditActiveClerkProfile}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-50 disabled:text-slate-400"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Last Name</label>
-                  <input
-                    value={editLastName}
-                    onChange={(event) => setEditLastName(event.target.value)}
-                    disabled={editingUserUsesClerkProfile && !canEditActiveClerkProfile}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-50 disabled:text-slate-400"
-                  />
-                </div>
-              </div>
+              <section className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5" aria-labelledby="edit-access-title">
+                <h3 id="edit-access-title" className="text-sm font-semibold text-slate-950">Access and identity</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Change capabilities without replacing the employee record or losing time history.</p>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Email</label>
-                <input
-                  type="email"
-                  value={editEmail}
-                  onChange={(event) => setEditEmail(event.target.value)}
-                  disabled={!canEditEmail}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-50 disabled:text-slate-400"
-                />
-                <p className="mt-2 text-xs text-slate-500">
-                  {canEditPendingInviteEmail
-                    ? 'This email controls the outstanding invite until they sign in.'
-                    : canEditActiveClerkProfile
-                      ? 'Active Clerk users keep their sign-in email managed in Clerk. Use this form for names, status, routing, and Team page details.'
-                      : editingUserUsesClerkProfile
-                        ? 'Clerk invite email stays editable until the account is activated.'
-                      : canConvertPendingKioskUser
-                        ? 'Add an email to convert this kiosk-only user into a pending invited user. Save, then use Resend invite from the table.'
-                        : 'This kiosk-only user is no longer pending, so create a new invited user if they need email sign-in.'}
-                </p>
-              </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <label className={`flex items-start gap-3 rounded-xl border bg-white p-4 ${editRole === 'admin' ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
+                    <input type="checkbox" checked={editPersonalAccess} disabled={editRole === 'admin'} onChange={(event) => {
+                      setEditPersonalAccess(event.target.checked)
+                      if (event.target.checked && editingUser && !editingUser.personal_access_enabled) setEditSendInvitation(!editingUser.has_clerk_account)
+                      if (!event.target.checked) {
+                        setEditTimeTracking(true)
+                        setEditKioskEnabled(true)
+                      }
+                    }} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                    <span><span className="block text-sm font-medium text-slate-900">Personal sign-in</span><span className="mt-1 block text-xs leading-5 text-slate-500">Email account managed by Clerk.</span></span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-white p-4">
+                    <input type="checkbox" checked={editTimeTracking} onChange={(event) => {
+                      setEditTimeTracking(event.target.checked)
+                      if (!event.target.checked) setEditKioskEnabled(false)
+                    }} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                    <span><span className="block text-sm font-medium text-slate-900">Tracks work hours</span><span className="mt-1 block text-xs leading-5 text-slate-500">Requires at least one work category.</span></span>
+                  </label>
+                </div>
+
+                {!editingUser.personal_access_enabled && editPersonalAccess && (
+                  <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs leading-5 text-cyan-950">{editingUser.has_clerk_account ? 'Their existing Clerk account will be restored, and Clerk will become the name source again. Their employee record, kiosk setup, and history stay intact.' : 'Their local name and kiosk PIN stay active while the invitation is pending. Clerk becomes the name source only after their first successful sign-in.'}</div>
+                )}
+                {editingUser.personal_access_enabled && !editPersonalAccess && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950">Personal sign-in will stop immediately. Their current name will be kept locally, and their Clerk identifiers and prior history remain attached to this employee record.</div>
+                )}
+                {editingUser.time_tracking_enabled && !editTimeTracking && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950">Kiosk access will be removed. Existing time entries and category assignments remain in history, but this person will no longer be expected to clock in.</div>
+                )}
+
+                <div className="mt-4">
+                  {editPersonalAccess ? (
+                    <>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Email <span className="text-rose-600">*</span></label>
+                      <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} disabled={!canEditEmail} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
+                      <p className="mt-2 text-xs text-slate-500">{editingUser.has_clerk_account ? 'This activated account’s email and name are managed by Clerk.' : 'This email will receive the invitation.'}</p>
+                      {(editingUser.is_pending || (!editingUser.personal_access_enabled && !editingUser.has_clerk_account)) && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"><input type="checkbox" checked={editSendInvitation} onChange={(event) => setEditSendInvitation(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="text-sm text-slate-700">Send invitation when these changes are saved</span></label>}
+                    </>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div><label className="mb-2 block text-sm font-medium text-slate-700">First name <span className="text-rose-600">*</span></label><input value={editFirstName} onChange={(event) => setEditFirstName(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" required /></div>
+                      <div><label className="mb-2 block text-sm font-medium text-slate-700">Last name</label><input value={editLastName} onChange={(event) => setEditLastName(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></div>
+                    </div>
+                  )}
+                </div>
+              </section>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">Role</label>
                   <select
                     value={editRole}
-                    onChange={(event) => setEditRole(event.target.value as 'admin' | 'employee')}
+                    onChange={(event) => {
+                      const role = event.target.value as 'admin' | 'employee'
+                      setEditRole(role)
+                      if (role === 'admin') setEditPersonalAccess(true)
+                    }}
                     className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                   >
                     <option value="employee">Employee</option>
@@ -1394,10 +1456,11 @@ export default function Users() {
                 )}
               </div>
 
-              {activeCategories.length > 0 && (
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Work categories</label>
-                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+              {editTimeTracking ? (
+                <section className="rounded-2xl border border-slate-200 p-4 sm:p-5">
+                  <h3 className="text-sm font-semibold text-slate-950">Time tracking setup</h3>
+                  <p className="mt-1 text-xs text-slate-500">At least one active category is required. One category is selected automatically at clock-in; multiple categories require a choice.</p>
+                  <div className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
                     {activeCategories.map((cat) => (
                       <label key={cat.id} className="flex cursor-pointer items-start gap-3">
                         <input
@@ -1408,32 +1471,35 @@ export default function Users() {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium text-slate-800">{cat.name}</div>
+                          <div className={`mt-0.5 text-xs ${cat.hourly_rate_cents == null ? 'font-medium text-amber-700' : 'text-slate-500'}`}>{hourlyRateLabel(cat.hourly_rate_cents)}</div>
                           {cat.description && <div className="mt-0.5 text-xs text-slate-500">{cat.description}</div>}
                         </div>
                       </label>
                     ))}
+                    {activeCategories.length === 0 && <div className="text-sm text-rose-700">No active work categories are available.</div>}
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Assigned categories appear on the kiosk. If none are selected, the kiosk will fall back to General.
-                  </p>
-                </div>
+                  <label className={`mt-4 flex items-start gap-3 rounded-xl border p-4 ${!editPersonalAccess ? 'cursor-not-allowed border-cyan-200 bg-cyan-50/70' : 'cursor-pointer border-slate-200'}`}>
+                    <input type="checkbox" checked={editKioskEnabled} disabled={!editPersonalAccess} onChange={(event) => setEditKioskEnabled(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                    <span><span className="block text-sm font-medium text-slate-900">Kiosk access</span><span className="mt-1 block text-xs text-slate-500">{!editPersonalAccess ? 'Required because this person does not have personal sign-in.' : 'Allow this person to clock in with a PIN in addition to personal sign-in.'}</span></span>
+                  </label>
+                  {editKioskEnabled && (
+                    <div className="mt-4">
+                      <label className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+                      <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editingUser.kiosk_pin_configured ? 'Keep current PIN' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                      <p className="mt-2 text-xs text-slate-500">{editingUser.kiosk_pin_configured ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}. Leave blank to keep it.` : 'Leave blank to generate a secure six-digit PIN.'}</p>
+                    </div>
+                  )}
+                </section>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"><span className="font-medium text-slate-900">No time tracking.</span> This person does not need work categories or a kiosk PIN and will not be treated as missing hours.</div>
               )}
 
               <div className={`rounded-xl border px-4 py-3 text-sm ${editingUser.is_active ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-rose-200 bg-rose-50 text-rose-900'}`}>
                 <div className="font-medium">Account status</div>
                 <div className="mt-1">
                   {editingUser.is_active
-                    ? 'Active users can sign in and use the kiosk with their assigned PIN.'
-                    : 'Inactive users cannot sign in or clock in at the kiosk until you reactivate them.'}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <div className="font-medium text-slate-800">Kiosk access</div>
-                <div className="mt-1">
-                  {editingUser.kiosk_pin_configured
-                    ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}.`
-                    : 'No kiosk PIN set yet. Staff can create their own PIN on first sign-in, or you can reset one from the table.'}
+                    ? 'This employee record is active. The access capabilities above determine how they can use AIRE Ops.'
+                    : 'Inactive users cannot sign in or clock in until you reactivate them.'}
                 </div>
               </div>
 
@@ -1470,15 +1536,15 @@ export default function Users() {
 
       {pinModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div ref={pinModalRef} className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+          <div ref={pinModalRef} role="dialog" aria-modal="true" aria-labelledby="pin-modal-title" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold text-slate-900">Reset kiosk PIN</h2>
+                <h2 id="pin-modal-title" className="text-xl font-semibold text-slate-900">Reset kiosk PIN</h2>
                 <p className="mt-1 text-sm text-slate-500">
                   Set a custom 4 to 8 digit PIN for {pinModalUser.full_name}, or generate one automatically.
                 </p>
               </div>
-              <button type="button" onClick={closePinModal} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
+              <button type="button" aria-label="Close" onClick={closePinModal} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg></button>
             </div>
 
             <div className="mt-6 space-y-4">

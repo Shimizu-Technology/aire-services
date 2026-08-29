@@ -126,7 +126,15 @@ module Api
           render json: {
             error: "This report still has entries that need review. Confirm a draft export to continue.",
             code: "draft_acknowledgement_required",
-            issues: report[:summary].slice(:pending_count, :denied_count, :pending_overtime_count, :denied_overtime_count, :open_clock_count)
+            issues: report[:summary].slice(
+              :pending_count,
+              :denied_count,
+              :pending_overtime_count,
+              :denied_overtime_count,
+              :open_clock_count,
+              :uncategorized_count,
+              :missing_rate_count
+            )
           }, status: :unprocessable_entity
           false
         end

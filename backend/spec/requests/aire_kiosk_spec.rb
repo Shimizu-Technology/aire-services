@@ -12,7 +12,7 @@ RSpec.describe "AIRE kiosk", type: :request do
   let(:kiosk_access_token) { AireKioskAccessToken.issue_for(admin) }
 
   let!(:employee) do
-    create(:user, :employee, first_name: "Mindy").tap do |user|
+    create(:user, :employee, first_name: "Mindy", time_tracking_enabled: true).tap do |user|
       user.skip_kiosk_pin_presence_validation = true
       user.rotate_kiosk_pin!(employee_pin)
     end

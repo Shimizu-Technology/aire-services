@@ -54,18 +54,20 @@ RSpec.describe "Api::V1::Auth", type: :request do
   end
 
   it "returns kiosk setup state for the current user" do
-    create(
+    user = create(
       :user,
       clerk_id: "user_clerk_123",
       email: "first.admin@example.com",
-      role: "employee"
+      role: "employee",
+      time_tracking_enabled: true
     )
+    user.user_time_categories.create!(time_category: create(:time_category))
 
     post "/api/v1/auth/me", headers: headers
 
     expect(response).to have_http_status(:ok)
     expect(JSON.parse(response.body).dig("user", "kiosk_pin_configured")).to eq(false)
-    expect(JSON.parse(response.body).dig("user", "needs_kiosk_pin_setup")).to eq(true)
+    expect(JSON.parse(response.body).dig("user", "needs_kiosk_pin_setup")).to eq(false)
   end
 
   it "links an invited user from nested Clerk email-address claims" do
@@ -89,6 +91,44 @@ RSpec.describe "Api::V1::Auth", type: :request do
     expect(invited.reload.clerk_id).to eq("user_nested_123")
   end
 
+  it "switches a staged kiosk profile to Clerk only after personal activation" do
+    invited = create(
+      :user,
+      :kiosk_only,
+      clerk_id: "pending_staged_123",
+      email: "first.admin@example.com",
+      personal_access_enabled: true,
+      first_name: "Local",
+      last_name: "Name"
+    )
+    original_pin_digest = invited.kiosk_pin_digest
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(invited.reload).to have_attributes(
+      clerk_id: "user_clerk_123",
+      profile_source: "clerk",
+      first_name: "First",
+      last_name: "Admin",
+      kiosk_pin_digest: original_pin_digest
+    )
+  end
+
+  it "denies Clerk sign-in after personal access is removed" do
+    create(
+      :user,
+      :kiosk_only,
+      clerk_id: "user_clerk_123",
+      first_name: "Kiosk"
+    )
+
+    post "/api/v1/auth/me", headers: headers
+
+    expect(response).to have_http_status(:forbidden)
+    expect(JSON.parse(response.body).fetch("error")).to match(/personal sign-in is disabled/i)
+  end
+
   it "blocks inactive staff users from signing in" do
     create(
       :user,
@@ -110,8 +150,9 @@ RSpec.describe "Api::V1::Auth", type: :request do
         :user,
         clerk_id: "user_clerk_123",
         email: "first.admin@example.com",
-        role: "employee"
-      )
+        role: "employee",
+        time_tracking_enabled: true
+      ).tap { |record| record.user_time_categories.create!(time_category: create(:time_category)) }
     end
 
     it "lets a staff user set their own kiosk pin" do

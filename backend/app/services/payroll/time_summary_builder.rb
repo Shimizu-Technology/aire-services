@@ -115,7 +115,15 @@ module Payroll
         overtime_hours: round_hours(days.sum { |day| day[:overtime_hours].to_f }),
         entries_count: countable.size,
         issues: issues,
-        ready: issues.values_at(:pending_count, :pending_overtime_count, :denied_count, :denied_overtime_count, :open_clock_count).all?(&:zero?)
+        ready: issues.values_at(
+          :pending_count,
+          :pending_overtime_count,
+          :denied_count,
+          :denied_overtime_count,
+          :open_clock_count,
+          :uncategorized_count,
+          :missing_rate_count
+        ).all?(&:zero?)
       }
     end
 
@@ -125,6 +133,7 @@ module Payroll
       pending_overtime = entries.select { |entry| entry.overtime_status == "pending" }
       denied_overtime = entries.select { |entry| entry.overtime_status == "denied" }
       open_clock = entries.select { |entry| entry.status.in?(%w[clocked_in on_break]) }
+      countable = entries.select { |entry| countable?(entry) }
 
       {
         pending_count: pending.size,
@@ -136,7 +145,9 @@ module Payroll
         denied_overtime_count: denied_overtime.size,
         denied_overtime_hours: sum_hours(denied_overtime),
         open_clock_count: open_clock.size,
-        open_clock_entry_ids: open_clock.map(&:id)
+        open_clock_entry_ids: open_clock.map(&:id),
+        uncategorized_count: countable.count { |entry| entry.time_category_id.nil? },
+        missing_rate_count: countable.count { |entry| entry.effective_rate_cents_snapshot.nil? }
       }
     end
 
@@ -151,7 +162,9 @@ module Payroll
         denied_count: entries.count { |entry| entry.approval_status == "denied" },
         pending_overtime_count: entries.count { |entry| entry.overtime_status == "pending" },
         denied_overtime_count: entries.count { |entry| entry.overtime_status == "denied" },
-        open_clock_count: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) }
+        open_clock_count: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) },
+        uncategorized_count: countable.count { |entry| entry.time_category_id.nil? },
+        missing_rate_count: countable.count { |entry| entry.effective_rate_cents_snapshot.nil? }
       }
     end
 
