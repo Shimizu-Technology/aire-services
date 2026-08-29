@@ -32,6 +32,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(json.dig(:user, :staff_title)).to eq("Certified Flight Instructor")
       expect(json.dig(:user, :approval_group)).to eq("cfi")
       expect(json.dig(:user, :approval_group_label)).to eq("CFI")
+      expect(json[:invitation_email_sent]).to be_nil
     end
 
     it "does not persist admin-entered names for email-based users" do
@@ -97,6 +98,30 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(response).to have_http_status(:created)
       expect(json.dig(:user, :time_tracking_enabled)).to eq(false)
       expect(json.dig(:user, :time_category_ids)).to eq([])
+    end
+
+    it "automatically includes kiosk access and defers PIN setup for a personal time tracker" do
+      category = create(:time_category)
+
+      post "/api/v1/admin/users",
+           params: {
+             email: "hourly@example.com",
+             role: "employee",
+             personal_access_enabled: true,
+             time_tracking_enabled: true,
+             kiosk_enabled: false,
+             time_category_ids: [ category.id ],
+             send_invitation: false
+           },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:created)
+      expect(json[:kiosk_pin]).to be_nil
+      expect(json[:user]).to include(
+        time_tracking_enabled: true,
+        kiosk_enabled: true,
+        kiosk_pin_configured: false
+      )
     end
 
     it "rejects time tracking without an active work category" do

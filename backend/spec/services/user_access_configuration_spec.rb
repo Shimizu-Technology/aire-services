@@ -67,12 +67,48 @@ RSpec.describe UserAccessConfiguration, type: :service do
     expect(user.assigned_time_categories).to contain_exactly(category)
   end
 
+  it "includes kiosk access for a personal account that tracks hours and defers PIN setup" do
+    user = User.new(clerk_id: "pending_tracking", role: "employee", is_active: true)
+
+    configuration = apply(
+      user,
+      {
+        personal_access_enabled: true,
+        email: "tracking@example.com",
+        time_tracking_enabled: true,
+        kiosk_enabled: false,
+        time_category_ids: [ category.id ]
+      },
+      creating: true
+    )
+
+    expect(user).to have_attributes(
+      time_tracking_enabled: true,
+      kiosk_enabled: true,
+      kiosk_pin_digest: nil
+    )
+    expect(configuration.generated_pin).to be_nil
+  end
+
   it "allows a personal account that does not track hours" do
     user = create(:user, time_tracking_enabled: false, kiosk_enabled: false)
 
     expect {
       apply(user, { personal_access_enabled: true, time_tracking_enabled: false, kiosk_enabled: false })
     }.not_to raise_error
+  end
+
+  it "removes kiosk access when a legacy client disables time tracking" do
+    user = create(:user, time_tracking_enabled: true, kiosk_enabled: true, kiosk_pin: "723459")
+    user.user_time_categories.create!(time_category: category)
+
+    apply(user, { time_tracking_enabled: false, kiosk_enabled: true })
+
+    expect(user.reload).to have_attributes(
+      time_tracking_enabled: false,
+      kiosk_enabled: false,
+      kiosk_pin_digest: nil
+    )
   end
 
   it "requires at least one active category when time tracking is enabled" do
@@ -148,7 +184,7 @@ RSpec.describe UserAccessConfiguration, type: :service do
   end
 
   it "blocks capability transitions while the employee is clocked in" do
-    user = create(:user, time_tracking_enabled: true)
+    user = create(:user, time_tracking_enabled: true, kiosk_enabled: true)
     user.user_time_categories.create!(time_category: category)
     create(:time_entry, user: user, time_category: category, status: "clocked_in", clock_in_at: Time.current)
 

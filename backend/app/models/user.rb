@@ -47,7 +47,7 @@ class User < ApplicationRecord
   validate :personal_access_requires_email
   validate :admins_require_personal_access
   validate :local_profiles_require_first_name
-  validate :kiosk_access_requires_time_tracking
+  validate :time_tracking_and_kiosk_access_match
   validate :active_staff_requires_access
 
   before_validation :set_default_kiosk_enabled
@@ -205,6 +205,7 @@ class User < ApplicationRecord
 
   def rotate_kiosk_pin!(pin, enabled: true)
     self.kiosk_pin = pin
+    self.time_tracking_enabled = enabled
     self.kiosk_enabled = enabled
     self.kiosk_pin_last_rotated_at = Time.current
     self.kiosk_failed_attempts_count = 0
@@ -213,6 +214,7 @@ class User < ApplicationRecord
   end
 
   def revoke_kiosk_access!
+    self.time_tracking_enabled = false
     self.kiosk_enabled = false
     self.kiosk_pin_digest = nil
     self.kiosk_pin_lookup_hash = nil
@@ -225,7 +227,7 @@ class User < ApplicationRecord
   private
 
   def set_default_kiosk_enabled
-    self.kiosk_enabled = false if kiosk_enabled.nil?
+    self.kiosk_enabled = time_tracking_enabled? if kiosk_enabled.nil?
   end
 
   def sync_kiosk_pin_lookup_hash
@@ -243,6 +245,7 @@ class User < ApplicationRecord
   def staff_requires_pin_when_kiosk_enabled
     return unless staff?
     return unless kiosk_enabled?
+    return if personal_access_enabled?
     return if kiosk_pin_digest.present? || kiosk_pin.present? || skip_kiosk_pin_presence_validation
 
     errors.add(:kiosk_pin, "must be set when kiosk access is enabled")
@@ -270,11 +273,10 @@ class User < ApplicationRecord
     errors.add(:first_name, "is required for locally managed profiles")
   end
 
-  def kiosk_access_requires_time_tracking
-    return unless kiosk_enabled?
-    return if time_tracking_enabled?
+  def time_tracking_and_kiosk_access_match
+    return if time_tracking_enabled? == kiosk_enabled?
 
-    errors.add(:kiosk_enabled, "is only available when time tracking is enabled")
+    errors.add(:kiosk_enabled, "must match time tracking access")
   end
 
   def active_staff_requires_access

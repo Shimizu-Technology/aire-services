@@ -86,7 +86,6 @@ export default function Users() {
   const [createStep, setCreateStep] = useState<1 | 2>(1)
   const [createPersonalAccess, setCreatePersonalAccess] = useState(true)
   const [createTimeTracking, setCreateTimeTracking] = useState(true)
-  const [createKioskEnabled, setCreateKioskEnabled] = useState(false)
   const [createKioskPin, setCreateKioskPin] = useState('')
   const [createSuccess, setCreateSuccess] = useState<{ message: string; pin?: string | null } | null>(null)
   const [createFirstName, setCreateFirstName] = useState('')
@@ -120,7 +119,6 @@ export default function Users() {
   const [editCategoryIds, setEditCategoryIds] = useState<Set<number>>(new Set())
   const [editPersonalAccess, setEditPersonalAccess] = useState(true)
   const [editTimeTracking, setEditTimeTracking] = useState(false)
-  const [editKioskEnabled, setEditKioskEnabled] = useState(false)
   const [editKioskPin, setEditKioskPin] = useState('')
   const [editSendInvitation, setEditSendInvitation] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
@@ -315,7 +313,6 @@ export default function Users() {
     setEditCategoryIds(new Set(user.time_category_ids ?? []))
     setEditPersonalAccess(user.personal_access_enabled)
     setEditTimeTracking(user.time_tracking_enabled)
-    setEditKioskEnabled(Boolean(user.kiosk_enabled))
     setEditKioskPin('')
     setEditSendInvitation(false)
     setEditError('')
@@ -325,7 +322,6 @@ export default function Users() {
     setCreateStep(1)
     setCreatePersonalAccess(true)
     setCreateTimeTracking(true)
-    setCreateKioskEnabled(false)
     setCreateKioskPin('')
     setCreateSuccess(null)
     setCreateFirstName('')
@@ -360,7 +356,6 @@ export default function Users() {
     setEditCategoryIds(new Set())
     setEditPersonalAccess(true)
     setEditTimeTracking(false)
-    setEditKioskEnabled(false)
     setEditKioskPin('')
     setEditSendInvitation(false)
     setSavingEdit(false)
@@ -412,8 +407,8 @@ export default function Users() {
         approval_groups: Array.from(createApprovalGroups),
         personal_access_enabled: createPersonalAccess,
         time_tracking_enabled: createTimeTracking,
-        kiosk_enabled: createKioskEnabled,
-        kiosk_pin: createKioskPin.trim() || undefined,
+        kiosk_enabled: createTimeTracking,
+        kiosk_pin: !createPersonalAccess && createTimeTracking ? createKioskPin.trim() || undefined : undefined,
         send_invitation: createPersonalAccess && sendInvitationEmail,
         time_category_ids: createTimeTracking ? Array.from(createCategoryIds) : [],
       })
@@ -488,14 +483,8 @@ export default function Users() {
       return
     }
 
-    if (editKioskEnabled && !editTimeTracking) {
-      setEditError('Kiosk access requires time tracking.')
-      setSavingEdit(false)
-      return
-    }
-
-    if (!editPersonalAccess && (!editTimeTracking || !editKioskEnabled)) {
-      setEditError('Kiosk-only team members must keep time tracking and kiosk access enabled.')
+    if (!editPersonalAccess && !editTimeTracking) {
+      setEditError('Kiosk-only team members must track work hours.')
       setSavingEdit(false)
       return
     }
@@ -534,7 +523,7 @@ export default function Users() {
         public_team_photo_position_y: nextPublicTeamPhotoPositionY,
         personal_access_enabled: editPersonalAccess,
         time_tracking_enabled: editTimeTracking,
-        kiosk_enabled: editKioskEnabled,
+        kiosk_enabled: editTimeTracking,
         kiosk_pin: editKioskPin.trim() || undefined,
         send_invitation: editPersonalAccess && editSendInvitation,
         time_category_ids: editTimeTracking ? nextCategoryIds : [],
@@ -1070,7 +1059,7 @@ export default function Users() {
                             <span className="mt-1 block text-xs leading-5 text-slate-600">They sign in with email. Clerk supplies their name after activation.</span>
                           </label>
                           <label className={`rounded-2xl border p-4 transition ${createRole === 'admin' ? 'cursor-not-allowed bg-slate-50 opacity-50' : 'cursor-pointer'} ${!createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
-                            <input type="radio" name="create-access" checked={!createPersonalAccess} disabled={createRole === 'admin'} onChange={() => { setCreateRole('employee'); setCreatePersonalAccess(false); setSendInvitationEmail(false); setCreateTimeTracking(true); setCreateKioskEnabled(true) }} className="sr-only" />
+                            <input type="radio" name="create-access" checked={!createPersonalAccess} disabled={createRole === 'admin'} onChange={() => { setCreateRole('employee'); setCreatePersonalAccess(false); setSendInvitationEmail(false); setCreateTimeTracking(true) }} className="sr-only" />
                             <span className="block text-sm font-semibold text-slate-900">Kiosk only</span>
                             <span className="mt-1 block text-xs leading-5 text-slate-600">No email or account. AIRE stores their name and they clock in with a PIN.</span>
                           </label>
@@ -1107,8 +1096,8 @@ export default function Users() {
                       <div><label className="mb-2 block text-sm font-medium text-slate-700">Staff title</label><input value={createStaffTitle} onChange={(event) => setCreateStaffTitle(event.target.value)} placeholder="Certified Flight Instructor" className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></div>
 
                       <label className={`flex items-start gap-3 rounded-2xl border p-4 ${!createPersonalAccess ? 'cursor-not-allowed border-cyan-200 bg-cyan-50/70' : 'cursor-pointer border-slate-200'}`}>
-                        <input type="checkbox" checked={createTimeTracking} disabled={!createPersonalAccess} onChange={(event) => { setCreateTimeTracking(event.target.checked); if (!event.target.checked) setCreateKioskEnabled(false) }} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
-                        <span><span className="block text-sm font-semibold text-slate-900">Tracks work hours</span><span className="mt-1 block text-xs leading-5 text-slate-600">Turn this off for salaried or non-clock-in staff. They will not appear as missing hours and do not need work categories.</span></span>
+                        <input type="checkbox" checked={createTimeTracking} disabled={!createPersonalAccess} onChange={(event) => setCreateTimeTracking(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                        <span><span className="block text-sm font-semibold text-slate-900">Tracks work hours</span><span className="mt-1 block text-xs leading-5 text-slate-600">Includes kiosk clock-in and requires at least one work category. Turn this off for salaried or non-clock-in staff.</span></span>
                       </label>
 
                       {createTimeTracking && (
@@ -1118,8 +1107,11 @@ export default function Users() {
                             <p className="mt-1 text-xs text-slate-500">At least one is required. If only one is assigned, it will be selected automatically at clock-in.</p>
                             <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">{activeCategories.map((cat) => <label key={cat.id} className="flex cursor-pointer items-start gap-3"><input type="checkbox" checked={createCategoryIds.has(cat.id)} onChange={() => toggleCategoryId(createCategoryIds, setCreateCategoryIds, cat.id)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span><span className="block text-sm font-medium text-slate-800">{cat.name}</span><span className={`mt-0.5 block text-xs ${cat.hourly_rate_cents == null ? 'font-medium text-amber-700' : 'text-slate-500'}`}>{hourlyRateLabel(cat.hourly_rate_cents)}</span>{cat.description && <span className="mt-0.5 block text-xs text-slate-500">{cat.description}</span>}</span></label>)}{activeCategories.length === 0 && <div className="text-sm text-rose-700">Create an active work category before adding a time-tracking user.</div>}</div>
                           </div>
-                          {createPersonalAccess && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4"><input type="checkbox" checked={createKioskEnabled} onChange={(event) => setCreateKioskEnabled(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span><span className="block text-sm font-medium text-slate-900">Also allow kiosk clock-in</span><span className="mt-1 block text-xs text-slate-500">Their personal account and kiosk access can be enabled independently.</span></span></label>}
-                          {createKioskEnabled && <div><label className="mb-2 block text-sm font-medium text-slate-700">Kiosk PIN <span className="text-xs font-normal text-slate-400">(optional)</span></label><input inputMode="numeric" pattern="[0-9]{4,8}" value={createKioskPin} onChange={(event) => setCreateKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Generate automatically" className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /><p className="mt-2 text-xs text-slate-500">Leave blank to generate a secure six-digit PIN.</p></div>}
+                          <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm leading-6 text-cyan-950">
+                            <span className="font-medium">Kiosk access is included.</span>{' '}
+                            {createPersonalAccess ? 'They will choose a PIN after their first sign-in.' : 'They will use a PIN to clock in and out.'}
+                          </div>
+                          {!createPersonalAccess && <div><label className="mb-2 block text-sm font-medium text-slate-700">Kiosk PIN <span className="text-xs font-normal text-slate-400">(optional)</span></label><input inputMode="numeric" pattern="[0-9]{4,8}" value={createKioskPin} onChange={(event) => setCreateKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Generate automatically" className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /><p className="mt-2 text-xs text-slate-500">Leave blank to generate a secure six-digit PIN that is shown once after creation.</p></div>}
                         </>
                       )}
                     </>
@@ -1167,17 +1159,13 @@ export default function Users() {
                       if (event.target.checked && editingUser && !editingUser.personal_access_enabled) setEditSendInvitation(!editingUser.has_clerk_account)
                       if (!event.target.checked) {
                         setEditTimeTracking(true)
-                        setEditKioskEnabled(true)
                       }
                     }} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
                     <span><span className="block text-sm font-medium text-slate-900">Personal sign-in</span><span className="mt-1 block text-xs leading-5 text-slate-500">Email account managed by Clerk.</span></span>
                   </label>
                   <label className={`flex items-start gap-3 rounded-xl border bg-white p-4 ${!editPersonalAccess ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
-                    <input type="checkbox" checked={editTimeTracking} disabled={!editPersonalAccess} onChange={(event) => {
-                      setEditTimeTracking(event.target.checked)
-                      if (!event.target.checked) setEditKioskEnabled(false)
-                    }} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
-                    <span><span className="block text-sm font-medium text-slate-900">Tracks work hours</span><span className="mt-1 block text-xs leading-5 text-slate-500">Requires at least one work category.</span></span>
+                    <input type="checkbox" checked={editTimeTracking} disabled={!editPersonalAccess} onChange={(event) => setEditTimeTracking(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                    <span><span className="block text-sm font-medium text-slate-900">Tracks work hours</span><span className="mt-1 block text-xs leading-5 text-slate-500">Includes kiosk access and requires at least one work category.</span></span>
                   </label>
                 </div>
 
@@ -1484,17 +1472,15 @@ export default function Users() {
                     ))}
                     {activeCategories.length === 0 && <div className="text-sm text-rose-700">No active work categories are available.</div>}
                   </div>
-                  <label className={`mt-4 flex items-start gap-3 rounded-xl border p-4 ${!editPersonalAccess ? 'cursor-not-allowed border-cyan-200 bg-cyan-50/70' : 'cursor-pointer border-slate-200'}`}>
-                    <input type="checkbox" checked={editKioskEnabled} disabled={!editPersonalAccess} onChange={(event) => setEditKioskEnabled(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
-                    <span><span className="block text-sm font-medium text-slate-900">Kiosk access</span><span className="mt-1 block text-xs text-slate-500">{!editPersonalAccess ? 'Required because this person does not have personal sign-in.' : 'Allow this person to clock in with a PIN in addition to personal sign-in.'}</span></span>
-                  </label>
-                  {editKioskEnabled && (
-                    <div className="mt-4">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-                      <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editingUser.kiosk_pin_configured ? 'Keep current PIN' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
-                      <p className="mt-2 text-xs text-slate-500">{editingUser.kiosk_pin_configured ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}. Leave blank to keep it.` : 'Leave blank to generate a secure six-digit PIN.'}</p>
-                    </div>
-                  )}
+                  <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm leading-6 text-cyan-950">
+                    <span className="font-medium">Kiosk access is included.</span>{' '}
+                    {editPersonalAccess ? 'This person can use both their account and the kiosk.' : 'This is how this person clocks in and out.'}
+                  </div>
+                  <div className="mt-4">
+                    <label className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+                    <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editingUser.kiosk_pin_configured ? 'Keep current PIN' : editPersonalAccess ? 'Set one now instead' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                    <p className="mt-2 text-xs text-slate-500">{editingUser.kiosk_pin_configured ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}. Leave blank to keep it.` : editPersonalAccess ? 'Leave blank and they will choose their PIN after their next sign-in.' : 'Leave blank to generate a secure six-digit PIN that is shown once after saving.'}</p>
+                  </div>
                 </section>
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"><span className="font-medium text-slate-900">No time tracking.</span> This person does not need work categories or a kiosk PIN and will not be treated as missing hours.</div>

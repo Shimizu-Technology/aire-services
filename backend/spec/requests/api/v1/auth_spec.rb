@@ -53,15 +53,15 @@ RSpec.describe "Api::V1::Auth", type: :request do
     end
   end
 
-  it "returns kiosk setup state for the current user" do
+  it "does not request kiosk setup for a person who does not track hours" do
     user = create(
       :user,
       clerk_id: "user_clerk_123",
       email: "first.admin@example.com",
       role: "employee",
-      time_tracking_enabled: true
+      time_tracking_enabled: false,
+      kiosk_enabled: false
     )
-    user.user_time_categories.create!(time_category: create(:time_category))
 
     post "/api/v1/auth/me", headers: headers
 
@@ -257,15 +257,15 @@ RSpec.describe "Api::V1::Auth", type: :request do
       expect(user.kiosk_enabled).to eq(true)
     end
 
-    it "does not let a staff user enable their own kiosk access" do
-      user.update_columns(kiosk_enabled: false)
+    it "does not let a non-time-tracking user set a kiosk PIN" do
+      user.update_columns(time_tracking_enabled: false, kiosk_enabled: false)
 
       post "/api/v1/auth/kiosk_pin",
            params: { pin: "4826" },
            headers: headers
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(JSON.parse(response.body).fetch("error")).to match(/administrator to enable kiosk access/i)
+      expect(JSON.parse(response.body).fetch("error")).to match(/time tracking is not enabled/i)
       expect(user.reload.kiosk_enabled).to eq(false)
     end
 

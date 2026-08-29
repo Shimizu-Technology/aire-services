@@ -5,7 +5,7 @@ require "rails_helper"
 RSpec.describe User, type: :model do
   describe "kiosk PIN support" do
     let(:user) do
-      build(:user, time_tracking_enabled: true).tap do |u|
+      build(:user, time_tracking_enabled: true, kiosk_enabled: true).tap do |u|
         u.skip_kiosk_pin_presence_validation = true
       end
     end
@@ -29,6 +29,27 @@ RSpec.describe User, type: :model do
 
       expect(user.kiosk_locked?).to be(true)
       expect(user.kiosk_access_enabled?).to be(false)
+    end
+
+    it "allows a personal time-tracking user to choose a PIN after first sign-in" do
+      personal_user = build(:user, time_tracking_enabled: true, kiosk_enabled: true)
+
+      expect(personal_user).to be_valid
+      expect(personal_user.kiosk_pin_configured?).to be(false)
+    end
+
+    it "requires kiosk-only users to have a PIN" do
+      kiosk_only_user = build(:user, :kiosk_only, kiosk_pin: nil)
+
+      expect(kiosk_only_user).not_to be_valid
+      expect(kiosk_only_user.errors[:kiosk_pin]).to include("must be set when kiosk access is enabled")
+    end
+
+    it "keeps time tracking and kiosk access in sync" do
+      mismatched_user = build(:user, time_tracking_enabled: true, kiosk_enabled: false)
+
+      expect(mismatched_user).not_to be_valid
+      expect(mismatched_user.errors[:kiosk_enabled]).to include("must match time tracking access")
     end
   end
 end

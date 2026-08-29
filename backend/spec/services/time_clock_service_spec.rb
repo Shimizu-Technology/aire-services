@@ -5,7 +5,7 @@ require "rails_helper"
 RSpec.describe TimeClockService, type: :service do
   include ActiveSupport::Testing::TimeHelpers
 
-  let(:user) { create(:user, :employee, time_tracking_enabled: true) }
+  let(:user) { create(:user, :employee, time_tracking_enabled: true, kiosk_enabled: true) }
   let(:guam_zone) { ActiveSupport::TimeZone[described_class::BUSINESS_TIMEZONE] }
   let(:frozen_time) { guam_zone.local(2026, 4, 2, 9, 0, 0) }
 
@@ -16,7 +16,7 @@ RSpec.describe TimeClockService, type: :service do
   describe ".clock_in" do
     it "rejects disabled time tracking without creating an entry" do
       Setting.set("schedule_required_for_clock_in", "false")
-      user.update!(time_tracking_enabled: false)
+      user.update!(time_tracking_enabled: false, kiosk_enabled: false)
 
       expect {
         described_class.clock_in(user: user)
@@ -185,7 +185,7 @@ RSpec.describe TimeClockService, type: :service do
 
     it "does not mark unscheduled admin clock entries as pending on clock-out" do
       Setting.set("schedule_required_for_clock_in", "false")
-      admin = create(:user, :admin, time_tracking_enabled: true)
+      admin = create(:user, :admin, time_tracking_enabled: true, kiosk_enabled: true)
       admin.user_time_categories.create!(time_category: create(:time_category))
 
       described_class.clock_in(user: admin)

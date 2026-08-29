@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_29_012000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_29_013000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -319,6 +319,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_29_012000) do
     t.index ["public_team_enabled", "public_team_sort_order"], name: "index_users_on_public_team_visibility_and_sort"
     t.index ["role"], name: "index_users_on_role"
     t.index ["time_tracking_enabled"], name: "index_users_on_time_tracking_enabled"
+    t.check_constraint "kiosk_enabled = time_tracking_enabled", name: "check_users_kiosk_matches_time_tracking"
     t.check_constraint "profile_source::text = ANY (ARRAY['clerk'::character varying::text, 'local'::character varying::text])", name: "check_users_profile_source"
     t.check_constraint "public_team_photo_position_x >= 0 AND public_team_photo_position_x <= 100", name: "check_public_team_photo_position_x_range"
     t.check_constraint "public_team_photo_position_y >= 0 AND public_team_photo_position_y <= 100", name: "check_public_team_photo_position_y_range"

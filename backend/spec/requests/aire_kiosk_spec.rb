@@ -12,7 +12,7 @@ RSpec.describe "AIRE kiosk", type: :request do
   let(:kiosk_access_token) { AireKioskAccessToken.issue_for(admin) }
 
   let!(:employee) do
-    create(:user, :employee, first_name: "Mindy", time_tracking_enabled: true).tap do |user|
+    create(:user, :employee, first_name: "Mindy", time_tracking_enabled: true, kiosk_enabled: true).tap do |user|
       user.skip_kiosk_pin_presence_validation = true
       user.rotate_kiosk_pin!(employee_pin)
     end
@@ -75,7 +75,7 @@ RSpec.describe "AIRE kiosk", type: :request do
   it "fails closed if time tracking is disabled after kiosk verification" do
     post "/api/v1/aire/kiosk/verify", params: { pin: employee_pin, kiosk_access_token: kiosk_access_token }
     token = JSON.parse(response.body).fetch("kiosk_token")
-    employee.update_columns(time_tracking_enabled: false)
+    employee.update_columns(time_tracking_enabled: false, kiosk_enabled: false)
 
     expect {
       post "/api/v1/aire/kiosk/clock_in",

@@ -42,7 +42,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
   describe "GET /api/v1/time_entries/current_status" do
     it "reports missing categories for an enabled time tracker" do
-      employee.update!(time_tracking_enabled: true)
+      employee.update!(time_tracking_enabled: true, kiosk_enabled: true)
 
       get "/api/v1/time_entries/current_status", headers: auth_headers_for[employee]
 

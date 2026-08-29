@@ -72,7 +72,7 @@ function makeUser(overrides: Partial<AdminUser>): AdminUser {
     public_team_sort_order: 0,
     public_team_photo_position_x: 50,
     public_team_photo_position_y: 50,
-    kiosk_enabled: false,
+    kiosk_enabled: true,
     kiosk_pin_configured: false,
     kiosk_pin_last_rotated_at: null,
     kiosk_locked_until: null,
@@ -181,25 +181,30 @@ describe('Users filters', () => {
   })
 
   it('creates a personal account without collecting a duplicate name', async () => {
+    apiMock.inviteUser.mockResolvedValueOnce({ data: { user: makeUser({}), invitation_email_sent: null, kiosk_pin: null } })
     render(<Users />)
     await screen.findByText('Alice Pilot')
 
     fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
     expect(screen.queryByLabelText(/first name/i)).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText(/^email/i), { target: { value: 'new.pilot@example.com' } })
+    fireEvent.click(screen.getByLabelText(/send invitation now/i))
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    expect(screen.getByText(/they will choose a pin after their first sign-in/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/^kiosk pin/i)).not.toBeInTheDocument()
     fireEvent.click(screen.getByLabelText(/instruction/i))
-    fireEvent.click(screen.getByRole('button', { name: /add and send invite/i }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: /add team member/i })).getByRole('button', { name: /^add team member$/i }))
 
     expect(apiMock.inviteUser).toHaveBeenCalledWith(expect.objectContaining({
       email: 'new.pilot@example.com',
       personal_access_enabled: true,
       time_tracking_enabled: true,
-      kiosk_enabled: false,
+      kiosk_enabled: true,
       time_category_ids: [1],
     }))
     expect(apiMock.inviteUser.mock.calls[0][0]).not.toHaveProperty('first_name')
     expect(await screen.findByText('Team member added')).toBeInTheDocument()
+    expect(screen.getByText(/you can send their invitation later/i)).toBeInTheDocument()
   })
 
   it('creates a kiosk-only employee without requiring email', async () => {
@@ -260,12 +265,11 @@ describe('Users filters', () => {
     fireEvent.click(personalAccess)
 
     const timeTracking = within(dialog).getByRole('checkbox', { name: /^tracks work hours/i })
-    const kioskAccess = within(dialog).getByRole('checkbox', { name: /^kiosk access/i })
     expect(personalAccess).not.toBeChecked()
     expect(timeTracking).toBeChecked()
     expect(timeTracking).toBeDisabled()
-    expect(kioskAccess).toBeChecked()
-    expect(kioskAccess).toBeDisabled()
+    expect(within(dialog).getByText(/kiosk access is included/i)).toBeInTheDocument()
+    expect(within(dialog).queryByRole('checkbox', { name: /^kiosk access/i })).not.toBeInTheDocument()
 
     fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }))
 

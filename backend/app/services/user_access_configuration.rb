@@ -39,7 +39,10 @@ class UserAccessConfiguration
   def resolved_configuration
     personal_access_enabled = boolean_value(:personal_access_enabled, default: user.personal_access_enabled?)
     time_tracking_enabled = boolean_value(:time_tracking_enabled, default: user.time_tracking_enabled?)
-    kiosk_enabled = boolean_value(:kiosk_enabled, default: user.kiosk_enabled?)
+    # Time tracking and kiosk access are one capability. Keep accepting the
+    # legacy kiosk_enabled input for API compatibility, but never let it create
+    # a contradictory access state.
+    kiosk_enabled = time_tracking_enabled
     role = attributes[:role].presence || user.role.presence || "employee"
     email = attributes.key?(:email) ? attributes[:email].to_s.strip.downcase.presence : user.email
     first_name = attributes.key?(:first_name) ? attributes[:first_name].to_s.strip.presence : user.first_name
@@ -88,12 +91,8 @@ class UserAccessConfiguration
       raise ConfigurationError, "First name is required for kiosk-only users"
     end
 
-    if !configuration[:personal_access_enabled] && !configuration[:kiosk_enabled]
-      raise ConfigurationError, "Kiosk-only users must keep kiosk access enabled"
-    end
-
-    if configuration[:kiosk_enabled] && !configuration[:time_tracking_enabled]
-      raise ConfigurationError, "Kiosk access requires time tracking"
+    if !configuration[:personal_access_enabled] && !configuration[:time_tracking_enabled]
+      raise ConfigurationError, "Kiosk-only users must track work hours"
     end
 
     validate_categories!(configuration) if configuration[:time_tracking_enabled]
@@ -165,6 +164,11 @@ class UserAccessConfiguration
 
     requested_pin = attributes[:kiosk_pin].to_s.strip.presence
     return if requested_pin.blank? && user.kiosk_pin_configured?
+
+    # Personal accounts choose their own PIN in a blocking first-sign-in flow.
+    # Kiosk-only staff cannot sign in to complete that flow, so the admin gets
+    # a one-time generated PIN when one was not supplied.
+    return if requested_pin.blank? && configuration[:personal_access_enabled]
 
     @generated_pin = requested_pin || format("%06d", SecureRandom.random_number(1_000_000))
     user.kiosk_pin = generated_pin

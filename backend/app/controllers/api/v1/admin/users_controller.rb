@@ -102,7 +102,7 @@ module Api
 
           return if performed?
 
-          email_sent = send_invitation ? send_invitation_email(@user) : false
+          email_sent = send_invitation ? send_invitation_email(@user) : nil
 
           render json: {
             user: serialize_user(@user),
