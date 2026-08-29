@@ -42,7 +42,10 @@ class AlignTimeTrackingAndKioskAccess < ActiveRecord::Migration[8.1]
       )
       SELECT
         'updated', users.id, 'User',
-        json_build_object('kiosk_enabled', json_build_array(users.kiosk_enabled, users.time_tracking_enabled)),
+        json_build_object(
+          'time_tracking_enabled', json_build_array(users.time_tracking_enabled, users.time_tracking_enabled),
+          'kiosk_enabled', json_build_array(users.kiosk_enabled, users.time_tracking_enabled)
+        ),
         'access capability migration: aligned kiosk with time tracking',
         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       FROM users
@@ -63,8 +66,40 @@ class AlignTimeTrackingAndKioskAccess < ActiveRecord::Migration[8.1]
   def down
     remove_check_constraint :users, name: "check_users_kiosk_matches_time_tracking"
 
+    execute <<~SQL.squish
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM users
+          INNER JOIN audit_logs
+            ON audit_logs.auditable_type = 'User'
+           AND audit_logs.auditable_id = users.id
+          WHERE audit_logs.metadata = 'access capability migration: aligned kiosk with time tracking'
+            AND (
+              users.time_tracking_enabled IS DISTINCT FROM (audit_logs.changes_made->'time_tracking_enabled'->>1)::boolean
+              OR users.kiosk_enabled IS DISTINCT FROM (audit_logs.changes_made->'kiosk_enabled'->>1)::boolean
+            )
+        ) OR EXISTS (
+          SELECT 1
+          FROM users
+          INNER JOIN audit_logs
+            ON audit_logs.auditable_type = 'User'
+           AND audit_logs.auditable_id = users.id
+          WHERE audit_logs.metadata = 'access capability migration: disabled kiosk-only user without PIN'
+            AND (
+              users.time_tracking_enabled IS DISTINCT FROM (audit_logs.changes_made->'time_tracking_enabled'->>1)::boolean
+              OR users.kiosk_enabled IS DISTINCT FROM (audit_logs.changes_made->'kiosk_enabled'->>1)::boolean
+              OR users.is_active IS DISTINCT FROM (audit_logs.changes_made->'is_active'->>1)::boolean
+            )
+        ) THEN
+          RAISE EXCEPTION 'Cannot roll back access capability alignment because affected users were changed after migration; restore those users deliberately before retrying';
+        END IF;
+      END $$
+    SQL
+
     # Restore only rows this migration aligned. The JSON snapshot preserves the
-    # original boolean even if the migration is rolled back after later edits.
+    # original boolean after the safety check confirms no later access edits.
     execute <<~SQL.squish
       UPDATE users
       SET kiosk_enabled = (audit_logs.changes_made->'kiosk_enabled'->>0)::boolean

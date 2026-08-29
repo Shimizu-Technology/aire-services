@@ -502,6 +502,27 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       )
     end
 
+    it "rejects an invitation when personal access remains disabled" do
+      kiosk_only_user = create(
+        :user,
+        :employee,
+        :kiosk_only,
+        clerk_id: "pending_kiosk_invite",
+        email: "retained@example.com",
+        first_name: "Kiosk"
+      )
+      allow(EmailService).to receive(:send_invitation_email)
+
+      patch "/api/v1/admin/users/#{kiosk_only_user.id}",
+            params: { send_invitation: true },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/personal sign-in must be enabled/i)
+      expect(EmailService).not_to have_received(:send_invitation_email)
+      expect(kiosk_only_user.reload.personal_access_enabled).to be(false)
+    end
+
     it "deactivates another user" do
       patch "/api/v1/admin/users/#{employee.id}",
             params: { is_active: false },

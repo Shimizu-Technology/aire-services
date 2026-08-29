@@ -48,9 +48,13 @@ class UserAccessConfiguration
     first_name = attributes.key?(:first_name) ? attributes[:first_name].to_s.strip.presence : user.first_name
     last_name = attributes.key?(:last_name) ? attributes[:last_name].to_s.strip.presence : user.last_name
     category_ids = if attributes.key?(:time_category_ids)
-      Array(attributes[:time_category_ids]).filter_map do |value|
-        category_id = value.to_i
-        category_id if category_id.positive?
+      Array(attributes[:time_category_ids]).reject { |value| value.to_s.blank? }.map do |value|
+        value_string = value.to_s
+        unless value_string.match?(/\A[1-9]\d*\z/)
+          raise ConfigurationError, "Work category IDs must be positive whole numbers"
+        end
+
+        value_string.to_i
       end.uniq
     else
       user.user_time_categories.pluck(:time_category_id)
@@ -152,6 +156,7 @@ class UserAccessConfiguration
 
     return if configuration[:kiosk_enabled]
 
+    user.kiosk_pin = nil
     user.kiosk_pin_digest = nil
     user.kiosk_pin_lookup_hash = nil
     user.kiosk_pin_last_rotated_at = nil

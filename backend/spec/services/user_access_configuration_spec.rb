@@ -119,6 +119,16 @@ RSpec.describe UserAccessConfiguration, type: :service do
     }.to raise_error(described_class::ConfigurationError, /at least one work category/i)
   end
 
+  it "rejects malformed work category identifiers instead of accepting a numeric prefix" do
+    user = create(:user)
+
+    expect {
+      apply(user, { time_tracking_enabled: true, time_category_ids: [ "#{category.id}invalid" ] })
+    }.to raise_error(described_class::ConfigurationError, /positive whole numbers/i)
+
+    expect(user.user_time_categories).to be_empty
+  end
+
   it "keeps a kiosk profile local while personal activation is pending" do
     user = create(:user, :kiosk_only, clerk_id: "pending_kiosk_transition", first_name: "Local")
     user.user_time_categories.create!(time_category: category)

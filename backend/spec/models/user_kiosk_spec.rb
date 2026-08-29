@@ -21,6 +21,43 @@ RSpec.describe User, type: :model do
       expect(user.verify_kiosk_pin("000000")).to be(false)
     end
 
+    it "keeps access flags aligned when rotating a PIN without enabling access" do
+      user.kiosk_failed_attempts_count = 3
+      user.kiosk_locked_until = 10.minutes.from_now
+
+      user.rotate_kiosk_pin!("731248", enabled: false)
+      user.reload
+
+      expect(user).to have_attributes(
+        time_tracking_enabled: false,
+        kiosk_enabled: false,
+        kiosk_pin_digest: nil,
+        kiosk_pin_lookup_hash: nil,
+        kiosk_pin_last_rotated_at: nil,
+        kiosk_failed_attempts_count: 0,
+        kiosk_locked_until: nil
+      )
+      expect(user.verify_kiosk_pin("731248")).to be(false)
+    end
+
+    it "revokes access and clears the PIN and lockout state" do
+      user.rotate_kiosk_pin!("731249")
+      user.update!(kiosk_failed_attempts_count: 3, kiosk_locked_until: 10.minutes.from_now)
+
+      user.revoke_kiosk_access!
+      user.reload
+
+      expect(user).to have_attributes(
+        time_tracking_enabled: false,
+        kiosk_enabled: false,
+        kiosk_pin_digest: nil,
+        kiosk_pin_lookup_hash: nil,
+        kiosk_pin_last_rotated_at: nil,
+        kiosk_failed_attempts_count: 0,
+        kiosk_locked_until: nil
+      )
+    end
+
     it "locks kiosk access after repeated failures" do
       user.rotate_kiosk_pin!("731247")
 

@@ -124,8 +124,12 @@ module Api
             return render json: { error: "You cannot deactivate your own account" }, status: :unprocessable_entity
           end
 
-          last_admin_error = validate_last_admin_transition
-          return render json: { error: last_admin_error }, status: :unprocessable_entity if last_admin_error
+          if boolean_param(:send_invitation)
+            personal_access_enabled = params.key?(:personal_access_enabled) ? boolean_param(:personal_access_enabled) : @user.personal_access_enabled?
+            unless personal_access_enabled
+              return render json: { error: "Personal sign-in must be enabled when sending an invitation" }, status: :unprocessable_entity
+            end
+          end
 
           clerk_attributes = {}
           previous_state = nil
@@ -134,22 +138,30 @@ module Api
           begin
             ActiveRecord::Base.transaction do
               with_approval_group_lock_if_needed do
-                payload = normalized_update_params
-                raise ActiveRecord::Rollback if performed?
+                with_admin_transition_lock_if_needed do
+                  last_admin_error = validate_last_admin_transition
+                  if last_admin_error
+                    render json: { error: last_admin_error }, status: :unprocessable_entity
+                    raise ActiveRecord::Rollback
+                  end
 
-                permitted = payload.fetch(:local_attributes)
-                clerk_attributes = payload.fetch(:clerk_attributes)
-                previous_state = snapshot_local_user_state(@user) if clerk_attributes.present?
+                  payload = normalized_update_params
+                  raise ActiveRecord::Rollback if performed?
 
-                @user.assign_attributes(permitted)
-                access_configuration = UserAccessConfiguration.new(
-                  user: @user,
-                  attributes: access_params.to_h,
-                  actor: current_user
-                )
-                access_configuration.apply!
-                if params.key?(:approval_group) || params.key?(:approval_groups)
-                  sync_approval_groups(@user, normalized_approval_groups(params.key?(:approval_groups) ? params[:approval_groups] : params[:approval_group]))
+                  permitted = payload.fetch(:local_attributes)
+                  clerk_attributes = payload.fetch(:clerk_attributes)
+                  previous_state = snapshot_local_user_state(@user) if clerk_attributes.present?
+
+                  @user.assign_attributes(permitted)
+                  access_configuration = UserAccessConfiguration.new(
+                    user: @user,
+                    attributes: access_params.to_h,
+                    actor: current_user
+                  )
+                  access_configuration.apply!
+                  if params.key?(:approval_group) || params.key?(:approval_groups)
+                    sync_approval_groups(@user, normalized_approval_groups(params.key?(:approval_groups) ? params[:approval_groups] : params[:approval_group]))
+                  end
                 end
               end
             end
@@ -531,6 +543,15 @@ module Api
           return false unless params.key?(key)
 
           ActiveModel::Type::Boolean.new.cast(params[key])
+        end
+
+        def with_admin_transition_lock_if_needed
+          if @user.admin? && @user.is_active? && @user.personal_access_enabled?
+            User.admins.order(:id).lock.load
+            @user.reload
+          end
+
+          yield
         end
 
         def validate_last_admin_transition

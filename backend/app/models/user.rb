@@ -204,10 +204,12 @@ class User < ApplicationRecord
   end
 
   def rotate_kiosk_pin!(pin, enabled: true)
-    self.kiosk_pin = pin
     self.time_tracking_enabled = enabled
     self.kiosk_enabled = enabled
-    self.kiosk_pin_last_rotated_at = Time.current
+    self.kiosk_pin = enabled ? pin : nil
+    self.kiosk_pin_digest = nil unless enabled
+    self.kiosk_pin_lookup_hash = nil unless enabled
+    self.kiosk_pin_last_rotated_at = enabled ? Time.current : nil
     self.kiosk_failed_attempts_count = 0
     self.kiosk_locked_until = nil
     save!
@@ -216,6 +218,7 @@ class User < ApplicationRecord
   def revoke_kiosk_access!
     self.time_tracking_enabled = false
     self.kiosk_enabled = false
+    self.kiosk_pin = nil
     self.kiosk_pin_digest = nil
     self.kiosk_pin_lookup_hash = nil
     self.kiosk_pin_last_rotated_at = nil

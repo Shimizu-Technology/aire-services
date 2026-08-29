@@ -72,10 +72,10 @@ RSpec.describe "AIRE kiosk", type: :request do
     expect(entry.status).to eq("clocked_in")
   end
 
-  it "fails closed if time tracking is disabled after kiosk verification" do
+  it "fails closed if unified kiosk access is revoked after verification" do
     post "/api/v1/aire/kiosk/verify", params: { pin: employee_pin, kiosk_access_token: kiosk_access_token }
     token = JSON.parse(response.body).fetch("kiosk_token")
-    employee.update_columns(time_tracking_enabled: false, kiosk_enabled: false)
+    employee.revoke_kiosk_access!
 
     expect {
       post "/api/v1/aire/kiosk/clock_in",
