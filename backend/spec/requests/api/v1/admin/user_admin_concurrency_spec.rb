@@ -6,8 +6,12 @@ RSpec.describe "Admin access transition concurrency", type: :request do
   self.use_transactional_tests = false
 
   let(:email_suffix) { SecureRandom.hex(8) }
-  let!(:first_admin) { create(:user, :admin, email: "concurrent-a-#{email_suffix}@example.test") }
-  let!(:second_admin) { create(:user, :admin, email: "concurrent-b-#{email_suffix}@example.test") }
+  let!(:first_admin) do
+    create(:user, :admin, email: "concurrent-a-#{email_suffix}@example.test", clerk_id: "concurrent_a_#{email_suffix}")
+  end
+  let!(:second_admin) do
+    create(:user, :admin, email: "concurrent-b-#{email_suffix}@example.test", clerk_id: "concurrent_b_#{email_suffix}")
+  end
 
   after do
     User.where(id: [ first_admin.id, second_admin.id ]).destroy_all
@@ -23,15 +27,21 @@ RSpec.describe "Admin access transition concurrency", type: :request do
     ].map do |actor, target|
       Thread.new do
         ActiveRecord::Base.connection_pool.with_connection do
-          session = ActionDispatch::Integration::Session.new(Rails.application)
+          # Pre-authenticate both requests so the test reaches the competing
+          # transition path instead of racing in the authentication callback.
+          controller = Api::V1::Admin::UsersController.new
+          controller.request = ActionController::TestRequest.create(controller.class)
+          controller.response = ActionDispatch::TestResponse.new
+          controller.instance_variable_set(:@_response_body, nil)
+          controller.params = ActionController::Parameters.new(id: target.id, is_active: false)
+          controller.instance_variable_set(:@current_user, actor)
+          controller.instance_variable_set(:@user, target)
+
           ready << true
           start.pop
-          session.patch(
-            "/api/v1/admin/users/#{target.id}",
-            params: { is_active: false },
-            headers: { "Authorization" => "Bearer test_token_#{actor.id}" }
-          )
-          session.response.status
+          controller.update
+
+          controller.response.status
         end
       end
     end
@@ -40,7 +50,7 @@ RSpec.describe "Admin access transition concurrency", type: :request do
     2.times { start << true }
     statuses = requests.map(&:value)
 
-    expect(statuses.count(200)).to eq(1)
+    expect(statuses).to contain_exactly(200, 422)
     expect(User.admins.where(id: [ first_admin.id, second_admin.id ], is_active: true, personal_access_enabled: true).count).to eq(1)
   end
 end

@@ -5,6 +5,7 @@ class User < ApplicationRecord
   KIOSK_PIN_FORMAT = /\A\d{4,8}\z/
   KIOSK_MAX_FAILED_ATTEMPTS = 5
   KIOSK_LOCKOUT_DURATION = 15.minutes
+  ADMIN_ACCESS_ADVISORY_LOCK_KEY = 92_144_008
 
   has_secure_password :kiosk_pin, validations: false
 
@@ -73,6 +74,14 @@ class User < ApplicationRecord
       joins(:user_approval_groups).where(user_approval_groups: { approval_group: approval_group }).distinct
     end
   }
+
+  def self.with_admin_access_lock
+    raise "Admin access lock requires an open transaction" unless connection.transaction_open?
+
+    connection.select_value("SELECT pg_advisory_xact_lock(#{ADMIN_ACCESS_ADVISORY_LOCK_KEY})")
+    admins.order(:id).lock.load
+    yield
+  end
 
   def self.kiosk_pin_lookup_hash_for(pin)
     return nil if pin.blank?

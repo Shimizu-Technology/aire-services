@@ -547,8 +547,10 @@ module Api
 
         def with_admin_transition_lock_if_needed
           if @user.admin? && @user.is_active? && @user.personal_access_enabled?
-            User.admins.order(:id).lock.load
-            @user.reload
+            return User.with_admin_access_lock do
+              @user.reload
+              yield
+            end
           end
 
           yield
