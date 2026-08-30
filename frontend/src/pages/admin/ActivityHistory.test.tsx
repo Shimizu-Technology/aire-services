@@ -112,8 +112,10 @@ describe('ActivityHistory', () => {
     renderPage(initialEntry)
     await screen.findByText(event.summary)
 
-    expect(apiMock.getAuditLogs).toHaveBeenCalledWith(expect.not.objectContaining({ subject_type: 'TimeEntry' }))
-    expect(apiMock.getAuditLogs).toHaveBeenCalledWith(expect.not.objectContaining({ subject_id: 44 }))
+    for (const [filters] of apiMock.getAuditLogs.mock.calls) {
+      expect(filters).not.toHaveProperty('subject_type')
+      expect(filters).not.toHaveProperty('subject_id')
+    }
     expect(screen.queryByText(/Showing history for/)).not.toBeInTheDocument()
   })
 

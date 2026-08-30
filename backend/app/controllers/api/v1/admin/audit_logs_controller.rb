@@ -35,7 +35,7 @@ module Api
                           status: :unprocessable_entity
           end
 
-          filename = "aire-activity-history-#{Time.zone.today}.csv"
+          filename = "aire-activity-history-#{BUSINESS_TIME_ZONE.today}.csv"
           csv = csv_for(export_scope)
           AuditLog.record!(
             action: "audit_history.exported",
