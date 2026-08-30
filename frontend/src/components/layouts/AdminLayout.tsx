@@ -10,7 +10,6 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  ReceiptText,
   Settings,
   UserRound,
   X,
@@ -52,7 +51,7 @@ const adminNavigation = [
     icon: House,
   },
   {
-    name: 'Time Tracking',
+    name: 'Time & Payroll',
     href: '/admin/time',
     icon: Clock3,
   },
@@ -70,11 +69,6 @@ const adminNavigation = [
     name: 'Media',
     href: '/admin/media',
     icon: Image,
-  },
-  {
-    name: 'Payroll Runs',
-    href: '/admin/payroll',
-    icon: ReceiptText,
   },
   {
     name: 'Activity History',
@@ -105,7 +99,11 @@ export default function AdminLayout() {
   }, [isAdmin])
   const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)
 
-  const isActive = (href: string) => (href === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(href))
+  const isActive = (href: string) => {
+    if (href === '/admin') return location.pathname === '/admin'
+    if (href === '/admin/time') return location.pathname.startsWith('/admin/time') || location.pathname.startsWith('/admin/payroll')
+    return location.pathname.startsWith(href)
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return

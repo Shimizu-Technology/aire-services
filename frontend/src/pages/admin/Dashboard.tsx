@@ -5,11 +5,12 @@ import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeEntry } from '../../lib/api'
+import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, withPayrollPeriod } from '../../lib/payrollPeriods'
 
 const actionLinks = [
   {
-    title: 'Time Tracking',
-    description: 'Review entries, resolve issues, and finalize work weeks.',
+    title: 'Time & Payroll',
+    description: 'Review recorded time and move through the payroll preparation workflow.',
     href: '/admin/time',
   },
   {
@@ -23,9 +24,14 @@ const actionLinks = [
     href: '/admin/time?tab=leave',
   },
   {
-    title: 'Reports',
-    description: 'Inspect payroll summaries, exports, and category totals.',
+    title: 'Hours Reports',
+    description: 'Inspect live hour summaries, working exports, and category totals.',
     href: '/admin/time?tab=reports',
+  },
+  {
+    title: 'Payroll Cutoffs',
+    description: 'Preview payable hours and finalize an immutable batch for Cornerstone Payroll.',
+    href: '/admin/payroll',
   },
   {
     title: 'Schedule',
@@ -217,21 +223,25 @@ function EmployeeDashboard() {
 }
 
 function AdminDashboard() {
+  const payrollPeriod = currentPayrollPeriod()
   const [stats, setStats] = useState({
     activeCount: 0,
     pendingApprovals: 0,
     scheduledToday: 0,
     weeklyHours: 0,
     totalMembers: 0,
+    pendingApprovalHours: 0,
+    payrollFinalizedThrough: null as string | null,
   })
 
   const loadStats = useCallback(async () => {
     try {
-      const [workersRes, approvalsRes, schedulesRes, usersRes] = await Promise.all([
+      const [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes] = await Promise.all([
         api.getWhosWorking(),
         api.getPendingApprovals(),
         api.getSchedules({ week: formatWeekStart(new Date()) }),
         api.getUsers(),
+        api.getPayrollBatches(),
       ])
 
       const workers = workersRes.data?.workers ?? []
@@ -250,6 +260,8 @@ function AdminDashboard() {
         scheduledToday: todaySchedules.length,
         weeklyHours,
         totalMembers: usersRes.data?.users.length ?? 0,
+        pendingApprovalHours: approvalsRes.data?.summary?.total_hours ?? 0,
+        payrollFinalizedThrough: payrollRes.data?.payroll_batches[0]?.end_date ?? null,
       })
     } catch {
       // Dashboard stats are best-effort
@@ -271,10 +283,10 @@ function AdminDashboard() {
           </div>
           <div className="hidden shrink-0 items-center gap-2 sm:flex">
             <Link
-              to="/admin/time?tab=reports"
+              to={withPayrollPeriod('/admin/payroll', payrollPeriod)}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
-              Open Reports
+              Prepare Payroll
             </Link>
             <Link
               to="/admin/schedule"
@@ -289,10 +301,10 @@ function AdminDashboard() {
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2 sm:hidden">
           <Link
-            to="/admin/time?tab=reports"
+            to={withPayrollPeriod('/admin/payroll', payrollPeriod)}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
-            Open Reports
+            Prepare Payroll
           </Link>
           <Link
             to="/admin/schedule"
@@ -309,6 +321,31 @@ function AdminDashboard() {
         <StatCard label="Scheduled Today" value={stats.scheduledToday.toString()} sublabel="Assigned shifts on the current Guam workday" accent />
         <StatCard label="Weekly Scheduled Hours" value={`${stats.weeklyHours.toFixed(1)}h`} sublabel="Total planned hours across the active week" />
       </div>
+
+      <section className="overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
+        <div className="grid gap-0 lg:grid-cols-[1.3fr_0.7fr]">
+          <div className="p-5 sm:p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Payroll readiness</p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
+              <h2 className="text-xl font-semibold text-slate-950">{formatPayrollPeriod(payrollPeriod)}</h2>
+              <p className="text-sm text-slate-500">
+                {stats.payrollFinalizedThrough
+                  ? `Finalized through ${formatPayrollDate(stats.payrollFinalizedThrough)}`
+                  : 'No payroll cutoffs finalized yet'}
+              </p>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              {stats.pendingApprovals > 0
+                ? `${stats.pendingApprovals} approval${stats.pendingApprovals === 1 ? '' : 's'} covering ${stats.pendingApprovalHours.toFixed(2)} hours still need review. Pending work can remain tracked and excluded when you finalize.`
+                : 'No approvals are currently waiting. Preview the cutoff to confirm included hours, exclusions, and any blocking payroll data.'}
+            </p>
+          </div>
+          <div className="flex flex-col justify-center gap-3 border-t border-cyan-100 bg-cyan-50/70 p-5 sm:flex-row lg:flex-col lg:border-l lg:border-t-0">
+            <Link to={withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals', through_date: payrollPeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-cyan-200 bg-white px-4 py-2.5 text-sm font-semibold text-cyan-900 transition hover:border-cyan-300 hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>
+            <Link to={withPayrollPeriod('/admin/payroll', payrollPeriod)} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2">Prepare payroll cutoff</Link>
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">

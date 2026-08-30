@@ -17,6 +17,9 @@ import EditTimeEntryModal from './EditTimeEntryModal'
 interface ApprovalQueueProps {
   approvalGroups: ApprovalGroupOption[]
   approvalGroupsLoaded: boolean
+  initialDateFilter?:
+    | { mode: 'range'; startDate: string; endDate: string }
+    | { mode: 'through'; throughDate: string }
   onUpdate?: () => void
   canDeleteEntry?: (entry: TimeEntry) => boolean
 }
@@ -198,14 +201,31 @@ function summaryCountForApprovalGroup(summary: PendingApprovalsSummary | null, k
   return summary?.counts_by_approval_group?.find((row) => row.key === key)?.count
 }
 
-export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [summary, setSummary] = useState<PendingApprovalsSummary | null>(null)
   const [allSummary, setAllSummary] = useState<PendingApprovalsSummary | null>(null)
   const [approvalGroupFilter, setApprovalGroupFilter] = useState<'all' | ApprovalGroupFilter>('all')
-  const [reviewFilters, setReviewFilters] = useState<ReviewFilters>(defaultReviewFilters)
+  const [reviewFilters, setReviewFilters] = useState<ReviewFilters>(() => {
+    if (initialDateFilter?.mode === 'range') {
+      return {
+        ...defaultReviewFilters,
+        dateMode: 'range',
+        startDate: initialDateFilter.startDate,
+        endDate: initialDateFilter.endDate,
+      }
+    }
+    if (initialDateFilter?.mode === 'through') {
+      return {
+        ...defaultReviewFilters,
+        dateMode: 'through',
+        throughDate: initialDateFilter.throughDate,
+      }
+    }
+    return { ...defaultReviewFilters }
+  })
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)

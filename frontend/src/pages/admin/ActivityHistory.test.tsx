@@ -88,6 +88,17 @@ describe('ActivityHistory', () => {
     })))
   })
 
+  it('opens directly to linked payroll activity', async () => {
+    renderPage('/admin/activity?event_category=payroll&search=2026-08-16+through+2026-08-31')
+
+    await screen.findByText(event.summary)
+    expect(apiMock.getAuditLogs).toHaveBeenCalledWith(expect.objectContaining({
+      event_category: 'payroll',
+      search: '2026-08-16 through 2026-08-31',
+    }))
+    expect(screen.getByPlaceholderText('Search people, records, or actions')).toHaveValue('2026-08-16 through 2026-08-31')
+  })
+
   it('refreshes record scope when the route search parameters change', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/activity']}>

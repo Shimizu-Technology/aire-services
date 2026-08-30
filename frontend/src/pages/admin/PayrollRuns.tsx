@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   api,
   type PayrollBatchDetail,
@@ -6,6 +7,13 @@ import {
   type PayrollBatchListItem,
   type PayrollBatchPayload,
 } from '../../lib/api'
+import TimePayrollWorkspaceHeader from '../../components/time-tracking/TimePayrollWorkspaceHeader'
+import {
+  formatPayrollDate,
+  payrollPeriodFromSearchParams,
+  withPayrollPeriod,
+  type PayrollPeriod,
+} from '../../lib/payrollPeriods'
 
 const ISSUE_LABELS: Array<[keyof PayrollBatchIssues, string]> = [
   ['pending_approval_count', 'Pending approval'],
@@ -29,28 +37,8 @@ const EXCLUSION_LABELS: Record<string, string> = {
   overtime_approved_after_cutoff: 'Overtime approved after cutoff',
 }
 
-function guamDateParts() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Pacific/Guam',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date())
-  return Object.fromEntries(parts.map((part) => [part.type, part.value])) as Record<string, string>
-}
-
-function defaultPeriod() {
-  const { year, month, day } = guamDateParts()
-  const dayNumber = Number(day)
-  const lastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate()
-  return dayNumber <= 15
-    ? { start: `${year}-${month}-01`, end: `${year}-${month}-15` }
-    : { start: `${year}-${month}-16`, end: `${year}-${month}-${String(lastDay).padStart(2, '0')}` }
-}
-
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-    .format(new Date(`${value}T12:00:00Z`))
+  return formatPayrollDate(value)
 }
 
 function formatDateTime(value: string) {
@@ -97,7 +85,21 @@ function SummaryCards({ payload }: { payload: PayrollBatchPayload }) {
   )
 }
 
-function IssueSummary({ issues }: { issues: PayrollBatchIssues }) {
+function issueDestination(key: keyof PayrollBatchIssues, period: PayrollPeriod) {
+  if (key === 'pending_approval_count' || key === 'pending_overtime_count') {
+    return withPayrollPeriod('/admin/time', period, { tab: 'approvals', through_date: period.end })
+  }
+  if (key === 'denied_approval_count') {
+    return withPayrollPeriod('/admin/time', period, { tab: 'reports', approval_status: 'denied' })
+  }
+  if (key === 'denied_overtime_count') {
+    return withPayrollPeriod('/admin/time', period, { tab: 'reports', overtime_status: 'denied' })
+  }
+  if (key === 'negative_adjustment_count') return '/admin/activity?event_category=payroll'
+  return withPayrollPeriod('/admin/time', period, { tab: 'reports', approval_status: 'all' })
+}
+
+function IssueSummary({ issues, period }: { issues: PayrollBatchIssues; period: PayrollPeriod }) {
   const active = ISSUE_LABELS.filter(([key]) => issues[key] > 0)
   if (active.length === 0) {
     return <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">No unresolved or blocking items were found for this cutoff.</p>
@@ -107,9 +109,9 @@ function IssueSummary({ issues }: { issues: PayrollBatchIssues }) {
       {active.map(([key, label]) => {
         const blocking = key === 'missing_category_count' || key === 'missing_rate_count'
         return (
-          <span key={key} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${blocking ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+          <Link key={key} to={issueDestination(key, period)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${blocking ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
             {issues[key]} {label}
-          </span>
+          </Link>
         )
       })}
     </div>
@@ -123,7 +125,7 @@ function BatchContents({ payload }: { payload: PayrollBatchPayload }) {
         <div className="flex items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Included ledger</p>
-            <h2 className="mt-1 text-xl font-semibold text-slate-950">What this payroll run will pay</h2>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">What this cutoff sends to payroll</h2>
           </div>
           <p className="text-xs text-slate-500">{payload.summary.adjustment_count} adjustments</p>
         </div>
@@ -143,7 +145,7 @@ function BatchContents({ payload }: { payload: PayrollBatchPayload }) {
                   <div key={`${adjustment.source_time_entry_id}-${adjustment.line_key}`} className="grid gap-2 rounded-xl bg-slate-50 px-3 py-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
                     <div>
                       <p className="font-medium text-slate-800">{adjustment.category?.name || 'Category missing'} · {formatDate(adjustment.original_work_date)}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Late approval carried forward' : 'Correction to a prior payroll run'}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Late approval carried forward' : 'Correction to a prior payroll cutoff'}</p>
                     </div>
                     <div className="text-left text-xs text-slate-600 sm:text-right">
                       <p className="font-semibold text-slate-900">{formatHours(adjustment.total_hours)}</p>
@@ -160,7 +162,7 @@ function BatchContents({ payload }: { payload: PayrollBatchPayload }) {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">Tracked, not paid</p>
         <h2 className="mt-1 text-xl font-semibold text-slate-950">Excluded at this cutoff</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">Pending and open work stays attached to its original date. If later approved, AIRE carries it into the next payroll run automatically.</p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">Pending and open work stays attached to its original date. If later approved, AIRE carries it into the next payroll cutoff automatically.</p>
         <div className="mt-5 space-y-2">
           {payload.exclusions.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">Nothing is excluded.</p>}
           {payload.exclusions.map((item) => (
@@ -268,9 +270,9 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
 }
 
 export default function PayrollRuns() {
-  const initialPeriod = useMemo(() => defaultPeriod(), [])
-  const [startDate, setStartDate] = useState(initialPeriod.start)
-  const [endDate, setEndDate] = useState(initialPeriod.end)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [startDate, setStartDate] = useState(() => payrollPeriodFromSearchParams(searchParams).start)
+  const [endDate, setEndDate] = useState(() => payrollPeriodFromSearchParams(searchParams).end)
   const [preview, setPreview] = useState<PayrollBatchPayload | null>(null)
   const [batches, setBatches] = useState<PayrollBatchListItem[]>([])
   const [selectedBatch, setSelectedBatch] = useState<PayrollBatchDetail | null>(null)
@@ -285,6 +287,15 @@ export default function PayrollRuns() {
   const [dialogError, setDialogError] = useState<string | null>(null)
   const historyRequestSequence = useRef(0)
   const previewRequestSequence = useRef(0)
+
+  useEffect(() => { document.title = 'Payroll Cutoffs | AIRE Ops' }, [])
+
+  const syncPeriodToUrl = useCallback((period: PayrollPeriod) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('start_date', period.start)
+    next.set('end_date', period.end)
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const loadBatches = useCallback(async () => {
     const requestSequence = ++historyRequestSequence.current
@@ -331,6 +342,18 @@ export default function PayrollRuns() {
     setShowConfirm(false)
   }
 
+  const updateStartDate = (value: string) => {
+    setStartDate(value)
+    syncPeriodToUrl({ start: value, end: endDate })
+    clearPreviewForDateChange()
+  }
+
+  const updateEndDate = (value: string) => {
+    setEndDate(value)
+    syncPeriodToUrl({ start: startDate, end: value })
+    clearPreviewForDateChange()
+  }
+
   const finalize = async (note?: string) => {
     if (!preview) return
     setFinalizing(true)
@@ -357,6 +380,9 @@ export default function PayrollRuns() {
     const response = await api.getPayrollBatch(id)
     if (response.data) {
       setSelectedBatch(response.data)
+      setStartDate(response.data.start_date)
+      setEndDate(response.data.end_date)
+      syncPeriodToUrl({ start: response.data.start_date, end: response.data.end_date })
       setPreview(null)
       setShowConfirm(false)
     } else setError(response.error || 'The payroll batch could not be loaded.')
@@ -369,26 +395,35 @@ export default function PayrollRuns() {
   }
 
   const activePayload = selectedBatch?.payload || preview
+  const activePeriod = { start: activePayload?.start_date ?? startDate, end: activePayload?.end_date ?? endDate }
   return (
     <div className="space-y-6">
-      <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Payroll control</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Payroll Runs</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Choose a period, preview exactly what is payable at this moment, then create an immutable batch for payroll. Pending work is never lost—it stays tracked and carries forward only after approval.</p>
-      </header>
+      <TimePayrollWorkspaceHeader activeSection="payroll" isAdmin period={activePeriod} />
+
+      <section className="flex flex-col gap-4 border-l-4 border-primary bg-white/65 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Authoritative payroll record</p>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Payroll Cutoffs</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Preview exactly what is payable at this moment, then freeze an immutable AIRE batch for Cornerstone Payroll. Pending work stays tracked and carries forward only after approval.</p>
+        </div>
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+          <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'approvals', through_date: activePeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>
+          <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'reports' })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">View live hours</Link>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
           <label className="text-sm font-medium text-slate-700">Period start
-            <input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); clearPreviewForDateChange() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="date" value={startDate} onChange={(event) => updateStartDate(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
           <label className="text-sm font-medium text-slate-700">Period end
-            <input type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); clearPreviewForDateChange() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
           <button type="button" onClick={runPreview} disabled={previewing || !startDate || !endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview cutoff'}</button>
         </div>
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3 text-sm leading-6 text-primary">
-          Finalizing locks the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll run.
+          Finalizing locks the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll cutoff.
         </div>
       </section>
 
@@ -405,11 +440,12 @@ export default function PayrollRuns() {
               {selectedBatch && <p className="mt-1 text-sm text-slate-500">{selectedBatch.id} · finalized {formatDateTime(selectedBatch.finalized_at)}</p>}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download CSV</button>}
+              {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
+              {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download finalized CSV</button>}
               {preview && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
             </div>
           </div>
-          <IssueSummary issues={activePayload.issues} />
+          <IssueSummary issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
           {preview && !preview.can_finalize && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category and effective pay rate.</p>}
           <SummaryCards payload={activePayload} />
           <BatchContents payload={activePayload} />
@@ -419,7 +455,7 @@ export default function PayrollRuns() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Permanent ledger</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">Finalized payroll history</h2>
+          <h2 className="mt-1 text-xl font-semibold text-slate-950">Finalized payroll batches</h2>
         </div>
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
           {loading && <p className="text-sm text-slate-500">Loading payroll history…</p>}
