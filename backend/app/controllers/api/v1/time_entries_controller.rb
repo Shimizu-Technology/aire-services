@@ -73,10 +73,6 @@ module Api
 
       # POST /api/v1/time_entries
       def create
-        if period_locked_for_date?(time_entry_params[:work_date])
-          return render json: { error: "This time period is locked and cannot be modified" }, status: :forbidden
-        end
-
         entry_owner = resolve_entry_owner
         return unless entry_owner
 
@@ -90,14 +86,26 @@ module Api
           @time_entry.approval_status = "pending"
         end
 
-        if @time_entry.save
-          AuditLog.log(
-            auditable: @time_entry,
-            action: "created",
-            user: current_user,
-            metadata: "#{@time_entry.hours}h on #{@time_entry.work_date} (manual, #{@time_entry.approval_status})"
-          )
+        saved = false
+        TimeEntry.transaction do
+          saved = @time_entry.save
+          raise ActiveRecord::Rollback unless saved
 
+          AuditLog.record!(
+            action: "time_entry.created",
+            auditable: @time_entry,
+            actor: current_user,
+            event_category: "time_tracking",
+            metadata: {
+              hours: @time_entry.hours.to_f,
+              work_date: @time_entry.work_date.iso8601,
+              entry_method: "manual",
+              approval_status: @time_entry.approval_status
+            }
+          )
+        end
+
+        if saved
           render json: { time_entry: serialize_time_entry(@time_entry) }, status: :created
         else
           render json: { error: @time_entry.errors.full_messages.join(", ") }, status: :unprocessable_entity
@@ -106,14 +114,8 @@ module Api
 
       # PATCH /api/v1/time_entries/:id
       def update
-        target_work_date = time_entry_params[:work_date].presence || @time_entry.work_date
-        if period_locked_for_date?(target_work_date) || period_locked_for_date?(@time_entry.work_date)
-          return render json: { error: "This time period is locked and cannot be modified" }, status: :forbidden
-        end
-
         unless @time_entry.editable_by?(current_user)
-          message = @time_entry.locked? ? "This time entry is locked and cannot be edited" : "You can only edit your own time entries"
-          return render json: { error: message }, status: :forbidden
+          return render json: { error: "You can only edit your own time entries" }, status: :forbidden
         end
 
         return unless require_correction_reason_for_exported_entry!
@@ -125,7 +127,9 @@ module Api
           time_category_id: @time_entry.time_category_id,
           overtime_status: @time_entry.overtime_status,
           start_time: @time_entry.formatted_start_time,
-          end_time: @time_entry.formatted_end_time
+          end_time: @time_entry.formatted_end_time,
+          break_minutes: @time_entry.break_minutes.to_i,
+          breaks: audit_break_rows(@time_entry.time_entry_breaks.order(:start_time, :id))
         }
 
         update_params = time_entry_params.except(:user_id, :breaks).to_h.symbolize_keys
@@ -175,7 +179,9 @@ module Api
             time_category_id: @time_entry.time_category_id,
             overtime_status: @time_entry.overtime_status,
             start_time: @time_entry.formatted_start_time,
-            end_time: @time_entry.formatted_end_time
+            end_time: @time_entry.formatted_end_time,
+            break_minutes: @time_entry.break_minutes.to_i,
+            breaks: audit_break_rows(@time_entry.time_entry_breaks.reload.sort_by { |entry_break| [ entry_break.start_time, entry_break.id ] })
           }
 
           changes = old_values.each_with_object({}) do |(key, old_val), hash|
@@ -183,12 +189,17 @@ module Api
             hash[key] = { from: old_val, to: new_val } if old_val != new_val
           end
 
-          AuditLog.log(
+          AuditLog.record!(
+            action: "time_entry.updated",
             auditable: @time_entry,
-            action: "updated",
-            user: current_user,
-            changes_made: changes.presence,
-            metadata: audit_metadata_with_correction("#{@time_entry.hours}h on #{@time_entry.work_date}")
+            actor: current_user,
+            event_category: "time_tracking",
+            changes: changes.presence,
+            metadata: {
+              hours: @time_entry.hours.to_f,
+              work_date: @time_entry.work_date.iso8601,
+              correction_reason: correction_reason
+            }.compact
           )
 
           invalidate_payroll_exports!
@@ -205,13 +216,8 @@ module Api
 
       # DELETE /api/v1/time_entries/:id
       def destroy
-        if period_locked_for_date?(@time_entry.work_date)
-          return render json: { error: "This time period is locked and cannot be modified" }, status: :forbidden
-        end
-
         unless @time_entry.deletable_by?(current_user)
-          message = @time_entry.locked? ? "This time entry is locked and cannot be deleted" : "You can only delete your own time entries"
-          return render json: { error: message }, status: :forbidden
+          return render json: { error: "You can only delete your own time entries" }, status: :forbidden
         end
 
         return unless require_correction_reason_for_exported_entry!
@@ -222,12 +228,14 @@ module Api
         TimeEntry.transaction do
           @time_entry.destroy!
 
-          AuditLog.create!(
-            auditable_type: "TimeEntry",
-            auditable_id: entry_id,
-            action: "deleted",
-            user: current_user,
-            metadata: audit_metadata_with_correction(entry_info)
+          AuditLog.record!(
+            action: "time_entry.deleted",
+            actor: current_user,
+            subject_type: "TimeEntry",
+            subject_id: entry_id,
+            subject_name: entry_info,
+            event_category: "time_tracking",
+            metadata: { correction_reason: correction_reason }
           )
 
           invalidate_payroll_exports!
@@ -526,10 +534,6 @@ module Api
         )
       end
 
-      def audit_metadata_with_correction(base)
-        correction_reason.present? ? "#{base}; correction reason: #{correction_reason}" : base
-      end
-
       def eager_reload(entry)
         TimeEntry.eager_load({ user: :user_approval_groups }, :time_category, :schedule, :approved_by,
                              :overtime_approved_by, :time_entry_breaks).find(entry.id)
@@ -720,6 +724,16 @@ module Api
         nil
       end
 
+      def audit_break_rows(breaks)
+        breaks.map do |entry_break|
+          {
+            start_time: entry_break.start_time&.iso8601,
+            end_time: entry_break.end_time&.iso8601,
+            duration_minutes: entry_break.duration_minutes.to_i
+          }
+        end
+      end
+
       def resolve_entry_owner
         requested_user_id = time_entry_params[:user_id]
         return current_user if requested_user_id.blank?
@@ -736,14 +750,6 @@ module Api
         end
 
         user
-      end
-
-      def period_locked_for_date?(date)
-        return false if date.blank?
-
-        TimePeriodLock.locked_for_date?(Date.parse(date.to_s))
-      rescue Date::Error
-        false
       end
 
       def serialize_time_entry(entry)

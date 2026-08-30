@@ -936,24 +936,55 @@ export interface HoursReportParams {
   include_empty?: boolean;
 }
 
-export interface TimePeriodLock {
+export interface AuditLogEntry {
   id: number;
-  start_date: string;
-  end_date: string;
-  locked_at: string;
-  reason: string | null;
-  locked_by: {
+  action: string;
+  event_category: string;
+  occurred_at: string;
+  outcome: string;
+  source: string;
+  summary: string;
+  actor: {
+    id: number | null;
+    name: string | null;
+    email: string | null;
+    role: string | null;
+    kind: string;
+  };
+  subject: {
+    type: string;
     id: number;
-    full_name: string;
-    email: string;
+    name: string | null;
+  };
+  changes: Record<string, unknown>;
+  details: Record<string, unknown>;
+  request: {
+    id: string | null;
+    ip_address: string | null;
+    user_agent: string | null;
+    correlation_id: string | null;
   };
 }
 
-export interface TimePeriodLockStatusResponse {
-  week_start: string;
-  week_end: string;
-  locked: boolean;
-  lock: TimePeriodLock | null;
+export interface AuditLogFilters {
+  actor_id?: number;
+  event_category?: string;
+  source?: string;
+  outcome?: string;
+  subject_type?: string;
+  subject_id?: number;
+  event_action?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  per_page?: number;
+}
+
+export interface AuditLogResponse {
+  audit_logs: AuditLogEntry[];
+  pagination: { page: number; per_page: number; total: number; total_pages: number };
+  filters: { event_categories: string[]; sources: string[]; outcomes: string[] };
 }
 
 // Schedule Types
@@ -1470,20 +1501,24 @@ export const api = {
       method: 'DELETE',
     }),
 
-  // Time Period Locks
-  getTimePeriodLockStatus: (week: string) =>
-    fetchApi<TimePeriodLockStatusResponse>(`/api/v1/time_period_locks?week=${encodeURIComponent(week)}`),
+  // Activity history
+  getAuditLogs: (filters: AuditLogFilters = {}) => {
+    const searchParams = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') searchParams.set(key, String(value));
+    });
+    const query = searchParams.toString();
+    return fetchApi<AuditLogResponse>(`/api/v1/admin/audit_logs${query ? `?${query}` : ''}`);
+  },
 
-  lockTimePeriod: (week: string, reason?: string) =>
-    fetchApi<{ lock: TimePeriodLock; message: string }>('/api/v1/admin/time_period_locks', {
-      method: 'POST',
-      body: JSON.stringify({ week, reason }),
-    }),
-
-  unlockTimePeriod: (id: number) =>
-    fetchApi<{ message: string }>(`/api/v1/admin/time_period_locks/${id}`, {
-      method: 'DELETE',
-    }),
+  downloadAuditLogs: (filters: AuditLogFilters = {}) => {
+    const searchParams = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== '' && key !== 'page' && key !== 'per_page') searchParams.set(key, String(value));
+    });
+    const query = searchParams.toString();
+    return fetchDownload(`/api/v1/admin/audit_logs/export${query ? `?${query}` : ''}`);
+  },
 
   // Schedules
   getSchedules: (params?: {

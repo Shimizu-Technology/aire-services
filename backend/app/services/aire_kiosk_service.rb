@@ -31,7 +31,6 @@ class AireKioskService
       unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.clock_in(user: user, time_category_id: time_category_id, clock_source: "kiosk")
-      log_action(entry: entry, action: "created", metadata: "source=kiosk;event=clock_in")
       response_payload(user, entry)
     end
 
@@ -39,7 +38,6 @@ class AireKioskService
       unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.clock_out(user: user)
-      log_action(entry: entry, action: "updated", metadata: "source=kiosk;event=clock_out")
       response_payload(user, entry)
     end
 
@@ -47,7 +45,6 @@ class AireKioskService
       unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.start_break(user: user)
-      log_action(entry: entry, action: "updated", metadata: "source=kiosk;event=start_break")
       response_payload(user, entry)
     end
 
@@ -55,7 +52,6 @@ class AireKioskService
       unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.end_break(user: user)
-      log_action(entry: entry, action: "updated", metadata: "source=kiosk;event=end_break")
       response_payload(user, entry)
     end
 
@@ -63,7 +59,6 @@ class AireKioskService
       unlock_admin_from_token!(kiosk_access_token)
       user = user_from_token!(kiosk_token)
       entry = TimeClockService.switch_category(user: user, time_category_id: time_category_id, clock_source: "kiosk")
-      log_action(entry: entry, action: "created", metadata: "source=kiosk;event=switch_category")
       response_payload(user, entry)
     end
 
@@ -107,12 +102,6 @@ class AireKioskService
 
     def invalid_pin_message
       INVALID_PIN_MESSAGE
-    end
-
-    def log_action(entry:, action:, metadata:)
-      AuditLog.log(auditable: entry, action: action, metadata: metadata)
-    rescue StandardError => e
-      Rails.logger.warn("AIRE kiosk audit log failed for time_entry=#{entry.id}: #{e.message}")
     end
   end
 end

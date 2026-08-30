@@ -205,21 +205,28 @@ class UserAccessConfiguration
 
   def log_access_change!(previous_access)
     current_access = access_snapshot
-    changes = current_access.each_with_object({}) do |(key, value), result|
+    access_changes = current_access.each_with_object({}) do |(key, value), result|
       previous = previous_access[key]
       result[key] = [ previous, value ] if previous != value
     end
+    snapshot = AuditRecordSnapshot.changes_for(user)
+    model_changes = snapshot[:changed_fields].each_with_object({}) do |field, result|
+      result[field] = [ snapshot[:before_values][field], snapshot[:after_values][field] ]
+    end
+    changes = model_changes.merge(access_changes)
     return if changes.empty?
 
-    AuditLog.log(
+    AuditLog.record!(
       auditable: user,
-      action: creating ? "created" : "updated",
-      user: actor,
-      changes_made: changes,
-      metadata: "staff access configuration"
+      action: creating ? "user.created" : "user.updated",
+      actor: actor,
+      event_category: "users",
+      changes: changes,
+      metadata: {
+        reason: "staff access configuration",
+        redacted_fields: snapshot[:redacted_fields].presence
+      }.compact
     )
-  rescue StandardError => e
-    Rails.logger.warn("User access audit log failed for user=#{user.id}: #{e.message}")
   end
 
   def access_snapshot

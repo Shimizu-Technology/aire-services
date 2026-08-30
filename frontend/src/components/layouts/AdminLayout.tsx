@@ -100,6 +100,15 @@ const adminNavigation = [
     ),
   },
   {
+    name: 'Activity History',
+    href: '/admin/activity',
+    icon: (
+      <NavIcon>
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l2.75 1.75M20.25 12A8.25 8.25 0 1 1 18 6.33M18 3.75v3.5h-3.5" />
+      </NavIcon>
+    ),
+  },
+  {
     name: 'Settings',
     href: '/admin/settings',
     icon: (

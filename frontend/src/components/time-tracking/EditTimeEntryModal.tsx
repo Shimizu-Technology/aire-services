@@ -21,7 +21,6 @@ interface EditableTimeEntry {
   status?: 'clocked_in' | 'on_break' | 'completed'
   clock_in_at?: string | null
   clock_out_at?: string | null
-  locked_at: string | null
   user: {
     id: number
     email: string | null
@@ -153,7 +152,6 @@ export default function EditTimeEntryModal({
   }, [formData.break_minutes, formData.end_time, formData.start_time])
 
   const ownerName = entry?.user.full_name || entry?.user.display_name || entry?.user.email?.split('@')[0] || 'Team member'
-  const isLocked = !!entry?.locked_at
   const isActiveClockEntry = entry?.entry_method === 'clock' && (entry.status === 'clocked_in' || entry.status === 'on_break')
 
   const setLocalError = (message: string | null) => {
@@ -252,12 +250,6 @@ export default function EditTimeEntryModal({
                 <p className="text-sm text-primary-dark/70">
                   Entry for: <span className="font-medium text-primary-dark">{ownerName}</span>
                 </p>
-                {isLocked && (
-                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                    <LockIcon />
-                    <span>This entry is locked and cannot be edited.</span>
-                  </div>
-                )}
                 {entry.approved_by && (
                   <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${
                     entry.approval_status === 'approved'
@@ -278,10 +270,13 @@ export default function EditTimeEntryModal({
                     This person is still clocked in. Updating the start time corrects their live clock-in time; clock-out and final hours are calculated when they clock out.
                   </div>
                 )}
+                <a href={`/admin/activity?subject_type=TimeEntry&subject_id=${entry.id}`} className="mt-3 inline-flex text-xs font-semibold text-cyan-700 transition hover:text-cyan-900">
+                  View complete activity history
+                </a>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <fieldset disabled={isLocked || saving || deleting} className={isLocked ? 'opacity-60' : ''}>
+                <fieldset disabled={saving || deleting}>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-primary-dark">Date *</label>
                   <input
@@ -486,7 +481,7 @@ export default function EditTimeEntryModal({
                       className={`rounded-lg px-4 py-2 transition-colors ${
                         canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
                       }`}
-                      title={canDelete ? 'Delete this time entry' : 'This entry is locked or cannot be deleted'}
+                      title={canDelete ? 'Delete this time entry' : 'You cannot delete this time entry'}
                     >
                       {deleting ? 'Deleting...' : 'Delete'}
                     </button>
@@ -500,15 +495,13 @@ export default function EditTimeEntryModal({
                     >
                       Cancel
                     </button>
-                    {!isLocked && (
-                      <button
-                        type="submit"
-                        disabled={saving || deleting}
-                        className="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
-                      >
-                        {saving ? 'Saving...' : 'Update'}
-                      </button>
-                    )}
+                    <button
+                      type="submit"
+                      disabled={saving || deleting}
+                      className="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                    >
+                      {saving ? 'Saving...' : 'Update'}
+                    </button>
                   </div>
                 </div>
               </form>
@@ -517,13 +510,5 @@ export default function EditTimeEntryModal({
         </motion.div>
       )}
     </AnimatePresence>
-  )
-}
-
-function LockIcon() {
-  return (
-    <svg className="h-3 w-3" fill="none" aria-hidden="true" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-    </svg>
   )
 }

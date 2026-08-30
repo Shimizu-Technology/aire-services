@@ -7,6 +7,8 @@ module Api
       before_action :require_staff!, only: [ :update_kiosk_pin ]
 
       def me
+        AuditLog.record_sign_in_once!(actor: current_user, session_fingerprint: Current.session_fingerprint)
+        Current.domain_audit_recorded = true
         render json: { user: serialize_current_user(current_user) }
       end
 
@@ -35,6 +37,14 @@ module Api
 
         current_user.skip_kiosk_pin_presence_validation = true
         current_user.rotate_kiosk_pin!(pin, enabled: current_user.kiosk_enabled?)
+
+        AuditLog.record!(
+          action: "user.kiosk_pin_set",
+          actor: current_user,
+          auditable: current_user,
+          event_category: "security",
+          metadata: { changed_fields: [ "kiosk_pin" ], redacted_fields: [ "kiosk_pin" ] }
+        )
 
         render json: {
           user: serialize_current_user(current_user.reload),

@@ -63,7 +63,6 @@ interface TimeEntryItem {
     key?: string | null
     name: string
   } | null
-  locked_at: string | null
   created_at: string
   updated_at: string
 }
@@ -131,12 +130,6 @@ const ChevronRightIcon = () => (
 const ChartIcon = () => (
   <svg className="h-5 w-5" fill="none" aria-hidden="true" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-  </svg>
-)
-
-const LockIcon = () => (
-  <svg className="h-3 w-3" fill="none" aria-hidden="true" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
   </svg>
 )
 
@@ -210,7 +203,6 @@ function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem
     },
     time_category: entry.time_category,
     breaks: entry.breaks,
-    locked_at: entry.locked_at,
     created_at: '',
     updated_at: '',
   }))))
@@ -276,10 +268,6 @@ export default function TimeTracking() {
   const [reportLoading, setReportLoading] = useState(false)
   const [reportExporting, setReportExporting] = useState<HoursReportDownloadType | null>(null)
   
-  const [currentWeekLocked, setCurrentWeekLocked] = useState(false)
-  const [currentWeekLockId, setCurrentWeekLockId] = useState<number | null>(null)
-  const [lockingWeek, setLockingWeek] = useState(false)
-  
   // Person-day modal state (grouped calendar entries)
   const [personDayModal, setPersonDayModal] = useState<{ entries: TimeEntryItem[]; name: string; date: string } | null>(null)
   const returnToPersonDay = useRef<{ name: string; date: string; userId: number } | null>(null)
@@ -320,22 +308,6 @@ export default function TimeTracking() {
     if (currentUserId && entry.user.id === currentUserId) return 'You'
     return name
   }
-
-  const currentWeekStartIso = useCallback((): string => {
-    const weekStart = new Date(currentDate)
-    weekStart.setDate(currentDate.getDate() - currentDate.getDay())
-    return formatDateISO(weekStart)
-  }, [currentDate])
-
-  const dateIsInLockedWeek = useCallback((dateLike: Date | string): boolean => {
-    if (!currentWeekLocked) return false
-    const date = typeof dateLike === 'string' ? new Date(`${dateLike}T00:00:00`) : dateLike
-    const weekStart = new Date(currentDate)
-    weekStart.setDate(currentDate.getDate() - currentDate.getDay())
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekStart.getDate() + 6)
-    return date >= new Date(weekStart.toDateString()) && date <= new Date(weekEnd.toDateString())
-  }, [currentDate, currentWeekLocked])
 
   // Load time entries
   const loadEntries = useCallback(async () => {
@@ -443,54 +415,6 @@ export default function TimeTracking() {
     }
   }, [isAdmin])
   
-  const loadWeekLockStatus = useCallback(async () => {
-    try {
-      const response = await api.getTimePeriodLockStatus(currentWeekStartIso())
-      if (response.data) {
-        setCurrentWeekLocked(response.data.locked)
-        setCurrentWeekLockId(response.data.lock?.id ?? null)
-      }
-    } catch {
-      // best-effort only
-    }
-  }, [currentWeekStartIso])
-
-  const finalizeWeek = async () => {
-    if (!isAdmin) return
-    if (!confirm('Lock this week against edits? Reports and exports do not require this optional lock.')) return
-
-    setLockingWeek(true)
-    try {
-      const res = await api.lockTimePeriod(currentWeekStartIso(), 'Optional edit lock from Time Tracking screen')
-      if (res.error) {
-        setError(res.error)
-        return
-      }
-      await loadWeekLockStatus()
-      await loadEntries()
-    } finally {
-      setLockingWeek(false)
-    }
-  }
-
-  const unlockWeek = async () => {
-    if (!isAdmin || !currentWeekLockId) return
-    if (!confirm('Unlock this week? This re-opens add/edit/delete for this period.')) return
-
-    setLockingWeek(true)
-    try {
-      const res = await api.unlockTimePeriod(currentWeekLockId)
-      if (res.error) {
-        setError(res.error)
-        return
-      }
-      await loadWeekLockStatus()
-      await loadEntries()
-    } finally {
-      setLockingWeek(false)
-    }
-  }
-
   // Load payroll-safe, backend-calculated report data.
   const loadReport = useCallback(async () => {
     setReportLoading(true)
@@ -549,10 +473,6 @@ export default function TimeTracking() {
     return startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
   }, [isAdmin, loadPendingApprovalSummary])
 
-  useEffect(() => {
-    loadWeekLockStatus()
-  }, [loadWeekLockStatus])
-  
   useEffect(() => {
     if (activeTab === 'reports') {
       loadReport()
@@ -626,11 +546,6 @@ export default function TimeTracking() {
 
   // Modal handlers
   const openNewEntry = (date?: Date, prefillStart?: string, prefillEnd?: string, prefillNotes?: string) => {
-    if (dateIsInLockedWeek(date || currentDate)) {
-      setError('This time period is locked and cannot be modified')
-      return
-    }
-
     setEditingEntry(null)
     setFormData({
       work_date: formatDateISO(date || currentDate),
@@ -694,11 +609,6 @@ export default function TimeTracking() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (dateIsInLockedWeek(formData.work_date)) {
-      setError('This time period is locked and cannot be modified')
-      return
-    }
-
     if (isAdmin && !formData.user_id) {
       setError('Please select an entry owner')
       return
@@ -737,14 +647,13 @@ export default function TimeTracking() {
   }
 
   const canDeleteEntry = (entry: TimeEntryItem): boolean => {
-    if (dateIsInLockedWeek(entry.work_date) || !!entry.locked_at) return false
     if (isAdmin) return true
     return currentUserId === entry.user.id
   }
 
   const handleDelete = async (entry: TimeEntryItem) => {
     if (!canDeleteEntry(entry)) {
-      setError('This time entry cannot be deleted (locked or insufficient permissions)')
+      setError('You do not have permission to delete this time entry')
       return
     }
 
@@ -881,9 +790,7 @@ export default function TimeTracking() {
         {activeTab === 'entries' && (
           <button
             onClick={() => openNewEntry()}
-            disabled={currentWeekLocked}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
-            title={currentWeekLocked ? 'This week is locked' : 'Log Time'}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors min-h-[44px]"
           >
             <PlusIcon />
             <span>Log Time</span>
@@ -1161,38 +1068,6 @@ export default function TimeTracking() {
         </div>
       </div>
 
-      {/* Week Lock Controls */}
-      <div className={`rounded-xl border p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${currentWeekLocked ? 'bg-amber-50 border-amber-200' : 'bg-white border-neutral-warm'}`}>
-        <div className="text-sm">
-          {currentWeekLocked ? (
-            <span className="text-amber-700 font-medium">This week is locked against changes. Reports remain available.</span>
-          ) : (
-            <span className="text-primary-dark">This week is open for changes. Locking is optional and is not required for reports or exports.</span>
-          )}
-        </div>
-        {isAdmin && (
-          <div className="flex items-center gap-2">
-            {!currentWeekLocked ? (
-              <button
-                onClick={finalizeWeek}
-                disabled={lockingWeek}
-                className="rounded-lg border border-neutral-warm bg-white px-3 py-2 text-sm font-medium text-primary-dark transition hover:bg-neutral-warm/40 disabled:opacity-60"
-              >
-                {lockingWeek ? 'Locking...' : 'Lock Against Edits'}
-              </button>
-            ) : (
-              <button
-                onClick={unlockWeek}
-                disabled={lockingWeek}
-                className="px-3 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60"
-              >
-                {lockingWeek ? 'Unlocking...' : 'Unlock Week'}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* Denied entries toggle */}
       {deniedCount > 0 && (
         <div className="flex items-center justify-end">
@@ -1311,23 +1186,21 @@ export default function TimeTracking() {
                       const hasMultiple = userEntries.length > 1
                       const hasPending = userEntries.some(e => e.approval_status === 'pending')
                       const hasDenied = userEntries.some(e => e.approval_status === 'denied')
-                      const hasLocked = userEntries.some(e => e.locked_at)
                       const firstStart = userEntries[0].formatted_start_time
                       const lastEnd = userEntries[userEntries.length - 1].formatted_end_time
 
                       if (!hasMultiple) {
                         const entry = userEntries[0]
                         return (
-                          <div
+                          <button
+                            type="button"
                             key={entry.id}
-                            className={`mb-2 rounded-xl border bg-white p-2.5 text-xs shadow-sm transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${
-                              entry.locked_at ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm hover:border-primary/40'
-                            }`}
+                            className="mb-2 w-full cursor-pointer rounded-xl border border-neutral-warm bg-white p-2.5 text-left text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                             onClick={() => openEditEntry(entry)}
                           >
                             <div className="flex items-start justify-between gap-2">
                               <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary-dark">
-                                {entry.locked_at ? <LockIcon /> : <ClockIcon />}
+                                <ClockIcon />
                                 {entry.hours.toFixed(2)}h
                               </div>
                               <div className="flex items-center gap-1">
@@ -1342,7 +1215,7 @@ export default function TimeTracking() {
                               <div className="mt-1 truncate text-[11px] font-medium text-primary">{entry.time_category.name}</div>
                             )}
                             <div className="mt-1 truncate text-[11px] text-primary-dark/70">{name}</div>
-                          </div>
+                          </button>
                         )
                       }
 
@@ -1354,7 +1227,6 @@ export default function TimeTracking() {
                           totalHours={totalHours}
                           firstStart={firstStart}
                           lastEnd={lastEnd}
-                          hasLocked={hasLocked}
                           hasPending={hasPending}
                           hasDenied={hasDenied}
                           onClick={() => setPersonDayModal({ entries: userEntries, name, date: formatDateISO(date) })}
@@ -1363,9 +1235,7 @@ export default function TimeTracking() {
                     })}
                     <button
                       onClick={() => openNewEntry(date)}
-                      disabled={currentWeekLocked}
-                    className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 sm:p-2"
-                    title={currentWeekLocked ? 'This week is locked' : 'Add time entry'}
+                    className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary sm:p-2"
                   >
                     + Add
                     </button>
@@ -1396,13 +1266,13 @@ export default function TimeTracking() {
           ) : (
             <div className="divide-y divide-neutral-warm">
               {visibleEntries.map(entry => (
-                <div key={entry.id} className={`p-3 sm:p-4 ${entry.locked_at ? 'bg-amber-50/30' : ''}`}>
+                <div key={entry.id} className="p-3 sm:p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       {/* Hours + Time + Category Row */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`inline-flex items-center gap-1 px-2 sm:px-3 py-1 font-bold rounded-full text-sm ${entry.locked_at ? 'bg-amber-100 text-amber-700' : 'bg-primary/20 text-primary'}`}>
-                          {entry.locked_at ? <LockIcon /> : <ClockIcon />}
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3">
+                          <ClockIcon />
                           {entry.hours}h
                         </span>
                         {entry.formatted_start_time && entry.formatted_end_time && (
@@ -1413,11 +1283,6 @@ export default function TimeTracking() {
                         {entry.time_category && (
                           <span className="px-2 py-1 bg-primary/10 text-primary font-medium text-xs sm:text-sm rounded">
                             {entry.time_category.name}
-                          </span>
-                        )}
-                        {entry.locked_at && (
-                          <span className="px-2 py-1 bg-amber-100 text-amber-700 font-medium text-xs rounded">
-                            Locked
                           </span>
                         )}
                         {entry.entry_method === 'clock' && (
@@ -1466,9 +1331,8 @@ export default function TimeTracking() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => openEditEntry(entry)}
-                        disabled={!!entry.locked_at}
-                        className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${entry.locked_at ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-primary hover:bg-neutral-warm'}`}
-                        title={entry.locked_at ? 'This entry is locked' : 'Edit entry'}
+                        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary"
+                        title="Edit entry"
                       >
                         <EditIcon />
                       </button>
@@ -1476,7 +1340,7 @@ export default function TimeTracking() {
                         onClick={() => handleDelete(entry)}
                         disabled={!canDeleteEntry(entry)}
                         className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${!canDeleteEntry(entry) ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-red-600 hover:bg-red-50'}`}
-                        title={!canDeleteEntry(entry) ? 'This entry is locked or cannot be deleted' : 'Delete entry'}
+                        title={!canDeleteEntry(entry) ? 'You cannot delete this entry' : 'Delete entry'}
                       >
                         <TrashIcon />
                       </button>
@@ -1512,7 +1376,6 @@ export default function TimeTracking() {
               entries={personDayModal.entries}
               name={personDayModal.name}
               dateLabel={formatDate(personDayModal.date)}
-              isLocked={dateIsInLockedWeek(personDayModal.date)}
               onEditEntry={(entry) => {
                 returnToPersonDay.current = { name: personDayModal.name, date: personDayModal.date, userId: entry.user.id }
                 setPersonDayModal(null)
@@ -2339,7 +2202,6 @@ function CalendarUserGroup({
   totalHours,
   firstStart,
   lastEnd,
-  hasLocked,
   hasPending,
   hasDenied,
   onClick,
@@ -2349,7 +2211,6 @@ function CalendarUserGroup({
   totalHours: number
   firstStart: string | null
   lastEnd: string | null
-  hasLocked: boolean
   hasPending: boolean
   hasDenied: boolean
   onClick: () => void
@@ -2365,9 +2226,7 @@ function CalendarUserGroup({
 
   return (
     <div
-      className={`mb-2 rounded-xl border text-xs shadow-sm cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md ${
-        hasLocked ? 'border-amber-300 bg-amber-50/30' : 'border-neutral-warm bg-white hover:border-primary/40'
-      }`}
+      className="mb-2 cursor-pointer rounded-xl border border-neutral-warm bg-white text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
       onClick={onClick}
     >
       <div className="p-2.5 sm:p-3">
@@ -2408,7 +2267,6 @@ function PersonDayModalContent({
   entries,
   name,
   dateLabel,
-  isLocked,
   onEditEntry,
   onAddEntry,
   onDeleteEntry,
@@ -2418,7 +2276,6 @@ function PersonDayModalContent({
   entries: TimeEntryItem[]
   name: string
   dateLabel: string
-  isLocked: boolean
   onEditEntry: (e: TimeEntryItem) => void
   onAddEntry: () => void
   onDeleteEntry: (e: TimeEntryItem) => void
@@ -2504,14 +2361,7 @@ function PersonDayModalContent({
                   <div className="flex-1 h-px bg-cyan-300" />
                 </div>
               )}
-              <div
-                className={`border rounded-xl p-3 transition-all ${
-                  entry.locked_at
-                    ? 'border-amber-200 bg-amber-50/30'
-                    : 'border-neutral-warm hover:border-primary/40 hover:shadow-sm cursor-pointer'
-                }`}
-                onClick={() => !entry.locked_at && onEditEntry(entry)}
-              >
+              <div className="cursor-pointer rounded-xl border border-neutral-warm p-3 transition-all hover:border-primary/40 hover:shadow-sm" onClick={() => onEditEntry(entry)}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     {/* Time range */}
@@ -2574,12 +2424,6 @@ function PersonDayModalContent({
                           Denied
                         </span>
                       )}
-                      {entry.locked_at && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-600">
-                          <LockIcon />
-                          Locked
-                        </span>
-                      )}
                       {entry.admin_override && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-indigo-500">Admin override</span>
                       )}
@@ -2590,9 +2434,8 @@ function PersonDayModalContent({
                   <div className="flex flex-col gap-1 shrink-0">
                     <button
                       onClick={(e) => { e.stopPropagation(); onEditEntry(entry) }}
-                      disabled={!!entry.locked_at}
-                      className={`p-1.5 rounded-lg transition-colors ${entry.locked_at ? 'text-gray-300 cursor-not-allowed' : 'text-primary-dark hover:text-primary hover:bg-neutral-warm'}`}
-                      title={entry.locked_at ? 'Locked' : 'Edit entry'}
+                      className="rounded-lg p-1.5 text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary"
+                      title="Edit entry"
                     >
                       <EditIcon />
                     </button>
@@ -2614,19 +2457,13 @@ function PersonDayModalContent({
 
       {/* Footer actions */}
       <div className="flex justify-between items-center pt-3 border-t border-neutral-warm">
-        {!isLocked ? (
-          <button
-            onClick={onAddEntry}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-primary hover:text-primary-dark hover:bg-primary/10 rounded-lg transition-colors"
-          >
-            <PlusIcon />
-            Add Entry
-          </button>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-xs text-amber-600">
-            <LockIcon /> This period is locked
-          </span>
-        )}
+        <button
+          onClick={onAddEntry}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-primary hover:text-primary-dark hover:bg-primary/10 rounded-lg transition-colors"
+        >
+          <PlusIcon />
+          Add Entry
+        </button>
         <button
           onClick={onClose}
           className="px-4 py-2 text-sm font-medium text-primary-dark hover:bg-neutral-warm rounded-lg transition-colors"

@@ -2,8 +2,22 @@
 
 require "rails_helper"
 require Rails.root.join("db/migrate/20260829013000_align_time_tracking_and_kiosk_access")
+require Rails.root.join("db/migrate/20260830150000_upgrade_audit_logs")
 
 RSpec.describe AlignTimeTrackingAndKioskAccess, type: :model do
+  around do |example|
+    # The legacy alignment migration writes audit rows directly; temporarily
+    # revert append-only protection and let this savepoint restore the schema.
+    ActiveRecord::Base.transaction(requires_new: true) do
+      UpgradeAuditLogs.new.down
+      AuditLog.reset_column_information
+      example.run
+      raise ActiveRecord::Rollback
+    end
+  ensure
+    AuditLog.reset_column_information
+  end
+
   def migrate_legacy_kiosk_only_user(migration)
     migration.down
 

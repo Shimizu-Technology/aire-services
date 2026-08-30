@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 # Concern for Clerk JWT authentication
 # Include in controllers that require authentication
 module ClerkAuthenticatable
@@ -25,21 +27,30 @@ module ClerkAuthenticatable
       return
     end
 
+    set_session_fingerprint(decoded)
+
     @current_user = resolve_user_from_claims(decoded)
 
     unless @current_user
+      AuditLog.record_security_event!(action: "auth.access_denied", outcome: "denied", metadata: { reason: "not_invited" })
       render_forbidden(INVITE_ONLY_MESSAGE)
       return # rubocop:disable Style/RedundantReturn -- consistent with other early-exits in this method
     end
 
     unless @current_user.personal_access_enabled?
+      Current.user = @current_user
+      AuditLog.record_security_event!(action: "auth.access_denied", actor: @current_user, outcome: "denied", metadata: { reason: "personal_access_disabled" })
       render_forbidden("Personal sign-in is disabled for this staff record. Use the shared kiosk or contact an administrator.")
       return
     end
 
     unless @current_user.is_active?
+      Current.user = @current_user
+      AuditLog.record_security_event!(action: "auth.access_denied", actor: @current_user, outcome: "denied", metadata: { reason: "inactive_user" })
       render_forbidden("Your access has been deactivated. Please contact an administrator.")
+      return
     end
+    Current.user = @current_user
   end
 
   def authenticate_user_optional
@@ -50,8 +61,13 @@ module ClerkAuthenticatable
     decoded = ClerkAuth.verify(token)
     return unless decoded
 
+    set_session_fingerprint(decoded)
+
     resolved_user = resolve_user_from_claims(decoded)
-    @current_user = resolved_user if resolved_user&.is_active? && resolved_user.personal_access_enabled?
+    if resolved_user&.is_active? && resolved_user.personal_access_enabled?
+      @current_user = resolved_user
+      Current.user = resolved_user
+    end
   end
 
   def current_user
@@ -63,6 +79,7 @@ module ClerkAuthenticatable
     return if performed?
 
     unless @current_user&.admin?
+      AuditLog.record_security_event!(action: "authorization.admin_denied", actor: @current_user, outcome: "denied", metadata: { path: request.path })
       render_forbidden("Admin access required")
     end
   end
@@ -72,6 +89,7 @@ module ClerkAuthenticatable
     return if performed?
 
     unless @current_user&.staff?
+      AuditLog.record_security_event!(action: "authorization.staff_denied", actor: @current_user, outcome: "denied", metadata: { path: request.path })
       render_forbidden("Staff access required")
     end
   end
@@ -162,6 +180,11 @@ module ClerkAuthenticatable
   def resolve_user_from_claims(decoded)
     identity = identity_attributes_from(decoded)
     find_or_create_user(**identity)
+  end
+
+  def set_session_fingerprint(decoded)
+    session_identifier = decoded["sid"].presence || decoded["jti"].presence
+    Current.session_fingerprint = Digest::SHA256.hexdigest(session_identifier.to_s) if session_identifier
   end
 
   def log_clerk_activation(user, previous_identity)

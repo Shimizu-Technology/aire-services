@@ -11,6 +11,15 @@ module Api
             kiosk_access_token: params[:kiosk_access_token].to_s
           )
 
+          AuditLog.record!(
+            action: "kiosk.verified",
+            auditable: result[:user],
+            actor: result[:user],
+            event_category: "security",
+            source: "kiosk",
+            metadata: { kiosk_session: "verified" }
+          )
+
           render json: {
             employee: serialize_user(result[:user]),
             kiosk_token: result[:kiosk_token],
@@ -22,6 +31,18 @@ module Api
           if e.message == AireKioskService::INVALID_PIN_MESSAGE && failed_user&.staff? && !failed_user.kiosk_locked?
             failed_user.register_kiosk_failure!
           end
+          AuditLog.record!(
+            action: "kiosk.verification_failed",
+            actor: failed_user,
+            subject_type: "User",
+            subject_id: failed_user&.id || 0,
+            subject_name: failed_user&.full_name || "Unknown employee",
+            event_category: "security",
+            actor_kind: failed_user ? "user" : "system",
+            source: "kiosk",
+            outcome: "failed",
+            metadata: { reason: e.message, account_locked: failed_user&.kiosk_locked? }
+          )
           render json: { error: e.message }, status: :unprocessable_entity
         end
 

@@ -38,9 +38,9 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
 
       audit_log = AuditLog.where(auditable: LeaveRequest.last).order(created_at: :desc).first
       expect(audit_log).to have_attributes(
-        action: "created",
+        action: "leave_request.created",
         user_id: employee.id,
-        metadata: "leave_request=paid_time_off;status=pending"
+        metadata: { "leave_type" => "paid_time_off", "status" => "pending" }
       )
     end
 
@@ -138,9 +138,9 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
 
       audit_log = AuditLog.where(auditable: request_record).order(created_at: :desc).first
       expect(audit_log).to have_attributes(
-        action: "updated",
+        action: "leave_request.approved",
         user_id: admin.id,
-        metadata: "leave_request_status=approved"
+        metadata: { "review_note" => "Approved" }
       )
     end
 
@@ -197,9 +197,9 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
 
       audit_log = AuditLog.where(auditable: request_record).order(created_at: :desc).first
       expect(audit_log).to have_attributes(
-        action: "updated",
+        action: "leave_request.cancelled",
         user_id: employee.id,
-        metadata: "leave_request_status=cancelled"
+        metadata: {}
       )
     end
 
