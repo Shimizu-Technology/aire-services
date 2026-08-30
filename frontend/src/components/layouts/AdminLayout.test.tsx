@@ -9,7 +9,7 @@ import AdminLayout from './AdminLayout'
 const authMock = vi.hoisted(() => ({
   value: {
     isClerkEnabled: true,
-    userRole: 'employee' as const,
+    userRole: 'employee' as 'employee' | 'admin',
     currentUser: {
       full_name: 'Hourly Pilot',
       needs_kiosk_pin_setup: true,
@@ -49,6 +49,7 @@ function renderLayout() {
 
 describe('AdminLayout kiosk PIN setup', () => {
   beforeEach(() => {
+    authMock.value.userRole = 'employee'
     authMock.value.currentUser.needs_kiosk_pin_setup = true
     authMock.value.refreshCurrentUser.mockReset()
     apiMock.setMyKioskPin.mockReset()
@@ -77,5 +78,24 @@ describe('AdminLayout kiosk PIN setup', () => {
 
     expect(screen.queryByRole('dialog', { name: /create your kiosk pin/i })).not.toBeInTheDocument()
     expect(screen.getByText('Dashboard content')).toBeInTheDocument()
+  })
+
+  it('shows Payroll Runs navigation to admins', () => {
+    authMock.value.userRole = 'admin'
+    authMock.value.currentUser.needs_kiosk_pin_setup = false
+
+    renderLayout()
+
+    const payrollLinks = screen.getAllByRole('link', { name: /payroll runs/i })
+    expect(payrollLinks.length).toBeGreaterThan(0)
+    payrollLinks.forEach((link) => expect(link).toHaveAttribute('href', '/admin/payroll'))
+  })
+
+  it('does not show Payroll Runs navigation to non-admin users', () => {
+    authMock.value.currentUser.needs_kiosk_pin_setup = false
+
+    renderLayout()
+
+    expect(screen.queryByRole('link', { name: /payroll runs/i })).not.toBeInTheDocument()
   })
 })

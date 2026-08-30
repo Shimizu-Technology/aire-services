@@ -51,15 +51,20 @@ RSpec.describe TimeClockService, type: :service do
       Setting.set("schedule_required_for_clock_in", "false")
       time_category = create(:time_category)
       UserTimeCategory.create!(user: user, time_category: time_category)
-      connection = ActiveRecord::Base.connection
-      allow(connection).to receive(:execute).and_call_original
-      allow(connection).to receive(:execute).with(/SET LOCAL lock_timeout/).and_raise(ActiveRecord::LockWaitTimeout)
+      locker = independent_database_connection
+      locker.exec("BEGIN")
+      locker.exec("LOCK TABLE time_entries IN SHARE MODE")
+      stub_const("#{described_class}::PUNCH_LOCK_TIMEOUT", "50ms")
 
       expect do
         described_class.clock_in(user: user, time_category_id: time_category.id)
       end.to raise_error(TimeClockService::ClockError, /Payroll is being finalized.*try.*again/i)
 
       expect(user.time_entries).to be_empty
+      expect(AuditLog.where(action: "time_entry.clocked_in")).to be_empty
+    ensure
+      locker&.exec("ROLLBACK")
+      locker&.close
     end
 
     it "blocks clock-in without a schedule when the schedule requirement is enabled" do
@@ -167,6 +172,17 @@ RSpec.describe TimeClockService, type: :service do
       expect(entry).to be_persisted
       expect(entry.status).to eq("clocked_in")
     end
+  end
+
+  def independent_database_connection
+    database_config = ActiveRecord::Base.connection_db_config.configuration_hash
+    PG.connect(
+      host: database_config[:host],
+      port: database_config[:port],
+      user: database_config[:username],
+      password: database_config[:password],
+      dbname: database_config.fetch(:database)
+    )
   end
 
   describe ".clock_out" do

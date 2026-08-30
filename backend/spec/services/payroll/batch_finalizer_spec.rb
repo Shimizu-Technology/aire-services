@@ -358,6 +358,22 @@ RSpec.describe Payroll::BatchFinalizer do
     ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
   end
 
+  it "keeps a committed batch successful when a telemetry subscriber raises" do
+    subscriber = ActiveSupport::Notifications.subscribe("payroll.source_ledger_blocking") do
+      raise "telemetry unavailable"
+    end
+    batch = nil
+
+    expect do
+      batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+    end.not_to raise_error
+
+    expect(batch).to be_persisted
+    expect(PayrollBatch.where(id: batch.id)).to exist
+  ensure
+    ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
+  end
+
   it "preserves the batch snapshot when the finalizing user is later removed" do
     travel_to(guam.local(2026, 5, 16, 9)) do
       create_entry(date: Date.new(2026, 5, 5))

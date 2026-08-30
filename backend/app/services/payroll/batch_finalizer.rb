@@ -110,8 +110,17 @@ module Payroll
         start_date: start_date.to_s,
         end_date: end_date.to_s
       }
-      ActiveSupport::Notifications.instrument("payroll.source_ledger_blocking", details)
-      Rails.logger.info(details.to_json)
+      best_effort { ActiveSupport::Notifications.instrument("payroll.source_ledger_blocking", details) }
+      best_effort { Rails.logger.info(details.to_json) }
+    end
+
+    # Observability runs after the database transaction has committed. A broken
+    # subscriber or log sink must never turn a successful finalization into an
+    # apparent failure that an operator might retry.
+    def best_effort
+      yield
+    rescue StandardError
+      nil
     end
 
     def reject_overlapping_batch!

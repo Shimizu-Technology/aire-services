@@ -399,7 +399,7 @@ class TimeClockService
 
       stale.find_each do |entry|
         begin
-          ActiveRecord::Base.transaction do
+          clock_write_transaction do
             if entry.status == "on_break"
               entry.active_break&.close!
             end
