@@ -118,7 +118,7 @@ module Api
           return render json: { error: "You can only edit your own time entries" }, status: :forbidden
         end
 
-        return unless require_correction_reason_for_exported_entry!
+        return unless require_correction_reason_for_payroll_entry!
 
         old_values = {
           hours: @time_entry.hours.to_f,
@@ -198,7 +198,8 @@ module Api
             metadata: {
               hours: @time_entry.hours.to_f,
               work_date: @time_entry.work_date.iso8601,
-              correction_reason: correction_reason
+              correction_reason: correction_reason,
+              finalized_payroll_batch_ids: finalized_payroll_batches.map(&:public_id).presence
             }.compact
           )
 
@@ -220,7 +221,7 @@ module Api
           return render json: { error: "You can only delete your own time entries" }, status: :forbidden
         end
 
-        return unless require_correction_reason_for_exported_entry!
+        return unless require_correction_reason_for_payroll_entry!
 
         entry_info = "#{@time_entry.hours}h on #{@time_entry.work_date}"
         entry_id = @time_entry.id
@@ -235,7 +236,10 @@ module Api
             subject_id: entry_id,
             subject_name: entry_info,
             event_category: "time_tracking",
-            metadata: { correction_reason: correction_reason }
+            metadata: {
+              correction_reason: correction_reason,
+              finalized_payroll_batch_ids: finalized_payroll_batches.map(&:public_id).presence
+            }.compact
           )
 
           invalidate_payroll_exports!
@@ -504,20 +508,25 @@ module Api
         note.present? ? "#{action}; note: #{note.to_s.strip}" : action
       end
 
-      def require_correction_reason_for_exported_entry!
-        return true if active_payroll_exports.empty?
+      def require_correction_reason_for_payroll_entry!
+        return true if active_payroll_exports.empty? && finalized_payroll_batches.empty?
         return true if correction_reason.present?
 
         render json: {
-          error: "A correction reason is required because this entry was already exported to payroll.",
+          error: "A correction reason is required because this entry was already included in payroll.",
           code: "correction_reason_required",
-          export_references: active_payroll_exports.map(&:public_id)
+          export_references: active_payroll_exports.map(&:public_id),
+          payroll_batch_ids: finalized_payroll_batches.map(&:public_id)
         }, status: :unprocessable_entity
         false
       end
 
       def active_payroll_exports
         @active_payroll_exports ||= ReportExport.active_for_entry(@time_entry.id).order(generated_at: :desc).to_a
+      end
+
+      def finalized_payroll_batches
+        @finalized_payroll_batches ||= @time_entry.finalized_payroll_batches.order(finalized_at: :desc).to_a
       end
 
       def correction_reason
@@ -819,7 +828,6 @@ module Api
           }.merge(current_user.admin? ? { hourly_rate_cents: entry.time_category.hourly_rate_cents, hourly_rate: entry.time_category.hourly_rate } : {}) : nil,
           effective_rate_cents: current_user.admin? ? entry.effective_rate_cents : nil,
           effective_rate: current_user.admin? ? entry.effective_rate : nil,
-          locked_at: entry.locked_at&.iso8601,
           created_at: entry.created_at.iso8601,
           updated_at: entry.updated_at.iso8601
         }

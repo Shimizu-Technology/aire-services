@@ -28,6 +28,7 @@ Rails.application.routes.draw do
 
       namespace :payroll do
         resource :time_summary, only: [ :show ], controller: :time_summaries
+        resources :batches, only: [ :index, :show ]
       end
 
       # Staff/admin routes
@@ -71,6 +72,14 @@ Rails.application.routes.draw do
       namespace :admin do
         resources :audit_logs, only: [ :index ] do
           collection do
+            get :export
+          end
+        end
+        resources :payroll_batches, only: [ :index, :show, :create ] do
+          collection do
+            post :preview
+          end
+          member do
             get :export
           end
         end

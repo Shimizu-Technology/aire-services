@@ -100,6 +100,16 @@ const adminNavigation = [
     ),
   },
   {
+    name: 'Payroll Runs',
+    href: '/admin/payroll',
+    icon: (
+      <NavIcon>
+        <rect x="4" y="4.5" width="16" height="15" rx="2.5" strokeWidth={1.8} />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 9h8M8 13h3.5M15.5 12v4m-2-2h4" />
+      </NavIcon>
+    ),
+  },
+  {
     name: 'Activity History',
     href: '/admin/activity',
     icon: (

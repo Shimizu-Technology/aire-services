@@ -32,6 +32,9 @@ class AuditLogPresenter
     "user.invite_resent" => "Resent an invitation for",
     "user.kiosk_pin_reset" => "Reset kiosk access for",
     "report.exported" => "Exported",
+    "payroll_batch.finalized" => "Finalized",
+    "payroll_batch.exported" => "Exported",
+    "payroll_batch.retrieved" => "Retrieved",
     "audit_history.exported" => "Exported activity history"
   }.freeze
 

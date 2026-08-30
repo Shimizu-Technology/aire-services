@@ -46,6 +46,27 @@ END;
 $$;
 
 
+--
+-- Name: protect_finalized_payroll_records(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_finalized_payroll_records() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'payroll_batches'
+     AND TG_OP = 'UPDATE'
+     AND (to_jsonb(NEW)->>'finalized_by_id') IS NULL
+     AND (to_jsonb(OLD)->>'finalized_by_id') IS NOT NULL
+     AND (to_jsonb(NEW) - 'finalized_by_id') = (to_jsonb(OLD) - 'finalized_by_id') THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'finalized payroll records are append-only';
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -283,6 +304,130 @@ CREATE SEQUENCE public.leave_requests_id_seq
 --
 
 ALTER SEQUENCE public.leave_requests_id_seq OWNED BY public.leave_requests.id;
+
+
+--
+-- Name: payroll_batch_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_batch_entries (
+    id bigint NOT NULL,
+    payroll_batch_id bigint NOT NULL,
+    source_time_entry_id bigint NOT NULL,
+    source_user_id bigint NOT NULL,
+    source_category_id bigint,
+    work_date date NOT NULL,
+    week_start date NOT NULL,
+    total_hours numeric(8,2) DEFAULT 0.0 NOT NULL,
+    regular_hours numeric(8,2) DEFAULT 0.0 NOT NULL,
+    overtime_hours numeric(8,2) DEFAULT 0.0 NOT NULL,
+    effective_rate_cents integer,
+    source_kind character varying NOT NULL,
+    line_key character varying NOT NULL,
+    snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_batch_entries_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_batch_entries_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_batch_entries_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_batch_entries_id_seq OWNED BY public.payroll_batch_entries.id;
+
+
+--
+-- Name: payroll_batch_exclusions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_batch_exclusions (
+    id bigint NOT NULL,
+    payroll_batch_id bigint NOT NULL,
+    source_time_entry_id bigint NOT NULL,
+    source_user_id bigint NOT NULL,
+    reason character varying NOT NULL,
+    held_total_hours numeric(8,2) DEFAULT 0.0 NOT NULL,
+    held_regular_hours numeric(8,2) DEFAULT 0.0 NOT NULL,
+    held_overtime_hours numeric(8,2) DEFAULT 0.0 NOT NULL,
+    first_excluded_batch_public_id character varying,
+    snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_batch_exclusions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_batch_exclusions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_batch_exclusions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_batch_exclusions_id_seq OWNED BY public.payroll_batch_exclusions.id;
+
+
+--
+-- Name: payroll_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_batches (
+    id bigint NOT NULL,
+    public_id character varying NOT NULL,
+    start_date date NOT NULL,
+    end_date date NOT NULL,
+    cutoff_at timestamp(6) without time zone NOT NULL,
+    finalized_at timestamp(6) without time zone NOT NULL,
+    finalized_by_id bigint,
+    schema_version character varying DEFAULT '2.0'::character varying NOT NULL,
+    checksum character varying NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    summary jsonb DEFAULT '{}'::jsonb NOT NULL,
+    issues jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_batches_date_order CHECK ((end_date >= start_date))
+);
+
+
+--
+-- Name: payroll_batches_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_batches_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_batches_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_batches_id_seq OWNED BY public.payroll_batches.id;
 
 
 --
@@ -545,7 +690,6 @@ CREATE TABLE public.time_entries (
     end_time time without time zone,
     entry_method character varying DEFAULT 'manual'::character varying NOT NULL,
     hours numeric(4,2) NOT NULL,
-    locked_at timestamp(6) without time zone,
     overtime_approved_at timestamp(6) without time zone,
     overtime_approved_by_id bigint,
     overtime_note text,
@@ -612,41 +756,6 @@ CREATE SEQUENCE public.time_entry_breaks_id_seq
 --
 
 ALTER SEQUENCE public.time_entry_breaks_id_seq OWNED BY public.time_entry_breaks.id;
-
-
---
--- Name: time_period_locks; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.time_period_locks (
-    id bigint NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    end_date date NOT NULL,
-    locked_at timestamp(6) without time zone NOT NULL,
-    locked_by_id bigint NOT NULL,
-    reason text,
-    start_date date NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
-);
-
-
---
--- Name: time_period_locks_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.time_period_locks_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: time_period_locks_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.time_period_locks_id_seq OWNED BY public.time_period_locks.id;
 
 
 --
@@ -817,6 +926,27 @@ ALTER TABLE ONLY public.leave_requests ALTER COLUMN id SET DEFAULT nextval('publ
 
 
 --
+-- Name: payroll_batch_entries id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_entries ALTER COLUMN id SET DEFAULT nextval('public.payroll_batch_entries_id_seq'::regclass);
+
+
+--
+-- Name: payroll_batch_exclusions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_exclusions ALTER COLUMN id SET DEFAULT nextval('public.payroll_batch_exclusions_id_seq'::regclass);
+
+
+--
+-- Name: payroll_batches id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batches ALTER COLUMN id SET DEFAULT nextval('public.payroll_batches_id_seq'::regclass);
+
+
+--
 -- Name: report_exports id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -870,13 +1000,6 @@ ALTER TABLE ONLY public.time_entries ALTER COLUMN id SET DEFAULT nextval('public
 --
 
 ALTER TABLE ONLY public.time_entry_breaks ALTER COLUMN id SET DEFAULT nextval('public.time_entry_breaks_id_seq'::regclass);
-
-
---
--- Name: time_period_locks id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.time_period_locks ALTER COLUMN id SET DEFAULT nextval('public.time_period_locks_id_seq'::regclass);
 
 
 --
@@ -957,6 +1080,30 @@ ALTER TABLE ONLY public.leave_requests
 
 
 --
+-- Name: payroll_batch_entries payroll_batch_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_entries
+    ADD CONSTRAINT payroll_batch_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_batch_exclusions payroll_batch_exclusions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_exclusions
+    ADD CONSTRAINT payroll_batch_exclusions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_batches payroll_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batches
+    ADD CONSTRAINT payroll_batches_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: report_exports report_exports_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1026,14 +1173,6 @@ ALTER TABLE ONLY public.time_entries
 
 ALTER TABLE ONLY public.time_entry_breaks
     ADD CONSTRAINT time_entry_breaks_pkey PRIMARY KEY (id);
-
-
---
--- Name: time_period_locks time_period_locks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.time_period_locks
-    ADD CONSTRAINT time_period_locks_pkey PRIMARY KEY (id);
 
 
 --
@@ -1285,6 +1424,83 @@ CREATE INDEX index_leave_requests_on_user_id_and_start_date ON public.leave_requ
 
 
 --
+-- Name: index_payroll_batch_entries_on_batch_source_line; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_batch_entries_on_batch_source_line ON public.payroll_batch_entries USING btree (payroll_batch_id, source_time_entry_id, line_key);
+
+
+--
+-- Name: index_payroll_batch_entries_on_payroll_batch_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batch_entries_on_payroll_batch_id ON public.payroll_batch_entries USING btree (payroll_batch_id);
+
+
+--
+-- Name: index_payroll_batch_entries_on_source_time_entry_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batch_entries_on_source_time_entry_id ON public.payroll_batch_entries USING btree (source_time_entry_id);
+
+
+--
+-- Name: index_payroll_batch_entries_on_user_and_week; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batch_entries_on_user_and_week ON public.payroll_batch_entries USING btree (source_user_id, week_start);
+
+
+--
+-- Name: index_payroll_batch_exclusions_on_batch_source_reason; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_batch_exclusions_on_batch_source_reason ON public.payroll_batch_exclusions USING btree (payroll_batch_id, source_time_entry_id, reason);
+
+
+--
+-- Name: index_payroll_batch_exclusions_on_payroll_batch_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batch_exclusions_on_payroll_batch_id ON public.payroll_batch_exclusions USING btree (payroll_batch_id);
+
+
+--
+-- Name: index_payroll_batch_exclusions_on_source_time_entry_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batch_exclusions_on_source_time_entry_id ON public.payroll_batch_exclusions USING btree (source_time_entry_id);
+
+
+--
+-- Name: index_payroll_batches_on_cutoff_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batches_on_cutoff_at ON public.payroll_batches USING btree (cutoff_at);
+
+
+--
+-- Name: index_payroll_batches_on_finalized_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batches_on_finalized_by_id ON public.payroll_batches USING btree (finalized_by_id);
+
+
+--
+-- Name: index_payroll_batches_on_public_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_batches_on_public_id ON public.payroll_batches USING btree (public_id);
+
+
+--
+-- Name: index_payroll_batches_on_start_date_and_end_date; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_batches_on_start_date_and_end_date ON public.payroll_batches USING btree (start_date, end_date);
+
+
+--
 -- Name: index_report_exports_on_checksum; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1509,20 +1725,6 @@ CREATE UNIQUE INDEX index_time_entry_breaks_one_active_per_entry ON public.time_
 
 
 --
--- Name: index_time_period_locks_on_locked_by_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX index_time_period_locks_on_locked_by_id ON public.time_period_locks USING btree (locked_by_id);
-
-
---
--- Name: index_time_period_locks_on_start_date_and_end_date; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX index_time_period_locks_on_start_date_and_end_date ON public.time_period_locks USING btree (start_date, end_date);
-
-
---
 -- Name: index_user_approval_groups_on_approval_group; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1663,6 +1865,27 @@ CREATE TRIGGER audit_logs_append_only BEFORE DELETE OR UPDATE ON public.audit_lo
 
 
 --
+-- Name: payroll_batch_entries payroll_batch_entries_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_batch_entries_append_only BEFORE DELETE OR UPDATE ON public.payroll_batch_entries FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_batch_exclusions payroll_batch_exclusions_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_batch_exclusions_append_only BEFORE DELETE OR UPDATE ON public.payroll_batch_exclusions FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_batches payroll_batches_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_batches_append_only BEFORE DELETE OR UPDATE ON public.payroll_batches FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
 -- Name: time_entries fk_rails_1a91ee6a57; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1684,6 +1907,14 @@ ALTER TABLE ONLY public.audit_logs
 
 ALTER TABLE ONLY public.user_approval_groups
     ADD CONSTRAINT fk_rails_29637a3180 FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: payroll_batch_entries fk_rails_2daa69183f; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_entries
+    ADD CONSTRAINT fk_rails_2daa69183f FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE CASCADE;
 
 
 --
@@ -1751,11 +1982,11 @@ ALTER TABLE ONLY public.time_entries
 
 
 --
--- Name: time_period_locks fk_rails_723841e082; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: payroll_batches fk_rails_634c1f225c; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.time_period_locks
-    ADD CONSTRAINT fk_rails_723841e082 FOREIGN KEY (locked_by_id) REFERENCES public.users(id);
+ALTER TABLE ONLY public.payroll_batches
+    ADD CONSTRAINT fk_rails_634c1f225c FOREIGN KEY (finalized_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
 
 --
@@ -1823,6 +2054,14 @@ ALTER TABLE ONLY public.report_exports
 
 
 --
+-- Name: payroll_batch_exclusions fk_rails_ce85143575; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_exclusions
+    ADD CONSTRAINT fk_rails_ce85143575 FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE CASCADE;
+
+
+--
 -- Name: time_entries fk_rails_e358f238b8; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1845,6 +2084,8 @@ ALTER TABLE ONLY public.schedules
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260831011000'),
+('20260831010000'),
 ('20260830151000'),
 ('20260830150000'),
 ('20260829013000'),

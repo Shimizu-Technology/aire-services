@@ -18,7 +18,6 @@ class User < ApplicationRecord
   has_many :cancelled_leave_requests, class_name: "LeaveRequest", foreign_key: "cancelled_by_id", dependent: :nullify
   has_many :schedules, dependent: :nullify
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
-  has_many :time_period_locks, foreign_key: "locked_by_id", dependent: :nullify
   has_many :generated_report_exports, class_name: "ReportExport", foreign_key: "generated_by_id", dependent: :nullify
   has_many :employee_pay_rates, dependent: :destroy
   has_many :user_time_categories, dependent: :destroy

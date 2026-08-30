@@ -555,7 +555,6 @@ export interface TimeEntry {
     key?: string | null;
     name: string;
   } | null;
-  locked_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -810,7 +809,6 @@ export interface HoursReportEntry {
   approved_by: { id: number; full_name: string } | null;
   approved_at: string | null;
   overtime_status: string | null;
-  locked_at: string | null;
   time_category: { id: number; key?: string | null; name: string } | null;
   breaks: Array<{ id: number; start_time: string | null; end_time: string | null; duration_minutes: number | null }>;
 }
@@ -985,6 +983,111 @@ export interface AuditLogResponse {
   audit_logs: AuditLogEntry[];
   pagination: { page: number; per_page: number; total: number; total_pages: number };
   filters: { event_categories: string[]; sources: string[]; outcomes: string[] };
+}
+
+export interface PayrollBatchSummary {
+  employee_count: number;
+  adjustment_count: number;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  current_count: number;
+  carryover_count: number;
+  correction_count: number;
+  exclusion_count: number;
+}
+
+export interface PayrollBatchIssues {
+  missing_category_count: number;
+  missing_rate_count: number;
+  negative_adjustment_count: number;
+  pending_approval_count: number;
+  denied_approval_count: number;
+  open_clock_count: number;
+  pending_overtime_count: number;
+  denied_overtime_count: number;
+}
+
+export interface PayrollBatchAdjustment {
+  source_time_entry_id: string;
+  line_key: string;
+  source_kind: 'current' | 'carryover' | 'correction';
+  original_work_date: string;
+  original_week_start: string;
+  source_category_id: string | null;
+  category: { id: number; key: string | null; name: string } | null;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  effective_rate_cents: number | null;
+}
+
+export interface PayrollBatchEmployee {
+  source_user_id: string;
+  email: string | null;
+  display_name: string;
+  adjustments: PayrollBatchAdjustment[];
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+}
+
+export interface PayrollBatchExclusion {
+  source_time_entry_id: string;
+  source_user_id: string;
+  display_name: string;
+  email: string | null;
+  category: { id: number; key: string | null; name: string } | null;
+  reason: string;
+  original_work_date: string;
+  held_total_hours: number;
+  held_regular_hours: number;
+  held_overtime_hours: number;
+  first_excluded_batch_id: string;
+}
+
+export interface PayrollBatchPayload {
+  schema_version: string;
+  source: string;
+  batch_id: string;
+  start_date: string;
+  end_date: string;
+  cutoff_at: string;
+  generated_at: string;
+  employees: PayrollBatchEmployee[];
+  exclusions: PayrollBatchExclusion[];
+  issues: PayrollBatchIssues;
+  summary: PayrollBatchSummary;
+  preview?: boolean;
+  can_finalize?: boolean;
+  requires_negative_adjustment_acknowledgement?: boolean;
+  negative_adjustment_acknowledgement?: string;
+  export?: {
+    id: string;
+    batch_id: string;
+    checksum: string;
+    checksum_algorithm: 'SHA-256';
+    checksum_scope: 'payload_without_export';
+    readiness_status: 'finalized';
+    cutoff_at: string;
+    finalized_at: string;
+  };
+}
+
+export interface PayrollBatchListItem {
+  id: string;
+  start_date: string;
+  end_date: string;
+  cutoff_at: string;
+  finalized_at: string;
+  finalized_by: { id: number; name: string } | null;
+  checksum: string;
+  summary: PayrollBatchSummary;
+  issues: PayrollBatchIssues;
+}
+
+export interface PayrollBatchDetail extends PayrollBatchListItem {
+  payload: PayrollBatchPayload;
 }
 
 // Schedule Types
@@ -1519,6 +1622,32 @@ export const api = {
     const query = searchParams.toString();
     return fetchDownload(`/api/v1/admin/audit_logs/export${query ? `?${query}` : ''}`);
   },
+
+  // Finalized payroll batches
+  getPayrollBatches: () =>
+    fetchApi<{ payroll_batches: PayrollBatchListItem[] }>('/api/v1/admin/payroll_batches'),
+
+  getPayrollBatch: (id: string) =>
+    fetchApi<PayrollBatchDetail>(`/api/v1/admin/payroll_batches/${encodeURIComponent(id)}`),
+
+  previewPayrollBatch: (startDate: string, endDate: string) =>
+    fetchApi<PayrollBatchPayload>('/api/v1/admin/payroll_batches/preview', {
+      method: 'POST',
+      body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+    }),
+
+  finalizePayrollBatch: (payload: {
+    start_date: string;
+    end_date: string;
+    acknowledge_negative_adjustments?: boolean;
+    negative_adjustment_note?: string;
+  }) => fetchApi<PayrollBatchDetail>('/api/v1/admin/payroll_batches', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
+  downloadPayrollBatch: (id: string) =>
+    fetchDownload(`/api/v1/admin/payroll_batches/${encodeURIComponent(id)}/export`),
 
   // Schedules
   getSchedules: (params?: {

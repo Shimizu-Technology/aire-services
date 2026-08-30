@@ -73,19 +73,6 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(employee_row.fetch(:weeks).first.fetch(:context_hours)).to eq(40.0)
   end
 
-  it "includes locked_at for period-locked report entries" do
-    locked_at = Time.zone.parse("2026-05-20 10:00:00")
-    create_entry(user: employee, date: Date.new(2026, 5, 4), hours: 5).update!(locked_at: locked_at)
-
-    get "/api/v1/admin/hours_report",
-        params: { start_date: "2026-05-01", end_date: "2026-05-15" },
-        headers: auth_headers
-
-    expect(response).to have_http_status(:ok)
-    entry_row = json.dig(:employees, 0, :days, 0, :entries, 0)
-    expect(entry_row.fetch(:locked_at)).to eq(locked_at.iso8601)
-  end
-
   it "filters reports by department" do
     other_employee = create(:user, :employee, first_name: "Bob", last_name: "Ops", approval_group: "ops_maintenance")
     create_entry(user: employee, date: Date.new(2026, 5, 4), hours: 5)

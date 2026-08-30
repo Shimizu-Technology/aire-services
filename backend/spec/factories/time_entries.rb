@@ -8,9 +8,5 @@ FactoryBot.define do
     end_time { ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 17, 0, 0) }
     hours { 8.0 }
     description { "Test work" }
-
-    trait :locked do
-      locked_at { Time.current }
-    end
   end
 end

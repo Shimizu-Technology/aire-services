@@ -22,7 +22,8 @@ class AuditRecordSnapshot
     "EmployeePayRate" => %w[user_id time_category_id hourly_rate_cents],
     "Setting" => %w[key value],
     "SiteMedia" => %w[title alt_text caption placement media_type external_url sort_order active featured],
-    "ReportExport" => %w[export_type readiness_status state start_date end_date checksum protects_entries]
+    "ReportExport" => %w[export_type readiness_status state start_date end_date checksum protects_entries],
+    "PayrollBatch" => %w[public_id start_date end_date cutoff_at finalized_at checksum]
   }.freeze
   SENSITIVE_PATTERN = /(password|pin|token|secret|digest|lookup_hash|authorization|cookie|cipher|routing|account)/i
 

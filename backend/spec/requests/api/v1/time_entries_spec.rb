@@ -195,6 +195,35 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         expect(audit.metadata.fetch("correction_reason")).to eq("Employee confirmed the shift ended earlier.")
       end
 
+      it "requires a reason for a correction after the entry is in a finalized payroll batch" do
+        entry.update!(time_category: time_category, status: "completed", approval_status: nil)
+        batch = Payroll::BatchFinalizer.new(
+          start_date: entry.work_date,
+          end_date: entry.work_date,
+          actor: admin
+        ).call
+
+        patch "/api/v1/time_entries/#{entry.id}",
+              params: { time_entry: { description: "corrected after payroll" } },
+              headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(json.fetch(:code)).to eq("correction_reason_required")
+        expect(json.fetch(:payroll_batch_ids)).to eq([ batch.public_id ])
+
+        patch "/api/v1/time_entries/#{entry.id}",
+              params: {
+                time_entry: { description: "corrected after payroll" },
+                correction_reason: "Manager verified the correction"
+              },
+              headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:ok)
+        expect(batch.reload.checksum).to be_present
+        audit = AuditLog.where(auditable: entry, action: "time_entry.updated").order(:id).last
+        expect(audit.metadata.fetch("finalized_payroll_batch_ids")).to eq([ batch.public_id ])
+      end
+
       it "rolls back the entry and audit log when export invalidation fails" do
         create_protecting_export(entry)
         original_description = entry.description
@@ -456,28 +485,6 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         expect(response).to have_http_status(:not_found)
       end
     end
-
-    context "legacy locked entry marker" do
-      let!(:locked_entry) { create(:time_entry, :locked, user: employee) }
-
-      it "does not block the owner from editing" do
-        patch "/api/v1/time_entries/#{locked_entry.id}",
-              params: { time_entry: { description: "nope" } },
-              headers: auth_headers_for[employee]
-
-        expect(response).to have_http_status(:ok)
-        expect(locked_entry.reload.description).to eq("nope")
-      end
-
-      it "does not block an admin from editing" do
-        patch "/api/v1/time_entries/#{locked_entry.id}",
-              params: { time_entry: { description: "nope" } },
-              headers: auth_headers_for[admin]
-
-        expect(response).to have_http_status(:ok)
-        expect(locked_entry.reload.description).to eq("nope")
-      end
-    end
   end
 
   # ── DESTROY ──────────────────────────────────────────────────────────
@@ -521,26 +528,6 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
                headers: auth_headers_for[other_employee]
 
         expect(response).to have_http_status(:not_found)
-      end
-    end
-
-    context "legacy locked entry marker" do
-      let!(:locked_entry) { create(:time_entry, :locked, user: employee) }
-
-      it "does not block the owner from deleting" do
-        delete "/api/v1/time_entries/#{locked_entry.id}",
-               headers: auth_headers_for[employee]
-
-        expect(response).to have_http_status(:no_content)
-        expect(TimeEntry.exists?(locked_entry.id)).to be(false)
-      end
-
-      it "does not block an admin from deleting" do
-        delete "/api/v1/time_entries/#{locked_entry.id}",
-               headers: auth_headers_for[admin]
-
-        expect(response).to have_http_status(:no_content)
-        expect(TimeEntry.exists?(locked_entry.id)).to be(false)
       end
     end
   end
@@ -597,73 +584,9 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
     end
   end
 
-  # ── RETIRED PERIOD LOCK BEHAVIOR ─────────────────────────────────────
-  describe "legacy period lock records" do
-    let(:week_start) { Date.current.beginning_of_week(:sunday) }
-    let!(:period_lock) do
-      create(:time_period_lock, start_date: week_start, end_date: week_start + 6.days, locked_by: admin)
-    end
-
-    it "does not block create inside the old date range" do
-      post "/api/v1/time_entries",
-           params: {
-             time_entry: {
-               work_date: week_start.iso8601,
-               start_time: "09:00",
-               end_time: "17:00",
-               description: "locked period create"
-             }
-           },
-           headers: auth_headers_for[employee]
-
-      expect(response).to have_http_status(:created)
-    end
-
-    it "does not block update inside the old date range" do
-      entry = create(:time_entry, user: employee, work_date: week_start)
-
-      patch "/api/v1/time_entries/#{entry.id}",
-            params: { time_entry: { description: "nope" } },
-            headers: auth_headers_for[admin]
-
-      expect(response).to have_http_status(:ok)
-      expect(entry.reload.description).to eq("nope")
-    end
-
-    it "does not block destroy inside the old date range" do
-      entry = create(:time_entry, user: employee, work_date: week_start)
-
-      delete "/api/v1/time_entries/#{entry.id}",
-             headers: auth_headers_for[admin]
-
-      expect(response).to have_http_status(:no_content)
-      expect(TimeEntry.exists?(entry.id)).to be(false)
-    end
-  end
-
   # ── SHOW ─────────────────────────────────────────────────────────────
   describe "GET /api/v1/time_entries/:id" do
     let!(:entry) { create(:time_entry, user: employee) }
-
-    it "includes locked_at in the response" do
-      get "/api/v1/time_entries/#{entry.id}",
-          headers: auth_headers_for[employee]
-
-      expect(response).to have_http_status(:ok)
-      expect(json[:time_entry]).to have_key(:locked_at)
-      expect(json[:time_entry][:locked_at]).to be_nil
-    end
-
-    context "locked entry" do
-      let!(:locked_entry) { create(:time_entry, :locked, user: employee) }
-
-      it "returns locked_at timestamp" do
-        get "/api/v1/time_entries/#{locked_entry.id}",
-            headers: auth_headers_for[employee]
-
-        expect(json[:time_entry][:locked_at]).to be_present
-      end
-    end
 
     it "includes user info with display_name" do
       get "/api/v1/time_entries/#{entry.id}",
