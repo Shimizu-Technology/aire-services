@@ -9,6 +9,7 @@ module Api
         EXPORT_BATCH_SIZE = 1_000
         EXPORT_ROW_LIMIT = 50_000
         EXPORT_MAX_WINDOW_DAYS = 366
+        BUSINESS_TIME_ZONE = ActiveSupport::TimeZone["Guam"]
 
         before_action :require_admin!
 
@@ -83,7 +84,7 @@ module Api
         end
 
         def parsed_time(value, beginning:)
-          parsed = Time.zone.parse(value.to_s)
+          parsed = BUSINESS_TIME_ZONE.parse(value.to_s)
           raise ArgumentError if parsed.nil?
 
           beginning ? parsed.beginning_of_day : parsed.end_of_day
@@ -200,7 +201,7 @@ module Api
           from = Date.iso8601(params[:from].to_s)
           to = Date.iso8601(params[:to].to_s)
           raise ActionController::BadRequest, "Export end date must be on or after the start date" if to < from
-          if (to - from).to_i > EXPORT_MAX_WINDOW_DAYS
+          if (to - from).to_i >= EXPORT_MAX_WINDOW_DAYS
             raise ActionController::BadRequest, "Activity history exports may not exceed #{EXPORT_MAX_WINDOW_DAYS} days"
           end
         rescue Date::Error

@@ -17,23 +17,30 @@ class AddAuditLogIndexes < ActiveRecord::Migration[8.1]
     enable_extension "pg_trgm" unless extension_enabled?("pg_trgm")
 
     STANDARD_INDEXES.each do |index|
+      drop_invalid_index(index[:name])
       next if index_name_exists?(:audit_logs, index[:name])
 
       add_index :audit_logs, index[:columns], name: index[:name], algorithm: :concurrently
     end
-    unless index_name_exists?(:audit_logs, "index_audit_logs_on_action_and_session_fingerprint")
+    session_index_name = "index_audit_logs_on_action_and_session_fingerprint"
+    drop_invalid_index(session_index_name)
+    unless index_name_exists?(:audit_logs, session_index_name)
       add_index :audit_logs, [ :action, :session_fingerprint ], unique: true,
                 where: "session_fingerprint IS NOT NULL",
-                name: "index_audit_logs_on_action_and_session_fingerprint",
+                name: session_index_name,
                 algorithm: :concurrently
     end
     SEARCH_COLUMNS.each do |column|
-      next if index_name_exists?(:audit_logs, "index_audit_logs_on_#{column}_trigram")
+      index_name = "index_audit_logs_on_#{column}_trigram"
+      drop_invalid_index(index_name)
+      next if index_name_exists?(:audit_logs, index_name)
 
       add_index :audit_logs, column, using: :gin, opclass: :gin_trgm_ops,
-                name: "index_audit_logs_on_#{column}_trigram", algorithm: :concurrently
+                name: index_name, algorithm: :concurrently
     end
-    unless index_name_exists?(:audit_logs, "index_audit_logs_on_normalized_type_trigram")
+    normalized_index_name = "index_audit_logs_on_normalized_type_trigram"
+    drop_invalid_index(normalized_index_name)
+    unless index_name_exists?(:audit_logs, normalized_index_name)
       execute <<~SQL
         CREATE INDEX CONCURRENTLY index_audit_logs_on_normalized_type_trigram
         ON audit_logs
@@ -45,11 +52,27 @@ class AddAuditLogIndexes < ActiveRecord::Migration[8.1]
   def down
     execute "DROP INDEX CONCURRENTLY IF EXISTS index_audit_logs_on_normalized_type_trigram"
     SEARCH_COLUMNS.reverse_each do |column|
-      remove_index :audit_logs, name: "index_audit_logs_on_#{column}_trigram", algorithm: :concurrently
+      remove_index :audit_logs, name: "index_audit_logs_on_#{column}_trigram", algorithm: :concurrently, if_exists: true
     end
-    remove_index :audit_logs, name: "index_audit_logs_on_action_and_session_fingerprint", algorithm: :concurrently
+    remove_index :audit_logs, name: "index_audit_logs_on_action_and_session_fingerprint", algorithm: :concurrently, if_exists: true
     STANDARD_INDEXES.reverse_each do |index|
-      remove_index :audit_logs, name: index[:name], algorithm: :concurrently
+      remove_index :audit_logs, name: index[:name], algorithm: :concurrently, if_exists: true
     end
+  end
+
+  private
+
+  def drop_invalid_index(index_name)
+    valid = connection.select_value(<<~SQL.squish)
+      SELECT pg_index.indisvalid
+      FROM pg_index
+      INNER JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+      INNER JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+      WHERE pg_class.relname = #{connection.quote(index_name)}
+        AND pg_namespace.nspname = ANY (current_schemas(false))
+    SQL
+    return unless valid == false
+
+    execute "DROP INDEX CONCURRENTLY #{connection.quote_table_name(index_name)}"
   end
 end

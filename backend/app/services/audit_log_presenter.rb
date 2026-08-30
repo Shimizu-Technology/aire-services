@@ -32,7 +32,7 @@ class AuditLogPresenter
     "user.invite_resent" => "Resent an invitation for",
     "user.kiosk_pin_reset" => "Reset kiosk access for",
     "report.exported" => "Exported",
-    "audit_history.exported" => "Exported activity history for"
+    "audit_history.exported" => "Exported activity history"
   }.freeze
 
   attr_reader :audit_log

@@ -5,7 +5,7 @@ module Auditable
 
   SAFE_METHODS = %w[GET HEAD OPTIONS].freeze
   AUDITED_SUBJECT_VARIABLES = %i[@user @time_entry @leave_request @schedule @category @site_media].freeze
-  FILTERED_PARAM_PATTERN = /(password|pin|token|secret|digest|hash|authorization|cookie|file|photo|upload)/i
+  FILTERED_PARAM_PATTERN = /(?:\A|_)(password|pin|token|secret|digest|hash|authorization|cookie|file|photo|upload)(?:_|\z)/i
 
   included do
     around_action :audit_request

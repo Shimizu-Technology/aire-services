@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, type AuditLogEntry, type AuditLogFilters } from '../../lib/api'
+import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
 
 const CATEGORY_LABELS: Record<string, string> = {
   activity: 'General activity',
@@ -36,15 +37,18 @@ function valueText(value: unknown) {
 }
 
 function subjectScope(searchParams: URLSearchParams) {
+  const subjectType = searchParams.get('subject_type')?.trim()
   const subjectId = Number.parseInt(searchParams.get('subject_id') || '', 10)
+  if (!subjectType || !Number.isFinite(subjectId) || subjectId <= 0) return {}
+
   return {
-    subject_type: searchParams.get('subject_type') || undefined,
-    subject_id: Number.isFinite(subjectId) && subjectId > 0 ? subjectId : undefined,
+    subject_type: subjectType,
+    subject_id: subjectId,
   }
 }
 
 function boundedExportFilters(filters: AuditLogFilters): AuditLogFilters {
-  const to = filters.to || new Date().toISOString().slice(0, 10)
+  const to = filters.to || formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')
   const fromDate = new Date(`${to}T00:00:00Z`)
   fromDate.setUTCDate(fromDate.getUTCDate() - 90)
   return { ...filters, from: filters.from || fromDate.toISOString().slice(0, 10), to }
@@ -156,13 +160,13 @@ export default function ActivityHistory() {
   const requestSequence = useRef(0)
   const searchDebounceMounted = useRef(false)
 
-  const routeSubjectType = searchParams.get('subject_type') || undefined
-  const routeSubjectIdValue = Number.parseInt(searchParams.get('subject_id') || '', 10)
-  const routeSubjectId = Number.isFinite(routeSubjectIdValue) && routeSubjectIdValue > 0 ? routeSubjectIdValue : undefined
+  const routeScope = useMemo(() => subjectScope(searchParams), [searchParams])
+  const routeSubjectType = routeScope.subject_type
+  const routeSubjectId = routeScope.subject_id
   const effectiveFilters = useMemo(() => ({
     ...filters,
-    ...subjectScope(searchParams),
-  }), [filters, searchParams])
+    ...routeScope,
+  }), [filters, routeScope])
 
   useEffect(() => {
     if (!searchDebounceMounted.current) {

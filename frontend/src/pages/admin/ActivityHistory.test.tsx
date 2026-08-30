@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
 import ActivityHistory from './ActivityHistory'
 
 const apiMock = vi.hoisted(() => ({
@@ -103,6 +104,19 @@ describe('ActivityHistory', () => {
     })))
   })
 
+  it.each([
+    '/admin/activity?subject_type=TimeEntry',
+    '/admin/activity?subject_id=44',
+    '/admin/activity?subject_type=TimeEntry&subject_id=invalid',
+  ])('ignores incomplete record scope in %s', async (initialEntry) => {
+    renderPage(initialEntry)
+    await screen.findByText(event.summary)
+
+    expect(apiMock.getAuditLogs).toHaveBeenCalledWith(expect.not.objectContaining({ subject_type: 'TimeEntry' }))
+    expect(apiMock.getAuditLogs).toHaveBeenCalledWith(expect.not.objectContaining({ subject_id: 44 }))
+    expect(screen.queryByText(/Showing history for/)).not.toBeInTheDocument()
+  })
+
   it('adds a bounded default date window to CSV exports', async () => {
     apiMock.downloadAuditLogs.mockResolvedValue({ error: 'test download stopped' })
     renderPage()
@@ -114,5 +128,9 @@ describe('ActivityHistory', () => {
       from: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     })))
+  })
+
+  it('uses the current Guam calendar date for the default export boundary', () => {
+    expect(formatDateInTimeZoneISO(new Date('2026-08-30T14:30:00Z'), 'Pacific/Guam')).toBe('2026-08-31')
   })
 })

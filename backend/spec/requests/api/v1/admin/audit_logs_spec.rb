@@ -107,6 +107,18 @@ RSpec.describe "Api::V1::Admin::AuditLogs", type: :request do
     expect(response).to have_http_status(:bad_request)
   end
 
+  it "accepts 366 inclusive days and rejects 367 inclusive days" do
+    get "/api/v1/admin/audit_logs/export",
+        params: { from: "2026-01-01", to: "2027-01-01" },
+        headers: auth_headers_for[admin]
+    expect(response).to have_http_status(:ok)
+
+    get "/api/v1/admin/audit_logs/export",
+        params: { from: "2026-01-01", to: "2027-01-02" },
+        headers: auth_headers_for[admin]
+    expect(response).to have_http_status(:bad_request)
+  end
+
   it "rejects exports above the row limit" do
     stub_const("Api::V1::Admin::AuditLogsController::EXPORT_ROW_LIMIT", 1)
 
