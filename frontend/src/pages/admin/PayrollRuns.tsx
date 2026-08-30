@@ -245,9 +245,13 @@ export default function PayrollRuns() {
   const [error, setError] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
+  const historyRequestSequence = useRef(0)
 
   const loadBatches = useCallback(async () => {
+    const requestSequence = ++historyRequestSequence.current
     const response = await api.getPayrollBatches()
+    if (requestSequence !== historyRequestSequence.current) return
+
     if (response.data) {
       setBatches(response.data.payroll_batches)
       setHistoryError(null)

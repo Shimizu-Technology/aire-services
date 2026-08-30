@@ -1,20 +1,28 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
-import { ReceiptText, type LucideIcon } from 'lucide-react'
+import {
+  CalendarDays,
+  Clock3,
+  History,
+  House,
+  Image,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ReceiptText,
+  Settings,
+  UserRound,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 
-function NavIcon({ children, icon: Icon }: { children?: ReactNode; icon?: LucideIcon }) {
+function NavIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition group-hover:border-cyan-200 group-hover:text-cyan-700 group-focus-visible:border-cyan-200 group-focus-visible:text-cyan-700">
-      {Icon ? (
-        <Icon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
-      ) : (
-        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          {children}
-        </svg>
-      )}
+      <Icon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
     </span>
   )
 }
@@ -23,32 +31,17 @@ const employeeNavigation = [
   {
     name: 'My Dashboard',
     href: '/admin',
-    icon: (
-      <NavIcon>
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3.75 10.5 12 4l8.25 6.5v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5V10.5Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 20.25v-6h6v6" />
-      </NavIcon>
-    ),
+    icon: House,
   },
   {
     name: 'My Time',
     href: '/admin/time',
-    icon: (
-      <NavIcon>
-        <circle cx="12" cy="12" r="8.25" strokeWidth={1.8} />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 7.5v4.75l3 1.75" />
-      </NavIcon>
-    ),
+    icon: Clock3,
   },
   {
     name: 'Schedule',
     href: '/admin/schedule',
-    icon: (
-      <NavIcon>
-        <rect x="4" y="5.5" width="16" height="14" rx="2.5" strokeWidth={1.8} />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 3.75v3.5M16 3.75v3.5M4 9.25h16" />
-      </NavIcon>
-    ),
+    icon: CalendarDays,
   },
 ]
 
@@ -56,77 +49,42 @@ const adminNavigation = [
   {
     name: 'Dashboard',
     href: '/admin',
-    icon: (
-      <NavIcon>
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3.75 10.5 12 4l8.25 6.5v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5V10.5Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 20.25v-6h6v6" />
-      </NavIcon>
-    ),
+    icon: House,
   },
   {
     name: 'Time Tracking',
     href: '/admin/time',
-    icon: (
-      <NavIcon>
-        <circle cx="12" cy="12" r="8.25" strokeWidth={1.8} />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 7.5v4.75l3 1.75" />
-      </NavIcon>
-    ),
+    icon: Clock3,
   },
   {
     name: 'Schedule',
     href: '/admin/schedule',
-    icon: (
-      <NavIcon>
-        <rect x="4" y="5.5" width="16" height="14" rx="2.5" strokeWidth={1.8} />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 3.75v3.5M16 3.75v3.5M4 9.25h16" />
-      </NavIcon>
-    ),
+    icon: CalendarDays,
   },
   {
     name: 'Users',
     href: '/admin/users',
-    icon: (
-      <NavIcon>
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M16.5 19.25v-1.5a3.5 3.5 0 0 0-3.5-3.5h-2a3.5 3.5 0 0 0-3.5 3.5v1.5" />
-        <circle cx="12" cy="9" r="3.25" strokeWidth={1.8} />
-      </NavIcon>
-    ),
+    icon: UserRound,
   },
   {
     name: 'Media',
     href: '/admin/media',
-    icon: (
-      <NavIcon>
-        <rect x="4" y="5" width="16" height="14" rx="2.5" strokeWidth={1.8} />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="m7.5 15 3.1-3.1a1.2 1.2 0 0 1 1.7 0L16.5 16" />
-        <circle cx="16" cy="9" r="1.3" strokeWidth={1.8} />
-      </NavIcon>
-    ),
+    icon: Image,
   },
   {
     name: 'Payroll Runs',
     href: '/admin/payroll',
-    icon: <NavIcon icon={ReceiptText} />,
+    icon: ReceiptText,
   },
   {
     name: 'Activity History',
     href: '/admin/activity',
-    icon: (
-      <NavIcon>
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l2.75 1.75M20.25 12A8.25 8.25 0 1 1 18 6.33M18 3.75v3.5h-3.5" />
-      </NavIcon>
-    ),
+    icon: History,
   },
   {
     name: 'Settings',
     href: '/admin/settings',
-    icon: (
-      <NavIcon>
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 3.75v2.1m0 12.3v2.1m8.25-8.25h-2.1m-12.3 0h-2.1m11.18-5.93-1.48 1.48M8.55 15.45l-1.48 1.48m0-10.86 1.48 1.48m5.9 5.9 1.48 1.48" />
-        <circle cx="12" cy="12" r="3.2" strokeWidth={1.8} />
-      </NavIcon>
-    ),
+    icon: Settings,
   },
 ]
 
@@ -160,7 +118,7 @@ export default function AdminLayout() {
         <div className="mx-auto flex h-16 w-full max-w-[104rem] items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button onClick={() => setMobileOpen((v) => !v)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Toggle sidebar" aria-expanded={mobileOpen}>
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={mobileOpen ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'} /></svg>
+              {mobileOpen ? <X className="h-6 w-6" aria-hidden="true" /> : <Menu className="h-6 w-6" aria-hidden="true" />}
             </button>
             <button
               type="button"
@@ -168,9 +126,7 @@ export default function AdminLayout() {
               className="hidden rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 lg:inline-flex"
               aria-label={desktopCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={desktopCollapsed ? 'M13 5l7 7-7 7M4 5h5v14H4z' : 'M11 19l-7-7 7-7M15 5h5v14h-5z'} />
-              </svg>
+              {desktopCollapsed ? <PanelLeftOpen className="h-5 w-5" aria-hidden="true" /> : <PanelLeftClose className="h-5 w-5" aria-hidden="true" />}
             </button>
             <div>
               <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">AIRE Ops</Link>
@@ -217,14 +173,14 @@ export default function AdminLayout() {
               >
                 {desktopCollapsed ? (
                   <>
-                    <span className="hidden lg:inline-flex">{item.icon}</span>
+                    <span className="hidden lg:inline-flex"><NavIcon icon={item.icon} /></span>
                     <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-lg transition duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 lg:block">
                       {item.name}
                     </span>
                   </>
                 ) : (
                   <>
-                    <span className={isActive(item.href) ? 'text-cyan-700' : ''}>{item.icon}</span>
+                    <span className={isActive(item.href) ? 'text-cyan-700' : ''}><NavIcon icon={item.icon} /></span>
                     <span>{item.name}</span>
                   </>
                 )}

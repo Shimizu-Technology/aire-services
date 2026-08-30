@@ -66,4 +66,26 @@ RSpec.describe RemoveLegacyTimePeriodLocks, type: :model do
     )
     expect(TimeEntry.find(entry.id).locked_at).to be_within(1.second).of(locked_at)
   end
+
+  it "skips archived locks whose required locking user was deleted before rollback" do
+    migration = described_class.new
+    migration.down
+    admin = create(:user, :admin)
+    lock_id = ActiveRecord::Base.connection.select_value(<<~SQL).to_i
+      INSERT INTO time_period_locks (
+        start_date, end_date, locked_at, locked_by_id, reason, created_at, updated_at
+      ) VALUES (
+        '2026-05-01', '2026-05-15', '2026-05-16 01:30:00', #{admin.id},
+        'Legacy payroll run', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      ) RETURNING id
+    SQL
+
+    migration.up
+    admin.destroy!
+
+    expect { migration.down }.not_to raise_error
+    expect(ActiveRecord::Base.connection.select_value(
+      "SELECT COUNT(*) FROM time_period_locks WHERE id = #{lock_id}"
+    ).to_i).to eq(0)
+  end
 end

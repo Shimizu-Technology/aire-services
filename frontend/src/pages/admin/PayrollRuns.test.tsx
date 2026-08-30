@@ -213,4 +213,28 @@ describe('PayrollRuns', () => {
 
     await waitFor(() => expect(screen.queryByText('Temporary history failure')).not.toBeInTheDocument())
   })
+
+  it('ignores an older payroll-history response that finishes after finalization refreshes it', async () => {
+    let resolveInitialHistory: (value: { data: { payroll_batches: never[] } }) => void = () => undefined
+    const initialHistory = new Promise<{ data: { payroll_batches: never[] } }>((resolve) => {
+      resolveInitialHistory = resolve
+    })
+    apiMock.getPayrollBatches
+      .mockReturnValueOnce(initialHistory)
+      .mockResolvedValueOnce({ data: { payroll_batches: [finalized] } })
+
+    render(<PayrollRuns />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize this cutoff' }))
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
+
+    expect(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
+    resolveInitialHistory({ data: { payroll_batches: [] } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
+    })
+  })
 })

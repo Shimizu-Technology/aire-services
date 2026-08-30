@@ -47,6 +47,21 @@ RSpec.describe TimeClockService, type: :service do
       expect(entry.status).to eq("clocked_in")
     end
 
+    it "returns a retryable message when payroll finalization temporarily blocks the ledger" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      time_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: time_category)
+      connection = ActiveRecord::Base.connection
+      allow(connection).to receive(:execute).and_call_original
+      allow(connection).to receive(:execute).with(/SET LOCAL lock_timeout/).and_raise(ActiveRecord::LockWaitTimeout)
+
+      expect do
+        described_class.clock_in(user: user, time_category_id: time_category.id)
+      end.to raise_error(TimeClockService::ClockError, /Payroll is being finalized.*try.*again/i)
+
+      expect(user.time_entries).to be_empty
+    end
+
     it "blocks clock-in without a schedule when the schedule requirement is enabled" do
       Setting.set("schedule_required_for_clock_in", "true")
 

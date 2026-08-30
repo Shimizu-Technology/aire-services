@@ -19,10 +19,13 @@ module Payroll
     end
 
     def call
-      PayrollBatch.transaction do
+      source_ledger_locked_at = nil
+      outcome = "failed"
+      batch = PayrollBatch.transaction do
         configure_lock_timeout!
         lock_finalization!
         lock_source_ledger!
+        source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         cutoff = Time.current
         reference = build_reference(cutoff)
         reject_overlapping_batch!
@@ -68,8 +71,12 @@ module Payroll
         )
         batch
       end
+      outcome = "succeeded"
+      batch
     rescue ActiveRecord::LockWaitTimeout
       raise FinalizationError, "Time tracking is busy. Wait a moment and finalize this payroll batch again."
+    ensure
+      record_source_ledger_blocking_window(source_ledger_locked_at, outcome) if source_ledger_locked_at
     end
 
     private
@@ -92,6 +99,19 @@ module Payroll
       ActiveRecord::Base.connection.execute(
         "LOCK TABLE time_entries, time_entry_breaks IN SHARE MODE"
       )
+    end
+
+    def record_source_ledger_blocking_window(started_at, outcome)
+      duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000).round(1)
+      details = {
+        event: "payroll.source_ledger_blocking",
+        outcome: outcome,
+        duration_ms: duration_ms,
+        start_date: start_date.to_s,
+        end_date: end_date.to_s
+      }
+      ActiveSupport::Notifications.instrument("payroll.source_ledger_blocking", details)
+      Rails.logger.info(details.to_json)
     end
 
     def reject_overlapping_batch!

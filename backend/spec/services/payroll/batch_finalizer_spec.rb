@@ -129,12 +129,15 @@ RSpec.describe Payroll::BatchFinalizer do
     travel_to(guam.local(2026, 5, 11, 9)) do
       late = create_entry(date: Date.new(2026, 5, 3), approval_status: "approved")
       late.update_columns(approved_at: guam.local(2026, 5, 12, 9))
+      legacy_late = create_entry(date: Date.new(2026, 5, 2), approval_status: nil)
+      legacy_late.update_columns(approved_at: guam.local(2026, 5, 12, 8))
       (Date.new(2026, 5, 4)..Date.new(2026, 5, 8)).each { |date| create_entry(date: date) }
 
       batch = finalize(start_date: "2026-05-01", end_date: "2026-05-10")
 
       expect(batch.summary).to include("total_hours" => 40.0, "regular_hours" => 40.0, "overtime_hours" => 0.0)
       expect(batch.payroll_batch_exclusions.find_by!(source_time_entry_id: late.id).reason).to eq("approved_after_cutoff")
+      expect(batch.payroll_batch_exclusions.find_by!(source_time_entry_id: legacy_late.id).reason).to eq("approved_after_cutoff")
     end
   end
 
@@ -313,6 +316,46 @@ RSpec.describe Payroll::BatchFinalizer do
 
     expect { finalizer.call }
       .to raise_error(Payroll::BatchFinalizer::FinalizationError, /Time tracking is busy/)
+  end
+
+  it "maps a real PostgreSQL source-ledger lock timeout to the retryable payroll error" do
+    database_config = ActiveRecord::Base.connection_db_config.configuration_hash
+    locker = PG.connect(
+      host: database_config[:host],
+      port: database_config[:port],
+      user: database_config[:username],
+      password: database_config[:password],
+      dbname: database_config.fetch(:database)
+    )
+    locker.exec("BEGIN")
+    locker.exec("LOCK TABLE time_entries IN ROW EXCLUSIVE MODE")
+    stub_const("#{described_class}::LOCK_TIMEOUT", "50ms")
+
+    expect do
+      finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+    end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /Time tracking is busy/)
+  ensure
+    locker&.exec("ROLLBACK")
+    locker&.close
+  end
+
+  it "publishes the source-ledger writer-blocking duration after commit" do
+    events = []
+    subscriber = ActiveSupport::Notifications.subscribe("payroll.source_ledger_blocking") do |event|
+      events << event
+    end
+
+    finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+
+    expect(events.one?).to be(true)
+    expect(events.first.payload).to include(
+      outcome: "succeeded",
+      start_date: "2026-05-01",
+      end_date: "2026-05-15"
+    )
+    expect(events.first.payload.fetch(:duration_ms)).to be >= 0
+  ensure
+    ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
   end
 
   it "preserves the batch snapshot when the finalizing user is later removed" do

@@ -245,7 +245,7 @@ module Payroll
       if entry.approval_status == "denied"
         return [ zero_hours, [ exclusion_for(entry, "denied_approval", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
-      if entry.approval_status == "approved" && entry.approved_at.present? && entry.approved_at > cutoff_at
+      if entry.approved_at.present? && entry.approved_at > cutoff_at
         return [ zero_hours, [ exclusion_for(entry, "approved_after_cutoff", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
       return [ zero_hours, [] ] unless base_approved?(entry)

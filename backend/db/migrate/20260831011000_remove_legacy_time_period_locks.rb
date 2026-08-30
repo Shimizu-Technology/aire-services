@@ -131,6 +131,11 @@ class RemoveLegacyTimePeriodLocks < ActiveRecord::Migration[8.1]
       WHERE audit_logs.action = 'legacy_time_period_lock.archived'
         AND audit_logs.auditable_type = 'TimePeriodLock'
         AND audit_logs.metadata->>'archived_by_migration' = '20260831011000'
+        AND EXISTS (
+          SELECT 1
+          FROM users
+          WHERE users.id = (audit_logs.metadata->>'locked_by_id')::bigint
+        )
       ON CONFLICT (id) DO NOTHING
     SQL
 
