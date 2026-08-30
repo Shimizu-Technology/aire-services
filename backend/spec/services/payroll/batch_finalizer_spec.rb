@@ -359,7 +359,9 @@ RSpec.describe Payroll::BatchFinalizer do
   end
 
   it "keeps a committed batch successful when a telemetry subscriber raises" do
+    subscriber_called = false
     subscriber = ActiveSupport::Notifications.subscribe("payroll.source_ledger_blocking") do
+      subscriber_called = true
       raise "telemetry unavailable"
     end
     batch = nil
@@ -368,6 +370,7 @@ RSpec.describe Payroll::BatchFinalizer do
       batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
     end.not_to raise_error
 
+    expect(subscriber_called).to be(true)
     expect(batch).to be_persisted
     expect(PayrollBatch.where(id: batch.id)).to exist
   ensure
