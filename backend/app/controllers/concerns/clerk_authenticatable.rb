@@ -32,6 +32,11 @@ module ClerkAuthenticatable
       return # rubocop:disable Style/RedundantReturn -- consistent with other early-exits in this method
     end
 
+    unless @current_user.personal_access_enabled?
+      render_forbidden("Personal sign-in is disabled for this staff record. Use the shared kiosk or contact an administrator.")
+      return
+    end
+
     unless @current_user.is_active?
       render_forbidden("Your access has been deactivated. Please contact an administrator.")
     end
@@ -46,7 +51,7 @@ module ClerkAuthenticatable
     return unless decoded
 
     resolved_user = resolve_user_from_claims(decoded)
-    @current_user = resolved_user if resolved_user&.is_active?
+    @current_user = resolved_user if resolved_user&.is_active? && resolved_user.personal_access_enabled?
   end
 
   def current_user
@@ -80,26 +85,38 @@ module ClerkAuthenticatable
     user = User.find_by(clerk_id: clerk_id)
 
     if user
+      return user unless user.personal_access_enabled?
+
       # Only update if we have new info and it's different
       updates = {}
       updates[:email] = normalized_email if normalized_email.present? && normalized_email != user.email&.downcase && !user.email.to_s.include?("@placeholder.local")
-      updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
-      updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
+      if user.uses_clerk_profile?
+        updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
+        updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
+      end
 
-      user.update(updates) if updates.any?
+      safely_sync_clerk_profile(user, updates) if updates.any?
       return user
     end
 
     # Try to find by email (for invited users who haven't signed in yet)
     if normalized_email.present?
-      user = User.find_by("LOWER(email) = ?", normalized_email)
+      user = User.where(personal_access_enabled: true).find_by("LOWER(email) = ?", normalized_email)
 
       if user
-        updates = { clerk_id: clerk_id }
+        previous_identity = {
+          "clerk_id" => user.clerk_id,
+          "profile_source" => user.profile_source
+        }
+        updates = { clerk_id: clerk_id, profile_source: "clerk" }
         updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
         updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
-        user.update(updates)
-        return user
+        if safely_sync_clerk_profile(user, updates)
+          log_clerk_activation(user, previous_identity)
+          return user
+        end
+
+        return nil
       end
     else
       Rails.logger.warn "No email available for clerk_id=#{clerk_id}. Cannot link invited user. Verify Clerk JWT template includes email claim or set CLERK_SECRET_KEY."
@@ -115,7 +132,10 @@ module ClerkAuthenticatable
         email: user_email,
         first_name: first_name,
         last_name: last_name,
-        role: "admin"
+        role: "admin",
+        personal_access_enabled: true,
+        profile_source: "clerk",
+        time_tracking_enabled: false
       )
       return new_user if new_user.persisted?
     end
@@ -124,9 +144,38 @@ module ClerkAuthenticatable
     nil
   end
 
+  def safely_sync_clerk_profile(user, updates)
+    user.update!(updates)
+    true
+  rescue ActiveRecord::RecordNotUnique
+    Rails.logger.warn("Clerk profile sync skipped for user=#{user.id}: database uniqueness conflict")
+    user.reload
+    false
+  rescue ActiveRecord::RecordInvalid => e
+    Rails.logger.warn(
+      "Clerk profile sync skipped for user=#{user.id}: #{e.record.errors.full_messages.join(', ')}"
+    )
+    user.reload
+    false
+  end
+
   def resolve_user_from_claims(decoded)
     identity = identity_attributes_from(decoded)
     find_or_create_user(**identity)
+  end
+
+  def log_clerk_activation(user, previous_identity)
+    AuditLog.log(
+      auditable: user,
+      action: "updated",
+      changes_made: {
+        "clerk_id" => [ previous_identity["clerk_id"], user.clerk_id ],
+        "profile_source" => [ previous_identity["profile_source"], user.profile_source ]
+      },
+      metadata: "personal account activated through Clerk"
+    )
+  rescue StandardError => e
+    Rails.logger.warn("Clerk activation audit failed for user=#{user.id}: #{e.message}")
   end
 
   def identity_attributes_from(decoded)

@@ -68,10 +68,10 @@ export default function KioskPinSetupModal({ open, userName, onComplete }: Kiosk
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-4">
-      <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+      <div role="dialog" aria-modal="true" aria-labelledby="kiosk-pin-setup-title" className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Kiosk setup</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Create your kiosk PIN</h2>
+          <h2 id="kiosk-pin-setup-title" className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Create your kiosk PIN</h2>
           <p className="mt-2 text-sm text-slate-600">
             {userName}, set the PIN you&apos;ll use at the staff kiosk. You only need to do this once.
           </p>
@@ -79,8 +79,9 @@ export default function KioskPinSetupModal({ open, userName, onComplete }: Kiosk
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">PIN</label>
+            <label htmlFor="kiosk-pin" className="mb-2 block text-sm font-medium text-slate-700">PIN</label>
             <input
+              id="kiosk-pin"
               ref={pinInputRef}
               type="password"
               inputMode="numeric"
@@ -94,8 +95,9 @@ export default function KioskPinSetupModal({ open, userName, onComplete }: Kiosk
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Confirm PIN</label>
+            <label htmlFor="kiosk-pin-confirmation" className="mb-2 block text-sm font-medium text-slate-700">Confirm PIN</label>
             <input
+              id="kiosk-pin-confirmation"
               type="password"
               inputMode="numeric"
               autoComplete="new-password"

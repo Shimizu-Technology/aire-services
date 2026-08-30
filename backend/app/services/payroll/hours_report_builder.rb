@@ -59,11 +59,11 @@ module Payroll
 
       case params[:status].to_s
       when "active"
-        scope = scope.where(is_active: true).where.not("clerk_id LIKE 'pending_%'")
+        scope = scope.where(is_active: true).where("personal_access_enabled = FALSE OR clerk_id NOT LIKE 'pending_%'")
       when "current"
         scope = scope.where(is_active: true)
       when "pending"
-        scope = scope.where(is_active: true).where("clerk_id LIKE 'pending_%'")
+        scope = scope.where(is_active: true, personal_access_enabled: true).where("clerk_id LIKE 'pending_%'")
       when "inactive"
         scope = scope.where(is_active: false)
       end
@@ -107,7 +107,7 @@ module Payroll
         user_report_entries = report_entries_by_user.fetch(user.id, [])
         period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
         control_period_entries = user_context_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
-        next if period_entries.empty? && control_period_entries.empty? && !include_empty_employees?
+        next if period_entries.empty? && control_period_entries.empty? && (!include_empty_employees? || !user.time_tracking_enabled?)
 
         build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
       end
@@ -261,12 +261,15 @@ module Payroll
     end
 
     def issues_for(entries)
+      countable_entries = entries.select { |entry| countable?(entry) }
       {
         pending_count: entries.count { |entry| entry.approval_status == "pending" },
         denied_count: entries.count { |entry| entry.approval_status == "denied" },
         pending_overtime_count: entries.count { |entry| entry.overtime_status == "pending" },
         denied_overtime_count: entries.count { |entry| entry.overtime_status == "denied" },
-        open_clock_count: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) }
+        open_clock_count: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) },
+        uncategorized_count: countable_entries.count { |entry| entry.time_category_id.nil? },
+        missing_rate_count: countable_entries.count { |entry| entry.effective_rate_cents_snapshot.nil? }
       }
     end
 
@@ -286,7 +289,9 @@ module Payroll
         denied_count: period_entries.count { |entry| entry.approval_status == "denied" },
         pending_overtime_count: period_entries.count { |entry| entry.overtime_status == "pending" },
         denied_overtime_count: period_entries.count { |entry| entry.overtime_status == "denied" },
-        open_clock_count: period_entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) }
+        open_clock_count: period_entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) },
+        uncategorized_count: period_entries.count { |entry| countable?(entry) && entry.time_category_id.nil? },
+        missing_rate_count: period_entries.count { |entry| countable?(entry) && entry.effective_rate_cents_snapshot.nil? }
       }
     end
 

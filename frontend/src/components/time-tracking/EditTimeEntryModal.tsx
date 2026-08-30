@@ -24,7 +24,7 @@ interface EditableTimeEntry {
   locked_at: string | null
   user: {
     id: number
-    email: string
+    email: string | null
     display_name?: string
     full_name?: string
   }
@@ -152,7 +152,7 @@ export default function EditTimeEntryModal({
     return Math.max(0, durationMinutes / 60)
   }, [formData.break_minutes, formData.end_time, formData.start_time])
 
-  const ownerName = entry?.user.full_name || entry?.user.display_name || entry?.user.email.split('@')[0] || ''
+  const ownerName = entry?.user.full_name || entry?.user.display_name || entry?.user.email?.split('@')[0] || 'Team member'
   const isLocked = !!entry?.locked_at
   const isActiveClockEntry = entry?.entry_method === 'clock' && (entry.status === 'clocked_in' || entry.status === 'on_break')
 

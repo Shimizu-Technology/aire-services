@@ -226,7 +226,8 @@ export default function AireKiosk() {
     setStatus(result.data.current_status)
     setCategories(result.data.available_categories)
     setSelectedCategoryId(
-      result.data.current_status.time_category?.id ?? result.data.available_categories[0]?.id ?? null,
+      result.data.current_status.time_category?.id
+        ?? (result.data.available_categories.length === 1 ? result.data.available_categories[0].id : null),
     )
     setPin('')
     setLoading(false)
@@ -327,7 +328,7 @@ export default function AireKiosk() {
     clearSession()
   }
 
-  const canClockIn = !!employee && !status?.clocked_in && status?.can_clock_in !== false && categories.length > 0
+  const canClockIn = !!employee && !status?.clocked_in && status?.can_clock_in !== false && categories.length > 0 && selectedCategoryId !== null
   const canClockOut = !!employee && !!status?.clocked_in
   const canStartBreak = !!employee && status?.status === 'clocked_in'
   const canEndBreak = !!employee && status?.status === 'on_break'

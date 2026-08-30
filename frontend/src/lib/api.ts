@@ -230,6 +230,9 @@ export interface CurrentUser {
   is_active: boolean;
   is_admin: boolean;
   is_staff: boolean;
+  personal_access_enabled: boolean;
+  profile_source: 'clerk' | 'local';
+  time_tracking_enabled: boolean;
   kiosk_enabled: boolean;
   kiosk_pin_configured: boolean;
   kiosk_pin_last_rotated_at?: string | null;
@@ -247,7 +250,7 @@ export interface ApprovalGroupOption {
 
 export interface UserSummary {
   id: number;
-  email: string;
+  email: string | null;
   first_name: string | null;
   last_name: string | null;
   display_name: string;
@@ -265,6 +268,9 @@ export interface UserTimeCategoryAssignment {
   id: number;
   name: string;
   key: string | null;
+  hourly_rate_cents?: number | null;
+  hourly_rate?: number | null;
+  override_rate_cents?: number | null;
 }
 
 export interface AdminUser {
@@ -284,7 +290,11 @@ export interface AdminUser {
   approval_groups?: ApprovalGroupOption[];
   is_active: boolean;
   is_pending: boolean;
+  has_clerk_account: boolean;
   uses_clerk_profile: boolean;
+  personal_access_enabled: boolean;
+  profile_source: 'clerk' | 'local';
+  time_tracking_enabled: boolean;
   public_team_enabled: boolean;
   public_team_name: string | null;
   public_team_title: string | null;
@@ -321,6 +331,8 @@ export interface TimeCategory {
 
 export interface AdminTimeCategory extends TimeCategory {
   is_active: boolean;
+  hourly_rate_cents: number | null;
+  hourly_rate: number | null;
   time_entries_count: number;
   employee_pay_rates_count?: number;
   deletable?: boolean;
@@ -585,7 +597,8 @@ export interface ClockStatus {
     hours: number;
   } | null;
   can_clock_in: boolean;
-  clock_in_blocked_reason: 'already_clocked_in' | 'too_early' | 'shift_ended' | null;
+  time_tracking_enabled: boolean;
+  clock_in_blocked_reason: 'already_clocked_in' | 'time_tracking_disabled' | 'categories_missing' | 'no_schedule' | 'too_early' | 'shift_ended' | null;
   minutes_until?: number;
   clock_in_location_required?: boolean;
   clock_in_location_name?: string | null;
@@ -861,6 +874,8 @@ export interface HoursReportEmployee {
     pending_overtime_count: number;
     denied_overtime_count: number;
     open_clock_count: number;
+    uncategorized_count: number;
+    missing_rate_count: number;
   };
   days: HoursReportDay[];
   categories: HoursReportCategory[];
@@ -900,6 +915,8 @@ export interface HoursReportResponse {
     pending_overtime_count: number;
     denied_overtime_count: number;
     open_clock_count: number;
+    uncategorized_count: number;
+    missing_rate_count: number;
   };
   employees: HoursReportEmployee[];
 }
@@ -1089,9 +1106,13 @@ export const api = {
     approval_group?: ApprovalGroup | null;
     approval_groups?: ApprovalGroup[];
     send_invitation?: boolean;
+    personal_access_enabled?: boolean;
+    time_tracking_enabled?: boolean;
+    kiosk_enabled?: boolean;
+    kiosk_pin?: string;
     time_category_ids?: number[];
   }) =>
-    fetchApi<{ user: AdminUser; invitation_email_sent: boolean }>('/api/v1/admin/users', {
+    fetchApi<{ user: AdminUser; invitation_email_sent: boolean | null; kiosk_pin: string | null }>('/api/v1/admin/users', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -1118,9 +1139,14 @@ export const api = {
     public_team_sort_order?: number;
     public_team_photo_position_x?: number;
     public_team_photo_position_y?: number;
+    personal_access_enabled?: boolean;
+    time_tracking_enabled?: boolean;
+    kiosk_enabled?: boolean;
+    kiosk_pin?: string;
+    send_invitation?: boolean;
     time_category_ids?: number[];
   }) =>
-    fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {
+    fetchApi<{ user: AdminUser; invitation_email_sent?: boolean | null; kiosk_pin?: string | null }>(`/api/v1/admin/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),

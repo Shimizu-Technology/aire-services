@@ -40,6 +40,18 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
     )
   end
 
+  describe "GET /api/v1/time_entries/current_status" do
+    it "reports missing categories for an enabled time tracker" do
+      employee.update!(time_tracking_enabled: true, kiosk_enabled: true)
+
+      get "/api/v1/time_entries/current_status", headers: auth_headers_for[employee]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:can_clock_in]).to be(false)
+      expect(json[:clock_in_blocked_reason]).to eq("categories_missing")
+    end
+  end
+
   # ── CREATE ───────────────────────────────────────────────────────────
   describe "POST /api/v1/time_entries" do
     let(:valid_params) do

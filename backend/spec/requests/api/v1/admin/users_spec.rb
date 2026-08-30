@@ -32,6 +32,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(json.dig(:user, :staff_title)).to eq("Certified Flight Instructor")
       expect(json.dig(:user, :approval_group)).to eq("cfi")
       expect(json.dig(:user, :approval_group_label)).to eq("CFI")
+      expect(json[:invitation_email_sent]).to be_nil
     end
 
     it "does not persist admin-entered names for email-based users" do
@@ -50,6 +51,94 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(json.dig(:user, :first_name)).to be_nil
       expect(json.dig(:user, :last_name)).to be_nil
       expect(User.order(:id).last).to have_attributes(first_name: nil, last_name: nil)
+    end
+
+    it "creates a kiosk-only employee without an email and returns the one-time PIN" do
+      category = create(:time_category)
+
+      post "/api/v1/admin/users",
+           params: {
+             first_name: "Kiosk",
+             last_name: "Pilot",
+             role: "employee",
+             personal_access_enabled: false,
+             time_tracking_enabled: true,
+             kiosk_enabled: true,
+             time_category_ids: [ category.id ],
+             send_invitation: false
+           },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:created)
+      expect(json[:kiosk_pin]).to match(/\A\d{6}\z/)
+      expect(json[:user]).to include(
+        email: nil,
+        first_name: "Kiosk",
+        personal_access_enabled: false,
+        profile_source: "local",
+        time_tracking_enabled: true,
+        kiosk_enabled: true,
+        is_pending: false
+      )
+    end
+
+    it "creates a salaried personal account without work categories" do
+      post "/api/v1/admin/users",
+           params: {
+             email: "salary@example.com",
+             role: "employee",
+             personal_access_enabled: true,
+             time_tracking_enabled: false,
+             kiosk_enabled: false,
+             time_category_ids: [],
+             send_invitation: false
+           },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:created)
+      expect(json.dig(:user, :time_tracking_enabled)).to eq(false)
+      expect(json.dig(:user, :time_category_ids)).to eq([])
+    end
+
+    it "automatically includes kiosk access and defers PIN setup for a personal time tracker" do
+      category = create(:time_category)
+
+      post "/api/v1/admin/users",
+           params: {
+             email: "hourly@example.com",
+             role: "employee",
+             personal_access_enabled: true,
+             time_tracking_enabled: true,
+             kiosk_enabled: false,
+             time_category_ids: [ category.id ],
+             send_invitation: false
+           },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:created)
+      expect(json[:kiosk_pin]).to be_nil
+      expect(json[:user]).to include(
+        time_tracking_enabled: true,
+        kiosk_enabled: true,
+        kiosk_pin_configured: false
+      )
+    end
+
+    it "rejects time tracking without an active work category" do
+      post "/api/v1/admin/users",
+           params: {
+             email: "missing-category@example.com",
+             role: "employee",
+             personal_access_enabled: true,
+             time_tracking_enabled: true,
+             kiosk_enabled: false,
+             time_category_ids: [],
+             send_invitation: false
+           },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/at least one work category/i)
     end
 
     it "rejects an invalid approval group" do
@@ -101,6 +190,17 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(response).to have_http_status(:ok)
       expect(json[:users].map { |user| user[:id] }).to include(pending_admin.id)
       expect(json[:users].map { |user| user[:id] }).not_to include(pending_employee.id)
+    end
+
+    it "does not classify kiosk-only employees as pending invitations" do
+      kiosk_user = create(:user, :kiosk_only, clerk_id: "pending_kiosk_filter")
+
+      get "/api/v1/admin/users",
+          params: { status: "pending" },
+          headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json[:users].map { |user| user[:id] }).not_to include(kiosk_user.id)
     end
   end
 
@@ -236,7 +336,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       kiosk_only_user = create(
         :user,
         :employee,
-        email: nil,
+        :kiosk_only,
         clerk_id: "pending_kiosk_123",
         first_name: "Initial",
         last_name: nil
@@ -249,6 +349,9 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
               last_name: "Pilot",
               role: "employee",
               approval_group: "cfi",
+              personal_access_enabled: false,
+              time_tracking_enabled: true,
+              kiosk_enabled: true,
               time_category_ids: [ category.id ]
             },
             headers: auth_headers_for[admin]
@@ -282,6 +385,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
               email: "updated.pilot@example.com",
               role: "employee",
               approval_group: "cfi",
+              time_tracking_enabled: true,
               time_category_ids: [ category.id ]
             },
             headers: auth_headers_for[admin]
@@ -305,7 +409,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/must keep an email address/i)
+      expect(json[:error]).to match(/email is required/i)
       expect(employee.reload.email).to be_present
     end
 
@@ -371,20 +475,52 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       kiosk_only_user = create(
         :user,
         :employee,
-        email: nil,
+        :kiosk_only,
         clerk_id: "pending_kiosk_456",
         first_name: "Initial"
       )
+      category = create(:time_category)
+      kiosk_only_user.user_time_categories.create!(time_category: category)
 
       patch "/api/v1/admin/users/#{kiosk_only_user.id}",
-            params: { email: "new.invite@example.com" },
+            params: {
+              email: "new.invite@example.com",
+              personal_access_enabled: true,
+              time_category_ids: [ category.id ]
+            },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:ok)
       expect(json.dig(:user, :email)).to eq("new.invite@example.com")
-      expect(json.dig(:user, :uses_clerk_profile)).to eq(true)
+      expect(json.dig(:user, :uses_clerk_profile)).to eq(false)
       expect(json.dig(:user, :is_pending)).to eq(true)
-      expect(kiosk_only_user.reload.email).to eq("new.invite@example.com")
+      expect(kiosk_only_user.reload).to have_attributes(
+        email: "new.invite@example.com",
+        first_name: "Initial",
+        profile_source: "local",
+        personal_access_enabled: true
+      )
+    end
+
+    it "rejects an invitation when personal access remains disabled" do
+      kiosk_only_user = create(
+        :user,
+        :employee,
+        :kiosk_only,
+        clerk_id: "pending_kiosk_invite",
+        email: "retained@example.com",
+        first_name: "Kiosk"
+      )
+      allow(EmailService).to receive(:send_invitation_email)
+
+      patch "/api/v1/admin/users/#{kiosk_only_user.id}",
+            params: { send_invitation: true },
+            headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/personal sign-in must be enabled/i)
+      expect(EmailService).not_to have_received(:send_invitation_email)
+      expect(kiosk_only_user.reload.personal_access_enabled).to be(false)
     end
 
     it "deactivates another user" do

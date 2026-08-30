@@ -49,6 +49,7 @@ describe('ClockInOutCard geofence messaging', () => {
         session: null,
         schedule: null,
         can_clock_in: true,
+        time_tracking_enabled: true,
         clock_in_blocked_reason: null,
         clock_in_location_required: true,
         clock_in_location_name: 'AIRE Services Guam',
@@ -59,7 +60,7 @@ describe('ClockInOutCard geofence messaging', () => {
     })
     apiMock.getTimeCategories.mockResolvedValue({
       data: {
-        time_categories: [],
+        time_categories: [{ id: 1, key: 'instruction', name: 'Instruction', description: null }],
       },
     })
   })
@@ -86,5 +87,21 @@ describe('ClockInOutCard geofence messaging', () => {
 
     expect((await screen.findAllByText('Location access is required before you can clock in.')).length).toBeGreaterThan(0)
     expect(apiMock.clockIn).not.toHaveBeenCalled()
+  })
+
+  it('explains when the account does not require time tracking', async () => {
+    apiMock.getClockStatus.mockResolvedValueOnce({
+      data: {
+        clocked_in: false,
+        time_tracking_enabled: false,
+        can_clock_in: false,
+        clock_in_blocked_reason: 'time_tracking_disabled',
+      },
+    })
+
+    render(<ClockInOutCard />)
+
+    expect(await screen.findByText('Time tracking is not enabled')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /clock in/i })).not.toBeInTheDocument()
   })
 })

@@ -5,7 +5,7 @@ require "rails_helper"
 RSpec.describe TimeClockService, type: :service do
   include ActiveSupport::Testing::TimeHelpers
 
-  let(:user) { create(:user, :employee) }
+  let(:user) { create(:user, :employee, time_tracking_enabled: true, kiosk_enabled: true) }
   let(:guam_zone) { ActiveSupport::TimeZone[described_class::BUSINESS_TIMEZONE] }
   let(:frozen_time) { guam_zone.local(2026, 4, 2, 9, 0, 0) }
 
@@ -14,6 +14,27 @@ RSpec.describe TimeClockService, type: :service do
   end
 
   describe ".clock_in" do
+    it "rejects disabled time tracking without creating an entry" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      allow(user).to receive(:time_tracking_enabled?).and_return(false)
+
+      expect {
+        described_class.clock_in(user: user)
+      }.to raise_error(TimeClockService::ClockError, /Time tracking is not enabled/i)
+
+      expect(user.time_entries).to be_empty
+      expect(user.kiosk_enabled?).to be(true)
+    end
+
+    it "reports missing categories in the current status" do
+      Setting.set("schedule_required_for_clock_in", "false")
+
+      status = described_class.current_status(user: user)
+
+      expect(status[:can_clock_in]).to be(false)
+      expect(status[:clock_in_blocked_reason]).to eq("categories_missing")
+    end
+
     it "allows clock-in without a schedule when the schedule requirement is disabled" do
       Setting.set("schedule_required_for_clock_in", "false")
       time_category = create(:time_category)
@@ -36,6 +57,7 @@ RSpec.describe TimeClockService, type: :service do
 
     it "includes the schedule requirement flag in the current status payload" do
       Setting.set("schedule_required_for_clock_in", "true")
+      user.user_time_categories.create!(time_category: create(:time_category))
 
       status = described_class.current_status(user: user)
 
@@ -43,20 +65,29 @@ RSpec.describe TimeClockService, type: :service do
       expect(status[:clock_in_blocked_reason]).to eq("no_schedule")
     end
 
-    it "allows employees with no assigned categories to clock in under the general bucket" do
+    it "blocks employees with no assigned categories from clocking in" do
       Setting.set("schedule_required_for_clock_in", "false")
 
-      entry = described_class.clock_in(user: user)
-
-      expect(entry).to be_persisted
-      expect(entry.time_category).to be_nil
-      expect(entry.status).to eq("clocked_in")
+      expect {
+        described_class.clock_in(user: user)
+      }.to raise_error(TimeClockService::ClockError, /Choose a work category/)
     end
 
-    it "blocks employees from clocking in without selecting an assigned category" do
+    it "automatically selects the only assigned category" do
       Setting.set("schedule_required_for_clock_in", "false")
       assigned_category = create(:time_category)
       UserTimeCategory.create!(user: user, time_category: assigned_category)
+
+      entry = described_class.clock_in(user: user)
+
+      expect(entry.time_category).to eq(assigned_category)
+    end
+
+    it "requires a choice when more than one category is assigned" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      create_list(:time_category, 2).each do |category|
+        UserTimeCategory.create!(user: user, time_category: category)
+      end
 
       expect {
         described_class.clock_in(user: user)
@@ -142,6 +173,7 @@ RSpec.describe TimeClockService, type: :service do
 
     it "preserves both unscheduled and corrected clock-out notes" do
       Setting.set("schedule_required_for_clock_in", "false")
+      user.user_time_categories.create!(time_category: create(:time_category))
 
       described_class.clock_in(user: user)
 
@@ -154,7 +186,8 @@ RSpec.describe TimeClockService, type: :service do
 
     it "does not mark unscheduled admin clock entries as pending on clock-out" do
       Setting.set("schedule_required_for_clock_in", "false")
-      admin = create(:user, :admin)
+      admin = create(:user, :admin, time_tracking_enabled: true, kiosk_enabled: true)
+      admin.user_time_categories.create!(time_category: create(:time_category))
 
       described_class.clock_in(user: admin)
 

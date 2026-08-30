@@ -11,6 +11,22 @@ module Api
       end
 
       def update_kiosk_pin
+        unless current_user.time_tracking_enabled?
+          return render json: { error: "Time tracking is not enabled for your account" }, status: :unprocessable_entity
+        end
+
+        if current_user.assigned_time_categories.active.none?
+          return render json: { error: "Ask an administrator to assign your work categories before enabling kiosk access" }, status: :unprocessable_entity
+        end
+
+        if current_user.time_entries.where(status: %w[clocked_in on_break]).exists?
+          return render json: { error: "Clock out before changing your kiosk access" }, status: :unprocessable_entity
+        end
+
+        unless current_user.kiosk_enabled?
+          return render json: { error: "Ask an administrator to enable kiosk access for your account" }, status: :unprocessable_entity
+        end
+
         pin = params[:pin].to_s.strip
 
         if pin.blank?
@@ -18,7 +34,7 @@ module Api
         end
 
         current_user.skip_kiosk_pin_presence_validation = true
-        current_user.rotate_kiosk_pin!(pin, enabled: true)
+        current_user.rotate_kiosk_pin!(pin, enabled: current_user.kiosk_enabled?)
 
         render json: {
           user: serialize_current_user(current_user.reload),
@@ -46,10 +62,13 @@ module Api
           is_active: user.is_active,
           is_admin: user.admin?,
           is_staff: user.staff?,
+          personal_access_enabled: user.personal_access_enabled,
+          profile_source: user.profile_source,
+          time_tracking_enabled: user.time_tracking_enabled,
           kiosk_enabled: user.kiosk_enabled,
           kiosk_pin_configured: user.kiosk_pin_configured?,
           kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
-          needs_kiosk_pin_setup: user.staff? && !user.kiosk_pin_configured?,
+          needs_kiosk_pin_setup: user.time_tracking_enabled? && user.kiosk_enabled? && !user.kiosk_pin_configured?,
           created_at: user.created_at
         }
       end

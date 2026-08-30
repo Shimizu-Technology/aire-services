@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 class User < ApplicationRecord
+  PROFILE_SOURCES = %w[clerk local].freeze
   KIOSK_PIN_FORMAT = /\A\d{4,8}\z/
   KIOSK_MAX_FAILED_ATTEMPTS = 5
   KIOSK_LOCKOUT_DURATION = 15.minutes
+  ADMIN_ACCESS_ADVISORY_LOCK_KEY = 92_144_008
 
   has_secure_password :kiosk_pin, validations: false
 
@@ -31,6 +33,9 @@ class User < ApplicationRecord
   validates :email, format: { with: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/ }, allow_blank: true
   validates :is_active, inclusion: { in: [ true, false ] }
   validates :is_intern, inclusion: { in: [ true, false ] }
+  validates :personal_access_enabled, inclusion: { in: [ true, false ] }
+  validates :time_tracking_enabled, inclusion: { in: [ true, false ] }
+  validates :profile_source, inclusion: { in: PROFILE_SOURCES }
   validates :public_team_enabled, inclusion: { in: [ true, false ] }
   validates :public_team_photo_position_x, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
   validates :public_team_photo_position_y, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
@@ -40,6 +45,11 @@ class User < ApplicationRecord
   validates :kiosk_pin_lookup_hash, uniqueness: { message: "This PIN is already in use by another employee. Please choose a different PIN." }, allow_nil: true
   validate :kiosk_pin_format_if_present
   validate :staff_requires_pin_when_kiosk_enabled
+  validate :personal_access_requires_email
+  validate :admins_require_personal_access
+  validate :local_profiles_require_first_name
+  validate :time_tracking_and_kiosk_access_match
+  validate :active_staff_requires_access
 
   before_validation :set_default_kiosk_enabled
   before_validation :sync_kiosk_pin_lookup_hash
@@ -64,6 +74,14 @@ class User < ApplicationRecord
       joins(:user_approval_groups).where(user_approval_groups: { approval_group: approval_group }).distinct
     end
   }
+
+  def self.with_admin_access_lock
+    raise "Admin access lock requires an open transaction" unless connection.transaction_open?
+
+    connection.select_value("SELECT pg_advisory_xact_lock(#{ADMIN_ACCESS_ADVISORY_LOCK_KEY})")
+    admins.order(:id).lock.load
+    yield
+  end
 
   def self.kiosk_pin_lookup_hash_for(pin)
     return nil if pin.blank?
@@ -128,7 +146,7 @@ class User < ApplicationRecord
   end
 
   def pending_invite?
-    clerk_id.blank? || clerk_id.start_with?("pending_")
+    personal_access_enabled? && (clerk_id.blank? || clerk_id.start_with?("pending_"))
   end
 
   def profile_name
@@ -148,11 +166,11 @@ class User < ApplicationRecord
   end
 
   def uses_clerk_profile?
-    email.present?
+    profile_source == "clerk"
   end
 
   def kiosk_only?
-    !uses_clerk_profile?
+    !personal_access_enabled? && kiosk_enabled?
   end
 
   def kiosk_locked?
@@ -160,7 +178,7 @@ class User < ApplicationRecord
   end
 
   def kiosk_access_enabled?
-    is_active? && staff? && kiosk_enabled? && kiosk_pin_digest.present? && !kiosk_locked?
+    is_active? && staff? && time_tracking_enabled? && kiosk_enabled? && kiosk_pin_digest.present? && !kiosk_locked?
   end
 
   def kiosk_pin_configured?
@@ -171,6 +189,7 @@ class User < ApplicationRecord
     return false unless pin.present?
     return false unless is_active?
     return false unless staff?
+    return false unless time_tracking_enabled?
     return false unless kiosk_enabled?
     return false if kiosk_locked?
     return false if kiosk_pin_lookup_hash.blank? || self.class.kiosk_pin_lookup_hash_for(pin) != kiosk_pin_lookup_hash
@@ -194,9 +213,24 @@ class User < ApplicationRecord
   end
 
   def rotate_kiosk_pin!(pin, enabled: true)
-    self.kiosk_pin = pin
+    self.time_tracking_enabled = enabled
     self.kiosk_enabled = enabled
-    self.kiosk_pin_last_rotated_at = Time.current
+    self.kiosk_pin = enabled ? pin : nil
+    self.kiosk_pin_digest = nil unless enabled
+    self.kiosk_pin_lookup_hash = nil unless enabled
+    self.kiosk_pin_last_rotated_at = enabled ? Time.current : nil
+    self.kiosk_failed_attempts_count = 0
+    self.kiosk_locked_until = nil
+    save!
+  end
+
+  def revoke_kiosk_access!
+    self.time_tracking_enabled = false
+    self.kiosk_enabled = false
+    self.kiosk_pin = nil
+    self.kiosk_pin_digest = nil
+    self.kiosk_pin_lookup_hash = nil
+    self.kiosk_pin_last_rotated_at = nil
     self.kiosk_failed_attempts_count = 0
     self.kiosk_locked_until = nil
     save!
@@ -205,7 +239,7 @@ class User < ApplicationRecord
   private
 
   def set_default_kiosk_enabled
-    self.kiosk_enabled = false if kiosk_enabled.nil?
+    self.kiosk_enabled = time_tracking_enabled? if kiosk_enabled.nil?
   end
 
   def sync_kiosk_pin_lookup_hash
@@ -223,9 +257,45 @@ class User < ApplicationRecord
   def staff_requires_pin_when_kiosk_enabled
     return unless staff?
     return unless kiosk_enabled?
+    return if personal_access_enabled?
     return if kiosk_pin_digest.present? || kiosk_pin.present? || skip_kiosk_pin_presence_validation
 
     errors.add(:kiosk_pin, "must be set when kiosk access is enabled")
+  end
+
+  def personal_access_requires_email
+    return unless personal_access_enabled?
+    return if email.present?
+
+    errors.add(:email, "is required when personal sign-in is enabled")
+  end
+
+  def admins_require_personal_access
+    return unless admin?
+    return if personal_access_enabled?
+
+    errors.add(:personal_access_enabled, "must be enabled for admins")
+  end
+
+  def local_profiles_require_first_name
+    return unless profile_source == "local"
+    return if personal_access_enabled?
+    return if first_name.present?
+
+    errors.add(:first_name, "is required for locally managed profiles")
+  end
+
+  def time_tracking_and_kiosk_access_match
+    return if time_tracking_enabled? == kiosk_enabled?
+
+    errors.add(:kiosk_enabled, "must match time tracking access")
+  end
+
+  def active_staff_requires_access
+    return unless is_active? && staff?
+    return if personal_access_enabled? || kiosk_enabled?
+
+    errors.add(:base, "Active staff must have personal sign-in or kiosk access")
   end
 
   def approval_group_must_be_configured

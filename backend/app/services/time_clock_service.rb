@@ -13,6 +13,7 @@ class TimeClockService
       guam_now = now.in_time_zone(business_timezone)
       today = guam_now.to_date
 
+      raise ClockError, "Time tracking is not enabled for this person" unless user.time_tracking_enabled?
       raise ClockError, "You are already clocked in" if active_entry_for(user)
       validate_clock_in_location!(user: user, location: location, admin_override_by: admin_override_by, clock_source: clock_source)
 
@@ -31,6 +32,9 @@ class TimeClockService
       if time_category_id.present?
         selected_time_category = TimeCategory.active.find_by(id: time_category_id)
         raise ClockError, "Selected work category is invalid or inactive" unless selected_time_category
+      elsif admin_override_by.blank?
+        assigned_categories = user.assigned_time_categories.active.limit(2).to_a
+        selected_time_category = assigned_categories.first if assigned_categories.one?
       end
       validate_time_category_assignment!(user, selected_time_category, admin_override_by: admin_override_by)
 
@@ -265,6 +269,7 @@ class TimeClockService
           hours: schedule.hours
         } : nil,
         schedule_required_for_clock_in: Setting.get("schedule_required_for_clock_in") == "true",
+        time_tracking_enabled: user.time_tracking_enabled?,
         clock_in_location_required: location_policy[:enabled],
         clock_in_location_name: location_policy[:name],
         clock_in_location_radius_meters: location_policy[:radius_meters],
@@ -583,10 +588,8 @@ class TimeClockService
 
     def validate_time_category_assignment!(user, category, admin_override_by:)
       return if admin_override_by.present?
-      return if user.admin?
 
       assigned_categories = user.assigned_time_categories.active
-      return if assigned_categories.none? && category.nil?
       raise ClockError, "Choose a work category before clocking in" unless category
       return if assigned_categories.exists?(category.id)
 
@@ -629,6 +632,8 @@ class TimeClockService
     def can_clock_in_info(user, schedule, existing_entry: nil)
       active = existing_entry.nil? ? active_entry_for(user) : existing_entry
       return { allowed: false, reason: "already_clocked_in" } if active
+      return { allowed: false, reason: "time_tracking_disabled" } unless user.time_tracking_enabled?
+      return { allowed: false, reason: "categories_missing" } if user.assigned_time_categories.active.none?
 
       schedule_required = Setting.get("schedule_required_for_clock_in") == "true"
       if schedule_required && !schedule
