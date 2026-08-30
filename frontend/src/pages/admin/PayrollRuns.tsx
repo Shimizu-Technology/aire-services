@@ -284,6 +284,7 @@ export default function PayrollRuns() {
   const [historyTotalCount, setHistoryTotalCount] = useState(0)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const historyRequestSequence = useRef(0)
+  const previewRequestSequence = useRef(0)
 
   const loadBatches = useCallback(async () => {
     const requestSequence = ++historyRequestSequence.current
@@ -305,12 +306,15 @@ export default function PayrollRuns() {
   }, [loadBatches])
 
   const runPreview = async () => {
+    const requestSequence = ++previewRequestSequence.current
     setPreviewing(true)
     setError(null)
     setSelectedBatch(null)
     setShowConfirm(false)
     setDialogError(null)
     const response = await api.previewPayrollBatch(startDate, endDate)
+    if (requestSequence !== previewRequestSequence.current) return
+
     if (response.data) setPreview(response.data)
     else {
       setPreview(null)
@@ -318,6 +322,13 @@ export default function PayrollRuns() {
       setError(response.error || 'The payroll cutoff could not be previewed.')
     }
     setPreviewing(false)
+  }
+
+  const clearPreviewForDateChange = () => {
+    previewRequestSequence.current += 1
+    setPreviewing(false)
+    setPreview(null)
+    setShowConfirm(false)
   }
 
   const finalize = async (note?: string) => {
@@ -369,10 +380,10 @@ export default function PayrollRuns() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
           <label className="text-sm font-medium text-slate-700">Period start
-            <input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setPreview(null); setShowConfirm(false) }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); clearPreviewForDateChange() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
           <label className="text-sm font-medium text-slate-700">Period end
-            <input type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setPreview(null); setShowConfirm(false) }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); clearPreviewForDateChange() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
           <button type="button" onClick={runPreview} disabled={previewing || !startDate || !endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview cutoff'}</button>
         </div>

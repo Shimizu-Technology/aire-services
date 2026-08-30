@@ -161,7 +161,9 @@ module Payroll
         by_entry = rows.group_by(&:source_time_entry_id)
         deleted_rows = deleted_prior_rows(by_entry)
         pairs = affected_employee_weeks(seed_entries, deleted_rows, by_entry)
-        expanded = (rows + prior_rows_for_pairs(pairs)).uniq(&:id)
+        pair_rows = prior_rows_for_pairs(pairs)
+        linked_rows = prior_rows_for_entry_ids(pair_rows.map(&:source_time_entry_id))
+        expanded = (rows + pair_rows + linked_rows).uniq(&:id)
         return [ rows, by_entry, deleted_rows, pairs ] if expanded.length == rows.length
 
         rows = expanded
@@ -169,9 +171,7 @@ module Payroll
     end
 
     def affected_employee_weeks(seed_entries, deleted_rows, prior_by_entry)
-      prior_pairs = seed_entries.flat_map do |entry|
-        prior_by_entry.fetch(entry.id, []).map { |row| [ row.source_user_id, row.week_start ] }
-      end
+      prior_pairs = prior_by_entry.values.flatten.map { |row| [ row.source_user_id, row.week_start ] }
       Set.new(
         seed_entries.map { |entry| [ entry.user_id, entry.work_date.beginning_of_week(:sunday) ] } +
         deleted_rows.map { |row| [ row.source_user_id, row.week_start ] } +

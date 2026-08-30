@@ -323,4 +323,22 @@ describe('PayrollRuns', () => {
     await screen.findByText('Alice Pilot')
     expect(screen.queryByRole('dialog', { name: /finalize this payroll cutoff/i })).not.toBeInTheDocument()
   })
+
+  it('discards a preview response when the date range changes before it resolves', async () => {
+    let resolvePreview: (value: { data: typeof preview }) => void = () => undefined
+    const deferredPreview = new Promise<{ data: typeof preview }>((resolve) => {
+      resolvePreview = resolve
+    })
+    apiMock.previewPayrollBatch.mockReturnValueOnce(deferredPreview)
+    render(<PayrollRuns />)
+    await screen.findByText('No payroll batches have been finalized yet.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    fireEvent.change(screen.getByLabelText('Period start'), { target: { value: '2026-08-01' } })
+    resolvePreview({ data: preview })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Preview cutoff' })).toBeEnabled())
+    expect(screen.queryByText('Alice Pilot')).not.toBeInTheDocument()
+    expect(screen.queryByText('LIVE PREVIEW')).not.toBeInTheDocument()
+  })
 })

@@ -44,13 +44,14 @@ RSpec.describe "TimeClockService payroll-finalization contention", type: :servic
     locker.exec("BEGIN")
     locker.exec("LOCK TABLE time_entries IN SHARE MODE")
     stub_const("TimeClockService::PUNCH_LOCK_TIMEOUT", "50ms")
+    clock_in_audit_count = AuditLog.where(action: "time_entry.clocked_in").count
 
     expect do
       TimeClockService.clock_in(user: user, time_category_id: @time_category.id)
     end.to raise_error(TimeClockService::ClockError, /Payroll is being finalized.*try.*again/i)
 
     expect(user.time_entries).to be_empty
-    expect(AuditLog.where(action: "time_entry.clocked_in")).to be_empty
+    expect(AuditLog.where(action: "time_entry.clocked_in").count).to eq(clock_in_audit_count)
   ensure
     locker&.exec("ROLLBACK")
     locker&.close

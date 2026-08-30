@@ -253,6 +253,70 @@ RSpec.describe Payroll::BatchFinalizer do
     end
   end
 
+  it "follows a non-seed entry from an affected week into its earlier payroll week" do
+    linked_entry = create_entry(date: Date.new(2026, 4, 27))
+    seed_entry = create_entry(date: Date.new(2026, 5, 11))
+    older_batch = PayrollBatch.create!(
+      public_id: "AIRE-PAY-LINK-OLDER",
+      start_date: Date.new(2026, 4, 16),
+      end_date: Date.new(2026, 4, 25),
+      cutoff_at: guam.local(2026, 4, 26, 9),
+      finalized_at: guam.local(2026, 4, 26, 9),
+      finalized_by: admin,
+      checksum: "a" * 64
+    )
+    newer_batch = PayrollBatch.create!(
+      public_id: "AIRE-PAY-LINK-NEWER",
+      start_date: Date.new(2026, 4, 26),
+      end_date: Date.new(2026, 5, 9),
+      cutoff_at: guam.local(2026, 5, 10, 9),
+      finalized_at: guam.local(2026, 5, 10, 9),
+      finalized_by: admin,
+      checksum: "b" * 64
+    )
+    row_attributes = {
+      source_user_id: employee.id,
+      source_category_id: category.id,
+      total_hours: 8,
+      regular_hours: 8,
+      overtime_hours: 0,
+      effective_rate_cents: category.hourly_rate_cents,
+      source_kind: "correction",
+      snapshot: {}
+    }
+    older_batch.payroll_batch_entries.create!(
+      **row_attributes,
+      source_time_entry_id: linked_entry.id,
+      work_date: Date.new(2026, 4, 20),
+      week_start: Date.new(2026, 4, 19),
+      line_key: "older-linked"
+    )
+    newer_batch.payroll_batch_entries.create!(
+      **row_attributes,
+      source_time_entry_id: linked_entry.id,
+      work_date: Date.new(2026, 4, 27),
+      week_start: Date.new(2026, 4, 26),
+      line_key: "newer-linked"
+    )
+    newer_batch.payroll_batch_entries.create!(
+      **row_attributes,
+      source_time_entry_id: seed_entry.id,
+      work_date: Date.new(2026, 4, 28),
+      week_start: Date.new(2026, 4, 26),
+      line_key: "seed-link"
+    )
+
+    builder = Payroll::BatchBuilder.new(start_date: "2026-05-10", end_date: "2026-05-23")
+    initial_rows = builder.send(:prior_rows_for_entry_ids, [ seed_entry.id ])
+    _rows, prior_by_entry, _deleted_rows, pairs = builder.send(:expand_prior_rows, [ seed_entry ], initial_rows)
+
+    expect(prior_by_entry.fetch(linked_entry.id).map(&:week_start)).to include(
+      Date.new(2026, 4, 19),
+      Date.new(2026, 4, 26)
+    )
+    expect(pairs).to include([ employee.id, Date.new(2026, 4, 19) ])
+  end
+
   it "blocks missing payroll dimensions and overlapping finalized periods" do
     travel_to(guam.local(2026, 5, 16, 9)) do
       entry = create_entry(date: Date.new(2026, 5, 5))
