@@ -52,9 +52,12 @@ RSpec.describe Payroll::BatchFinalizer do
         [ open_entry.id, "open_clock" ]
       )
       expect(batch.summary).to include("total_hours" => 8.0, "exclusion_count" => 3)
+      pending_exclusion = batch.payroll_batch_exclusions.find_by!(source_time_entry_id: pending.id)
+      expect(pending_exclusion.held_regular_hours + pending_exclusion.held_overtime_hours)
+        .to eq(pending_exclusion.held_total_hours)
       expect(batch.payload.dig("employees", 0, "adjustments", 0, "source_time_entry_id")).to eq(included.id.to_s)
       expect(batch.checksum).to match(/\A[0-9a-f]{64}\z/)
-      expect(Payroll::CanonicalPayload.checksum(batch.payload)).to eq(batch.checksum)
+      expect(Payroll::CanonicalPayload.checksum(batch.reload.payload)).to eq(batch.checksum)
       expect(AuditLog.find_by!(action: "payroll_batch.finalized", auditable: batch).metadata)
         .to include("checksum" => batch.checksum)
     end
@@ -122,6 +125,19 @@ RSpec.describe Payroll::BatchFinalizer do
     end
   end
 
+  it "does not let post-cutoff approvals consume the weekly regular-hours allocation" do
+    travel_to(guam.local(2026, 5, 11, 9)) do
+      late = create_entry(date: Date.new(2026, 5, 3), approval_status: "approved")
+      late.update_columns(approved_at: guam.local(2026, 5, 12, 9))
+      (Date.new(2026, 5, 4)..Date.new(2026, 5, 8)).each { |date| create_entry(date: date) }
+
+      batch = finalize(start_date: "2026-05-01", end_date: "2026-05-10")
+
+      expect(batch.summary).to include("total_hours" => 40.0, "regular_hours" => 40.0, "overtime_hours" => 0.0)
+      expect(batch.payroll_batch_exclusions.find_by!(source_time_entry_id: late.id).reason).to eq("approved_after_cutoff")
+    end
+  end
+
   it "requires explicit acknowledgement and a note before finalizing a negative correction" do
     entry = nil
     travel_to(guam.local(2026, 5, 16, 9)) do
@@ -173,6 +189,39 @@ RSpec.describe Payroll::BatchFinalizer do
         [ new_category.id, 2_500, 8.0 ]
       )
       expect(batch.summary).to include("total_hours" => 0.0, "adjustment_count" => 2)
+    end
+  end
+
+  it "uses the audit tombstone to reverse a paid entry deleted after the cutoff" do
+    entry = nil
+    travel_to(guam.local(2026, 5, 16, 9)) do
+      entry = create_entry(date: Date.new(2026, 5, 5))
+      finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+    end
+
+    travel_to(guam.local(2026, 6, 1, 9)) do
+      entry_id = entry.id
+      entry.destroy!
+      AuditLog.record!(
+        action: "time_entry.deleted",
+        actor: admin,
+        subject_type: "TimeEntry",
+        subject_id: entry_id,
+        subject_name: "Deleted paid entry",
+        event_category: "time_tracking",
+        metadata: { correction_reason: "Duplicate paid entry" }
+      )
+
+      batch = finalize(
+        start_date: "2026-05-16",
+        end_date: "2026-05-31",
+        acknowledge_negative_adjustments: true,
+        negative_adjustment_note: "Reversed a deleted duplicate entry"
+      )
+
+      correction = batch.payroll_batch_entries.find_by!(source_time_entry_id: entry_id)
+      expect(correction.source_kind).to eq("correction")
+      expect(correction.total_hours.to_f).to eq(-8.0)
     end
   end
 
@@ -233,6 +282,11 @@ RSpec.describe Payroll::BatchFinalizer do
           ActiveRecord::Base.connection.execute("DELETE FROM payroll_batch_entries WHERE payroll_batch_id = #{batch.id}")
         end
       end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
+      expect do
+        PayrollBatch.transaction(requires_new: true) do
+          ActiveRecord::Base.connection.execute("DELETE FROM payroll_batches WHERE id = #{batch.id}")
+        end
+      end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
     end
   end
 
@@ -247,6 +301,18 @@ RSpec.describe Payroll::BatchFinalizer do
       expect(PayrollBatch.count).to eq(0)
       expect(PayrollBatchEntry.count).to eq(0)
     end
+  end
+
+  it "returns a retryable payroll error when the source ledger lock times out" do
+    finalizer = described_class.new(
+      start_date: "2026-05-01",
+      end_date: "2026-05-15",
+      actor: admin
+    )
+    allow(finalizer).to receive(:lock_source_ledger!).and_raise(ActiveRecord::LockWaitTimeout)
+
+    expect { finalizer.call }
+      .to raise_error(Payroll::BatchFinalizer::FinalizationError, /Time tracking is busy/)
   end
 
   it "preserves the batch snapshot when the finalizing user is later removed" do

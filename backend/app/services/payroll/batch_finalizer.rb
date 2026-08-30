@@ -3,6 +3,7 @@
 module Payroll
   class BatchFinalizer
     ADVISORY_LOCK_KEY = 638_318_281
+    LOCK_TIMEOUT = "5s"
 
     class FinalizationError < StandardError; end
     class ExistingBatchError < FinalizationError; end
@@ -19,6 +20,7 @@ module Payroll
 
     def call
       PayrollBatch.transaction do
+        configure_lock_timeout!
         lock_finalization!
         lock_source_ledger!
         cutoff = Time.current
@@ -45,7 +47,7 @@ module Payroll
           summary: result.fetch(:summary),
           issues: result.fetch(:issues)
         )
-        result.fetch(:rows).each { |row| batch.payroll_batch_entries.create!(row.except(:work_date).merge(work_date: row.fetch(:work_date))) }
+        result.fetch(:rows).each { |row| batch.payroll_batch_entries.create!(row) }
         result.fetch(:exclusions).each do |row|
           batch.payroll_batch_exclusions.create!(row.except(:work_date))
         end
@@ -66,20 +68,29 @@ module Payroll
         )
         batch
       end
+    rescue ActiveRecord::LockWaitTimeout
+      raise FinalizationError, "Time tracking is busy. Wait a moment and finalize this payroll batch again."
     end
 
     private
+
+    def configure_lock_timeout!
+      quoted_timeout = ActiveRecord::Base.connection.quote(LOCK_TIMEOUT)
+      ActiveRecord::Base.connection.execute("SET LOCAL lock_timeout = #{quoted_timeout}")
+    end
 
     def lock_finalization!
       ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{ADVISORY_LOCK_KEY})")
     end
 
     # A finalized batch must represent one coherent instant. The short-lived
-    # SHARE lock lets in-flight time/user/category writes finish, then prevents
-    # new ones until the immutable snapshot and audit event are committed.
+    # SHARE locks let in-flight ledger writes finish, then prevent new time or
+    # break writes until the immutable snapshot and audit event are committed.
+    # User/category labels remain readable without blocking their writers; the
+    # pay-critical category and rate IDs are already snapshotted on TimeEntry.
     def lock_source_ledger!
       ActiveRecord::Base.connection.execute(
-        "LOCK TABLE time_entries, time_entry_breaks, users, time_categories IN SHARE MODE"
+        "LOCK TABLE time_entries, time_entry_breaks IN SHARE MODE"
       )
     end
 

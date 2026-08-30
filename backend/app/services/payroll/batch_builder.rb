@@ -5,6 +5,7 @@ require "set"
 module Payroll
   class BatchBuilder
     MAX_RANGE_DAYS = 62
+    PAIR_QUERY_BATCH_SIZE = 500
     SOURCE = "aire_services"
 
     attr_reader :start_date, :end_date, :cutoff_at, :batch_reference
@@ -19,15 +20,21 @@ module Payroll
     end
 
     def call
-      prior_rows = PayrollBatchEntry.includes(:payroll_batch).to_a
+      latest_batch = PayrollBatch.order(cutoff_at: :desc, id: :desc).first
+      seed_entries, deleted_entry_ids = settlement_seed_entries(latest_batch)
+      candidate_entry_ids = seed_entries.map(&:id) + deleted_entry_ids
+      prior_rows = prior_rows_for_entry_ids(candidate_entry_ids)
       prior_by_entry = prior_rows.group_by(&:source_time_entry_id)
-      latest_cutoff = PayrollBatch.maximum(:cutoff_at)
-      seed_entries = settlement_seed_entries(latest_cutoff, prior_by_entry)
+      deleted_prior_rows = deleted_prior_rows(prior_by_entry)
+      affected_pairs = affected_employee_weeks(seed_entries, deleted_prior_rows, prior_by_entry)
+      prior_rows = (prior_rows + prior_rows_for_pairs(affected_pairs)).uniq(&:id)
+      prior_by_entry = prior_rows.group_by(&:source_time_entry_id)
       deleted_prior_rows = deleted_prior_rows(prior_by_entry)
       affected_pairs = affected_employee_weeks(seed_entries, deleted_prior_rows, prior_by_entry)
       context_entries = context_entries_for(affected_pairs)
       allocations = overtime_allocations(context_entries)
       settlement_ids = settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
+      preload_first_exclusion_references(settlement_ids)
       current_by_id = context_entries.index_by(&:id)
       rows = []
       exclusions = []
@@ -86,32 +93,34 @@ module Payroll
       raise ArgumentError, "#{name} must be a valid ISO 8601 date (YYYY-MM-DD)"
     end
 
-    def settlement_seed_entries(latest_cutoff, prior_by_entry)
+    def settlement_seed_entries(latest_batch)
       nominal = staff_entries.where(work_date: start_date..end_date).to_a
-      return nominal if latest_cutoff.nil?
+      return [ nominal, [] ] unless latest_batch
 
-      carryover_ids = unresolved_carryover_ids(prior_by_entry)
+      latest_cutoff = latest_batch.cutoff_at
+      carryover_ids = unresolved_carryover_ids(latest_batch)
+      carryovers = staff_entries.where(id: carryover_ids).to_a
       historical = staff_entries
-        .where("time_entries.work_date < ? AND time_entries.work_date <= ?", start_date, end_date)
-        .where("time_entries.updated_at > ? OR time_entries.id IN (?)", latest_cutoff, carryover_ids.presence || [ 0 ])
+        .where("time_entries.work_date < ? AND time_entries.updated_at > ?", start_date, latest_cutoff)
         .to_a
-      changed_prior = staff_entries.where(id: prior_by_entry.keys).where("time_entries.updated_at > ?", latest_cutoff).to_a
-      (nominal + historical + changed_prior).uniq(&:id)
+      changed_prior = staff_entries
+        .where(id: PayrollBatchEntry.select(:source_time_entry_id))
+        .where("time_entries.updated_at > ?", latest_cutoff)
+        .to_a
+      deleted_entry_ids = AuditLog
+        .where(action: "time_entry.deleted", auditable_type: "TimeEntry")
+        .where("occurred_at > ?", latest_cutoff)
+        .distinct
+        .pluck(:auditable_id)
+
+      [ (nominal + carryovers + historical + changed_prior).uniq(&:id), deleted_entry_ids ]
     end
 
-    def unresolved_carryover_ids(prior_by_entry)
-      latest_exclusions = PayrollBatchExclusion.includes(:payroll_batch).to_a
-        .group_by(&:source_time_entry_id)
-        .transform_values { |rows| rows.max_by { |row| [ row.payroll_batch.cutoff_at, row.id ] } }
-
-      latest_exclusions.filter_map do |entry_id, exclusion|
-        next unless exclusion.reason.in?(PayrollBatchExclusion::CARRYOVER_REASONS)
-
-        later_settlement = prior_by_entry.fetch(entry_id, []).any? do |row|
-          row.payroll_batch.cutoff_at > exclusion.payroll_batch.cutoff_at
-        end
-        entry_id unless later_settlement
-      end
+    def unresolved_carryover_ids(latest_batch)
+      latest_batch.payroll_batch_exclusions
+        .where(reason: PayrollBatchExclusion::CARRYOVER_REASONS)
+        .distinct
+        .pluck(:source_time_entry_id)
     end
 
     def staff_entries
@@ -125,6 +134,27 @@ module Payroll
         next if prior_totals(rows).values.all?(&:zero?)
 
         rows.max_by { |row| [ row.payroll_batch.cutoff_at, row.id ] }
+      end
+    end
+
+    def prior_rows_for_entry_ids(entry_ids)
+      ids = entry_ids.compact.uniq
+      return [] if ids.empty?
+
+      PayrollBatchEntry.includes(:payroll_batch).where(source_time_entry_id: ids).to_a
+    end
+
+    def prior_rows_for_pairs(pairs)
+      pair_batches(pairs).flat_map do |pair_batch|
+        PayrollBatchEntry
+          .joins(pair_join_sql(pair_batch, user_column: "source_user_id") do
+            <<~SQL
+              ON affected_pairs.source_user_id = payroll_batch_entries.source_user_id
+             AND affected_pairs.week_start = payroll_batch_entries.week_start
+            SQL
+          end)
+          .includes(:payroll_batch)
+          .to_a
       end
     end
 
@@ -142,17 +172,51 @@ module Payroll
     def context_entries_for(pairs)
       return [] if pairs.empty?
 
-      scope = pairs.reduce(TimeEntry.none) do |combined, (user_id, week_start)|
-        combined.or(TimeEntry.where(user_id: user_id, work_date: week_start..week_start.end_of_week(:sunday)))
+      pair_batches(pairs).flat_map do |pair_batch|
+        TimeEntry
+          .joins(pair_join_sql(pair_batch, user_column: "user_id") do
+            <<~SQL
+              ON affected_pairs.user_id = time_entries.user_id
+             AND time_entries.work_date BETWEEN affected_pairs.week_start AND affected_pairs.week_start + 6
+            SQL
+          end)
+          .includes(:user, :time_category, :time_entry_breaks)
+          .to_a
       end
-      scope.includes(:user, :time_category, :time_entry_breaks).order(:work_date, :start_time, :created_at, :id).to_a
+        .uniq(&:id)
+        .sort_by { |entry| [ entry.work_date, entry.start_time, entry.created_at, entry.id ] }
     end
 
     def overtime_allocations(entries)
       entries.group_by(&:user_id).each_with_object({}) do |(_user_id, user_entries), memo|
-        payable = user_entries.select { |entry| base_approved?(entry) }
+        payable = user_entries.select { |entry| payable_at_cutoff?(entry) }
         memo.merge!(WeeklyOvertimeAllocator.call(payable))
       end
+    end
+
+    def payable_at_cutoff?(entry)
+      return false unless base_approved?(entry)
+      return false if entry.created_at > cutoff_at
+      return false if entry.approved_at.present? && entry.approved_at > cutoff_at
+
+      true
+    end
+
+    def pair_batches(pairs)
+      pairs.to_a.sort_by { |user_id, week_start| [ user_id, week_start ] }.each_slice(PAIR_QUERY_BATCH_SIZE)
+    end
+
+    def pair_join_sql(pairs, user_column:)
+      records = pairs.map { |user_id, week_start| { user_column => user_id, week_start: week_start.iso8601 } }
+      join_clause = yield
+      ActiveRecord::Base.sanitize_sql_array([
+        <<~SQL.squish,
+          INNER JOIN jsonb_to_recordset(?::jsonb)
+            AS affected_pairs(#{user_column} bigint, week_start date)
+          #{join_clause}
+        SQL
+        records.to_json
+      ])
     end
 
     def settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
@@ -167,21 +231,22 @@ module Payroll
       regular = round_hours(allocation[:regular_hours])
       overtime = round_hours(allocation[:overtime_hours])
       snapshot = entry_snapshot(entry)
+      held_regular, held_overtime = held_hours(entry, regular, overtime)
 
       if entry.created_at > cutoff_at
-        return [ zero_hours, [ exclusion_for(entry, "created_after_cutoff", entry.hours, regular, overtime, snapshot) ] ]
+        return [ zero_hours, [ exclusion_for(entry, "created_after_cutoff", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
       if entry.status.in?(%w[clocked_in on_break])
-        return [ zero_hours, [ exclusion_for(entry, "open_clock", entry.hours, regular, overtime, snapshot) ] ]
+        return [ zero_hours, [ exclusion_for(entry, "open_clock", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
       if entry.approval_status == "pending"
-        return [ zero_hours, [ exclusion_for(entry, "pending_approval", entry.hours, regular, overtime, snapshot) ] ]
+        return [ zero_hours, [ exclusion_for(entry, "pending_approval", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
       if entry.approval_status == "denied"
-        return [ zero_hours, [ exclusion_for(entry, "denied_approval", entry.hours, regular, overtime, snapshot) ] ]
+        return [ zero_hours, [ exclusion_for(entry, "denied_approval", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
       if entry.approval_status == "approved" && entry.approved_at.present? && entry.approved_at > cutoff_at
-        return [ zero_hours, [ exclusion_for(entry, "approved_after_cutoff", entry.hours, regular, overtime, snapshot) ] ]
+        return [ zero_hours, [ exclusion_for(entry, "approved_after_cutoff", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
       return [ zero_hours, [] ] unless base_approved?(entry)
 
@@ -211,6 +276,13 @@ module Payroll
 
     def zero_hours
       { total_hours: 0.to_d, regular_hours: 0.to_d, overtime_hours: 0.to_d }
+    end
+
+    def held_hours(entry, regular, overtime)
+      total = round_hours(entry.hours)
+      return [ regular, overtime ] if round_hours(regular + overtime) == total
+
+      [ total, 0.to_d ]
     end
 
     def prior_totals(rows)
@@ -335,10 +407,7 @@ module Payroll
     end
 
     def exclusion_for(entry, reason, total, regular, overtime, snapshot)
-      first_reference = PayrollBatchExclusion
-        .where(source_time_entry_id: entry.id, reason: reason)
-        .order(:id)
-        .pick(:first_excluded_batch_public_id)
+      first_reference = @first_exclusion_references.fetch([ entry.id, reason ], nil)
       {
         source_time_entry_id: entry.id,
         source_user_id: entry.user_id,
@@ -350,6 +419,20 @@ module Payroll
         work_date: entry.work_date,
         snapshot: snapshot
       }
+    end
+
+    def preload_first_exclusion_references(entry_ids)
+      @first_exclusion_references = {}
+      ids = entry_ids.to_a.compact.uniq
+      return if ids.empty?
+
+      PayrollBatchExclusion
+        .where(source_time_entry_id: ids)
+        .select("DISTINCT ON (source_time_entry_id, reason) source_time_entry_id, reason, first_excluded_batch_public_id, id")
+        .order(:source_time_entry_id, :reason, :id)
+        .each do |exclusion|
+          @first_exclusion_references[[ exclusion.source_time_entry_id, exclusion.reason ]] = exclusion.first_excluded_batch_public_id
+        end
     end
 
     def entry_snapshot(entry)

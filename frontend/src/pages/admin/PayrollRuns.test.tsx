@@ -167,4 +167,50 @@ describe('PayrollRuns', () => {
     expect(await screen.findByText(/Finalization is blocked/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Finalize this cutoff' })).toBeDisabled()
   })
+
+  it('requires and submits a trimmed explanation for negative corrections', async () => {
+    apiMock.previewPayrollBatch.mockResolvedValue({
+      data: {
+        ...preview,
+        requires_negative_adjustment_acknowledgement: true,
+        issues: { ...issues, negative_adjustment_count: 1 },
+      },
+    })
+    render(<PayrollRuns />)
+    await screen.findByText('No payroll batches have been finalized yet.')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize this cutoff' }))
+    const confirmButton = screen.getByRole('button', { name: 'Finalize payroll batch' })
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(confirmButton).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Correction explanation'), {
+      target: { value: '  Corrected prior overpayment  ' },
+    })
+    expect(confirmButton).toBeEnabled()
+    fireEvent.click(confirmButton)
+
+    await waitFor(() => expect(apiMock.finalizePayrollBatch).toHaveBeenCalledWith(expect.objectContaining({
+      acknowledge_negative_adjustments: true,
+      negative_adjustment_note: 'Corrected prior overpayment',
+    })))
+  })
+
+  it('clears a prior payroll-history error after a successful refresh', async () => {
+    apiMock.getPayrollBatches
+      .mockResolvedValueOnce({ error: 'Temporary history failure' })
+      .mockResolvedValue({ data: { payroll_batches: [] } })
+    render(<PayrollRuns />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary history failure')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize this cutoff' }))
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
+
+    await waitFor(() => expect(screen.queryByText('Temporary history failure')).not.toBeInTheDocument())
+  })
 })

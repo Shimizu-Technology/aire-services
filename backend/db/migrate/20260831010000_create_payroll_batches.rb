@@ -71,12 +71,12 @@ class CreatePayrollBatches < ActiveRecord::Migration[8.1]
           CREATE OR REPLACE FUNCTION protect_finalized_payroll_records()
           RETURNS trigger AS $$
           BEGIN
-            IF TG_TABLE_NAME = 'payroll_batches'
-               AND TG_OP = 'UPDATE'
-               AND (to_jsonb(NEW)->>'finalized_by_id') IS NULL
-               AND (to_jsonb(OLD)->>'finalized_by_id') IS NOT NULL
-               AND (to_jsonb(NEW) - 'finalized_by_id') = (to_jsonb(OLD) - 'finalized_by_id') THEN
-              RETURN NEW;
+            IF TG_TABLE_NAME = 'payroll_batches' AND TG_OP = 'UPDATE' THEN
+              IF (to_jsonb(NEW)->>'finalized_by_id') IS NULL
+                 AND (to_jsonb(OLD)->>'finalized_by_id') IS NOT NULL
+                 AND (to_jsonb(NEW) - 'finalized_by_id') = (to_jsonb(OLD) - 'finalized_by_id') THEN
+                RETURN NEW;
+              END IF;
             END IF;
 
             RAISE EXCEPTION 'finalized payroll records are append-only';

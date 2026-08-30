@@ -224,6 +224,41 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         expect(audit.metadata.fetch("finalized_payroll_batch_ids")).to eq([ batch.public_id ])
       end
 
+      it "requires a reason when a pending or denied entry was tracked in a finalized payroll batch" do
+        %w[pending denied].each do |approval_status|
+          excluded_entry = create(
+            :time_entry,
+            user: employee,
+            time_category: time_category,
+            status: "completed",
+            approval_status: approval_status,
+            work_date: Date.new(2026, 5, approval_status == "pending" ? 5 : 6)
+          )
+          batch = Payroll::BatchFinalizer.new(
+            start_date: excluded_entry.work_date,
+            end_date: excluded_entry.work_date,
+            actor: admin
+          ).call
+
+          patch "/api/v1/time_entries/#{excluded_entry.id}",
+                params: { time_entry: { description: "changed without a reason" } },
+                headers: auth_headers_for[admin]
+
+          expect(response).to have_http_status(:unprocessable_entity)
+          expect(json.fetch(:code)).to eq("correction_reason_required")
+          expect(json.fetch(:payroll_batch_ids)).to eq([ batch.public_id ])
+
+          patch "/api/v1/time_entries/#{excluded_entry.id}",
+                params: {
+                  time_entry: { description: "reviewed after the cutoff" },
+                  correction_reason: "Manager reviewed the excluded entry"
+                },
+                headers: auth_headers_for[admin]
+
+          expect(response).to have_http_status(:ok)
+        end
+      end
+
       it "rolls back the entry and audit log when export invalidation fails" do
         create_protecting_export(entry)
         original_description = entry.description

@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
+import { ReceiptText, type LucideIcon } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 
-function NavIcon({ children }: { children: ReactNode }) {
+function NavIcon({ children, icon: Icon }: { children?: ReactNode; icon?: LucideIcon }) {
   return (
     <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition group-hover:border-cyan-200 group-hover:text-cyan-700 group-focus-visible:border-cyan-200 group-focus-visible:text-cyan-700">
-      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-        {children}
-      </svg>
+      {Icon ? (
+        <Icon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
+      ) : (
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          {children}
+        </svg>
+      )}
     </span>
   )
 }
@@ -102,12 +107,7 @@ const adminNavigation = [
   {
     name: 'Payroll Runs',
     href: '/admin/payroll',
-    icon: (
-      <NavIcon>
-        <rect x="4" y="4.5" width="16" height="15" rx="2.5" strokeWidth={1.8} />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 9h8M8 13h3.5M15.5 12v4m-2-2h4" />
-      </NavIcon>
-    ),
+    icon: <NavIcon icon={ReceiptText} />,
   },
   {
     name: 'Activity History',

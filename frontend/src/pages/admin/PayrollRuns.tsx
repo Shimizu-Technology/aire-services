@@ -243,12 +243,15 @@ export default function PayrollRuns() {
   const [finalizing, setFinalizing] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
 
   const loadBatches = useCallback(async () => {
     const response = await api.getPayrollBatches()
-    if (response.data) setBatches(response.data.payroll_batches)
-    else setError(response.error || 'Payroll history could not be loaded.')
+    if (response.data) {
+      setBatches(response.data.payroll_batches)
+      setHistoryError(null)
+    } else setHistoryError(response.error || 'Payroll history could not be loaded.')
     setLoading(false)
   }, [])
 
@@ -331,6 +334,7 @@ export default function PayrollRuns() {
       </section>
 
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {historyError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{historyError}</p>}
 
       {activePayload && (
         <>

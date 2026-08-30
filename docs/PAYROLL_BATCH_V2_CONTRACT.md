@@ -29,8 +29,9 @@ To verify a payload:
 
 1. Save `export.checksum`, then remove the top-level `export` object.
 2. Recursively convert object keys to strings and sort them lexicographically. Preserve array order.
-3. Serialize the result as compact JSON and compute its SHA-256 hexadecimal digest.
-4. Reject the payload if the digest differs from `export.checksum`.
+3. Normalize decimal values to the JSON float representation emitted by AIRE. AIRE converts Ruby decimal values to a float first, so `8.00`, `8.0`, and a JSON-decoded `8.0` all canonicalize as `8.0`; integer counts and cent amounts remain integers.
+4. Serialize the result as compact JSON and compute its SHA-256 hexadecimal digest. Do not otherwise round or reformat received numbers.
+5. Reject the payload if the digest differs from `export.checksum`.
 
 Cornerstone must treat `export.batch_id` as the idempotency key. Importing the same batch ID and checksum again returns the existing import. The same batch ID with a different checksum is an integrity failure and must never overwrite an earlier import.
 
