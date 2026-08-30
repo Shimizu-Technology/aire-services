@@ -22,6 +22,7 @@ class AuditLogPresenter
     "time_entry.denied" => "Denied",
     "time_entry.clocked_in" => "Clocked in for",
     "time_entry.clocked_out" => "Clocked out from",
+    "time_entry.legacy_lock_archived" => "Archived legacy lock state for",
     "leave_request.created" => "Submitted",
     "leave_request.approved" => "Approved",
     "leave_request.declined" => "Declined",
@@ -32,6 +33,10 @@ class AuditLogPresenter
     "user.invite_resent" => "Resent an invitation for",
     "user.kiosk_pin_reset" => "Reset kiosk access for",
     "report.exported" => "Exported",
+    "payroll_batch.finalized" => "Finalized",
+    "payroll_batch.exported" => "Exported",
+    "payroll_batch.retrieved" => "Retrieved",
+    "legacy_time_period_lock.archived" => "Archived",
     "audit_history.exported" => "Exported activity history"
   }.freeze
 

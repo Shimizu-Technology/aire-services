@@ -243,7 +243,6 @@ module Payroll
         overtime_status: entry.overtime_status,
         overtime_approved_by: entry.overtime_approved_by ? { id: entry.overtime_approved_by.id, full_name: entry.overtime_approved_by.full_name } : nil,
         overtime_approved_at: entry.overtime_approved_at&.iso8601,
-        locked_at: entry.locked_at&.iso8601,
         time_category: entry.time_category ? {
           id: entry.time_category.id,
           key: entry.time_category.key,

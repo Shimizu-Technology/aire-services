@@ -63,7 +63,6 @@ function makeEntry(overrides: Partial<TimeEntry>): TimeEntry {
       key: 'cfi',
       name: 'CFI',
     },
-    locked_at: null,
     created_at: '2026-06-05T00:00:00.000Z',
     updated_at: '2026-06-05T00:00:00.000Z',
     ...overrides,

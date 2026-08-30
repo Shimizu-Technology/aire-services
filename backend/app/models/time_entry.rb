@@ -46,10 +46,6 @@ class TimeEntry < ApplicationRecord
   # flow), so nil is intentionally treated as countable alongside "approved".
   scope :countable, -> { where("approval_status IS NULL OR approval_status NOT IN (?)", %w[denied pending]).where(status: "completed") }
 
-  def locked?
-    locked_at.present?
-  end
-
   def editable_by?(acting_user)
     acting_user.admin? || user_id == acting_user.id
   end
@@ -80,6 +76,16 @@ class TimeEntry < ApplicationRecord
 
   def active_payroll_exports
     ReportExport.active_for_entry(id)
+  end
+
+  def finalized_payroll_batches
+    entry_batch_ids = PayrollBatchEntry.where(source_time_entry_id: id).select(:payroll_batch_id)
+    exclusion_batch_ids = PayrollBatchExclusion.where(source_time_entry_id: id).select(:payroll_batch_id)
+
+    PayrollBatch.where(id: entry_batch_ids)
+      .or(PayrollBatch.where(id: exclusion_batch_ids))
+      .where.not(finalized_at: nil)
+      .distinct
   end
 
   def total_break_minutes

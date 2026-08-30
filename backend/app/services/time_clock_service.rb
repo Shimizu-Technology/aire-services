@@ -2,6 +2,7 @@
 
 class TimeClockService
   BUSINESS_TIMEZONE = "Guam"
+  PUNCH_LOCK_TIMEOUT = "2s"
 
   class ClockError < StandardError; end
   class AuthorizationError < StandardError; end
@@ -55,7 +56,7 @@ class TimeClockService
         attendance_status: schedule ? calculate_attendance_status(now, schedule) : nil
       )
 
-      ActiveRecord::Base.transaction do
+      clock_write_transaction do
         entry.save!
         record_time_event!("time_entry.clocked_in", entry, user: user, actor: admin_override_by, source: clock_source)
       end
@@ -70,7 +71,7 @@ class TimeClockService
       entry = active_entry_for(user)
       raise ClockError, "Not currently clocked in" unless entry
 
-      ActiveRecord::Base.transaction do
+      clock_write_transaction do
         if entry.status == "on_break"
           active_break = entry.active_break
           active_break&.close!
@@ -123,7 +124,7 @@ class TimeClockService
       raise ClockError, "You are not currently clocked in" unless entry
       raise ClockError, "You are already on a break" if entry.status == "on_break"
 
-      ActiveRecord::Base.transaction do
+      clock_write_transaction do
         now = Time.current
         entry.time_entry_breaks.create!(start_time: now)
         entry.admin_override = true if admin_override_by.present?
@@ -146,7 +147,7 @@ class TimeClockService
       active_break = entry.active_break
       raise ClockError, "No active break found" unless active_break
 
-      ActiveRecord::Base.transaction do
+      clock_write_transaction do
         active_break.close!
         entry.admin_override = true if admin_override_by.present?
         entry.update!(status: "clocked_in")
@@ -177,7 +178,7 @@ class TimeClockService
 
       new_entry = nil
 
-      ActiveRecord::Base.transaction do
+      clock_write_transaction do
         if entry.status == "on_break"
           active_brk = entry.active_break
           active_brk&.close!(now)
@@ -377,6 +378,16 @@ class TimeClockService
 
     # ── Helpers ──
 
+    def clock_write_transaction(&block)
+      ActiveRecord::Base.transaction do
+        quoted_timeout = ActiveRecord::Base.connection.quote(PUNCH_LOCK_TIMEOUT)
+        ActiveRecord::Base.connection.execute("SET LOCAL lock_timeout = #{quoted_timeout}")
+        block.call
+      end
+    rescue ActiveRecord::LockWaitTimeout
+      raise ClockError, "Payroll is being finalized right now. Please try this time-clock action again in a moment."
+    end
+
     def active_entry_for(user)
       TimeEntry.clocked_in.for_user(user).order(created_at: :desc).first
     end
@@ -388,7 +399,7 @@ class TimeClockService
 
       stale.find_each do |entry|
         begin
-          ActiveRecord::Base.transaction do
+          clock_write_transaction do
             if entry.status == "on_break"
               entry.active_break&.close!
             end

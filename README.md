@@ -27,6 +27,8 @@ See:
 
 `GET /api/v1/payroll/time_summary` implements Cornerstone Payroll's normative [Time Summary v1 contract](https://github.com/Shimizu-Technology/cornerstone-payroll/blob/main/docs/TIME_TRACKING_V1_CONTRACT.md). AIRE emits `schema_version: "1.0"`, the exact requested range, and one daily row per included employee per requested calendar date. Days without countable time are explicit zero-hour rows so Payroll can reject partial-workweek exports before calculating overtime.
 
+Finalized payroll cutoffs use AIRE's [Payroll Batch v2 contract](docs/PAYROLL_BATCH_V2_CONTRACT.md). A batch is an immutable settlement ledger: payable hours are frozen at one cutoff instant, unresolved work remains traceable, and later approvals or corrections become explicit adjustments in a future batch. Cornerstone Payroll should import by batch ID and verify the canonical SHA-256 checksum before applying it.
+
 ## Source of truth for extraction/planning
 - `docs/PROJECT-OVERVIEW.md`
 - `docs/PORTING-CHECKLIST.md`
