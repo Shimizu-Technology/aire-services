@@ -59,7 +59,6 @@ Rails.application.routes.draw do
         end
       end
       resources :time_categories, only: [ :index ]
-      resources :time_period_locks, only: [ :index ]
       resources :schedule_time_presets, only: [ :index ]
       resources :schedules, only: [ :index, :show, :create, :update, :destroy ] do
         collection do
@@ -70,6 +69,11 @@ Rails.application.routes.draw do
       end
 
       namespace :admin do
+        resources :audit_logs, only: [ :index ] do
+          collection do
+            get :export
+          end
+        end
         resource :kiosk_session, only: [ :create ]
         get "settings/geocode", to: "settings#geocode"
         get "settings/place_autocomplete", to: "settings#place_autocomplete"
@@ -88,7 +92,6 @@ Rails.application.routes.draw do
         get "settings", to: "settings#index"
         patch "settings", to: "settings#update"
         resources :time_categories, only: [ :index, :show, :create, :update, :destroy ]
-        resources :time_period_locks, only: [ :create, :destroy ]
         resource :hours_report, only: [ :show ], controller: "hours_reports" do
           get :pdf
           get :timesheet_pdf

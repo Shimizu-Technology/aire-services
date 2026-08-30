@@ -4,11 +4,13 @@ module Api
   module V1
     class BaseController < ApplicationController
       include ClerkAuthenticatable
+      include Auditable
 
+      rescue_from StandardError, with: :internal_server_error
       rescue_from ActiveRecord::RecordNotFound, with: :not_found
       rescue_from ActiveRecord::RecordInvalid, with: :unprocessable_entity
       rescue_from ActionController::ParameterMissing, with: :bad_request
-      rescue_from StandardError, with: :internal_server_error
+      rescue_from ActionController::BadRequest, with: :bad_request
 
       before_action :preload_settings
       after_action :clear_settings_cache

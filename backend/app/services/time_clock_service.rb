@@ -55,7 +55,10 @@ class TimeClockService
         attendance_status: schedule ? calculate_attendance_status(now, schedule) : nil
       )
 
-      entry.save!
+      ActiveRecord::Base.transaction do
+        entry.save!
+        record_time_event!("time_entry.clocked_in", entry, user: user, actor: admin_override_by, source: clock_source)
+      end
       broadcast_time_clock_update("clock_in", user)
       entry
     rescue ActiveRecord::RecordNotUnique
@@ -107,6 +110,7 @@ class TimeClockService
         entry.admin_override = true if admin_override_by.present?
 
         entry.save!
+        record_time_event!("time_entry.clocked_out", entry, user: user, actor: admin_override_by, source: entry.clock_source)
       end
 
       broadcast_time_clock_update("clock_out", user)
@@ -124,6 +128,7 @@ class TimeClockService
         entry.time_entry_breaks.create!(start_time: now)
         entry.admin_override = true if admin_override_by.present?
         entry.update!(status: "on_break")
+        record_time_event!("time_entry.break_started", entry, user: user, actor: admin_override_by, source: entry.clock_source)
       end
 
       broadcast_time_clock_update("start_break", user)
@@ -145,6 +150,7 @@ class TimeClockService
         active_break.close!
         entry.admin_override = true if admin_override_by.present?
         entry.update!(status: "clocked_in")
+        record_time_event!("time_entry.break_ended", entry, user: user, actor: admin_override_by, source: entry.clock_source)
       end
 
       broadcast_time_clock_update("end_break", user)
@@ -202,6 +208,14 @@ class TimeClockService
           approval_status: nil,
           approval_note: unscheduled_approval_note_for(user: user, schedule: entry.schedule),
           attendance_status: entry.attendance_status
+        )
+        record_time_event!(
+          "time_entry.category_switched",
+          new_entry,
+          user: user,
+          actor: admin_override_by,
+          source: resolved_source,
+          metadata: { previous_entry_id: entry.id, previous_time_category_id: entry.time_category_id }
         )
       end
 
@@ -298,6 +312,7 @@ class TimeClockService
         end
 
         entry.update!(attrs)
+        record_review_event!("time_entry.approved", entry, approved_by, note)
       end
       entry
     end
@@ -307,6 +322,7 @@ class TimeClockService
     # and denials. The approval_status field distinguishes the action taken.
     def deny_entry(entry:, denied_by:, note: nil)
       raise AuthorizationError, "Only admins can deny entries" unless denied_by.admin?
+      raise ClockError, "A denial reason is required" if note.to_s.strip.blank?
 
       entry.with_lock do
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
@@ -317,6 +333,7 @@ class TimeClockService
           approved_at: Time.current,
           approval_note: note
         )
+        record_review_event!("time_entry.denied", entry, denied_by, note, outcome: "denied")
       end
       entry
     end
@@ -334,6 +351,7 @@ class TimeClockService
           overtime_approved_at: Time.current,
           overtime_note: note
         )
+        record_review_event!("time_entry.overtime_approved", entry, approved_by, note)
       end
       entry
     end
@@ -341,6 +359,7 @@ class TimeClockService
     # ── Admin: Deny Overtime ──
     def deny_overtime(entry:, denied_by:, note: nil)
       raise AuthorizationError, "Only admins can deny overtime" unless denied_by.admin?
+      raise ClockError, "An overtime denial reason is required" if note.to_s.strip.blank?
 
       entry.with_lock do
         raise ClockError, "Entry does not have pending overtime" unless entry.overtime_status == "pending"
@@ -351,6 +370,7 @@ class TimeClockService
           overtime_approved_at: Time.current,
           overtime_note: note
         )
+        record_review_event!("time_entry.overtime_denied", entry, denied_by, note, outcome: "denied")
       end
       entry
     end
@@ -388,11 +408,14 @@ class TimeClockService
               approval_note: "Auto-closed: clocked in for over #{threshold_hours} hours without clocking out"
             )
 
-            AuditLog.create!(
+            AuditLog.record!(
               auditable: entry,
-              action: "updated",
-              user: nil,
-              metadata: "System auto-closed stale time entry (>#{threshold_hours}h) for #{entry.user&.full_name}"
+              action: "time_entry.auto_closed",
+              actor: nil,
+              actor_kind: "system",
+              source: "system",
+              event_category: "time_tracking",
+              metadata: { threshold_hours: threshold_hours, employee: entry.user&.full_name }
             )
           end
         rescue StandardError => e
@@ -409,6 +432,41 @@ class TimeClockService
 
     def hours_this_week(user, date = Date.current)
       TimeEntry.countable.for_user(user).for_week(date).sum(:hours).to_f
+    end
+
+    def record_time_event!(action, entry, user:, actor:, source:, metadata: {})
+      effective_actor = actor || Current.user || user
+      AuditLog.record!(
+        action: action,
+        auditable: entry,
+        actor: effective_actor,
+        event_category: "time_tracking",
+        source: source == "kiosk" ? "kiosk" : (effective_actor&.admin? ? "admin" : "web"),
+        metadata: {
+          employee_id: user.id,
+          employee_name: user.full_name,
+          work_date: entry.work_date&.iso8601,
+          time_category_id: entry.time_category_id,
+          admin_override: actor.present?
+        }.merge(metadata)
+      )
+    end
+
+    def record_review_event!(action, entry, actor, note, outcome: "succeeded")
+      AuditLog.record!(
+        action: action,
+        auditable: entry,
+        actor: actor,
+        event_category: "approvals",
+        source: "admin",
+        outcome: outcome,
+        metadata: {
+          employee_id: entry.user_id,
+          employee_name: entry.user&.full_name,
+          work_date: entry.work_date&.iso8601,
+          review_note: note.to_s.strip.presence
+        }.compact
+      )
     end
 
     # Evaluates whether an entry triggers overtime thresholds.

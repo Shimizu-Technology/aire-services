@@ -39,17 +39,22 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
 
   describe "PATCH /api/v1/admin/settings" do
     it "updates allowed keys" do
-      patch "/api/v1/admin/settings",
-            params: {
-              settings: {
-                early_clock_in_buffer_minutes: "10"
-              }
-            },
-            headers: auth_headers_for[admin]
+      expect do
+        patch "/api/v1/admin/settings",
+              params: {
+                settings: {
+                  early_clock_in_buffer_minutes: "10"
+                }
+              },
+              headers: auth_headers_for[admin]
+      end.to change { AuditLog.where(action: "admin.settings.update").count }.by(1)
 
       expect(response).to have_http_status(:ok)
       expect(json.dig(:settings, :early_clock_in_buffer_minutes)).to eq("10")
       expect(Setting.get("early_clock_in_buffer_minutes")).to eq("10")
+      audit = AuditLog.where(action: "admin.settings.update").order(:id).last
+      expect(audit).to have_attributes(event_category: "settings", user_id: admin.id, auditable_type: "Setting", auditable_id: 0)
+      expect(audit.metadata.fetch("changed_fields")).to include("settings.early_clock_in_buffer_minutes")
     end
 
     it "updates approval groups" do

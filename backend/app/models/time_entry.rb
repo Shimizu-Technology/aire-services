@@ -51,7 +51,6 @@ class TimeEntry < ApplicationRecord
   end
 
   def editable_by?(acting_user)
-    return false if locked?
     acting_user.admin? || user_id == acting_user.id
   end
 

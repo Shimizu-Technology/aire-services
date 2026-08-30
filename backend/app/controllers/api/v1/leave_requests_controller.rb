@@ -45,14 +45,17 @@ module Api
       def create
         leave_request = current_user.leave_requests.build(leave_request_params)
 
-        if leave_request.save
-          AuditLog.log(
+        saved = LeaveRequest.transaction do
+          leave_request.save && AuditLog.record!(
+            action: "leave_request.created",
             auditable: leave_request,
-            action: "created",
-            user: current_user,
-            metadata: "leave_request=#{leave_request.leave_type};status=pending"
+            actor: current_user,
+            event_category: "leave",
+            metadata: { leave_type: leave_request.leave_type, status: "pending" }
           )
+        end
 
+        if saved
           render json: { leave_request: serialize_leave_request(leave_request) }, status: :created
         else
           render json: { error: leave_request.errors.full_messages.join(", ") }, status: :unprocessable_entity
@@ -85,19 +88,19 @@ module Api
             cancelled_by: current_user,
             cancelled_at: Time.current
           )
+          AuditLog.record!(
+            action: "leave_request.cancelled",
+            auditable: @leave_request,
+            actor: current_user,
+            event_category: "leave",
+            outcome: "cancelled"
+          )
           cancel_result = @leave_request
         end
 
         if cancel_error
           return render json: { error: cancel_error }, status: :forbidden
         end
-
-        AuditLog.log(
-          auditable: cancel_result,
-          action: "updated",
-          user: current_user,
-          metadata: "leave_request_status=cancelled"
-        )
 
         render json: { leave_request: serialize_leave_request(cancel_result) }
       end
@@ -144,19 +147,20 @@ module Api
             cancelled_by: nil,
             cancelled_at: nil
           )
+          AuditLog.record!(
+            action: "leave_request.#{status}",
+            auditable: @leave_request,
+            actor: current_user,
+            event_category: "leave",
+            outcome: status == "declined" ? "denied" : "succeeded",
+            metadata: { review_note: params[:review_note].to_s.strip.presence }.compact
+          )
           review_result = @leave_request
         end
 
         if error_response
           return render json: { error: error_response.fetch(:error) }, status: error_response.fetch(:status)
         end
-
-        AuditLog.log(
-          auditable: review_result,
-          action: "updated",
-          user: current_user,
-          metadata: "leave_request_status=#{status}"
-        )
 
         render json: { leave_request: serialize_leave_request(review_result) }
       end

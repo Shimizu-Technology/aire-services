@@ -171,7 +171,8 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         expect(response).to have_http_status(:ok)
         expect(export.reload.state).to eq("stale")
         expect(export.stale_reason).to include("Employee confirmed the shift ended earlier")
-        expect(AuditLog.where(auditable: entry, action: "updated").order(:id).last.metadata).to include("correction reason")
+        audit = AuditLog.where(auditable: entry, action: "time_entry.updated").order(:id).last
+        expect(audit.metadata.fetch("correction_reason")).to eq("Employee confirmed the shift ended earlier.")
       end
 
       it "rolls back the entry and audit log when export invalidation fails" do
@@ -185,7 +186,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:internal_server_error)
         expect(entry.reload.description).to eq(original_description)
-        expect(AuditLog.where(auditable: entry, action: "updated")).to be_empty
+        expect(AuditLog.where(auditable: entry, action: "time_entry.updated")).to be_empty
       end
 
       it "syncs corrected active clock-in time with the live clock state" do
@@ -432,25 +433,25 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       end
     end
 
-    context "locked entry" do
+    context "legacy locked entry marker" do
       let!(:locked_entry) { create(:time_entry, :locked, user: employee) }
 
-      it "blocks owner from editing" do
+      it "does not block the owner from editing" do
         patch "/api/v1/time_entries/#{locked_entry.id}",
               params: { time_entry: { description: "nope" } },
               headers: auth_headers_for[employee]
 
-        expect(response).to have_http_status(:forbidden)
-        expect(json[:error]).to eq("This time entry is locked and cannot be edited")
+        expect(response).to have_http_status(:ok)
+        expect(locked_entry.reload.description).to eq("nope")
       end
 
-      it "blocks admin from editing" do
+      it "does not block an admin from editing" do
         patch "/api/v1/time_entries/#{locked_entry.id}",
               params: { time_entry: { description: "nope" } },
               headers: auth_headers_for[admin]
 
-        expect(response).to have_http_status(:forbidden)
-        expect(json[:error]).to eq("This time entry is locked and cannot be edited")
+        expect(response).to have_http_status(:ok)
+        expect(locked_entry.reload.description).to eq("nope")
       end
     end
   end
@@ -486,7 +487,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:internal_server_error)
         expect(TimeEntry.exists?(entry.id)).to be(true)
-        expect(AuditLog.where(auditable_type: "TimeEntry", auditable_id: entry.id, action: "deleted")).to be_empty
+        expect(AuditLog.where(auditable_type: "TimeEntry", auditable_id: entry.id, action: "time_entry.deleted")).to be_empty
       end
     end
 
@@ -499,23 +500,23 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       end
     end
 
-    context "locked entry" do
+    context "legacy locked entry marker" do
       let!(:locked_entry) { create(:time_entry, :locked, user: employee) }
 
-      it "blocks owner from deleting" do
+      it "does not block the owner from deleting" do
         delete "/api/v1/time_entries/#{locked_entry.id}",
                headers: auth_headers_for[employee]
 
-        expect(response).to have_http_status(:forbidden)
-        expect(json[:error]).to eq("This time entry is locked and cannot be deleted")
+        expect(response).to have_http_status(:no_content)
+        expect(TimeEntry.exists?(locked_entry.id)).to be(false)
       end
 
-      it "blocks admin from deleting" do
+      it "does not block an admin from deleting" do
         delete "/api/v1/time_entries/#{locked_entry.id}",
                headers: auth_headers_for[admin]
 
-        expect(response).to have_http_status(:forbidden)
-        expect(json[:error]).to eq("This time entry is locked and cannot be deleted")
+        expect(response).to have_http_status(:no_content)
+        expect(TimeEntry.exists?(locked_entry.id)).to be(false)
       end
     end
   end
@@ -572,14 +573,14 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
     end
   end
 
-  # ── PERIOD LOCK BEHAVIOR ─────────────────────────────────────────────
-  describe "period locks" do
+  # ── RETIRED PERIOD LOCK BEHAVIOR ─────────────────────────────────────
+  describe "legacy period lock records" do
     let(:week_start) { Date.current.beginning_of_week(:sunday) }
     let!(:period_lock) do
       create(:time_period_lock, start_date: week_start, end_date: week_start + 6.days, locked_by: admin)
     end
 
-    it "blocks create inside locked week" do
+    it "does not block create inside the old date range" do
       post "/api/v1/time_entries",
            params: {
              time_entry: {
@@ -591,29 +592,28 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
            },
            headers: auth_headers_for[employee]
 
-      expect(response).to have_http_status(:forbidden)
-      expect(json[:error]).to eq("This time period is locked and cannot be modified")
+      expect(response).to have_http_status(:created)
     end
 
-    it "blocks update inside locked week" do
+    it "does not block update inside the old date range" do
       entry = create(:time_entry, user: employee, work_date: week_start)
 
       patch "/api/v1/time_entries/#{entry.id}",
             params: { time_entry: { description: "nope" } },
             headers: auth_headers_for[admin]
 
-      expect(response).to have_http_status(:forbidden)
-      expect(json[:error]).to eq("This time period is locked and cannot be modified")
+      expect(response).to have_http_status(:ok)
+      expect(entry.reload.description).to eq("nope")
     end
 
-    it "blocks destroy inside locked week" do
+    it "does not block destroy inside the old date range" do
       entry = create(:time_entry, user: employee, work_date: week_start)
 
       delete "/api/v1/time_entries/#{entry.id}",
              headers: auth_headers_for[admin]
 
-      expect(response).to have_http_status(:forbidden)
-      expect(json[:error]).to eq("This time period is locked and cannot be modified")
+      expect(response).to have_http_status(:no_content)
+      expect(TimeEntry.exists?(entry.id)).to be(false)
     end
   end
 
@@ -796,7 +796,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         entry = create(:time_entry, user: employee, **attributes)
         export = create_protecting_export(entry)
 
-        post "/api/v1/time_entries/#{entry.id}/#{action}", headers: auth_headers_for[admin]
+        post "/api/v1/time_entries/#{entry.id}/#{action}", params: { note: "Supervisor review reason" }, headers: auth_headers_for[admin]
 
         expect(response).to have_http_status(:ok)
         expect(export.reload.state).to eq("stale")

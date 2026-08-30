@@ -140,12 +140,26 @@ module Api
         end
 
         def capture_export(export_type, report)
-          ReportExport.capture!(
+          export = ReportExport.capture!(
             export_type: export_type,
             report: report,
             generated_by: current_user,
             protects_entries: true
           )
+          AuditLog.record!(
+            action: "report.exported",
+            auditable: export,
+            actor: current_user,
+            event_category: "reports",
+            metadata: {
+              export_type: export_type,
+              start_date: report[:start_date],
+              end_date: report[:end_date],
+              ready: report[:ready],
+              checksum: export.checksum
+            }
+          )
+          export
         end
 
         def send_employee_timesheet(report)

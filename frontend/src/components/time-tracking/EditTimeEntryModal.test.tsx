@@ -40,7 +40,6 @@ describe('EditTimeEntryModal break editing', () => {
           description: null,
           entry_method: 'manual',
           status: 'completed',
-          locked_at: null,
           user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
           time_category: null,
           breaks: [
@@ -81,7 +80,6 @@ describe('EditTimeEntryModal break editing', () => {
           description: null,
           entry_method: 'manual',
           status: 'completed',
-          locked_at: null,
           user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
           time_category: null,
           breaks: [],
@@ -123,7 +121,6 @@ describe('EditTimeEntryModal break editing', () => {
           description: null,
           entry_method: 'manual',
           status: 'completed',
-          locked_at: null,
           user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
           time_category: null,
           breaks: [],

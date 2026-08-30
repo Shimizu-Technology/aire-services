@@ -20,6 +20,7 @@ const TimeTracking = lazy(() => import('./pages/admin/TimeTracking'))
 const Schedule = lazy(() => import('./pages/admin/Schedule'))
 const Settings = lazy(() => import('./pages/admin/Settings'))
 const Media = lazy(() => import('./pages/admin/Media'))
+const ActivityHistory = lazy(() => import('./pages/admin/ActivityHistory'))
 
 function AdminLoadingFallback() {
   return (
@@ -77,6 +78,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole="admin">
                 <Suspense fallback={<AdminLoadingFallback />}><Media /></Suspense>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="activity"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <Suspense fallback={<AdminLoadingFallback />}><ActivityHistory /></Suspense>
               </ProtectedRoute>
             }
           />

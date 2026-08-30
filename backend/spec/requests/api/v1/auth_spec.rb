@@ -70,6 +70,22 @@ RSpec.describe "Api::V1::Auth", type: :request do
     expect(JSON.parse(response.body).dig("user", "needs_kiosk_pin_setup")).to eq(false)
   end
 
+  it "records one sign-in per session without auditing the auth bootstrap as a user change" do
+    claims["sid"] = "session-123"
+    create(
+      :user,
+      clerk_id: "user_clerk_123",
+      email: "first.admin@example.com",
+      role: "admin"
+    )
+
+    2.times { post "/api/v1/auth/me", headers: headers }
+
+    expect(response).to have_http_status(:ok)
+    expect(AuditLog.where(action: "auth.signed_in").count).to eq(1)
+    expect(AuditLog.where(action: "auth.me")).to be_empty
+  end
+
   it "reports when an enabled kiosk user still needs a PIN" do
     user = build(
       :user,

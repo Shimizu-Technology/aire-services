@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_29_013000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_30_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -44,16 +44,36 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_29_013000) do
 
   create_table "audit_logs", force: :cascade do |t|
     t.string "action", null: false
+    t.string "actor_email"
+    t.string "actor_kind", default: "user", null: false
+    t.string "actor_name"
+    t.string "actor_role"
     t.bigint "auditable_id", null: false
     t.string "auditable_type", null: false
-    t.json "changes_made"
+    t.jsonb "changes_made"
+    t.string "correlation_id"
     t.datetime "created_at", null: false
-    t.string "metadata"
+    t.string "event_category", default: "activity", null: false
+    t.string "ip_address"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "occurred_at", null: false
+    t.string "outcome", default: "succeeded", null: false
+    t.string "request_id"
+    t.string "session_fingerprint"
+    t.string "source", default: "web", null: false
+    t.string "subject_name"
     t.datetime "updated_at", null: false
+    t.string "user_agent"
     t.bigint "user_id"
+    t.index ["action", "session_fingerprint"], name: "index_audit_logs_on_action_and_session_fingerprint", unique: true, where: "(session_fingerprint IS NOT NULL)"
     t.index ["action"], name: "index_audit_logs_on_action"
     t.index ["auditable_type", "auditable_id"], name: "index_audit_logs_on_auditable_type_and_auditable_id"
+    t.index ["correlation_id"], name: "index_audit_logs_on_correlation_id"
     t.index ["created_at"], name: "index_audit_logs_on_created_at"
+    t.index ["event_category", "occurred_at"], name: "index_audit_logs_on_category_and_occurred_at"
+    t.index ["occurred_at", "id"], name: "index_audit_logs_on_occurred_at_and_id"
+    t.index ["request_id"], name: "index_audit_logs_on_request_id"
+    t.index ["user_id", "occurred_at"], name: "index_audit_logs_on_actor_and_occurred_at"
     t.index ["user_id"], name: "index_audit_logs_on_user_id"
   end
 
@@ -323,7 +343,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_29_013000) do
     t.check_constraint "profile_source::text = ANY (ARRAY['clerk'::character varying::text, 'local'::character varying::text])", name: "check_users_profile_source"
     t.check_constraint "public_team_photo_position_x >= 0 AND public_team_photo_position_x <= 100", name: "check_public_team_photo_position_x_range"
     t.check_constraint "public_team_photo_position_y >= 0 AND public_team_photo_position_y <= 100", name: "check_public_team_photo_position_y_range"
-    t.check_constraint "role::text = ANY (ARRAY['admin'::character varying, 'employee'::character varying]::text[])", name: "check_valid_role"
+    t.check_constraint "role::text = ANY (ARRAY['admin'::character varying::text, 'employee'::character varying::text])", name: "check_valid_role"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
