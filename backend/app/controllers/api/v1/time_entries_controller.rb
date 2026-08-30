@@ -86,7 +86,11 @@ module Api
           @time_entry.approval_status = "pending"
         end
 
-        if @time_entry.save
+        saved = false
+        TimeEntry.transaction do
+          saved = @time_entry.save
+          raise ActiveRecord::Rollback unless saved
+
           AuditLog.record!(
             action: "time_entry.created",
             auditable: @time_entry,
@@ -99,7 +103,9 @@ module Api
               approval_status: @time_entry.approval_status
             }
           )
+        end
 
+        if saved
           render json: { time_entry: serialize_time_entry(@time_entry) }, status: :created
         else
           render json: { error: @time_entry.errors.full_messages.join(", ") }, status: :unprocessable_entity
@@ -121,7 +127,9 @@ module Api
           time_category_id: @time_entry.time_category_id,
           overtime_status: @time_entry.overtime_status,
           start_time: @time_entry.formatted_start_time,
-          end_time: @time_entry.formatted_end_time
+          end_time: @time_entry.formatted_end_time,
+          break_minutes: @time_entry.break_minutes.to_i,
+          breaks: audit_break_rows(@time_entry.time_entry_breaks.order(:start_time, :id))
         }
 
         update_params = time_entry_params.except(:user_id, :breaks).to_h.symbolize_keys
@@ -171,7 +179,9 @@ module Api
             time_category_id: @time_entry.time_category_id,
             overtime_status: @time_entry.overtime_status,
             start_time: @time_entry.formatted_start_time,
-            end_time: @time_entry.formatted_end_time
+            end_time: @time_entry.formatted_end_time,
+            break_minutes: @time_entry.break_minutes.to_i,
+            breaks: audit_break_rows(@time_entry.time_entry_breaks.reload.sort_by { |entry_break| [ entry_break.start_time, entry_break.id ] })
           }
 
           changes = old_values.each_with_object({}) do |(key, old_val), hash|
@@ -712,6 +722,16 @@ module Api
           return entry_break.errors.full_messages.to_sentence unless entry_break.persisted?
         end
         nil
+      end
+
+      def audit_break_rows(breaks)
+        breaks.map do |entry_break|
+          {
+            start_time: entry_break.start_time&.iso8601,
+            end_time: entry_break.end_time&.iso8601,
+            duration_minutes: entry_break.duration_minutes.to_i
+          }
+        end
       end
 
       def resolve_entry_owner

@@ -15,7 +15,6 @@ module ClerkAuthenticatable
     header = request.headers["Authorization"]
 
     unless header.present?
-      AuditLog.record_security_event!(action: "auth.sign_in_failed", outcome: "failed", metadata: { reason: "missing_authorization_header" })
       render_unauthorized("Missing authorization header")
       return
     end
@@ -24,7 +23,6 @@ module ClerkAuthenticatable
     decoded = ClerkAuth.verify(token)
 
     unless decoded
-      AuditLog.record_security_event!(action: "auth.sign_in_failed", outcome: "failed", metadata: { reason: "invalid_or_expired_token" })
       render_unauthorized("Invalid or expired token")
       return
     end
@@ -52,8 +50,6 @@ module ClerkAuthenticatable
       render_forbidden("Your access has been deactivated. Please contact an administrator.")
       return
     end
-
-
     Current.user = @current_user
   end
 

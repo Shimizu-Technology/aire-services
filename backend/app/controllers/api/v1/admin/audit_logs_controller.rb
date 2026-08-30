@@ -7,6 +7,8 @@ module Api
     module Admin
       class AuditLogsController < BaseController
         EXPORT_BATCH_SIZE = 1_000
+        EXPORT_ROW_LIMIT = 50_000
+        EXPORT_MAX_WINDOW_DAYS = 366
 
         before_action :require_admin!
 
@@ -25,7 +27,13 @@ module Api
         end
 
         def export
+          require_export_window!
           export_scope = filtered_scope.where("audit_logs.occurred_at <= ?", Time.current)
+          if export_scope.limit(EXPORT_ROW_LIMIT + 1).pluck(:id).length > EXPORT_ROW_LIMIT
+            return render json: { error: "Activity history exports are limited to #{EXPORT_ROW_LIMIT.to_fs(:delimited)} events. Narrow the date range or filters." },
+                          status: :unprocessable_entity
+          end
+
           filename = "aire-activity-history-#{Time.zone.today}.csv"
           csv = csv_for(export_scope)
           AuditLog.record!(
@@ -164,7 +172,7 @@ module Api
 
         def csv_safe(value)
           string = value.to_s
-          string.match?(/\A[=+\-@]/) ? "'#{string}" : string
+          string.match?(/\A(?:[\t\r]|[ \t\r]*[=+\-@])/) ? "'#{string}" : string
         end
 
         def changed_fields_for(record)
@@ -184,6 +192,19 @@ module Api
 
         def safe_filter_metadata
           params.permit(:actor_id, :event_category, :source, :outcome, :subject_type, :subject_id, :event_action, :search, :from, :to).to_h
+        end
+
+        def require_export_window!
+          raise ActionController::BadRequest, "Export start and end dates are required" if params[:from].blank? || params[:to].blank?
+
+          from = Date.iso8601(params[:from].to_s)
+          to = Date.iso8601(params[:to].to_s)
+          raise ActionController::BadRequest, "Export end date must be on or after the start date" if to < from
+          if (to - from).to_i > EXPORT_MAX_WINDOW_DAYS
+            raise ActionController::BadRequest, "Activity history exports may not exceed #{EXPORT_MAX_WINDOW_DAYS} days"
+          end
+        rescue Date::Error
+          raise ActionController::BadRequest, "Invalid export date window"
         end
       end
     end

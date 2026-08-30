@@ -73,16 +73,48 @@ RSpec.describe "Api::V1::Admin::AuditLogs", type: :request do
   it "exports the filtered snapshot and records the export separately" do
     malicious = create(:user, :employee, first_name: "=FORMULA", last_name: "Person")
     AuditLog.record!(action: "user.updated", auditable: malicious, actor: admin, event_category: "users")
+    AuditLog.record!(
+      action: "user.updated",
+      actor: admin,
+      subject_type: "User",
+      subject_id: 999_999,
+      subject_name: " @FORMULA",
+      event_category: "users"
+    )
     Current.reset
 
     expect do
-      get "/api/v1/admin/audit_logs/export", params: { event_category: "users" }, headers: auth_headers_for[admin]
+      get "/api/v1/admin/audit_logs/export",
+          params: { event_category: "users", from: "2026-01-01", to: "2026-12-31" },
+          headers: auth_headers_for[admin]
     end.to change { AuditLog.where(action: "audit_history.exported").count }.by(1)
 
     expect(response).to have_http_status(:ok)
     expect(response.media_type).to eq("text/csv")
     expect(response.body).to include("Occurred at,Actor")
     expect(response.body).to include("'=FORMULA Person")
+    expect(response.body).to include("' @FORMULA")
     expect(response.body).not_to include("audit_history.exported")
+  end
+
+  it "requires a bounded export window" do
+    get "/api/v1/admin/audit_logs/export", headers: auth_headers_for[admin]
+    expect(response).to have_http_status(:bad_request)
+
+    get "/api/v1/admin/audit_logs/export",
+        params: { from: "2025-01-01", to: "2026-12-31" },
+        headers: auth_headers_for[admin]
+    expect(response).to have_http_status(:bad_request)
+  end
+
+  it "rejects exports above the row limit" do
+    stub_const("Api::V1::Admin::AuditLogsController::EXPORT_ROW_LIMIT", 1)
+
+    get "/api/v1/admin/audit_logs/export",
+        params: { from: "2026-01-01", to: "2026-12-31" },
+        headers: auth_headers_for[admin]
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to match(/limited to 1 event/)
   end
 end

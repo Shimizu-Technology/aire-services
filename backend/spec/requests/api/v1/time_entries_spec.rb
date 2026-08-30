@@ -124,11 +124,31 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(response).to have_http_status(:forbidden)
       expect(json[:error]).to eq("Only admins can create entries for other users")
     end
+
+    it "rolls back a new entry when its required audit event cannot be written" do
+      allow(AuditLog).to receive(:record!).and_raise("audit unavailable")
+
+      expect do
+        post "/api/v1/time_entries", params: valid_params, headers: auth_headers_for[employee]
+      end.not_to change(TimeEntry, :count)
+
+      expect(response).to have_http_status(:internal_server_error)
+    end
   end
 
   # ── UPDATE ───────────────────────────────────────────────────────────
   describe "PATCH /api/v1/time_entries/:id" do
     let!(:entry) { create(:time_entry, user: employee) }
+
+    it "audits rescued mutation failures after the error response is rendered" do
+      expect do
+        patch "/api/v1/time_entries/999999999",
+              params: { time_entry: { description: "missing" } },
+              headers: auth_headers_for[admin]
+      end.to change { AuditLog.where(action: "time_entries.update", outcome: "failed").count }.by(1)
+
+      expect(response).to have_http_status(:not_found)
+    end
 
     context "owner (employee) edits own entry" do
       it "succeeds" do
@@ -314,6 +334,10 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(json.dig(:time_entry, :break_minutes)).to eq(45)
       expect(json.dig(:time_entry, :hours)).to eq(7.25)
       expect(json.dig(:time_entry, :breaks).length).to eq(2)
+      changes = AuditLog.where(auditable: entry, action: "time_entry.updated").order(:id).last.changes_made
+      expect(changes.fetch("break_minutes")).to eq("from" => 0, "to" => 45)
+      expect(changes.fetch("breaks").fetch("from")).to eq([])
+      expect(changes.fetch("breaks").fetch("to").length).to eq(2)
     end
 
     it "does not zero aggregate break minutes when an empty breaks array is sent for an entry without detailed breaks" do

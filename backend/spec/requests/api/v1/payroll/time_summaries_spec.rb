@@ -43,4 +43,16 @@ RSpec.describe "Api::V1::Payroll::TimeSummaries", type: :request do
     expect(JSON.parse(response.body).dig("export", "id")).to eq(first_reference)
     expect(ReportExport.last.reload.download_count).to eq(2)
   end
+
+
+  it "rolls back the export snapshot when its required audit event cannot be written" do
+    create(:time_entry, user: employee, work_date: Date.new(2026, 6, 16), approval_status: nil, status: "completed")
+    allow(AuditLog).to receive(:record!).and_raise("audit unavailable")
+
+    expect do
+      get "/api/v1/payroll/time_summary", params: { start_date: "2026-06-16", end_date: "2026-06-30" }, headers: headers
+    end.not_to change(ReportExport, :count)
+
+    expect(response).to have_http_status(:internal_server_error)
+  end
 end

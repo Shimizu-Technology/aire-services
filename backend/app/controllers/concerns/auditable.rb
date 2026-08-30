@@ -4,13 +4,20 @@ module Auditable
   extend ActiveSupport::Concern
 
   SAFE_METHODS = %w[GET HEAD OPTIONS].freeze
+  AUDITED_SUBJECT_VARIABLES = %i[@user @time_entry @leave_request @schedule @category @site_media].freeze
   FILTERED_PARAM_PATTERN = /(password|pin|token|secret|digest|hash|authorization|cookie|file|photo|upload)/i
 
   included do
-    after_action :write_default_audit_event
+    around_action :audit_request
   end
 
   private
+
+  def audit_request
+    yield
+  ensure
+    write_default_audit_event if performed?
+  end
 
   def write_default_audit_event
     return if SAFE_METHODS.include?(request.request_method)
@@ -45,8 +52,8 @@ module Auditable
   def audit_record_for_event
     return audit_record if respond_to?(:audit_record, true)
 
-    instance_variables.filter_map do |name|
-      next if name == :@current_user
+    AUDITED_SUBJECT_VARIABLES.filter_map do |name|
+      next unless instance_variable_defined?(name)
 
       value = instance_variable_get(name)
       value if value.is_a?(ApplicationRecord)

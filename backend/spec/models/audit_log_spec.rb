@@ -4,7 +4,7 @@ require "rails_helper"
 
 RSpec.describe AuditLog, type: :model do
   let(:actor) { create(:user, :admin, first_name: "Ada", last_name: "Manager") }
-  let(:subject) { create(:user, :employee, first_name: "Jordan", last_name: "Employee") }
+  let(:employee_record) { create(:user, :employee, first_name: "Jordan", last_name: "Employee") }
 
   after { Current.reset }
 
@@ -14,7 +14,7 @@ RSpec.describe AuditLog, type: :model do
 
     event = described_class.record!(
       action: "user.updated",
-      auditable: subject,
+      auditable: employee_record,
       actor: actor,
       event_category: "users",
       changes: { email: [ "old@example.com", "new@example.com" ], kiosk_pin: [ "123456", "654321" ] },
@@ -33,15 +33,35 @@ RSpec.describe AuditLog, type: :model do
   end
 
   it "is immutable through Active Record" do
-    event = described_class.record!(action: "user.updated", auditable: subject, actor: actor, event_category: "users")
+    event = described_class.record!(action: "user.updated", auditable: employee_record, actor: actor, event_category: "users")
 
     expect { event.update!(outcome: "failed") }.to raise_error(ActiveRecord::ReadOnlyRecord)
     expect { event.destroy! }.to raise_error(ActiveRecord::ReadOnlyRecord)
     expect(described_class.exists?(event.id)).to be(true)
   end
 
+  it "rejects raw SQL updates at the database boundary" do
+    event = described_class.record!(action: "user.updated", auditable: employee_record, actor: actor, event_category: "users")
+
+    expect do
+      ActiveRecord::Base.transaction(requires_new: true) do
+        ActiveRecord::Base.connection.execute("UPDATE audit_logs SET outcome = 'failed' WHERE id = #{event.id}")
+      end
+    end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
+  end
+
+  it "rejects raw SQL deletes at the database boundary" do
+    event = described_class.record!(action: "user.updated", auditable: employee_record, actor: actor, event_category: "users")
+
+    expect do
+      ActiveRecord::Base.transaction(requires_new: true) do
+        ActiveRecord::Base.connection.execute("DELETE FROM audit_logs WHERE id = #{event.id}")
+      end
+    end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
+  end
+
   it "keeps the actor snapshot when the actor is deleted" do
-    event = described_class.record!(action: "user.updated", auditable: subject, actor: actor, event_category: "users")
+    event = described_class.record!(action: "user.updated", auditable: employee_record, actor: actor, event_category: "users")
 
     actor.destroy!
 

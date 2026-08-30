@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ActivityHistory from './ActivityHistory'
@@ -35,6 +35,16 @@ function renderPage(initialEntry = '/admin/activity') {
   )
 }
 
+function RouteHarness() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <button type="button" onClick={() => navigate('/admin/activity?subject_type=TimeEntry&subject_id=44')}>Open entry history</button>
+      <ActivityHistory />
+    </>
+  )
+}
+
 describe('ActivityHistory', () => {
   beforeEach(() => {
     apiMock.getAuditLogs.mockReset()
@@ -55,8 +65,12 @@ describe('ActivityHistory', () => {
     fireEvent.click(screen.getByRole('button', { name: new RegExp(event.summary, 'i') }))
 
     expect(screen.getByText('Event details')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Activity event details' })).toHaveFocus()
     expect(screen.getByText('Verified with the employee')).toBeInTheDocument()
     expect(screen.getByText('request-91')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Activity event details' })).not.toBeInTheDocument()
   })
 
   it('applies category and search filters through the API', async () => {
@@ -70,6 +84,35 @@ describe('ActivityHistory', () => {
       event_category: 'users',
       search: 'Jordan',
       page: 1,
+    })))
+  })
+
+  it('refreshes record scope when the route search parameters change', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/activity']}>
+        <RouteHarness />
+      </MemoryRouter>,
+    )
+    await screen.findByText(event.summary)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open entry history' }))
+
+    await waitFor(() => expect(apiMock.getAuditLogs).toHaveBeenCalledWith(expect.objectContaining({
+      subject_type: 'TimeEntry',
+      subject_id: 44,
+    })))
+  })
+
+  it('adds a bounded default date window to CSV exports', async () => {
+    apiMock.downloadAuditLogs.mockResolvedValue({ error: 'test download stopped' })
+    renderPage()
+    await screen.findByText(event.summary)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
+
+    await waitFor(() => expect(apiMock.downloadAuditLogs).toHaveBeenCalledWith(expect.objectContaining({
+      from: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     })))
   })
 })

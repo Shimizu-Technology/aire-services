@@ -68,15 +68,6 @@ class UpgradeAuditLogs < ActiveRecord::Migration[8.1]
     change_column_default :audit_logs, :source, from: nil, to: "web"
     change_column_default :audit_logs, :outcome, from: nil, to: "succeeded"
 
-    add_index :audit_logs, [ :occurred_at, :id ], name: "index_audit_logs_on_occurred_at_and_id"
-    add_index :audit_logs, [ :event_category, :occurred_at ], name: "index_audit_logs_on_category_and_occurred_at"
-    add_index :audit_logs, [ :user_id, :occurred_at ], name: "index_audit_logs_on_actor_and_occurred_at"
-    add_index :audit_logs, :request_id
-    add_index :audit_logs, :correlation_id
-    add_index :audit_logs, [ :action, :session_fingerprint ], unique: true,
-              where: "session_fingerprint IS NOT NULL",
-              name: "index_audit_logs_on_action_and_session_fingerprint"
-
     execute <<~SQL
       CREATE OR REPLACE FUNCTION protect_audit_logs_from_mutation()
       RETURNS trigger AS $$
@@ -104,13 +95,6 @@ class UpgradeAuditLogs < ActiveRecord::Migration[8.1]
   def down
     execute "DROP TRIGGER IF EXISTS audit_logs_append_only ON audit_logs"
     execute "DROP FUNCTION IF EXISTS protect_audit_logs_from_mutation()"
-
-    remove_index :audit_logs, name: "index_audit_logs_on_action_and_session_fingerprint"
-    remove_index :audit_logs, :correlation_id
-    remove_index :audit_logs, :request_id
-    remove_index :audit_logs, name: "index_audit_logs_on_actor_and_occurred_at"
-    remove_index :audit_logs, name: "index_audit_logs_on_category_and_occurred_at"
-    remove_index :audit_logs, name: "index_audit_logs_on_occurred_at_and_id"
 
     execute <<~SQL.squish
       ALTER TABLE audit_logs

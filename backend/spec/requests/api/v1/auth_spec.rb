@@ -29,6 +29,18 @@ RSpec.describe "Api::V1::Auth", type: :request do
     allow(ClerkAuth).to receive(:verify).with("live_token").and_return(claims)
   end
 
+  it "does not persist unbounded audit rows for missing or invalid credentials" do
+    allow(ClerkAuth).to receive(:verify).with("invalid_token").and_return(nil)
+
+    expect do
+      post "/api/v1/auth/me"
+      expect(response).to have_http_status(:unauthorized)
+
+      post "/api/v1/auth/me", headers: { "Authorization" => "Bearer invalid_token" }
+      expect(response).to have_http_status(:unauthorized)
+    end.not_to change(AuditLog, :count)
+  end
+
   it "blocks implicit first-user bootstrap by default" do
     with_env("ALLOW_FIRST_USER_BOOTSTRAP" => nil) do
       post "/api/v1/auth/me", headers: headers

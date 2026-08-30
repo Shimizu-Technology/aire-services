@@ -1192,9 +1192,10 @@ export default function TimeTracking() {
                       if (!hasMultiple) {
                         const entry = userEntries[0]
                         return (
-                          <div
+                          <button
+                            type="button"
                             key={entry.id}
-                            className="mb-2 cursor-pointer rounded-xl border border-neutral-warm bg-white p-2.5 text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+                            className="mb-2 w-full cursor-pointer rounded-xl border border-neutral-warm bg-white p-2.5 text-left text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                             onClick={() => openEditEntry(entry)}
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -1214,7 +1215,7 @@ export default function TimeTracking() {
                               <div className="mt-1 truncate text-[11px] font-medium text-primary">{entry.time_category.name}</div>
                             )}
                             <div className="mt-1 truncate text-[11px] text-primary-dark/70">{name}</div>
-                          </div>
+                          </button>
                         )
                       }
 

@@ -1,13 +1,19 @@
 # frozen_string_literal: true
 
 class AuditLogPresenter
-  SUBJECTLESS_ACTIONS = %w[auth.signed_in auth.sign_in_failed auth.access_denied kiosk.verified kiosk.verification_failed kiosk.unlocked audit_history.exported].freeze
+  SUBJECTLESS_ACTIONS = %w[
+    auth.signed_in auth.sign_in_failed auth.access_denied authorization.admin_denied
+    authorization.staff_denied kiosk.verified kiosk.verification_failed kiosk.unlocked audit_history.exported
+  ].freeze
   VERBS = {
     "auth.signed_in" => "Signed in",
     "auth.sign_in_failed" => "Failed to sign in",
     "auth.access_denied" => "Was denied access",
+    "authorization.admin_denied" => "Was denied administrator access",
+    "authorization.staff_denied" => "Was denied staff access",
     "kiosk.verified" => "Started a kiosk session",
     "kiosk.verification_failed" => "Failed kiosk verification",
+    "kiosk.unlocked" => "Unlocked the kiosk",
     "time_entry.created" => "Created",
     "time_entry.updated" => "Edited",
     "time_entry.deleted" => "Deleted",

@@ -27,20 +27,24 @@ module Api
 
       def not_found(_exception)
         render json: { error: "Record not found" }, status: :not_found
+        write_default_audit_event
       end
 
       def unprocessable_entity(exception)
         render json: { error: exception.message, errors: exception.record&.errors&.full_messages }, status: :unprocessable_entity
+        write_default_audit_event
       end
 
       def bad_request(exception)
         render json: { error: exception.message }, status: :bad_request
+        write_default_audit_event
       end
 
       def internal_server_error(exception)
         Rails.logger.error("Unhandled exception: #{exception.class} - #{exception.message}")
         Rails.logger.error(exception.backtrace&.first(20)&.join("\n"))
         render json: { error: "Internal server error", errors: [ "An unexpected error occurred. Please try again later." ] }, status: :internal_server_error
+        write_default_audit_event
       end
     end
   end
