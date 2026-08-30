@@ -202,6 +202,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
           end_date: entry.work_date,
           actor: admin
         ).call
+        original_checksum = batch.checksum
 
         patch "/api/v1/time_entries/#{entry.id}",
               params: { time_entry: { description: "corrected after payroll" } },
@@ -209,6 +210,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:unprocessable_entity)
         expect(json.fetch(:code)).to eq("correction_reason_required")
+        expect(json.fetch(:error)).to match(/referenced by a finalized payroll batch/i)
         expect(json.fetch(:payroll_batch_ids)).to eq([ batch.public_id ])
 
         patch "/api/v1/time_entries/#{entry.id}",
@@ -219,7 +221,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
               headers: auth_headers_for[admin]
 
         expect(response).to have_http_status(:ok)
-        expect(batch.reload.checksum).to be_present
+        expect(batch.reload.checksum).to eq(original_checksum)
         audit = AuditLog.where(auditable: entry, action: "time_entry.updated").order(:id).last
         expect(audit.metadata.fetch("finalized_payroll_batch_ids")).to eq([ batch.public_id ])
       end

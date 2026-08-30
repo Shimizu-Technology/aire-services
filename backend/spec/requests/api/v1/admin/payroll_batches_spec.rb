@@ -61,6 +61,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     get "/api/v1/admin/payroll_batches", headers: admin_headers
     expect(response).to have_http_status(:ok)
     expect(json.dig(:payroll_batches, 0, :id)).to eq(batch_id)
+    expect(json).to include(total_count: 1, truncated: false)
 
     get "/api/v1/admin/payroll_batches/#{batch_id}", headers: admin_headers
     expect(response).to have_http_status(:ok)
@@ -85,5 +86,59 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
          headers: admin_headers
     expect(response).to have_http_status(:unprocessable_entity)
     expect(json.fetch(:error)).to match(/valid ISO 8601 date/)
+
+    post "/api/v1/admin/payroll_batches",
+         params: { start_date: "not-a-date", end_date: "2026-08-15" },
+         headers: admin_headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to match(/valid ISO 8601 date/)
+  end
+
+  it "rejects non-admin access to every payroll batch action" do
+    create_entry
+    post "/api/v1/admin/payroll_batches",
+         params: { start_date: "2026-08-01", end_date: "2026-08-15" },
+         headers: admin_headers
+    batch_id = json.fetch(:id)
+
+    get "/api/v1/admin/payroll_batches", headers: employee_headers
+    expect(response).to have_http_status(:forbidden)
+
+    get "/api/v1/admin/payroll_batches/#{batch_id}", headers: employee_headers
+    expect(response).to have_http_status(:forbidden)
+
+    get "/api/v1/admin/payroll_batches/#{batch_id}/export", headers: employee_headers
+    expect(response).to have_http_status(:forbidden)
+
+    post "/api/v1/admin/payroll_batches",
+         params: { start_date: "2026-08-16", end_date: "2026-08-31" },
+         headers: employee_headers
+    expect(response).to have_http_status(:forbidden)
+  end
+
+  it "signals when the permanent history response is limited to the newest 100 batches" do
+    now = Time.current
+    PayrollBatch.insert_all!(101.times.map do |index|
+      date = Date.new(2020, 1, 1) + index.days
+      {
+        public_id: "AIRE-HISTORY-#{index}",
+        start_date: date,
+        end_date: date,
+        cutoff_at: now + index.seconds,
+        finalized_at: now + index.seconds,
+        checksum: Digest::SHA256.hexdigest(index.to_s),
+        payload: {},
+        summary: { total_hours: 0, employee_count: 0, exclusion_count: 0 },
+        issues: {},
+        created_at: now,
+        updated_at: now
+      }
+    end)
+
+    get "/api/v1/admin/payroll_batches", headers: admin_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:payroll_batches).length).to eq(100)
+    expect(json).to include(total_count: 101, truncated: true)
   end
 end

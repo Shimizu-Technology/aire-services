@@ -11,11 +11,15 @@ module Payroll
     attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note
 
     def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil)
-      @start_date = start_date
-      @end_date = end_date
+      @start_date = parse_date!(start_date, "start_date")
+      @end_date = parse_date!(end_date, "end_date")
       @actor = actor
       @acknowledge_negative_adjustments = ActiveModel::Type::Boolean.new.cast(acknowledge_negative_adjustments)
       @negative_adjustment_note = negative_adjustment_note.to_s.strip
+      raise ArgumentError, "end_date must be on or after start_date" if @end_date < @start_date
+      if (@end_date - @start_date).to_i > BatchBuilder::MAX_RANGE_DAYS
+        raise ArgumentError, "date range may not exceed #{BatchBuilder::MAX_RANGE_DAYS} days"
+      end
     end
 
     def call
@@ -80,6 +84,14 @@ module Payroll
     end
 
     private
+
+    def parse_date!(value, name)
+      raise ArgumentError, "#{name} is required" if value.blank?
+
+      Date.iso8601(value.to_s)
+    rescue Date::Error
+      raise ArgumentError, "#{name} must be a valid ISO 8601 date (YYYY-MM-DD)"
+    end
 
     def configure_lock_timeout!
       quoted_timeout = ActiveRecord::Base.connection.quote(LOCK_TIMEOUT)

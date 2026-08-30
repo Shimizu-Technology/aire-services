@@ -513,7 +513,7 @@ module Api
         return true if correction_reason.present?
 
         render json: {
-          error: "A correction reason is required because this entry was already included in payroll.",
+          error: "A correction reason is required because this entry is referenced by a finalized payroll batch.",
           code: "correction_reason_required",
           export_references: active_payroll_exports.map(&:public_id),
           payroll_batch_ids: finalized_payroll_batches.map(&:public_id)

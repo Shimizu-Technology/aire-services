@@ -1625,7 +1625,7 @@ export const api = {
 
   // Finalized payroll batches
   getPayrollBatches: () =>
-    fetchApi<{ payroll_batches: PayrollBatchListItem[] }>('/api/v1/admin/payroll_batches'),
+    fetchApi<{ payroll_batches: PayrollBatchListItem[]; total_count: number; truncated: boolean }>('/api/v1/admin/payroll_batches'),
 
   getPayrollBatch: (id: string) =>
     fetchApi<PayrollBatchDetail>(`/api/v1/admin/payroll_batches/${encodeURIComponent(id)}`),

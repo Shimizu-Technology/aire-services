@@ -122,7 +122,7 @@ function BatchContents({ payload }: { payload: PayrollBatchPayload }) {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Included ledger</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Included ledger</p>
             <h2 className="mt-1 text-xl font-semibold text-slate-950">What this payroll run will pay</h2>
           </div>
           <p className="text-xs text-slate-500">{payload.summary.adjustment_count} adjustments</p>
@@ -191,20 +191,56 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
   const [confirmed, setConfirmed] = useState(false)
   const [note, setNote] = useState('')
   const dialogRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef(onClose)
+  const submittingRef = useRef(submitting)
   const needsCorrectionNote = Boolean(payload.requires_negative_adjustment_acknowledgement)
 
   useEffect(() => {
-    dialogRef.current?.focus()
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && !submitting) onClose() }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    closeRef.current = onClose
+    submittingRef.current = submitting
   }, [onClose, submitting])
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    dialogRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !submittingRef.current) {
+        closeRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      ))
+      if (focusable.length === 0) {
+        event.preventDefault()
+        dialogRef.current.focus()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      previouslyFocused?.focus()
+    }
+  }, [])
 
   const canSubmit = confirmed && (!needsCorrectionNote || note.trim().length >= 10) && !submitting
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
       <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="finalize-title" className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl outline-none">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Final confirmation</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Final confirmation</p>
         <h2 id="finalize-title" className="mt-2 text-2xl font-semibold text-slate-950">Finalize this payroll cutoff?</h2>
         <p className="mt-3 text-sm leading-6 text-slate-600">This creates a permanent payroll batch for {formatDate(payload.start_date)}–{formatDate(payload.end_date)}. Time entries remain editable, but later approvals and corrections are recorded in a future batch.</p>
 
@@ -212,13 +248,13 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
           <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
             <p className="text-sm font-semibold text-amber-900">This batch contains {payload.issues.negative_adjustment_count} negative correction{payload.issues.negative_adjustment_count === 1 ? '' : 's'}.</p>
             <label className="mt-3 block text-sm font-medium text-amber-950" htmlFor="negative-note">Correction explanation</label>
-            <textarea id="negative-note" value={note} onChange={(event) => setNote(event.target.value)} rows={3} className="mt-2 w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-600" placeholder="Explain why the prior payroll amount is being corrected…" />
+            <textarea id="negative-note" value={note} onChange={(event) => setNote(event.target.value)} rows={3} className="mt-2 w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary" placeholder="Explain why the prior payroll amount is being corrected…" />
             <p className="mt-1 text-xs text-amber-800">At least 10 characters. This note becomes part of the permanent audit record.</p>
           </div>
         )}
 
         <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4">
-          <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 h-5 w-5 accent-cyan-700" />
+          <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
           <span className="text-sm leading-6 text-slate-700">I reviewed the included hours and exclusions and understand that this finalized batch cannot be changed.</span>
         </label>
         {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
@@ -244,6 +280,8 @@ export default function PayrollRuns() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [historyTruncated, setHistoryTruncated] = useState(false)
+  const [historyTotalCount, setHistoryTotalCount] = useState(0)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const historyRequestSequence = useRef(0)
 
@@ -254,6 +292,8 @@ export default function PayrollRuns() {
 
     if (response.data) {
       setBatches(response.data.payroll_batches)
+      setHistoryTruncated(response.data.truncated)
+      setHistoryTotalCount(response.data.total_count)
       setHistoryError(null)
     } else setHistoryError(response.error || 'Payroll history could not be loaded.')
     setLoading(false)
@@ -268,10 +308,13 @@ export default function PayrollRuns() {
     setPreviewing(true)
     setError(null)
     setSelectedBatch(null)
+    setShowConfirm(false)
+    setDialogError(null)
     const response = await api.previewPayrollBatch(startDate, endDate)
     if (response.data) setPreview(response.data)
     else {
       setPreview(null)
+      setShowConfirm(false)
       setError(response.error || 'The payroll cutoff could not be previewed.')
     }
     setPreviewing(false)
@@ -304,6 +347,7 @@ export default function PayrollRuns() {
     if (response.data) {
       setSelectedBatch(response.data)
       setPreview(null)
+      setShowConfirm(false)
     } else setError(response.error || 'The payroll batch could not be loaded.')
   }
 
@@ -325,20 +369,21 @@ export default function PayrollRuns() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
           <label className="text-sm font-medium text-slate-700">Period start
-            <input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setPreview(null) }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-cyan-600" />
+            <input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setPreview(null); setShowConfirm(false) }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
           <label className="text-sm font-medium text-slate-700">Period end
-            <input type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setPreview(null) }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-cyan-600" />
+            <input type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setPreview(null); setShowConfirm(false) }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
           <button type="button" onClick={runPreview} disabled={previewing || !startDate || !endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview cutoff'}</button>
         </div>
-        <div className="mt-4 rounded-xl bg-cyan-50 px-4 py-3 text-sm leading-6 text-cyan-950">
+        <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3 text-sm leading-6 text-primary">
           Finalizing locks the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll run.
         </div>
       </section>
 
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
       {historyError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{historyError}</p>}
+      {historyTruncated && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Showing the newest {batches.length} of {historyTotalCount} finalized payroll batches. Older batches remain stored and available through the payroll API.</p>}
 
       {activePayload && (
         <>
@@ -369,7 +414,7 @@ export default function PayrollRuns() {
           {loading && <p className="text-sm text-slate-500">Loading payroll history…</p>}
           {!loading && batches.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">No payroll batches have been finalized yet.</p>}
           {batches.map((batch) => (
-            <button key={batch.id} type="button" onClick={() => void openBatch(batch.id)} className="rounded-2xl border border-slate-200 p-4 text-left transition hover:border-cyan-300 hover:bg-cyan-50/40">
+            <button key={batch.id} type="button" onClick={() => void openBatch(batch.id)} className="rounded-2xl border border-slate-200 p-4 text-left transition hover:border-primary/30 hover:bg-primary/5">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-slate-950">{formatDate(batch.start_date)}–{formatDate(batch.end_date)}</p>

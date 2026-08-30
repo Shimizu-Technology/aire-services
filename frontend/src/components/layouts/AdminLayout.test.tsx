@@ -50,7 +50,10 @@ function renderLayout() {
 describe('AdminLayout kiosk PIN setup', () => {
   beforeEach(() => {
     authMock.value.userRole = 'employee'
-    authMock.value.currentUser.needs_kiosk_pin_setup = true
+    authMock.value.currentUser = {
+      full_name: 'Hourly Pilot',
+      needs_kiosk_pin_setup: true,
+    }
     authMock.value.refreshCurrentUser.mockReset()
     apiMock.setMyKioskPin.mockReset()
     apiMock.setMyKioskPin.mockResolvedValue({ data: { user: {} } })

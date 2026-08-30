@@ -24,13 +24,7 @@ module Payroll
       seed_entries, deleted_entry_ids = settlement_seed_entries(latest_batch)
       candidate_entry_ids = seed_entries.map(&:id) + deleted_entry_ids
       prior_rows = prior_rows_for_entry_ids(candidate_entry_ids)
-      prior_by_entry = prior_rows.group_by(&:source_time_entry_id)
-      deleted_prior_rows = deleted_prior_rows(prior_by_entry)
-      affected_pairs = affected_employee_weeks(seed_entries, deleted_prior_rows, prior_by_entry)
-      prior_rows = (prior_rows + prior_rows_for_pairs(affected_pairs)).uniq(&:id)
-      prior_by_entry = prior_rows.group_by(&:source_time_entry_id)
-      deleted_prior_rows = deleted_prior_rows(prior_by_entry)
-      affected_pairs = affected_employee_weeks(seed_entries, deleted_prior_rows, prior_by_entry)
+      prior_rows, prior_by_entry, deleted_prior_rows, affected_pairs = expand_prior_rows(seed_entries, prior_rows)
       context_entries = context_entries_for(affected_pairs)
       allocations = overtime_allocations(context_entries)
       settlement_ids = settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
@@ -155,6 +149,22 @@ module Payroll
           end)
           .includes(:payroll_batch)
           .to_a
+      end
+    end
+
+    # A prior line can connect an entry to an older employee/week dimension.
+    # Follow those links until no additional historical lines are discovered so
+    # multi-step reallocations cannot fall out of the settlement context.
+    def expand_prior_rows(seed_entries, initial_rows)
+      rows = initial_rows
+      loop do
+        by_entry = rows.group_by(&:source_time_entry_id)
+        deleted_rows = deleted_prior_rows(by_entry)
+        pairs = affected_employee_weeks(seed_entries, deleted_rows, by_entry)
+        expanded = (rows + prior_rows_for_pairs(pairs)).uniq(&:id)
+        return [ rows, by_entry, deleted_rows, pairs ] if expanded.length == rows.length
+
+        rows = expanded
       end
     end
 

@@ -114,9 +114,10 @@ const finalized = {
 describe('PayrollRuns', () => {
   beforeEach(() => {
     Object.values(apiMock).forEach((mock) => mock.mockReset())
-    apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [] } })
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [], total_count: 0, truncated: false } })
     apiMock.previewPayrollBatch.mockResolvedValue({ data: preview })
     apiMock.finalizePayrollBatch.mockResolvedValue({ data: finalized })
+    apiMock.getPayrollBatch.mockResolvedValue({ data: finalized })
   })
 
   it('previews payable hours separately from tracked exclusions', async () => {
@@ -215,13 +216,13 @@ describe('PayrollRuns', () => {
   })
 
   it('ignores an older payroll-history response that finishes after finalization refreshes it', async () => {
-    let resolveInitialHistory: (value: { data: { payroll_batches: never[] } }) => void = () => undefined
-    const initialHistory = new Promise<{ data: { payroll_batches: never[] } }>((resolve) => {
+    let resolveInitialHistory: (value: { data: { payroll_batches: never[]; total_count: number; truncated: boolean } }) => void = () => undefined
+    const initialHistory = new Promise<{ data: { payroll_batches: never[]; total_count: number; truncated: boolean } }>((resolve) => {
       resolveInitialHistory = resolve
     })
     apiMock.getPayrollBatches
       .mockReturnValueOnce(initialHistory)
-      .mockResolvedValueOnce({ data: { payroll_batches: [finalized] } })
+      .mockResolvedValueOnce({ data: { payroll_batches: [finalized], total_count: 1, truncated: false } })
 
     render(<PayrollRuns />)
     fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
@@ -231,10 +232,95 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
 
     expect(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
-    resolveInitialHistory({ data: { payroll_batches: [] } })
+    resolveInitialHistory({ data: { payroll_batches: [], total_count: 0, truncated: false } })
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
     })
+  })
+
+  it('opens a finalized batch from history', async () => {
+    apiMock.getPayrollBatches.mockResolvedValue({
+      data: { payroll_batches: [finalized], total_count: 1, truncated: false },
+    })
+    render(<PayrollRuns />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
+
+    await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(finalized.id))
+    expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
+    expect(screen.getByText('Finalized batch')).toBeInTheDocument()
+  })
+
+  it('downloads a finalized batch and reports an empty download response', async () => {
+    apiMock.getPayrollBatches.mockResolvedValue({
+      data: { payroll_batches: [finalized], total_count: 1, truncated: false },
+    })
+    apiMock.downloadPayrollBatch
+      .mockResolvedValueOnce({ blob: new Blob(['csv']), filename: 'batch.csv' })
+      .mockResolvedValueOnce({ error: 'Export unavailable' })
+    const createObjectUrl = vi.fn(() => 'blob:test')
+    const revokeObjectUrl = vi.fn()
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl })
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    render(<PayrollRuns />)
+    fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
+    await screen.findByText('Alice Pilot')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download CSV' }))
+    await waitFor(() => expect(apiMock.downloadPayrollBatch).toHaveBeenCalledWith(finalized.id))
+    expect(createObjectUrl).toHaveBeenCalledOnce()
+    expect(clickSpy).toHaveBeenCalledOnce()
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:test')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download CSV' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Export unavailable')
+  })
+
+  it('signals when the permanent history response is truncated', async () => {
+    apiMock.getPayrollBatches.mockResolvedValue({
+      data: { payroll_batches: [finalized], total_count: 135, truncated: true },
+    })
+    render(<PayrollRuns />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('newest 1 of 135')
+  })
+
+  it('traps focus inside the finalize dialog and restores it on close', async () => {
+    render(<PayrollRuns />)
+    await screen.findByText('No payroll batches have been finalized yet.')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    const trigger = screen.getByRole('button', { name: 'Finalize this cutoff' })
+    trigger.focus()
+    fireEvent.click(trigger)
+
+    const dialog = screen.getByRole('dialog', { name: /finalize this payroll cutoff/i })
+    await waitFor(() => expect(dialog).toHaveFocus())
+    const checkbox = screen.getByRole('checkbox')
+    const closeButton = screen.getByRole('button', { name: 'Keep reviewing' })
+    fireEvent.keyDown(dialog, { key: 'Tab' })
+    expect(checkbox).toHaveFocus()
+    fireEvent.keyDown(checkbox, { key: 'Tab', shiftKey: true })
+    expect(closeButton).toHaveFocus()
+
+    fireEvent.click(closeButton)
+    expect(trigger).toHaveFocus()
+  })
+
+  it('does not reopen confirmation after the preview is cleared', async () => {
+    render(<PayrollRuns />)
+    await screen.findByText('No payroll batches have been finalized yet.')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize this cutoff' }))
+    expect(screen.getByRole('dialog', { name: /finalize this payroll cutoff/i })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Period start'), { target: { value: '2026-08-01' } })
+    expect(screen.queryByRole('dialog', { name: /finalize this payroll cutoff/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    expect(screen.queryByRole('dialog', { name: /finalize this payroll cutoff/i })).not.toBeInTheDocument()
   })
 })

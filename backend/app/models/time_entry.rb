@@ -82,9 +82,9 @@ class TimeEntry < ApplicationRecord
     entry_batch_ids = PayrollBatchEntry.where(source_time_entry_id: id).select(:payroll_batch_id)
     exclusion_batch_ids = PayrollBatchExclusion.where(source_time_entry_id: id).select(:payroll_batch_id)
 
-    PayrollBatch.where.not(finalized_at: nil)
-      .where(id: entry_batch_ids)
-      .or(PayrollBatch.where.not(finalized_at: nil).where(id: exclusion_batch_ids))
+    PayrollBatch.where(id: entry_batch_ids)
+      .or(PayrollBatch.where(id: exclusion_batch_ids))
+      .where.not(finalized_at: nil)
       .distinct
   end
 

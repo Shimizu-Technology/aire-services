@@ -8,8 +8,13 @@ module Api
         before_action :find_batch, only: %i[show export]
 
         def index
-          batches = PayrollBatch.includes(:finalized_by).order(finalized_at: :desc).limit(100)
-          render json: { payroll_batches: batches.map { |batch| serialize_summary(batch) } }
+          total_count = PayrollBatch.count
+          batches = PayrollBatch.includes(:finalized_by).order(finalized_at: :desc).limit(100).to_a
+          render json: {
+            payroll_batches: batches.map { |batch| serialize_summary(batch) },
+            total_count: total_count,
+            truncated: total_count > batches.length
+          }
         end
 
         def show
