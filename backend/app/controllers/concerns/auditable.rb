@@ -14,7 +14,6 @@ module Auditable
 
   def write_default_audit_event
     return if SAFE_METHODS.include?(request.request_method)
-    return unless response.successful?
     return unless current_user
     return if Current.domain_audit_recorded
 
@@ -28,6 +27,7 @@ module Auditable
       subject_id: record&.id || params[:id] || response_record_id || 0,
       subject_name: AuditRecordSnapshot.subject_name(record) || response_subject_name || controller_name.humanize,
       event_category: default_event_category,
+      outcome: audit_outcome,
       metadata: {
         http_method: request.request_method,
         path: request.path,
@@ -73,6 +73,13 @@ module Auditable
     return "content" if path.include?("media")
 
     "activity"
+  end
+
+  def audit_outcome
+    return "succeeded" if response.successful? || response.redirect?
+    return "denied" if response.status.in?([ 401, 403 ])
+
+    "failed"
   end
 
   def safe_changed_fields

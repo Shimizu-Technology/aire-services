@@ -93,13 +93,15 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
     end
 
     it "rejects invalid thresholds" do
-      patch "/api/v1/admin/settings",
-            params: {
-              settings: {
-                overtime_daily_threshold_hours: "0"
-              }
-            },
-            headers: auth_headers_for[admin]
+      expect do
+        patch "/api/v1/admin/settings",
+              params: {
+                settings: {
+                  overtime_daily_threshold_hours: "0"
+                }
+              },
+              headers: auth_headers_for[admin]
+      end.to change { AuditLog.where(action: "admin.settings.update", outcome: "failed").count }.by(1)
 
       expect(response).to have_http_status(:unprocessable_entity)
     end

@@ -24,6 +24,21 @@ module Api
             readiness_status: export.readiness_status,
             checksum: export.checksum
           }
+          AuditLog.record!(
+            action: "payroll.time_summary_pulled",
+            auditable: export,
+            actor: nil,
+            actor_kind: "integration",
+            source: "integration",
+            event_category: "integration",
+            metadata: {
+              start_date: report[:start_date],
+              end_date: report[:end_date],
+              export_reference: export.public_id,
+              checksum: export.checksum,
+              readiness_status: export.readiness_status
+            }
+          )
           render json: report
         rescue ArgumentError => e
           render json: { error: e.message }, status: :unprocessable_entity

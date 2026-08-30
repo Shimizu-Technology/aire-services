@@ -22,12 +22,19 @@ RSpec.describe "Api::V1::Payroll::TimeSummaries", type: :request do
     expect do
       get "/api/v1/payroll/time_summary", params: { start_date: "2026-06-16", end_date: "2026-06-30" }, headers: headers
     end.to change(ReportExport, :count).by(1)
+      .and change { AuditLog.where(action: "payroll.time_summary_pulled").count }.by(1)
 
     expect(response).to have_http_status(:ok)
     first_reference = JSON.parse(response.body).dig("export", "id")
     expect(first_reference).to start_with("AIRE-PAYROLL-")
     expect(ReportExport.last).to have_attributes(protects_entries: true, readiness_status: "complete")
     expect(ReportExport.last.entry_ids).to contain_exactly(context_entry.id, period_entry.id)
+    expect(AuditLog.where(action: "payroll.time_summary_pulled").last).to have_attributes(
+      auditable: ReportExport.last,
+      actor_kind: "integration",
+      source: "integration",
+      event_category: "integration"
+    )
 
     expect do
       get "/api/v1/payroll/time_summary", params: { start_date: "2026-06-16", end_date: "2026-06-30" }, headers: headers
