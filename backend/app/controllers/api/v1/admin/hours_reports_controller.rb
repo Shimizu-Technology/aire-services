@@ -12,6 +12,7 @@ module Api
           status
           approval_group
           time_category_id
+          category_status
           clock_source
           entry_method
           approval_status
@@ -132,8 +133,7 @@ module Api
               :pending_overtime_count,
               :denied_overtime_count,
               :open_clock_count,
-              :uncategorized_count,
-              :missing_rate_count
+              :uncategorized_count
             )
           }, status: :unprocessable_entity
           false

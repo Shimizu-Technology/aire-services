@@ -123,18 +123,13 @@ module Api
           }
         end
 
-        def serialize_categories_for(user, categories)
-          utc_lookup = user.user_time_categories.index_by(&:time_category_id)
+        def serialize_categories_for(_user, categories)
           categories.map do |category|
-            utc = utc_lookup[category.id]
-            effective_cents = utc&.effective_hourly_rate_cents || category.hourly_rate_cents
             {
               id: category.id,
               key: category.key,
               name: category.name,
-              description: category.description,
-              hourly_rate_cents: effective_cents,
-              hourly_rate: effective_cents ? (effective_cents.to_f / 100).round(2) : nil
+              description: category.description
             }
           end
         end
@@ -146,7 +141,7 @@ module Api
           status.merge(
             schedule: status[:schedule],
             breaks: status[:breaks],
-            time_category: tc ? { id: tc.id, key: tc.key, name: tc.name, hourly_rate_cents: tc.hourly_rate_cents, hourly_rate: tc.hourly_rate } : nil,
+            time_category: tc ? { id: tc.id, key: tc.key, name: tc.name } : nil,
             clock_source: entry&.clock_source
           )
         end
@@ -163,10 +158,7 @@ module Api
             clock_out_at: entry.clock_out_at&.iso8601,
             break_minutes: entry.break_minutes,
             hours: entry.hours.to_f,
-            time_category: tc ? {
-              id: tc.id, key: tc.key, name: tc.name,
-              hourly_rate_cents: tc.hourly_rate_cents, hourly_rate: tc.hourly_rate
-            } : nil
+            time_category: tc ? { id: tc.id, key: tc.key, name: tc.name } : nil
           }
         end
       end

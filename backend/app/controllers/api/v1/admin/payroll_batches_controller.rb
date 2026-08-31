@@ -28,7 +28,7 @@ module Api
           ).call
           render json: result.fetch(:payload).merge(
             preview: true,
-            can_finalize: result.fetch(:issues).values_at(:missing_category_count, :missing_rate_count).all?(&:zero?),
+            can_finalize: result.dig(:issues, :missing_category_count).zero?,
             requires_negative_adjustment_acknowledgement: result.dig(:issues, :negative_adjustment_count).positive?
           )
         rescue ArgumentError => e

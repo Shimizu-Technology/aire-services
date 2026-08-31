@@ -23,7 +23,6 @@ const ISSUE_LABELS: Array<[keyof PayrollBatchIssues, string]> = [
   ['pending_overtime_count', 'Pending overtime'],
   ['denied_overtime_count', 'Denied overtime'],
   ['missing_category_count', 'Missing category'],
-  ['missing_rate_count', 'Missing pay rate'],
   ['negative_adjustment_count', 'Negative correction'],
 ]
 
@@ -97,6 +96,9 @@ function issueDestination(key: keyof PayrollBatchIssues, period: PayrollPeriod) 
     return withPayrollPeriod('/admin/time', period, { tab: 'reports', overtime_status: 'denied' })
   }
   if (key === 'negative_adjustment_count') return '/admin/activity?event_category=payroll'
+  if (key === 'missing_category_count') {
+    return withPayrollPeriod('/admin/time', period, { tab: 'reports', category_status: 'uncategorized' })
+  }
   return withPayrollPeriod('/admin/time', period, { tab: 'reports', approval_status: 'all' })
 }
 
@@ -108,7 +110,7 @@ function IssueSummary({ issues, period }: { issues: PayrollBatchIssues; period: 
   return (
     <div className="flex flex-wrap gap-2">
       {active.map(([key, label]) => {
-        const blocking = key === 'missing_category_count' || key === 'missing_rate_count'
+        const blocking = key === 'missing_category_count'
         return (
           <Link key={key} to={issueDestination(key, period)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${blocking ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
             {issues[key]} {label}
@@ -131,7 +133,7 @@ function BatchContents({ payload }: { payload: PayrollBatchPayload }) {
           <p className="text-xs text-slate-500">{payload.summary.adjustment_count} adjustments</p>
         </div>
         <div className="mt-5 space-y-4">
-          {payload.employees.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No payable hours are included in this period.</p>}
+          {payload.employees.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No approved hours are included in this period.</p>}
           {payload.employees.map((employee) => (
             <article key={employee.source_user_id} className="rounded-2xl border border-slate-200 p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -446,7 +448,7 @@ export default function PayrollRuns() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Authoritative payroll record</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Payroll Cutoffs</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Preview exactly what is payable at this moment, then freeze an immutable AIRE batch for Cornerstone Payroll. Pending work stays tracked and carries forward only after approval.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Preview exactly which approved hours will be included, then freeze an immutable AIRE batch for Cornerstone Payroll. Pending work stays tracked and carries forward only after approval.</p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'approvals', through_date: activePeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>
@@ -488,7 +490,7 @@ export default function PayrollRuns() {
             </div>
           </div>
           <IssueSummary issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
-          {preview && !preview.can_finalize && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category and effective pay rate.</p>}
+          {preview && !preview.can_finalize && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
           <SummaryCards payload={activePayload} />
           <BatchContents payload={activePayload} />
         </>

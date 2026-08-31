@@ -262,15 +262,13 @@ export interface UserSummary {
   approval_group_keys?: ApprovalGroup[];
   approval_group_labels?: string[];
   approval_groups?: ApprovalGroupOption[];
+  time_category_ids?: number[];
 }
 
 export interface UserTimeCategoryAssignment {
   id: number;
   name: string;
   key: string | null;
-  hourly_rate_cents?: number | null;
-  hourly_rate?: number | null;
-  override_rate_cents?: number | null;
 }
 
 export interface AdminUser {
@@ -331,10 +329,7 @@ export interface TimeCategory {
 
 export interface AdminTimeCategory extends TimeCategory {
   is_active: boolean;
-  hourly_rate_cents: number | null;
-  hourly_rate: number | null;
   time_entries_count: number;
-  employee_pay_rates_count?: number;
   deletable?: boolean;
   created_at: string;
   updated_at: string;
@@ -833,6 +828,15 @@ export interface HoursReportCategory {
   entries_count: number;
 }
 
+export interface HoursReportSource {
+  source: string;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  break_hours: number;
+  entries_count: number;
+}
+
 export interface HoursReportWeek {
   week_start: string;
   week_end: string;
@@ -873,7 +877,6 @@ export interface HoursReportEmployee {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
-    missing_rate_count: number;
   };
   days: HoursReportDay[];
   categories: HoursReportCategory[];
@@ -886,6 +889,7 @@ export interface HoursReportFilters {
   status?: string;
   approval_group?: string;
   time_category_id?: string | number;
+  category_status?: 'uncategorized';
   clock_source?: string;
   entry_method?: string;
   approval_status?: string;
@@ -914,7 +918,10 @@ export interface HoursReportResponse {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
-    missing_rate_count: number;
+  };
+  breakdowns: {
+    by_category: HoursReportCategory[];
+    by_source: HoursReportSource[];
   };
   employees: HoursReportEmployee[];
 }
@@ -927,6 +934,7 @@ export interface HoursReportParams {
   status?: 'active' | 'current' | 'pending' | 'inactive';
   approval_group?: ApprovalGroupFilter | 'all';
   time_category_id?: number;
+  category_status?: 'uncategorized';
   clock_source?: 'kiosk' | 'mobile' | 'admin' | 'legacy';
   entry_method?: 'clock' | 'manual';
   approval_status?: 'pending' | 'approved' | 'denied' | 'approved_or_standard';
@@ -999,7 +1007,6 @@ export interface PayrollBatchSummary {
 
 export interface PayrollBatchIssues {
   missing_category_count: number;
-  missing_rate_count: number;
   negative_adjustment_count: number;
   pending_approval_count: number;
   denied_approval_count: number;
@@ -1019,7 +1026,6 @@ export interface PayrollBatchAdjustment {
   total_hours: number;
   regular_hours: number;
   overtime_hours: number;
-  effective_rate_cents: number | null;
 }
 
 export interface PayrollBatchEmployee {

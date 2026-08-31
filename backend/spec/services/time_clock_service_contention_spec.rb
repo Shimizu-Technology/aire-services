@@ -28,11 +28,14 @@ RSpec.describe "TimeClockService payroll-finalization contention", type: :servic
   end
 
   after do
-    entry_ids = TimeEntry.where(user_id: user.id).pluck(:id)
+    entries = TimeEntry.where(user_id: user.id)
+    entry_ids = entries.pluck(:id)
+    category_ids = entries.pluck(:time_category_id).compact
     AuditLog.where(auditable_type: "TimeEntry", auditable_id: entry_ids).delete_all
-    TimeEntry.where(id: entry_ids).delete_all
+    entries.delete_all
     UserTimeCategory.where(user_id: user.id).delete_all
     User.where(id: user.id).destroy_all
+    TimeCategory.where(id: category_ids).destroy_all
     @time_category&.destroy!
   end
 

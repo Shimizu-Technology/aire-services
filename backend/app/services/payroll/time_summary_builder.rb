@@ -69,8 +69,6 @@ module Payroll
         categories = entries.group_by(&:time_category).map do |category, category_entries|
           regular_hours = category_entries.sum { |entry| overtime_allocations.fetch(entry.id, {})[:regular_hours].to_f }
           overtime_hours = category_entries.sum { |entry| overtime_allocations.fetch(entry.id, {})[:overtime_hours].to_f }
-          effective_rate_values = category_entries.filter_map(&:effective_rate_cents_snapshot).uniq
-
           {
             source_category_id: category&.id&.to_s,
             key: category&.key,
@@ -79,8 +77,6 @@ module Payroll
             total_hours: round_hours(category_entries.sum { |entry| entry.hours.to_f }),
             regular_hours: round_hours(regular_hours),
             overtime_hours: round_hours(overtime_hours),
-            effective_rate_cents: effective_rate_values.first,
-            effective_rate_cents_values: effective_rate_values,
             entry_ids: category_entries.map(&:id)
           }
         end
@@ -115,15 +111,10 @@ module Payroll
         overtime_hours: round_hours(days.sum { |day| day[:overtime_hours].to_f }),
         entries_count: countable.size,
         issues: issues,
-        ready: issues.values_at(
-          :pending_count,
-          :pending_overtime_count,
-          :denied_count,
-          :denied_overtime_count,
-          :open_clock_count,
-          :uncategorized_count,
-          :missing_rate_count
-        ).all?(&:zero?)
+        # Pending, denied, overtime-review, and open entries remain tracked but
+        # are excluded from the included-hour ledger. Only an included entry
+        # without a category makes the hours summary unsafe to consume.
+        ready: issues.fetch(:uncategorized_count).zero?
       }
     end
 
@@ -146,8 +137,7 @@ module Payroll
         denied_overtime_hours: sum_hours(denied_overtime),
         open_clock_count: open_clock.size,
         open_clock_entry_ids: open_clock.map(&:id),
-        uncategorized_count: countable.count { |entry| entry.time_category_id.nil? },
-        missing_rate_count: countable.count { |entry| entry.effective_rate_cents_snapshot.nil? }
+        uncategorized_count: countable.count { |entry| entry.time_category_id.nil? }
       }
     end
 
@@ -163,8 +153,7 @@ module Payroll
         pending_overtime_count: entries.count { |entry| entry.overtime_status == "pending" },
         denied_overtime_count: entries.count { |entry| entry.overtime_status == "denied" },
         open_clock_count: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) },
-        uncategorized_count: countable.count { |entry| entry.time_category_id.nil? },
-        missing_rate_count: countable.count { |entry| entry.effective_rate_cents_snapshot.nil? }
+        uncategorized_count: countable.count { |entry| entry.time_category_id.nil? }
       }
     end
 

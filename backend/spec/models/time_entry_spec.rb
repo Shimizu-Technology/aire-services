@@ -48,30 +48,19 @@ RSpec.describe TimeEntry, type: :model do
     end
   end
 
-  describe "effective rate snapshotting" do
-    let(:user) { create(:user, :employee) }
-    let(:flight_category) { create(:time_category, hourly_rate_cents: 4200) }
-    let(:ground_category) { create(:time_category, hourly_rate_cents: 2800) }
+  describe "work category validation" do
+    it "requires a category for every completed entry" do
+      entry = build(:time_entry, time_category: nil)
 
-    it "captures the effective rate for completed manual entries" do
-      create(:employee_pay_rate, user: user, time_category: flight_category, hourly_rate_cents: 5600)
-
-      entry = create(:time_entry, user: user, time_category: flight_category, entry_method: "manual", status: "completed")
-
-      expect(entry.effective_rate_cents_snapshot).to eq(5600)
-      expect(entry.effective_rate_cents).to eq(5600)
-      expect(entry.effective_rate).to eq(56.0)
+      expect(entry).not_to be_valid
+      expect(entry.errors[:time_category]).to include("must be selected")
     end
 
-    it "refreshes the snapshot when the completed entry category changes" do
-      create(:employee_pay_rate, user: user, time_category: flight_category, hourly_rate_cents: 5600)
-      create(:employee_pay_rate, user: user, time_category: ground_category, hourly_rate_cents: 3100)
+    it "rejects a newly selected inactive category" do
+      entry = build(:time_entry, time_category: create(:time_category, is_active: false))
 
-      entry = create(:time_entry, user: user, time_category: flight_category, entry_method: "manual", status: "completed")
-      entry.update!(time_category: ground_category)
-
-      expect(entry.effective_rate_cents_snapshot).to eq(3100)
-      expect(entry.effective_rate).to eq(31.0)
+      expect(entry).not_to be_valid
+      expect(entry.errors[:time_category]).to include("must be active")
     end
   end
 end

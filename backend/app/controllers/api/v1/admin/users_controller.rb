@@ -327,10 +327,7 @@ module Api
           {
             id: utc.time_category.id,
             name: utc.time_category.name,
-            key: utc.time_category.key,
-            hourly_rate_cents: utc.effective_hourly_rate_cents,
-            hourly_rate: utc.effective_hourly_rate,
-            override_rate_cents: utc.hourly_rate_cents
+            key: utc.time_category.key
           }
         end
 
@@ -531,7 +528,7 @@ module Api
           keys = %i[
             email first_name last_name role personal_access_enabled
             time_tracking_enabled kiosk_enabled kiosk_pin
-            time_category_ids time_category_rate_overrides
+            time_category_ids
           ]
 
           keys.each_with_object({}) do |key, attributes|

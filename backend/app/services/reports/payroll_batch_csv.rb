@@ -9,7 +9,7 @@ module Reports
         csv << [
           "Batch ID", "Period start", "Period end", "Cutoff at", "Employee", "Email",
           "Source entry", "Type", "Original work date", "Category", "Regular hours",
-          "Overtime hours", "Total hours", "Effective rate cents"
+          "Overtime hours", "Total hours"
         ]
         Array(batch.payload["employees"]).each do |employee|
           Array(employee["adjustments"]).each do |row|
@@ -26,8 +26,7 @@ module Reports
               safe(row.dig("category", "name")),
               row["regular_hours"],
               row["overtime_hours"],
-              row["total_hours"],
-              row["effective_rate_cents"]
+              row["total_hours"]
             ]
           end
         end

@@ -107,11 +107,6 @@ Rails.application.routes.draw do
           get :detailed_csv
           get :summary_csv
         end
-        resources :employee_pay_rates, only: [ :index, :create, :update, :destroy ] do
-          collection do
-            get "for_user/:user_id", action: :for_user, as: :for_user
-          end
-        end
       end
     end
   end

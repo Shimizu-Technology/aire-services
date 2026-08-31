@@ -54,6 +54,11 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
   # ── CREATE ───────────────────────────────────────────────────────────
   describe "POST /api/v1/time_entries" do
+    before do
+      employee.user_time_categories.find_or_create_by!(time_category: time_category)
+      other_employee.user_time_categories.find_or_create_by!(time_category: time_category)
+    end
+
     let(:valid_params) do
       {
         time_entry: {
@@ -71,40 +76,28 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
       expect(response).to have_http_status(:created)
       expect(json.dig(:time_entry, :user, :id)).to eq(employee.id)
-      # Rates are hidden from employees; verify snapshot was stored via admin
-      entry_id = json.dig(:time_entry, :id)
-      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[admin]
-      expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
-      expect(json.dig(:time_entry, :effective_rate)).to eq(42.0)
+      expect(json.dig(:time_entry, :time_category, :id)).to eq(time_category.id)
+      expect(json.dig(:time_entry, :effective_rate_cents)).to be_nil
     end
 
-    it "keeps the manual entry rate stable after rates change later" do
-      post "/api/v1/time_entries", params: valid_params, headers: auth_headers_for[employee]
+    it "automatically selects the owner's only assigned category" do
+      post "/api/v1/time_entries",
+           params: valid_params.deep_merge(time_entry: { time_category_id: nil }),
+           headers: auth_headers_for[employee]
 
-      entry_id = json.dig(:time_entry, :id)
-      create(:employee_pay_rate, user: employee, time_category: time_category, hourly_rate_cents: 6500)
-      time_category.update!(hourly_rate_cents: 9000)
-
-      get "/api/v1/time_entries/#{entry_id}", headers: auth_headers_for[admin]
-
-      expect(response).to have_http_status(:ok)
-      expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
-      expect(json.dig(:time_entry, :effective_rate)).to eq(42.0)
+      expect(response).to have_http_status(:created)
+      expect(json.dig(:time_entry, :time_category, :id)).to eq(time_category.id)
     end
 
-    it "does not drift during approval updates after the snapshot is captured" do
-      post "/api/v1/time_entries", params: valid_params, headers: auth_headers_for[employee]
+    it "rejects a category that is not assigned to the owner" do
+      other_category = create(:time_category)
 
-      entry_id = json.dig(:time_entry, :id)
-      create(:employee_pay_rate, user: employee, time_category: time_category, hourly_rate_cents: 6500)
-      time_category.update!(hourly_rate_cents: 9000)
+      post "/api/v1/time_entries",
+           params: valid_params.deep_merge(time_entry: { time_category_id: other_category.id }),
+           headers: auth_headers_for[employee]
 
-      post "/api/v1/time_entries/#{entry_id}/approve", headers: auth_headers_for[admin]
-
-      expect(response).to have_http_status(:ok)
-      expect(json.dig(:time_entry, :approval_status)).to eq("approved")
-      expect(json.dig(:time_entry, :effective_rate_cents)).to eq(4200)
-      expect(json.dig(:time_entry, :effective_rate)).to eq(42.0)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json.fetch(:error)).to match(/not assigned/)
     end
 
     it "allows admin to create entry for another staff user" do

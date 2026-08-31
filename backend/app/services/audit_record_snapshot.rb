@@ -11,15 +11,14 @@ class AuditRecordSnapshot
     "TimeEntry" => %w[
       user_id work_date start_time end_time hours description time_category_id break_minutes
       status entry_method clock_source approval_status approval_note overtime_status overtime_note
-      effective_rate_cents_snapshot attendance_status schedule_id
+      attendance_status schedule_id
     ],
     "LeaveRequest" => %w[
       user_id leave_type start_date end_date status reason review_note reviewed_by_id reviewed_at
       cancelled_by_id cancelled_at
     ],
     "Schedule" => %w[user_id work_date start_time end_time notes created_by_id],
-    "TimeCategory" => %w[key name description is_active hourly_rate_cents],
-    "EmployeePayRate" => %w[user_id time_category_id hourly_rate_cents],
+    "TimeCategory" => %w[key name description is_active],
     "Setting" => %w[key value],
     "SiteMedia" => %w[title alt_text caption placement media_type external_url sort_order active featured],
     "ReportExport" => %w[export_type readiness_status state start_date end_date checksum protects_entries],

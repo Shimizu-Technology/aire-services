@@ -75,8 +75,11 @@ module Api
       def create
         entry_owner = resolve_entry_owner
         return unless entry_owner
+        selected_category = resolve_required_category(entry_owner, time_entry_params[:time_category_id])
+        return if performed?
 
-        @time_entry = entry_owner.time_entries.build(time_entry_params.except(:user_id))
+        @time_entry = entry_owner.time_entries.build(time_entry_params.except(:user_id, :time_category_id))
+        @time_entry.time_category = selected_category
         @time_entry.entry_method = "manual"
 
         if current_user.admin?
@@ -133,6 +136,11 @@ module Api
         }
 
         update_params = time_entry_params.except(:user_id, :breaks).to_h.symbolize_keys
+        if update_params.key?(:time_category_id) || @time_entry.time_category_id.nil?
+          selected_category = resolve_required_category(@time_entry.user, update_params[:time_category_id])
+          return if performed?
+          update_params[:time_category_id] = selected_category.id
+        end
         raw_clock_params = raw_time_entry_params.slice(:work_date, :start_time, :end_time)
         normalize_clock_entry_time_update(@time_entry, update_params, raw_clock_params)
         return if performed?
@@ -761,6 +769,26 @@ module Api
         user
       end
 
+      def resolve_required_category(user, requested_category_id)
+        assigned = user.assigned_time_categories.active
+        if requested_category_id.present?
+          category = assigned.find_by(id: requested_category_id)
+          unless category
+            render json: { error: "Selected work category is inactive or not assigned to this person" }, status: :unprocessable_entity
+          end
+          return category
+        end
+
+        categories = assigned.limit(2).to_a
+        return categories.first if categories.one?
+
+        message = categories.empty? ?
+          "Assign an active work category to this person before logging time" :
+          "Choose a work category for this time entry"
+        render json: { error: message }, status: :unprocessable_entity
+        nil
+      end
+
       def serialize_time_entry(entry)
         tz = TimeClockService::BUSINESS_TIMEZONE
         {
@@ -825,9 +853,7 @@ module Api
             id: entry.time_category.id,
             key: entry.time_category.key,
             name: entry.time_category.name
-          }.merge(current_user.admin? ? { hourly_rate_cents: entry.time_category.hourly_rate_cents, hourly_rate: entry.time_category.hourly_rate } : {}) : nil,
-          effective_rate_cents: current_user.admin? ? entry.effective_rate_cents : nil,
-          effective_rate: current_user.admin? ? entry.effective_rate : nil,
+          } : nil,
           created_at: entry.created_at.iso8601,
           updated_at: entry.updated_at.iso8601
         }

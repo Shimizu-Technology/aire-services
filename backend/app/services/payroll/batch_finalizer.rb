@@ -106,7 +106,7 @@ module Payroll
     # SHARE locks let in-flight ledger writes finish, then prevent new time or
     # break writes until the immutable snapshot and audit event are committed.
     # User/category labels remain readable without blocking their writers; the
-    # pay-critical category and rate IDs are already snapshotted on TimeEntry.
+    # category IDs are already snapshotted on TimeEntry.
     def lock_source_ledger!
       ActiveRecord::Base.connection.execute(
         "LOCK TABLE time_entries, time_entry_breaks IN SHARE MODE"
@@ -144,8 +144,8 @@ module Payroll
 
     def validate_result!(result)
       issues = result.fetch(:issues)
-      if issues.values_at(:missing_category_count, :missing_rate_count).any?(&:positive?)
-        raise FinalizationError, "Resolve missing work categories and pay rates before finalizing this payroll batch"
+      if issues.fetch(:missing_category_count).positive?
+        raise FinalizationError, "Resolve missing work categories before finalizing this payroll batch"
       end
       return unless issues.fetch(:negative_adjustment_count).positive?
       return if acknowledge_negative_adjustments && negative_adjustment_note.present?

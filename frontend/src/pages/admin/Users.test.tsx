@@ -39,8 +39,6 @@ const categories: AdminTimeCategory[] = [
     name: 'Instruction',
     description: null,
     is_active: true,
-    hourly_rate_cents: 2500,
-    hourly_rate: 25,
     time_entries_count: 0,
     created_at: '2026-05-01T00:00:00Z',
     updated_at: '2026-05-01T00:00:00Z',

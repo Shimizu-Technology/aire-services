@@ -105,19 +105,18 @@ RSpec.describe TimeClockService, type: :service do
       }.to raise_error(TimeClockService::ClockError, /not assigned/)
     end
 
-    it "allows admins to override category assignment for another employee" do
+    it "does not let an admin override an employee's category assignment" do
       Setting.set("schedule_required_for_clock_in", "false")
       admin = create(:user, :admin)
       unassigned_category = create(:time_category)
 
-      entry = described_class.clock_in(
-        user: user,
-        admin_override_by: admin,
-        time_category_id: unassigned_category.id
-      )
-
-      expect(entry.time_category_id).to eq(unassigned_category.id)
-      expect(entry.admin_override).to be(true)
+      expect do
+        described_class.clock_in(
+          user: user,
+          admin_override_by: admin,
+          time_category_id: unassigned_category.id
+        )
+      end.to raise_error(TimeClockService::ClockError, /not assigned/)
     end
 
     it "requires a nearby location for mobile clock-in when geofencing is enabled" do
@@ -200,12 +199,10 @@ RSpec.describe TimeClockService, type: :service do
       expect(entry.approval_note).to be_nil
     end
 
-    it "snapshots the effective rate when a clock entry is completed" do
+    it "completes clock entries without embedding payroll rates" do
       Setting.set("schedule_required_for_clock_in", "false")
       time_category = create(:time_category, hourly_rate_cents: 3000)
       UserTimeCategory.create!(user: user, time_category: time_category)
-      create(:employee_pay_rate, user: user, time_category: time_category, hourly_rate_cents: 4800)
-
       entry = described_class.clock_in(user: user, time_category_id: time_category.id)
       expect(entry.effective_rate_cents_snapshot).to be_nil
 
@@ -214,16 +211,8 @@ RSpec.describe TimeClockService, type: :service do
 
       entry.reload
       expect(entry.status).to eq("completed")
-      expect(entry.effective_rate_cents_snapshot).to eq(4800)
-      expect(entry.effective_rate).to eq(48.0)
-
-      time_category.update!(hourly_rate_cents: 7200)
-      user.employee_pay_rates.find_by(time_category: time_category)&.update!(hourly_rate_cents: 8100)
-      entry.reload
-
-      expect(entry.effective_rate_cents_snapshot).to eq(4800)
-      expect(entry.effective_rate_cents).to eq(4800)
-      expect(entry.effective_rate).to eq(48.0)
+      expect(entry.effective_rate_cents_snapshot).to be_nil
+      expect(entry).not_to respond_to(:effective_rate)
     end
 
     it "allows clock-out after midnight for an overnight shift" do
@@ -241,6 +230,56 @@ RSpec.describe TimeClockService, type: :service do
       expect(entry).to be_persisted
       expect(entry.status).to eq("completed")
       expect(entry.hours).to eq(2.0)
+    end
+
+    it "repairs a legacy categoryless active entry when exactly one category is assigned" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      assigned_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: assigned_category)
+      entry = create(
+        :time_entry,
+        user: user,
+        time_category: nil,
+        entry_method: "clock",
+        status: "clocked_in",
+        start_time: frozen_time,
+        clock_in_at: frozen_time,
+        end_time: nil,
+        clock_out_at: nil,
+        hours: 0
+      )
+
+      travel 2.hours
+      described_class.clock_out(user: user)
+
+      expect(entry.reload.time_category).to eq(assigned_category)
+      expect(entry.status).to eq("completed")
+    end
+
+    it "does not guess a category for a legacy categoryless active entry" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      create_list(:time_category, 2).each do |category|
+        UserTimeCategory.create!(user: user, time_category: category)
+      end
+      entry = create(
+        :time_entry,
+        user: user,
+        time_category: nil,
+        entry_method: "clock",
+        status: "clocked_in",
+        start_time: frozen_time,
+        clock_in_at: frozen_time,
+        end_time: nil,
+        clock_out_at: nil,
+        hours: 0
+      )
+
+      travel 2.hours
+
+      expect {
+        described_class.clock_out(user: user)
+      }.to raise_error(TimeClockService::ClockError, /Choose a work category before clocking out/)
+      expect(entry.reload.status).to eq("clocked_in")
     end
   end
 
@@ -285,6 +324,33 @@ RSpec.describe TimeClockService, type: :service do
       expect {
         described_class.switch_category(user: user, time_category_id: unassigned_category.id)
       }.to raise_error(TimeClockService::ClockError, /not assigned/)
+    end
+
+
+    it "uses the selected target to repair a legacy categoryless active segment" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      target_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: target_category)
+      legacy_entry = create(
+        :time_entry,
+        user: user,
+        time_category: nil,
+        entry_method: "clock",
+        status: "clocked_in",
+        start_time: frozen_time,
+        clock_in_at: frozen_time,
+        end_time: nil,
+        clock_out_at: nil,
+        hours: 0
+      )
+
+      travel 1.hour
+      new_entry = described_class.switch_category(user: user, time_category_id: target_category.id)
+
+      expect(legacy_entry.reload.time_category).to eq(target_category)
+      expect(legacy_entry.status).to eq("completed")
+      expect(new_entry.time_category).to eq(target_category)
+      expect(new_entry.status).to eq("clocked_in")
     end
   end
 end

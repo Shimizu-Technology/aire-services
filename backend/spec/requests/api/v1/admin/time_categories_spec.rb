@@ -15,7 +15,7 @@ RSpec.describe "Api::V1::Admin::TimeCategories", type: :request do
   end
 
   describe "GET /api/v1/admin/time_categories" do
-    it "returns usage counts without changing the shape of the response" do
+    it "returns time-entry usage without exposing payroll rates" do
       category = create(:time_category)
       create(:time_entry, user: employee, time_category: category)
       create(:employee_pay_rate, user: employee, time_category: category)
@@ -26,9 +26,9 @@ RSpec.describe "Api::V1::Admin::TimeCategories", type: :request do
       payload = json.fetch(:time_categories).find { |entry| entry.fetch(:id) == category.id }
       expect(payload).to include(
         time_entries_count: 1,
-        employee_pay_rates_count: 1,
         deletable: false
       )
+      expect(payload).not_to include(:employee_pay_rates_count, :hourly_rate_cents, :hourly_rate)
     end
   end
 

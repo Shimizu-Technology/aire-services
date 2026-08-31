@@ -3,6 +3,7 @@
 FactoryBot.define do
   factory :time_entry do
     association :user
+    association :time_category
     work_date { Date.current }
     start_time { ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 9, 0, 0) }
     end_time { ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 17, 0, 0) }

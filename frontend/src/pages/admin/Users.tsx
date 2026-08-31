@@ -9,10 +9,6 @@ const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/
 const maxPublicTeamPhotoSize = 15 * 1024 * 1024
 const defaultPublicTeamPhotoPosition = 50
 
-function hourlyRateLabel(cents: number | null | undefined) {
-  return cents == null ? 'Rate not set' : `${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)}/hr`
-}
-
 function photoPositionInputValue(value: number | null | undefined) {
   return String(typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : defaultPublicTeamPhotoPosition)
 }
@@ -1105,7 +1101,7 @@ export default function Users() {
                           <div>
                             <div className="text-sm font-medium text-slate-700">Work categories <span className="text-rose-600">*</span></div>
                             <p className="mt-1 text-xs text-slate-500">At least one is required. If only one is assigned, it will be selected automatically at clock-in.</p>
-                            <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">{activeCategories.map((cat) => <label key={cat.id} className="flex cursor-pointer items-start gap-3"><input type="checkbox" checked={createCategoryIds.has(cat.id)} onChange={() => toggleCategoryId(createCategoryIds, setCreateCategoryIds, cat.id)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span><span className="block text-sm font-medium text-slate-800">{cat.name}</span><span className={`mt-0.5 block text-xs ${cat.hourly_rate_cents == null ? 'font-medium text-amber-700' : 'text-slate-500'}`}>{hourlyRateLabel(cat.hourly_rate_cents)}</span>{cat.description && <span className="mt-0.5 block text-xs text-slate-500">{cat.description}</span>}</span></label>)}{activeCategories.length === 0 && <div className="text-sm text-rose-700">Create an active work category before adding a time-tracking user.</div>}</div>
+                            <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">{activeCategories.map((cat) => <label key={cat.id} className="flex cursor-pointer items-start gap-3"><input type="checkbox" checked={createCategoryIds.has(cat.id)} onChange={() => toggleCategoryId(createCategoryIds, setCreateCategoryIds, cat.id)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span><span className="block text-sm font-medium text-slate-800">{cat.name}</span>{cat.description && <span className="mt-0.5 block text-xs text-slate-500">{cat.description}</span>}</span></label>)}{activeCategories.length === 0 && <div className="text-sm text-rose-700">Create an active work category before adding a time-tracking user.</div>}</div>
                           </div>
                           <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm leading-6 text-cyan-950">
                             <span className="font-medium">Kiosk access is included.</span>{' '}
@@ -1465,7 +1461,6 @@ export default function Users() {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium text-slate-800">{cat.name}</div>
-                          <div className={`mt-0.5 text-xs ${cat.hourly_rate_cents == null ? 'font-medium text-amber-700' : 'text-slate-500'}`}>{hourlyRateLabel(cat.hourly_rate_cents)}</div>
                           {cat.description && <div className="mt-0.5 text-xs text-slate-500">{cat.description}</div>}
                         </div>
                       </label>

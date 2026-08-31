@@ -30,7 +30,7 @@ const actionLinks = [
   },
   {
     title: 'Payroll Cutoffs',
-    description: 'Preview payable hours and finalize an immutable batch for Cornerstone Payroll.',
+    description: 'Preview included hours and finalize an immutable batch for Cornerstone Payroll.',
     href: '/admin/payroll',
   },
   {

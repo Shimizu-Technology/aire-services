@@ -199,4 +199,21 @@ describe('ApprovalQueue review workflow', () => {
     expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ through_date: '2026-06-15' }))
     expect(screen.getByDisplayValue('On or before')).toBeInTheDocument()
   })
+
+  it('requires an edit before an uncategorized entry can be selected or approved', async () => {
+    const uncategorizedEntry = makeEntry({ time_category: null })
+    apiMock.getPendingApprovals.mockResolvedValue({
+      data: { pending_entries: [uncategorizedEntry], count: 1, summary: { ...summary, entry_count: 1 } },
+    })
+
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    expect(await screen.findByText('Work category required')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /select aika kanekatsu/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Category required' })).toBeDisabled()
+    expect(screen.getByText(/edit this entry and choose an assigned work category/i)).toBeInTheDocument()
+    expect(screen.getByTitle('Edit entry')).toBeEnabled()
+    expect(apiMock.approveTimeEntry).not.toHaveBeenCalled()
+    expect(apiMock.bulkApproveTimeEntries).not.toHaveBeenCalled()
+  })
 })

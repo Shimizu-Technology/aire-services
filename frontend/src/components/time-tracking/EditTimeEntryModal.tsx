@@ -110,6 +110,7 @@ export default function EditTimeEntryModal({
   const [correctionReasonRequired, setCorrectionReasonRequired] = useState(false)
   const [correctionReason, setCorrectionReason] = useState('')
   const [exportReferences, setExportReferences] = useState<string[]>([])
+  const soleCategoryId = categories.length === 1 ? categories[0].id.toString() : ''
 
   useEffect(() => {
     if (!isOpen || !entry) return
@@ -119,7 +120,7 @@ export default function EditTimeEntryModal({
       start_time: entry.start_time || '08:00',
       end_time: entry.end_time || '17:00',
       description: entry.description || '',
-      time_category_id: entry.time_category?.id.toString() || '',
+      time_category_id: entry.time_category?.id.toString() || soleCategoryId,
       break_minutes: entry.break_minutes,
     })
     setBreakRows((entry.breaks || [])
@@ -134,7 +135,7 @@ export default function EditTimeEntryModal({
     setCorrectionReasonRequired(false)
     setCorrectionReason('')
     setExportReferences([])
-  }, [entry, isOpen])
+  }, [entry, isOpen, soleCategoryId])
 
   const calculatedHours = useMemo(() => {
     if (!formData.start_time || !formData.end_time) return 0
@@ -162,6 +163,10 @@ export default function EditTimeEntryModal({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!entry) return
+    if (!formData.time_category_id) {
+      setLocalError('Choose a work category before saving this time entry')
+      return
+    }
     setSaving(true)
     setLocalError(null)
 
@@ -420,17 +425,21 @@ export default function EditTimeEntryModal({
                 )}
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-primary-dark">Category</label>
+                  <label className="mb-1 block text-sm font-medium text-primary-dark">Work category *</label>
                   <select
                     value={formData.time_category_id}
                     onChange={(event) => setFormData({ ...formData, time_category_id: event.target.value })}
                     className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                    required
                   >
                     <option value="">Select category...</option>
                     {categories.map((category) => (
                       <option key={category.id} value={category.id}>{category.name}</option>
                     ))}
                   </select>
+                  {categories.length === 0 && (
+                    <p className="mt-1 text-xs font-medium text-red-600">Assign an active work category to this person before saving.</p>
+                  )}
                 </div>
 
                 <div>

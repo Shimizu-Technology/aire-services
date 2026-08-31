@@ -362,8 +362,9 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     return Array.from(usersById.values()).sort((a, b) => a.label.localeCompare(b.label))
   }, [allEntries])
 
-  const selectedEntries = useMemo(() => entries.filter((entry) => selectedIds.has(entry.id)), [entries, selectedIds])
-  const allVisibleSelected = entries.length > 0 && entries.every((entry) => selectedIds.has(entry.id))
+  const approvableEntries = useMemo(() => entries.filter((entry) => entry.time_category !== null), [entries])
+  const selectedEntries = useMemo(() => approvableEntries.filter((entry) => selectedIds.has(entry.id)), [approvableEntries, selectedIds])
+  const allVisibleSelected = approvableEntries.length > 0 && approvableEntries.every((entry) => selectedIds.has(entry.id))
 
   const groupedEntries = useMemo(() => {
     const groups = entries.reduce((acc, entry) => {
@@ -395,16 +396,17 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     setSelectedIds((previous) => {
       if (allVisibleSelected) return new Set()
       const next = new Set(previous)
-      entries.forEach((entry) => next.add(entry.id))
+      approvableEntries.forEach((entry) => next.add(entry.id))
       return next
     })
   }
 
   const toggleGroupSelection = (groupEntries: TimeEntry[]) => {
-    const groupSelected = groupEntries.every((entry) => selectedIds.has(entry.id))
+    const selectableEntries = groupEntries.filter((entry) => entry.time_category !== null)
+    const groupSelected = selectableEntries.length > 0 && selectableEntries.every((entry) => selectedIds.has(entry.id))
     setSelectedIds((previous) => {
       const next = new Set(previous)
-      groupEntries.forEach((entry) => {
+      selectableEntries.forEach((entry) => {
         if (groupSelected) next.delete(entry.id)
         else next.add(entry.id)
       })
@@ -607,6 +609,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     const isPendingOvertime = entry.overtime_status === 'pending'
     const selected = selectedIds.has(entry.id)
     const reasons = approvalReasonsFor(entry)
+    const missingCategory = entry.time_category === null
 
     return (
       <motion.div
@@ -618,11 +621,12 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
         className={`border rounded-xl p-3.5 transition-colors ${selected ? 'border-primary bg-cyan-50/50' : 'border-neutral-warm bg-secondary/30'}`}
       >
         <div className="flex items-start gap-3">
-          <label className="mt-1 inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-start justify-center rounded-xl border border-slate-200 bg-white pt-3 hover:border-primary/50" title="Select for bulk approval">
+          <label className={`mt-1 inline-flex min-h-[44px] min-w-[44px] items-start justify-center rounded-xl border border-slate-200 bg-white pt-3 ${missingCategory ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:border-primary/50'}`} title={missingCategory ? 'Add a work category before approval' : 'Select for bulk approval'}>
             <input
               type="checkbox"
               className="h-4 w-4 accent-primary"
               checked={selected}
+              disabled={missingCategory}
               onChange={() => toggleEntrySelection(entry.id)}
               aria-label={`Select ${entryDisplayName(entry)} on ${formatWorkDate(entry.work_date)}`}
             />
@@ -645,7 +649,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                   {formatWorkDate(entry.work_date)} · {entryStartLabel(entry)}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
-                  <span>{entry.time_category?.name || 'Uncategorized'}</span>
+                  <span className={missingCategory ? 'font-semibold text-red-700' : ''}>{entry.time_category?.name || 'Work category required'}</span>
                   <span>·</span>
                   <span>{entry.entry_method}</span>
                   {entry.clock_source && <><span>·</span><span>{entry.clock_source}</span></>}
@@ -675,6 +679,9 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                     )}
                   </div>
                 )}
+                {missingCategory && (
+                  <p className="mt-2 text-xs font-medium text-red-700">Edit this entry and choose an assigned work category before approving it.</p>
+                )}
               </div>
 
               <div className="text-right shrink-0">
@@ -702,10 +709,10 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
             <div className="flex items-center gap-2 mt-3">
               <button
                 onClick={() => handleApprove(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
-                disabled={actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
+                disabled={missingCategory || actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
                 className="flex-1 min-h-[44px] py-2 px-3 bg-primary hover:bg-primary-dark active:bg-primary-dark disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
               >
-                {actionLoading === entry.id ? 'Processing...' : 'Approve'}
+                {actionLoading === entry.id ? 'Processing...' : missingCategory ? 'Category required' : 'Approve'}
               </button>
               <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
@@ -762,10 +769,10 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
               <button
                 type="button"
                 onClick={toggleSelectAllVisible}
-                disabled={entries.length === 0}
+                disabled={approvableEntries.length === 0}
                 className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-primary-dark transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {allVisibleSelected ? 'Clear selection' : `Select filtered (${entries.length})`}
+                {allVisibleSelected ? 'Clear selection' : `Select approvable (${approvableEntries.length})`}
               </button>
               <button
                 type="button"
@@ -980,11 +987,12 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
           ) : reviewFilters.groupByDate ? (
             <div className="space-y-4">
               {groupedEntries.map((group) => {
-                const groupSelected = group.entries.every((entry) => selectedIds.has(entry.id))
+                const groupApprovableEntries = group.entries.filter((entry) => entry.time_category !== null)
+                const groupSelected = groupApprovableEntries.length > 0 && groupApprovableEntries.every((entry) => selectedIds.has(entry.id))
                 return (
                   <section key={group.date} className="rounded-2xl border border-slate-200 bg-white/70 p-3">
                     <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <button type="button" onClick={() => toggleGroupSelection(group.entries)} className="flex items-center gap-3 text-left">
+                      <button type="button" onClick={() => toggleGroupSelection(group.entries)} disabled={groupApprovableEntries.length === 0} className="flex items-center gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50">
                         <span className={`flex h-5 w-5 items-center justify-center rounded border ${groupSelected ? 'border-primary bg-primary text-white' : 'border-slate-300 bg-white'}`}>
                           {groupSelected && <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.312a1 1 0 0 1-1.42.002L3.29 9.23a1 1 0 1 1 1.42-1.408l4.04 4.07 6.54-6.596a1 1 0 0 1 1.414-.006Z" clipRule="evenodd" /></svg>}
                         </span>
