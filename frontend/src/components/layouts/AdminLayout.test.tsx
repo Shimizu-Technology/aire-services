@@ -35,12 +35,13 @@ vi.mock('@clerk/clerk-react', () => ({
   UserButton: () => <div>User menu</div>,
 }))
 
-function renderLayout() {
+function renderLayout(initialEntry = '/admin') {
   return render(
-    <MemoryRouter initialEntries={['/admin']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<div>Dashboard content</div>} />
+          <Route path="/admin/payroll" element={<div>Payroll content</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -83,22 +84,35 @@ describe('AdminLayout kiosk PIN setup', () => {
     expect(screen.getByText('Dashboard content')).toBeInTheDocument()
   })
 
-  it('shows Payroll Runs navigation to admins', () => {
+  it('groups payroll under Time & Payroll navigation for admins', () => {
     authMock.value.userRole = 'admin'
     authMock.value.currentUser.needs_kiosk_pin_setup = false
 
     renderLayout()
 
-    const payrollLinks = screen.getAllByRole('link', { name: /payroll runs/i })
-    expect(payrollLinks.length).toBeGreaterThan(0)
-    payrollLinks.forEach((link) => expect(link).toHaveAttribute('href', '/admin/payroll'))
+    const workspaceLinks = screen.getAllByRole('link', { name: /time & payroll/i })
+    expect(workspaceLinks.length).toBeGreaterThan(0)
+    workspaceLinks.forEach((link) => expect(link).toHaveAttribute('href', '/admin/time'))
+    expect(screen.queryByRole('link', { name: /payroll runs/i })).not.toBeInTheDocument()
   })
 
-  it('does not show Payroll Runs navigation to non-admin users', () => {
+  it('keeps Time & Payroll active on the payroll cutoff route', () => {
+    authMock.value.userRole = 'admin'
+    authMock.value.currentUser.needs_kiosk_pin_setup = false
+
+    renderLayout('/admin/payroll')
+
+    const workspaceLinks = screen.getAllByRole('link', { name: /time & payroll/i })
+    expect(workspaceLinks.some((link) => link.classList.contains('bg-cyan-50'))).toBe(true)
+    expect(screen.getByText('Payroll content')).toBeInTheDocument()
+  })
+
+  it('keeps employee navigation focused on My Time', () => {
     authMock.value.currentUser.needs_kiosk_pin_setup = false
 
     renderLayout()
 
-    expect(screen.queryByRole('link', { name: /payroll runs/i })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /my time/i }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('link', { name: /time & payroll/i })).not.toBeInTheDocument()
   })
 })

@@ -12,9 +12,12 @@
 ## Admin routes
 - /admin
 - /admin/time
+- /admin/payroll
+- /admin/activity
 - /admin/users
 - /admin/schedule
-- /admin/reports
+
+`/admin/time` and `/admin/payroll` share the admin-facing Time & Payroll workspace navigation. Payroll remains a separate admin-only route because it finalizes immutable cutoff batches, while Hours Reports remain live and may be exported as drafts.
 
 ## Core domain models
 - User

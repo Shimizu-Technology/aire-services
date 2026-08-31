@@ -41,6 +41,7 @@ function RouteHarness() {
   return (
     <>
       <button type="button" onClick={() => navigate('/admin/activity?subject_type=TimeEntry&subject_id=44')}>Open entry history</button>
+      <button type="button" onClick={() => navigate('/admin/activity?event_category=payroll&search=2026-08-16+through+2026-08-31')}>Open payroll history</button>
       <ActivityHistory />
     </>
   )
@@ -54,7 +55,7 @@ describe('ActivityHistory', () => {
       data: {
         audit_logs: [event],
         pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 },
-        filters: { event_categories: ['approvals', 'users'], sources: ['admin', 'kiosk'], outcomes: ['succeeded', 'denied'] },
+        filters: { event_categories: ['approvals', 'users', 'payroll'], sources: ['admin', 'kiosk'], outcomes: ['succeeded', 'denied'] },
       },
     })
   })
@@ -88,6 +89,17 @@ describe('ActivityHistory', () => {
     })))
   })
 
+  it('opens directly to linked payroll activity', async () => {
+    renderPage('/admin/activity?event_category=payroll&search=2026-08-16+through+2026-08-31')
+
+    await screen.findByText(event.summary)
+    expect(apiMock.getAuditLogs).toHaveBeenCalledWith(expect.objectContaining({
+      event_category: 'payroll',
+      search: '2026-08-16 through 2026-08-31',
+    }))
+    expect(screen.getByPlaceholderText('Search people, records, or actions')).toHaveValue('2026-08-16 through 2026-08-31')
+  })
+
   it('refreshes record scope when the route search parameters change', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/activity']}>
@@ -102,6 +114,24 @@ describe('ActivityHistory', () => {
       subject_type: 'TimeEntry',
       subject_id: 44,
     })))
+  })
+
+  it('synchronizes list filters when same-route query parameters change', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/activity']}>
+        <RouteHarness />
+      </MemoryRouter>,
+    )
+    await screen.findByText(event.summary)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open payroll history' }))
+
+    await waitFor(() => expect(apiMock.getAuditLogs).toHaveBeenCalledWith(expect.objectContaining({
+      event_category: 'payroll',
+      search: '2026-08-16 through 2026-08-31',
+    })))
+    expect(screen.getByLabelText('Event category')).toHaveValue('payroll')
+    expect(screen.getByPlaceholderText('Search people, records, or actions')).toHaveValue('2026-08-16 through 2026-08-31')
   })
 
   it.each([

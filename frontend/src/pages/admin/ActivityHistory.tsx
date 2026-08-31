@@ -47,6 +47,17 @@ function subjectScope(searchParams: URLSearchParams) {
   }
 }
 
+function routeListFilters(searchParams: URLSearchParams): AuditLogFilters {
+  const eventCategory = searchParams.get('event_category')?.trim()
+  const search = searchParams.get('search')?.trim()
+  return {
+    page: 1,
+    per_page: 50,
+    ...(eventCategory ? { event_category: eventCategory } : {}),
+    ...(search ? { search } : {}),
+  }
+}
+
 function boundedExportFilters(filters: AuditLogFilters): AuditLogFilters {
   const to = filters.to || formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')
   const fromDate = new Date(`${to}T00:00:00Z`)
@@ -147,18 +158,36 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
 
 export default function ActivityHistory() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const routedEventCategory = searchParams.get('event_category')?.trim() || undefined
+  const routedSearch = searchParams.get('search')?.trim() || ''
   const [events, setEvents] = useState<AuditLogEntry[]>([])
   const [selected, setSelected] = useState<AuditLogEntry | null>(null)
   const [availableCategories, setAvailableCategories] = useState<string[]>(Object.keys(CATEGORY_LABELS))
   const [availableSources, setAvailableSources] = useState<string[]>([])
-  const [filters, setFilters] = useState<AuditLogFilters>({ page: 1, per_page: 50 })
-  const [searchInput, setSearchInput] = useState('')
+  const [filters, setFilters] = useState<AuditLogFilters>(() => routeListFilters(searchParams))
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('search')?.trim() || '')
   const [pagination, setPagination] = useState({ page: 1, total: 0, total_pages: 1 })
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestSequence = useRef(0)
   const searchDebounceMounted = useRef(false)
+
+  useEffect(() => {
+    document.title = 'Activity History | AIRE Ops'
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchInput((current) => current === routedSearch ? current : routedSearch)
+      setFilters((current) => {
+        const search = routedSearch || undefined
+        if (current.event_category === routedEventCategory && current.search === search) return current
+        return { ...current, page: 1, event_category: routedEventCategory, search }
+      })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [routedEventCategory, routedSearch])
 
   const routeScope = useMemo(() => subjectScope(searchParams), [searchParams])
   const routeSubjectType = routeScope.subject_type

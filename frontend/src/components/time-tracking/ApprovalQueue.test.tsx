@@ -152,4 +152,51 @@ describe('ApprovalQueue review workflow', () => {
       expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ through_date: '2026-06-05' }))
     })
   })
+
+  it('starts with a linked payroll date range', async () => {
+    const { rerender } = render(
+      <ApprovalQueue
+        approvalGroups={[]}
+        approvalGroupsLoaded
+        initialDateFilter={{ mode: 'range', startDate: '2026-06-01', endDate: '2026-06-15' }}
+        canDeleteEntry={() => true}
+      />,
+    )
+
+    await screen.findByText('Pending Approvals')
+    expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-06-01',
+      end_date: '2026-06-15',
+    }))
+    expect(screen.getByDisplayValue('Date range')).toBeInTheDocument()
+
+    rerender(
+      <ApprovalQueue
+        approvalGroups={[]}
+        approvalGroupsLoaded
+        initialDateFilter={{ mode: 'range', startDate: '2026-07-01', endDate: '2026-07-15' }}
+        canDeleteEntry={() => true}
+      />,
+    )
+
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-07-01',
+      end_date: '2026-07-15',
+    })))
+  })
+
+  it('can open approvals through a payroll cutoff date', async () => {
+    render(
+      <ApprovalQueue
+        approvalGroups={[]}
+        approvalGroupsLoaded
+        initialDateFilter={{ mode: 'through', throughDate: '2026-06-15' }}
+        canDeleteEntry={() => true}
+      />,
+    )
+
+    await screen.findByText('Pending Approvals')
+    expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ through_date: '2026-06-15' }))
+    expect(screen.getByDisplayValue('On or before')).toBeInTheDocument()
+  })
 })

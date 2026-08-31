@@ -24,8 +24,12 @@ Build AIRE Services as a standalone product with:
 
 ### Admin/Ops
 - Dashboard
-- Time Tracking
+- Time & Payroll
+  - Time Entries
+  - Approvals
+  - Hours Reports
+  - Payroll Cutoffs
+  - Leave Requests
 - Users
 - Schedule
-- Reports
 - Kiosk

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
-import { FadeUp, StaggerContainer, StaggerItem } from '../../components/ui/MotionComponents'
+import { StaggerContainer, StaggerItem } from '../../components/ui/MotionComponents'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportParams, HoursReportResponse, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
@@ -14,6 +14,9 @@ import EditTimeEntryModal from '../../components/time-tracking/EditTimeEntryModa
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 import LeaveRequestsPanel from '../../components/time-tracking/LeaveRequestsPanel'
 import ReportExportActions from '../../components/time-tracking/ReportExportActions'
+import TimePayrollWorkspaceHeader, { type TimePayrollSection } from '../../components/time-tracking/TimePayrollWorkspaceHeader'
+import { useAuthContext } from '../../contexts/AuthContext'
+import { currentPayrollPeriod, isIsoDate, withPayrollPeriod, type PayrollPeriod } from '../../lib/payrollPeriods'
 
 // Local types to avoid Vite caching issues
 interface TimeCategory {
@@ -127,12 +130,6 @@ const ChevronRightIcon = () => (
   </svg>
 )
 
-const ChartIcon = () => (
-  <svg className="h-5 w-5" fill="none" aria-hidden="true" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-  </svg>
-)
-
 // Helper functions
 function formatDate(dateString: string): string {
   return new Date(dateString + 'T00:00:00').toLocaleDateString('en-US', {
@@ -175,8 +172,32 @@ function sortEntriesChronologically(a: TimeEntryItem, b: TimeEntryItem): number 
   return a.id - b.id
 }
 
-function formatBadgeCount(count: number): string {
-  return count > 99 ? '99+' : String(count)
+type TimeTab = Exclude<TimePayrollSection, 'payroll'>
+type ReportApprovalStatus = '' | 'pending' | 'approved' | 'denied' | 'approved_or_standard'
+type ReportOvertimeStatus = '' | 'none' | 'pending' | 'approved' | 'denied'
+
+function timeTabFromSearchParams(searchParams: URLSearchParams): TimeTab {
+  const tab = searchParams.get('tab')
+  return tab === 'reports' || tab === 'approvals' || tab === 'leave' ? tab : 'entries'
+}
+
+function linkedPayrollPeriod(searchParams: URLSearchParams): PayrollPeriod | undefined {
+  const start = searchParams.get('start_date')
+  const end = searchParams.get('end_date')
+  return isIsoDate(start) && isIsoDate(end) && start <= end ? { start, end } : undefined
+}
+
+function linkedApprovalStatus(searchParams: URLSearchParams): ReportApprovalStatus {
+  const status = searchParams.get('approval_status')
+  if (status === 'all') return ''
+  return status === 'pending' || status === 'approved' || status === 'denied' || status === 'approved_or_standard'
+    ? status
+    : 'approved_or_standard'
+}
+
+function linkedOvertimeStatus(searchParams: URLSearchParams): ReportOvertimeStatus {
+  const status = searchParams.get('overtime_status')
+  return status === 'none' || status === 'pending' || status === 'approved' || status === 'denied' ? status : ''
 }
 
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
@@ -209,30 +230,27 @@ function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem
 }
 
 export default function TimeTracking() {
-  useEffect(() => { document.title = 'Time Tracking | AIRE Ops' }, [])
-
   const [searchParams, setSearchParams] = useSearchParams()
+  const { userRole, isClerkEnabled } = useAuthContext()
+  const authSaysAdmin = !isClerkEnabled || userRole === 'admin'
+  const routedPeriod = linkedPayrollPeriod(searchParams)
+  const routedPeriodStart = routedPeriod?.start
+  const routedPeriodEnd = routedPeriod?.end
+  const routedApprovalStatus = linkedApprovalStatus(searchParams)
+  const routedOvertimeStatus = linkedOvertimeStatus(searchParams)
+  const initialLinkedPeriod = routedPeriod
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [users, setUsers] = useState<UserOption[]>([])
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [pendingApprovalSummary, setPendingApprovalSummary] = useState<PendingApprovalsSummary | null>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(authSaysAdmin)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  // Tab: 'entries', 'approvals', 'reports', or 'leave' — respect ?tab=... from deep links
-  const [activeTab, setActiveTab] = useState<'entries' | 'approvals' | 'reports' | 'leave'>(
-    searchParams.get('tab') === 'reports'
-      ? 'reports'
-      : searchParams.get('tab') === 'approvals'
-        ? 'approvals'
-        : searchParams.get('tab') === 'leave'
-          ? 'leave'
-          : 'entries'
-  )
+  const [activeTab, setActiveTab] = useState<TimeTab>(() => timeTabFromSearchParams(searchParams))
   
   // View mode: 'day' or 'week'
   const [viewMode, setViewMode] = useState<'day' | 'week'>('week')
@@ -246,9 +264,9 @@ export default function TimeTracking() {
   const [showDenied, setShowDenied] = useState(false)
   
   // Report filters
-  const [reportFilters, setReportFilters] = useState({
-    start_date: formatDateISO(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), // First of month
-    end_date: formatDateISO(new Date()),
+  const [reportFilters, setReportFilters] = useState(() => ({
+    start_date: initialLinkedPeriod?.start ?? formatDateISO(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+    end_date: initialLinkedPeriod?.end ?? formatDateISO(new Date()),
     user_id: '',
     time_category_id: '',
     approval_group: 'all' as 'all' | ApprovalGroupFilter,
@@ -256,9 +274,9 @@ export default function TimeTracking() {
     role: '' as '' | 'admin' | 'employee',
     clock_source: '' as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
     entry_method: '' as '' | 'clock' | 'manual',
-    approval_status: 'approved_or_standard' as '' | 'pending' | 'approved' | 'denied' | 'approved_or_standard',
-    overtime_status: '' as '' | 'none' | 'pending' | 'approved' | 'denied',
-  })
+    approval_status: routedApprovalStatus,
+    overtime_status: routedOvertimeStatus,
+  }))
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
   const [selectedReportEmployee, setSelectedReportEmployee] = useState<HoursReportEmployee | null>(null)
@@ -267,6 +285,7 @@ export default function TimeTracking() {
   }, [])
   const [reportLoading, setReportLoading] = useState(false)
   const [reportExporting, setReportExporting] = useState<HoursReportDownloadType | null>(null)
+  const reportRequestSequence = useRef(0)
   
   // Person-day modal state (grouped calendar entries)
   const [personDayModal, setPersonDayModal] = useState<{ entries: TimeEntryItem[]; name: string; date: string } | null>(null)
@@ -417,6 +436,7 @@ export default function TimeTracking() {
   
   // Load payroll-safe, backend-calculated report data.
   const loadReport = useCallback(async () => {
+    const requestSequence = ++reportRequestSequence.current
     setReportLoading(true)
     try {
       const response = await api.getHoursReport({
@@ -432,6 +452,7 @@ export default function TimeTracking() {
         ...(reportFilters.approval_status ? { approval_status: reportFilters.approval_status } : {}),
         ...(reportFilters.overtime_status ? { overtime_status: reportFilters.overtime_status } : {}),
       })
+      if (requestSequence !== reportRequestSequence.current) return
 
       if (response.error) {
         setError(response.error)
@@ -444,11 +465,43 @@ export default function TimeTracking() {
         setReportData(reportEntriesForDetailTable(response.data))
       }
     } catch {
-      console.error('Failed to load report')
+      if (requestSequence === reportRequestSequence.current) console.error('Failed to load report')
     } finally {
-      setReportLoading(false)
+      if (requestSequence === reportRequestSequence.current) setReportLoading(false)
     }
   }, [reportFilters])
+
+  useEffect(() => {
+    document.title = `${isAdmin ? 'Time & Payroll' : 'My Time'} | AIRE Ops`
+  }, [isAdmin])
+
+  useEffect(() => {
+    const requestedTab = timeTabFromSearchParams(searchParams)
+    setActiveTab((current) => current === requestedTab ? current : requestedTab)
+  }, [searchParams])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setReportFilters((current) => {
+        const startDate = routedPeriodStart ?? current.start_date
+        const endDate = routedPeriodEnd ?? current.end_date
+        if (
+          current.start_date === startDate
+          && current.end_date === endDate
+          && current.approval_status === routedApprovalStatus
+          && current.overtime_status === routedOvertimeStatus
+        ) return current
+        return {
+          ...current,
+          start_date: startDate,
+          end_date: endDate,
+          approval_status: routedApprovalStatus,
+          overtime_status: routedOvertimeStatus,
+        }
+      })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [routedApprovalStatus, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
 
   useEffect(() => {
     loadEntries()
@@ -484,15 +537,6 @@ export default function TimeTracking() {
       setSelectedReportEmployee(null)
     }
   }, [activeTab])
-
-  // Clean up ?tab= from URL after reading it on mount
-  useEffect(() => {
-    if (searchParams.has('tab')) {
-      searchParams.delete('tab')
-      setSearchParams(searchParams, { replace: true })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // Handle prefill from schedule
   useEffect(() => {
@@ -732,6 +776,24 @@ export default function TimeTracking() {
   }, {} as Record<string, number>)
   const pendingApprovalCount = pendingApprovalSummary?.entry_count ?? 0
   const pendingOvertimeApprovalCount = pendingApprovalSummary?.pending_overtime_count ?? 0
+  const throughDateParam = searchParams.get('through_date')
+  const routedThroughDate = isIsoDate(throughDateParam) ? throughDateParam : undefined
+  const workspacePeriod = activeTab === 'reports'
+    ? { start: reportFilters.start_date, end: reportFilters.end_date }
+    : routedPeriod ?? currentPayrollPeriod()
+
+  const selectWorkspaceSection = (section: TimeTab) => {
+    setActiveTab(section)
+    const next = new URLSearchParams(searchParams)
+    if (activeTab === 'reports') {
+      next.set('start_date', reportFilters.start_date)
+      next.set('end_date', reportFilters.end_date)
+    }
+    if (section !== 'approvals') next.delete('through_date')
+    if (section === 'entries') next.delete('tab')
+    else next.set('tab', section)
+    setSearchParams(next)
+  }
 
   const currentReportParams = (): HoursReportParams => ({
     start_date: reportFilters.start_date,
@@ -780,87 +842,23 @@ export default function TimeTracking() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <FadeUp>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-primary-dark tracking-tight">Time Tracking</h1>
-          <p className="text-text-muted mt-1">Track your hours by work category, source, and pay period.</p>
-        </div>
-        {activeTab === 'entries' && (
+      <TimePayrollWorkspaceHeader
+        activeSection={activeTab}
+        isAdmin={isAdmin}
+        pendingApprovalCount={pendingApprovalCount}
+        pendingOvertimeCount={pendingOvertimeApprovalCount}
+        period={workspacePeriod}
+        onSectionChange={selectWorkspaceSection}
+        action={activeTab === 'entries' ? (
           <button
             onClick={() => openNewEntry()}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors min-h-[44px]"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
           >
             <PlusIcon />
             <span>Log Time</span>
           </button>
-        )}
-      </div>
-      </FadeUp>
-
-      {/* Tab Navigation */}
-      <div className="border-b border-neutral-warm">
-        <nav className="flex gap-4">
-          <button
-            onClick={() => setActiveTab('entries')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-              activeTab === 'entries'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-text-muted hover:text-primary-dark'
-            }`}
-          >
-            <ClockIcon />
-            Time Entries
-          </button>
-          {isAdmin && (
-            <button
-              onClick={() => setActiveTab('approvals')}
-              aria-label={pendingApprovalCount > 0 ? `Approvals, ${pendingApprovalCount} pending` : 'Approvals'}
-              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-                activeTab === 'approvals'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-text-muted hover:text-primary-dark'
-              }`}
-            >
-              <ClockIcon />
-              <span>Approvals</span>
-              {pendingApprovalCount > 0 && (
-                <span className="relative inline-flex items-center" title={`${pendingApprovalCount} pending approval${pendingApprovalCount === 1 ? '' : 's'}${pendingOvertimeApprovalCount > 0 ? ` · ${pendingOvertimeApprovalCount} OT` : ''}`}>
-                  <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-amber-400 opacity-30" aria-hidden="true" />
-                  <span className="relative inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-bold leading-none text-amber-700 shadow-sm">
-                    {formatBadgeCount(pendingApprovalCount)}
-                  </span>
-                </span>
-              )}
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              onClick={() => setActiveTab('reports')}
-              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-                activeTab === 'reports'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-text-muted hover:text-primary-dark'
-              }`}
-            >
-              <ChartIcon />
-              Reports
-            </button>
-          )}
-          <button
-            onClick={() => setActiveTab('leave')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
-              activeTab === 'leave'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-text-muted hover:text-primary-dark'
-            }`}
-          >
-            <PlusIcon />
-            Leave Requests
-          </button>
-        </nav>
-      </div>
+        ) : undefined}
+      />
 
       {activeTab === 'entries' && (
         <>
@@ -878,6 +876,11 @@ export default function TimeTracking() {
         <ApprovalQueue
           approvalGroups={approvalGroups}
           approvalGroupsLoaded={approvalGroupsLoaded}
+          initialDateFilter={routedThroughDate
+            ? { mode: 'through', throughDate: routedThroughDate }
+            : routedPeriod
+              ? { mode: 'range', startDate: routedPeriod.start, endDate: routedPeriod.end }
+              : undefined}
           onUpdate={() => {
             void loadEntries()
             void loadPendingApprovalSummary()
@@ -1632,11 +1635,26 @@ export default function TimeTracking() {
       {/* Reports Tab */}
       {activeTab === 'reports' && isAdmin && (
         <div className="space-y-6">
+          <section className="flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-primary-dark">Live hours, not a finalized payroll record</h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-primary/80">
+                Use this report to investigate current time and download working exports. Finalize the authoritative cutoff from Payroll after review.
+              </p>
+            </div>
+            <Link
+              to={withPayrollPeriod('/admin/payroll', { start: reportFilters.start_date, end: reportFilters.end_date })}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              Prepare payroll cutoff
+            </Link>
+          </section>
+
           <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
             <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-primary-dark">Payroll Hours Report</h3>
-                <p className="mt-1 text-xs text-text-muted">Employee-first totals with Sunday–Saturday overtime context across semi-monthly pay periods.</p>
+                <h3 className="text-sm font-semibold text-primary-dark">Hours Report</h3>
+                <p className="mt-1 text-xs text-text-muted">Live employee totals with Sunday–Saturday overtime context across semi-monthly pay periods.</p>
               </div>
               <ReportExportActions
                 employeeSelected={Boolean(reportFilters.user_id)}
@@ -1778,7 +1796,7 @@ export default function TimeTracking() {
           <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
             <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              <p className="mt-0.5 text-xs text-text-muted">Main payroll view. Click an employee or an orange OT pill to review the weekly overtime breakdown.</p>
+              <p className="mt-0.5 text-xs text-text-muted">Operational review view. Click an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px]">
