@@ -428,7 +428,12 @@ export default function PayrollRuns() {
   }
 
   const activePayload = selectedBatch?.payload || preview
-  const activePeriod = { start: activePayload?.start_date ?? startDate, end: activePayload?.end_date ?? endDate }
+  const localPeriodIsValid = isIsoDate(startDate) && isIsoDate(endDate) && startDate <= endDate
+  const activePeriod = activePayload
+    ? { start: activePayload.start_date, end: activePayload.end_date }
+    : localPeriodIsValid
+      ? { start: startDate, end: endDate }
+      : routedPeriod
   return (
     <div className="space-y-6">
       <TimePayrollWorkspaceHeader activeSection="payroll" isAdmin period={activePeriod} />

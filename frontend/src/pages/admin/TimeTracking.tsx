@@ -173,6 +173,8 @@ function sortEntriesChronologically(a: TimeEntryItem, b: TimeEntryItem): number 
 }
 
 type TimeTab = Exclude<TimePayrollSection, 'payroll'>
+type ReportApprovalStatus = '' | 'pending' | 'approved' | 'denied' | 'approved_or_standard'
+type ReportOvertimeStatus = '' | 'none' | 'pending' | 'approved' | 'denied'
 
 function timeTabFromSearchParams(searchParams: URLSearchParams): TimeTab {
   const tab = searchParams.get('tab')
@@ -183,6 +185,19 @@ function linkedPayrollPeriod(searchParams: URLSearchParams): PayrollPeriod | und
   const start = searchParams.get('start_date')
   const end = searchParams.get('end_date')
   return isIsoDate(start) && isIsoDate(end) && start <= end ? { start, end } : undefined
+}
+
+function linkedApprovalStatus(searchParams: URLSearchParams): ReportApprovalStatus {
+  const status = searchParams.get('approval_status')
+  if (status === 'all') return ''
+  return status === 'pending' || status === 'approved' || status === 'denied' || status === 'approved_or_standard'
+    ? status
+    : 'approved_or_standard'
+}
+
+function linkedOvertimeStatus(searchParams: URLSearchParams): ReportOvertimeStatus {
+  const status = searchParams.get('overtime_status')
+  return status === 'none' || status === 'pending' || status === 'approved' || status === 'denied' ? status : ''
 }
 
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
@@ -221,6 +236,8 @@ export default function TimeTracking() {
   const routedPeriod = linkedPayrollPeriod(searchParams)
   const routedPeriodStart = routedPeriod?.start
   const routedPeriodEnd = routedPeriod?.end
+  const routedApprovalStatus = linkedApprovalStatus(searchParams)
+  const routedOvertimeStatus = linkedOvertimeStatus(searchParams)
   const initialLinkedPeriod = routedPeriod
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -257,14 +274,8 @@ export default function TimeTracking() {
     role: '' as '' | 'admin' | 'employee',
     clock_source: '' as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
     entry_method: '' as '' | 'clock' | 'manual',
-    approval_status: (searchParams.get('approval_status') === 'all'
-      ? ''
-      : ['pending', 'approved', 'denied', 'approved_or_standard'].includes(searchParams.get('approval_status') || '')
-        ? searchParams.get('approval_status')
-        : 'approved_or_standard') as '' | 'pending' | 'approved' | 'denied' | 'approved_or_standard',
-    overtime_status: (['none', 'pending', 'approved', 'denied'].includes(searchParams.get('overtime_status') || '')
-      ? searchParams.get('overtime_status')
-      : '') as '' | 'none' | 'pending' | 'approved' | 'denied',
+    approval_status: routedApprovalStatus,
+    overtime_status: routedOvertimeStatus,
   }))
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
@@ -274,6 +285,7 @@ export default function TimeTracking() {
   }, [])
   const [reportLoading, setReportLoading] = useState(false)
   const [reportExporting, setReportExporting] = useState<HoursReportDownloadType | null>(null)
+  const reportRequestSequence = useRef(0)
   
   // Person-day modal state (grouped calendar entries)
   const [personDayModal, setPersonDayModal] = useState<{ entries: TimeEntryItem[]; name: string; date: string } | null>(null)
@@ -424,6 +436,7 @@ export default function TimeTracking() {
   
   // Load payroll-safe, backend-calculated report data.
   const loadReport = useCallback(async () => {
+    const requestSequence = ++reportRequestSequence.current
     setReportLoading(true)
     try {
       const response = await api.getHoursReport({
@@ -439,6 +452,7 @@ export default function TimeTracking() {
         ...(reportFilters.approval_status ? { approval_status: reportFilters.approval_status } : {}),
         ...(reportFilters.overtime_status ? { overtime_status: reportFilters.overtime_status } : {}),
       })
+      if (requestSequence !== reportRequestSequence.current) return
 
       if (response.error) {
         setError(response.error)
@@ -451,9 +465,9 @@ export default function TimeTracking() {
         setReportData(reportEntriesForDetailTable(response.data))
       }
     } catch {
-      console.error('Failed to load report')
+      if (requestSequence === reportRequestSequence.current) console.error('Failed to load report')
     } finally {
-      setReportLoading(false)
+      if (requestSequence === reportRequestSequence.current) setReportLoading(false)
     }
   }, [reportFilters])
 
@@ -467,16 +481,27 @@ export default function TimeTracking() {
   }, [searchParams])
 
   useEffect(() => {
-    if (!routedPeriodStart || !routedPeriodEnd) return
     const timer = window.setTimeout(() => {
-      setReportFilters((current) => (
-        current.start_date === routedPeriodStart && current.end_date === routedPeriodEnd
-          ? current
-          : { ...current, start_date: routedPeriodStart, end_date: routedPeriodEnd }
-      ))
+      setReportFilters((current) => {
+        const startDate = routedPeriodStart ?? current.start_date
+        const endDate = routedPeriodEnd ?? current.end_date
+        if (
+          current.start_date === startDate
+          && current.end_date === endDate
+          && current.approval_status === routedApprovalStatus
+          && current.overtime_status === routedOvertimeStatus
+        ) return current
+        return {
+          ...current,
+          start_date: startDate,
+          end_date: endDate,
+          approval_status: routedApprovalStatus,
+          overtime_status: routedOvertimeStatus,
+        }
+      })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [routedPeriodEnd, routedPeriodStart])
+  }, [routedApprovalStatus, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
 
   useEffect(() => {
     loadEntries()

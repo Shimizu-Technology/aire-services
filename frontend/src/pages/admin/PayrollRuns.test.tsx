@@ -190,6 +190,14 @@ describe('PayrollRuns', () => {
     expect(screen.getByLabelText('Period start')).toHaveValue('2026-09-01')
     expect(screen.getByLabelText('Period end')).toHaveValue('2026-08-31')
     expect(screen.getByRole('button', { name: 'Preview cutoff' })).toBeDisabled()
+    expect(screen.getByRole('link', { name: 'Approvals' })).toHaveAttribute(
+      'href',
+      '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=approvals&through_date=2026-08-31',
+    )
+    expect(screen.getByRole('link', { name: 'Hours Reports' })).toHaveAttribute(
+      'href',
+      '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=reports',
+    )
 
     fireEvent.change(screen.getByLabelText('Period end'), { target: { value: '2026-09-15' } })
     expect(screen.getByRole('button', { name: 'Preview cutoff' })).toBeEnabled()
