@@ -17,7 +17,6 @@ vi.mock('../../lib/api', () => ({ api: apiMock }))
 
 const issues = {
   missing_category_count: 0,
-  missing_rate_count: 0,
   negative_adjustment_count: 0,
   pending_approval_count: 1,
   denied_approval_count: 0,
@@ -58,7 +57,7 @@ const preview = {
     overtime_hours: 0,
     adjustments: [{
       source_time_entry_id: '51',
-      line_key: 'category:3:rate:3200',
+      line_key: 'category:3',
       source_kind: 'current',
       original_work_date: '2026-08-20',
       original_week_start: '2026-08-16',
@@ -67,7 +66,6 @@ const preview = {
       total_hours: 8,
       regular_hours: 8,
       overtime_hours: 0,
-      effective_rate_cents: 3200,
     }],
   }],
   exclusions: [{
@@ -139,7 +137,7 @@ describe('PayrollRuns', () => {
     apiMock.getPayrollBatch.mockResolvedValue({ data: finalized })
   })
 
-  it('previews payable hours separately from tracked exclusions', async () => {
+  it('previews included hours separately from tracked exclusions', async () => {
     renderPayrollRuns()
     await screen.findByText('No payroll batches have been finalized yet.')
 
@@ -227,7 +225,7 @@ describe('PayrollRuns', () => {
     expect(await screen.findByText('Finalized batch')).toBeInTheDocument()
   })
 
-  it('blocks finalization when included work is missing payroll dimensions', async () => {
+  it('blocks finalization when included work is missing a category', async () => {
     apiMock.previewPayrollBatch.mockResolvedValue({
       data: {
         ...preview,
@@ -241,6 +239,10 @@ describe('PayrollRuns', () => {
 
     expect(await screen.findByText(/Finalization is blocked/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Finalize this cutoff' })).toBeDisabled()
+    expect(screen.getByRole('link', { name: '1 Missing category' })).toHaveAttribute(
+      'href',
+      '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=reports&category_status=uncategorized',
+    )
   })
 
   it('requires and submits a trimmed explanation for negative corrections', async () => {

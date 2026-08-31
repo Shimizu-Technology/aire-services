@@ -32,7 +32,7 @@ module Payroll
       current_by_id = context_entries.index_by(&:id)
       rows = []
       exclusions = []
-      blocking = { missing_category_count: 0, missing_rate_count: 0 }
+      blocking = { missing_category_count: 0 }
 
       settlement_ids.sort.each do |entry_id|
         entry = current_by_id[entry_id]
@@ -43,7 +43,6 @@ module Payroll
           exclusions.concat(entry_exclusions)
           if target[:total_hours].positive?
             blocking[:missing_category_count] += 1 if entry.time_category_id.nil?
-            blocking[:missing_rate_count] += 1 if entry.effective_rate_cents_snapshot.nil?
           end
           rows.concat(settlement_rows_for(entry, target, entry_prior_rows))
         else
@@ -300,7 +299,7 @@ module Payroll
     end
 
     def prior_balances(rows)
-      rows.group_by { |row| dimension_key(row.source_category_id, row.effective_rate_cents) }.transform_values do |dimension_rows|
+      rows.group_by { |row| dimension_key(row.source_category_id) }.transform_values do |dimension_rows|
         {
           totals: sum_hours(dimension_rows),
           latest: dimension_rows.max_by { |row| [ row.payroll_batch.cutoff_at, row.id ] }
@@ -326,7 +325,7 @@ module Payroll
 
     def settlement_rows_for(entry, target, prior_rows)
       balances = prior_balances(prior_rows)
-      current_key = dimension_key(entry.time_category_id, entry.effective_rate_cents_snapshot)
+      current_key = dimension_key(entry.time_category_id)
       keys = balances.keys.to_set
       keys << current_key if target.values.any?(&:nonzero?)
       has_prior = balances.values.any? { |balance| balance.fetch(:totals).values.any?(&:nonzero?) }
@@ -355,7 +354,6 @@ module Payroll
         total_hours: delta[:total_hours],
         regular_hours: delta[:regular_hours],
         overtime_hours: delta[:overtime_hours],
-        effective_rate_cents: entry.effective_rate_cents_snapshot,
         source_kind: source_kind(entry, has_prior),
         line_key: line_key,
         snapshot: entry_snapshot(entry)
@@ -372,10 +370,9 @@ module Payroll
         total_hours: delta[:total_hours],
         regular_hours: delta[:regular_hours],
         overtime_hours: delta[:overtime_hours],
-        effective_rate_cents: latest.effective_rate_cents,
         source_kind: "correction",
         line_key: line_key,
-        snapshot: latest.snapshot.merge(
+        snapshot: sanitized_legacy_snapshot(latest.snapshot).merge(
           "reallocated_after_prior_batch" => true,
           "current_time_entry" => entry_snapshot(entry)
         )
@@ -397,11 +394,25 @@ module Payroll
           total_hours: -prior[:total_hours],
           regular_hours: -prior[:regular_hours],
           overtime_hours: -prior[:overtime_hours],
-          effective_rate_cents: latest.effective_rate_cents,
           source_kind: "correction",
           line_key: line_key,
-          snapshot: latest.snapshot.merge("deleted_after_prior_batch" => true)
+          snapshot: sanitized_legacy_snapshot(latest.snapshot).merge("deleted_after_prior_batch" => true)
         }
+      end
+    end
+
+    def sanitized_legacy_snapshot(snapshot)
+      case snapshot
+      when Hash
+        snapshot.each_with_object({}) do |(key, value), sanitized|
+          next if %w[effective_rate effective_rate_cents hourly_rate hourly_rate_cents].include?(key.to_s)
+
+          sanitized[key] = sanitized_legacy_snapshot(value)
+        end
+      when Array
+        snapshot.map { |value| sanitized_legacy_snapshot(value) }
+      else
+        snapshot
       end
     end
 
@@ -412,8 +423,8 @@ module Payroll
       "current"
     end
 
-    def dimension_key(category_id, rate_cents)
-      "category:#{category_id || 'none'}:rate:#{rate_cents || 'none'}"
+    def dimension_key(category_id)
+      "category:#{category_id || 'none'}"
     end
 
     def exclusion_for(entry, reason, total, regular, overtime, snapshot)
@@ -458,7 +469,6 @@ module Payroll
         "approved_at" => entry.approved_at&.iso8601,
         "overtime_status" => entry.overtime_status,
         "overtime_approved_at" => entry.overtime_approved_at&.iso8601,
-        "effective_rate_cents" => entry.effective_rate_cents_snapshot,
         "time_category" => entry.time_category && {
           "id" => entry.time_category.id,
           "key" => entry.time_category.key,
@@ -519,8 +529,7 @@ module Payroll
         category: row[:snapshot]["time_category"],
         total_hours: number(row[:total_hours]),
         regular_hours: number(row[:regular_hours]),
-        overtime_hours: number(row[:overtime_hours]),
-        effective_rate_cents: row[:effective_rate_cents]
+        overtime_hours: number(row[:overtime_hours])
       }
     end
 

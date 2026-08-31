@@ -24,17 +24,12 @@ module Api
       private
 
       def serialize_category(category)
-        base = {
+        {
           id: category.id,
           key: category.key,
           name: category.name,
           description: category.description
         }
-        if current_user.admin?
-          base[:hourly_rate_cents] = category.hourly_rate_cents
-          base[:hourly_rate] = category.hourly_rate
-        end
-        base
       end
     end
   end

@@ -91,6 +91,7 @@ interface UserOption {
   approval_group_label?: string
   approval_group_keys?: string[]
   approval_group_labels?: string[]
+  time_category_ids?: number[]
 }
 
 // Icons
@@ -163,6 +164,10 @@ function sumEntryHours(entries: TimeEntryItem[]): number {
   return entries.reduce((sum, entry) => sum + entry.hours, 0)
 }
 
+function formatHours(value: number): string {
+  return Number(value).toFixed(2)
+}
+
 function sortEntriesChronologically(a: TimeEntryItem, b: TimeEntryItem): number {
   const aStart = a.start_time || ''
   const bStart = b.start_time || ''
@@ -198,6 +203,10 @@ function linkedApprovalStatus(searchParams: URLSearchParams): ReportApprovalStat
 function linkedOvertimeStatus(searchParams: URLSearchParams): ReportOvertimeStatus {
   const status = searchParams.get('overtime_status')
   return status === 'none' || status === 'pending' || status === 'approved' || status === 'denied' ? status : ''
+}
+
+function linkedCategoryFilter(searchParams: URLSearchParams) {
+  return searchParams.get('category_status') === 'uncategorized' ? 'uncategorized' : ''
 }
 
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
@@ -238,6 +247,7 @@ export default function TimeTracking() {
   const routedPeriodEnd = routedPeriod?.end
   const routedApprovalStatus = linkedApprovalStatus(searchParams)
   const routedOvertimeStatus = linkedOvertimeStatus(searchParams)
+  const routedCategoryFilter = linkedCategoryFilter(searchParams)
   const initialLinkedPeriod = routedPeriod
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -320,6 +330,19 @@ export default function TimeTracking() {
   }
 
   const calculatedHours = calculateHours(formData.start_time, formData.end_time, formData.break_minutes)
+  const selectedEntryOwner = users.find((user) => user.id.toString() === formData.user_id)
+  const availableEntryCategories = isAdmin
+    ? categories.filter((category) => selectedEntryOwner?.time_category_ids?.includes(category.id))
+    : categories
+
+  const initialCategoryForOwner = useCallback((userId: number | null) => {
+    if (!userId) return ''
+    const owner = users.find((user) => user.id === userId)
+    const assigned = isAdmin
+      ? categories.filter((category) => owner?.time_category_ids?.includes(category.id))
+      : categories
+    return assigned.length === 1 ? assigned[0].id.toString() : ''
+  }, [categories, isAdmin, users])
 
   // Owner display: "You" for self, real name for others
   const ownerLabel = (entry: TimeEntryItem): string => {
@@ -386,7 +409,8 @@ export default function TimeTracking() {
           email: u.email,
           display_name: u.display_name,
           full_name: u.full_name,
-          role: u.role
+          role: u.role,
+          time_category_ids: u.time_category_ids ?? [],
         })))
       }
 
@@ -443,7 +467,9 @@ export default function TimeTracking() {
         start_date: reportFilters.start_date,
         end_date: reportFilters.end_date,
         ...(reportFilters.user_id ? { user_id: parseInt(reportFilters.user_id) } : {}),
-        ...(reportFilters.time_category_id ? { time_category_id: parseInt(reportFilters.time_category_id) } : {}),
+        ...(reportFilters.time_category_id === 'uncategorized'
+          ? { category_status: 'uncategorized' as const }
+          : reportFilters.time_category_id ? { time_category_id: parseInt(reportFilters.time_category_id) } : {}),
         ...(reportFilters.approval_group !== 'all' ? { approval_group: reportFilters.approval_group } : {}),
         status: reportFilters.employee_status,
         ...(reportFilters.role ? { role: reportFilters.role } : {}),
@@ -490,6 +516,7 @@ export default function TimeTracking() {
           && current.end_date === endDate
           && current.approval_status === routedApprovalStatus
           && current.overtime_status === routedOvertimeStatus
+          && current.time_category_id === routedCategoryFilter
         ) return current
         return {
           ...current,
@@ -497,11 +524,12 @@ export default function TimeTracking() {
           end_date: endDate,
           approval_status: routedApprovalStatus,
           overtime_status: routedOvertimeStatus,
+          time_category_id: routedCategoryFilter,
         }
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [routedApprovalStatus, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
+  }, [routedApprovalStatus, routedCategoryFilter, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
 
   useEffect(() => {
     loadEntries()
@@ -554,7 +582,7 @@ export default function TimeTracking() {
         start_time: startTime,
         end_time: endTime,
         description: notes,
-        time_category_id: '',
+        time_category_id: initialCategoryForOwner(currentUserId),
             user_id: currentUserId?.toString() || '',
         break_minutes: null
       })
@@ -563,7 +591,7 @@ export default function TimeTracking() {
       // Clear the URL params
       setSearchParams({})
     }
-  }, [searchParams, setSearchParams, currentUserId])
+  }, [searchParams, setSearchParams, currentUserId, initialCategoryForOwner])
 
   // Navigation
   const goToToday = () => setCurrentDate(new Date())
@@ -596,7 +624,7 @@ export default function TimeTracking() {
       start_time: prefillStart || '08:00',
       end_time: prefillEnd || '17:00',
       description: prefillNotes || '',
-      time_category_id: '',
+      time_category_id: initialCategoryForOwner(currentUserId),
         user_id: currentUserId?.toString() || '',
       break_minutes: null
     })
@@ -655,6 +683,10 @@ export default function TimeTracking() {
     e.preventDefault()
     if (isAdmin && !formData.user_id) {
       setError('Please select an entry owner')
+      return
+    }
+    if (!formData.time_category_id) {
+      setError('Please choose a work category')
       return
     }
 
@@ -731,6 +763,7 @@ export default function TimeTracking() {
     setShowEditModal(false)
     setEditingEntry(null)
     await loadEntries()
+    if (activeTab === 'reports') await loadReport()
     await loadPendingApprovalSummary()
   }
 
@@ -761,19 +794,15 @@ export default function TimeTracking() {
   const deniedCount = entries.filter(e => e.approval_status === 'denied').length
   const visibleTotalHours = sumEntryHours(visibleEntries)
 
-  const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, missing_rate_count: 0 }
+  const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 }
   const hoursSummaryRows = hoursReport?.employees ?? []
-  const reportByCategory = (hoursReport?.employees ?? []).flatMap((employee) => employee.categories).reduce((acc, category) => {
-    if (!acc[category.name]) acc[category.name] = 0
-    acc[category.name] += category.total_hours
-    return acc
-  }, {} as Record<string, number>)
-  const reportBySource = reportData.reduce((acc, entry) => {
-    const source = entry.clock_source || 'legacy'
-    if (!acc[source]) acc[source] = 0
-    acc[source] += entry.hours
-    return acc
-  }, {} as Record<string, number>)
+  const reportByCategory = hoursReport?.breakdowns?.by_category ?? []
+  const reportBySource = hoursReport?.breakdowns?.by_source ?? []
+  const excludedEntryCount = reportSummary.pending_count
+    + reportSummary.denied_count
+    + reportSummary.pending_overtime_count
+    + reportSummary.denied_overtime_count
+    + reportSummary.open_clock_count
   const pendingApprovalCount = pendingApprovalSummary?.entry_count ?? 0
   const pendingOvertimeApprovalCount = pendingApprovalSummary?.pending_overtime_count ?? 0
   const throughDateParam = searchParams.get('through_date')
@@ -799,7 +828,9 @@ export default function TimeTracking() {
     start_date: reportFilters.start_date,
     end_date: reportFilters.end_date,
     ...(reportFilters.user_id ? { user_id: parseInt(reportFilters.user_id) } : {}),
-    ...(reportFilters.time_category_id ? { time_category_id: parseInt(reportFilters.time_category_id) } : {}),
+    ...(reportFilters.time_category_id === 'uncategorized'
+      ? { category_status: 'uncategorized' as const }
+      : reportFilters.time_category_id ? { time_category_id: parseInt(reportFilters.time_category_id) } : {}),
     ...(reportFilters.approval_group !== 'all' ? { approval_group: reportFilters.approval_group } : {}),
     status: reportFilters.employee_status,
     ...(reportFilters.role ? { role: reportFilters.role } : {}),
@@ -826,7 +857,7 @@ export default function TimeTracking() {
     try {
       const response = await api.downloadHoursReport(type, currentReportParams(), acknowledgeDraft)
       if (response.code === 'draft_acknowledgement_required' && !acknowledgeDraft) {
-        const confirmed = confirm('This report has pending, denied, or open entries. Download a clearly marked draft anyway?')
+        const confirmed = confirm('This report includes approved entries without work categories. Download a clearly marked draft anyway?')
         if (confirmed) await downloadReport(type, true)
         return
       }
@@ -1395,7 +1426,7 @@ export default function TimeTracking() {
                   start_time: '08:00',
                   end_time: '17:00',
                   description: '',
-                  time_category_id: '',
+                  time_category_id: initialCategoryForOwner(userId || null),
                   user_id: userId?.toString() || '',
                   break_minutes: null
                 })
@@ -1417,18 +1448,6 @@ export default function TimeTracking() {
         </motion.div>
       )}
       </AnimatePresence>
-
-      {/* Entry Modal */}
-      <EditTimeEntryModal
-        isOpen={showEditModal && !!editingEntry}
-        entry={editingEntry}
-        categories={categories}
-        canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
-        onClose={closeEditModal}
-        onSaved={refreshEntriesAfterEdit}
-        onDeleted={refreshEntriesAfterEdit}
-        onError={setError}
-      />
 
       {/* Log Time Modal */}
       <AnimatePresence>
@@ -1511,7 +1530,14 @@ export default function TimeTracking() {
                     </label>
                     <select
                       value={formData.user_id}
-                      onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+                      onChange={(e) => {
+                        const userId = e.target.value ? Number(e.target.value) : null
+                        setFormData({
+                          ...formData,
+                          user_id: e.target.value,
+                          time_category_id: initialCategoryForOwner(userId),
+                        })
+                      }}
                       className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     >
                       <option value="">Select user...</option>
@@ -1573,18 +1599,26 @@ export default function TimeTracking() {
                 {/* Category */}
                 <div>
                   <label className="block text-sm font-medium text-primary-dark mb-1">
-                    Category
+                    Work category *
                   </label>
                   <select
                     value={formData.time_category_id}
                     onChange={(e) => setFormData({ ...formData, time_category_id: e.target.value })}
                     className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    required
+                    disabled={isAdmin && !formData.user_id}
                   >
                     <option value="">Select category...</option>
-                    {categories.map(cat => (
+                    {availableEntryCategories.map(cat => (
                       <option key={cat.id} value={cat.id}>{cat.name}</option>
                     ))}
                   </select>
+                  {formData.user_id && availableEntryCategories.length === 0 && (
+                    <p className="mt-1 text-xs font-medium text-red-600">This person needs an active work category assignment before time can be logged.</p>
+                  )}
+                  {availableEntryCategories.length === 1 && (
+                    <p className="mt-1 text-xs text-text-muted">Their only assigned category is selected automatically.</p>
+                  )}
                 </div>
 
                 {/* Description */}
@@ -1710,6 +1744,7 @@ export default function TimeTracking() {
                 <label className="mb-1 block text-sm text-text-muted">Category</label>
                 <select value={reportFilters.time_category_id} onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All categories</option>
+                  <option value="uncategorized">Missing category (needs correction)</option>
                   {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                 </select>
               </div>
@@ -1755,35 +1790,42 @@ export default function TimeTracking() {
           </div>
 
           <StaggerContainer className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-            <StaggerItem><ReportMetric label="Total Hours" value={reportLoading ? '…' : reportSummary.total_hours.toFixed(1)} emphasize /></StaggerItem>
-            <StaggerItem><ReportMetric label="Regular" value={reportLoading ? '…' : reportSummary.regular_hours.toFixed(1)} /></StaggerItem>
-            <StaggerItem><ReportMetric label="Overtime" value={reportLoading ? '…' : reportSummary.overtime_hours.toFixed(1)} tone={reportSummary.overtime_hours > 0 ? 'warning' : 'normal'} /></StaggerItem>
-            <StaggerItem><ReportMetric label="Break Hours" value={reportLoading ? '…' : reportSummary.break_hours.toFixed(1)} /></StaggerItem>
+            <StaggerItem><ReportMetric label="Total Hours" value={reportLoading ? '…' : formatHours(reportSummary.total_hours)} emphasize /></StaggerItem>
+            <StaggerItem><ReportMetric label="Regular" value={reportLoading ? '…' : formatHours(reportSummary.regular_hours)} /></StaggerItem>
+            <StaggerItem><ReportMetric label="Overtime" value={reportLoading ? '…' : formatHours(reportSummary.overtime_hours)} tone={reportSummary.overtime_hours > 0 ? 'warning' : 'normal'} /></StaggerItem>
+            <StaggerItem><ReportMetric label="Break Hours" value={reportLoading ? '…' : formatHours(reportSummary.break_hours)} /></StaggerItem>
             <StaggerItem><ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} /></StaggerItem>
           </StaggerContainer>
 
           {hoursReport && (
             <div className={`rounded-xl border px-4 py-3 ${
-              hoursReport.ready
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                : 'border-amber-200 bg-amber-50 text-amber-900'
+              !hoursReport.ready
+                ? 'border-red-200 bg-red-50 text-red-900'
+                : excludedEntryCount > 0
+                  ? 'border-amber-200 bg-amber-50 text-amber-900'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-900'
             }`}>
               <div className="font-semibold">
-                {hoursReport.ready ? 'Complete as of the generated time' : 'Draft - entries need review'}
+                {!hoursReport.ready ? 'Action required before cutoff' : excludedEntryCount > 0 ? 'Ready for cutoff with excluded entries' : 'Ready for cutoff'}
               </div>
               <p className="mt-1 text-sm leading-relaxed">
-                {hoursReport.ready
-                  ? 'No pending, denied, open, uncategorized, or missing-rate time entries were found in this period. Exports do not require a finalized-week lock.'
-                  : [
+                {!hoursReport.ready
+                  ? `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before finalizing the cutoff.`
+                  : excludedEntryCount > 0
+                    ? [
                       reportSummary.pending_count > 0 ? `${reportSummary.pending_count} pending` : null,
                       reportSummary.denied_count > 0 ? `${reportSummary.denied_count} denied` : null,
                       reportSummary.pending_overtime_count > 0 ? `${reportSummary.pending_overtime_count} pending overtime` : null,
                       reportSummary.denied_overtime_count > 0 ? `${reportSummary.denied_overtime_count} denied overtime` : null,
                       reportSummary.open_clock_count > 0 ? `${reportSummary.open_clock_count} open clock` : null,
-                      reportSummary.uncategorized_count > 0 ? `${reportSummary.uncategorized_count} uncategorized` : null,
-                      reportSummary.missing_rate_count > 0 ? `${reportSummary.missing_rate_count} missing pay rate` : null,
-                    ].filter(Boolean).join(', ') + '. You can still export after explicitly confirming a draft.'}
+                    ].filter(Boolean).join(', ') + '. These entries remain tracked but are not included in this cutoff; later approvals carry into the next cutoff.'
+                    : 'All included hours have work categories. No pending, denied, or open entries were found for this period.'}
               </p>
+              {!hoursReport.ready && (
+                <button type="button" onClick={() => setReportFilters({ ...reportFilters, time_category_id: 'uncategorized' })} className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-800 transition hover:bg-red-100">
+                  Show entries missing categories
+                </button>
+              )}
             </div>
           )}
 
@@ -1861,10 +1903,14 @@ export default function TimeTracking() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.break_hours > 0 ? employee.break_hours.toFixed(2) : '—'}</td>
+                      <td className="px-4 py-3 text-right text-sm text-text-muted">{formatHours(employee.break_hours)}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.entries_count}</td>
                       <td className="px-4 py-3 text-sm">
-                        {employee.ready ? (
+                        {employee.issues.uncategorized_count > 0 ? (
+                          <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">Missing category</span>
+                        ) : employee.issues.pending_count + employee.issues.denied_count + employee.issues.pending_overtime_count + employee.issues.denied_overtime_count + employee.issues.open_clock_count > 0 ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Excluded work</span>
+                        ) : employee.ready ? (
                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Ready</span>
                         ) : (
                           <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Needs review</span>
@@ -1878,25 +1924,11 @@ export default function TimeTracking() {
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="rounded-2xl border border-neutral-warm bg-white shadow-sm">
-              <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3"><h3 className="font-semibold text-primary-dark">Hours by Category</h3></div>
-              <div className="divide-y divide-neutral-warm">
-                {Object.entries(reportByCategory).length === 0 ? <div className="p-4 text-center text-text-muted">No data</div> : Object.entries(reportByCategory).sort((a, b) => b[1] - a[1]).map(([name, hours]) => (
-                  <div key={name} className="flex items-center justify-between px-4 py-3"><span className="text-primary-dark">{name}</span><span className="font-semibold text-primary">{hours.toFixed(1)}h</span></div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-neutral-warm bg-white shadow-sm">
-              <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3"><h3 className="font-semibold text-primary-dark">Hours by Source</h3></div>
-              <div className="divide-y divide-neutral-warm">
-                {Object.entries(reportBySource).length === 0 ? <div className="p-4 text-center text-text-muted">No data</div> : Object.entries(reportBySource).sort((a, b) => b[1] - a[1]).map(([name, hours]) => (
-                  <div key={name} className="flex items-center justify-between px-4 py-3"><span className="uppercase text-primary-dark">{name}</span><span className="font-semibold text-primary">{hours.toFixed(1)}h</span></div>
-                ))}
-              </div>
-            </div>
+            <HoursBreakdownCard title="Hours by Category" label="Work category" rows={reportByCategory.map((row) => ({ ...row, label: row.name }))} />
+            <HoursBreakdownCard title="Hours by Source" label="Source" rows={reportBySource.map((row) => ({ ...row, label: row.source.toUpperCase() }))} />
           </div>
 
-          <DetailedEntriesTable entries={reportData} isAdmin={isAdmin} loading={reportLoading} />
+          <DetailedEntriesTable entries={reportData} isAdmin={isAdmin} loading={reportLoading} onEdit={openEditEntry} />
           <EmployeeReportDrawer employee={selectedReportEmployee} onClose={handleCloseEmployeeReportDrawer} />
         </div>
       )}
@@ -1904,6 +1936,20 @@ export default function TimeTracking() {
       {activeTab === 'leave' && (
         <LeaveRequestsPanel isAdmin={isAdmin} />
       )}
+
+      {/* Shared editor stays mounted for entries, approvals, and report remediation. */}
+      <EditTimeEntryModal
+        isOpen={showEditModal && !!editingEntry}
+        entry={editingEntry}
+        categories={editingEntry && isAdmin
+          ? categories.filter((category) => users.find((user) => user.id === editingEntry.user.id)?.time_category_ids?.includes(category.id))
+          : categories}
+        canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
+        onClose={closeEditModal}
+        onSaved={refreshEntriesAfterEdit}
+        onDeleted={refreshEntriesAfterEdit}
+        onError={setError}
+      />
     </div>
   )
 }
@@ -1914,6 +1960,54 @@ function ReportMetric({ label, value, emphasize = false, tone = 'normal' }: { la
       <div className="text-sm text-text-muted">{label}</div>
       <div className={`mt-1 text-3xl font-bold ${emphasize ? 'text-primary' : tone === 'warning' ? 'text-orange-700' : 'text-primary-dark'}`}>{value}</div>
     </div>
+  )
+}
+
+interface HoursBreakdownRow {
+  label: string
+  total_hours: number
+  regular_hours: number
+  overtime_hours: number
+  break_hours: number
+  entries_count: number
+}
+
+function HoursBreakdownCard({ title, label, rows }: { title: string; label: string; rows: HoursBreakdownRow[] }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
+      <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
+        <h3 className="font-semibold text-primary-dark">{title}</h3>
+        <p className="mt-0.5 text-xs text-text-muted">Exact included hours from the server-calculated report.</p>
+      </div>
+      {rows.length === 0 ? (
+        <div className="p-4 text-center text-text-muted">No data</div>
+      ) : (
+        <div className="divide-y divide-neutral-warm">
+          <div className="hidden grid-cols-[minmax(8rem,1fr)_repeat(5,auto)] gap-4 bg-slate-50/70 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted sm:grid">
+            <span>{label}</span><span className="text-right">Regular</span><span className="text-right">OT</span><span className="text-right">Total</span><span className="text-right">Breaks</span><span className="text-right">Entries</span>
+          </div>
+          {rows.map((row) => (
+            <div key={row.label} className="px-4 py-3">
+              <div className="flex items-baseline justify-between gap-3 sm:hidden">
+                <span className="font-medium text-primary-dark">{row.label}</span>
+                <span className="font-semibold text-primary">{formatHours(row.total_hours)}h</span>
+              </div>
+              <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-muted sm:hidden">
+                <span>Regular {formatHours(row.regular_hours)}h</span><span>OT {formatHours(row.overtime_hours)}h</span><span>Breaks {formatHours(row.break_hours)}h</span><span>{row.entries_count} entries</span>
+              </div>
+              <div className="hidden grid-cols-[minmax(8rem,1fr)_repeat(5,auto)] items-center gap-4 text-sm sm:grid">
+                <span className="font-medium text-primary-dark">{row.label}</span>
+                <span className="text-right text-text-muted">{formatHours(row.regular_hours)}</span>
+                <span className="text-right text-text-muted">{formatHours(row.overtime_hours)}</span>
+                <span className="text-right font-semibold text-primary">{formatHours(row.total_hours)}</span>
+                <span className="text-right text-text-muted">{formatHours(row.break_hours)}</span>
+                <span className="text-right text-text-muted">{row.entries_count}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -2077,10 +2171,12 @@ function DetailedEntriesTable({
   entries,
   isAdmin,
   loading,
+  onEdit,
 }: {
   entries: TimeEntryItem[]
   isAdmin: boolean
   loading: boolean
+  onEdit: (entry: TimeEntryItem) => void
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
 
@@ -2106,7 +2202,7 @@ function DetailedEntriesTable({
     })
   }
 
-  const colCount = isAdmin ? 8 : 7
+  const colCount = isAdmin ? 9 : 7
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
@@ -2126,6 +2222,7 @@ function DetailedEntriesTable({
               <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Hours</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Breaks</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Description</th>
+              {isAdmin && <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-warm">
@@ -2139,7 +2236,7 @@ function DetailedEntriesTable({
                 const totalHours = group.entries.reduce((s, e) => s + e.hours, 0)
                 const totalBreaks = group.entries.reduce((s, e) => s + (e.break_minutes || 0), 0)
                 const hasMultiple = group.entries.length > 1
-                const cats = [...new Set(group.entries.map(e => e.time_category?.name || 'Other'))]
+                const cats = [...new Set(group.entries.map(e => e.time_category?.name || 'Uncategorized'))]
                 const sources = [...new Set(group.entries.map(e => e.clock_source || 'legacy'))]
                 const firstStart = group.entries[0].formatted_start_time
                 const lastEnd = group.entries[group.entries.length - 1].formatted_end_time
@@ -2181,6 +2278,11 @@ function DetailedEntriesTable({
                       </td>
                       <td className="px-4 py-3 text-sm text-text-muted text-right">{totalBreaks > 0 ? `${totalBreaks}m` : '—'}</td>
                       <td className="px-4 py-3 text-sm text-text-muted truncate max-w-[200px]">{descriptions.length > 0 ? descriptions.join('; ') : '-'}</td>
+                      {isAdmin && (
+                        <td className="px-4 py-3 text-right">
+                          {!hasMultiple && <button type="button" onClick={(event) => { event.stopPropagation(); onEdit(group.entries[0]) }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button>}
+                        </td>
+                      )}
                     </tr>
                     {isExpanded && group.entries.map(entry => (
                       <tr key={entry.id} className="bg-secondary/30">
@@ -2191,11 +2293,12 @@ function DetailedEntriesTable({
                             ? `${entry.formatted_start_time} – ${entry.formatted_end_time}`
                             : '-'}
                         </td>
-                        <td className="px-4 py-2 text-xs text-text-muted">{entry.time_category?.name || '-'}</td>
+                        <td className={`px-4 py-2 text-xs ${entry.time_category ? 'text-text-muted' : 'font-semibold text-red-700'}`}>{entry.time_category?.name || 'Uncategorized'}</td>
                         <td className="px-4 py-2 text-xs text-text-muted uppercase">{entry.clock_source || 'legacy'}</td>
                         <td className="px-4 py-2 text-xs text-primary font-semibold text-right">{entry.hours.toFixed(2)}</td>
                         <td className="px-4 py-2 text-xs text-text-muted text-right">{entry.break_minutes ? `${entry.break_minutes}m` : '—'}</td>
                         <td className="px-4 py-2 text-xs text-text-muted truncate max-w-[200px]">{entry.description || '-'}</td>
+                        {isAdmin && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button></td>}
                       </tr>
                     ))}
                   </Fragment>

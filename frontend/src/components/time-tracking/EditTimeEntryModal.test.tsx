@@ -41,7 +41,7 @@ describe('EditTimeEntryModal break editing', () => {
           entry_method: 'manual',
           status: 'completed',
           user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
-          time_category: null,
+          time_category: { id: 1, name: 'CFI' },
           breaks: [
             {
               id: 10,
@@ -51,7 +51,7 @@ describe('EditTimeEntryModal break editing', () => {
             },
           ],
         }}
-        categories={[]}
+        categories={[{ id: 1, name: 'CFI' }]}
         canDelete
         onClose={vi.fn()}
         onSaved={vi.fn()}
@@ -81,10 +81,10 @@ describe('EditTimeEntryModal break editing', () => {
           entry_method: 'manual',
           status: 'completed',
           user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
-          time_category: null,
+          time_category: { id: 1, name: 'CFI' },
           breaks: [],
         }}
-        categories={[]}
+        categories={[{ id: 1, name: 'CFI' }]}
         canDelete
         onClose={vi.fn()}
         onSaved={onSaved}
@@ -122,10 +122,10 @@ describe('EditTimeEntryModal break editing', () => {
           entry_method: 'manual',
           status: 'completed',
           user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
-          time_category: null,
+          time_category: { id: 1, name: 'CFI' },
           breaks: [],
         }}
-        categories={[]}
+        categories={[{ id: 1, name: 'CFI' }]}
         canDelete
         onClose={vi.fn()}
         onSaved={onSaved}
@@ -146,5 +146,71 @@ describe('EditTimeEntryModal break editing', () => {
       expect.any(Object),
       'Employee confirmed the corrected clock-out time.',
     )
+  })
+
+  it('requires a work category before saving a legacy uncategorized entry', async () => {
+    render(
+      <EditTimeEntryModal
+        isOpen
+        entry={{
+          id: 4,
+          work_date: '2026-05-05',
+          start_time: '09:00',
+          end_time: '17:00',
+          break_minutes: 30,
+          description: null,
+          entry_method: 'manual',
+          status: 'completed',
+          user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
+          time_category: null,
+          breaks: [],
+        }}
+        categories={[]}
+        canDelete
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+
+    expect(screen.getByText(/assign an active work category to this person/i)).toBeInTheDocument()
+    expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
+  })
+
+  it('automatically selects the only assigned category while repairing a legacy entry', async () => {
+    render(
+      <EditTimeEntryModal
+        isOpen
+        entry={{
+          id: 5,
+          work_date: '2026-05-05',
+          start_time: '09:00',
+          end_time: '17:00',
+          break_minutes: 30,
+          description: null,
+          entry_method: 'manual',
+          status: 'completed',
+          user: { id: 1, email: 'alice@example.com', full_name: 'Alice Pilot' },
+          time_category: null,
+          breaks: [],
+        }}
+        categories={[{ id: 1, name: 'CFI' }]}
+        canDelete
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('combobox')).toHaveValue('1')
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({ time_category_id: 1 }),
+      undefined,
+    ))
   })
 })

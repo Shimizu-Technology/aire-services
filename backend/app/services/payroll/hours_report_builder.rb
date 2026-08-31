@@ -28,6 +28,8 @@ module Payroll
       report_entries = report_entries_scope(context_start_date..context_end_date, user_ids).to_a
       control_period_entries = control_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
+      breakdowns = build_breakdowns(employees)
+      period_issues = issues_for(control_period_entries)
 
       {
         start_date: start_date.iso8601,
@@ -36,8 +38,9 @@ module Payroll
         context_end_date: context_end_date.iso8601,
         generated_at: Time.current.iso8601,
         filters: serialized_filters,
-        ready: report_ready?(issues_for(control_period_entries)),
+        ready: report_ready?(period_issues),
         summary: summary(employees, control_period_entries),
+        breakdowns: breakdowns,
         employees: employees
       }
     end
@@ -77,7 +80,11 @@ module Payroll
 
     def report_entries_scope(range, user_ids)
       scope = base_entries_scope(range, user_ids)
-      scope = scope.where(time_category_id: params[:time_category_id]) if params[:time_category_id].present?
+      if params[:category_status].to_s == "uncategorized"
+        scope = scope.where(time_category_id: nil)
+      elsif params[:time_category_id].present?
+        scope = scope.where(time_category_id: params[:time_category_id])
+      end
       scope = scope.where(clock_source: params[:clock_source]) if params[:clock_source].present?
       scope = scope.where(entry_method: params[:entry_method]) if params[:entry_method].present?
       scope = scope.where(approval_status: approval_status_value(params[:approval_status])) if params[:approval_status].present?
@@ -107,7 +114,7 @@ module Payroll
         user_report_entries = report_entries_by_user.fetch(user.id, [])
         period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
         control_period_entries = user_context_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
-        next if period_entries.empty? && control_period_entries.empty? && (!include_empty_employees? || !user.time_tracking_enabled?)
+        next if period_entries.empty? && (!include_empty_employees? || !user.time_tracking_enabled?)
 
         build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
       end
@@ -124,9 +131,8 @@ module Payroll
       days = build_days(countable_period_entries, overtime_allocations)
       categories = build_categories(countable_period_entries, overtime_allocations)
       weeks = build_weeks(user_context_entries, countable_period_entries, overtime_allocations)
-      # Readiness is a control concern, not a display filter. A pending or open
-      # entry must keep the report in draft even when the visible report is
-      # filtered to approved entries only.
+      # Readiness is a control concern, not a display filter. Calculate it from
+      # the employee's full period even when visible rows use narrower filters.
       issues = issues_for(control_period_entries)
 
       regular_hours = sum(days, :regular_hours)
@@ -231,8 +237,8 @@ module Payroll
         formatted_start_time: entry.formatted_start_time,
         formatted_end_time: entry.formatted_end_time,
         total_hours: round_hours(entry.hours.to_f),
-        regular_hours: allocation[:regular_hours].to_f,
-        overtime_hours: allocation[:overtime_hours].to_f,
+        regular_hours: round_hours(allocation[:regular_hours].to_f),
+        overtime_hours: round_hours(allocation[:overtime_hours].to_f),
         break_minutes: entry.break_minutes.to_i,
         description: entry.description,
         entry_method: entry.entry_method,
@@ -267,13 +273,12 @@ module Payroll
         pending_overtime_count: entries.count { |entry| entry.overtime_status == "pending" },
         denied_overtime_count: entries.count { |entry| entry.overtime_status == "denied" },
         open_clock_count: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) },
-        uncategorized_count: countable_entries.count { |entry| entry.time_category_id.nil? },
-        missing_rate_count: countable_entries.count { |entry| entry.effective_rate_cents_snapshot.nil? }
+        uncategorized_count: countable_entries.count { |entry| entry.time_category_id.nil? }
       }
     end
 
     def report_ready?(issues)
-      issues.values.all?(&:zero?)
+      issues.fetch(:uncategorized_count).zero?
     end
 
     def summary(employees, period_entries)
@@ -289,13 +294,46 @@ module Payroll
         pending_overtime_count: period_entries.count { |entry| entry.overtime_status == "pending" },
         denied_overtime_count: period_entries.count { |entry| entry.overtime_status == "denied" },
         open_clock_count: period_entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) },
-        uncategorized_count: period_entries.count { |entry| countable?(entry) && entry.time_category_id.nil? },
-        missing_rate_count: period_entries.count { |entry| countable?(entry) && entry.effective_rate_cents_snapshot.nil? }
+        uncategorized_count: period_entries.count { |entry| countable?(entry) && entry.time_category_id.nil? }
       }
     end
 
+    def build_breakdowns(employees)
+      {
+        by_category: aggregate_breakdown_rows(employees.flat_map { |employee| employee[:categories] }, :id, :key, :name),
+        by_source: aggregate_source_rows(employees)
+      }
+    end
+
+    def aggregate_breakdown_rows(rows, *identity_keys)
+      rows.group_by { |row| identity_keys.map { |key| row[key] } }.map do |_identity, grouped_rows|
+        first = grouped_rows.first
+        identity_keys.index_with { |key| first[key] }.merge(
+          total_hours: sum(grouped_rows, :total_hours),
+          regular_hours: sum(grouped_rows, :regular_hours),
+          overtime_hours: sum(grouped_rows, :overtime_hours),
+          break_hours: sum(grouped_rows, :break_hours),
+          entries_count: grouped_rows.sum { |row| row[:entries_count].to_i }
+        )
+      end.sort_by { |row| [ -row[:total_hours], row[:name].to_s ] }
+    end
+
+    def aggregate_source_rows(employees)
+      entries = employees.flat_map { |employee| employee[:days].flat_map { |day| day[:entries] } }
+      entries.group_by { |entry| entry[:clock_source].presence || "legacy" }.map do |source, source_entries|
+        {
+          source: source,
+          total_hours: sum(source_entries, :total_hours),
+          regular_hours: sum(source_entries, :regular_hours),
+          overtime_hours: sum(source_entries, :overtime_hours),
+          break_hours: round_hours(source_entries.sum { |entry| entry[:break_minutes].to_i / 60.0 }),
+          entries_count: source_entries.size
+        }
+      end.sort_by { |row| [ -row[:total_hours], row[:source] ] }
+    end
+
     def serialized_filters
-      params.to_h.slice(:user_id, :role, :status, :approval_group, :time_category_id, :clock_source, :entry_method, :approval_status, :overtime_status, :include_empty)
+      params.to_h.slice(:user_id, :role, :status, :approval_group, :time_category_id, :category_status, :clock_source, :entry_method, :approval_status, :overtime_status, :include_empty)
     end
 
     def entry_sort_seconds(entry)

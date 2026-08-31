@@ -343,9 +343,9 @@ export default function Settings() {
   }
 
   const handleDeleteCategory = async (cat: AdminTimeCategory) => {
-    const hasUsage = cat.time_entries_count > 0 || (cat.employee_pay_rates_count ?? 0) > 0
+    const hasUsage = cat.time_entries_count > 0 || cat.deletable === false
     if (hasUsage) {
-      alert('This category already has saved time history or pay-rate data, so it cannot be permanently deleted. Deactivate it instead.')
+      alert('This category already has saved time history or linked records, so it cannot be permanently deleted. Deactivate it instead.')
       return
     }
 
@@ -1514,11 +1514,6 @@ export default function Settings() {
                           <td className="px-5 py-4 font-mono text-xs">{cat.key ?? '—'}</td>
                           <td className="px-5 py-4 text-sm">
                             <div>{cat.time_entries_count} entr{cat.time_entries_count === 1 ? 'y' : 'ies'}</div>
-                            {(cat.employee_pay_rates_count ?? 0) > 0 && (
-                              <div className="mt-1 text-xs text-slate-500">
-                                {cat.employee_pay_rates_count} pay rate{cat.employee_pay_rates_count === 1 ? '' : 's'}
-                              </div>
-                            )}
                           </td>
                           <td className="px-5 py-4">
                             {cat.is_active ? (

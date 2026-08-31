@@ -184,13 +184,10 @@ class UserAccessConfiguration
 
   def sync_time_categories!(configuration)
     desired_ids = configuration[:category_ids]
-    overrides = attributes[:time_category_rate_overrides] || {}
 
     user.user_time_categories.where.not(time_category_id: desired_ids).destroy_all
     desired_ids.each do |category_id|
       assignment = user.user_time_categories.find_or_initialize_by(time_category_id: category_id)
-      override = overrides[category_id.to_s]
-      assignment.hourly_rate_cents = override.to_i if override.present?
       assignment.save!
     end
   end

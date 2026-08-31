@@ -179,13 +179,20 @@ class ReportExport < ApplicationRecord
   end
 
   private_class_method def self.report_ready?(report)
-    summary = report[:summary] || {}
-    issue_keys = %i[pending_count denied_count pending_overtime_count denied_overtime_count open_clock_count]
-    issue_keys.all? { |key| summary[key].to_i.zero? }
+    return report[:ready] unless report[:ready].nil?
+
+    (report[:summary] || {})[:uncategorized_count].to_i.zero?
   end
 
   private_class_method def self.aggregate_issues(report)
-    (report[:summary] || {}).slice(:pending_count, :denied_count, :pending_overtime_count, :denied_overtime_count, :open_clock_count)
+    (report[:summary] || {}).slice(
+      :pending_count,
+      :denied_count,
+      :pending_overtime_count,
+      :denied_overtime_count,
+      :open_clock_count,
+      :uncategorized_count
+    )
   end
 
   def assign_public_id

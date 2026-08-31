@@ -33,7 +33,7 @@ class TimeClockService
       if time_category_id.present?
         selected_time_category = TimeCategory.active.find_by(id: time_category_id)
         raise ClockError, "Selected work category is invalid or inactive" unless selected_time_category
-      elsif admin_override_by.blank?
+      else
         assigned_categories = user.assigned_time_categories.active.limit(2).to_a
         selected_time_category = assigned_categories.first if assigned_categories.one?
       end
@@ -104,6 +104,7 @@ class TimeClockService
         end
 
         entry.description = description if description.present?
+        auto_assigned_category = ensure_active_entry_has_category!(entry)
         entry.status = "completed"
         entry.break_minutes = entry.total_break_minutes
         entry.calculate_hours_from_times
@@ -111,6 +112,20 @@ class TimeClockService
         entry.admin_override = true if admin_override_by.present?
 
         entry.save!
+        if auto_assigned_category
+          record_time_event!(
+            "time_entry.category_auto_assigned",
+            entry,
+            user: user,
+            actor: admin_override_by,
+            source: entry.clock_source,
+            metadata: {
+              previous_time_category_id: nil,
+              assigned_time_category_id: auto_assigned_category.id,
+              trigger_action: "time_entry.clocked_out"
+            }
+          )
+        end
         record_time_event!("time_entry.clocked_out", entry, user: user, actor: admin_override_by, source: entry.clock_source)
       end
 
@@ -179,11 +194,17 @@ class TimeClockService
       new_entry = nil
 
       clock_write_transaction do
+        previous_time_category_id = entry.time_category_id
+
         if entry.status == "on_break"
           active_brk = entry.active_break
           active_brk&.close!(now)
         end
 
+        # Legacy active entries may predate mandatory work categories. The
+        # selected switch target is the only honest category available for the
+        # segment, so use it to remediate that segment before closing it.
+        entry.time_category = new_category if entry.time_category_id.nil?
         entry.end_time = guam_now
         entry.clock_out_at = now
         entry.status = "completed"
@@ -216,7 +237,7 @@ class TimeClockService
           user: user,
           actor: admin_override_by,
           source: resolved_source,
-          metadata: { previous_entry_id: entry.id, previous_time_category_id: entry.time_category_id }
+          metadata: { previous_entry_id: entry.id, previous_time_category_id: previous_time_category_id }
         )
       end
 
@@ -297,6 +318,7 @@ class TimeClockService
     # ── Admin: Approve Entry ──
     def approve_entry(entry:, approved_by:, note: nil)
       raise AuthorizationError, "Only admins can approve entries" unless approved_by.admin?
+      raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
       entry.with_lock do
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
@@ -342,6 +364,7 @@ class TimeClockService
     # ── Admin: Approve Overtime ──
     def approve_overtime(entry:, approved_by:, note: nil)
       raise AuthorizationError, "Only admins can approve overtime" unless approved_by.admin?
+      raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
       entry.with_lock do
         raise ClockError, "Entry does not have pending overtime" unless entry.overtime_status == "pending"
@@ -407,6 +430,7 @@ class TimeClockService
             guam_now = Time.current.in_time_zone(business_timezone)
             entry.end_time = guam_now
             entry.clock_out_at = Time.current
+            auto_assigned_category = ensure_active_entry_has_category!(entry)
             entry.calculate_hours_from_times
             entry.update!(
               end_time: entry.end_time,
@@ -418,6 +442,22 @@ class TimeClockService
               approval_status: "pending",
               approval_note: "Auto-closed: clocked in for over #{threshold_hours} hours without clocking out"
             )
+
+            if auto_assigned_category
+              AuditLog.record!(
+                auditable: entry,
+                action: "time_entry.category_auto_assigned",
+                actor: nil,
+                actor_kind: "system",
+                source: "system",
+                event_category: "time_tracking",
+                metadata: {
+                  previous_time_category_id: nil,
+                  assigned_time_category_id: auto_assigned_category.id,
+                  trigger_action: "time_entry.auto_closed"
+                }
+              )
+            end
 
             AuditLog.record!(
               auditable: entry,
@@ -656,13 +696,24 @@ class TimeClockService
     end
 
     def validate_time_category_assignment!(user, category, admin_override_by:)
-      return if admin_override_by.present?
-
       assigned_categories = user.assigned_time_categories.active
       raise ClockError, "Choose a work category before clocking in" unless category
       return if assigned_categories.exists?(category.id)
 
       raise ClockError, "Selected work category is not assigned to this employee"
+    end
+
+    def ensure_active_entry_has_category!(entry)
+      return if entry.time_category_id.present?
+
+      assigned_categories = entry.user.assigned_time_categories.active.limit(2).to_a
+      if assigned_categories.one?
+        assigned_category = assigned_categories.first
+        entry.time_category = assigned_category
+        return assigned_category
+      end
+
+      raise ClockError, "Choose a work category before clocking out"
     end
 
     def validate_clock_in_time(now, schedule)

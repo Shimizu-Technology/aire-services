@@ -87,7 +87,44 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(json.dig(:summary, :total_hours)).to eq(7.0)
   end
 
-  it "keeps readiness in draft when the visible approval filter hides pending entries" do
+  it "returns exact reconciled two-decimal category and source breakdowns" do
+    entry = create_entry(user: employee, date: Date.new(2026, 5, 4), hours: 11.95)
+    entry.update!(clock_source: "mobile")
+
+    get "/api/v1/admin/hours_report",
+        params: { start_date: "2026-05-01", end_date: "2026-05-15", user_id: employee.id },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:summary, :total_hours)).to eq(11.95)
+    expect(json.dig(:employees, 0, :total_hours)).to eq(11.95)
+    expect(json.dig(:breakdowns, :by_category, 0)).to include(
+      name: "Flight Instruction", total_hours: 11.95, regular_hours: 11.95, overtime_hours: 0.0, entries_count: 1
+    )
+    expect(json.dig(:breakdowns, :by_source, 0)).to include(
+      source: "mobile", total_hours: 11.95, regular_hours: 11.95, overtime_hours: 0.0, entries_count: 1
+    )
+  end
+
+  it "filters approved legacy entries that need category remediation" do
+    categorized = create_entry(user: employee, date: Date.new(2026, 5, 4), hours: 4)
+    uncategorized = create_entry(user: employee, date: Date.new(2026, 5, 5), hours: 3)
+    other_employee = create(:user, :employee, first_name: "Already", last_name: "Categorized")
+    create_entry(user: other_employee, date: Date.new(2026, 5, 5), hours: 2)
+    uncategorized.update_columns(time_category_id: nil)
+
+    get "/api/v1/admin/hours_report",
+        params: { start_date: "2026-05-01", end_date: "2026-05-15", category_status: "uncategorized" },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:summary, :total_hours)).to eq(3.0)
+    expect(json.fetch(:employees).pluck(:id)).to eq([ employee.id ])
+    expect(json.dig(:employees, 0, :days, 0, :entries).pluck(:id)).to eq([ uncategorized.id ])
+    expect(json.dig(:employees, 0, :days, 0, :entries).pluck(:id)).not_to include(categorized.id)
+  end
+
+  it "keeps pending entries visible as exclusions without blocking cutoff readiness" do
     create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
     create_entry(user: employee, date: Date.new(2026, 6, 17), hours: 2).update!(approval_status: "pending")
 
@@ -101,10 +138,10 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
         headers: auth_headers
 
     expect(response).to have_http_status(:ok)
-    expect(json.fetch(:ready)).to be(false)
+    expect(json.fetch(:ready)).to be(true)
     expect(json.dig(:summary, :total_hours)).to eq(6.0)
     expect(json.dig(:summary, :pending_count)).to eq(1)
-    expect(json.dig(:employees, 0, :ready)).to be(false)
+    expect(json.dig(:employees, 0, :ready)).to be(true)
   end
 
   it "exports one detailed CSV row per entry segment with an immutable reference" do
@@ -204,8 +241,9 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(ReportExport.last.export_type).to eq("employee_timesheet_pdf")
   end
 
-  it "requires explicit acknowledgement before exporting a draft" do
-    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6).update!(approval_status: "pending")
+  it "requires explicit acknowledgement before exporting approved hours without a category" do
+    entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+    entry.update_columns(time_category_id: nil)
 
     get "/api/v1/admin/hours_report/timesheet_pdf",
         params: { start_date: "2026-06-16", end_date: "2026-06-30", user_id: employee.id },
@@ -222,8 +260,9 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(ReportExport.last.readiness_status).to eq("draft")
   end
 
-  it "requires explicit acknowledgement for a draft consolidated PDF" do
-    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6).update!(approval_status: "pending")
+  it "requires explicit acknowledgement for a consolidated PDF with missing categories" do
+    entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+    entry.update_columns(time_category_id: nil)
 
     get "/api/v1/admin/hours_report/pdf",
         params: { start_date: "2026-06-16", end_date: "2026-06-30" },

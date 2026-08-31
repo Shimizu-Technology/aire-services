@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ApprovalQueue from './ApprovalQueue'
@@ -94,6 +94,7 @@ const entries = [
 
 const categories: TimeCategory[] = [
   { id: 1, key: 'cfi', name: 'CFI', description: null },
+  { id: 2, key: 'other', name: 'Other', description: null },
 ]
 
 const summary: PendingApprovalsSummary = {
@@ -198,5 +199,34 @@ describe('ApprovalQueue review workflow', () => {
     await screen.findByText('Pending Approvals')
     expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ through_date: '2026-06-15' }))
     expect(screen.getByDisplayValue('On or before')).toBeInTheDocument()
+  })
+
+  it('requires an edit before an uncategorized entry can be selected or approved', async () => {
+    const uncategorizedEntry = makeEntry({
+      time_category: null,
+      user: {
+        ...entries[0].user,
+        time_category_ids: [1],
+      },
+    })
+    apiMock.getPendingApprovals.mockResolvedValue({
+      data: { pending_entries: [uncategorizedEntry], count: 1, summary: { ...summary, entry_count: 1 } },
+    })
+
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    expect(await screen.findByText('Work category required')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /select aika kanekatsu/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Category required' })).toBeDisabled()
+    expect(screen.getByText(/edit this entry and choose an assigned work category/i)).toBeInTheDocument()
+    expect(screen.getByTitle('Edit entry')).toBeEnabled()
+    expect(apiMock.approveTimeEntry).not.toHaveBeenCalled()
+    expect(apiMock.bulkApproveTimeEntries).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTitle('Edit entry'))
+    const categorySelect = await screen.findByDisplayValue('CFI')
+    expect(categorySelect).toHaveValue('1')
+    expect(within(categorySelect).getByRole('option', { name: 'CFI' })).toBeInTheDocument()
+    expect(within(categorySelect).queryByRole('option', { name: 'Other' })).not.toBeInTheDocument()
   })
 })

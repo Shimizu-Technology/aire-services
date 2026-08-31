@@ -19,6 +19,7 @@ RSpec.describe "TimeClockService payroll-finalization contention", type: :servic
     create(
       :time_entry,
       user: user,
+      time_category: create_owned_category,
       status: "clocked_in",
       clock_in_at: 13.hours.ago,
       start_time: 13.hours.ago,
@@ -28,17 +29,20 @@ RSpec.describe "TimeClockService payroll-finalization contention", type: :servic
   end
 
   after do
-    entry_ids = TimeEntry.where(user_id: user.id).pluck(:id)
+    entries = TimeEntry.where(user_id: user.id)
+    entry_ids = entries.pluck(:id)
     AuditLog.where(auditable_type: "TimeEntry", auditable_id: entry_ids).delete_all
-    TimeEntry.where(id: entry_ids).delete_all
+    entries.delete_all
     UserTimeCategory.where(user_id: user.id).delete_all
     User.where(id: user.id).destroy_all
-    @time_category&.destroy!
+    TimeCategory.where(id: Array(@owned_time_category_ids)).find_each do |category|
+      category.destroy! unless category.time_entries.exists? || category.user_time_categories.exists?
+    end
   end
 
   it "returns a retryable message without partial clock-in writes" do
     expect(Setting.get("schedule_required_for_clock_in")).to eq("false")
-    @time_category = create(:time_category)
+    @time_category = create_owned_category
     UserTimeCategory.create!(user: user, time_category: @time_category)
     locker = independent_database_connection
     locker.exec("BEGIN")
@@ -83,5 +87,11 @@ RSpec.describe "TimeClockService payroll-finalization contention", type: :servic
       password: database_config[:password],
       dbname: database_config.fetch(:database)
     )
+  end
+
+  def create_owned_category
+    category = create(:time_category)
+    (@owned_time_category_ids ||= []) << category.id
+    category
   end
 end

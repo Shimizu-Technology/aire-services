@@ -15,7 +15,14 @@ module Api
       # GET /api/v1/time_entries
       def index
         @time_entries = current_user.admin? ? TimeEntry.all : TimeEntry.for_user(current_user)
-        @time_entries = @time_entries.eager_load({ user: :user_approval_groups }, :time_category, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks)
+        @time_entries = @time_entries.eager_load(
+          { user: [ :user_approval_groups, :assigned_time_categories ] },
+          :time_category,
+          :schedule,
+          :approved_by,
+          :overtime_approved_by,
+          :time_entry_breaks
+        )
 
         if params[:user_id].present? && current_user.admin?
           @time_entries = @time_entries.where(user_id: params[:user_id])
@@ -75,8 +82,11 @@ module Api
       def create
         entry_owner = resolve_entry_owner
         return unless entry_owner
+        selected_category = resolve_required_category(entry_owner, time_entry_params[:time_category_id])
+        return if performed?
 
-        @time_entry = entry_owner.time_entries.build(time_entry_params.except(:user_id))
+        @time_entry = entry_owner.time_entries.build(time_entry_params.except(:user_id, :time_category_id))
+        @time_entry.time_category = selected_category
         @time_entry.entry_method = "manual"
 
         if current_user.admin?
@@ -133,6 +143,11 @@ module Api
         }
 
         update_params = time_entry_params.except(:user_id, :breaks).to_h.symbolize_keys
+        if update_params.key?(:time_category_id) || @time_entry.time_category_id.nil?
+          selected_category = resolve_required_category(@time_entry.user, update_params[:time_category_id])
+          return if performed?
+          update_params[:time_category_id] = selected_category.id
+        end
         raw_clock_params = raw_time_entry_params.slice(:work_date, :start_time, :end_time)
         normalize_clock_entry_time_update(@time_entry, update_params, raw_clock_params)
         return if performed?
@@ -544,8 +559,14 @@ module Api
       end
 
       def eager_reload(entry)
-        TimeEntry.eager_load({ user: :user_approval_groups }, :time_category, :schedule, :approved_by,
-                             :overtime_approved_by, :time_entry_breaks).find(entry.id)
+        TimeEntry.eager_load(
+          { user: [ :user_approval_groups, :assigned_time_categories ] },
+          :time_category,
+          :schedule,
+          :approved_by,
+          :overtime_approved_by,
+          :time_entry_breaks
+        ).find(entry.id)
       end
 
       def resolve_clock_target_user
@@ -761,6 +782,26 @@ module Api
         user
       end
 
+      def resolve_required_category(user, requested_category_id)
+        assigned = user.assigned_time_categories.active
+        if requested_category_id.present?
+          category = assigned.find_by(id: requested_category_id)
+          unless category
+            render json: { error: "Selected work category is inactive or not assigned to this person" }, status: :unprocessable_entity
+          end
+          return category
+        end
+
+        categories = assigned.limit(2).to_a
+        return categories.first if categories.one?
+
+        message = categories.empty? ?
+          "Assign an active work category to this person before logging time" :
+          "Choose a work category for this time entry"
+        render json: { error: message }, status: :unprocessable_entity
+        nil
+      end
+
       def serialize_time_entry(entry)
         tz = TimeClockService::BUSINESS_TIMEZONE
         {
@@ -819,15 +860,14 @@ module Api
             approval_group_label: entry.user.approval_group_label,
             approval_group_keys: entry.user.approval_group_keys,
             approval_group_labels: entry.user.approval_group_labels,
+            time_category_ids: entry.user.assigned_time_categories.select(&:is_active?).map(&:id),
             approval_groups: entry.user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } }
           },
           time_category: entry.time_category ? {
             id: entry.time_category.id,
             key: entry.time_category.key,
             name: entry.time_category.name
-          }.merge(current_user.admin? ? { hourly_rate_cents: entry.time_category.hourly_rate_cents, hourly_rate: entry.time_category.hourly_rate } : {}) : nil,
-          effective_rate_cents: current_user.admin? ? entry.effective_rate_cents : nil,
-          effective_rate: current_user.admin? ? entry.effective_rate : nil,
+          } : nil,
           created_at: entry.created_at.iso8601,
           updated_at: entry.updated_at.iso8601
         }
@@ -1098,7 +1138,7 @@ module Api
 
       def pending_approval_entries_scope
         entries = TimeEntry
-          .preload({ user: :user_approval_groups }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
+          .preload({ user: [ :user_approval_groups, :assigned_time_categories ] }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
           .where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
 
         approval_group = params[:approval_group].to_s

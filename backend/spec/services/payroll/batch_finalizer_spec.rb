@@ -168,7 +168,7 @@ RSpec.describe Payroll::BatchFinalizer do
     end
   end
 
-  it "reverses the old category and rate before adding a corrected payroll dimension" do
+  it "reverses the old category before adding a corrected hours dimension" do
     entry = nil
     new_category = create(:time_category, name: "Admin Duties", hourly_rate_cents: 2_500)
     travel_to(guam.local(2026, 5, 16, 9)) do
@@ -187,9 +187,9 @@ RSpec.describe Payroll::BatchFinalizer do
       corrections = batch.payroll_batch_entries.where(source_time_entry_id: entry.id).order(:total_hours)
 
       expect(corrections.size).to eq(2)
-      expect(corrections.map { |row| [ row.source_category_id, row.effective_rate_cents, row.total_hours.to_f ] }).to contain_exactly(
-        [ category.id, 3_500, -8.0 ],
-        [ new_category.id, 2_500, 8.0 ]
+      expect(corrections.map { |row| [ row.source_category_id, row.total_hours.to_f ] }).to contain_exactly(
+        [ category.id, -8.0 ],
+        [ new_category.id, 8.0 ]
       )
       expect(batch.summary).to include("total_hours" => 0.0, "adjustment_count" => 2)
     end
@@ -324,7 +324,7 @@ RSpec.describe Payroll::BatchFinalizer do
 
       expect do
         finalize(start_date: "2026-05-01", end_date: "2026-05-15")
-      end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /missing work categories and pay rates/)
+      end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /missing work categories/)
 
       entry.update!(time_category: category)
       finalize(start_date: "2026-05-01", end_date: "2026-05-15")
