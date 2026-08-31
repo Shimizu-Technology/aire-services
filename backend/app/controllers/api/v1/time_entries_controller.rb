@@ -847,6 +847,7 @@ module Api
             approval_group_label: entry.user.approval_group_label,
             approval_group_keys: entry.user.approval_group_keys,
             approval_group_labels: entry.user.approval_group_labels,
+            time_category_ids: entry.user.assigned_time_categories.select(&:is_active?).map(&:id),
             approval_groups: entry.user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } }
           },
           time_category: entry.time_category ? {
@@ -1124,7 +1125,7 @@ module Api
 
       def pending_approval_entries_scope
         entries = TimeEntry
-          .preload({ user: :user_approval_groups }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
+          .preload({ user: [ :user_approval_groups, :assigned_time_categories ] }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
           .where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
 
         approval_group = params[:approval_group].to_s

@@ -1025,7 +1025,9 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     <EditTimeEntryModal
       isOpen={!!editingEntry}
       entry={editingEntry}
-      categories={categories}
+      categories={editingEntry?.user.time_category_ids
+        ? categories.filter((category) => editingEntry.user.time_category_ids?.includes(category.id))
+        : categories}
       canDelete={!!editingEntry && !!canDeleteEntry?.(editingEntry)}
       onClose={() => setEditingEntry(null)}
       onSaved={handleEditSaved}

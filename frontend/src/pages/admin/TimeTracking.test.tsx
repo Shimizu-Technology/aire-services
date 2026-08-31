@@ -154,6 +154,9 @@ describe('TimeTracking routed report periods', () => {
       category_status: 'uncategorized',
     })))
     expect(screen.getByDisplayValue('Missing category (needs correction)')).toBeInTheDocument()
+    expect(apiMock.getTimeEntries.mock.calls.every(([params]) => (
+      params.time_category_id === undefined || Number.isFinite(params.time_category_id)
+    ))).toBe(true)
   })
 
   it('ignores an older report response that resolves after a newer period', async () => {

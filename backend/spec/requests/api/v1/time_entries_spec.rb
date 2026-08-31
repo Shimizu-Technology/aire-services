@@ -77,7 +77,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
       expect(response).to have_http_status(:created)
       expect(json.dig(:time_entry, :user, :id)).to eq(employee.id)
       expect(json.dig(:time_entry, :time_category, :id)).to eq(time_category.id)
-      expect(json.dig(:time_entry, :effective_rate_cents)).to be_nil
+      expect(json.fetch(:time_entry)).not_to have_key(:effective_rate_cents)
     end
 
     it "automatically selects the owner's only assigned category" do
@@ -647,11 +647,14 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
     let!(:unassigned_entry) { create(:time_entry, user: unassigned_employee, approval_status: "pending") }
 
     it "returns all pending entries by default" do
+      cfi_employee.user_time_categories.create!(time_category: cfi_entry.time_category)
       get "/api/v1/time_entries/pending_approvals", headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:ok)
       ids = json[:pending_entries].map { |entry| entry[:id] }
       expect(ids).to include(cfi_entry.id, ops_entry.id, unassigned_entry.id)
+      cfi_payload = json[:pending_entries].find { |entry| entry[:id] == cfi_entry.id }
+      expect(cfi_payload.dig(:user, :time_category_ids)).to eq([ cfi_entry.time_category_id ])
 
       counts_by_group = json.dig(:summary, :counts_by_approval_group).index_by { |row| row[:key] }
       expect(counts_by_group.dig("cfi", :count)).to eq(1)

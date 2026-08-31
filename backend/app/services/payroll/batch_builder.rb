@@ -372,7 +372,7 @@ module Payroll
         overtime_hours: delta[:overtime_hours],
         source_kind: "correction",
         line_key: line_key,
-        snapshot: latest.snapshot.merge(
+        snapshot: sanitized_legacy_snapshot(latest.snapshot).merge(
           "reallocated_after_prior_batch" => true,
           "current_time_entry" => entry_snapshot(entry)
         )
@@ -396,8 +396,23 @@ module Payroll
           overtime_hours: -prior[:overtime_hours],
           source_kind: "correction",
           line_key: line_key,
-          snapshot: latest.snapshot.merge("deleted_after_prior_batch" => true)
+          snapshot: sanitized_legacy_snapshot(latest.snapshot).merge("deleted_after_prior_batch" => true)
         }
+      end
+    end
+
+    def sanitized_legacy_snapshot(snapshot)
+      case snapshot
+      when Hash
+        snapshot.each_with_object({}) do |(key, value), sanitized|
+          next if %w[effective_rate effective_rate_cents hourly_rate hourly_rate_cents].include?(key.to_s)
+
+          sanitized[key] = sanitized_legacy_snapshot(value)
+        end
+      when Array
+        snapshot.map { |value| sanitized_legacy_snapshot(value) }
+      else
+        snapshot
       end
     end
 

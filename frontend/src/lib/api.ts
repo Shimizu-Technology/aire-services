@@ -544,6 +544,7 @@ export interface TimeEntry {
     approval_group_keys?: ApprovalGroup[];
     approval_group_labels?: string[];
     approval_groups?: ApprovalGroupOption[];
+    time_category_ids?: number[];
   };
   time_category: {
     id: number;

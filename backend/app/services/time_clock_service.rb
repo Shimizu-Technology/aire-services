@@ -414,6 +414,7 @@ class TimeClockService
             guam_now = Time.current.in_time_zone(business_timezone)
             entry.end_time = guam_now
             entry.clock_out_at = Time.current
+            ensure_active_entry_has_category!(entry)
             entry.calculate_hours_from_times
             entry.update!(
               end_time: entry.end_time,

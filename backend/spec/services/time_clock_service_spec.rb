@@ -283,6 +283,34 @@ RSpec.describe TimeClockService, type: :service do
     end
   end
 
+  describe ".flag_stale_entries" do
+    it "repairs a legacy categoryless entry when the employee has one assigned category" do
+      assigned_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: assigned_category)
+      entry = create(
+        :time_entry,
+        user: user,
+        time_category: nil,
+        entry_method: "clock",
+        status: "clocked_in",
+        start_time: frozen_time - 13.hours,
+        clock_in_at: frozen_time - 13.hours,
+        end_time: nil,
+        clock_out_at: nil,
+        hours: 0
+      )
+
+      expect(described_class.flag_stale_entries(threshold_hours: 12)).to eq(1)
+
+      expect(entry.reload).to have_attributes(
+        status: "completed",
+        approval_status: "pending",
+        time_category_id: assigned_category.id
+      )
+      expect(AuditLog.where(auditable: entry, action: "time_entry.auto_closed")).to exist
+    end
+  end
+
   describe ".current_status" do
     it "reports an active overnight entry after midnight" do
       Setting.set("schedule_required_for_clock_in", "false")

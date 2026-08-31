@@ -269,7 +269,7 @@ export default function TimeTracking() {
   // Entries filters (for Time Entries tab)
   const [entryFilters, setEntryFilters] = useState({
     user_id: '',
-    time_category_id: routedCategoryFilter,
+    time_category_id: '',
   })
   const [showDenied, setShowDenied] = useState(false)
   

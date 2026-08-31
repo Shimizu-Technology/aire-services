@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ApprovalQueue from './ApprovalQueue'
@@ -94,6 +94,7 @@ const entries = [
 
 const categories: TimeCategory[] = [
   { id: 1, key: 'cfi', name: 'CFI', description: null },
+  { id: 2, key: 'other', name: 'Other', description: null },
 ]
 
 const summary: PendingApprovalsSummary = {
@@ -201,7 +202,13 @@ describe('ApprovalQueue review workflow', () => {
   })
 
   it('requires an edit before an uncategorized entry can be selected or approved', async () => {
-    const uncategorizedEntry = makeEntry({ time_category: null })
+    const uncategorizedEntry = makeEntry({
+      time_category: null,
+      user: {
+        ...entries[0].user,
+        time_category_ids: [1],
+      },
+    })
     apiMock.getPendingApprovals.mockResolvedValue({
       data: { pending_entries: [uncategorizedEntry], count: 1, summary: { ...summary, entry_count: 1 } },
     })
@@ -215,5 +222,11 @@ describe('ApprovalQueue review workflow', () => {
     expect(screen.getByTitle('Edit entry')).toBeEnabled()
     expect(apiMock.approveTimeEntry).not.toHaveBeenCalled()
     expect(apiMock.bulkApproveTimeEntries).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTitle('Edit entry'))
+    const categorySelect = await screen.findByDisplayValue('CFI')
+    expect(categorySelect).toHaveValue('1')
+    expect(within(categorySelect).getByRole('option', { name: 'CFI' })).toBeInTheDocument()
+    expect(within(categorySelect).queryByRole('option', { name: 'Other' })).not.toBeInTheDocument()
   })
 })
