@@ -289,6 +289,7 @@ export default function PayrollRuns() {
   const [dialogError, setDialogError] = useState<string | null>(null)
   const historyRequestSequence = useRef(0)
   const previewRequestSequence = useRef(0)
+  const batchRequestSequence = useRef(0)
   const internalPeriodNavigation = useRef<string | null>(null)
   const displayedPeriodKey = useRef(`${routedPeriod.start}|${routedPeriod.end}`)
 
@@ -409,8 +410,10 @@ export default function PayrollRuns() {
   }
 
   const openBatch = async (id: string) => {
+    const requestSequence = ++batchRequestSequence.current
     setError(null)
     const response = await api.getPayrollBatch(id)
+    if (requestSequence !== batchRequestSequence.current) return
     if (response.data) {
       setSelectedBatch(response.data)
       setStartDate(response.data.start_date)

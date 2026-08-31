@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, useNavigate } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TimeTracking from './TimeTracking'
@@ -24,10 +24,12 @@ vi.mock('../../contexts/AuthContext', () => ({
 
 function TimeRouteHarness() {
   const navigate = useNavigate()
+  const location = useLocation()
   return (
     <>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-07-01&end_date=2026-07-15')}>Open July report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&approval_status=denied&overtime_status=denied')}>Open denied report</button>
+      <output data-testid="location-search">{location.search}</output>
       <TimeTracking />
     </>
   )
@@ -109,6 +111,20 @@ describe('TimeTracking routed report periods', () => {
       start_date: '2026-07-16',
       end_date: '2026-07-31',
     })))
+  })
+
+  it('clears the approval-only cutoff when navigating from approvals to reports', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=approvals&start_date=2026-08-01&end_date=2026-08-15&through_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hours Reports' }))
+
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('tab=reports'))
+    expect(screen.getByTestId('location-search')).not.toHaveTextContent('through_date=')
   })
 
   it('synchronizes status filters when same-route query parameters change', async () => {

@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -327,6 +327,61 @@ describe('PayrollRuns', () => {
     expect(screen.getByRole('link', { name: 'View activity' })).toHaveAttribute(
       'href',
       '/admin/activity?event_category=payroll&search=2026-08-16%20through%202026-08-31',
+    )
+  })
+
+  it('ignores an older batch response after a newer history selection', async () => {
+    const firstBatch = finalized
+    const secondBatch = {
+      ...finalized,
+      id: 'AIRE-PAY-20260731-DEF456',
+      start_date: '2026-07-16',
+      end_date: '2026-07-31',
+      payload: {
+        ...finalized.payload,
+        batch_id: 'AIRE-PAY-20260731-DEF456',
+        start_date: '2026-07-16',
+        end_date: '2026-07-31',
+        export: {
+          ...finalized.payload.export,
+          id: 'AIRE-PAY-20260731-DEF456',
+          batch_id: 'AIRE-PAY-20260731-DEF456',
+        },
+      },
+    }
+    let resolveFirst: (value: { data: typeof firstBatch }) => void = () => undefined
+    let resolveSecond: (value: { data: typeof secondBatch }) => void = () => undefined
+    const firstRequest = new Promise<{ data: typeof firstBatch }>((resolve) => { resolveFirst = resolve })
+    const secondRequest = new Promise<{ data: typeof secondBatch }>((resolve) => { resolveSecond = resolve })
+    apiMock.getPayrollBatches.mockResolvedValue({
+      data: { payroll_batches: [firstBatch, secondBatch], total_count: 2, truncated: false },
+    })
+    apiMock.getPayrollBatch
+      .mockReset()
+      .mockReturnValueOnce(firstRequest)
+      .mockReturnValueOnce(secondRequest)
+    renderPayrollRuns()
+
+    fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
+    fireEvent.click(screen.getByRole('button', { name: /AIRE-PAY-20260731-DEF456/ }))
+    await act(async () => {
+      resolveSecond({ data: secondBatch })
+      await secondRequest
+    })
+
+    expect(screen.getByLabelText('Period start')).toHaveValue('2026-07-16')
+    expect(screen.getByLabelText('Period end')).toHaveValue('2026-07-31')
+
+    await act(async () => {
+      resolveFirst({ data: firstBatch })
+      await firstRequest
+    })
+
+    expect(screen.getByLabelText('Period start')).toHaveValue('2026-07-16')
+    expect(screen.getByLabelText('Period end')).toHaveValue('2026-07-31')
+    expect(screen.getByRole('link', { name: 'View activity' })).toHaveAttribute(
+      'href',
+      '/admin/activity?event_category=payroll&search=2026-07-16%20through%202026-07-31',
     )
   })
 
