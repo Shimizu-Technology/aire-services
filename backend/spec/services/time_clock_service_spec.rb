@@ -119,6 +119,21 @@ RSpec.describe TimeClockService, type: :service do
       end.to raise_error(TimeClockService::ClockError, /not assigned/)
     end
 
+    it "auto-selects the employee's only assigned category for an admin override" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      admin = create(:user, :admin)
+      assigned_category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: assigned_category)
+
+      entry = described_class.clock_in(user: user, admin_override_by: admin)
+
+      expect(entry).to have_attributes(
+        time_category_id: assigned_category.id,
+        admin_override: true,
+        status: "clocked_in"
+      )
+    end
+
     it "requires a nearby location for mobile clock-in when geofencing is enabled" do
       Setting.set("schedule_required_for_clock_in", "false")
       Setting.set("clock_in_location_enforced", "true")
@@ -254,6 +269,12 @@ RSpec.describe TimeClockService, type: :service do
 
       expect(entry.reload.time_category).to eq(assigned_category)
       expect(entry.status).to eq("completed")
+      repair_audit = AuditLog.find_by!(auditable: entry, action: "time_entry.category_auto_assigned")
+      expect(repair_audit.metadata).to include(
+        "previous_time_category_id" => nil,
+        "assigned_time_category_id" => assigned_category.id,
+        "trigger_action" => "time_entry.clocked_out"
+      )
     end
 
     it "does not guess a category for a legacy categoryless active entry" do
@@ -308,6 +329,13 @@ RSpec.describe TimeClockService, type: :service do
         time_category_id: assigned_category.id
       )
       expect(AuditLog.where(auditable: entry, action: "time_entry.auto_closed")).to exist
+      repair_audit = AuditLog.find_by!(auditable: entry, action: "time_entry.category_auto_assigned")
+      expect(repair_audit).to have_attributes(actor_kind: "system", source: "system")
+      expect(repair_audit.metadata).to include(
+        "previous_time_category_id" => nil,
+        "assigned_time_category_id" => assigned_category.id,
+        "trigger_action" => "time_entry.auto_closed"
+      )
     end
   end
 

@@ -104,7 +104,7 @@ class TimeClockService
         end
 
         entry.description = description if description.present?
-        ensure_active_entry_has_category!(entry)
+        auto_assigned_category = ensure_active_entry_has_category!(entry)
         entry.status = "completed"
         entry.break_minutes = entry.total_break_minutes
         entry.calculate_hours_from_times
@@ -112,6 +112,20 @@ class TimeClockService
         entry.admin_override = true if admin_override_by.present?
 
         entry.save!
+        if auto_assigned_category
+          record_time_event!(
+            "time_entry.category_auto_assigned",
+            entry,
+            user: user,
+            actor: admin_override_by,
+            source: entry.clock_source,
+            metadata: {
+              previous_time_category_id: nil,
+              assigned_time_category_id: auto_assigned_category.id,
+              trigger_action: "time_entry.clocked_out"
+            }
+          )
+        end
         record_time_event!("time_entry.clocked_out", entry, user: user, actor: admin_override_by, source: entry.clock_source)
       end
 
@@ -416,7 +430,7 @@ class TimeClockService
             guam_now = Time.current.in_time_zone(business_timezone)
             entry.end_time = guam_now
             entry.clock_out_at = Time.current
-            ensure_active_entry_has_category!(entry)
+            auto_assigned_category = ensure_active_entry_has_category!(entry)
             entry.calculate_hours_from_times
             entry.update!(
               end_time: entry.end_time,
@@ -428,6 +442,22 @@ class TimeClockService
               approval_status: "pending",
               approval_note: "Auto-closed: clocked in for over #{threshold_hours} hours without clocking out"
             )
+
+            if auto_assigned_category
+              AuditLog.record!(
+                auditable: entry,
+                action: "time_entry.category_auto_assigned",
+                actor: nil,
+                actor_kind: "system",
+                source: "system",
+                event_category: "time_tracking",
+                metadata: {
+                  previous_time_category_id: nil,
+                  assigned_time_category_id: auto_assigned_category.id,
+                  trigger_action: "time_entry.auto_closed"
+                }
+              )
+            end
 
             AuditLog.record!(
               auditable: entry,
@@ -678,8 +708,9 @@ class TimeClockService
 
       assigned_categories = entry.user.assigned_time_categories.active.limit(2).to_a
       if assigned_categories.one?
-        entry.time_category = assigned_categories.first
-        return
+        assigned_category = assigned_categories.first
+        entry.time_category = assigned_category
+        return assigned_category
       end
 
       raise ClockError, "Choose a work category before clocking out"
