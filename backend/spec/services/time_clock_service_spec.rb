@@ -339,6 +339,55 @@ RSpec.describe TimeClockService, type: :service do
     end
   end
 
+  describe "approval category requirements" do
+    let(:admin) { create(:user, :admin) }
+
+    it "rejects regular approval for a categoryless entry without changing its state" do
+      entry = create(
+        :time_entry,
+        user: user,
+        approval_status: "pending",
+        approved_by: nil,
+        approved_at: nil
+      )
+      entry.update_column(:time_category_id, nil)
+      entry.reload
+
+      expect {
+        described_class.approve_entry(entry: entry, approved_by: admin)
+      }.to raise_error(TimeClockService::ClockError, /Choose a work category/)
+
+      expect(entry.reload).to have_attributes(
+        approval_status: "pending",
+        approved_by_id: nil,
+        approved_at: nil
+      )
+    end
+
+    it "rejects overtime approval for a categoryless entry without changing its state" do
+      entry = create(
+        :time_entry,
+        user: user,
+        approval_status: "approved",
+        overtime_status: "pending",
+        overtime_approved_by: nil,
+        overtime_approved_at: nil
+      )
+      entry.update_column(:time_category_id, nil)
+      entry.reload
+
+      expect {
+        described_class.approve_overtime(entry: entry, approved_by: admin)
+      }.to raise_error(TimeClockService::ClockError, /Choose a work category/)
+
+      expect(entry.reload).to have_attributes(
+        overtime_status: "pending",
+        overtime_approved_by_id: nil,
+        overtime_approved_at: nil
+      )
+    end
+  end
+
   describe ".current_status" do
     it "reports an active overnight entry after midnight" do
       Setting.set("schedule_required_for_clock_in", "false")
