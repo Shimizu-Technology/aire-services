@@ -575,6 +575,33 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         ids = json[:time_entries].map { |e| e[:id] }
         expect(ids).to include(emp_entry.id, other_entry.id)
       end
+
+      it "preloads owner category assignments for the collection response" do
+        employee.user_time_categories.create!(time_category: emp_entry.time_category)
+        other_employee.user_time_categories.create!(time_category: other_entry.time_category)
+        3.times do
+          extra_employee = create(:user, :employee)
+          extra_entry = create(:time_entry, user: extra_employee)
+          extra_employee.user_time_categories.create!(time_category: extra_entry.time_category)
+        end
+        category_queries = []
+        subscriber = lambda do |_name, _start, _finish, _id, payload|
+          sql = payload[:sql].to_s
+          category_queries << sql if sql.match?(/user_time_categories|assigned_time_categories/)
+        end
+
+        ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+          get "/api/v1/time_entries", headers: auth_headers_for[admin]
+        end
+
+        expect(response).to have_http_status(:ok)
+        expect(category_queries.length).to be <= 2
+        assignments = json.fetch(:time_entries).to_h do |entry|
+          [ entry.dig(:user, :id), entry.dig(:user, :time_category_ids) ]
+        end
+        expect(assignments.fetch(employee.id)).to include(emp_entry.time_category_id)
+        expect(assignments.fetch(other_employee.id)).to include(other_entry.time_category_id)
+      end
     end
 
     context "employee" do

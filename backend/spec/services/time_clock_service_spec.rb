@@ -379,6 +379,12 @@ RSpec.describe TimeClockService, type: :service do
       expect(legacy_entry.status).to eq("completed")
       expect(new_entry.time_category).to eq(target_category)
       expect(new_entry.status).to eq("clocked_in")
+
+      audit = AuditLog.find_by!(auditable: new_entry, action: "time_entry.category_switched")
+      expect(audit.metadata).to include(
+        "previous_entry_id" => legacy_entry.id,
+        "previous_time_category_id" => nil
+      )
     end
   end
 end

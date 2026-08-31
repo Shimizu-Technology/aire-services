@@ -180,6 +180,8 @@ class TimeClockService
       new_entry = nil
 
       clock_write_transaction do
+        previous_time_category_id = entry.time_category_id
+
         if entry.status == "on_break"
           active_brk = entry.active_break
           active_brk&.close!(now)
@@ -221,7 +223,7 @@ class TimeClockService
           user: user,
           actor: admin_override_by,
           source: resolved_source,
-          metadata: { previous_entry_id: entry.id, previous_time_category_id: entry.time_category_id }
+          metadata: { previous_entry_id: entry.id, previous_time_category_id: previous_time_category_id }
         )
       end
 
