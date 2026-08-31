@@ -313,6 +313,7 @@ export default function PayrollRuns() {
     }
     if (displayedPeriodKey.current === routeKey) return
     displayedPeriodKey.current = routeKey
+    batchRequestSequence.current += 1
 
     const timer = window.setTimeout(() => {
       setStartDate(routedPeriod.start)

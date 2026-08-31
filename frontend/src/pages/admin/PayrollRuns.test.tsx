@@ -385,6 +385,33 @@ describe('PayrollRuns', () => {
     )
   })
 
+  it('ignores a batch response after the routed payroll period changes', async () => {
+    let resolveBatch: (value: { data: typeof finalized }) => void = () => undefined
+    const deferredBatch = new Promise<{ data: typeof finalized }>((resolve) => { resolveBatch = resolve })
+    apiMock.getPayrollBatches.mockResolvedValue({
+      data: { payroll_batches: [finalized], total_count: 1, truncated: false },
+    })
+    apiMock.getPayrollBatch.mockReturnValueOnce(deferredBatch)
+    render(
+      <MemoryRouter initialEntries={['/admin/payroll?start_date=2026-08-16&end_date=2026-08-31']}>
+        <PayrollRouteHarness />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open July payroll' }))
+    await waitFor(() => expect(screen.getByLabelText('Period start')).toHaveValue('2026-07-01'))
+
+    await act(async () => {
+      resolveBatch({ data: finalized })
+      await deferredBatch
+    })
+
+    expect(screen.getByLabelText('Period start')).toHaveValue('2026-07-01')
+    expect(screen.getByLabelText('Period end')).toHaveValue('2026-07-15')
+    expect(screen.queryByRole('link', { name: 'View activity' })).not.toBeInTheDocument()
+  })
+
   it('downloads a finalized batch and reports an empty download response', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({
       data: { payroll_batches: [finalized], total_count: 1, truncated: false },
