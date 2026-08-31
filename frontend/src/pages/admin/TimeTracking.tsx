@@ -760,6 +760,11 @@ export default function TimeTracking() {
   const selectWorkspaceSection = (section: TimeTab) => {
     setActiveTab(section)
     const next = new URLSearchParams(searchParams)
+    if (activeTab === 'reports') {
+      next.set('start_date', reportFilters.start_date)
+      next.set('end_date', reportFilters.end_date)
+      next.delete('through_date')
+    }
     if (section === 'entries') next.delete('tab')
     else next.set('tab', section)
     setSearchParams(next)

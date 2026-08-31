@@ -62,4 +62,22 @@ describe('TimeTracking routed report periods', () => {
       end_date: '2026-07-15',
     })))
   })
+
+  it('carries an edited report period into approvals', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalled())
+
+    fireEvent.change(screen.getByDisplayValue('2026-08-01'), { target: { value: '2026-07-16' } })
+    fireEvent.change(screen.getByDisplayValue('2026-08-15'), { target: { value: '2026-07-31' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Approvals' }))
+
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-07-16',
+      end_date: '2026-07-31',
+    })))
+  })
 })

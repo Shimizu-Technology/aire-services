@@ -181,6 +181,23 @@ describe('PayrollRuns', () => {
     await waitFor(() => expect(apiMock.previewPayrollBatch).toHaveBeenCalledWith('2026-07-01', '2026-07-15'))
   })
 
+  it('keeps a start-date edit while the range is temporarily reversed', async () => {
+    renderPayrollRuns('/admin/payroll?start_date=2026-08-16&end_date=2026-08-31')
+    await screen.findByText('No payroll batches have been finalized yet.')
+
+    fireEvent.change(screen.getByLabelText('Period start'), { target: { value: '2026-09-01' } })
+
+    expect(screen.getByLabelText('Period start')).toHaveValue('2026-09-01')
+    expect(screen.getByLabelText('Period end')).toHaveValue('2026-08-31')
+    expect(screen.getByRole('button', { name: 'Preview cutoff' })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Period end'), { target: { value: '2026-09-15' } })
+    expect(screen.getByRole('button', { name: 'Preview cutoff' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+
+    await waitFor(() => expect(apiMock.previewPayrollBatch).toHaveBeenCalledWith('2026-09-01', '2026-09-15'))
+  })
+
   it('requires a review confirmation before finalizing an immutable batch', async () => {
     renderPayrollRuns()
     await screen.findByText('No payroll batches have been finalized yet.')

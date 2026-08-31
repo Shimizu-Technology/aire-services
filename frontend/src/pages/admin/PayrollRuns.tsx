@@ -10,6 +10,7 @@ import {
 import TimePayrollWorkspaceHeader from '../../components/time-tracking/TimePayrollWorkspaceHeader'
 import {
   formatPayrollDate,
+  isIsoDate,
   payrollPeriodFromSearchParams,
   withPayrollPeriod,
   type PayrollPeriod,
@@ -372,13 +373,17 @@ export default function PayrollRuns() {
 
   const updateStartDate = (value: string) => {
     setStartDate(value)
-    syncPeriodToUrl({ start: value, end: endDate })
+    if (isIsoDate(value) && isIsoDate(endDate) && value <= endDate) {
+      syncPeriodToUrl({ start: value, end: endDate })
+    }
     clearPreviewForDateChange()
   }
 
   const updateEndDate = (value: string) => {
     setEndDate(value)
-    syncPeriodToUrl({ start: startDate, end: value })
+    if (isIsoDate(startDate) && isIsoDate(value) && startDate <= value) {
+      syncPeriodToUrl({ start: startDate, end: value })
+    }
     clearPreviewForDateChange()
   }
 
@@ -448,7 +453,7 @@ export default function PayrollRuns() {
           <label className="text-sm font-medium text-slate-700">Period end
             <input type="date" value={endDate} onChange={(event) => updateEndDate(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
           </label>
-          <button type="button" onClick={runPreview} disabled={previewing || !startDate || !endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview cutoff'}</button>
+          <button type="button" onClick={runPreview} disabled={previewing || !isIsoDate(startDate) || !isIsoDate(endDate) || startDate > endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview cutoff'}</button>
         </div>
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3 text-sm leading-6 text-primary">
           Finalizing locks the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll cutoff.
