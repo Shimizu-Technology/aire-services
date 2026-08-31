@@ -13,6 +13,7 @@
 - /admin
 - /admin/time
 - /admin/payroll
+- /admin/activity
 - /admin/users
 - /admin/schedule
 

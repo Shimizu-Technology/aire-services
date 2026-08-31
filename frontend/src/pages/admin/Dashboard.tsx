@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeEntry } from '../../lib/api'
-import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, withPayrollPeriod } from '../../lib/payrollPeriods'
+import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, withPayrollPeriod } from '../../lib/payrollPeriods'
 
 const actionLinks = [
   {
@@ -261,7 +261,7 @@ function AdminDashboard() {
         weeklyHours,
         totalMembers: usersRes.data?.users.length ?? 0,
         pendingApprovalHours: approvalsRes.data?.summary?.total_hours ?? 0,
-        payrollFinalizedThrough: payrollRes.data?.payroll_batches[0]?.end_date ?? null,
+        payrollFinalizedThrough: greatestPayrollEndDate(payrollRes.data?.payroll_batches ?? []),
       })
     } catch {
       // Dashboard stats are best-effort
@@ -322,10 +322,10 @@ function AdminDashboard() {
         <StatCard label="Weekly Scheduled Hours" value={`${stats.weeklyHours.toFixed(1)}h`} sublabel="Total planned hours across the active week" />
       </div>
 
-      <section className="overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-2xl border border-primary/20 bg-white shadow-sm">
         <div className="grid gap-0 lg:grid-cols-[1.3fr_0.7fr]">
           <div className="p-5 sm:p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Payroll readiness</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Payroll readiness</p>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
               <h2 className="text-xl font-semibold text-slate-950">{formatPayrollPeriod(payrollPeriod)}</h2>
               <p className="text-sm text-slate-500">
@@ -340,9 +340,9 @@ function AdminDashboard() {
                 : 'No approvals are currently waiting. Preview the cutoff to confirm included hours, exclusions, and any blocking payroll data.'}
             </p>
           </div>
-          <div className="flex flex-col justify-center gap-3 border-t border-cyan-100 bg-cyan-50/70 p-5 sm:flex-row lg:flex-col lg:border-l lg:border-t-0">
-            <Link to={withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals', through_date: payrollPeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-cyan-200 bg-white px-4 py-2.5 text-sm font-semibold text-cyan-900 transition hover:border-cyan-300 hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>
-            <Link to={withPayrollPeriod('/admin/payroll', payrollPeriod)} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2">Prepare payroll cutoff</Link>
+          <div className="flex flex-col justify-center gap-3 border-t border-primary/10 bg-primary/5 p-5 sm:flex-row lg:flex-col lg:border-l lg:border-t-0">
+            <Link to={withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals', through_date: payrollPeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/20 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Review approvals</Link>
+            <Link to={withPayrollPeriod('/admin/payroll', payrollPeriod)} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Prepare payroll cutoff</Link>
           </div>
         </div>
       </section>

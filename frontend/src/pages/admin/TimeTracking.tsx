@@ -218,7 +218,10 @@ export default function TimeTracking() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { userRole, isClerkEnabled } = useAuthContext()
   const authSaysAdmin = !isClerkEnabled || userRole === 'admin'
-  const initialLinkedPeriod = linkedPayrollPeriod(searchParams)
+  const routedPeriod = linkedPayrollPeriod(searchParams)
+  const routedPeriodStart = routedPeriod?.start
+  const routedPeriodEnd = routedPeriod?.end
+  const initialLinkedPeriod = routedPeriod
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [users, setUsers] = useState<UserOption[]>([])
@@ -462,6 +465,18 @@ export default function TimeTracking() {
     const requestedTab = timeTabFromSearchParams(searchParams)
     setActiveTab((current) => current === requestedTab ? current : requestedTab)
   }, [searchParams])
+
+  useEffect(() => {
+    if (!routedPeriodStart || !routedPeriodEnd) return
+    const timer = window.setTimeout(() => {
+      setReportFilters((current) => (
+        current.start_date === routedPeriodStart && current.end_date === routedPeriodEnd
+          ? current
+          : { ...current, start_date: routedPeriodStart, end_date: routedPeriodEnd }
+      ))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [routedPeriodEnd, routedPeriodStart])
 
   useEffect(() => {
     loadEntries()
@@ -736,7 +751,6 @@ export default function TimeTracking() {
   }, {} as Record<string, number>)
   const pendingApprovalCount = pendingApprovalSummary?.entry_count ?? 0
   const pendingOvertimeApprovalCount = pendingApprovalSummary?.pending_overtime_count ?? 0
-  const routedPeriod = linkedPayrollPeriod(searchParams)
   const throughDateParam = searchParams.get('through_date')
   const routedThroughDate = isIsoDate(throughDateParam) ? throughDateParam : undefined
   const workspacePeriod = activeTab === 'reports'
@@ -1591,16 +1605,16 @@ export default function TimeTracking() {
       {/* Reports Tab */}
       {activeTab === 'reports' && isAdmin && (
         <div className="space-y-6">
-          <section className="flex flex-col gap-4 rounded-2xl border border-cyan-200 bg-cyan-50/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-cyan-950">Live hours, not a finalized payroll record</h2>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-cyan-900/80">
+              <h2 className="text-sm font-semibold text-primary-dark">Live hours, not a finalized payroll record</h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-primary/80">
                 Use this report to investigate current time and download working exports. Finalize the authoritative cutoff from Payroll after review.
               </p>
             </div>
             <Link
               to={withPayrollPeriod('/admin/payroll', { start: reportFilters.start_date, end: reportFilters.end_date })}
-              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               Prepare payroll cutoff
             </Link>

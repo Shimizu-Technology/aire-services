@@ -21,6 +21,10 @@ describe('TimePayrollWorkspaceHeader', () => {
 
     expect(screen.getByRole('heading', { name: 'Time & Payroll' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Payroll' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Payroll' })).toHaveAttribute(
+      'href',
+      '/admin/payroll?start_date=2026-08-16&end_date=2026-08-31',
+    )
     expect(screen.getByRole('link', { name: 'Approvals, 35 pending' })).toHaveAttribute(
       'href',
       '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=approvals&through_date=2026-08-31',

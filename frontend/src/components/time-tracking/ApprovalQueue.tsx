@@ -238,6 +238,25 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('aire_pending_approvals_collapsed') === 'true')
   const fetchGenerationRef = useRef(0)
+  const routedDateMode = initialDateFilter?.mode
+  const routedStartDate = initialDateFilter?.mode === 'range' ? initialDateFilter.startDate : undefined
+  const routedEndDate = initialDateFilter?.mode === 'range' ? initialDateFilter.endDate : undefined
+  const routedThroughDate = initialDateFilter?.mode === 'through' ? initialDateFilter.throughDate : undefined
+
+  useEffect(() => {
+    if (!routedDateMode) return
+    setReviewFilters((current) => {
+      if (routedDateMode === 'range' && routedStartDate && routedEndDate) {
+        if (current.dateMode === 'range' && current.startDate === routedStartDate && current.endDate === routedEndDate) return current
+        return { ...current, dateMode: 'range', startDate: routedStartDate, endDate: routedEndDate }
+      }
+      if (routedDateMode === 'through' && routedThroughDate) {
+        if (current.dateMode === 'through' && current.throughDate === routedThroughDate) return current
+        return { ...current, dateMode: 'through', throughDate: routedThroughDate }
+      }
+      return current
+    })
+  }, [routedDateMode, routedEndDate, routedStartDate, routedThroughDate])
 
   const activeReviewFilters = hasActiveReviewFilters(reviewFilters)
 

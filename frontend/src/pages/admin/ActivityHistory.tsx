@@ -158,6 +158,8 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
 
 export default function ActivityHistory() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const routedEventCategory = searchParams.get('event_category')?.trim() || undefined
+  const routedSearch = searchParams.get('search')?.trim() || ''
   const [events, setEvents] = useState<AuditLogEntry[]>([])
   const [selected, setSelected] = useState<AuditLogEntry | null>(null)
   const [availableCategories, setAvailableCategories] = useState<string[]>(Object.keys(CATEGORY_LABELS))
@@ -174,6 +176,18 @@ export default function ActivityHistory() {
   useEffect(() => {
     document.title = 'Activity History | AIRE Ops'
   }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchInput((current) => current === routedSearch ? current : routedSearch)
+      setFilters((current) => {
+        const search = routedSearch || undefined
+        if (current.event_category === routedEventCategory && current.search === search) return current
+        return { ...current, page: 1, event_category: routedEventCategory, search }
+      })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [routedEventCategory, routedSearch])
 
   const routeScope = useMemo(() => subjectScope(searchParams), [searchParams])
   const routeSubjectType = routeScope.subject_type

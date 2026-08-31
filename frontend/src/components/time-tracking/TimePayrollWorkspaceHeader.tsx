@@ -62,7 +62,7 @@ export default function TimePayrollWorkspaceHeader({
     <div className="space-y-5">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
             {isAdmin ? 'Workforce operations' : 'Staff workspace'}
           </p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
@@ -99,9 +99,9 @@ export default function TimePayrollWorkspaceHeader({
                 )}
               </>
             )
-            const className = `inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 ${
+            const className = `inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
               active
-                ? 'border-cyan-700 text-cyan-800'
+                ? 'border-primary text-primary'
                 : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-900'
             }`
 

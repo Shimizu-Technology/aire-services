@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import PayrollRuns from './PayrollRuns'
@@ -120,6 +120,16 @@ function renderPayrollRuns(initialEntry = '/admin/payroll') {
   )
 }
 
+function PayrollRouteHarness() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <button type="button" onClick={() => navigate('/admin/payroll?start_date=2026-07-01&end_date=2026-07-15')}>Open July payroll</button>
+      <PayrollRuns />
+    </>
+  )
+}
+
 describe('PayrollRuns', () => {
   beforeEach(() => {
     Object.values(apiMock).forEach((mock) => mock.mockReset())
@@ -153,6 +163,22 @@ describe('PayrollRuns', () => {
     expect(screen.getByLabelText('Period end')).toHaveValue('2026-08-15')
     expect(screen.getByRole('link', { name: 'Review approvals' })).toHaveAttribute('href', expect.stringContaining('through_date=2026-08-15'))
     expect(screen.getByRole('link', { name: 'View live hours' })).toHaveAttribute('href', '/admin/time?start_date=2026-08-01&end_date=2026-08-15&tab=reports')
+  })
+
+  it('synchronizes the selected period when same-route query parameters change', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/payroll?start_date=2026-08-01&end_date=2026-08-15']}>
+        <PayrollRouteHarness />
+      </MemoryRouter>,
+    )
+    await screen.findByText('No payroll batches have been finalized yet.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open July payroll' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Period start')).toHaveValue('2026-07-01'))
+    expect(screen.getByLabelText('Period end')).toHaveValue('2026-07-15')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await waitFor(() => expect(apiMock.previewPayrollBatch).toHaveBeenCalledWith('2026-07-01', '2026-07-15'))
   })
 
   it('requires a review confirmation before finalizing an immutable batch', async () => {

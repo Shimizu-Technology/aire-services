@@ -49,6 +49,13 @@ export function formatPayrollPeriod(period: PayrollPeriod) {
   return `${formatPayrollDate(period.start)}–${formatPayrollDate(period.end)}`
 }
 
+export function greatestPayrollEndDate(batches: Array<{ end_date: string }>) {
+  return batches.reduce<string | null>((greatest, batch) => {
+    if (!isIsoDate(batch.end_date)) return greatest
+    return !greatest || batch.end_date > greatest ? batch.end_date : greatest
+  }, null)
+}
+
 export function withPayrollPeriod(path: string, period: PayrollPeriod, extra: Record<string, string> = {}) {
   const params = new URLSearchParams({ start_date: period.start, end_date: period.end, ...extra })
   return `${path}?${params.toString()}`

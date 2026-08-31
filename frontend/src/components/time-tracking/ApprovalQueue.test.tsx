@@ -154,7 +154,7 @@ describe('ApprovalQueue review workflow', () => {
   })
 
   it('starts with a linked payroll date range', async () => {
-    render(
+    const { rerender } = render(
       <ApprovalQueue
         approvalGroups={[]}
         approvalGroupsLoaded
@@ -169,6 +169,20 @@ describe('ApprovalQueue review workflow', () => {
       end_date: '2026-06-15',
     }))
     expect(screen.getByDisplayValue('Date range')).toBeInTheDocument()
+
+    rerender(
+      <ApprovalQueue
+        approvalGroups={[]}
+        approvalGroupsLoaded
+        initialDateFilter={{ mode: 'range', startDate: '2026-07-01', endDate: '2026-07-15' }}
+        canDeleteEntry={() => true}
+      />,
+    )
+
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-07-01',
+      end_date: '2026-07-15',
+    })))
   })
 
   it('can open approvals through a payroll cutoff date', async () => {

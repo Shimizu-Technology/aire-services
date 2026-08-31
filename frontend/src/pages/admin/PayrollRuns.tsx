@@ -271,8 +271,9 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
 
 export default function PayrollRuns() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [startDate, setStartDate] = useState(() => payrollPeriodFromSearchParams(searchParams).start)
-  const [endDate, setEndDate] = useState(() => payrollPeriodFromSearchParams(searchParams).end)
+  const routedPeriod = payrollPeriodFromSearchParams(searchParams)
+  const [startDate, setStartDate] = useState(() => routedPeriod.start)
+  const [endDate, setEndDate] = useState(() => routedPeriod.end)
   const [preview, setPreview] = useState<PayrollBatchPayload | null>(null)
   const [batches, setBatches] = useState<PayrollBatchListItem[]>([])
   const [selectedBatch, setSelectedBatch] = useState<PayrollBatchDetail | null>(null)
@@ -287,15 +288,42 @@ export default function PayrollRuns() {
   const [dialogError, setDialogError] = useState<string | null>(null)
   const historyRequestSequence = useRef(0)
   const previewRequestSequence = useRef(0)
+  const internalPeriodNavigation = useRef<string | null>(null)
+  const displayedPeriodKey = useRef(`${routedPeriod.start}|${routedPeriod.end}`)
 
   useEffect(() => { document.title = 'Payroll Cutoffs | AIRE Ops' }, [])
 
   const syncPeriodToUrl = useCallback((period: PayrollPeriod) => {
+    const periodKey = `${period.start}|${period.end}`
+    internalPeriodNavigation.current = periodKey
+    displayedPeriodKey.current = periodKey
     const next = new URLSearchParams(searchParams)
     next.set('start_date', period.start)
     next.set('end_date', period.end)
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
+
+  useEffect(() => {
+    const routeKey = `${routedPeriod.start}|${routedPeriod.end}`
+    if (internalPeriodNavigation.current === routeKey) {
+      internalPeriodNavigation.current = null
+      return
+    }
+    if (displayedPeriodKey.current === routeKey) return
+    displayedPeriodKey.current = routeKey
+
+    const timer = window.setTimeout(() => {
+      setStartDate(routedPeriod.start)
+      setEndDate(routedPeriod.end)
+      previewRequestSequence.current += 1
+      setPreviewing(false)
+      setPreview(null)
+      setSelectedBatch(null)
+      setShowConfirm(false)
+      setDialogError(null)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [routedPeriod.end, routedPeriod.start])
 
   const loadBatches = useCallback(async () => {
     const requestSequence = ++historyRequestSequence.current

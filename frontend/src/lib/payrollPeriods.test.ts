@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   currentPayrollPeriod,
   formatPayrollPeriod,
+  greatestPayrollEndDate,
   isIsoDate,
   payrollPeriodFromSearchParams,
   withPayrollPeriod,
@@ -35,5 +36,14 @@ describe('payroll period utilities', () => {
     const period = { start: '2026-08-16', end: '2026-08-31' }
     expect(formatPayrollPeriod(period)).toBe('Aug 16, 2026–Aug 31, 2026')
     expect(withPayrollPeriod('/admin/time', period, { tab: 'approvals' })).toBe('/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=approvals')
+  })
+
+  it('finds the greatest finalized boundary regardless of finalization order', () => {
+    expect(greatestPayrollEndDate([
+      { end_date: '2026-08-15' },
+      { end_date: '2026-07-31' },
+      { end_date: '2026-08-31' },
+    ])).toBe('2026-08-31')
+    expect(greatestPayrollEndDate([])).toBeNull()
   })
 })
