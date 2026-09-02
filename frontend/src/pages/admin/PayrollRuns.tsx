@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   api,
@@ -68,8 +68,26 @@ function formatHours(value: number) {
 
 function localDateTimeToIso(value: string) {
   if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value)
+  if (!match) return null
+
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText = '0'] = match
+  const [year, month, day, hour, minute, second] = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number)
+  const wallTime = new Date(Date.UTC(year, month - 1, day, hour, minute, second))
+  const valid = wallTime.getUTCFullYear() === year && wallTime.getUTCMonth() === month - 1 && wallTime.getUTCDate() === day &&
+    wallTime.getUTCHours() === hour && wallTime.getUTCMinutes() === minute && wallTime.getUTCSeconds() === second
+  if (!valid) return null
+
+  // datetime-local has no timezone. These fields are explicitly labeled Guam time,
+  // and Guam is UTC+10 year-round with no daylight-saving transition.
+  return new Date(Date.UTC(year, month - 1, day, hour - 10, minute, second)).toISOString()
+}
+
+function sameInstant(first: string | null | undefined, second: string | null | undefined) {
+  if (!first || !second) return false
+  const firstTime = Date.parse(first)
+  const secondTime = Date.parse(second)
+  return Number.isFinite(firstTime) && Number.isFinite(secondTime) && firstTime === secondTime
 }
 
 function processingLabel(batch: PayrollBatchListItem) {
@@ -272,19 +290,9 @@ function BatchContents({ payload }: { payload: PayrollBatchPayload }) {
   )
 }
 
-function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
-  payload: PayrollBatchPayload
-  onClose: () => void
-  onConfirm: (note?: string) => void
-  submitting: boolean
-  error: string | null
-}) {
-  const [confirmed, setConfirmed] = useState(false)
-  const [note, setNote] = useState('')
-  const dialogRef = useRef<HTMLDivElement>(null)
+function useDialogFocusTrap(dialogRef: RefObject<HTMLDivElement | null>, onClose: () => void, submitting: boolean) {
   const closeRef = useRef(onClose)
   const submittingRef = useRef(submitting)
-  const needsCorrectionNote = Boolean(payload.requires_negative_adjustment_acknowledgement)
 
   useEffect(() => {
     closeRef.current = onClose
@@ -325,7 +333,22 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
       window.removeEventListener('keydown', onKeyDown)
       previouslyFocused?.focus()
     }
-  }, [])
+  }, [dialogRef])
+}
+
+function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
+  payload: PayrollBatchPayload
+  onClose: () => void
+  onConfirm: (note?: string) => void
+  submitting: boolean
+  error: string | null
+}) {
+  const [confirmed, setConfirmed] = useState(false)
+  const [note, setNote] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const needsCorrectionNote = Boolean(payload.requires_negative_adjustment_acknowledgement)
+
+  useDialogFocusTrap(dialogRef, onClose, submitting)
 
   const canSubmit = confirmed && (!needsCorrectionNote || note.trim().length >= 10) && !submitting
   return (
@@ -368,65 +391,42 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
   const [externalPayPeriodId, setExternalPayPeriodId] = useState('')
   const [note, setNote] = useState('')
   const [acknowledgeMissingCategories, setAcknowledgeMissingCategories] = useState(false)
+  const [acknowledgeNegativeAdjustments, setAcknowledgeNegativeAdjustments] = useState(false)
+  const [negativeAdjustmentNote, setNegativeAdjustmentNote] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [snapshot, setSnapshot] = useState<PayrollBatchPayload | null>(null)
   const [reviewing, setReviewing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
-  const closeRef = useRef(onClose)
-  const submittingRef = useRef(submitting)
+  const cutoffLocalRef = useRef('')
+  const reviewRequestSequence = useRef(0)
 
-  useEffect(() => {
-    closeRef.current = onClose
-    submittingRef.current = submitting
-  }, [onClose, submitting])
-
-  useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    dialogRef.current?.focus()
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !submittingRef.current) {
-        closeRef.current()
-        return
-      }
-      if (event.key !== 'Tab' || !dialogRef.current) return
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ))
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      previouslyFocused?.focus()
-    }
-  }, [])
+  useDialogFocusTrap(dialogRef, onClose, submitting)
 
   const invalidateSnapshot = () => {
+    reviewRequestSequence.current += 1
+    setReviewing(false)
     setSnapshot(null)
+    setAcknowledgeMissingCategories(false)
+    setAcknowledgeNegativeAdjustments(false)
+    setNegativeAdjustmentNote('')
     setConfirmed(false)
     setError(null)
   }
 
   const reviewSnapshot = async () => {
-    const cutoffAt = localDateTimeToIso(cutoffLocal)
+    const requestedCutoffLocal = cutoffLocalRef.current
+    const cutoffAt = localDateTimeToIso(requestedCutoffLocal)
     if (!cutoffAt) {
       setError('Enter the date and time when the included hours were frozen for payroll.')
       return
     }
+    const requestSequence = ++reviewRequestSequence.current
     setReviewing(true)
     setError(null)
     const response = await api.previewPayrollBatch(period.start, period.end, cutoffAt)
+    if (requestSequence !== reviewRequestSequence.current || cutoffLocalRef.current !== requestedCutoffLocal) return
     if (response.data) setSnapshot(response.data)
     else setError(response.error || 'The historical payroll snapshot could not be reviewed.')
     setReviewing(false)
@@ -435,14 +435,16 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
   const processedAt = localDateTimeToIso(processedLocal)
   const cutoffAt = localDateTimeToIso(cutoffLocal)
   const missingCategories = snapshot?.issues.missing_category_count || 0
+  const negativeAdjustments = snapshot?.issues.negative_adjustment_count || 0
   const canRecord = Boolean(
-    snapshot && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
+    snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
     new Date(processedAt || 0).getTime() >= new Date(cutoffAt || 0).getTime() &&
-    (!missingCategories || acknowledgeMissingCategories) && !submitting,
+    (!missingCategories || acknowledgeMissingCategories) &&
+    (!negativeAdjustments || (acknowledgeNegativeAdjustments && negativeAdjustmentNote.trim().length >= 10)) && !submitting,
   )
 
   const recordProcessed = async () => {
-    if (!snapshot || !cutoffAt || !processedAt) return
+    if (!snapshot || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
     setSubmitting(true)
     setError(null)
     const response = await api.finalizePayrollBatch({
@@ -454,8 +456,8 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
       external_pay_period_id: externalPayPeriodId.trim(),
       processing_note: note.trim(),
       acknowledge_missing_categories: acknowledgeMissingCategories,
-      acknowledge_negative_adjustments: snapshot.issues.negative_adjustment_count > 0,
-      negative_adjustment_note: snapshot.issues.negative_adjustment_count > 0 ? note.trim() : undefined,
+      acknowledge_negative_adjustments: acknowledgeNegativeAdjustments,
+      negative_adjustment_note: acknowledgeNegativeAdjustments ? negativeAdjustmentNote.trim() : undefined,
     })
     if (response.data) await onRecorded(response.data)
     else setError(response.error || 'The manually processed payroll could not be recorded.')
@@ -471,7 +473,7 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-700">Hours frozen at
-            <input type="datetime-local" step="1" value={cutoffLocal} onChange={(event) => { setCutoffLocal(event.target.value); invalidateSnapshot() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <input type="datetime-local" step="1" value={cutoffLocal} onChange={(event) => { cutoffLocalRef.current = event.target.value; setCutoffLocal(event.target.value); invalidateSnapshot() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
             <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">Guam time. Hours approved after this moment stay unpaid and carry forward.</span>
           </label>
           <label className="text-sm font-medium text-slate-700">Cornerstone processed at
@@ -523,17 +525,29 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
         </div>
 
         {snapshot && missingCategories > 0 && (
-          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <input type="checkbox" checked={acknowledgeMissingCategories} onChange={(event) => setAcknowledgeMissingCategories(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
-            <span className="text-sm leading-6 text-amber-950">I confirm these {missingCategories} legacy uncategorized entries were included in the payroll already processed. New payroll cutoffs remain blocked until categories are fixed.</span>
-          </label>
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <input id="acknowledge-missing-categories" type="checkbox" checked={acknowledgeMissingCategories} onChange={(event) => setAcknowledgeMissingCategories(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
+            <label htmlFor="acknowledge-missing-categories" className="cursor-pointer text-sm leading-6 text-amber-950">I confirm these {missingCategories} legacy uncategorized entries were included in the payroll already processed. New payroll cutoffs remain blocked until categories are fixed.</label>
+          </div>
+        )}
+
+        {snapshot && negativeAdjustments > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start gap-3">
+              <input id="acknowledge-manual-negative-adjustments" type="checkbox" checked={acknowledgeNegativeAdjustments} onChange={(event) => setAcknowledgeNegativeAdjustments(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
+              <label htmlFor="acknowledge-manual-negative-adjustments" className="cursor-pointer text-sm leading-6 text-amber-950">I confirm these {negativeAdjustments} negative correction{negativeAdjustments === 1 ? '' : 's'} match the payroll already processed.</label>
+            </div>
+            <label htmlFor="manual-negative-adjustment-note" className="mt-3 block text-sm font-medium text-amber-950">Negative correction explanation</label>
+            <textarea id="manual-negative-adjustment-note" value={negativeAdjustmentNote} onChange={(event) => setNegativeAdjustmentNote(event.target.value)} rows={3} className="mt-2 block w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-primary" placeholder="Explain why the prior payroll amount was corrected…" />
+            <p className="mt-1 text-xs text-amber-800">At least 10 characters. This explanation is stored with the permanent correction acknowledgement.</p>
+          </div>
         )}
 
         {snapshot && (
-          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
-            <span className="text-sm leading-6 text-slate-700">I compared this historical AIRE snapshot with Cornerstone and confirm it represents the hours that were actually processed. I understand the record cannot be changed.</span>
-          </label>
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-slate-200 p-4">
+            <input id="confirm-manual-payroll-match" type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
+            <label htmlFor="confirm-manual-payroll-match" className="cursor-pointer text-sm leading-6 text-slate-700">I compared this historical AIRE snapshot with Cornerstone and confirm it represents the hours that were actually processed. I understand the record cannot be changed.</label>
+          </div>
         )}
 
         {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
@@ -782,7 +796,7 @@ export default function PayrollRuns() {
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{selectedBatch ? 'Finalized batch' : 'Live preview'}</p>
               <h2 className="mt-1 text-2xl font-semibold text-slate-950">{formatDate(activePayload.start_date)}–{formatDate(activePayload.end_date)}</h2>
               {selectedBatch && <p className="mt-1 text-sm text-slate-500">{selectedBatch.id} · finalized {formatDateTime(selectedBatch.finalized_at)}</p>}
-              {selectedBatch?.processing && <p className="mt-1 text-sm font-medium text-emerald-700">{processingLabel(selectedBatch)} · Cornerstone period {selectedBatch.processing.external_pay_period_id || 'not provided'} · {formatDateTime(selectedBatch.processing.occurred_at)}</p>}
+              {selectedBatch?.processing && <p className={`mt-1 text-sm font-medium ${selectedBatch.processing.status === 'payment_failed' ? 'text-red-700' : 'text-emerald-700'}`}>{processingLabel(selectedBatch)} · Cornerstone period {selectedBatch.processing.external_pay_period_id || 'not provided'} · {formatDateTime(selectedBatch.processing.occurred_at)}</p>}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}

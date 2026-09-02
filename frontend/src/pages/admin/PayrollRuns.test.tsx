@@ -284,7 +284,7 @@ describe('PayrollRuns', () => {
       ...preview,
       cutoff_at: '2026-08-31T03:06:00Z',
       can_finalize: false,
-      issues: { ...issues, missing_category_count: 1, pending_approval_count: 9 },
+      issues: { ...issues, missing_category_count: 1, negative_adjustment_count: 1, pending_approval_count: 9 },
       summary: { ...preview.summary, total_hours: 599.06, exclusion_count: 10 },
     }
     const manuallyProcessed = {
@@ -319,19 +319,60 @@ describe('PayrollRuns', () => {
     expect(await screen.findByText('599.06 hrs')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Cornerstone pay period ID'), { target: { value: '61' } })
     fireEvent.change(screen.getByLabelText(/Reconciliation note/), { target: { value: 'Matched against committed payroll period 61' } })
-    fireEvent.click(screen.getByText(/I confirm these 1 legacy uncategorized entries/).previousElementSibling as HTMLElement)
-    fireEvent.click(screen.getByText(/I compared this historical AIRE snapshot/).previousElementSibling as HTMLElement)
+    fireEvent.click(screen.getByRole('checkbox', { name: /I confirm these 1 legacy uncategorized/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /I confirm these 1 negative correction/ }))
+    fireEvent.change(screen.getByLabelText('Negative correction explanation'), { target: { value: 'Corrected historical overpayment' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /I compared this historical AIRE snapshot/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Record as processed manually' }))
 
     await waitFor(() => expect(apiMock.finalizePayrollBatch).toHaveBeenCalledWith(expect.objectContaining({
       start_date: '2026-08-01',
       end_date: '2026-08-15',
       manual_processing: true,
+      cutoff_at: '2026-08-31T03:06:00.000Z',
+      processed_at: '2026-08-31T03:18:00.000Z',
       external_pay_period_id: '61',
       acknowledge_missing_categories: true,
+      acknowledge_negative_adjustments: true,
+      negative_adjustment_note: 'Corrected historical overpayment',
       processing_note: 'Matched against committed payroll period 61',
     })))
     expect(await screen.findByText('Finalized batch')).toBeInTheDocument()
+  })
+
+  it('discards a historical preview response after the Guam cutoff changes', async () => {
+    let resolveOldPreview: (value: { data: typeof preview }) => void = () => undefined
+    const oldPreviewRequest = new Promise<{ data: typeof preview }>((resolve) => { resolveOldPreview = resolve })
+    const currentPreview = {
+      ...preview,
+      cutoff_at: '2026-08-31T04:00:00.000Z',
+      summary: { ...preview.summary, total_hours: 10 },
+    }
+    apiMock.previewPayrollBatch
+      .mockResolvedValueOnce({ data: preview })
+      .mockReturnValueOnce(oldPreviewRequest)
+      .mockResolvedValueOnce({ data: currentPreview })
+
+    renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
+    await screen.findByText('No payroll batches have been finalized yet.')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: 'Record already processed' }))
+
+    const cutoffInput = screen.getByLabelText(/Hours frozen at/)
+    fireEvent.change(cutoffInput, { target: { value: '2026-08-31T13:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+    fireEvent.change(cutoffInput, { target: { value: '2026-08-31T14:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+
+    expect(await screen.findByText('10.00 hrs')).toBeInTheDocument()
+    await act(async () => {
+      resolveOldPreview({ data: { ...preview, cutoff_at: '2026-08-31T03:00:00.000Z', summary: { ...preview.summary, total_hours: 99 } } })
+      await oldPreviewRequest
+    })
+
+    expect(screen.getByText('10.00 hrs')).toBeInTheDocument()
+    expect(screen.queryByText('99.00 hrs')).not.toBeInTheDocument()
   })
 
   it('requires and submits a trimmed explanation for negative corrections', async () => {

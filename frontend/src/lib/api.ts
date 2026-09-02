@@ -1700,12 +1700,7 @@ export const api = {
     acknowledge_negative_adjustments?: boolean;
     negative_adjustment_note?: string;
     manual_processing?: boolean;
-    cutoff_at?: string;
-    processed_at?: string;
-    external_pay_period_id?: string;
-    processing_note?: string;
-    acknowledge_missing_categories?: boolean;
-  }) => fetchApi<PayrollBatchDetail>('/api/v1/admin/payroll_batches', {
+  } & Partial<ManualPayrollProcessingInput>) => fetchApi<PayrollBatchDetail>('/api/v1/admin/payroll_batches', {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
