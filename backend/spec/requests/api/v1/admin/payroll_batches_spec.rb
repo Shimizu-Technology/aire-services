@@ -225,4 +225,40 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(json.fetch(:payroll_batches).length).to eq(100)
     expect(json).to include(total_count: 101, truncated: true)
   end
+
+  it "shows excluded time moving from approval to the next payroll and Cornerstone" do
+    pending = create_entry(approval_status: "pending")
+    post "/api/v1/admin/payroll_batches",
+         params: { start_date: "2026-08-01", end_date: "2026-08-15" },
+         headers: admin_headers
+    expect(response).to have_http_status(:created)
+
+    get "/api/v1/admin/payroll_batches/carryovers", headers: admin_headers
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:items, 0)).to include(source_time_entry_id: pending.id.to_s, status: "awaiting_approval")
+
+    pending.update!(approval_status: "approved", approved_at: Time.current)
+    get "/api/v1/admin/payroll_batches/carryovers", headers: admin_headers
+    expect(json.dig(:items, 0, :status)).to eq("ready_for_next_batch")
+
+    post "/api/v1/admin/payroll_batches",
+         params: { start_date: "2026-08-16", end_date: "2026-08-31" },
+         headers: admin_headers
+    later_batch_id = json.fetch(:id)
+
+    get "/api/v1/admin/payroll_batches/carryovers", headers: admin_headers
+    expect(json.dig(:items, 0)).to include(status: "awaiting_cornerstone")
+    expect(json.dig(:items, 0, :included_batch, :id)).to eq(later_batch_id)
+
+    PayrollBatchProcessingEvent.create!(
+      payroll_batch: PayrollBatch.find_by!(public_id: later_batch_id),
+      event_id: "cornerstone-import-9",
+      status: "imported",
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "9",
+      occurred_at: Time.current
+    )
+    get "/api/v1/admin/payroll_batches/carryovers", headers: admin_headers
+    expect(json.dig(:items, 0, :status)).to eq("imported")
+  end
 end

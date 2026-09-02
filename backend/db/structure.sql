@@ -389,6 +389,43 @@ ALTER SEQUENCE public.payroll_batch_exclusions_id_seq OWNED BY public.payroll_ba
 
 
 --
+-- Name: payroll_batch_processing_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_batch_processing_events (
+    id bigint NOT NULL,
+    payroll_batch_id bigint NOT NULL,
+    event_id character varying NOT NULL,
+    status character varying NOT NULL,
+    external_system character varying NOT NULL,
+    external_pay_period_id character varying,
+    occurred_at timestamp(6) without time zone NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_batch_processing_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_batch_processing_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_batch_processing_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_batch_processing_events_id_seq OWNED BY public.payroll_batch_processing_events.id;
+
+
+--
 -- Name: payroll_batches; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -940,6 +977,13 @@ ALTER TABLE ONLY public.payroll_batch_exclusions ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: payroll_batch_processing_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_processing_events ALTER COLUMN id SET DEFAULT nextval('public.payroll_batch_processing_events_id_seq'::regclass);
+
+
+--
 -- Name: payroll_batches id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1096,6 +1140,14 @@ ALTER TABLE ONLY public.payroll_batch_exclusions
 
 
 --
+-- Name: payroll_batch_processing_events payroll_batch_processing_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_processing_events
+    ADD CONSTRAINT payroll_batch_processing_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: payroll_batches payroll_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1211,6 +1263,13 @@ CREATE UNIQUE INDEX idx_employee_pay_rates_user_category ON public.employee_pay_
 --
 
 CREATE INDEX idx_on_export_type_start_date_end_date_1234e92c05 ON public.report_exports USING btree (export_type, start_date, end_date);
+
+
+--
+-- Name: idx_payroll_batch_processing_events_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_batch_processing_events_status ON public.payroll_batch_processing_events USING btree (payroll_batch_id, status, occurred_at);
 
 
 --
@@ -1470,6 +1529,20 @@ CREATE INDEX index_payroll_batch_exclusions_on_payroll_batch_id ON public.payrol
 --
 
 CREATE INDEX index_payroll_batch_exclusions_on_source_time_entry_id ON public.payroll_batch_exclusions USING btree (source_time_entry_id);
+
+
+--
+-- Name: index_payroll_batch_processing_events_on_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_batch_processing_events_on_event_id ON public.payroll_batch_processing_events USING btree (event_id);
+
+
+--
+-- Name: index_payroll_batch_processing_events_on_payroll_batch_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batch_processing_events_on_payroll_batch_id ON public.payroll_batch_processing_events USING btree (payroll_batch_id);
 
 
 --
@@ -1879,6 +1952,13 @@ CREATE TRIGGER payroll_batch_exclusions_append_only BEFORE DELETE OR UPDATE ON p
 
 
 --
+-- Name: payroll_batch_processing_events payroll_batch_processing_events_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_batch_processing_events_append_only BEFORE DELETE OR UPDATE ON public.payroll_batch_processing_events FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
 -- Name: payroll_batches payroll_batches_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -1899,6 +1979,14 @@ ALTER TABLE ONLY public.time_entries
 
 ALTER TABLE ONLY public.audit_logs
     ADD CONSTRAINT fk_rails_1f26bc34ae FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: payroll_batch_processing_events fk_rails_2065ea9686; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_batch_processing_events
+    ADD CONSTRAINT fk_rails_2065ea9686 FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE CASCADE;
 
 
 --
@@ -2084,6 +2172,7 @@ ALTER TABLE ONLY public.schedules
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260902010000'),
 ('20260831011000'),
 ('20260831010000'),
 ('20260830151000'),

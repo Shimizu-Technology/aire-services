@@ -35,6 +35,10 @@ module Api
           render json: { error: e.message }, status: :unprocessable_entity
         end
 
+        def carryovers
+          render json: ::Payroll::CarryoverQueue.new.call
+        end
+
         def create
           batch = ::Payroll::BatchFinalizer.new(
             start_date: params[:start_date],
@@ -79,6 +83,7 @@ module Api
             finalized_at: batch.finalized_at.iso8601,
             finalized_by: batch.finalized_by && { id: batch.finalized_by.id, name: batch.finalized_by.full_name },
             checksum: batch.checksum,
+            processing: batch.processing_status,
             summary: batch.summary,
             issues: batch.issues
           }

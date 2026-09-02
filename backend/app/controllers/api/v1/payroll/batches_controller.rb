@@ -60,7 +60,69 @@ module Api
           render json: batch.export_payload
         end
 
+        def processing_events
+          batch = PayrollBatch.find_by!(public_id: params[:id])
+          permitted = params.permit(:event_id, :status, :occurred_at, :external_system, :external_pay_period_id, metadata: {})
+          event = PayrollBatchProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
+          created = false
+          unless event
+            begin
+              event = PayrollBatchProcessingEvent.create!(
+                event_id: permitted.fetch(:event_id),
+                payroll_batch: batch,
+                status: permitted.fetch(:status),
+                occurred_at: Time.iso8601(permitted.fetch(:occurred_at)),
+                external_system: permitted.fetch(:external_system),
+                external_pay_period_id: permitted[:external_pay_period_id],
+                metadata: permitted[:metadata]&.to_h || {}
+              )
+              created = true
+            rescue ActiveRecord::RecordNotUnique
+              event = PayrollBatchProcessingEvent.find_by!(event_id: permitted.fetch(:event_id))
+            end
+          end
+
+          unless same_processing_event?(event, batch, permitted)
+            return render json: { error: "Event ID already belongs to a different processing event" }, status: :conflict
+          end
+
+          if created
+            AuditLog.record!(
+              action: "payroll_batch.processing_status_recorded",
+              actor: nil,
+              actor_kind: "integration",
+              source: "integration",
+              event_category: "payroll",
+              auditable: batch,
+              metadata: {
+                event_id: event.event_id,
+                status: event.status,
+                occurred_at: event.occurred_at.iso8601,
+                external_system: event.external_system,
+                external_pay_period_id: event.external_pay_period_id
+              }.compact
+            )
+          end
+
+          render json: { processing: batch.reload.processing_status }, status: created ? :created : :ok
+        rescue ActionController::ParameterMissing, ArgumentError => e
+          render json: { error: e.message }, status: :unprocessable_entity
+        rescue ActiveRecord::RecordInvalid => e
+          render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
+        end
+
         private
+
+        def same_processing_event?(event, batch, permitted)
+          event.payroll_batch_id == batch.id &&
+            event.status == permitted[:status] &&
+            event.external_system == permitted[:external_system] &&
+            event.external_pay_period_id.to_s == permitted[:external_pay_period_id].to_s &&
+            event.occurred_at.iso8601 == Time.iso8601(permitted[:occurred_at]).iso8601 &&
+            event.metadata == (permitted[:metadata]&.to_h || {})
+        rescue ArgumentError
+          false
+        end
 
         def batch_not_found
           render json: { error: "Payroll batch not found" }, status: :not_found

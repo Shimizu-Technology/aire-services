@@ -6,6 +6,8 @@ import {
   type PayrollBatchIssues,
   type PayrollBatchListItem,
   type PayrollBatchPayload,
+  type PayrollCarryoverItem,
+  type PayrollCarryoverQueue,
 } from '../../lib/api'
 import TimePayrollWorkspaceHeader from '../../components/time-tracking/TimePayrollWorkspaceHeader'
 import {
@@ -35,6 +37,17 @@ const EXCLUSION_LABELS: Record<string, string> = {
   created_after_cutoff: 'Created after cutoff',
   approved_after_cutoff: 'Approved after cutoff',
   overtime_approved_after_cutoff: 'Overtime approved after cutoff',
+}
+
+const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; detail: string; className: string }> = {
+  awaiting_approval: { label: 'Needs approval', detail: 'Not payable until an authorized reviewer approves it.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
+  ready_for_next_batch: { label: 'Ready for next cutoff', detail: 'Approved after the earlier cutoff. AIRE will include it automatically in the next finalized batch.', className: 'border-cyan-200 bg-cyan-50 text-cyan-800' },
+  awaiting_cornerstone: { label: 'Finalized in AIRE', detail: 'Included in a finalized batch and waiting to be imported into Cornerstone.', className: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
+  imported: { label: 'Imported to Cornerstone', detail: 'Cornerstone has added these hours to a draft payroll.', className: 'border-blue-200 bg-blue-50 text-blue-800' },
+  committed: { label: 'Payroll committed', detail: 'Cornerstone has committed the payroll containing these hours.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
+  payment_issued: { label: 'Payment issued', detail: 'Cornerstone reported that payment was issued.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
+  payment_failed: { label: 'Payment needs attention', detail: 'Cornerstone reported a payment problem that needs review.', className: 'border-red-200 bg-red-50 text-red-800' },
+  not_payable: { label: 'Not payable', detail: 'This entry was denied, removed, or otherwise closed without payment.', className: 'border-slate-200 bg-slate-100 text-slate-700' },
 }
 
 function formatDate(value: string) {
@@ -82,6 +95,66 @@ function SummaryCards({ payload }: { payload: PayrollBatchPayload }) {
         </div>
       ))}
     </div>
+  )
+}
+
+function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueue | null; loading: boolean; error: string | null }) {
+  const activeItems = queue?.items.filter((item) => item.status !== 'not_payable') || []
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="carryover-queue-title">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">Unpaid time lifecycle</p>
+          <h2 id="carryover-queue-title" className="mt-1 text-xl font-semibold text-slate-950">Carryover queue</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Hours excluded from an earlier cutoff stay here until they are approved, included in a later batch, and acknowledged by Cornerstone.</p>
+        </div>
+        {queue && <p className="text-xs text-slate-500">{activeItems.length} active item{activeItems.length === 1 ? '' : 's'}</p>}
+      </div>
+
+      {loading && <p className="mt-5 rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">Loading carryover status…</p>}
+      {error && <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {!loading && !error && queue && (
+        <>
+          <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[
+              ['Needs approval', queue.summary.awaiting_approval_count],
+              ['Ready for cutoff', queue.summary.ready_for_next_batch_count],
+              ['In payroll', queue.summary.in_payroll_count],
+              ['Closed unpaid', queue.summary.not_payable_count],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                <p className="mt-1 text-xl font-semibold text-slate-950">{value}</p>
+              </div>
+            ))}
+          </div>
+          {queue.truncated && <p className="mt-4 text-xs text-amber-800">Showing the first 250 carryover records. The complete history remains in AIRE.</p>}
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {activeItems.length === 0 && <p className="rounded-xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">No unpaid carryover items need attention.</p>}
+            {activeItems.map((item) => {
+              const status = CARRYOVER_STATUS[item.status]
+              return (
+                <article key={item.source_time_entry_id} className="rounded-2xl border border-slate-200 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-slate-950">{item.display_name}</h3>
+                      <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)} · entry #{item.source_time_entry_id}</p>
+                    </div>
+                    <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                    <span>{formatHours(item.current_total_hours ?? item.held_total_hours)}</span>
+                    <span>Originally excluded: {EXCLUSION_LABELS[item.exclusion_reason] || item.exclusion_reason}</span>
+                  </div>
+                  <p className="mt-3 text-sm leading-5 text-slate-600">{status.detail}</p>
+                  {item.included_batch && <p className="mt-2 text-xs text-slate-500">Later batch: {formatDate(item.included_batch.start_date)}–{formatDate(item.included_batch.end_date)} · {item.included_batch.id}</p>}
+                </article>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </section>
   )
 }
 
@@ -279,6 +352,9 @@ export default function PayrollRuns() {
   const [endDate, setEndDate] = useState(() => routedPeriod.end)
   const [preview, setPreview] = useState<PayrollBatchPayload | null>(null)
   const [batches, setBatches] = useState<PayrollBatchListItem[]>([])
+  const [carryovers, setCarryovers] = useState<PayrollCarryoverQueue | null>(null)
+  const [carryoversLoading, setCarryoversLoading] = useState(true)
+  const [carryoversError, setCarryoversError] = useState<string | null>(null)
   const [selectedBatch, setSelectedBatch] = useState<PayrollBatchDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [previewing, setPreviewing] = useState(false)
@@ -344,10 +420,20 @@ export default function PayrollRuns() {
     setLoading(false)
   }, [])
 
+  const loadCarryovers = useCallback(async () => {
+    setCarryoversLoading(true)
+    const response = await api.getPayrollCarryovers()
+    if (response.data) {
+      setCarryovers(response.data)
+      setCarryoversError(null)
+    } else setCarryoversError(response.error || 'The carryover queue could not be loaded.')
+    setCarryoversLoading(false)
+  }, [])
+
   useEffect(() => {
-    const timer = window.setTimeout(() => { void loadBatches() }, 0)
+    const timer = window.setTimeout(() => { void Promise.all([loadBatches(), loadCarryovers()]) }, 0)
     return () => window.clearTimeout(timer)
-  }, [loadBatches])
+  }, [loadBatches, loadCarryovers])
 
   const runPreview = async () => {
     const requestSequence = ++previewRequestSequence.current
@@ -405,7 +491,7 @@ export default function PayrollRuns() {
       setShowConfirm(false)
       setPreview(null)
       setSelectedBatch(response.data)
-      await loadBatches()
+      await Promise.all([loadBatches(), loadCarryovers()])
     } else {
       setDialogError(response.error || 'The payroll batch could not be finalized.')
     }
@@ -455,6 +541,8 @@ export default function PayrollRuns() {
           <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'reports' })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">View live hours</Link>
         </div>
       </section>
+
+      <CarryoverQueue queue={carryovers} loading={carryoversLoading} error={carryoversError} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
@@ -511,7 +599,7 @@ export default function PayrollRuns() {
                   <p className="font-semibold text-slate-950">{formatDate(batch.start_date)}–{formatDate(batch.end_date)}</p>
                   <p className="mt-1 text-xs text-slate-500">{batch.id}</p>
                 </div>
-                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Finalized</span>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${batch.processing?.status === 'committed' || batch.processing?.status === 'payment_issued' ? 'bg-emerald-50 text-emerald-700' : batch.processing?.status === 'imported' ? 'bg-blue-50 text-blue-700' : batch.processing?.status === 'payment_failed' ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>{batch.processing ? CARRYOVER_STATUS[batch.processing.status].label : 'Finalized in AIRE'}</span>
               </div>
               <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
                 <span>{formatHours(batch.summary.total_hours)}</span>

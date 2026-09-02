@@ -6,7 +6,7 @@
 
 ## Purpose and authority
 
-AIRE owns punches, work dates, approvals, categories, source rates, exclusions, and the immutable cutoff ledger. Cornerstone Payroll owns employee and wage mapping, legal-workweek validation, payroll calculation, taxes, checks, liabilities, and the decision to apply a batch.
+AIRE owns punches, work dates, approvals, categories, exclusions, and the immutable cutoff ledger. Cornerstone Payroll owns employee and wage mapping, compensation rates, legal-workweek validation, payroll calculation, taxes, checks, liabilities, and the decision to apply a batch. AIRE does not export compensation or pay rates.
 
 A batch contains settlement deltas rather than a mutable restatement of a date range. A current entry is positive work included at the cutoff. A carryover is work from an earlier period that became payable after a prior cutoff. A correction may be positive or negative and reverses or replaces work already included in an earlier batch. Consumers must not discard adjustments because their original work date is outside the new pay period.
 
@@ -17,9 +17,12 @@ The source accepts either `X-Payroll-Shared-Secret` or `X-Shared-Secret`.
 ```text
 GET /api/v1/payroll/batches?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 GET /api/v1/payroll/batches/{batch_id}
+POST /api/v1/payroll/batches/{batch_id}/processing_events
 ```
 
 The list endpoint discovers finalized batches by their exact nominal dates. The detail endpoint returns the immutable payload plus an `export` envelope containing the stable batch ID, readiness state, cutoff timestamps, checksum algorithm, and checksum scope.
+
+The processing-events endpoint is the append-only acknowledgement channel back from Cornerstone Payroll. It accepts an idempotent `event_id`, a status (`imported`, `committed`, `payment_issued`, or `payment_failed`), `occurred_at`, `external_system`, an optional external pay-period ID, and non-authoritative metadata. These events never change the finalized batch payload or checksum. `imported` means the hours were added to a Cornerstone draft; it does not mean payroll was committed or payment was issued.
 
 ## Integrity and idempotency
 
@@ -42,6 +45,7 @@ Cornerstone must treat `export.batch_id` as the idempotency key. Importing the s
 - Reject missing employee, category, or wage mappings instead of guessing.
 - Validate that AIRE's `original_week_start` matches the employer's configured legal workweek. Treat AIRE's regular/overtime split as locked source evidence; if Payroll's validation conflicts, stop for review rather than silently rewriting the batch.
 - Keep exclusions visible but never pay them from that batch. Only a later positive carryover or correction line makes excluded time payable.
+- After applying a batch, post an `imported` processing event. After the containing payroll is irreversibly committed, post a separate `committed` event. Use payment statuses only when the payment lifecycle itself supplies that evidence.
 - Require explicit review before applying negative corrections.
 - Apply each adjustment exactly once. Do not infer payment from the original entry's current state after the cutoff.
 

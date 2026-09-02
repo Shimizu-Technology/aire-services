@@ -1089,8 +1089,48 @@ export interface PayrollBatchListItem {
   finalized_at: string;
   finalized_by: { id: number; name: string } | null;
   checksum: string;
+  processing: PayrollBatchProcessingStatus | null;
   summary: PayrollBatchSummary;
   issues: PayrollBatchIssues;
+}
+
+export interface PayrollBatchProcessingStatus {
+  status: 'imported' | 'committed' | 'payment_issued' | 'payment_failed';
+  occurred_at: string;
+  external_system: string;
+  external_pay_period_id: string | null;
+}
+
+export interface PayrollCarryoverItem {
+  source_time_entry_id: string;
+  source_user_id: string;
+  display_name: string;
+  email: string | null;
+  category: { id: number; key: string | null; name: string } | null;
+  original_work_date: string;
+  first_excluded_batch_id: string;
+  latest_excluded_batch_id: string;
+  exclusion_reason: string;
+  held_total_hours: number;
+  current_total_hours: number | null;
+  status: 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_issued' | 'payment_failed' | 'not_payable';
+  included_batch: {
+    id: string;
+    start_date: string;
+    end_date: string;
+    processing: PayrollBatchProcessingStatus | null;
+  } | null;
+}
+
+export interface PayrollCarryoverQueue {
+  items: PayrollCarryoverItem[];
+  summary: {
+    awaiting_approval_count: number;
+    ready_for_next_batch_count: number;
+    in_payroll_count: number;
+    not_payable_count: number;
+  };
+  truncated: boolean;
 }
 
 export interface PayrollBatchDetail extends PayrollBatchListItem {
@@ -1633,6 +1673,9 @@ export const api = {
   // Finalized payroll batches
   getPayrollBatches: () =>
     fetchApi<{ payroll_batches: PayrollBatchListItem[]; total_count: number; truncated: boolean }>('/api/v1/admin/payroll_batches'),
+
+  getPayrollCarryovers: () =>
+    fetchApi<PayrollCarryoverQueue>('/api/v1/admin/payroll_batches/carryovers'),
 
   getPayrollBatch: (id: string) =>
     fetchApi<PayrollBatchDetail>(`/api/v1/admin/payroll_batches/${encodeURIComponent(id)}`),

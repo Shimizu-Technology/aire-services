@@ -6,6 +6,7 @@ class PayrollBatch < ApplicationRecord
   belongs_to :finalized_by, class_name: "User", optional: true
   has_many :payroll_batch_entries, dependent: :restrict_with_error
   has_many :payroll_batch_exclusions, dependent: :restrict_with_error
+  has_many :payroll_batch_processing_events, dependent: :restrict_with_error
 
   validates :public_id, :start_date, :end_date, :cutoff_at, :finalized_at, :checksum, presence: true
   validates :public_id, uniqueness: true
@@ -29,6 +30,26 @@ class PayrollBatch < ApplicationRecord
         "finalized_at" => finalized_at.iso8601
       }
     )
+  end
+
+  def processing_status
+    events = payroll_batch_processing_events.to_a
+    payment_events = events.select { |candidate| candidate.status.in?(%w[payment_issued payment_failed]) }
+    event = if payment_events.any?
+      payment_events.max_by { |candidate| [ candidate.occurred_at, candidate.id ] }
+    else
+      events.max_by do |candidate|
+        [ PayrollBatchProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.occurred_at, candidate.id ]
+      end
+    end
+    return nil unless event
+
+    {
+      status: event.status,
+      occurred_at: event.occurred_at.iso8601,
+      external_system: event.external_system,
+      external_pay_period_id: event.external_pay_period_id
+    }
   end
 
   private

@@ -7,6 +7,7 @@ import PayrollRuns from './PayrollRuns'
 
 const apiMock = vi.hoisted(() => ({
   getPayrollBatches: vi.fn(),
+  getPayrollCarryovers: vi.fn(),
   getPayrollBatch: vi.fn(),
   previewPayrollBatch: vi.fn(),
   finalizePayrollBatch: vi.fn(),
@@ -91,6 +92,7 @@ const finalized = {
   finalized_at: preview.cutoff_at,
   finalized_by: { id: 1, name: 'Admin User' },
   checksum: 'a'.repeat(64),
+  processing: null,
   summary: preview.summary,
   issues,
   payload: {
@@ -132,6 +134,11 @@ describe('PayrollRuns', () => {
   beforeEach(() => {
     Object.values(apiMock).forEach((mock) => mock.mockReset())
     apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [], total_count: 0, truncated: false } })
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
     apiMock.previewPayrollBatch.mockResolvedValue({ data: preview })
     apiMock.finalizePayrollBatch.mockResolvedValue({ data: finalized })
     apiMock.getPayrollBatch.mockResolvedValue({ data: finalized })
@@ -151,6 +158,33 @@ describe('PayrollRuns', () => {
       'href',
       '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=approvals&through_date=2026-08-31',
     )
+  })
+
+  it('shows late-approved time and Cornerstone processing state in the carryover queue', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{
+        source_time_entry_id: '52',
+        source_user_id: '7',
+        display_name: 'Alice Pilot',
+        email: 'alice@example.com',
+        category: { id: 3, key: 'flight', name: 'Flight Hours' },
+        original_work_date: '2026-08-21',
+        first_excluded_batch_id: 'AIRE-PAY-OLD',
+        latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: 'pending_approval',
+        held_total_hours: 4,
+        current_total_hours: 4,
+        status: 'ready_for_next_batch',
+        included_batch: null,
+      }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 1, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+
+    renderPayrollRuns()
+
+    expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
+    expect(screen.getByText(/AIRE will include it automatically/)).toBeInTheDocument()
   })
 
   it('opens a linked period and preserves it across the workspace', async () => {

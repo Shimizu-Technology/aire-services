@@ -80,4 +80,47 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(response).to have_http_status(:not_found)
     expect(json.fetch(:error)).to eq("Payroll batch not found")
   end
+
+  it "records idempotent Cornerstone processing events without changing the finalized payload" do
+    batch = finalized_batch
+    original_payload = batch.payload.deep_dup
+    event = {
+      event_id: "cornerstone-import-42",
+      status: "imported",
+      occurred_at: Time.current.iso8601,
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42",
+      metadata: { company_id: 7 }
+    }
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event,
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.to change(PayrollBatchProcessingEvent, :count).by(1)
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:processing, :status)).to eq("imported")
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event,
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.not_to change(PayrollBatchProcessingEvent, :count)
+    expect(response).to have_http_status(:ok)
+    expect(batch.reload.payload).to eq(original_payload)
+  end
+
+  it "does not let a delayed imported event regress a committed batch" do
+    batch = finalized_batch
+    headers = { "X-Payroll-Shared-Secret" => secret }
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+         params: { event_id: "commit-1", status: "committed", occurred_at: Time.current.iso8601, external_system: "cornerstone_payroll" },
+         headers: headers
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+         params: { event_id: "import-1", status: "imported", occurred_at: 1.minute.from_now.iso8601, external_system: "cornerstone_payroll" },
+         headers: headers
+
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:processing, :status)).to eq("committed")
+  end
 end
