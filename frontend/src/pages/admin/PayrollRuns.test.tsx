@@ -481,13 +481,17 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
 
     expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
-    resolveInitialCarryovers({ data: {
-      items: [],
-      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
-      truncated: false,
-    } })
+    await act(async () => {
+      resolveInitialCarryovers({ data: {
+        items: [],
+        summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
+        truncated: false,
+      } })
+      await initialCarryovers
+    })
 
-    await waitFor(() => expect(screen.getByText('Ready for next cutoff')).toBeInTheDocument())
+    expect(screen.getByText('Ready for next cutoff')).toBeInTheDocument()
+    expect(screen.queryByText('No unpaid carryover items need attention.')).not.toBeInTheDocument()
   })
 
   it('opens a finalized batch from history', async () => {
