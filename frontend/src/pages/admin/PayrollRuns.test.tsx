@@ -7,6 +7,7 @@ import PayrollRuns from './PayrollRuns'
 
 const apiMock = vi.hoisted(() => ({
   getPayrollBatches: vi.fn(),
+  getPayrollCarryovers: vi.fn(),
   getPayrollBatch: vi.fn(),
   previewPayrollBatch: vi.fn(),
   finalizePayrollBatch: vi.fn(),
@@ -91,6 +92,7 @@ const finalized = {
   finalized_at: preview.cutoff_at,
   finalized_by: { id: 1, name: 'Admin User' },
   checksum: 'a'.repeat(64),
+  processing: null,
   summary: preview.summary,
   issues,
   payload: {
@@ -132,6 +134,11 @@ describe('PayrollRuns', () => {
   beforeEach(() => {
     Object.values(apiMock).forEach((mock) => mock.mockReset())
     apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [], total_count: 0, truncated: false } })
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
     apiMock.previewPayrollBatch.mockResolvedValue({ data: preview })
     apiMock.finalizePayrollBatch.mockResolvedValue({ data: finalized })
     apiMock.getPayrollBatch.mockResolvedValue({ data: finalized })
@@ -151,6 +158,74 @@ describe('PayrollRuns', () => {
       'href',
       '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=approvals&through_date=2026-08-31',
     )
+  })
+
+  it('shows late-approved time and Cornerstone processing state in the carryover queue', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{
+        source_time_entry_id: '52',
+        source_user_id: '7',
+        display_name: 'Alice Pilot',
+        email: 'alice@example.com',
+        category: { id: 3, key: 'flight', name: 'Flight Hours' },
+        original_work_date: '2026-08-21',
+        first_excluded_batch_id: 'AIRE-PAY-OLD',
+        latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: 'pending_approval',
+        held_total_hours: 4,
+        current_total_hours: 4,
+        status: 'ready_for_next_batch',
+        included_batch: null,
+      }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 1, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+
+    renderPayrollRuns()
+
+    expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
+    expect(screen.getByText(/AIRE will include it automatically/)).toBeInTheDocument()
+  })
+
+  it('renders safe fallbacks for processing statuses added by a newer backend', async () => {
+    apiMock.getPayrollBatches.mockResolvedValue({ data: {
+      payroll_batches: [{
+        ...finalized,
+        processing: {
+          status: 'settlement_paused',
+          occurred_at: '2026-09-02T00:00:00Z',
+          external_system: 'cornerstone_payroll',
+          external_pay_period_id: '42',
+        },
+      }],
+      total_count: 1,
+      truncated: false,
+    } })
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{
+        source_time_entry_id: '52',
+        source_user_id: '7',
+        display_name: 'Alice Pilot',
+        email: 'alice@example.com',
+        category: { id: 3, key: 'flight', name: 'Flight Hours' },
+        original_work_date: '2026-08-21',
+        first_excluded_batch_id: 'AIRE-PAY-OLD',
+        latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: 'pending_approval',
+        held_total_hours: 4,
+        current_total_hours: 4,
+        status: 'manual_hold',
+        included_batch: null,
+      }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+
+    renderPayrollRuns()
+
+    expect(await screen.findByText('settlement_paused')).toBeInTheDocument()
+    expect(screen.getByText('manual_hold')).toBeInTheDocument()
+    expect(screen.getByText(/not yet recognized by this version of AIRE/)).toBeInTheDocument()
   })
 
   it('opens a linked period and preserves it across the workspace', async () => {
@@ -245,6 +320,102 @@ describe('PayrollRuns', () => {
     )
   })
 
+  it('reviews and records an already-processed historical payroll without losing late hours', async () => {
+    const historicalPreview = {
+      ...preview,
+      cutoff_at: '2026-08-31T03:06:00Z',
+      can_finalize: false,
+      issues: { ...issues, missing_category_count: 1, negative_adjustment_count: 1, pending_approval_count: 9 },
+      summary: { ...preview.summary, total_hours: 599.06, exclusion_count: 10 },
+    }
+    const manuallyProcessed = {
+      ...finalized,
+      cutoff_at: historicalPreview.cutoff_at,
+      processing: {
+        status: 'committed',
+        occurred_at: '2026-08-31T03:18:05Z',
+        external_system: 'cornerstone_payroll_manual',
+        external_pay_period_id: '61',
+      },
+      summary: historicalPreview.summary,
+      issues: historicalPreview.issues,
+      payload: { ...finalized.payload, ...historicalPreview, preview: undefined },
+    }
+    apiMock.previewPayrollBatch
+      .mockResolvedValueOnce({ data: { ...preview, can_finalize: false, issues: historicalPreview.issues } })
+      .mockResolvedValueOnce({ data: historicalPreview })
+    apiMock.finalizePayrollBatch.mockResolvedValueOnce({ data: manuallyProcessed })
+
+    renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
+    await screen.findByText('No payroll batches have been finalized yet.')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText(/Finalization is blocked/)
+    fireEvent.click(screen.getByRole('button', { name: 'Record already processed' }))
+    await screen.findByRole('heading', { name: 'Record payroll processed outside the integration' })
+
+    fireEvent.change(screen.getByLabelText(/Hours frozen at/), { target: { value: '2026-08-31T13:06' } })
+    fireEvent.change(screen.getByLabelText(/Cornerstone processed at/), { target: { value: '2026-08-31T13:18' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+
+    expect(await screen.findByText('599.06 hrs')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Cornerstone pay period ID'), { target: { value: '61' } })
+    fireEvent.change(screen.getByLabelText(/Reconciliation note/), { target: { value: 'Matched against committed payroll period 61' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /I confirm these 1 legacy uncategorized/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /I confirm these 1 negative correction/ }))
+    fireEvent.change(screen.getByLabelText('Negative correction explanation'), { target: { value: 'Corrected historical overpayment' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /I compared this historical AIRE snapshot/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Record as processed manually' }))
+
+    await waitFor(() => expect(apiMock.finalizePayrollBatch).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-08-01',
+      end_date: '2026-08-15',
+      manual_processing: true,
+      cutoff_at: '2026-08-31T03:06:00.000Z',
+      processed_at: '2026-08-31T03:18:00.000Z',
+      external_pay_period_id: '61',
+      acknowledge_missing_categories: true,
+      acknowledge_negative_adjustments: true,
+      negative_adjustment_note: 'Corrected historical overpayment',
+      processing_note: 'Matched against committed payroll period 61',
+    })))
+    expect(await screen.findByText('Finalized batch')).toBeInTheDocument()
+  })
+
+  it('discards a historical preview response after the Guam cutoff changes', async () => {
+    let resolveOldPreview: (value: { data: typeof preview }) => void = () => undefined
+    const oldPreviewRequest = new Promise<{ data: typeof preview }>((resolve) => { resolveOldPreview = resolve })
+    const currentPreview = {
+      ...preview,
+      cutoff_at: '2026-08-31T04:00:00.000Z',
+      summary: { ...preview.summary, total_hours: 10 },
+    }
+    apiMock.previewPayrollBatch
+      .mockResolvedValueOnce({ data: preview })
+      .mockReturnValueOnce(oldPreviewRequest)
+      .mockResolvedValueOnce({ data: currentPreview })
+
+    renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
+    await screen.findByText('No payroll batches have been finalized yet.')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: 'Record already processed' }))
+
+    const cutoffInput = screen.getByLabelText(/Hours frozen at/)
+    fireEvent.change(cutoffInput, { target: { value: '2026-08-31T13:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+    fireEvent.change(cutoffInput, { target: { value: '2026-08-31T14:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+
+    expect(await screen.findByText('10.00 hrs')).toBeInTheDocument()
+    await act(async () => {
+      resolveOldPreview({ data: { ...preview, cutoff_at: '2026-08-31T03:00:00.000Z', summary: { ...preview.summary, total_hours: 99 } } })
+      await oldPreviewRequest
+    })
+
+    expect(screen.getByText('10.00 hrs')).toBeInTheDocument()
+    expect(screen.queryByText('99.00 hrs')).not.toBeInTheDocument()
+  })
+
   it('requires and submits a trimmed explanation for negative corrections', async () => {
     apiMock.previewPayrollBatch.mockResolvedValue({
       data: {
@@ -313,6 +484,55 @@ describe('PayrollRuns', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
     })
+  })
+
+  it('ignores an older carryover response that finishes after finalization refreshes it', async () => {
+    let resolveInitialCarryovers: (value: { data: { items: never[]; summary: { awaiting_approval_count: number; ready_for_next_batch_count: number; in_payroll_count: number; not_payable_count: number }; truncated: boolean } }) => void = () => undefined
+    const initialCarryovers = new Promise<{ data: { items: never[]; summary: { awaiting_approval_count: number; ready_for_next_batch_count: number; in_payroll_count: number; not_payable_count: number }; truncated: boolean } }>((resolve) => {
+      resolveInitialCarryovers = resolve
+    })
+    const refreshedCarryovers = {
+      items: [{
+        source_time_entry_id: '52',
+        source_user_id: '7',
+        display_name: 'Alice Pilot',
+        email: 'alice@example.com',
+        category: { id: 3, key: 'flight', name: 'Flight Hours' },
+        original_work_date: '2026-08-21',
+        first_excluded_batch_id: 'AIRE-PAY-OLD',
+        latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: 'pending_approval',
+        held_total_hours: 4,
+        current_total_hours: 4,
+        status: 'ready_for_next_batch',
+        included_batch: null,
+      }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 1, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    }
+    apiMock.getPayrollCarryovers
+      .mockReturnValueOnce(initialCarryovers)
+      .mockResolvedValueOnce({ data: refreshedCarryovers })
+
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize this cutoff' }))
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
+
+    expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
+    await act(async () => {
+      resolveInitialCarryovers({ data: {
+        items: [],
+        summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
+        truncated: false,
+      } })
+      await initialCarryovers
+    })
+
+    expect(screen.getByText('Ready for next cutoff')).toBeInTheDocument()
+    expect(screen.queryByText('No unpaid carryover items need attention.')).not.toBeInTheDocument()
   })
 
   it('opens a finalized batch from history', async () => {

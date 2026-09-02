@@ -9,7 +9,11 @@ module Api
 
         def index
           total_count = PayrollBatch.count
-          batches = PayrollBatch.includes(:finalized_by).order(finalized_at: :desc).limit(100).to_a
+          batches = PayrollBatch
+            .includes(:finalized_by, :payroll_batch_processing_events)
+            .order(finalized_at: :desc)
+            .limit(100)
+            .to_a
           render json: {
             payroll_batches: batches.map { |batch| serialize_summary(batch) },
             total_count: total_count,
@@ -22,9 +26,11 @@ module Api
         end
 
         def preview
+          cutoff_at = parse_preview_cutoff
           result = ::Payroll::BatchBuilder.new(
             start_date: params[:start_date],
-            end_date: params[:end_date]
+            end_date: params[:end_date],
+            cutoff_at: cutoff_at || Time.current
           ).call
           render json: result.fetch(:payload).merge(
             preview: true,
@@ -35,13 +41,23 @@ module Api
           render json: { error: e.message }, status: :unprocessable_entity
         end
 
+        def carryovers
+          render json: ::Payroll::CarryoverQueue.new.call
+        end
+
         def create
           batch = ::Payroll::BatchFinalizer.new(
             start_date: params[:start_date],
             end_date: params[:end_date],
             actor: current_user,
             acknowledge_negative_adjustments: params[:acknowledge_negative_adjustments],
-            negative_adjustment_note: params[:negative_adjustment_note]
+            negative_adjustment_note: params[:negative_adjustment_note],
+            manual_processing: params[:manual_processing],
+            cutoff_at: params[:cutoff_at],
+            processed_at: params[:processed_at],
+            external_pay_period_id: params[:external_pay_period_id],
+            processing_note: params[:processing_note],
+            acknowledge_missing_categories: params[:acknowledge_missing_categories]
           ).call
           Current.domain_audit_recorded = true
           render json: serialize_detail(batch), status: :created
@@ -66,6 +82,19 @@ module Api
 
         private
 
+        def parse_preview_cutoff
+          return if params[:cutoff_at].blank?
+
+          cutoff = begin
+            Time.iso8601(params[:cutoff_at].to_s)
+          rescue ArgumentError
+            raise ArgumentError, "cutoff_at must be a valid ISO 8601 timestamp"
+          end
+          raise ArgumentError, "cutoff_at cannot be in the future" if cutoff > Time.current
+
+          cutoff
+        end
+
         def find_batch
           @payroll_batch = PayrollBatch.find_by!(public_id: params[:id])
         end
@@ -79,6 +108,7 @@ module Api
             finalized_at: batch.finalized_at.iso8601,
             finalized_by: batch.finalized_by && { id: batch.finalized_by.id, name: batch.finalized_by.full_name },
             checksum: batch.checksum,
+            processing: batch.processing_status,
             summary: batch.summary,
             issues: batch.issues
           }

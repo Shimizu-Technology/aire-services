@@ -80,4 +80,134 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(response).to have_http_status(:not_found)
     expect(json.fetch(:error)).to eq("Payroll batch not found")
   end
+
+  it "records idempotent Cornerstone processing events without changing the finalized payload" do
+    batch = finalized_batch
+    original_payload = batch.payload.deep_dup
+    event = {
+      event_id: "cornerstone-import-42",
+      status: "imported",
+      occurred_at: Time.current.iso8601,
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42",
+      metadata: { company_id: 7 }
+    }
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event,
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.to change(PayrollBatchProcessingEvent, :count).by(1)
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:processing, :status)).to eq("imported")
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event,
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.not_to change(PayrollBatchProcessingEvent, :count)
+    expect(response).to have_http_status(:ok)
+    expect(batch.reload.payload).to eq(original_payload)
+  end
+
+  it "rolls back a processing event when its audit record cannot be written" do
+    batch = finalized_batch
+    allow(AuditLog).to receive(:record!).and_raise(StandardError, "audit failed")
+    event_count = PayrollBatchProcessingEvent.count
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: {
+             event_id: "cornerstone-atomic-import-42",
+             status: "imported",
+             occurred_at: Time.current.iso8601,
+             external_system: "cornerstone_payroll",
+             external_pay_period_id: "42"
+           },
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.to raise_error(StandardError, "audit failed")
+    expect(PayrollBatchProcessingEvent.count).to eq(event_count)
+  end
+
+  it "accepts an idempotent replay when the timestamp uses an equivalent offset" do
+    batch = finalized_batch
+    event = {
+      event_id: "cornerstone-offset-import-42",
+      status: "imported",
+      occurred_at: "2026-09-02T10:00:00.123456789+10:00",
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42",
+      metadata: { company_id: 7 }
+    }
+
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+         params: event,
+         headers: { "X-Payroll-Shared-Secret" => secret }
+    expect(response).to have_http_status(:created)
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event.merge(occurred_at: "2026-09-02T00:00:00.123456Z"),
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.not_to change(PayrollBatchProcessingEvent, :count)
+    expect(response).to have_http_status(:ok)
+  end
+
+  it "rejects a non-string processing timestamp as invalid input" do
+    batch = finalized_batch
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: {
+             event_id: "cornerstone-invalid-timestamp-42",
+             status: "imported",
+             occurred_at: 123,
+             external_system: "cornerstone_payroll"
+           },
+           headers: { "X-Payroll-Shared-Secret" => secret },
+           as: :json
+    end.not_to change(PayrollBatchProcessingEvent, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to be_present
+  end
+
+  it "rejects conflicting status or metadata reuse without changing the original event" do
+    batch = finalized_batch
+    original = {
+      event_id: "cornerstone-conflict-42",
+      status: "imported",
+      occurred_at: "2026-09-02T00:00:00Z",
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42",
+      metadata: { company_id: 7 }
+    }
+    headers = { "X-Payroll-Shared-Secret" => secret }
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events", params: original, headers: headers
+    stored_event = PayrollBatchProcessingEvent.find_by!(event_id: original.fetch(:event_id))
+    original_attributes = stored_event.attributes
+
+    [ original.merge(status: "committed"), original.merge(metadata: { company_id: 8 }) ].each do |conflict|
+      expect do
+        post "/api/v1/payroll/batches/#{batch.public_id}/processing_events", params: conflict, headers: headers
+      end.not_to change(PayrollBatchProcessingEvent, :count)
+      expect(response).to have_http_status(:conflict)
+      expect(json.fetch(:error)).to eq("Event ID already belongs to a different processing event")
+      expect(stored_event.reload.attributes).to eq(original_attributes)
+    end
+  end
+
+  it "does not let a delayed imported event regress a committed batch" do
+    batch = finalized_batch
+    headers = { "X-Payroll-Shared-Secret" => secret }
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+         params: { event_id: "commit-1", status: "committed", occurred_at: Time.current.iso8601, external_system: "cornerstone_payroll" },
+         headers: headers
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+         params: { event_id: "import-1", status: "imported", occurred_at: 1.minute.from_now.iso8601, external_system: "cornerstone_payroll" },
+         headers: headers
+
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:processing, :status)).to eq("committed")
+  end
 end
