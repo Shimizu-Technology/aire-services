@@ -63,6 +63,8 @@ module Api
         def processing_events
           batch = PayrollBatch.find_by!(public_id: params[:id])
           permitted = params.permit(:event_id, :status, :occurred_at, :external_system, :external_pay_period_id, metadata: {})
+          occurred_at = Time.iso8601(permitted.fetch(:occurred_at))
+          metadata = permitted[:metadata]&.to_h || {}
           event = PayrollBatchProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
           created = false
           unless event
@@ -71,10 +73,10 @@ module Api
                 event_id: permitted.fetch(:event_id),
                 payroll_batch: batch,
                 status: permitted.fetch(:status),
-                occurred_at: Time.iso8601(permitted.fetch(:occurred_at)),
+                occurred_at: occurred_at,
                 external_system: permitted.fetch(:external_system),
                 external_pay_period_id: permitted[:external_pay_period_id],
-                metadata: permitted[:metadata]&.to_h || {}
+                metadata: metadata
               )
               created = true
             rescue ActiveRecord::RecordNotUnique
@@ -82,7 +84,7 @@ module Api
             end
           end
 
-          unless same_processing_event?(event, batch, permitted)
+          unless same_processing_event?(event, batch, permitted, occurred_at:, metadata:)
             return render json: { error: "Event ID already belongs to a different processing event" }, status: :conflict
           end
 
@@ -113,15 +115,18 @@ module Api
 
         private
 
-        def same_processing_event?(event, batch, permitted)
+        def same_processing_event?(event, batch, permitted, occurred_at:, metadata:)
           event.payroll_batch_id == batch.id &&
             event.status == permitted[:status] &&
             event.external_system == permitted[:external_system] &&
             event.external_pay_period_id.to_s == permitted[:external_pay_period_id].to_s &&
-            event.occurred_at.iso8601 == Time.iso8601(permitted[:occurred_at]).iso8601 &&
-            event.metadata == (permitted[:metadata]&.to_h || {})
-        rescue ArgumentError
-          false
+            normalized_processing_time(event.occurred_at) == normalized_processing_time(occurred_at) &&
+            event.metadata == metadata
+        end
+
+        def normalized_processing_time(value)
+          precision = PayrollBatchProcessingEvent.columns_hash.fetch("occurred_at").precision || 6
+          value.to_time.utc.floor(precision)
         end
 
         def batch_not_found

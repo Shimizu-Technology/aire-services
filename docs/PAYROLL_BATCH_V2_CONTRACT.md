@@ -24,6 +24,8 @@ The list endpoint discovers finalized batches by their exact nominal dates. The 
 
 The processing-events endpoint is the append-only acknowledgement channel back from Cornerstone Payroll. It accepts an idempotent `event_id`, a status (`imported`, `committed`, `payment_issued`, or `payment_failed`), `occurred_at`, `external_system`, an optional external pay-period ID, and non-authoritative metadata. These events never change the finalized batch payload or checksum. `imported` means the hours were added to a Cornerstone draft; it does not mean payroll was committed or payment was issued.
 
+An identical `event_id` replay returns HTTP `200` and must match the original batch, status, timestamp instant (to the database's stored precision), external system, external pay-period ID, and metadata. Reusing an `event_id` with different event data returns HTTP `409` with `Event ID already belongs to a different processing event`; the original event remains unchanged.
+
 ## Integrity and idempotency
 
 `schema_version` is `"2.0"`. `export.checksum_algorithm` is `"SHA-256"`, and `export.checksum_scope` is `"payload_without_export"`.

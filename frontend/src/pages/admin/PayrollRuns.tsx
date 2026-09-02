@@ -366,6 +366,7 @@ export default function PayrollRuns() {
   const [historyTotalCount, setHistoryTotalCount] = useState(0)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const historyRequestSequence = useRef(0)
+  const carryoverRequestSequence = useRef(0)
   const previewRequestSequence = useRef(0)
   const batchRequestSequence = useRef(0)
   const internalPeriodNavigation = useRef<string | null>(null)
@@ -421,8 +422,10 @@ export default function PayrollRuns() {
   }, [])
 
   const loadCarryovers = useCallback(async () => {
+    const requestSequence = ++carryoverRequestSequence.current
     setCarryoversLoading(true)
     const response = await api.getPayrollCarryovers()
+    if (requestSequence !== carryoverRequestSequence.current) return
     if (response.data) {
       setCarryovers(response.data)
       setCarryoversError(null)

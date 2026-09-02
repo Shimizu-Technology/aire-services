@@ -349,6 +349,51 @@ describe('PayrollRuns', () => {
     })
   })
 
+  it('ignores an older carryover response that finishes after finalization refreshes it', async () => {
+    let resolveInitialCarryovers: (value: { data: { items: never[]; summary: { awaiting_approval_count: number; ready_for_next_batch_count: number; in_payroll_count: number; not_payable_count: number }; truncated: boolean } }) => void = () => undefined
+    const initialCarryovers = new Promise<{ data: { items: never[]; summary: { awaiting_approval_count: number; ready_for_next_batch_count: number; in_payroll_count: number; not_payable_count: number }; truncated: boolean } }>((resolve) => {
+      resolveInitialCarryovers = resolve
+    })
+    const refreshedCarryovers = {
+      items: [{
+        source_time_entry_id: '52',
+        source_user_id: '7',
+        display_name: 'Alice Pilot',
+        email: 'alice@example.com',
+        category: { id: 3, key: 'flight', name: 'Flight Hours' },
+        original_work_date: '2026-08-21',
+        first_excluded_batch_id: 'AIRE-PAY-OLD',
+        latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: 'pending_approval',
+        held_total_hours: 4,
+        current_total_hours: 4,
+        status: 'ready_for_next_batch',
+        included_batch: null,
+      }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 1, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    }
+    apiMock.getPayrollCarryovers
+      .mockReturnValueOnce(initialCarryovers)
+      .mockResolvedValueOnce({ data: refreshedCarryovers })
+
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize this cutoff' }))
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
+
+    expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
+    resolveInitialCarryovers({ data: {
+      items: [],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+
+    await waitFor(() => expect(screen.getByText('Ready for next cutoff')).toBeInTheDocument())
+  })
+
   it('opens a finalized batch from history', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({
       data: { payroll_batches: [finalized], total_count: 1, truncated: false },

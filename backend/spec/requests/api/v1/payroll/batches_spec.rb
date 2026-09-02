@@ -110,6 +110,55 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(batch.reload.payload).to eq(original_payload)
   end
 
+  it "accepts an idempotent replay when the timestamp uses an equivalent offset" do
+    batch = finalized_batch
+    event = {
+      event_id: "cornerstone-offset-import-42",
+      status: "imported",
+      occurred_at: "2026-09-02T10:00:00.123456789+10:00",
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42",
+      metadata: { company_id: 7 }
+    }
+
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+         params: event,
+         headers: { "X-Payroll-Shared-Secret" => secret }
+    expect(response).to have_http_status(:created)
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event.merge(occurred_at: "2026-09-02T00:00:00.123456Z"),
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.not_to change(PayrollBatchProcessingEvent, :count)
+    expect(response).to have_http_status(:ok)
+  end
+
+  it "rejects conflicting status or metadata reuse without changing the original event" do
+    batch = finalized_batch
+    original = {
+      event_id: "cornerstone-conflict-42",
+      status: "imported",
+      occurred_at: "2026-09-02T00:00:00Z",
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42",
+      metadata: { company_id: 7 }
+    }
+    headers = { "X-Payroll-Shared-Secret" => secret }
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events", params: original, headers: headers
+    stored_event = PayrollBatchProcessingEvent.find_by!(event_id: original.fetch(:event_id))
+    original_attributes = stored_event.attributes
+
+    [ original.merge(status: "committed"), original.merge(metadata: { company_id: 8 }) ].each do |conflict|
+      expect do
+        post "/api/v1/payroll/batches/#{batch.public_id}/processing_events", params: conflict, headers: headers
+      end.not_to change(PayrollBatchProcessingEvent, :count)
+      expect(response).to have_http_status(:conflict)
+      expect(json.fetch(:error)).to eq("Event ID already belongs to a different processing event")
+      expect(stored_event.reload.attributes).to eq(original_attributes)
+    end
+  end
+
   it "does not let a delayed imported event regress a committed batch" do
     batch = finalized_batch
     headers = { "X-Payroll-Shared-Secret" => secret }

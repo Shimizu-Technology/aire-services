@@ -9,7 +9,11 @@ module Api
 
         def index
           total_count = PayrollBatch.count
-          batches = PayrollBatch.includes(:finalized_by).order(finalized_at: :desc).limit(100).to_a
+          batches = PayrollBatch
+            .includes(:finalized_by, :payroll_batch_processing_events)
+            .order(finalized_at: :desc)
+            .limit(100)
+            .to_a
           render json: {
             payroll_batches: batches.map { |batch| serialize_summary(batch) },
             total_count: total_count,
