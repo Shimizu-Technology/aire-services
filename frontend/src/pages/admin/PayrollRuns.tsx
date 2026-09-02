@@ -66,6 +66,19 @@ function formatHours(value: number) {
   return `${Number(value).toFixed(2)} hrs`
 }
 
+function localDateTimeToIso(value: string) {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+}
+
+function processingLabel(batch: PayrollBatchListItem) {
+  if (batch.processing?.status === 'committed' && batch.processing.external_system === 'cornerstone_payroll_manual') {
+    return 'Processed manually'
+  }
+  return batch.processing ? CARRYOVER_STATUS[batch.processing.status].label : 'Finalized in AIRE'
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -345,6 +358,194 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
   )
 }
 
+function ManualProcessingDialog({ period, onClose, onRecorded }: {
+  period: PayrollPeriod
+  onClose: () => void
+  onRecorded: (batch: PayrollBatchDetail) => Promise<void>
+}) {
+  const [cutoffLocal, setCutoffLocal] = useState('')
+  const [processedLocal, setProcessedLocal] = useState('')
+  const [externalPayPeriodId, setExternalPayPeriodId] = useState('')
+  const [note, setNote] = useState('')
+  const [acknowledgeMissingCategories, setAcknowledgeMissingCategories] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+  const [snapshot, setSnapshot] = useState<PayrollBatchPayload | null>(null)
+  const [reviewing, setReviewing] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef(onClose)
+  const submittingRef = useRef(submitting)
+
+  useEffect(() => {
+    closeRef.current = onClose
+    submittingRef.current = submitting
+  }, [onClose, submitting])
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    dialogRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !submittingRef.current) {
+        closeRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ))
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      previouslyFocused?.focus()
+    }
+  }, [])
+
+  const invalidateSnapshot = () => {
+    setSnapshot(null)
+    setConfirmed(false)
+    setError(null)
+  }
+
+  const reviewSnapshot = async () => {
+    const cutoffAt = localDateTimeToIso(cutoffLocal)
+    if (!cutoffAt) {
+      setError('Enter the date and time when the included hours were frozen for payroll.')
+      return
+    }
+    setReviewing(true)
+    setError(null)
+    const response = await api.previewPayrollBatch(period.start, period.end, cutoffAt)
+    if (response.data) setSnapshot(response.data)
+    else setError(response.error || 'The historical payroll snapshot could not be reviewed.')
+    setReviewing(false)
+  }
+
+  const processedAt = localDateTimeToIso(processedLocal)
+  const cutoffAt = localDateTimeToIso(cutoffLocal)
+  const missingCategories = snapshot?.issues.missing_category_count || 0
+  const canRecord = Boolean(
+    snapshot && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
+    new Date(processedAt || 0).getTime() >= new Date(cutoffAt || 0).getTime() &&
+    (!missingCategories || acknowledgeMissingCategories) && !submitting,
+  )
+
+  const recordProcessed = async () => {
+    if (!snapshot || !cutoffAt || !processedAt) return
+    setSubmitting(true)
+    setError(null)
+    const response = await api.finalizePayrollBatch({
+      start_date: period.start,
+      end_date: period.end,
+      manual_processing: true,
+      cutoff_at: cutoffAt,
+      processed_at: processedAt,
+      external_pay_period_id: externalPayPeriodId.trim(),
+      processing_note: note.trim(),
+      acknowledge_missing_categories: acknowledgeMissingCategories,
+      acknowledge_negative_adjustments: snapshot.issues.negative_adjustment_count > 0,
+      negative_adjustment_note: snapshot.issues.negative_adjustment_count > 0 ? note.trim() : undefined,
+    })
+    if (response.data) await onRecorded(response.data)
+    else setError(response.error || 'The manually processed payroll could not be recorded.')
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="manual-processing-title" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl outline-none sm:p-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Historical reconciliation</p>
+        <h2 id="manual-processing-title" className="mt-2 text-2xl font-semibold text-slate-950">Record payroll processed outside the integration</h2>
+        <p className="mt-3 text-sm leading-6 text-slate-600">Use this only when payroll was already calculated manually. First recreate the exact AIRE snapshot used at that time, then record the matching Cornerstone period. This does not mark individual checks as paid.</p>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm font-medium text-slate-700">Hours frozen at
+            <input type="datetime-local" step="1" value={cutoffLocal} onChange={(event) => { setCutoffLocal(event.target.value); invalidateSnapshot() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">Guam time. Hours approved after this moment stay unpaid and carry forward.</span>
+          </label>
+          <label className="text-sm font-medium text-slate-700">Cornerstone processed at
+            <input type="datetime-local" step="1" value={processedLocal} onChange={(event) => setProcessedLocal(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
+            <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">Use the committed timestamp from Cornerstone.</span>
+          </label>
+        </div>
+
+        <button type="button" onClick={() => void reviewSnapshot()} disabled={reviewing || !cutoffLocal} className="mt-4 min-h-11 w-full rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">{reviewing ? 'Recreating snapshot…' : snapshot ? 'Refresh historical snapshot' : 'Review historical snapshot'}</button>
+
+        {snapshot && (
+          <div className="mt-5 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-cyan-800">Snapshot to be recorded</p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                ['Hours', formatHours(snapshot.summary.total_hours)],
+                ['Employees', snapshot.summary.employee_count],
+                ['Excluded', snapshot.summary.exclusion_count],
+                ['Missing category', snapshot.issues.missing_category_count],
+              ].map(([label, value]) => <div key={label} className="rounded-xl bg-white px-3 py-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 font-semibold text-slate-950">{value}</p></div>)}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-cyan-900">Cutoff: {formatDateTime(snapshot.cutoff_at)}. Compare the included totals and exclusions below with the payroll already processed.</p>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-cyan-100 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Included employee totals</p>
+                <div className="mt-2 max-h-44 space-y-1 overflow-y-auto pr-1">
+                  {snapshot.employees.map((employee) => <div key={employee.source_user_id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm"><span className="truncate text-slate-700">{employee.display_name}</span><span className="shrink-0 font-semibold text-slate-950">{formatHours(employee.total_hours)}</span></div>)}
+                </div>
+              </div>
+              <div className="rounded-xl border border-cyan-100 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Excluded at this cutoff</p>
+                <div className="mt-2 max-h-44 space-y-1 overflow-y-auto pr-1">
+                  {snapshot.exclusions.length === 0 && <p className="px-2 py-1.5 text-sm text-slate-500">Nothing excluded.</p>}
+                  {snapshot.exclusions.map((item) => <div key={`${item.source_time_entry_id}-${item.reason}`} className="rounded-lg px-2 py-1.5"><div className="flex items-center justify-between gap-3 text-sm"><span className="truncate text-slate-700">{item.display_name}</span><span className="shrink-0 font-semibold text-slate-950">{formatHours(item.held_total_hours)}</span></div><p className="text-xs text-slate-500">{EXCLUSION_LABELS[item.reason] || item.reason} · {formatDate(item.original_work_date)}</p></div>)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm font-medium text-slate-700">Cornerstone pay period ID
+            <input value={externalPayPeriodId} onChange={(event) => setExternalPayPeriodId(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" placeholder="For example, 61" />
+          </label>
+          <label className="text-sm font-medium text-slate-700 sm:col-span-2">Reconciliation note
+            <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} className="mt-2 block w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" placeholder="Explain how this snapshot was matched to the payroll already processed…" />
+            <span className="mt-1 block text-xs font-normal text-slate-500">At least 10 characters. This becomes part of the permanent audit record.</span>
+          </label>
+        </div>
+
+        {snapshot && missingCategories > 0 && (
+          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <input type="checkbox" checked={acknowledgeMissingCategories} onChange={(event) => setAcknowledgeMissingCategories(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
+            <span className="text-sm leading-6 text-amber-950">I confirm these {missingCategories} legacy uncategorized entries were included in the payroll already processed. New payroll cutoffs remain blocked until categories are fixed.</span>
+          </label>
+        )}
+
+        {snapshot && (
+          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4">
+            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5 h-5 w-5 accent-primary" />
+            <span className="text-sm leading-6 text-slate-700">I compared this historical AIRE snapshot with Cornerstone and confirm it represents the hours that were actually processed. I understand the record cannot be changed.</span>
+          </label>
+        )}
+
+        {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onClose} disabled={submitting} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={() => void recordProcessed()} disabled={!canRecord} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{submitting ? 'Recording…' : 'Record as processed manually'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function PayrollRuns() {
   const [searchParams, setSearchParams] = useSearchParams()
   const routedPeriod = payrollPeriodFromSearchParams(searchParams)
@@ -360,6 +561,7 @@ export default function PayrollRuns() {
   const [previewing, setPreviewing] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showManualProcessing, setShowManualProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [historyTruncated, setHistoryTruncated] = useState(false)
@@ -522,6 +724,13 @@ export default function PayrollRuns() {
     else setError(response.error || 'The payroll batch could not be exported.')
   }
 
+  const manualProcessingRecorded = async (batch: PayrollBatchDetail) => {
+    setShowManualProcessing(false)
+    setPreview(null)
+    setSelectedBatch(batch)
+    await Promise.all([loadBatches(), loadCarryovers()])
+  }
+
   const activePayload = selectedBatch?.payload || preview
   const localPeriodIsValid = isIsoDate(startDate) && isIsoDate(endDate) && startDate <= endDate
   const activePeriod = activePayload
@@ -573,10 +782,12 @@ export default function PayrollRuns() {
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{selectedBatch ? 'Finalized batch' : 'Live preview'}</p>
               <h2 className="mt-1 text-2xl font-semibold text-slate-950">{formatDate(activePayload.start_date)}–{formatDate(activePayload.end_date)}</h2>
               {selectedBatch && <p className="mt-1 text-sm text-slate-500">{selectedBatch.id} · finalized {formatDateTime(selectedBatch.finalized_at)}</p>}
+              {selectedBatch?.processing && <p className="mt-1 text-sm font-medium text-emerald-700">{processingLabel(selectedBatch)} · Cornerstone period {selectedBatch.processing.external_pay_period_id || 'not provided'} · {formatDateTime(selectedBatch.processing.occurred_at)}</p>}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
               {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download finalized CSV</button>}
+              {preview && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
               {preview && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
             </div>
           </div>
@@ -602,7 +813,7 @@ export default function PayrollRuns() {
                   <p className="font-semibold text-slate-950">{formatDate(batch.start_date)}–{formatDate(batch.end_date)}</p>
                   <p className="mt-1 text-xs text-slate-500">{batch.id}</p>
                 </div>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${batch.processing?.status === 'committed' || batch.processing?.status === 'payment_issued' ? 'bg-emerald-50 text-emerald-700' : batch.processing?.status === 'imported' ? 'bg-blue-50 text-blue-700' : batch.processing?.status === 'payment_failed' ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>{batch.processing ? CARRYOVER_STATUS[batch.processing.status].label : 'Finalized in AIRE'}</span>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${batch.processing?.status === 'committed' || batch.processing?.status === 'payment_issued' ? 'bg-emerald-50 text-emerald-700' : batch.processing?.status === 'imported' ? 'bg-blue-50 text-blue-700' : batch.processing?.status === 'payment_failed' ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>{processingLabel(batch)}</span>
               </div>
               <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
                 <span>{formatHours(batch.summary.total_hours)}</span>
@@ -615,6 +826,7 @@ export default function PayrollRuns() {
       </section>
 
       {showConfirm && preview && <FinalizeDialog payload={preview} onClose={() => setShowConfirm(false)} onConfirm={finalize} submitting={finalizing} error={dialogError} />}
+      {showManualProcessing && <ManualProcessingDialog period={{ start: startDate, end: endDate }} onClose={() => setShowManualProcessing(false)} onRecorded={manualProcessingRecorded} />}
     </div>
   )
 }

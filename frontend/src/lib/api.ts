@@ -1101,6 +1101,14 @@ export interface PayrollBatchProcessingStatus {
   external_pay_period_id: string | null;
 }
 
+export interface ManualPayrollProcessingInput {
+  cutoff_at: string;
+  processed_at: string;
+  external_pay_period_id: string;
+  processing_note: string;
+  acknowledge_missing_categories: boolean;
+}
+
 export interface PayrollCarryoverItem {
   source_time_entry_id: string;
   source_user_id: string;
@@ -1680,10 +1688,10 @@ export const api = {
   getPayrollBatch: (id: string) =>
     fetchApi<PayrollBatchDetail>(`/api/v1/admin/payroll_batches/${encodeURIComponent(id)}`),
 
-  previewPayrollBatch: (startDate: string, endDate: string) =>
+  previewPayrollBatch: (startDate: string, endDate: string, cutoffAt?: string) =>
     fetchApi<PayrollBatchPayload>('/api/v1/admin/payroll_batches/preview', {
       method: 'POST',
-      body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+      body: JSON.stringify({ start_date: startDate, end_date: endDate, cutoff_at: cutoffAt }),
     }),
 
   finalizePayrollBatch: (payload: {
@@ -1691,6 +1699,12 @@ export const api = {
     end_date: string;
     acknowledge_negative_adjustments?: boolean;
     negative_adjustment_note?: string;
+    manual_processing?: boolean;
+    cutoff_at?: string;
+    processed_at?: string;
+    external_pay_period_id?: string;
+    processing_note?: string;
+    acknowledge_missing_categories?: boolean;
   }) => fetchApi<PayrollBatchDetail>('/api/v1/admin/payroll_batches', {
     method: 'POST',
     body: JSON.stringify(payload),

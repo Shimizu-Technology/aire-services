@@ -26,9 +26,11 @@ module Api
         end
 
         def preview
+          cutoff_at = parse_preview_cutoff
           result = ::Payroll::BatchBuilder.new(
             start_date: params[:start_date],
-            end_date: params[:end_date]
+            end_date: params[:end_date],
+            cutoff_at: cutoff_at || Time.current
           ).call
           render json: result.fetch(:payload).merge(
             preview: true,
@@ -49,7 +51,13 @@ module Api
             end_date: params[:end_date],
             actor: current_user,
             acknowledge_negative_adjustments: params[:acknowledge_negative_adjustments],
-            negative_adjustment_note: params[:negative_adjustment_note]
+            negative_adjustment_note: params[:negative_adjustment_note],
+            manual_processing: params[:manual_processing],
+            cutoff_at: params[:cutoff_at],
+            processed_at: params[:processed_at],
+            external_pay_period_id: params[:external_pay_period_id],
+            processing_note: params[:processing_note],
+            acknowledge_missing_categories: params[:acknowledge_missing_categories]
           ).call
           Current.domain_audit_recorded = true
           render json: serialize_detail(batch), status: :created
@@ -73,6 +81,19 @@ module Api
         end
 
         private
+
+        def parse_preview_cutoff
+          return if params[:cutoff_at].blank?
+
+          cutoff = begin
+            Time.iso8601(params[:cutoff_at].to_s)
+          rescue ArgumentError
+            raise ArgumentError, "cutoff_at must be a valid ISO 8601 timestamp"
+          end
+          raise ArgumentError, "cutoff_at cannot be in the future" if cutoff > Time.current
+
+          cutoff
+        end
 
         def find_batch
           @payroll_batch = PayrollBatch.find_by!(public_id: params[:id])

@@ -279,6 +279,61 @@ describe('PayrollRuns', () => {
     )
   })
 
+  it('reviews and records an already-processed historical payroll without losing late hours', async () => {
+    const historicalPreview = {
+      ...preview,
+      cutoff_at: '2026-08-31T03:06:00Z',
+      can_finalize: false,
+      issues: { ...issues, missing_category_count: 1, pending_approval_count: 9 },
+      summary: { ...preview.summary, total_hours: 599.06, exclusion_count: 10 },
+    }
+    const manuallyProcessed = {
+      ...finalized,
+      cutoff_at: historicalPreview.cutoff_at,
+      processing: {
+        status: 'committed',
+        occurred_at: '2026-08-31T03:18:05Z',
+        external_system: 'cornerstone_payroll_manual',
+        external_pay_period_id: '61',
+      },
+      summary: historicalPreview.summary,
+      issues: historicalPreview.issues,
+      payload: { ...finalized.payload, ...historicalPreview, preview: undefined },
+    }
+    apiMock.previewPayrollBatch
+      .mockResolvedValueOnce({ data: { ...preview, can_finalize: false, issues: historicalPreview.issues } })
+      .mockResolvedValueOnce({ data: historicalPreview })
+    apiMock.finalizePayrollBatch.mockResolvedValueOnce({ data: manuallyProcessed })
+
+    renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
+    await screen.findByText('No payroll batches have been finalized yet.')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText(/Finalization is blocked/)
+    fireEvent.click(screen.getByRole('button', { name: 'Record already processed' }))
+    await screen.findByRole('heading', { name: 'Record payroll processed outside the integration' })
+
+    fireEvent.change(screen.getByLabelText(/Hours frozen at/), { target: { value: '2026-08-31T13:06' } })
+    fireEvent.change(screen.getByLabelText(/Cornerstone processed at/), { target: { value: '2026-08-31T13:18' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+
+    expect(await screen.findByText('599.06 hrs')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Cornerstone pay period ID'), { target: { value: '61' } })
+    fireEvent.change(screen.getByLabelText(/Reconciliation note/), { target: { value: 'Matched against committed payroll period 61' } })
+    fireEvent.click(screen.getByText(/I confirm these 1 legacy uncategorized entries/).previousElementSibling as HTMLElement)
+    fireEvent.click(screen.getByText(/I compared this historical AIRE snapshot/).previousElementSibling as HTMLElement)
+    fireEvent.click(screen.getByRole('button', { name: 'Record as processed manually' }))
+
+    await waitFor(() => expect(apiMock.finalizePayrollBatch).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-08-01',
+      end_date: '2026-08-15',
+      manual_processing: true,
+      external_pay_period_id: '61',
+      acknowledge_missing_categories: true,
+      processing_note: 'Matched against committed payroll period 61',
+    })))
+    expect(await screen.findByText('Finalized batch')).toBeInTheDocument()
+  })
+
   it('requires and submits a trimmed explanation for negative corrections', async () => {
     apiMock.previewPayrollBatch.mockResolvedValue({
       data: {

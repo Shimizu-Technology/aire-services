@@ -8,18 +8,29 @@ module Payroll
     class FinalizationError < StandardError; end
     class ExistingBatchError < FinalizationError; end
 
-    attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note
+    attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note,
+                :manual_processing, :cutoff_at, :processed_at, :external_pay_period_id, :processing_note,
+                :acknowledge_missing_categories
 
-    def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil)
+    def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil,
+                   manual_processing: false, cutoff_at: nil, processed_at: nil, external_pay_period_id: nil,
+                   processing_note: nil, acknowledge_missing_categories: false)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @actor = actor
       @acknowledge_negative_adjustments = ActiveModel::Type::Boolean.new.cast(acknowledge_negative_adjustments)
       @negative_adjustment_note = negative_adjustment_note.to_s.strip
+      @manual_processing = ActiveModel::Type::Boolean.new.cast(manual_processing)
+      @cutoff_at = parse_manual_time!(cutoff_at, "cutoff_at") if @manual_processing
+      @processed_at = parse_manual_time!(processed_at, "processed_at") if @manual_processing
+      @external_pay_period_id = external_pay_period_id.to_s.strip
+      @processing_note = processing_note.to_s.strip
+      @acknowledge_missing_categories = ActiveModel::Type::Boolean.new.cast(acknowledge_missing_categories)
       raise ArgumentError, "end_date must be on or after start_date" if @end_date < @start_date
       if (@end_date - @start_date).to_i > BatchBuilder::MAX_RANGE_DAYS
         raise ArgumentError, "date range may not exceed #{BatchBuilder::MAX_RANGE_DAYS} days"
       end
+      validate_manual_processing_input! if @manual_processing
     end
 
     def call
@@ -30,7 +41,7 @@ module Payroll
         lock_finalization!
         lock_source_ledger!
         source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        cutoff = Time.current
+        cutoff = manual_processing ? cutoff_at : Time.current
         reference = build_reference(cutoff)
         reject_overlapping_batch!
         result = BatchBuilder.new(
@@ -58,6 +69,7 @@ module Payroll
         result.fetch(:exclusions).each do |row|
           batch.payroll_batch_exclusions.create!(row.except(:work_date))
         end
+        record_manual_processing!(batch) if manual_processing
         AuditLog.record!(
           action: "payroll_batch.finalized",
           actor: actor,
@@ -70,7 +82,11 @@ module Payroll
             checksum: batch.checksum,
             summary: batch.summary,
             issues: batch.issues,
-            negative_adjustment_note: negative_adjustment_note.presence
+            negative_adjustment_note: negative_adjustment_note.presence,
+            manual_processing: manual_processing,
+            processing_note: processing_note.presence,
+            external_pay_period_id: external_pay_period_id.presence,
+            processed_at: processed_at&.iso8601
           }.compact
         )
         batch
@@ -91,6 +107,24 @@ module Payroll
       Date.iso8601(value.to_s)
     rescue Date::Error
       raise ArgumentError, "#{name} must be a valid ISO 8601 date (YYYY-MM-DD)"
+    end
+
+    def parse_manual_time!(value, name)
+      raise ArgumentError, "#{name} is required when recording manually processed payroll" if value.blank?
+
+      begin
+        Time.iso8601(value.to_s)
+      rescue ArgumentError
+        raise ArgumentError, "#{name} must be a valid ISO 8601 timestamp"
+      end
+    end
+
+    def validate_manual_processing_input!
+      raise ArgumentError, "cutoff_at cannot be in the future" if cutoff_at > Time.current
+      raise ArgumentError, "processed_at cannot be before cutoff_at" if processed_at < cutoff_at
+      raise ArgumentError, "processed_at cannot be in the future" if processed_at > Time.current
+      raise ArgumentError, "Cornerstone pay period ID is required" if external_pay_period_id.blank?
+      raise ArgumentError, "Processing note must be at least 10 characters" if processing_note.length < 10
     end
 
     def configure_lock_timeout!
@@ -145,12 +179,47 @@ module Payroll
     def validate_result!(result)
       issues = result.fetch(:issues)
       if issues.fetch(:missing_category_count).positive?
-        raise FinalizationError, "Resolve missing work categories before finalizing this payroll batch"
+        unless manual_processing && acknowledge_missing_categories
+          raise FinalizationError, "Resolve missing work categories before finalizing this payroll batch"
+        end
       end
       return unless issues.fetch(:negative_adjustment_count).positive?
       return if acknowledge_negative_adjustments && negative_adjustment_note.present?
 
       raise FinalizationError, "Negative payroll corrections require acknowledgement and an explanatory note"
+    end
+
+    def record_manual_processing!(batch)
+      event = batch.payroll_batch_processing_events.create!(
+        event_id: "aire-manual-commit-#{batch.public_id}",
+        status: "committed",
+        occurred_at: processed_at,
+        external_system: "cornerstone_payroll_manual",
+        external_pay_period_id: external_pay_period_id,
+        metadata: {
+          recorded_by_user_id: actor.id,
+          recorded_by_email: actor.email,
+          note: processing_note,
+          acknowledged_missing_categories: acknowledge_missing_categories
+        }
+      )
+      AuditLog.record!(
+        action: "payroll_batch.manually_processed",
+        actor: actor,
+        auditable: batch,
+        event_category: "payroll",
+        metadata: {
+          event_id: event.event_id,
+          status: event.status,
+          cutoff_at: batch.cutoff_at.iso8601,
+          processed_at: event.occurred_at.iso8601,
+          external_system: event.external_system,
+          external_pay_period_id: event.external_pay_period_id,
+          note: processing_note,
+          summary: batch.summary,
+          issues: batch.issues
+        }
+      )
     end
 
     def finalized_payload(payload)
