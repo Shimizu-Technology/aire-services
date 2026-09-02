@@ -134,6 +134,24 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(response).to have_http_status(:ok)
   end
 
+  it "rejects a non-string processing timestamp as invalid input" do
+    batch = finalized_batch
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: {
+             event_id: "cornerstone-invalid-timestamp-42",
+             status: "imported",
+             occurred_at: 123,
+             external_system: "cornerstone_payroll"
+           },
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.not_to change(PayrollBatchProcessingEvent, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to be_present
+  end
+
   it "rejects conflicting status or metadata reuse without changing the original event" do
     batch = finalized_batch
     original = {

@@ -107,7 +107,7 @@ module Api
           end
 
           render json: { processing: batch.reload.processing_status }, status: created ? :created : :ok
-        rescue ActionController::ParameterMissing, ArgumentError => e
+        rescue ActionController::ParameterMissing, ArgumentError, TypeError => e
           render json: { error: e.message }, status: :unprocessable_entity
         rescue ActiveRecord::RecordInvalid => e
           render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
