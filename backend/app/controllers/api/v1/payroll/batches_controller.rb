@@ -63,7 +63,11 @@ module Api
         def processing_events
           batch = PayrollBatch.find_by!(public_id: params[:id])
           permitted = params.permit(:event_id, :status, :occurred_at, :external_system, :external_pay_period_id, metadata: {})
-          occurred_at = Time.iso8601(permitted.fetch(:occurred_at))
+          occurred_at = begin
+            Time.iso8601(permitted.fetch(:occurred_at))
+          rescue ArgumentError, TypeError => e
+            return render json: { error: e.message }, status: :unprocessable_entity
+          end
           metadata = permitted[:metadata]&.to_h || {}
           event = PayrollBatchProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
           created = false
@@ -107,7 +111,7 @@ module Api
           end
 
           render json: { processing: batch.reload.processing_status }, status: created ? :created : :ok
-        rescue ActionController::ParameterMissing, ArgumentError, TypeError => e
+        rescue ActionController::ParameterMissing, ArgumentError => e
           render json: { error: e.message }, status: :unprocessable_entity
         rescue ActiveRecord::RecordInvalid => e
           render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity

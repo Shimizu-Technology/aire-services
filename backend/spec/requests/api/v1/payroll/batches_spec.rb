@@ -145,7 +145,8 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
              occurred_at: 123,
              external_system: "cornerstone_payroll"
            },
-           headers: { "X-Payroll-Shared-Secret" => secret }
+           headers: { "X-Payroll-Shared-Secret" => secret },
+           as: :json
     end.not_to change(PayrollBatchProcessingEvent, :count)
 
     expect(response).to have_http_status(:unprocessable_entity)
