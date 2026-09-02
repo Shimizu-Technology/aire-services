@@ -110,6 +110,25 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(batch.reload.payload).to eq(original_payload)
   end
 
+  it "rolls back a processing event when its audit record cannot be written" do
+    batch = finalized_batch
+    allow(AuditLog).to receive(:record!).and_raise(StandardError, "audit failed")
+    event_count = PayrollBatchProcessingEvent.count
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: {
+             event_id: "cornerstone-atomic-import-42",
+             status: "imported",
+             occurred_at: Time.current.iso8601,
+             external_system: "cornerstone_payroll",
+             external_pay_period_id: "42"
+           },
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.to raise_error(StandardError, "audit failed")
+    expect(PayrollBatchProcessingEvent.count).to eq(event_count)
+  end
+
   it "accepts an idempotent replay when the timestamp uses an equivalent offset" do
     batch = finalized_batch
     event = {

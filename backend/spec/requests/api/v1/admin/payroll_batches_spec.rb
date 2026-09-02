@@ -155,6 +155,43 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(PayrollBatchProcessingEvent.count).to eq(0)
   end
 
+  it "rejects every invalid manual reconciliation timestamp and note combination without persisting" do
+    guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
+    create_entry
+    valid_cutoff = guam.local(2026, 8, 31, 13, 6)
+    valid_processed_at = guam.local(2026, 8, 31, 13, 18)
+    base_params = {
+      start_date: "2026-08-01",
+      end_date: "2026-08-15",
+      manual_processing: true,
+      cutoff_at: valid_cutoff.iso8601,
+      processed_at: valid_processed_at.iso8601,
+      external_pay_period_id: "61",
+      processing_note: "Matched against the committed Cornerstone payroll"
+    }
+    invalid_overrides = [
+      { cutoff_at: guam.local(2026, 9, 2, 12, 1).iso8601 },
+      { processed_at: guam.local(2026, 8, 31, 13, 5).iso8601 },
+      { processed_at: guam.local(2026, 9, 2, 12, 1).iso8601 },
+      { external_pay_period_id: "" },
+      { processing_note: "too short" }
+    ]
+
+    travel_to(guam.local(2026, 9, 2, 12)) do
+      invalid_overrides.each do |overrides|
+        batch_count = PayrollBatch.count
+        event_count = PayrollBatchProcessingEvent.count
+        post "/api/v1/admin/payroll_batches",
+             params: base_params.merge(overrides),
+             headers: admin_headers
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(json.fetch(:error)).to be_present
+        expect(PayrollBatch.count).to eq(batch_count)
+        expect(PayrollBatchProcessingEvent.count).to eq(event_count)
+      end
+    end
+  end
+
   it "flags negative adjustments and finalizes them only with acknowledgement" do
     entry = create_entry
     post "/api/v1/admin/payroll_batches",
@@ -332,5 +369,21 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     )
     get "/api/v1/admin/payroll_batches/carryovers", headers: admin_headers
     expect(json.dig(:items, 0, :status)).to eq("imported")
+  end
+
+  it "reports summary totals from the complete carryover queue when displayed items are truncated" do
+    stub_const("Payroll::CarryoverQueue::MAX_ITEMS", 2)
+    3.times { create_entry(approval_status: "pending") }
+    post "/api/v1/admin/payroll_batches",
+         params: { start_date: "2026-08-01", end_date: "2026-08-15" },
+         headers: admin_headers
+    expect(response).to have_http_status(:created)
+
+    get "/api/v1/admin/payroll_batches/carryovers", headers: admin_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:items).length).to eq(2)
+    expect(json.fetch(:summary)).to include(awaiting_approval_count: 3)
+    expect(json.fetch(:truncated)).to be(true)
   end
 end

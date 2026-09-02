@@ -187,6 +187,47 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/AIRE will include it automatically/)).toBeInTheDocument()
   })
 
+  it('renders safe fallbacks for processing statuses added by a newer backend', async () => {
+    apiMock.getPayrollBatches.mockResolvedValue({ data: {
+      payroll_batches: [{
+        ...finalized,
+        processing: {
+          status: 'settlement_paused',
+          occurred_at: '2026-09-02T00:00:00Z',
+          external_system: 'cornerstone_payroll',
+          external_pay_period_id: '42',
+        },
+      }],
+      total_count: 1,
+      truncated: false,
+    } })
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{
+        source_time_entry_id: '52',
+        source_user_id: '7',
+        display_name: 'Alice Pilot',
+        email: 'alice@example.com',
+        category: { id: 3, key: 'flight', name: 'Flight Hours' },
+        original_work_date: '2026-08-21',
+        first_excluded_batch_id: 'AIRE-PAY-OLD',
+        latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: 'pending_approval',
+        held_total_hours: 4,
+        current_total_hours: 4,
+        status: 'manual_hold',
+        included_batch: null,
+      }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+
+    renderPayrollRuns()
+
+    expect(await screen.findByText('settlement_paused')).toBeInTheDocument()
+    expect(screen.getByText('manual_hold')).toBeInTheDocument()
+    expect(screen.getByText(/not yet recognized by this version of AIRE/)).toBeInTheDocument()
+  })
+
   it('opens a linked period and preserves it across the workspace', async () => {
     renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
     await screen.findByText('No payroll batches have been finalized yet.')

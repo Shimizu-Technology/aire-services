@@ -7,39 +7,27 @@ module Payroll
     def call
       carryover_entry_ids = PayrollBatchExclusion
         .where(reason: PayrollBatchExclusion::CARRYOVER_REASONS)
-        .distinct
-        .pluck(:source_time_entry_id)
-      return empty_result if carryover_entry_ids.empty?
-
-      exclusions = PayrollBatchExclusion
-        .includes(:payroll_batch)
+        .select(:source_time_entry_id)
+      latest_exclusion_ids = PayrollBatchExclusion
         .where(source_time_entry_id: carryover_entry_ids)
-        .order(:id)
-        .to_a
-      latest_exclusion_by_entry = exclusions.index_by(&:source_time_entry_id)
-      entry_ids = latest_exclusion_by_entry.keys
-      current_entries = TimeEntry.includes(:user, :time_category).where(id: entry_ids).index_by(&:id)
-      later_entries = PayrollBatchEntry
-        .includes(payroll_batch: :payroll_batch_processing_events)
-        .where(source_time_entry_id: entry_ids)
-        .to_a
-        .group_by(&:source_time_entry_id)
+        .select("DISTINCT ON (source_time_entry_id) id")
+        .order(:source_time_entry_id, id: :desc)
+        .map(&:id)
+      return empty_result if latest_exclusion_ids.empty?
 
-      items = latest_exclusion_by_entry.values.filter_map do |exclusion|
-        serialize(exclusion, current_entries[exclusion.source_time_entry_id], later_entries[exclusion.source_time_entry_id] || [])
+      # Keep every association query bounded while still calculating summary
+      # totals from the complete latest-exclusion set.
+      all_items = latest_exclusion_ids.each_slice(MAX_ITEMS).flat_map do |exclusion_ids|
+        serialize_exclusion_slice(exclusion_ids)
       end
-      items.sort_by! { |item| [ status_rank(item.fetch(:status)), item.fetch(:original_work_date), item.fetch(:source_time_entry_id).to_i ] }
-      items = items.first(MAX_ITEMS)
+      all_items.sort_by! { |item| [ status_rank(item.fetch(:status)), item.fetch(:original_work_date), item.fetch(:source_time_entry_id).to_i ] }
+      summary = summary_for(all_items)
+      items = all_items.first(MAX_ITEMS)
 
       {
         items: items,
-        summary: {
-          awaiting_approval_count: items.count { |item| item[:status] == "awaiting_approval" },
-          ready_for_next_batch_count: items.count { |item| item[:status] == "ready_for_next_batch" },
-          in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_issued payment_failed]) },
-          not_payable_count: items.count { |item| item[:status] == "not_payable" }
-        },
-        truncated: latest_exclusion_by_entry.size > items.size
+        summary: summary,
+        truncated: all_items.size > items.size
       }
     end
 
@@ -55,6 +43,34 @@ module Payroll
           not_payable_count: 0
         },
         truncated: false
+      }
+    end
+
+    def serialize_exclusion_slice(exclusion_ids)
+      exclusions_by_id = PayrollBatchExclusion
+        .includes(:payroll_batch)
+        .where(id: exclusion_ids)
+        .index_by(&:id)
+      exclusions = exclusion_ids.filter_map { |id| exclusions_by_id[id] }
+      entry_ids = exclusions.map(&:source_time_entry_id)
+      current_entries = TimeEntry.includes(:user, :time_category).where(id: entry_ids).index_by(&:id)
+      later_entries = PayrollBatchEntry
+        .includes(payroll_batch: :payroll_batch_processing_events)
+        .where(source_time_entry_id: entry_ids)
+        .to_a
+        .group_by(&:source_time_entry_id)
+
+      exclusions.filter_map do |exclusion|
+        serialize(exclusion, current_entries[exclusion.source_time_entry_id], later_entries[exclusion.source_time_entry_id] || [])
+      end
+    end
+
+    def summary_for(items)
+      {
+        awaiting_approval_count: items.count { |item| item[:status] == "awaiting_approval" },
+        ready_for_next_batch_count: items.count { |item| item[:status] == "ready_for_next_batch" },
+        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_issued payment_failed]) },
+        not_payable_count: items.count { |item| item[:status] == "not_payable" }
       }
     end
 

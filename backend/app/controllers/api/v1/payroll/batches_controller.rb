@@ -73,15 +73,32 @@ module Api
           created = false
           unless event
             begin
-              event = PayrollBatchProcessingEvent.create!(
-                event_id: permitted.fetch(:event_id),
-                payroll_batch: batch,
-                status: permitted.fetch(:status),
-                occurred_at: occurred_at,
-                external_system: permitted.fetch(:external_system),
-                external_pay_period_id: permitted[:external_pay_period_id],
-                metadata: metadata
-              )
+              PayrollBatchProcessingEvent.transaction do
+                event = PayrollBatchProcessingEvent.create!(
+                  event_id: permitted.fetch(:event_id),
+                  payroll_batch: batch,
+                  status: permitted.fetch(:status),
+                  occurred_at: occurred_at,
+                  external_system: permitted.fetch(:external_system),
+                  external_pay_period_id: permitted[:external_pay_period_id],
+                  metadata: metadata
+                )
+                AuditLog.record!(
+                  action: "payroll_batch.processing_status_recorded",
+                  actor: nil,
+                  actor_kind: "integration",
+                  source: "integration",
+                  event_category: "payroll",
+                  auditable: batch,
+                  metadata: {
+                    event_id: event.event_id,
+                    status: event.status,
+                    occurred_at: event.occurred_at.iso8601,
+                    external_system: event.external_system,
+                    external_pay_period_id: event.external_pay_period_id
+                  }.compact
+                )
+              end
               created = true
             rescue ActiveRecord::RecordNotUnique
               event = PayrollBatchProcessingEvent.find_by!(event_id: permitted.fetch(:event_id))
@@ -90,24 +107,6 @@ module Api
 
           unless same_processing_event?(event, batch, permitted, occurred_at:, metadata:)
             return render json: { error: "Event ID already belongs to a different processing event" }, status: :conflict
-          end
-
-          if created
-            AuditLog.record!(
-              action: "payroll_batch.processing_status_recorded",
-              actor: nil,
-              actor_kind: "integration",
-              source: "integration",
-              event_category: "payroll",
-              auditable: batch,
-              metadata: {
-                event_id: event.event_id,
-                status: event.status,
-                occurred_at: event.occurred_at.iso8601,
-                external_system: event.external_system,
-                external_pay_period_id: event.external_pay_period_id
-              }.compact
-            )
           end
 
           render json: { processing: batch.reload.processing_status }, status: created ? :created : :ok

@@ -94,7 +94,7 @@ function processingLabel(batch: PayrollBatchListItem) {
   if (batch.processing?.status === 'committed' && batch.processing.external_system === 'cornerstone_payroll_manual') {
     return 'Processed manually'
   }
-  return batch.processing ? CARRYOVER_STATUS[batch.processing.status].label : 'Finalized in AIRE'
+  return batch.processing ? CARRYOVER_STATUS[batch.processing.status]?.label || batch.processing.status : 'Finalized in AIRE'
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -163,7 +163,11 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {activeItems.length === 0 && <p className="rounded-xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">No unpaid carryover items need attention.</p>}
             {activeItems.map((item) => {
-              const status = CARRYOVER_STATUS[item.status]
+              const status = CARRYOVER_STATUS[item.status] || {
+                label: item.status,
+                detail: 'Payroll reported a status that is not yet recognized by this version of AIRE.',
+                className: 'border-slate-200 bg-slate-100 text-slate-700',
+              }
               return (
                 <article key={item.source_time_entry_id} className="rounded-2xl border border-slate-200 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
