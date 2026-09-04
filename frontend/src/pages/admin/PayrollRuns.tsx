@@ -45,8 +45,10 @@ const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; 
   awaiting_cornerstone: { label: 'Finalized in AIRE', detail: 'Included in a finalized batch and waiting to be imported into Cornerstone.', className: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
   imported: { label: 'Imported to Cornerstone', detail: 'Cornerstone has added these hours to a draft payroll.', className: 'border-blue-200 bg-blue-50 text-blue-800' },
   committed: { label: 'Payroll committed', detail: 'Cornerstone has committed the payroll containing these hours.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
+  payment_prepared: { label: 'Payment prepared', detail: 'Cornerstone prepared the payment, but AIRE is waiting for confirmation that it was delivered.', className: 'border-violet-200 bg-violet-50 text-violet-800' },
   payment_issued: { label: 'Payment issued', detail: 'Cornerstone reported that payment was issued.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
   payment_failed: { label: 'Payment needs attention', detail: 'Cornerstone reported a payment problem that needs review.', className: 'border-red-200 bg-red-50 text-red-800' },
+  payment_voided: { label: 'Payment voided', detail: 'Cornerstone voided this payment. The time remains traceable while the replacement is prepared.', className: 'border-red-200 bg-red-50 text-red-800' },
   not_payable: { label: 'Not payable', detail: 'This entry was denied, removed, or otherwise closed without payment.', className: 'border-slate-200 bg-slate-100 text-slate-700' },
 }
 

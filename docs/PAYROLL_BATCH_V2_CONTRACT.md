@@ -22,7 +22,11 @@ POST /api/v1/payroll/batches/{batch_id}/processing_events
 
 The list endpoint discovers finalized batches by their exact nominal dates. The detail endpoint returns the immutable payload plus an `export` envelope containing the stable batch ID, readiness state, cutoff timestamps, checksum algorithm, and checksum scope.
 
-The processing-events endpoint is the append-only acknowledgement channel back from Cornerstone Payroll. It accepts an idempotent `event_id`, a status (`imported`, `committed`, `payment_issued`, or `payment_failed`), `occurred_at`, `external_system`, an optional external pay-period ID, and non-authoritative metadata. These events never change the finalized batch payload or checksum. `imported` means the hours were added to a Cornerstone draft; it does not mean payroll was committed or payment was issued.
+The processing-events endpoint is the append-only acknowledgement channel back from Cornerstone Payroll. A batch event accepts an idempotent `event_id`, a status (`imported`, `committed`, `payment_issued`, or `payment_failed`), `occurred_at`, `external_system`, an optional external pay-period ID, and non-authoritative metadata.
+
+An entry event uses the same endpoint and adds `source_time_entry_id`. It may also include `source_user_uuid`, `external_payroll_item_id`, `payment_method`, and `payment_reference`. Entry statuses are `imported`, `committed`, `payment_prepared`, `payment_issued`, `payment_failed`, and `payment_voided`. Printing a paper check means `payment_prepared`; it is not paid until an operator confirms delivery with `payment_issued`. Voiding a check after it was prepared or issued records `payment_voided`. These events never change the finalized batch payload or checksum.
+
+`imported` means the hours were added to a Cornerstone draft. It does not mean payroll was committed or payment was issued.
 
 An identical `event_id` replay returns HTTP `200` and must match the original batch, status, timestamp instant (to the database's stored precision), external system, external pay-period ID, and metadata. Reusing an `event_id` with different event data returns HTTP `409` with `Event ID already belongs to a different processing event`; the original event remains unchanged.
 
@@ -44,6 +48,8 @@ Cornerstone must treat `export.batch_id` as the idempotency key. Importing the s
 
 - Import only `readiness_status: "finalized"` payloads with source `aire_services` and schema `2.0`.
 - Preserve the original payload, batch ID, checksum, cutoff, mappings, importing actor, and apply result for audit.
+- Prefer `source_user_uuid` for a saved employee mapping when it is present. Continue accepting `source_user_id` for batches finalized before UUIDs were introduced. Email and name are review suggestions only; they are never cross-system identity keys.
+- Preserve each `source_time_entry_id` and `line_key` allocation so Cornerstone can acknowledge individual entries without relying on employee-level totals.
 - Reject missing employee, category, or wage mappings instead of guessing.
 - Validate that AIRE's `original_week_start` matches the employer's configured legal workweek. Treat AIRE's regular/overtime split as locked source evidence; if Payroll's validation conflicts, stop for review rather than silently rewriting the batch.
 - Keep exclusions visible but never pay them from that batch. Only a later positive carryover or correction line makes excluded time payable.

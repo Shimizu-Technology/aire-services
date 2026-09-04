@@ -62,13 +62,30 @@ module Api
 
         def processing_events
           batch = PayrollBatch.find_by!(public_id: params[:id])
-          permitted = params.permit(:event_id, :status, :occurred_at, :external_system, :external_pay_period_id, metadata: {})
+          permitted = params.permit(
+            :event_id,
+            :status,
+            :occurred_at,
+            :external_system,
+            :external_pay_period_id,
+            :external_payroll_item_id,
+            :source_time_entry_id,
+            :source_user_uuid,
+            :payment_method,
+            :payment_reference,
+            metadata: {}
+          )
           occurred_at = begin
             Time.iso8601(permitted.fetch(:occurred_at))
           rescue ArgumentError, TypeError => e
             return render json: { error: e.message }, status: :unprocessable_entity
           end
           metadata = permitted[:metadata]&.to_h || {}
+
+          if permitted[:source_time_entry_id].present?
+            return record_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata)
+          end
+
           event = PayrollBatchProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
           created = false
           unless event
@@ -105,7 +122,7 @@ module Api
             end
           end
 
-          unless same_processing_event?(event, batch, permitted, occurred_at:, metadata:)
+          unless same_processing_event?(event, batch, permitted, occurred_at: occurred_at, metadata: metadata)
             return render json: { error: "Event ID already belongs to a different processing event" }, status: :conflict
           end
 
@@ -118,6 +135,79 @@ module Api
 
         private
 
+        def record_entry_processing_event(batch, permitted, occurred_at:, metadata:)
+          source_time_entry_id = Integer(permitted.fetch(:source_time_entry_id), 10)
+          batch_entry = batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)
+          source_user_uuid = permitted[:source_user_uuid].to_s.strip.downcase.presence
+          if batch_entry.source_user_uuid.present? && source_user_uuid != batch_entry.source_user_uuid.to_s
+            return render json: { error: "Source staff identity does not match this payroll entry" }, status: :conflict
+          end
+
+          event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
+          created = false
+          unless event
+            begin
+              PayrollEntryProcessingEvent.transaction do
+                event = PayrollEntryProcessingEvent.create!(
+                  event_id: permitted.fetch(:event_id),
+                  payroll_batch: batch,
+                  source_time_entry_id: source_time_entry_id,
+                  source_user_uuid: source_user_uuid,
+                  status: permitted.fetch(:status),
+                  occurred_at: occurred_at,
+                  external_system: permitted.fetch(:external_system),
+                  external_pay_period_id: permitted[:external_pay_period_id],
+                  external_payroll_item_id: permitted[:external_payroll_item_id],
+                  payment_method: permitted[:payment_method],
+                  payment_reference: permitted[:payment_reference],
+                  metadata: metadata
+                )
+                AuditLog.record!(
+                  action: "payroll_entry.processing_status_recorded",
+                  actor: nil,
+                  actor_kind: "integration",
+                  source: "integration",
+                  event_category: "payroll",
+                  auditable: batch,
+                  metadata: {
+                    event_id: event.event_id,
+                    source_time_entry_id: event.source_time_entry_id,
+                    source_user_uuid: event.source_user_uuid,
+                    status: event.status,
+                    occurred_at: event.occurred_at.iso8601,
+                    external_system: event.external_system,
+                    external_pay_period_id: event.external_pay_period_id,
+                    external_payroll_item_id: event.external_payroll_item_id,
+                    payment_method: event.payment_method,
+                    payment_reference: event.payment_reference
+                  }.compact
+                )
+              end
+              created = true
+            rescue ActiveRecord::RecordNotUnique
+              event = PayrollEntryProcessingEvent.find_by!(event_id: permitted.fetch(:event_id))
+            end
+          end
+
+          unless same_entry_processing_event?(
+            event,
+            batch,
+            permitted,
+            occurred_at: occurred_at,
+            metadata: metadata,
+            source_time_entry_id: source_time_entry_id,
+            source_user_uuid: source_user_uuid
+          )
+            return render json: { error: "Event ID already belongs to a different processing event" }, status: :conflict
+          end
+
+          render json: { entry_processing: serialize_entry_processing_event(event) }, status: created ? :created : :ok
+        rescue ArgumentError
+          render json: { error: "source_time_entry_id must be an integer" }, status: :unprocessable_entity
+        rescue ActiveRecord::RecordNotFound
+          render json: { error: "Payroll batch entry not found" }, status: :not_found
+        end
+
         def same_processing_event?(event, batch, permitted, occurred_at:, metadata:)
           event.payroll_batch_id == batch.id &&
             event.status == permitted[:status] &&
@@ -127,8 +217,42 @@ module Api
             event.metadata == metadata
         end
 
+        def same_entry_processing_event?(event, batch, permitted, occurred_at:, metadata:, source_time_entry_id:, source_user_uuid:)
+          event.payroll_batch_id == batch.id &&
+            event.source_time_entry_id == source_time_entry_id &&
+            event.source_user_uuid.to_s == source_user_uuid.to_s &&
+            event.status == permitted[:status] &&
+            event.external_system == permitted[:external_system] &&
+            event.external_pay_period_id.to_s == permitted[:external_pay_period_id].to_s &&
+            event.external_payroll_item_id.to_s == permitted[:external_payroll_item_id].to_s &&
+            event.payment_method.to_s == permitted[:payment_method].to_s &&
+            event.payment_reference.to_s == permitted[:payment_reference].to_s &&
+            normalized_entry_processing_time(event.occurred_at) == normalized_entry_processing_time(occurred_at) &&
+            event.metadata == metadata
+        end
+
+        def serialize_entry_processing_event(event)
+          {
+            event_id: event.event_id,
+            source_time_entry_id: event.source_time_entry_id.to_s,
+            source_user_uuid: event.source_user_uuid,
+            status: event.status,
+            occurred_at: event.occurred_at.iso8601,
+            external_system: event.external_system,
+            external_pay_period_id: event.external_pay_period_id,
+            external_payroll_item_id: event.external_payroll_item_id,
+            payment_method: event.payment_method,
+            payment_reference: event.payment_reference
+          }.compact
+        end
+
         def normalized_processing_time(value)
           precision = PayrollBatchProcessingEvent.columns_hash.fetch("occurred_at").precision || 6
+          value.to_time.utc.floor(precision)
+        end
+
+        def normalized_entry_processing_time(value)
+          precision = PayrollEntryProcessingEvent.columns_hash.fetch("occurred_at").precision || 6
           value.to_time.utc.floor(precision)
         end
 

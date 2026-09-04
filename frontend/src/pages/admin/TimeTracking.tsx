@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
-import { StaggerContainer, StaggerItem } from '../../components/ui/MotionComponents'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../../lib/api'
-import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportParams, HoursReportResponse, PendingApprovalsSummary } from '../../lib/api'
+import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
 import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
@@ -41,6 +40,7 @@ interface TimeEntryItem {
   status?: 'clocked_in' | 'on_break' | 'completed'
   approval_status?: 'pending' | 'approved' | 'denied' | null
   overtime_status?: 'none' | 'pending' | 'approved' | 'denied' | null
+  payroll_lifecycle?: PayrollEntryLifecycle
   attendance_status?: 'early' | 'on_time' | 'late' | null
   admin_override?: boolean
   clock_in_at?: string | null
@@ -210,7 +210,7 @@ function linkedCategoryFilter(searchParams: URLSearchParams) {
 }
 
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
-  return report.employees.flatMap((employee) => employee.days.flatMap((day) => day.entries.map((entry) => ({
+  const serialize = (employee: HoursReportEmployee, entry: HoursReportEntry): TimeEntryItem => ({
     id: entry.id,
     work_date: entry.work_date,
     start_time: entry.start_time,
@@ -225,6 +225,7 @@ function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem
     status: 'completed' as const,
     approval_status: entry.approval_status as TimeEntryItem['approval_status'],
     overtime_status: entry.overtime_status as TimeEntryItem['overtime_status'],
+    payroll_lifecycle: entry.payroll_lifecycle,
     user: {
       id: employee.id,
       email: employee.email || '',
@@ -235,7 +236,53 @@ function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem
     breaks: entry.breaks,
     created_at: '',
     updated_at: '',
-  }))))
+  })
+
+  return report.employees.flatMap((employee) => [
+    ...employee.days.flatMap((day) => day.entries.map((entry) => serialize(employee, entry))),
+    ...(employee.excluded_entries || []).map((entry) => serialize(employee, entry)),
+  ])
+}
+
+const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
+  awaiting_approval: 'border-amber-200 bg-amber-50 text-amber-800',
+  not_payable: 'border-slate-200 bg-slate-100 text-slate-700',
+  ready_for_cutoff: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+  finalized: 'border-indigo-200 bg-indigo-50 text-indigo-800',
+  imported: 'border-blue-200 bg-blue-50 text-blue-800',
+  committed: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  payment_prepared: 'border-violet-200 bg-violet-50 text-violet-800',
+  payment_issued: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  payment_failed: 'border-red-200 bg-red-50 text-red-800',
+  payment_voided: 'border-red-200 bg-red-50 text-red-800',
+}
+
+function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycle }) {
+  if (!lifecycle) return <span className="text-xs text-text-muted">Not tracked</span>
+  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null].filter(Boolean).join(' · ')
+  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{lifecycle.label}</span>
+}
+
+function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
+  const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
+  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+  return priority.map((status) => entries.find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
+}
+
+function EmployeeReviewBadge({ employee }: { employee: HoursReportEmployee }) {
+  if (employee.issues.uncategorized_count > 0) {
+    return <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">Missing category</span>
+  }
+
+  if (employee.issues.pending_count + employee.issues.denied_count + employee.issues.pending_overtime_count + employee.issues.denied_overtime_count + employee.issues.open_clock_count > 0) {
+    return <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Excluded work</span>
+  }
+
+  if (employee.ready) {
+    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Ready</span>
+  }
+
+  return <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Needs review</span>
 }
 
 export default function TimeTracking() {
@@ -794,7 +841,7 @@ export default function TimeTracking() {
   const deniedCount = entries.filter(e => e.approval_status === 'denied').length
   const visibleTotalHours = sumEntryHours(visibleEntries)
 
-  const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 }
+  const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, payroll_statuses: {} }
   const hoursSummaryRows = hoursReport?.employees ?? []
   const reportByCategory = hoursReport?.breakdowns?.by_category ?? []
   const reportBySource = hoursReport?.breakdowns?.by_source ?? []
@@ -1789,13 +1836,13 @@ export default function TimeTracking() {
             </div>
           </div>
 
-          <StaggerContainer className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-            <StaggerItem><ReportMetric label="Total Hours" value={reportLoading ? '…' : formatHours(reportSummary.total_hours)} emphasize /></StaggerItem>
-            <StaggerItem><ReportMetric label="Regular" value={reportLoading ? '…' : formatHours(reportSummary.regular_hours)} /></StaggerItem>
-            <StaggerItem><ReportMetric label="Overtime" value={reportLoading ? '…' : formatHours(reportSummary.overtime_hours)} tone={reportSummary.overtime_hours > 0 ? 'warning' : 'normal'} /></StaggerItem>
-            <StaggerItem><ReportMetric label="Break Hours" value={reportLoading ? '…' : formatHours(reportSummary.break_hours)} /></StaggerItem>
-            <StaggerItem><ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} /></StaggerItem>
-          </StaggerContainer>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+            <ReportMetric label="Total Hours" value={reportLoading ? '…' : formatHours(reportSummary.total_hours)} emphasize />
+            <ReportMetric label="Regular" value={reportLoading ? '…' : formatHours(reportSummary.regular_hours)} />
+            <ReportMetric label="Overtime" value={reportLoading ? '…' : formatHours(reportSummary.overtime_hours)} tone={reportSummary.overtime_hours > 0 ? 'warning' : 'normal'} />
+            <ReportMetric label="Break Hours" value={reportLoading ? '…' : formatHours(reportSummary.break_hours)} />
+            <ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} />
+          </div>
 
           {hoursReport && (
             <div className={`rounded-xl border px-4 py-3 ${
@@ -1829,6 +1876,26 @@ export default function TimeTracking() {
             </div>
           )}
 
+          {hoursReport && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="payroll-lifecycle-summary">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 id="payroll-lifecycle-summary" className="font-semibold text-primary-dark">Payroll lifecycle</h3>
+                  <p className="mt-0.5 text-xs text-text-muted">Entry-level status from AIRE cutoff through Cornerstone payment.</p>
+                </div>
+                <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+                <ReportMetric label="Ready / awaiting" value={String((reportSummary.payroll_statuses?.ready_for_cutoff || 0) + (reportSummary.payroll_statuses?.awaiting_approval || 0))} />
+                <ReportMetric label="In payroll" value={String((reportSummary.payroll_statuses?.finalized || 0) + (reportSummary.payroll_statuses?.imported || 0) + (reportSummary.payroll_statuses?.committed || 0))} />
+                <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
+                <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
+                <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) > 0 ? 'warning' : 'normal'} />
+                <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
+              </div>
+            </section>
+          )}
+
           {hoursReport && (hoursReport.context_start_date !== hoursReport.start_date || hoursReport.context_end_date !== hoursReport.end_date) && (
             <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
               OT is calculated by full Sunday–Saturday workweeks. This report uses context from {formatDate(hoursReport.context_start_date)} through {formatDate(hoursReport.context_end_date)} so pay periods that split a week still calculate overtime correctly.
@@ -1840,7 +1907,49 @@ export default function TimeTracking() {
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
               <p className="mt-0.5 text-xs text-text-muted">Operational review view. Click an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
             </div>
-            <div className="overflow-x-auto">
+            <div className="divide-y divide-neutral-warm sm:hidden">
+              {reportLoading ? (
+                <p className="px-4 py-8 text-center text-sm text-text-muted">Loading payroll report...</p>
+              ) : hoursSummaryRows.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-text-muted">No hours match this range.</p>
+              ) : hoursSummaryRows.map((employee) => (
+                <button
+                  key={`mobile-${employee.id}`}
+                  type="button"
+                  onClick={() => setSelectedReportEmployee(employee)}
+                  className="w-full px-4 py-4 text-left transition hover:bg-cyan-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-400"
+                >
+                  <span className="flex items-start justify-between gap-3">
+                    <span>
+                      <span className="block font-semibold text-primary-dark">{employee.full_name}</span>
+                      <span className="mt-0.5 block text-xs text-text-muted">
+                        {employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'} · {employee.is_intern ? 'Intern' : 'Staff'}
+                      </span>
+                    </span>
+                    <PayrollLifecycleBadge lifecycle={employeePayrollLabel(employee)} />
+                  </span>
+                  <span className="mt-3 grid grid-cols-3 gap-2">
+                    <span className="rounded-xl bg-slate-50 px-3 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Regular</span>
+                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.regular_hours.toFixed(2)}h</span>
+                    </span>
+                    <span className="rounded-xl bg-slate-50 px-3 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">OT</span>
+                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.overtime_hours.toFixed(2)}h</span>
+                    </span>
+                    <span className="rounded-xl bg-slate-50 px-3 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Total</span>
+                      <span className="mt-0.5 block text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}h</span>
+                    </span>
+                  </span>
+                  <span className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-text-muted">{employee.entries_count} {employee.entries_count === 1 ? 'entry' : 'entries'} · {formatHours(employee.break_hours)} break hours</span>
+                    <EmployeeReviewBadge employee={employee} />
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto sm:block">
               <table className="w-full min-w-[980px]">
                 <thead className="bg-neutral-warm/40">
                   <tr>
@@ -1853,14 +1962,15 @@ export default function TimeTracking() {
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Total</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Breaks</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Entries</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Review</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Payroll</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-warm">
                   {reportLoading ? (
-                    <tr><td colSpan={10} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
+                    <tr><td colSpan={11} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
                   ) : hoursSummaryRows.length === 0 ? (
-                    <tr><td colSpan={10} className="px-4 py-8 text-center text-text-muted">No approved hours match this range.</td></tr>
+                    <tr><td colSpan={11} className="px-4 py-8 text-center text-text-muted">No hours match this range.</td></tr>
                   ) : hoursSummaryRows.map((employee) => (
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
                       <td className="px-4 py-3 text-sm font-semibold text-primary-dark">{employee.full_name}</td>
@@ -1905,17 +2015,8 @@ export default function TimeTracking() {
                       <td className="px-4 py-3 text-right text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{formatHours(employee.break_hours)}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.entries_count}</td>
-                      <td className="px-4 py-3 text-sm">
-                        {employee.issues.uncategorized_count > 0 ? (
-                          <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">Missing category</span>
-                        ) : employee.issues.pending_count + employee.issues.denied_count + employee.issues.pending_overtime_count + employee.issues.denied_overtime_count + employee.issues.open_clock_count > 0 ? (
-                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Excluded work</span>
-                        ) : employee.ready ? (
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Ready</span>
-                        ) : (
-                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Needs review</span>
-                        )}
-                      </td>
+                      <td className="px-4 py-3 text-sm"><EmployeeReviewBadge employee={employee} /></td>
+                      <td className="px-4 py-3 text-sm"><PayrollLifecycleBadge lifecycle={employeePayrollLabel(employee)} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -2092,6 +2193,17 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
             <ReportMetric label="Breaks" value={employee.break_hours.toFixed(2)} />
           </div>
 
+          <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <h3 className="font-semibold text-primary-dark">Payroll status</h3>
+            <p className="mt-1 text-xs text-text-muted">Every time entry remains traceable from approval through payment.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {Object.entries(employee.payroll_statuses || {}).filter(([, count]) => Number(count) > 0).map(([status, count]) => {
+                const lifecycle = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])].find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle
+                return lifecycle ? <span key={status} className="inline-flex items-center gap-1.5"><PayrollLifecycleBadge lifecycle={lifecycle} /><span className="text-xs text-text-muted">{count}</span></span> : null
+              })}
+            </div>
+          </section>
+
           {employee.categories.length > 0 && (
             <section className="rounded-2xl border border-slate-200 bg-white">
               <div className="border-b border-slate-200 px-4 py-3"><h3 className="font-semibold text-primary-dark">Hours by type</h3></div>
@@ -2149,6 +2261,17 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                           <span className="font-semibold text-primary">{entry.total_hours.toFixed(2)}h</span>
                         </div>
                         <div className="mt-1 text-xs text-text-muted">{entry.time_category?.name || 'Uncategorized'} · {entry.entry_method} · {entry.clock_source || 'legacy'}</div>
+                        <div className="mt-2"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></div>
+                        {entry.payroll_lifecycle && entry.payroll_lifecycle.settlements.length > 0 && (
+                          <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 text-xs text-text-muted">
+                            {entry.payroll_lifecycle.settlements.map((settlement) => (
+                              <p key={`${entry.id}-${settlement.batch_id}`}>
+                                {formatDate(settlement.start_date)}–{formatDate(settlement.end_date)} · {settlement.total_hours.toFixed(2)}h · {settlement.label}
+                                {settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         {entry.breaks.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">
                             {entry.breaks.map((brk, index) => <span key={`${entry.id}-${index}`} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">Break {brk.start_time}–{brk.end_time} ({brk.duration_minutes}m)</span>)}
@@ -2161,6 +2284,28 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
               ))}
             </div>
           </section>
+
+          {(employee.excluded_entries || []).length > 0 && (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50/40">
+              <div className="border-b border-amber-200 px-4 py-3">
+                <h3 className="font-semibold text-amber-950">Excluded or unresolved time</h3>
+                <p className="mt-1 text-xs text-amber-800">These entries are still documented even though they are not part of the approved-hour totals above.</p>
+              </div>
+              <div className="space-y-2 p-4">
+                {(employee.excluded_entries || []).map((entry) => (
+                  <div key={entry.id} className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-primary-dark">{formatDate(entry.work_date)} · {entry.total_hours.toFixed(2)}h</p>
+                        <p className="mt-1 text-xs text-text-muted">{entry.time_category?.name || 'Uncategorized'} · {entry.approval_status || 'standard approval'}</p>
+                      </div>
+                      <PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>
@@ -2202,7 +2347,7 @@ function DetailedEntriesTable({
     })
   }
 
-  const colCount = isAdmin ? 9 : 7
+  const colCount = isAdmin ? 10 : 8
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
@@ -2222,6 +2367,7 @@ function DetailedEntriesTable({
               <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Hours</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Breaks</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Description</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Payroll</th>
               {isAdmin && <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Actions</th>}
             </tr>
           </thead>
@@ -2278,6 +2424,9 @@ function DetailedEntriesTable({
                       </td>
                       <td className="px-4 py-3 text-sm text-text-muted text-right">{totalBreaks > 0 ? `${totalBreaks}m` : '—'}</td>
                       <td className="px-4 py-3 text-sm text-text-muted truncate max-w-[200px]">{descriptions.length > 0 ? descriptions.join('; ') : '-'}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter((entry) => entry.payroll_lifecycle).map((entry) => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map((lifecycle) => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
+                      </td>
                       {isAdmin && (
                         <td className="px-4 py-3 text-right">
                           {!hasMultiple && <button type="button" onClick={(event) => { event.stopPropagation(); onEdit(group.entries[0]) }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button>}
@@ -2298,6 +2447,7 @@ function DetailedEntriesTable({
                         <td className="px-4 py-2 text-xs text-primary font-semibold text-right">{entry.hours.toFixed(2)}</td>
                         <td className="px-4 py-2 text-xs text-text-muted text-right">{entry.break_minutes ? `${entry.break_minutes}m` : '—'}</td>
                         <td className="px-4 py-2 text-xs text-text-muted truncate max-w-[200px]">{entry.description || '-'}</td>
+                        <td className="px-4 py-2 text-xs"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></td>
                         {isAdmin && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button></td>}
                       </tr>
                     ))}

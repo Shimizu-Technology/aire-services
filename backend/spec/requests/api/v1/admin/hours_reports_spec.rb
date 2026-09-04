@@ -144,6 +144,46 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(json.dig(:employees, 0, :ready)).to be(true)
   end
 
+  it "shows entry-level payment status and unresolved prior-period time for one employee" do
+    paid_entry = create_entry(user: employee, date: Date.new(2026, 8, 14), hours: 4)
+    pending_entry = create_entry(user: employee, date: Date.new(2026, 8, 15), hours: 1.5)
+    pending_entry.update!(approval_status: "pending")
+    batch = Payroll::BatchFinalizer.new(start_date: "2026-08-01", end_date: "2026-08-15", actor: admin).call
+    batch_row = batch.payroll_batch_entries.find_by!(source_time_entry_id: paid_entry.id)
+    PayrollEntryProcessingEvent.create!(
+      payroll_batch: batch,
+      event_id: "cornerstone-entry-paid-report",
+      source_time_entry_id: paid_entry.id,
+      source_user_uuid: batch_row.source_user_uuid,
+      status: "payment_issued",
+      occurred_at: Time.zone.parse("2026-08-31 12:00:00"),
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42",
+      external_payroll_item_id: "99",
+      payment_method: "paper_check",
+      payment_reference: "5001"
+    )
+
+    get "/api/v1/admin/hours_report",
+        params: { start_date: "2026-08-01", end_date: "2026-08-15", user_id: employee.id },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:summary, :payroll_statuses)).to eq(payment_issued: 1, awaiting_approval: 1)
+    expect(json.dig(:employees, 0, :payroll_statuses)).to eq(payment_issued: 1, awaiting_approval: 1)
+    paid_lifecycle = json.dig(:employees, 0, :days, 0, :entries, 0, :payroll_lifecycle)
+    expect(paid_lifecycle).to include(status: "payment_issued", label: "Paid", payment_reference: "5001")
+    expect(paid_lifecycle.dig(:settlements, 0)).to include(
+      batch_id: batch.public_id,
+      status: "payment_issued",
+      total_hours: 4.0
+    )
+    expect(json.dig(:employees, 0, :excluded_entries, 0)).to include(
+      id: pending_entry.id,
+      payroll_lifecycle: include(status: "awaiting_approval")
+    )
+  end
+
   it "exports one detailed CSV row per entry segment with an immutable reference" do
     first = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 3, start_hour: 9)
     first.update!(

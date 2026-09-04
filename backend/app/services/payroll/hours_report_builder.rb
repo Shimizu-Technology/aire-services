@@ -26,6 +26,7 @@ module Payroll
       user_ids = scoped_users.map(&:id)
       control_entries = overtime_context_entries_scope(context_start_date..context_end_date, user_ids).to_a
       report_entries = report_entries_scope(context_start_date..context_end_date, user_ids).to_a
+      @payroll_lifecycles = EntryLifecycleResolver.new(entries: (control_entries + report_entries)).call
       control_period_entries = control_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
       breakdowns = build_breakdowns(employees)
@@ -114,7 +115,8 @@ module Payroll
         user_report_entries = report_entries_by_user.fetch(user.id, [])
         period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
         control_period_entries = user_context_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
-        next if period_entries.empty? && (!include_empty_employees? || !user.time_tracking_enabled?)
+        next if period_entries.empty? && control_period_entries.empty? && (!include_empty_employees? || !user.time_tracking_enabled?)
+        next if period_entries.empty? && control_period_entries.any? && params[:user_id].blank? && (!include_empty_employees? || !user.time_tracking_enabled?)
 
         build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
       end
@@ -128,6 +130,8 @@ module Payroll
       overtime_allocations = allocate_weekly_overtime(user_context_entries)
       period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       countable_period_entries = period_entries.select { |entry| countable?(entry) }
+      lifecycle_period_entries = params[:user_id].present? ? control_period_entries : period_entries
+      excluded_period_entries = lifecycle_period_entries.reject { |entry| countable?(entry) }
       days = build_days(countable_period_entries, overtime_allocations)
       categories = build_categories(countable_period_entries, overtime_allocations)
       weeks = build_weeks(user_context_entries, countable_period_entries, overtime_allocations)
@@ -163,7 +167,9 @@ module Payroll
         entries_count: countable_period_entries.size,
         ready: report_ready?(issues),
         issues: issues,
+        payroll_statuses: EntryLifecycleResolver.summary(lifecycle_period_entries.filter_map { |entry| payroll_lifecycle_for(entry) }),
         days: days,
+        excluded_entries: excluded_period_entries.map { |entry| serialize_entry(entry, {}) },
         categories: categories,
         weeks: weeks
       }
@@ -254,6 +260,7 @@ module Payroll
           key: entry.time_category.key,
           name: entry.time_category.name
         } : nil,
+        payroll_lifecycle: payroll_lifecycle_for(entry),
         breaks: entry.time_entry_breaks.sort_by(&:start_time).map do |entry_break|
           {
             id: entry_break.id,
@@ -294,7 +301,8 @@ module Payroll
         pending_overtime_count: period_entries.count { |entry| entry.overtime_status == "pending" },
         denied_overtime_count: period_entries.count { |entry| entry.overtime_status == "denied" },
         open_clock_count: period_entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) },
-        uncategorized_count: period_entries.count { |entry| countable?(entry) && entry.time_category_id.nil? }
+        uncategorized_count: period_entries.count { |entry| countable?(entry) && entry.time_category_id.nil? },
+        payroll_statuses: EntryLifecycleResolver.summary(period_entries.filter_map { |entry| payroll_lifecycle_for(entry) })
       }
     end
 
@@ -349,6 +357,10 @@ module Payroll
       return "pending" if user.pending_invite?
 
       "active"
+    end
+
+    def payroll_lifecycle_for(entry)
+      @payroll_lifecycles.fetch(entry.id, nil)
     end
 
     def sum(rows, key)

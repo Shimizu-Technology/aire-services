@@ -807,6 +807,46 @@ export interface HoursReportEntry {
   overtime_status: string | null;
   time_category: { id: number; key?: string | null; name: string } | null;
   breaks: Array<{ id: number; start_time: string | null; end_time: string | null; duration_minutes: number | null }>;
+  payroll_lifecycle?: PayrollEntryLifecycle;
+}
+
+export type PayrollEntryLifecycleStatus =
+  | 'awaiting_approval'
+  | 'not_payable'
+  | 'ready_for_cutoff'
+  | 'finalized'
+  | 'imported'
+  | 'committed'
+  | 'payment_prepared'
+  | 'payment_issued'
+  | 'payment_failed'
+  | 'payment_voided';
+
+export interface PayrollEntrySettlement {
+  batch_id: string;
+  start_date: string;
+  end_date: string;
+  status: PayrollEntryLifecycleStatus;
+  label: string;
+  occurred_at: string;
+  source_kinds: string[];
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  external_pay_period_id?: string | null;
+  external_payroll_item_id?: string | null;
+  payment_method?: string | null;
+  payment_reference?: string | null;
+}
+
+export interface PayrollEntryLifecycle {
+  status: PayrollEntryLifecycleStatus;
+  label: string;
+  payment_method?: string | null;
+  payment_reference?: string | null;
+  occurred_at?: string | null;
+  latest_excluded_batch_id?: string | null;
+  settlements: PayrollEntrySettlement[];
 }
 
 export interface HoursReportDay {
@@ -879,7 +919,9 @@ export interface HoursReportEmployee {
     open_clock_count: number;
     uncategorized_count: number;
   };
+  payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
   days: HoursReportDay[];
+  excluded_entries?: HoursReportEntry[];
   categories: HoursReportCategory[];
   weeks: HoursReportWeek[];
 }
@@ -919,6 +961,7 @@ export interface HoursReportResponse {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
+    payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
   };
   breakdowns: {
     by_category: HoursReportCategory[];
@@ -1031,6 +1074,7 @@ export interface PayrollBatchAdjustment {
 
 export interface PayrollBatchEmployee {
   source_user_id: string;
+  source_user_uuid?: string | null;
   email: string | null;
   display_name: string;
   adjustments: PayrollBatchAdjustment[];
@@ -1042,6 +1086,7 @@ export interface PayrollBatchEmployee {
 export interface PayrollBatchExclusion {
   source_time_entry_id: string;
   source_user_id: string;
+  source_user_uuid?: string | null;
   display_name: string;
   email: string | null;
   category: { id: number; key: string | null; name: string } | null;
@@ -1112,6 +1157,7 @@ export interface ManualPayrollProcessingInput {
 export interface PayrollCarryoverItem {
   source_time_entry_id: string;
   source_user_id: string;
+  source_user_uuid?: string | null;
   display_name: string;
   email: string | null;
   category: { id: number; key: string | null; name: string } | null;
@@ -1121,7 +1167,7 @@ export interface PayrollCarryoverItem {
   exclusion_reason: string;
   held_total_hours: number;
   current_total_hours: number | null;
-  status: 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_issued' | 'payment_failed' | 'not_payable';
+  status: 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'not_payable';
   included_batch: {
     id: string;
     start_date: string;

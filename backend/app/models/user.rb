@@ -28,6 +28,9 @@ class User < ApplicationRecord
   attr_accessor :skip_kiosk_pin_presence_validation
 
   validates :clerk_id, presence: true, uniqueness: true
+  validates :payroll_integration_uuid, presence: true, uniqueness: true
+  validates :payroll_integration_uuid,
+            format: { with: /\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i }
   validates :email, uniqueness: { case_sensitive: false }, allow_nil: true
   validates :email, format: { with: /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/ }, allow_blank: true
   validates :is_active, inclusion: { in: [ true, false ] }
@@ -50,9 +53,12 @@ class User < ApplicationRecord
   validate :time_tracking_and_kiosk_access_match
   validate :active_staff_requires_access
 
+  before_validation :set_payroll_integration_uuid, on: :create
   before_validation :set_default_kiosk_enabled
   before_validation :sync_kiosk_pin_lookup_hash
   after_save :sync_primary_approval_group_assignment, if: :saved_change_to_approval_group?
+
+  attr_readonly :payroll_integration_uuid
 
   scope :admins, -> { where(role: "admin") }
   scope :employees, -> { where(role: "employee") }
@@ -236,6 +242,10 @@ class User < ApplicationRecord
   end
 
   private
+
+  def set_payroll_integration_uuid
+    self.payroll_integration_uuid ||= SecureRandom.uuid
+  end
 
   def set_default_kiosk_enabled
     self.kiosk_enabled = time_tracking_enabled? if kiosk_enabled.nil?
