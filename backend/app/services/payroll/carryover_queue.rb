@@ -59,9 +59,19 @@ module Payroll
         .where(source_time_entry_id: entry_ids)
         .to_a
         .group_by(&:source_time_entry_id)
+      batch_ids = later_entries.values.flatten.map(&:payroll_batch_id).uniq
+      processing_events = PayrollEntryProcessingEvent
+        .where(payroll_batch_id: batch_ids, source_time_entry_id: entry_ids)
+        .to_a
+        .group_by { |event| [ event.payroll_batch_id, event.source_time_entry_id ] }
 
       exclusions.filter_map do |exclusion|
-        serialize(exclusion, current_entries[exclusion.source_time_entry_id], later_entries[exclusion.source_time_entry_id] || [])
+        serialize(
+          exclusion,
+          current_entries[exclusion.source_time_entry_id],
+          later_entries[exclusion.source_time_entry_id] || [],
+          processing_events
+        )
       end
     end
 
@@ -69,23 +79,25 @@ module Payroll
       {
         awaiting_approval_count: items.count { |item| item[:status] == "awaiting_approval" },
         ready_for_next_batch_count: items.count { |item| item[:status] == "ready_for_next_batch" },
-        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_issued payment_failed]) },
+        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided]) },
         not_payable_count: items.count { |item| item[:status] == "not_payable" }
       }
     end
 
-    def serialize(exclusion, entry, settlement_rows)
+    def serialize(exclusion, entry, settlement_rows, processing_events)
       included_row = settlement_rows
         .select { |row| row.payroll_batch.cutoff_at > exclusion.payroll_batch.cutoff_at }
         .max_by { |row| [ row.payroll_batch.cutoff_at, row.id ] }
       batch = included_row&.payroll_batch
-      processing = batch&.processing_status
+      entry_events = batch ? processing_events.fetch([ batch.id, exclusion.source_time_entry_id ], []) : []
+      processing = entry_processing_status(entry_events) || batch&.processing_status
       snapshot = exclusion.snapshot || {}
       status = status_for(exclusion, entry, batch, processing)
 
       {
         source_time_entry_id: exclusion.source_time_entry_id.to_s,
         source_user_id: exclusion.source_user_id.to_s,
+        source_user_uuid: exclusion.source_user_uuid&.to_s || snapshot["user_uuid"],
         display_name: entry&.user&.full_name || snapshot["employee_name"] || "Former team member",
         email: entry&.user&.email || snapshot["employee_email"],
         category: category_for(entry, snapshot),
@@ -123,6 +135,23 @@ module Payroll
       snapshot["time_category"]
     end
 
+    def entry_processing_status(events)
+      event = events.max_by do |candidate|
+          [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ]
+        end
+      return unless event
+
+      {
+        status: event.status,
+        occurred_at: event.occurred_at.iso8601,
+        external_system: event.external_system,
+        external_pay_period_id: event.external_pay_period_id,
+        external_payroll_item_id: event.external_payroll_item_id,
+        payment_method: event.payment_method,
+        payment_reference: event.payment_reference
+      }.compact
+    end
+
     def first_excluded_batch_id(exclusion)
       exclusion.first_excluded_batch_public_id.presence || exclusion.payroll_batch.public_id
     end
@@ -132,11 +161,13 @@ module Payroll
         "ready_for_next_batch" => 0,
         "awaiting_approval" => 1,
         "payment_failed" => 2,
+        "payment_voided" => 2,
         "awaiting_cornerstone" => 3,
         "imported" => 4,
         "committed" => 5,
-        "payment_issued" => 6,
-        "not_payable" => 7
+        "payment_prepared" => 6,
+        "payment_issued" => 7,
+        "not_payable" => 10
       }.fetch(status, 8)
     end
   end

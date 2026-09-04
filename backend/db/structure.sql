@@ -326,7 +326,8 @@ CREATE TABLE public.payroll_batch_entries (
     line_key character varying NOT NULL,
     snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
+    updated_at timestamp(6) without time zone NOT NULL,
+    source_user_uuid uuid
 );
 
 
@@ -365,7 +366,8 @@ CREATE TABLE public.payroll_batch_exclusions (
     first_excluded_batch_public_id character varying,
     snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
+    updated_at timestamp(6) without time zone NOT NULL,
+    source_user_uuid uuid
 );
 
 
@@ -465,6 +467,48 @@ CREATE SEQUENCE public.payroll_batches_id_seq
 --
 
 ALTER SEQUENCE public.payroll_batches_id_seq OWNED BY public.payroll_batches.id;
+
+
+--
+-- Name: payroll_entry_processing_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_entry_processing_events (
+    id bigint NOT NULL,
+    payroll_batch_id bigint NOT NULL,
+    event_id character varying NOT NULL,
+    source_time_entry_id bigint NOT NULL,
+    source_user_uuid uuid,
+    status character varying NOT NULL,
+    external_system character varying NOT NULL,
+    external_pay_period_id character varying,
+    external_payroll_item_id character varying,
+    payment_method character varying,
+    payment_reference character varying,
+    occurred_at timestamp(6) without time zone NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_entry_processing_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_entry_processing_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_entry_processing_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_entry_processing_events_id_seq OWNED BY public.payroll_entry_processing_events.id;
 
 
 --
@@ -893,11 +937,12 @@ CREATE TABLE public.users (
     personal_access_enabled boolean DEFAULT false NOT NULL,
     profile_source character varying DEFAULT 'local'::character varying NOT NULL,
     time_tracking_enabled boolean DEFAULT false NOT NULL,
+    payroll_integration_uuid uuid DEFAULT gen_random_uuid() NOT NULL,
     CONSTRAINT check_public_team_photo_position_x_range CHECK (((public_team_photo_position_x >= 0) AND (public_team_photo_position_x <= 100))),
     CONSTRAINT check_public_team_photo_position_y_range CHECK (((public_team_photo_position_y >= 0) AND (public_team_photo_position_y <= 100))),
     CONSTRAINT check_users_kiosk_matches_time_tracking CHECK ((kiosk_enabled = time_tracking_enabled)),
-    CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY (ARRAY[('clerk'::character varying)::text, ('local'::character varying)::text]))),
-    CONSTRAINT check_valid_role CHECK (((role)::text = ANY (ARRAY[('admin'::character varying)::text, ('employee'::character varying)::text])))
+    CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY ((ARRAY['clerk'::character varying, 'local'::character varying])::text[]))),
+    CONSTRAINT check_valid_role CHECK (((role)::text = ANY ((ARRAY['admin'::character varying, 'employee'::character varying])::text[])))
 );
 
 
@@ -988,6 +1033,13 @@ ALTER TABLE ONLY public.payroll_batch_processing_events ALTER COLUMN id SET DEFA
 --
 
 ALTER TABLE ONLY public.payroll_batches ALTER COLUMN id SET DEFAULT nextval('public.payroll_batches_id_seq'::regclass);
+
+
+--
+-- Name: payroll_entry_processing_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_entry_processing_events ALTER COLUMN id SET DEFAULT nextval('public.payroll_entry_processing_events_id_seq'::regclass);
 
 
 --
@@ -1156,6 +1208,14 @@ ALTER TABLE ONLY public.payroll_batches
 
 
 --
+-- Name: payroll_entry_processing_events payroll_entry_processing_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_entry_processing_events
+    ADD CONSTRAINT payroll_entry_processing_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: report_exports report_exports_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1270,6 +1330,20 @@ CREATE INDEX idx_on_export_type_start_date_end_date_1234e92c05 ON public.report_
 --
 
 CREATE INDEX idx_payroll_batch_processing_events_status ON public.payroll_batch_processing_events USING btree (payroll_batch_id, status, occurred_at);
+
+
+--
+-- Name: idx_payroll_entry_processing_events_batch_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_entry_processing_events_batch_status ON public.payroll_entry_processing_events USING btree (payroll_batch_id, status, occurred_at);
+
+
+--
+-- Name: idx_payroll_entry_processing_events_entry_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_entry_processing_events_entry_time ON public.payroll_entry_processing_events USING btree (source_time_entry_id, occurred_at);
 
 
 --
@@ -1504,6 +1578,13 @@ CREATE INDEX index_payroll_batch_entries_on_source_time_entry_id ON public.payro
 
 
 --
+-- Name: index_payroll_batch_entries_on_source_user_uuid; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batch_entries_on_source_user_uuid ON public.payroll_batch_entries USING btree (source_user_uuid);
+
+
+--
 -- Name: index_payroll_batch_entries_on_user_and_week; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1529,6 +1610,13 @@ CREATE INDEX index_payroll_batch_exclusions_on_payroll_batch_id ON public.payrol
 --
 
 CREATE INDEX index_payroll_batch_exclusions_on_source_time_entry_id ON public.payroll_batch_exclusions USING btree (source_time_entry_id);
+
+
+--
+-- Name: index_payroll_batch_exclusions_on_source_user_uuid; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_batch_exclusions_on_source_user_uuid ON public.payroll_batch_exclusions USING btree (source_user_uuid);
 
 
 --
@@ -1571,6 +1659,20 @@ CREATE UNIQUE INDEX index_payroll_batches_on_public_id ON public.payroll_batches
 --
 
 CREATE UNIQUE INDEX index_payroll_batches_on_start_date_and_end_date ON public.payroll_batches USING btree (start_date, end_date);
+
+
+--
+-- Name: index_payroll_entry_processing_events_on_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_entry_processing_events_on_event_id ON public.payroll_entry_processing_events USING btree (event_id);
+
+
+--
+-- Name: index_payroll_entry_processing_events_on_payroll_batch_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_entry_processing_events_on_payroll_batch_id ON public.payroll_entry_processing_events USING btree (payroll_batch_id);
 
 
 --
@@ -1903,6 +2005,13 @@ CREATE UNIQUE INDEX index_users_on_lower_email ON public.users USING btree (lowe
 
 
 --
+-- Name: index_users_on_payroll_integration_uuid; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_users_on_payroll_integration_uuid ON public.users USING btree (payroll_integration_uuid);
+
+
+--
 -- Name: index_users_on_personal_access_enabled; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1963,6 +2072,13 @@ CREATE TRIGGER payroll_batch_processing_events_append_only BEFORE DELETE OR UPDA
 --
 
 CREATE TRIGGER payroll_batches_append_only BEFORE DELETE OR UPDATE ON public.payroll_batches FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_entry_processing_events payroll_entry_processing_events_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_entry_processing_events_append_only BEFORE DELETE OR UPDATE ON public.payroll_entry_processing_events FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
 
 
 --
@@ -2078,6 +2194,14 @@ ALTER TABLE ONLY public.payroll_batches
 
 
 --
+-- Name: payroll_entry_processing_events fk_rails_94a8c847a2; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_entry_processing_events
+    ADD CONSTRAINT fk_rails_94a8c847a2 FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE CASCADE;
+
+
+--
 -- Name: active_storage_variant_records fk_rails_993965df05; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2172,6 +2296,8 @@ ALTER TABLE ONLY public.schedules
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260904011000'),
+('20260904010000'),
 ('20260902010000'),
 ('20260831011000'),
 ('20260831010000'),

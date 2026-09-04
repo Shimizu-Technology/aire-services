@@ -210,4 +210,62 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(response).to have_http_status(:created)
     expect(json.dig(:processing, :status)).to eq("committed")
   end
+
+  it "records idempotent entry lifecycle events against the immutable staff identity" do
+    batch = finalized_batch
+    batch_entry = batch.payroll_batch_entries.first
+    headers = { "X-Payroll-Shared-Secret" => secret }
+    event = {
+      event_id: "cornerstone-entry-paid-42",
+      status: "payment_issued",
+      occurred_at: "2026-09-04T10:00:00+10:00",
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42",
+      external_payroll_item_id: "99",
+      source_time_entry_id: batch_entry.source_time_entry_id,
+      source_user_uuid: batch_entry.source_user_uuid,
+      payment_method: "paper_check",
+      payment_reference: "5001"
+    }
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events", params: event, headers: headers
+    end.to change(PayrollEntryProcessingEvent, :count).by(1)
+      .and change { AuditLog.where(action: "payroll_entry.processing_status_recorded").count }.by(1)
+    expect(response).to have_http_status(:created)
+    expect(json.fetch(:entry_processing)).to include(
+      status: "payment_issued",
+      source_time_entry_id: batch_entry.source_time_entry_id.to_s,
+      source_user_uuid: employee.payroll_integration_uuid,
+      payment_reference: "5001"
+    )
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events", params: event, headers: headers
+    end.not_to change(PayrollEntryProcessingEvent, :count)
+    expect(response).to have_http_status(:ok)
+
+    original_attributes = PayrollEntryProcessingEvent.find_by!(event_id: event.fetch(:event_id)).attributes
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event.merge(payment_reference: "different-check"),
+           headers: headers
+    end.not_to change(PayrollEntryProcessingEvent, :count)
+    expect(response).to have_http_status(:conflict)
+    expect(PayrollEntryProcessingEvent.find_by!(event_id: event.fetch(:event_id)).attributes).to eq(original_attributes)
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event.merge(event_id: "cornerstone-entry-without-identity").except(:source_user_uuid),
+           headers: headers
+    end.to change(PayrollEntryProcessingEvent, :count).by(1)
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:entry_processing, :source_user_uuid)).to be_nil
+
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+         params: event.merge(event_id: "cornerstone-entry-wrong-person", source_user_uuid: SecureRandom.uuid),
+         headers: headers
+    expect(response).to have_http_status(:conflict)
+    expect(json.fetch(:error)).to match(/identity/i)
+  end
 end

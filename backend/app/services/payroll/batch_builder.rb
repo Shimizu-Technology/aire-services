@@ -348,6 +348,7 @@ module Payroll
       {
         source_time_entry_id: entry.id,
         source_user_id: entry.user_id,
+        source_user_uuid: entry.user.payroll_integration_uuid,
         source_category_id: entry.time_category_id,
         work_date: entry.work_date,
         week_start: entry.work_date.beginning_of_week(:sunday),
@@ -364,6 +365,7 @@ module Payroll
       {
         source_time_entry_id: entry.id,
         source_user_id: latest.source_user_id,
+        source_user_uuid: latest.source_user_uuid,
         source_category_id: latest.source_category_id,
         work_date: latest.work_date,
         week_start: latest.week_start,
@@ -388,6 +390,7 @@ module Payroll
         {
           source_time_entry_id: entry_id,
           source_user_id: latest.source_user_id,
+          source_user_uuid: latest.source_user_uuid,
           source_category_id: latest.source_category_id,
           work_date: latest.work_date,
           week_start: latest.week_start,
@@ -432,6 +435,7 @@ module Payroll
       {
         source_time_entry_id: entry.id,
         source_user_id: entry.user_id,
+        source_user_uuid: entry.user.payroll_integration_uuid,
         reason: reason,
         held_total_hours: round_hours(total),
         held_regular_hours: round_hours(regular),
@@ -460,6 +464,7 @@ module Payroll
       {
         "id" => entry.id,
         "user_id" => entry.user_id,
+        "user_uuid" => entry.user.payroll_integration_uuid,
         "employee_name" => entry.user.full_name,
         "employee_email" => entry.user.email,
         "work_date" => entry.work_date.iso8601,
@@ -483,6 +488,7 @@ module Payroll
         snapshot = employee_rows.first[:snapshot]
         {
           source_user_id: user_id.to_s,
+          source_user_uuid: snapshot["user_uuid"],
           email: snapshot["employee_email"],
           display_name: snapshot["employee_name"],
           adjustments: employee_rows.map { |row| serialize_row(row) },
@@ -537,6 +543,7 @@ module Payroll
       {
         source_time_entry_id: row[:source_time_entry_id].to_s,
         source_user_id: row[:source_user_id].to_s,
+        source_user_uuid: row[:source_user_uuid]&.to_s || row[:snapshot]["user_uuid"],
         display_name: row[:snapshot]["employee_name"],
         email: row[:snapshot]["employee_email"],
         category: row[:snapshot]["time_category"],

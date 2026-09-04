@@ -7,6 +7,7 @@ class PayrollBatch < ApplicationRecord
   has_many :payroll_batch_entries, dependent: :restrict_with_error
   has_many :payroll_batch_exclusions, dependent: :restrict_with_error
   has_many :payroll_batch_processing_events, dependent: :restrict_with_error
+  has_many :payroll_entry_processing_events, dependent: :restrict_with_error
 
   validates :public_id, :start_date, :end_date, :cutoff_at, :finalized_at, :checksum, presence: true
   validates :public_id, uniqueness: true

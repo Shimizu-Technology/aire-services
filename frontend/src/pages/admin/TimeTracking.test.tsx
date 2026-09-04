@@ -211,6 +211,54 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.queryByText('11.9')).not.toBeInTheDocument()
   })
 
+  it('keeps payroll status and exact hours visible in the mobile employee summary', async () => {
+    const report = makeHoursReport('2026-05-01', '2026-05-15', 6.1)
+    report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
+    report.employees = [{
+      id: 5,
+      email: 'kami@example.com',
+      first_name: 'Kami',
+      last_name: 'Lifecycle',
+      display_name: 'Kami Lifecycle',
+      full_name: 'Kami Lifecycle',
+      role: 'employee',
+      is_intern: false,
+      employee_type: 'Staff',
+      status: 'active',
+      approval_group_label: 'Maintenance',
+      approval_group_labels: ['Maintenance'],
+      total_hours: 6.1,
+      regular_hours: 6.1,
+      overtime_hours: 0,
+      break_hours: 0,
+      entries_count: 1,
+      ready: true,
+      issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
+      categories: [{ id: 1, key: 'other', name: 'Other', total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_hours: 0, entries_count: 1 }],
+      weeks: [],
+      days: [{
+        work_date: '2026-05-01', total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_hours: 0,
+        entries: [{
+          id: 52, work_date: '2026-05-01', start_time: '09:00', end_time: '15:06', formatted_start_time: '9:00 AM', formatted_end_time: '3:06 PM',
+          total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_minutes: 0, description: null, entry_method: 'clock', clock_source: 'kiosk',
+          approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 1, key: 'other', name: 'Other' }, breaks: [],
+          payroll_lifecycle: { status: 'payment_issued', label: 'Paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [] },
+        }],
+      }],
+    }]
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-05-01&end_date=2026-05-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
+    expect(employeeCard).toBeInTheDocument()
+    expect(employeeCard).toHaveTextContent('Maintenance · Staff')
+  })
+
   it('labels a legacy missing category as uncategorized in detailed entries', async () => {
     const report = makeHoursReport('2026-08-01', '2026-08-31', 3)
     report.ready = false
