@@ -245,6 +245,23 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     end.not_to change(PayrollEntryProcessingEvent, :count)
     expect(response).to have_http_status(:ok)
 
+    original_attributes = PayrollEntryProcessingEvent.find_by!(event_id: event.fetch(:event_id)).attributes
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event.merge(payment_reference: "different-check"),
+           headers: headers
+    end.not_to change(PayrollEntryProcessingEvent, :count)
+    expect(response).to have_http_status(:conflict)
+    expect(PayrollEntryProcessingEvent.find_by!(event_id: event.fetch(:event_id)).attributes).to eq(original_attributes)
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: event.merge(event_id: "cornerstone-entry-without-identity").except(:source_user_uuid),
+           headers: headers
+    end.to change(PayrollEntryProcessingEvent, :count).by(1)
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:entry_processing, :source_user_uuid)).to be_nil
+
     post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
          params: event.merge(event_id: "cornerstone-entry-wrong-person", source_user_uuid: SecureRandom.uuid),
          headers: headers

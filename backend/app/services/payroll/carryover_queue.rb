@@ -55,13 +55,23 @@ module Payroll
       entry_ids = exclusions.map(&:source_time_entry_id)
       current_entries = TimeEntry.includes(:user, :time_category).where(id: entry_ids).index_by(&:id)
       later_entries = PayrollBatchEntry
-        .includes(payroll_batch: [ :payroll_batch_processing_events, :payroll_entry_processing_events ])
+        .includes(payroll_batch: :payroll_batch_processing_events)
         .where(source_time_entry_id: entry_ids)
         .to_a
         .group_by(&:source_time_entry_id)
+      batch_ids = later_entries.values.flatten.map(&:payroll_batch_id).uniq
+      processing_events = PayrollEntryProcessingEvent
+        .where(payroll_batch_id: batch_ids, source_time_entry_id: entry_ids)
+        .to_a
+        .group_by { |event| [ event.payroll_batch_id, event.source_time_entry_id ] }
 
       exclusions.filter_map do |exclusion|
-        serialize(exclusion, current_entries[exclusion.source_time_entry_id], later_entries[exclusion.source_time_entry_id] || [])
+        serialize(
+          exclusion,
+          current_entries[exclusion.source_time_entry_id],
+          later_entries[exclusion.source_time_entry_id] || [],
+          processing_events
+        )
       end
     end
 
@@ -74,12 +84,13 @@ module Payroll
       }
     end
 
-    def serialize(exclusion, entry, settlement_rows)
+    def serialize(exclusion, entry, settlement_rows, processing_events)
       included_row = settlement_rows
         .select { |row| row.payroll_batch.cutoff_at > exclusion.payroll_batch.cutoff_at }
         .max_by { |row| [ row.payroll_batch.cutoff_at, row.id ] }
       batch = included_row&.payroll_batch
-      processing = entry_processing_status(batch, exclusion.source_time_entry_id) || batch&.processing_status
+      entry_events = batch ? processing_events.fetch([ batch.id, exclusion.source_time_entry_id ], []) : []
+      processing = entry_processing_status(entry_events) || batch&.processing_status
       snapshot = exclusion.snapshot || {}
       status = status_for(exclusion, entry, batch, processing)
 
@@ -124,12 +135,8 @@ module Payroll
       snapshot["time_category"]
     end
 
-    def entry_processing_status(batch, source_time_entry_id)
-      return unless batch
-
-      event = batch.payroll_entry_processing_events
-        .select { |candidate| candidate.source_time_entry_id == source_time_entry_id }
-        .max_by do |candidate|
+    def entry_processing_status(events)
+      event = events.max_by do |candidate|
           [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ]
         end
       return unless event

@@ -139,7 +139,8 @@ module Api
           source_time_entry_id = Integer(permitted.fetch(:source_time_entry_id), 10)
           batch_entry = batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)
           source_user_uuid = permitted[:source_user_uuid].to_s.strip.downcase.presence
-          if batch_entry.source_user_uuid.present? && source_user_uuid != batch_entry.source_user_uuid.to_s
+          if source_user_uuid.present? && batch_entry.source_user_uuid.present? &&
+             source_user_uuid != batch_entry.source_user_uuid.to_s
             return render json: { error: "Source staff identity does not match this payroll entry" }, status: :conflict
           end
 

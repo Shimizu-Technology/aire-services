@@ -28,7 +28,7 @@ An entry event uses the same endpoint and adds `source_time_entry_id`. It may al
 
 `imported` means the hours were added to a Cornerstone draft. It does not mean payroll was committed or payment was issued.
 
-An identical `event_id` replay returns HTTP `200` and must match the original batch, status, timestamp instant (to the database's stored precision), external system, external pay-period ID, and metadata. Reusing an `event_id` with different event data returns HTTP `409` with `Event ID already belongs to a different processing event`; the original event remains unchanged.
+An identical `event_id` replay returns HTTP `200` and must match the original batch, status, timestamp instant (to the database's stored precision), external system, external pay-period ID, and metadata. Entry-event replays must also match `source_time_entry_id`, `source_user_uuid`, `external_payroll_item_id`, `payment_method`, and `payment_reference`. Reusing an `event_id` with different event data returns HTTP `409` with `Event ID already belongs to a different processing event`; the original event remains unchanged.
 
 ## Integrity and idempotency
 
