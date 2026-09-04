@@ -1146,8 +1146,9 @@ export interface PayrollBatchProcessingStatus {
   external_pay_period_id: string | null;
 }
 
-export interface PayrollEntryProcessingStatus extends Omit<PayrollBatchProcessingStatus, 'status'> {
+export interface PayrollEntryProcessingStatus extends Omit<PayrollBatchProcessingStatus, 'status' | 'external_pay_period_id'> {
   status: 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided';
+  external_pay_period_id?: string | null;
 }
 
 export interface ManualPayrollProcessingInput {
