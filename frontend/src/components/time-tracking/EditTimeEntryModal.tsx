@@ -275,6 +275,11 @@ export default function EditTimeEntryModal({
                     This person is still clocked in. Updating the start time corrects their live clock-in time; clock-out and final hours are calculated when they clock out.
                   </div>
                 )}
+                {!isActiveClockEntry && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Changes to dates, times, breaks, hours, or work category return this entry to the approval queue. Notes can be updated without another approval.
+                  </div>
+                )}
                 <a href={`/admin/activity?subject_type=TimeEntry&subject_id=${entry.id}`} className="mt-3 inline-flex text-xs font-semibold text-cyan-700 transition hover:text-cyan-900">
                   View complete activity history
                 </a>

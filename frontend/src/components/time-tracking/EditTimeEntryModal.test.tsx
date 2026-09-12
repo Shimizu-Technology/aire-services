@@ -63,6 +63,7 @@ describe('EditTimeEntryModal break editing', () => {
     expect(timeInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
       expect.arrayContaining(['12:00', '12:30']),
     )
+    expect(screen.getByText(/return this entry to the approval queue/i)).toBeInTheDocument()
   })
 
   it('does not submit an empty detailed breaks array for entries with only aggregate break minutes', async () => {

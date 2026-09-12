@@ -1517,7 +1517,9 @@ export default function TimeTracking() {
             className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h2 className="text-xl font-bold text-primary-dark mb-1">Log Time</h2>
-              <div className="mb-4" />
+              <p className="mb-4 text-sm leading-6 text-primary-dark/70">
+                Manual time is saved for review and must be explicitly approved before it can be included in payroll.
+              </p>
               
               <form onSubmit={handleSubmit} className="space-y-4">
               <fieldset>
