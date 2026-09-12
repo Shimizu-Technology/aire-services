@@ -107,6 +107,19 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
       expect(response).to have_http_status(:created)
       expect(json.dig(:time_entry, :user, :id)).to eq(other_employee.id)
+      expect(json.dig(:time_entry, :approval_status)).to eq("pending")
+      expect(json.dig(:time_entry, :admin_override)).to be(true)
+    end
+
+    it "requires explicit approval when an admin logs their own manual time" do
+      admin.user_time_categories.find_or_create_by!(time_category: time_category)
+
+      post "/api/v1/time_entries", params: valid_params, headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:created)
+      expect(json.dig(:time_entry, :approval_status)).to eq("pending")
+      expect(json.dig(:time_entry, :approved_by)).to be_nil
+      expect(json.dig(:time_entry, :approved_at)).to be_nil
     end
 
     it "blocks non-admin from creating for another user" do
@@ -163,6 +176,41 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
         expect(response).to have_http_status(:ok)
         expect(json.dig(:time_entry, :description)).to eq("admin edit")
+      end
+
+      it "returns payroll-relevant corrections to pending explicit approval" do
+        entry.update!(
+          approval_status: "approved",
+          approved_by: admin,
+          approved_at: Time.current,
+          approval_note: "Original shift verified"
+        )
+
+        patch "/api/v1/time_entries/#{entry.id}",
+              params: { time_entry: { start_time: "08:30", end_time: "17:00" } },
+              headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:ok)
+        expect(json.dig(:time_entry, :approval_status)).to eq("pending")
+        expect(json.dig(:time_entry, :approved_by)).to be_nil
+        expect(json.dig(:time_entry, :approved_at)).to be_nil
+        expect(json.dig(:time_entry, :approval_note)).to include("Admin corrected payroll details")
+      end
+
+      it "does not create approval work for a description-only edit" do
+        entry.update!(
+          approval_status: "approved",
+          approved_by: admin,
+          approved_at: Time.current
+        )
+
+        patch "/api/v1/time_entries/#{entry.id}",
+              params: { time_entry: { description: "Added context only" } },
+              headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:ok)
+        expect(json.dig(:time_entry, :approval_status)).to eq("approved")
+        expect(json.dig(:time_entry, :approved_by, :id)).to eq(admin.id)
       end
 
       it "requires a reason and invalidates a prior payroll export when corrected" do

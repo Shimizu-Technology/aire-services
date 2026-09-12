@@ -89,12 +89,11 @@ module Api
         @time_entry.time_category = selected_category
         @time_entry.entry_method = "manual"
 
-        if current_user.admin?
-          @time_entry.admin_override = true if entry_owner.id != current_user.id
-          @time_entry.approval_status = "approved"
-        else
-          @time_entry.approval_status = "pending"
-        end
+        @time_entry.admin_override = true if current_user.admin? && entry_owner.id != current_user.id
+        # Manual time always needs a separate, explicit approval action. This
+        # keeps data entry distinct from authorization even when an admin logs
+        # the shift on an employee's behalf.
+        @time_entry.approval_status = "pending"
 
         saved = false
         TimeEntry.transaction do
@@ -156,11 +155,15 @@ module Api
         return if performed?
         update_params[:break_minutes] = break_update[:total_minutes] if break_update
 
-        unless current_user.admin?
+        @time_entry.assign_attributes(update_params)
+        if !current_user.admin? || payroll_relevant_changes?(@time_entry, break_update)
           update_params[:approval_status] = "pending"
           update_params[:approved_by] = nil
           update_params[:approved_at] = nil
-          update_params[:approval_note] = append_review_note(@time_entry.approval_note)
+          update_params[:approval_note] = append_review_note(
+            @time_entry.approval_note,
+            actor_kind: current_user.admin? ? :admin : :employee
+          )
         end
 
         saved = false
@@ -764,6 +767,24 @@ module Api
         end
       end
 
+      PAYROLL_REVIEW_ATTRIBUTES = %w[
+        work_date start_time end_time hours break_minutes time_category_id clock_in_at clock_out_at
+      ].freeze
+
+      def payroll_relevant_changes?(entry, break_update)
+        changed_attributes = entry.changes.keys
+        return true if (changed_attributes & PAYROLL_REVIEW_ATTRIBUTES).any?
+        return false unless break_update
+
+        existing_breaks = entry.time_entry_breaks.order(:start_time, :id).map do |entry_break|
+          [ entry_break.start_time, entry_break.end_time, entry_break.duration_minutes.to_i ]
+        end
+        submitted_breaks = break_update.fetch(:breaks).map do |row|
+          [ row.fetch(:start_time), row.fetch(:end_time), row.fetch(:duration_minutes).to_i ]
+        end
+        existing_breaks != submitted_breaks
+      end
+
       def resolve_entry_owner
         requested_user_id = time_entry_params[:user_id]
         return current_user if requested_user_id.blank?
@@ -1189,8 +1210,12 @@ module Api
         location.permit(:latitude, :longitude, :accuracy_meters).to_h.symbolize_keys
       end
 
-      def append_review_note(existing_note)
-        review_note = "Employee edited time entry — awaiting admin review"
+      def append_review_note(existing_note, actor_kind: :employee)
+        review_note = if actor_kind == :admin
+          "Admin corrected payroll details — awaiting explicit approval"
+        else
+          "Employee edited time entry — awaiting admin review"
+        end
         return review_note if existing_note.blank?
         return existing_note if existing_note.include?(review_note)
 
