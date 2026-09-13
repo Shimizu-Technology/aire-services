@@ -695,6 +695,7 @@ CREATE TABLE public.payroll_outbox_events (
     delivery_attempts integer DEFAULT 0 NOT NULL,
     last_delivery_attempt_at timestamp(6) without time zone,
     next_delivery_attempt_at timestamp(6) without time zone,
+    delivery_enqueued_until timestamp(6) without time zone,
     delivered_at timestamp(6) without time zone,
     last_response_status integer,
     last_error character varying,
@@ -1652,7 +1653,7 @@ CREATE INDEX idx_payroll_entry_processing_events_entry_time ON public.payroll_en
 -- Name: idx_payroll_outbox_due; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_payroll_outbox_due ON public.payroll_outbox_events USING btree (delivery_status, next_delivery_attempt_at);
+CREATE INDEX idx_payroll_outbox_due ON public.payroll_outbox_events USING btree (delivery_status, next_delivery_attempt_at, delivery_enqueued_until);
 
 
 --

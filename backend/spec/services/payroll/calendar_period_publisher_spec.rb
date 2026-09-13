@@ -68,6 +68,16 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     end.to raise_error(described_class::ConflictError, /publication_id/)
   end
 
+  it "does not collapse distinct fractional cutoff timestamps into an idempotent replay" do
+    first = attributes.merge(cutoff_at: "2026-10-18T17:00:00.100000+10:00")
+    different_fraction = attributes.merge(cutoff_at: "2026-10-18T17:00:00.900000+10:00")
+    described_class.new(first, now: now).call
+
+    expect do
+      described_class.new(different_fraction, now: now).call
+    end.to raise_error(described_class::ConflictError, /publication_id/)
+  end
+
   it "rejects stale versions, overlapping periods, and post-cutoff changes" do
     period = described_class.new(attributes, now: now).call.period
 

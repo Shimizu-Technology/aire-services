@@ -16,6 +16,7 @@ class PayrollOutboxEvent < ApplicationRecord
   scope :due_at, lambda { |time|
     where(delivery_status: %w[pending failed])
       .where("next_delivery_attempt_at IS NULL OR next_delivery_attempt_at <= ?", time)
+      .where("delivery_enqueued_until IS NULL OR delivery_enqueued_until <= ?", time)
   }
 
   private

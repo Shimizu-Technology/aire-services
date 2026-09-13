@@ -10,6 +10,7 @@ module Payroll
     READ_TIMEOUT = 10
     WRITE_TIMEOUT = 10
     CLAIM_TIMEOUT = 1.minute
+    ENQUEUE_RESERVATION_TIMEOUT = 5.minutes
     DELIVERY_BATCH_SIZE = 100
 
     class ConfigurationError < StandardError; end
@@ -25,12 +26,41 @@ module Payroll
     class << self
       def call_due(now: Time.current, enqueue: nil)
         enqueue ||= ->(event_id) { PayrollOutboxDeliveryJob.perform_later(event_id) }
-        due_at = now || Time.current
-        event_ids = PayrollOutboxEvent.due_at(due_at).order(:occurred_at, :id).limit(DELIVERY_BATCH_SIZE).pluck(:id)
-        event_ids.map do |event_id|
-          enqueue.call(event_id)
-          { event_id: event_id, status: "queued" }
+        event_ids = PayrollOutboxEvent.due_at(now).order(:occurred_at, :id).limit(DELIVERY_BATCH_SIZE).pluck(:id)
+        event_ids.filter_map do |event_id|
+          reservation_until = reserve_for_enqueue(event_id, now)
+          next unless reservation_until
+
+          begin
+            enqueue.call(event_id)
+            { event_id: event_id, status: "queued" }
+          rescue StandardError
+            release_enqueue_reservation(event_id, reservation_until)
+            raise
+          end
         end
+      end
+
+      private
+
+      def reserve_for_enqueue(event_id, now)
+        PayrollOutboxEvent.transaction do
+          event = PayrollOutboxEvent.lock.find(event_id)
+          return unless event.delivery_status.in?(%w[pending failed])
+          return if event.next_delivery_attempt_at.present? && event.next_delivery_attempt_at > now
+          return if event.delivery_enqueued_until.present? && event.delivery_enqueued_until > now
+
+          reservation_until = now + ENQUEUE_RESERVATION_TIMEOUT
+          event.update!(delivery_enqueued_until: reservation_until)
+          reservation_until
+        end
+      rescue ActiveRecord::RecordNotFound
+        nil
+      end
+
+      def release_enqueue_reservation(event_id, reservation_until)
+        PayrollOutboxEvent.where(id: event_id, delivery_enqueued_until: reservation_until)
+          .update_all(delivery_enqueued_until: nil, updated_at: Time.current)
       end
     end
 
@@ -70,7 +100,8 @@ module Payroll
         event.update!(
           delivery_attempts: event.delivery_attempts + 1,
           last_delivery_attempt_at: now,
-          next_delivery_attempt_at: now + CLAIM_TIMEOUT
+          next_delivery_attempt_at: now + CLAIM_TIMEOUT,
+          delivery_enqueued_until: nil
         )
         @attempt_claimed = true
         event
@@ -85,6 +116,7 @@ module Payroll
         event.update!(
           delivery_status: "delivered",
           next_delivery_attempt_at: nil,
+          delivery_enqueued_until: nil,
           delivered_at: now,
           last_response_status: status,
           last_error: nil
@@ -167,6 +199,7 @@ module Payroll
         event.update!(
           delivery_status: "failed",
           next_delivery_attempt_at: now + retry_delay(attempts),
+          delivery_enqueued_until: nil,
           last_response_status: error.respond_to?(:response_status) ? error.response_status : nil,
           last_error: safe_error(error)
         )

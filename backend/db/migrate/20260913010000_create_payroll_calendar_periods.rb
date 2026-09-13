@@ -148,6 +148,7 @@ class CreatePayrollCalendarPeriods < ActiveRecord::Migration[8.1]
       t.integer :delivery_attempts, null: false, default: 0
       t.datetime :last_delivery_attempt_at
       t.datetime :next_delivery_attempt_at
+      t.datetime :delivery_enqueued_until
       t.datetime :delivered_at
       t.integer :last_response_status
       t.string :last_error
@@ -156,7 +157,7 @@ class CreatePayrollCalendarPeriods < ActiveRecord::Migration[8.1]
     end
 
     add_index :payroll_outbox_events, :event_id, unique: true
-    add_index :payroll_outbox_events, [ :delivery_status, :next_delivery_attempt_at ],
+    add_index :payroll_outbox_events, [ :delivery_status, :next_delivery_attempt_at, :delivery_enqueued_until ],
               name: "idx_payroll_outbox_due"
     add_check_constraint :payroll_outbox_events,
                          "delivery_status IN ('pending', 'failed', 'delivered')",

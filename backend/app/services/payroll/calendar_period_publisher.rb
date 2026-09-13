@@ -106,6 +106,8 @@ module Payroll
     end
 
     def serialize(value)
+      return value.iso8601(6) if value.respond_to?(:subsec)
+
       value.respond_to?(:iso8601) ? value.iso8601 : value
     end
 

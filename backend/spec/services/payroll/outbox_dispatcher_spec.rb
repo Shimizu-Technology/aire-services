@@ -48,10 +48,22 @@ RSpec.describe Payroll::OutboxDispatcher do
     event
 
     result = described_class.call_due(now: now, enqueue: ->(event_id) { queued_ids << event_id })
+    repeated = described_class.call_due(now: now, enqueue: ->(event_id) { queued_ids << event_id })
 
     expect(queued_ids).to eq([ event.id ])
     expect(result).to eq([ { event_id: event.id, status: "queued" } ])
+    expect(repeated).to be_empty
     expect(event.reload.delivery_attempts).to eq(0)
+  end
+
+  it "releases the enqueue reservation when queueing fails" do
+    event
+
+    expect do
+      described_class.call_due(now: now, enqueue: ->(*) { raise "queue unavailable" })
+    end.to raise_error("queue unavailable")
+
+    expect(event.reload.delivery_enqueued_until).to be_nil
   end
 
   it "leaves the event durable and schedules a retry when Cornerstone is unavailable" do
