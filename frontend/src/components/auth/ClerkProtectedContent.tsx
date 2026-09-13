@@ -10,10 +10,19 @@ interface ClerkProtectedContentProps {
 export default function ClerkProtectedContent({ children, requiredRole }: ClerkProtectedContentProps) {
   const { isLoaded, isSignedIn } = useAuth()
   const { user: clerkUser } = useUser()
-  const { userRole, isLoading: authLoading, isStaff, authError } = useAuthContext()
+  const {
+    userRole,
+    isLoading: authLoading,
+    isStaff,
+    authError,
+    isAuthServiceUnavailable,
+    refreshCurrentUser,
+  } = useAuthContext()
 
   const authStatus = useMemo(() => {
     if (!isLoaded || authLoading) return 'loading' as const
+
+    if (isAuthServiceUnavailable) return 'service_unavailable' as const
 
     if (authError) return 'access_denied' as const
 
@@ -31,7 +40,7 @@ export default function ClerkProtectedContent({ children, requiredRole }: ClerkP
     }
 
     return 'authorized' as const
-  }, [isLoaded, isSignedIn, authLoading, authError, userRole, requiredRole, isStaff])
+  }, [isLoaded, isSignedIn, authLoading, authError, isAuthServiceUnavailable, userRole, requiredRole, isStaff])
 
   if (!isLoaded || authStatus === 'loading') {
     return (
@@ -43,6 +52,34 @@ export default function ClerkProtectedContent({ children, requiredRole }: ClerkP
 
   if (authStatus === 'unauthorized' || !isSignedIn) {
     return <RedirectToSignIn signInForceRedirectUrl={window.location.href} signInFallbackRedirectUrl={window.location.href} />
+  }
+
+  if (authStatus === 'service_unavailable') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="max-w-md mx-auto text-center p-8">
+          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">AIRE is temporarily unavailable</h2>
+          <p className="text-gray-600 mb-2">
+            Your account is still signed in, but AIRE could not verify your access. The service may be restarting.
+          </p>
+          <p className="text-sm text-gray-500 mb-6">
+            Signed in as: {clerkUser?.primaryEmailAddress?.emailAddress}
+          </p>
+          <button
+            type="button"
+            onClick={() => void refreshCurrentUser()}
+            className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+          >
+            Retry connection
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (authStatus === 'access_denied') {
