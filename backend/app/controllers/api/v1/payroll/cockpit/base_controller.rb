@@ -53,7 +53,7 @@ module Api
             )
           end
 
-          def run_command(action:, target:, payload:, replay:, status: :ok)
+          def run_command(action:, target:, payload:, replay:, response: nil, status: :ok)
             command = command_params
             reason = command[:reason].to_s.strip
 
@@ -71,7 +71,13 @@ module Api
               [ body, status, result_metadata ]
             end
 
-            response_body = result.replayed ? replay.call(target.reload, result.receipt.result_metadata) : result.body
+            response_body = if result.replayed
+              replay.call(target.reload, result.receipt.result_metadata)
+            elsif response
+              response.call(target.reload, result.body)
+            else
+              result.body
+            end
             render json: response_body.merge(
               command: { id: command[:command_id], replayed: result.replayed }
             ), status: result.status

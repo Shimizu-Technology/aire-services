@@ -20,11 +20,16 @@ module Api
             page = pagination_for(scope, maximum: 250)
             entries = page.fetch(:records).to_a
             lifecycles = ::Payroll::EntryLifecycleResolver.new(entries: entries).call
+            snapshot = ::Payroll::CockpitPeriodSnapshot.new(period: period, entries: entries).call
 
             render json: {
               payroll_period: period.as_contract_json,
               time_entries: entries.map do |entry|
-                ::Payroll::CockpitTimeEntrySerializer.new(entry, lifecycle: lifecycles[entry.id]).as_json
+                ::Payroll::CockpitTimeEntrySerializer.new(
+                  entry,
+                  lifecycle: lifecycles[entry.id],
+                  payroll_state: snapshot.entry_states[entry.id]
+                ).as_json
               end,
               pagination: page.fetch(:metadata)
             }
@@ -41,7 +46,8 @@ module Api
               action: "time_entry.approval",
               target: entry,
               payload: command_params.to_h,
-              replay: ->(_current_entry, metadata) { { command_result: metadata } }
+              replay: ->(_current_entry, metadata) { { command_result: metadata } },
+              response: ->(current_entry, _body) { serialize_command_entry(current_entry, period_for(current_entry)) }
             ) do |locked_entry, reason|
               unless decision.in?(%w[approve deny])
                 raise ::Payroll::CockpitCommand::InvalidCommandError, "decision must be approve or deny"
@@ -64,7 +70,7 @@ module Api
               )
               reviewed.reload
               [
-                serialize_command_entry(reviewed),
+                {},
                 { decision: decision, result_version: reviewed.lock_version }
               ]
             end
@@ -75,10 +81,22 @@ module Api
 
           private
 
-          def serialize_command_entry(entry)
+          def serialize_command_entry(entry, period)
             entry = entry.reload
             lifecycle = ::Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
-            { time_entry: ::Payroll::CockpitTimeEntrySerializer.new(entry, lifecycle: lifecycle).as_json }
+            snapshot = period && ::Payroll::CockpitPeriodSnapshot.new(period: period, entries: [ entry ]).call
+            { time_entry: ::Payroll::CockpitTimeEntrySerializer.new(
+              entry,
+              lifecycle: lifecycle,
+              payroll_state: snapshot&.entry_states&.fetch(entry.id, nil)
+            ).as_json }
+          end
+
+          def period_for(entry)
+            PayrollCalendarPeriod
+              .where("start_date <= ? AND end_date >= ?", entry.work_date, entry.work_date)
+              .order(cutoff_at: :desc)
+              .first
           end
         end
       end

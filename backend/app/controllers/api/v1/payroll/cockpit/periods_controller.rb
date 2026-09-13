@@ -13,11 +13,14 @@ module Api
             period = parse_period!
             entries = period_entries(period)
             lifecycles = ::Payroll::EntryLifecycleResolver.new(entries: entries).call
+            snapshot = ::Payroll::CockpitPeriodSnapshot.new(period: period, entries: entries).call
             batch = period.payroll_batch
 
             render json: {
               payroll_period: period.as_contract_json,
-              readiness: readiness(entries, lifecycles),
+              readiness: snapshot.readiness.merge(
+                lifecycle_counts: ::Payroll::EntryLifecycleResolver.summary(lifecycles.values)
+              ),
               finalized_batch: batch && serialize_batch(batch),
               processing_history: batch ? serialize_processing_history(batch) : [],
               carryovers: ::Payroll::CarryoverQueue.new.call.fetch(:summary)
@@ -72,21 +75,6 @@ module Api
               .for_payroll_period(period)
               .includes(:user, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
               .to_a
-          end
-
-          def readiness(entries, lifecycles)
-            statuses = ::Payroll::EntryLifecycleResolver.summary(lifecycles.values)
-            {
-              total_entries: entries.length,
-              total_hours: entries.sum { |entry| entry.hours.to_d }.round(2).to_f,
-              eligible_entries: entries.count(&:counts_toward_hours?),
-              eligible_hours: entries.select(&:counts_toward_hours?).sum { |entry| entry.hours.to_d }.round(2).to_f,
-              pending_approvals: entries.count { |entry| entry.approval_status == "pending" },
-              denied_entries: entries.count { |entry| entry.approval_status == "denied" },
-              missing_punches: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) || entry.end_time.blank? },
-              pending_overtime: entries.count { |entry| entry.overtime_status == "pending" },
-              lifecycle_counts: statuses
-            }
           end
 
           def serialize_batch(batch)

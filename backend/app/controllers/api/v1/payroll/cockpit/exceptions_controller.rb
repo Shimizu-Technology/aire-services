@@ -7,7 +7,9 @@ module Api
         class ExceptionsController < BaseController
           def index
             period = parse_period!
-            entries = exception_entries(period)
+            period_entries = entries_for(period).to_a
+            snapshot = ::Payroll::CockpitPeriodSnapshot.new(period: period, entries: period_entries).call
+            entries = entries_for(period).where(id: snapshot.exception_entry_ids)
             page = pagination_for(entries, maximum: 250)
             records = page.fetch(:records).to_a
             lifecycles = ::Payroll::EntryLifecycleResolver.new(entries: records).call
@@ -17,7 +19,11 @@ module Api
             render json: {
               payroll_period: period.as_contract_json,
               time_exceptions: records.map do |entry|
-                ::Payroll::CockpitTimeEntrySerializer.new(entry, lifecycle: lifecycles[entry.id]).as_json
+                ::Payroll::CockpitTimeEntrySerializer.new(
+                  entry,
+                  lifecycle: lifecycles[entry.id],
+                  payroll_state: snapshot.entry_states[entry.id]
+                ).as_json
               end,
               time_exception_pagination: page.fetch(:metadata),
               leave_exceptions: leave_page.fetch(:records).map { |request_record| serialize_leave(request_record) },
@@ -28,18 +34,10 @@ module Api
 
           private
 
-          def exception_entries(period)
+          def entries_for(period)
             TimeEntry
               .for_payroll_period(period)
               .includes(:user, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
-              .where(
-                "time_entries.status IN (?) OR time_entries.approval_status IN (?) OR " \
-                "(time_entries.entry_method = 'manual' AND time_entries.approval_status IS NULL) OR " \
-                "time_entries.overtime_status IN (?)",
-                %w[clocked_in on_break],
-                %w[pending denied],
-                %w[pending denied]
-              )
               .order(:work_date, :start_time, :id)
           end
 
