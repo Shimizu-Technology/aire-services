@@ -178,7 +178,7 @@ module Api
 
           if @time_entry.status == "completed" &&
              (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
-            new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry, include_entry_hours: false)
+            new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
             overtime_attrs = { overtime_status: new_overtime }
 
             if !current_user.admin? || old_values[:overtime_status].in?([ "approved", "denied" ])

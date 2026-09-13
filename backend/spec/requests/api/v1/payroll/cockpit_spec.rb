@@ -491,6 +491,72 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(AuditLog.where(action: "payroll_cockpit.command_rejected", outcome: "denied")).to exist
   end
 
+  it "approves pending overtime idempotently through the delegated payroll actor" do
+    entry = create_entry(approval_status: "approved", overtime_status: "pending")
+    command_id = SecureRandom.uuid
+    payload = {
+      command_id: command_id,
+      expected_version: entry.lock_version,
+      decision: "approve",
+      reason: "Overtime verified against the approved schedule"
+    }
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/overtime_approval",
+           params: payload.to_json,
+           headers: headers
+    end.to change(PayrollIntegrationCommand, :count).by(1)
+      .and change { AuditLog.where(action: "payroll_cockpit.time_entry_overtime_approved").count }.by(1)
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:time_entry, :state, :overtime_status)).to eq("approved")
+    expect(json.dig(:time_entry, :overtime_approval, :actor, :payroll_integration_id))
+      .to eq(admin.payroll_integration_uuid)
+    expect(entry.reload.overtime_note).to eq("Overtime verified against the approved schedule")
+    expect(PayrollIntegrationCommand.find_by!(command_id: command_id).result_metadata)
+      .to eq("decision" => "approve", "result_version" => 1)
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/overtime_approval",
+           params: payload.merge(decision: "APPROVE", reason: "  Overtime verified against the approved schedule  ").to_json,
+           headers: headers
+    end.not_to change(PayrollIntegrationCommand, :count)
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:command, :replayed)).to be(true)
+  end
+
+  it "denies pending overtime only with an explicit reason" do
+    entry = create_entry(approval_status: "approved", overtime_status: "pending")
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/overtime_approval",
+           params: {
+             command_id: SecureRandom.uuid,
+             expected_version: entry.lock_version,
+             decision: "deny"
+           }.to_json,
+           headers: headers
+    end.not_to change(PayrollIntegrationCommand, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(entry.reload.overtime_status).to eq("pending")
+    expect(AuditLog.where(action: "payroll_cockpit.time_entry_overtime_denied")).not_to exist
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/overtime_approval",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: entry.lock_version,
+           decision: "deny",
+           reason: "Overtime was not authorized"
+         }.to_json,
+         headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:time_entry, :state, :overtime_status)).to eq("denied")
+    expect(entry.reload.overtime_note).to eq("Overtime was not authorized")
+    expect(AuditLog.where(action: "payroll_cockpit.time_entry_overtime_denied", outcome: "denied")).to exist
+  end
+
   it "denies time with a reason and replays the denial without storing payroll data" do
     entry = create_entry
     command_id = SecureRandom.uuid
@@ -877,11 +943,98 @@ RSpec.describe "Payroll cockpit API", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(json.dig(:time_entry, :state)).to include(approval_status: "pending")
+    expect(json.dig(:time_entry, :state, :overtime_status)).to eq("none")
     expect(json.dig(:time_entry, :state, :missing_punch)).to be(false)
     expect(entry.reload).to have_attributes(status: "completed", approval_status: "pending", hours: 8.0, break_minutes: 60)
     expect(entry.time_entry_breaks.sole.duration_minutes).to eq(60)
     expect(AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry).metadata)
       .to include("requires_approval" => true)
+  end
+
+  it "recalculates overtime from the corrected hours instead of requiring it unconditionally" do
+    entry = create_entry(
+      approval_status: "approved",
+      overtime_status: "approved",
+      start_time: ActiveSupport::TimeZone["Pacific/Guam"].local(period.start_date.year, period.start_date.month, period.start_date.day, 8),
+      end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(period.start_date.year, period.start_date.month, period.start_date.day, 17),
+      hours: 9
+    )
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "time_correction" ])
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/correction",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: entry.lock_version,
+           end_time: "16:00",
+           reason: "Corrected to the verified eight-hour shift"
+         }.to_json,
+         headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(
+      hours: 8.0,
+      approval_status: "pending",
+      overtime_status: "none",
+      overtime_approved_by_id: nil,
+      overtime_approved_at: nil,
+      overtime_note: nil
+    )
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/correction",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: entry.lock_version,
+           end_time: "18:00",
+           reason: "Corrected to the verified ten-hour shift"
+         }.to_json,
+         headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(hours: 10.0, approval_status: "pending", overtime_status: "pending")
+  end
+
+  it "rolls back the entry and break replacement when correction auditing fails" do
+    entry = create_entry(
+      start_time: ActiveSupport::TimeZone["Pacific/Guam"].local(period.start_date.year, period.start_date.month, period.start_date.day, 8),
+      end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(period.start_date.year, period.start_date.month, period.start_date.day, 17),
+      break_minutes: 30
+    )
+    original_break = entry.time_entry_breaks.create!(
+      start_time: ActiveSupport::TimeZone["Pacific/Guam"].local(period.start_date.year, period.start_date.month, period.start_date.day, 12),
+      end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(period.start_date.year, period.start_date.month, period.start_date.day, 12, 30)
+    )
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "time_correction" ])
+    allow(AuditLog).to receive(:record!).and_wrap_original do |original, **attributes|
+      if attributes[:action] == "payroll_cockpit.time_entry_corrected"
+        invalid_audit = AuditLog.new
+        invalid_audit.errors.add(:base, "simulated audit failure")
+        raise ActiveRecord::RecordInvalid, invalid_audit
+      end
+      original.call(**attributes)
+    end
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/correction",
+           params: {
+             command_id: SecureRandom.uuid,
+             expected_version: entry.lock_version,
+             end_time: "18:00",
+             breaks: [ { start_time: "13:00", end_time: "14:00" } ],
+             reason: "Attempt a correction that cannot be audited"
+           }.to_json,
+           headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+    end.not_to change(PayrollIntegrationCommand, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(entry.reload).to have_attributes(
+      break_minutes: 30,
+      approval_status: "pending"
+    )
+    expect(entry.formatted_end_time).to eq("5:00 PM")
+    expect(entry.time_entry_breaks.reload.sole).to have_attributes(
+      id: original_break.id,
+      duration_minutes: 30
+    )
   end
 
   it "enforces append-only command receipts in PostgreSQL" do
