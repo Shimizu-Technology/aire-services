@@ -11,8 +11,7 @@ module Api
 
           def index
             period = parse_period!
-            scope = TimeEntry
-              .for_payroll_period(period)
+            scope = payroll_period_entry_scope(period)
               .includes(:user, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
               .order(:work_date, :start_time, :id)
             scope = scope.where(user_id: params[:employee_id]) if params[:employee_id].present?

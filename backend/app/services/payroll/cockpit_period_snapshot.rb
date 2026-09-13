@@ -65,18 +65,30 @@ module Payroll
       batch = period.payroll_batch
       rows = batch.payroll_batch_entries.where(source_time_entry_id: entry_ids).to_a
       exclusions = batch.payroll_batch_exclusions.where(source_time_entry_id: entry_ids).to_a
-      represented_ids = (rows.map(&:source_time_entry_id) + exclusions.map(&:source_time_entry_id)).to_set
+      row_ids = rows.map(&:source_time_entry_id).to_set
+      excluded_ids = exclusions.map(&:source_time_entry_id).to_set
       entries.each do |entry|
-        next if represented_ids.include?(entry.id) || entry.created_at <= batch.cutoff_at
+        if row_ids.include?(entry.id)
+          next if excluded_ids.include?(entry.id) || entry.updated_at <= batch.cutoff_at
 
-        exclusions << {
-          source_time_entry_id: entry.id,
-          source_category_id: entry.time_category_id,
-          reason: "created_after_cutoff",
-          held_total_hours: entry.hours
-        }
+          exclusions << synthetic_exclusion(entry, "changed_after_cutoff", 0)
+          next
+        end
+        next if excluded_ids.include?(entry.id) || entry.updated_at <= batch.cutoff_at
+
+        reason = entry.created_at > batch.cutoff_at ? "created_after_cutoff" : "changed_after_cutoff"
+        exclusions << synthetic_exclusion(entry, reason, entry.hours)
       end
       [ rows, exclusions, batch.summary, batch.issues ]
+    end
+
+    def synthetic_exclusion(entry, reason, held_hours)
+      {
+        source_time_entry_id: entry.id,
+        source_category_id: entry.time_category_id,
+        reason: reason,
+        held_total_hours: held_hours
+      }
     end
 
     def scoped_snapshot(rows, exclusions, summary, issues)
@@ -175,6 +187,7 @@ module Payroll
 
     def disposition(included, reasons, missing_category)
       return "missing_category" if missing_category
+      return "changed_after_cutoff" if reasons.include?("changed_after_cutoff")
       return "partially_included" if included && reasons.any?
       return "included_at_cutoff" if included
 

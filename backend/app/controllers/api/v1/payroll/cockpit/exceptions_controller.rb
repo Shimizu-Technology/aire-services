@@ -35,8 +35,7 @@ module Api
           private
 
           def entries_for(period)
-            TimeEntry
-              .for_payroll_period(period)
+            payroll_period_entry_scope(period)
               .includes(:user, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
               .order(:work_date, :start_time, :id)
           end

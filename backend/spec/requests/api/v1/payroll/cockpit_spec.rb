@@ -302,6 +302,62 @@ RSpec.describe "Payroll cockpit API", type: :request do
     )
   end
 
+  it "holds an older entry moved into a finalized period" do
+    cutoff = period.cutoff_at
+    entry = create_entry(
+      work_date: period.start_date - 1.day,
+      entry_method: "clock",
+      approval_status: nil,
+      created_at: cutoff - 1.day,
+      updated_at: cutoff - 1.day
+    )
+    travel_to(cutoff + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call.fetch(:status))
+        .to eq("finalized")
+      entry.update!(work_date: period.start_date)
+    end
+
+    get "/api/v1/payroll/cockpit/exceptions",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_exceptions).pluck(:id)).to eq([ entry.id.to_s ])
+    expect(json.dig(:time_exceptions, 0, :state)).to include(
+      payable_now: false,
+      payroll_disposition: "changed_after_cutoff"
+    )
+  end
+
+  it "retains an included entry moved outside its finalized period" do
+    cutoff = period.cutoff_at
+    entry = create_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      created_at: cutoff - 1.day,
+      updated_at: cutoff - 1.day
+    )
+    travel_to(cutoff + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call.fetch(:status))
+        .to eq("finalized")
+      entry.update!(work_date: period.start_date - 1.day)
+    end
+
+    get "/api/v1/payroll/cockpit/time_entries",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_entries).pluck(:id)).to eq([ entry.id.to_s ])
+    expect(json.dig(:time_entries, 0, :state)).to include(
+      payable_now: true,
+      payroll_disposition: "changed_after_cutoff",
+      payroll_exclusion_reasons: [ "changed_after_cutoff" ]
+    )
+
+    get "/api/v1/payroll/cockpit/exceptions",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+    expect(json.fetch(:time_exceptions).pluck(:id)).to eq([ entry.id.to_s ])
+  end
+
   it "requires an active AIRE administrator for commands" do
     entry = create_entry
     former_admin = create(:user, :admin)
