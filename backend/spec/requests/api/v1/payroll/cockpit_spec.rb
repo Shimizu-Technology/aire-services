@@ -1,0 +1,501 @@
+# frozen_string_literal: true
+
+require "rails_helper"
+
+RSpec.describe "Payroll cockpit API", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
+
+  let(:secret) { "cornerstone-cockpit-secret" }
+  let(:admin) { create(:user, :admin, is_active: true, personal_access_enabled: true) }
+  let(:employee) { create(:user, :employee, first_name: "Ari", last_name: "Worker") }
+  let(:category) { create(:time_category, name: "Operations", key: "operations") }
+  let(:period) { create(:payroll_calendar_period) }
+  let(:delegation) do
+    PayrollIntegrationGrant.issue!(
+      user: admin,
+      capabilities: %w[time_approval payroll_finalization]
+    )
+  end
+  let(:headers) do
+    {
+      "X-Payroll-Shared-Secret" => secret,
+      "X-Aire-Delegation-Token" => delegation.issued_token,
+      "Content-Type" => "application/json"
+    }
+  end
+
+  around do |example|
+    previous = ENV["PAYROLL_SHARED_SECRET"]
+    ENV["PAYROLL_SHARED_SECRET"] = secret
+    example.run
+  ensure
+    ENV["PAYROLL_SHARED_SECRET"] = previous
+  end
+
+  def json
+    response.parsed_body.deep_symbolize_keys
+  end
+
+  def create_entry(**attributes)
+    create(
+      :time_entry,
+      {
+        user: employee,
+        time_category: category,
+        work_date: period.start_date,
+        entry_method: "manual",
+        status: "completed",
+        approval_status: "pending",
+        overtime_status: "none"
+      }.merge(attributes)
+    )
+  end
+
+  it "requires the integration secret for every cockpit read" do
+    paths = [
+      "/api/v1/payroll/cockpit/employees",
+      "/api/v1/payroll/cockpit/exceptions?external_pay_period_id=missing",
+      "/api/v1/payroll/cockpit/time_entries?external_pay_period_id=missing",
+      "/api/v1/payroll/cockpit/periods/missing"
+    ]
+
+    paths.each do |path|
+      expect do
+        get path
+      end.to change { AuditLog.where(action: "payroll_cockpit.authorization_denied").count }.by(1)
+      expect(response).to have_http_status(:unauthorized)
+    end
+  end
+
+  it "returns only payroll-appropriate employee identity fields with bounded pagination" do
+    employee.assigned_time_categories << category
+
+    get "/api/v1/payroll/cockpit/employees", params: { per_page: 500 }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:pagination, :per_page)).to eq(100)
+    expect(json.fetch(:employees)).to include(
+      include(
+        payroll_integration_id: employee.payroll_integration_uuid,
+        full_name: "Ari Worker",
+        time_categories: [ include(key: "operations") ]
+      )
+    )
+    expect(json.fetch(:employees).first).not_to have_key(:phone)
+    expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
+  end
+
+  it "ignores a blank employee active filter" do
+    employee
+    create(:user, :employee, is_active: false, personal_access_enabled: false, time_tracking_enabled: false)
+
+    get "/api/v1/payroll/cockpit/employees", params: { active: "" }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:pagination, :total_count)).to eq(3)
+  end
+
+  it "rejects an unrecognized employee active filter" do
+    get "/api/v1/payroll/cockpit/employees", params: { active: "inactive" }, headers: headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to eq("active must be true or false")
+  end
+
+  it "returns full entry detail, lifecycle, exceptions, leave, and carryover summaries" do
+    entry = create_entry(description: "Corrected shift")
+    create(:leave_request, user: employee, start_date: period.start_date, end_date: period.start_date + 1.day)
+
+    get "/api/v1/payroll/cockpit/time_entries",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:time_entries, 0)).to include(
+      id: entry.id.to_s,
+      version: 0,
+      work_date: period.start_date.iso8601,
+      description: "Corrected shift"
+    )
+    expect(json.dig(:time_entries, 0, :capture)).to include(entry_method: "manual", ordinary: false)
+    expect(json.dig(:time_entries, 0, :state)).to include(approval_status: "pending", payable_now: false)
+    expect(json.dig(:time_entries, 0, :lifecycle)).to include(status: "awaiting_approval")
+
+    get "/api/v1/payroll/cockpit/exceptions",
+        params: {
+          external_pay_period_id: period.external_pay_period_id,
+          per_page: 1,
+          leave_per_page: 7
+        },
+        headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:time_exceptions, 0, :id)).to eq(entry.id.to_s)
+    expect(json.dig(:leave_exceptions, 0, :employee, :payroll_integration_id)).to eq(employee.payroll_integration_uuid)
+    expect(json.dig(:time_exception_pagination, :per_page)).to eq(1)
+    expect(json.dig(:leave_exception_pagination, :per_page)).to eq(7)
+    expect(json.fetch(:carryovers)).to include(:items, :summary, :truncated)
+  end
+
+  it "reports legacy manual entries without an approval state as exceptions" do
+    entry = create_entry(approval_status: nil)
+
+    get "/api/v1/payroll/cockpit/exceptions",
+        params: { external_pay_period_id: period.external_pay_period_id },
+        headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_exceptions)).to include(include(id: entry.id.to_s))
+    expect(json.dig(:time_exceptions, 0, :state)).to include(approval_status: "pending", payable_now: false)
+  end
+
+  it "summarizes readiness and exposes the immutable batch and processing history" do
+    create_entry(entry_method: "clock", approval_status: nil, hours: 8)
+
+    get "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:payroll_period, :version)).to eq(0)
+    expect(json.fetch(:readiness)).to include(
+      total_entries: 1,
+      eligible_entries: 1,
+      eligible_hours: 8.0,
+      pending_approvals: 0
+    )
+  end
+
+  it "requires an active AIRE administrator for commands" do
+    entry = create_entry
+    former_admin = create(:user, :admin)
+    denied_grant = PayrollIntegrationGrant.issue!(user: former_admin, capabilities: [ "time_approval" ])
+    former_admin.update!(role: "employee")
+    denied_headers = headers.merge("X-Aire-Delegation-Token" => denied_grant.issued_token)
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: entry.lock_version,
+           decision: "approve",
+           reason: "Reviewed for payroll"
+         }.to_json,
+         headers: denied_headers
+
+    expect(response).to have_http_status(:forbidden)
+    expect(entry.reload.approval_status).to eq("pending")
+    expect(AuditLog.where(action: "payroll_cockpit.authorization_denied", outcome: "denied")).to exist
+  end
+
+  it "rejects delegations whose administrator is inactive or lacks personal access" do
+    entry = create_entry
+
+    [ { is_active: false }, { personal_access_enabled: false } ].each do |disabled_state|
+      actor = create(:user, :admin)
+      grant = PayrollIntegrationGrant.issue!(user: actor, capabilities: [ "time_approval" ])
+      actor.update_columns(disabled_state.merge(updated_at: Time.current))
+
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+           params: {
+             command_id: SecureRandom.uuid,
+             expected_version: entry.lock_version,
+             decision: "approve",
+             reason: "Reviewed"
+           }.to_json,
+           headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+
+      expect(response).to have_http_status(:forbidden)
+    end
+
+    expect(entry.reload.approval_status).to eq("pending")
+  end
+
+  it "requires an explicit actor identity for commands and audits the rejection" do
+    entry = create_entry
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+           params: {
+             command_id: SecureRandom.uuid,
+             expected_version: entry.lock_version,
+             decision: "approve",
+             reason: "Reviewed"
+           }.to_json,
+           headers: headers.except("X-Aire-Delegation-Token")
+    end.to change { AuditLog.where(action: "payroll_cockpit.authorization_denied").count }.by(1)
+
+    expect(response).to have_http_status(:unauthorized)
+  end
+
+  it "approves once, replays safely, and rejects a reused command with different input" do
+    entry = create_entry
+    command_id = SecureRandom.uuid
+    payload = {
+      command_id: command_id,
+      expected_version: entry.lock_version,
+      decision: "approve",
+      reason: "Reviewed against the timecard"
+    }
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval", params: payload.to_json, headers: headers
+    end.to change(PayrollIntegrationCommand, :count).by(1)
+      .and change { AuditLog.where(action: "payroll_cockpit.time_entry_approved").count }.by(1)
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:command, :replayed)).to be(false)
+    expect(json.dig(:time_entry, :state, :approval_status)).to eq("approved")
+    receipt = PayrollIntegrationCommand.find_by!(command_id: command_id)
+    expect(receipt.result_metadata).to eq("decision" => "approve", "result_version" => 1)
+    expect(receipt.result_metadata.to_json).not_to include(employee.email, "Reviewed against the timecard")
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+           params: payload.merge(reason: "  Reviewed against the timecard  ", decision: "APPROVE").to_json,
+           headers: headers
+    end.not_to change(PayrollIntegrationCommand, :count)
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:command, :replayed)).to be(true)
+    expect(json).not_to have_key(:time_entry)
+    expect(json.fetch(:command_result)).to include(decision: "approve", result_version: 1)
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+         params: payload.merge(reason: "Different request").to_json, headers: headers
+    expect(response).to have_http_status(:conflict)
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+         params: payload.merge(decision: "unsupported").to_json, headers: headers
+    expect(response).to have_http_status(:conflict)
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+         params: payload.except(:reason).to_json, headers: headers
+    expect(response).to have_http_status(:conflict)
+  end
+
+  it "rejects stale approval commands without changing the entry" do
+    entry = create_entry
+    entry.update!(description: "Changed in AIRE")
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: 0,
+           decision: "approve",
+           reason: "Reviewed"
+         }.to_json,
+         headers: headers
+
+    expect(response).to have_http_status(:conflict)
+    expect(entry.reload.approval_status).to eq("pending")
+    expect(AuditLog.where(action: "payroll_cockpit.command_rejected", outcome: "denied")).to exist
+  end
+
+  it "denies time with a reason and replays the denial without storing payroll data" do
+    entry = create_entry
+    command_id = SecureRandom.uuid
+    payload = {
+      command_id: command_id,
+      expected_version: entry.lock_version,
+      decision: "deny",
+      reason: "The submitted shift was not worked"
+    }
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval", params: payload.to_json, headers: headers
+    end.to change { AuditLog.where(action: "payroll_cockpit.time_entry_denied").count }.by(1)
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:time_entry, :state, :approval_status)).to eq("denied")
+    receipt = PayrollIntegrationCommand.find_by!(command_id: command_id)
+    expect(receipt.result_metadata).to eq("decision" => "deny", "result_version" => 1)
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval", params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(json).not_to have_key(:time_entry)
+    expect(json.dig(:command, :replayed)).to be(true)
+
+    pending_entry = create_entry
+    post "/api/v1/payroll/cockpit/time_entries/#{pending_entry.id}/approval",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: pending_entry.lock_version,
+           decision: "deny",
+           reason: "  "
+         }.to_json,
+         headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(pending_entry.reload.approval_status).to eq("pending")
+  end
+
+  it "audits malformed command input" do
+    entry = create_entry
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+           params: {
+             command_id: "not-a-uuid",
+             expected_version: entry.lock_version,
+             decision: "approve",
+             reason: "Reviewed"
+           }.to_json,
+           headers: headers
+    end.to change { AuditLog.where(action: "payroll_cockpit.command_rejected", outcome: "failed").count }.by(1)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(entry.reload.approval_status).to eq("pending")
+  end
+
+  it "audits a command with missing envelope fields" do
+    entry = create_entry
+
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+           params: { decision: "approve", reason: "Reviewed" }.to_json,
+           headers: headers
+    end.to change { AuditLog.where(action: "payroll_cockpit.command_rejected", outcome: "failed").count }.by(1)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+  end
+
+  it "allows an administrator to trigger a due finalization idempotently" do
+    cutoff = period.cutoff_at
+    create_entry(entry_method: "clock", approval_status: nil)
+    command_id = SecureRandom.uuid
+    payload = {
+      command_id: command_id,
+      expected_version: period.lock_version,
+      reason: "Retrying the scheduled cutoff"
+    }
+
+    travel_to(cutoff + 1.minute) do
+      post "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}/finalize",
+           params: payload.to_json, headers: headers
+      expect(response).to have_http_status(:accepted)
+      expect(json.dig(:payroll_period, :status)).to eq("finalized")
+      batch_id = json.dig(:payroll_period, :payroll_batch_id)
+
+      post "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}/finalize",
+           params: payload.to_json, headers: headers
+      expect(response).to have_http_status(:accepted)
+      expect(json.dig(:command, :replayed)).to be(true)
+      expect(json.dig(:result, :payroll_batch_id)).to eq(batch_id)
+      expect(json).not_to have_key(:payroll_period)
+    end
+  end
+
+  it "does not misrepresent later entry changes as an earlier command result" do
+    entry = create_entry
+    command_id = SecureRandom.uuid
+    payload = {
+      command_id: command_id,
+      expected_version: entry.lock_version,
+      decision: "approve",
+      reason: "Reviewed"
+    }
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval", params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:ok)
+    entry.reload.update!(description: "Changed after approval")
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval", params: payload.to_json, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json).not_to have_key(:time_entry)
+    expect(json.fetch(:command_result)).to eq(decision: "approve", result_version: 1)
+    expect(json.dig(:command, :replayed)).to be(true)
+  end
+
+  it "refuses to finalize before the published cutoff" do
+    expect do
+      travel_to(period.cutoff_at - 1.minute) do
+        post "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}/finalize",
+             params: {
+               command_id: SecureRandom.uuid,
+               expected_version: period.lock_version,
+               reason: "Trying early"
+             }.to_json,
+             headers: headers
+      end
+    end.to change { AuditLog.where(action: "payroll_cockpit.command_rejected", outcome: "failed").count }.by(1)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(period.reload.status).to eq("scheduled")
+    expect(PayrollIntegrationCommand.exists?).to be(false)
+  end
+
+  it "enforces the delegation capability for each command" do
+    limited_grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "time_approval" ])
+
+    travel_to(period.cutoff_at + 1.minute) do
+      post "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}/finalize",
+           params: {
+             command_id: SecureRandom.uuid,
+             expected_version: period.lock_version,
+             reason: "Run the due cutoff"
+           }.to_json,
+           headers: headers.merge("X-Aire-Delegation-Token" => limited_grant.issued_token)
+    end
+
+    expect(response).to have_http_status(:forbidden)
+    expect(period.reload.status).to eq("scheduled")
+  end
+
+  it "enforces append-only command receipts in PostgreSQL" do
+    entry = create_entry
+    receipt = PayrollIntegrationCommand.create!(
+      command_id: SecureRandom.uuid,
+      action: "test.command",
+      actor: admin,
+      actor_payroll_integration_uuid: admin.payroll_integration_uuid,
+      target_type: "TimeEntry",
+      target_id: entry.id,
+      expected_version: 0,
+      request_checksum: Digest::SHA256.hexdigest("test"),
+      response_status: 200,
+      result_metadata: { ok: true }
+    )
+
+    expect do
+      PayrollIntegrationCommand.where(id: receipt.id).update_all(response_status: 201)
+    end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
+  end
+
+  it "prevents command receipts from being deleted in PostgreSQL" do
+    entry = create_entry
+    receipt = PayrollIntegrationCommand.create!(
+      command_id: SecureRandom.uuid,
+      action: "test.command",
+      actor: admin,
+      actor_payroll_integration_uuid: admin.payroll_integration_uuid,
+      target_type: "TimeEntry",
+      target_id: entry.id,
+      expected_version: 0,
+      request_checksum: Digest::SHA256.hexdigest("test"),
+      response_status: 200,
+      result_metadata: { ok: true }
+    )
+
+    expect do
+      PayrollIntegrationCommand.where(id: receipt.id).delete_all
+    end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
+  end
+
+  it "prevents the command receipt table from being truncated in PostgreSQL" do
+    receipt = PayrollIntegrationCommand.create!(
+      command_id: SecureRandom.uuid,
+      action: "test.command",
+      actor: admin,
+      actor_payroll_integration_uuid: admin.payroll_integration_uuid,
+      target_type: "User",
+      target_id: admin.id,
+      expected_version: 0,
+      request_checksum: Digest::SHA256.hexdigest("test"),
+      response_status: 200,
+      result_metadata: { ok: true }
+    )
+
+    expect do
+      ActiveRecord::Base.transaction(requires_new: true) do
+        ActiveRecord::Base.connection.execute("TRUNCATE TABLE payroll_integration_commands")
+      end
+    end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
+    expect(PayrollIntegrationCommand.exists?(receipt.id)).to be(true)
+  end
+end

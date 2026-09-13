@@ -43,6 +43,11 @@ class TimeEntry < ApplicationRecord
   scope :denied, -> { where(approval_status: "denied") }
   scope :clock_entries, -> { where(entry_method: "clock") }
   scope :manual_entries, -> { where(entry_method: "manual") }
+  scope :for_payroll_period, lambda { |period|
+    joins(:user)
+      .merge(User.staff)
+      .where(work_date: period.start_date..period.end_date)
+  }
   # Clock-created entries count unless explicitly held or denied. Manual entries
   # require an explicit approval, including legacy rows whose status is nil.
   scope :countable, lambda {
