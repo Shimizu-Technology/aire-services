@@ -32,6 +32,8 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
       end_time: guam.local(2026, 8, 15, 16),
       hours: 8,
       status: "completed",
+      entry_method: "clock",
+      clock_source: "legacy",
       approval_status: nil,
       overtime_status: "none"
     )

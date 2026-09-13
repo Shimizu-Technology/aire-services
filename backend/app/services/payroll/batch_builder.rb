@@ -33,7 +33,6 @@ module Payroll
       rows = []
       exclusions = []
       blocking = { missing_category_count: 0 }
-
       settlement_ids.sort.each do |entry_id|
         entry = current_by_id[entry_id]
         entry_prior_rows = prior_by_entry.fetch(entry_id, [])
@@ -248,11 +247,11 @@ module Payroll
       if entry.status.in?(%w[clocked_in on_break])
         return [ zero_hours, [ exclusion_for(entry, "open_clock", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
-      if entry.approval_status == "pending"
-        return [ zero_hours, [ exclusion_for(entry, "pending_approval", entry.hours, held_regular, held_overtime, snapshot) ] ]
-      end
       if entry.approval_status == "denied"
         return [ zero_hours, [ exclusion_for(entry, "denied_approval", entry.hours, held_regular, held_overtime, snapshot) ] ]
+      end
+      if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status != "approved")
+        return [ zero_hours, [ exclusion_for(entry, "pending_approval", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
       if entry.approved_at.present? && entry.approved_at > cutoff_at
         return [ zero_hours, [ exclusion_for(entry, "approved_after_cutoff", entry.hours, held_regular, held_overtime, snapshot) ] ]
@@ -280,7 +279,9 @@ module Payroll
     end
 
     def base_approved?(entry)
-      entry.status == "completed" && entry.approval_status.in?([ nil, "approved" ])
+      return false unless entry.status == "completed"
+
+      entry.clock_entry? ? entry.approval_status.in?([ nil, "approved" ]) : entry.approval_status == "approved"
     end
 
     def zero_hours
@@ -470,6 +471,8 @@ module Payroll
         "work_date" => entry.work_date.iso8601,
         "hours" => number(entry.hours),
         "status" => entry.status,
+        "entry_method" => entry.entry_method,
+        "clock_source" => entry.clock_source,
         "approval_status" => entry.approval_status,
         "approved_at" => entry.approved_at&.iso8601,
         "overtime_status" => entry.overtime_status,

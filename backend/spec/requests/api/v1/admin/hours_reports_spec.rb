@@ -25,6 +25,8 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
       end_time: guam.local(date.year, date.month, date.day, start_hour, 0, 0) + hours.hours,
       hours: hours,
       status: "completed",
+      entry_method: "clock",
+      clock_source: "legacy",
       approval_status: nil,
       overtime_status: "none"
     )
