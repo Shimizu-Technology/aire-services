@@ -17,6 +17,15 @@ class User < ApplicationRecord
   has_many :reviewed_leave_requests, class_name: "LeaveRequest", foreign_key: "reviewed_by_id", dependent: :nullify
   has_many :cancelled_leave_requests, class_name: "LeaveRequest", foreign_key: "cancelled_by_id", dependent: :nullify
   has_many :schedules, dependent: :nullify
+  has_many :assigned_payroll_settlement_cases,
+           class_name: "PayrollSettlementCase",
+           foreign_key: :assigned_to_id,
+           dependent: :nullify,
+           inverse_of: :assigned_to
+  has_many :payroll_settlement_case_events,
+           foreign_key: :actor_id,
+           dependent: :restrict_with_error,
+           inverse_of: :actor
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
   has_many :generated_report_exports, class_name: "ReportExport", foreign_key: "generated_by_id", dependent: :nullify
   has_many :employee_pay_rates, dependent: :destroy

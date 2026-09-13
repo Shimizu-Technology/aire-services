@@ -2,7 +2,9 @@
 
 class PayrollIntegrationGrant < ApplicationRecord
   TOKEN_PREFIX = "aire_pay_"
-  CAPABILITIES = %w[time_approval payroll_finalization].freeze
+  CAPABILITIES = %w[
+    time_approval payroll_finalization time_correction settlement_case_management
+  ].freeze
   DEFAULT_LIFETIME = 90.days
   MAX_LIFETIME = 1.year
 

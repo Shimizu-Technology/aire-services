@@ -8,6 +8,12 @@ class PayrollCalendarPeriod < ApplicationRecord
   belongs_to :payroll_batch, optional: true
   has_many :payroll_calendar_period_revisions, dependent: :restrict_with_error
   has_many :payroll_outbox_events, dependent: :restrict_with_error
+  has_many :targeted_payroll_settlement_cases,
+           class_name: "PayrollSettlementCase",
+           foreign_key: :target_payroll_calendar_period_id,
+           dependent: :restrict_with_error,
+           inverse_of: :target_payroll_calendar_period
+  has_one :payroll_settlement_reconciliation, dependent: :restrict_with_error
 
   validates :external_pay_period_id, :start_date, :end_date, :pay_date, :cutoff_at,
             :publication_id, :request_checksum, presence: true
@@ -26,9 +32,9 @@ class PayrollCalendarPeriod < ApplicationRecord
   validate :finalized_state_is_complete
 
   scope :due_at, lambda { |time|
-    where(status: %w[scheduled failed])
-      .where(cutoff_at: ..time)
-      .where("next_finalization_attempt_at IS NULL OR next_finalization_attempt_at <= ?", time)
+    scheduled = where(status: "scheduled", cutoff_at: ..time)
+    retryable_failure = where(status: "failed", cutoff_at: ..time, next_finalization_attempt_at: ..time)
+    scheduled.or(retryable_failure)
   }
 
   def cutoff_state(now: Time.current)

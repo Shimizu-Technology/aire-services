@@ -7,14 +7,16 @@ module Payroll
 
     class FinalizationError < StandardError; end
     class ExistingBatchError < FinalizationError; end
+    class OutOfOrderFinalizationError < FinalizationError; end
 
     attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note,
                 :manual_processing, :cutoff_at, :processed_at, :external_pay_period_id, :processing_note,
-                :acknowledge_missing_categories, :automated_cutoff
+                :acknowledge_missing_categories, :automated_cutoff, :calendar_period
 
     def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil,
                    manual_processing: false, cutoff_at: nil, processed_at: nil, external_pay_period_id: nil,
-                   processing_note: nil, acknowledge_missing_categories: false, automated_cutoff: false)
+                   processing_note: nil, acknowledge_missing_categories: false, automated_cutoff: false,
+                   calendar_period: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @actor = actor
@@ -22,6 +24,7 @@ module Payroll
       @negative_adjustment_note = negative_adjustment_note.to_s.strip
       @manual_processing = ActiveModel::Type::Boolean.new.cast(manual_processing)
       @automated_cutoff = ActiveModel::Type::Boolean.new.cast(automated_cutoff)
+      @calendar_period = calendar_period
       @cutoff_at = if @manual_processing
         parse_manual_time!(cutoff_at, "cutoff_at")
       elsif cutoff_at.present?
@@ -49,12 +52,15 @@ module Payroll
         source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         cutoff = cutoff_at || Time.current
         reference = build_reference(cutoff)
+        reject_out_of_order_automated_batch!(cutoff)
         reject_overlapping_batch!
+        SettlementCaseCoordinator.prepare_for_period!(calendar_period) if calendar_period
         result = BatchBuilder.new(
           start_date: start_date,
           end_date: end_date,
           cutoff_at: cutoff,
-          batch_reference: reference
+          batch_reference: reference,
+          calendar_period: calendar_period
         ).call
         validate_result!(result)
         payload = finalized_payload(result.fetch(:payload))
@@ -75,6 +81,7 @@ module Payroll
         result.fetch(:exclusions).each do |row|
           batch.payroll_batch_exclusions.create!(row.except(:work_date))
         end
+        SettlementCaseCoordinator.finalize_period!(period: calendar_period, batch: batch, actor: actor) if calendar_period
         record_manual_processing!(batch) if manual_processing
         AuditLog.record!(
           action: "payroll_batch.finalized",
@@ -193,6 +200,16 @@ module Payroll
       return unless overlap
 
       raise ExistingBatchError, "Payroll batch #{overlap.public_id} already covers part of this period"
+    end
+
+    def reject_out_of_order_automated_batch!(cutoff)
+      return unless automated_cutoff
+
+      later_batch = PayrollBatch.where("cutoff_at > ?", cutoff).order(:cutoff_at, :id).first
+      return unless later_batch
+
+      raise OutOfOrderFinalizationError,
+            "A later payroll batch (#{later_batch.public_id}) is already finalized. Review this older period before retrying."
     end
 
     def validate_result!(result)

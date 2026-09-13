@@ -277,14 +277,14 @@ CREATE TABLE public.ar_internal_metadata (
 
 CREATE TABLE public.audit_logs (
     id bigint NOT NULL,
-    action character varying NOT NULL,
-    auditable_id bigint NOT NULL,
     auditable_type character varying NOT NULL,
-    changes_made jsonb,
-    created_at timestamp(6) without time zone NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL,
+    auditable_id bigint NOT NULL,
+    action character varying NOT NULL,
     user_id bigint,
+    changes_made jsonb,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
     event_category character varying DEFAULT 'activity'::character varying NOT NULL,
     occurred_at timestamp(6) without time zone NOT NULL,
     actor_name character varying,
@@ -626,7 +626,7 @@ CREATE TABLE public.payroll_calendar_periods (
     CONSTRAINT check_payroll_calendar_period_date_order CHECK ((end_date >= start_date)),
     CONSTRAINT check_payroll_calendar_period_pay_date CHECK ((pay_date > end_date)),
     CONSTRAINT check_payroll_calendar_period_semimonthly CHECK ((((EXTRACT(day FROM start_date) = (1)::numeric) AND (EXTRACT(day FROM end_date) = (15)::numeric) AND (date_trunc('month'::text, (start_date)::timestamp without time zone) = date_trunc('month'::text, (end_date)::timestamp without time zone))) OR ((EXTRACT(day FROM start_date) = (16)::numeric) AND (end_date = ((date_trunc('month'::text, (start_date)::timestamp without time zone) + '1 mon -1 days'::interval))::date)))),
-    CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY (ARRAY[('scheduled'::character varying)::text, ('failed'::character varying)::text, ('finalized'::character varying)::text]))),
+    CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY ((ARRAY['scheduled'::character varying, 'failed'::character varying, 'finalized'::character varying])::text[]))),
     CONSTRAINT check_payroll_calendar_period_time_zone CHECK (((time_zone)::text = 'Pacific/Guam'::text)),
     CONSTRAINT check_payroll_calendar_period_version CHECK ((schedule_version > 0))
 );
@@ -750,7 +750,7 @@ CREATE TABLE public.payroll_integration_grants (
     expires_at timestamp(6) without time zone,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    CONSTRAINT check_payroll_integration_grant_capabilities CHECK ((capabilities <@ ARRAY['time_approval'::character varying, 'payroll_finalization'::character varying]))
+    CONSTRAINT check_payroll_integration_grant_capabilities CHECK ((capabilities <@ ARRAY['time_approval'::character varying, 'payroll_finalization'::character varying, 'time_correction'::character varying, 'settlement_case_management'::character varying]))
 );
 
 
@@ -796,7 +796,7 @@ CREATE TABLE public.payroll_outbox_events (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     CONSTRAINT check_payroll_outbox_delivery_attempts CHECK ((delivery_attempts >= 0)),
-    CONSTRAINT check_payroll_outbox_delivery_status CHECK (((delivery_status)::text = ANY (ARRAY[('pending'::character varying)::text, ('failed'::character varying)::text, ('delivered'::character varying)::text])))
+    CONSTRAINT check_payroll_outbox_delivery_status CHECK (((delivery_status)::text = ANY ((ARRAY['pending'::character varying, 'failed'::character varying, 'delivered'::character varying])::text[])))
 );
 
 
@@ -817,6 +817,142 @@ CREATE SEQUENCE public.payroll_outbox_events_id_seq
 --
 
 ALTER SEQUENCE public.payroll_outbox_events_id_seq OWNED BY public.payroll_outbox_events.id;
+
+
+--
+-- Name: payroll_settlement_case_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_settlement_case_events (
+    id bigint NOT NULL,
+    payroll_settlement_case_id bigint NOT NULL,
+    event_id uuid NOT NULL,
+    actor_id bigint,
+    actor_payroll_integration_uuid uuid,
+    event_type character varying NOT NULL,
+    from_status character varying,
+    to_status character varying NOT NULL,
+    occurred_at timestamp(6) without time zone NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_settlement_case_events_from_status CHECK (((from_status IS NULL) OR ((from_status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying, 'settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[])))),
+    CONSTRAINT check_payroll_settlement_case_events_metadata CHECK ((jsonb_typeof(metadata) = 'object'::text)),
+    CONSTRAINT check_payroll_settlement_case_events_to_status CHECK (((to_status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying, 'settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[]))),
+    CONSTRAINT check_payroll_settlement_case_events_type CHECK (((event_type)::text = ANY ((ARRAY['opened'::character varying, 'routed'::character varying, 'rerouted'::character varying, 'corrected'::character varying, 'approval_changed'::character varying, 'included'::character varying, 'imported'::character varying, 'committed'::character varying, 'payment_prepared'::character varying, 'payment_issued'::character varying, 'payment_failed'::character varying, 'payment_voided'::character varying, 'payment_returned'::character varying, 'settled'::character varying, 'marked_not_payable'::character varying, 'superseded'::character varying])::text[])))
+);
+
+
+--
+-- Name: payroll_settlement_case_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_settlement_case_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_settlement_case_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_settlement_case_events_id_seq OWNED BY public.payroll_settlement_case_events.id;
+
+
+--
+-- Name: payroll_settlement_cases; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_settlement_cases (
+    id bigint NOT NULL,
+    public_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    source_time_entry_id bigint NOT NULL,
+    source_time_entry_version integer DEFAULT 0 NOT NULL,
+    source_user_id bigint NOT NULL,
+    source_user_uuid uuid,
+    origin_payroll_batch_id bigint NOT NULL,
+    origin_payroll_batch_exclusion_id bigint,
+    supersedes_case_id bigint,
+    target_payroll_calendar_period_id bigint,
+    included_payroll_batch_id bigint,
+    assigned_to_id bigint,
+    origin_reason character varying NOT NULL,
+    original_work_date date NOT NULL,
+    held_total_hours numeric(8,2) DEFAULT 0.0 NOT NULL,
+    destination_kind character varying DEFAULT 'unassigned'::character varying NOT NULL,
+    target_external_pay_period_id character varying,
+    owner_role character varying DEFAULT 'aire_admins'::character varying NOT NULL,
+    action_due_on date NOT NULL,
+    status character varying DEFAULT 'open'::character varying NOT NULL,
+    resolution_note text,
+    resolved_at timestamp(6) without time zone,
+    lock_version integer DEFAULT 0 NOT NULL,
+    source_snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_settlement_cases_destination CHECK (((destination_kind)::text = ANY ((ARRAY['unassigned'::character varying, 'regular'::character varying, 'supplemental'::character varying, 'not_payable'::character varying])::text[]))),
+    CONSTRAINT check_payroll_settlement_cases_hours CHECK ((held_total_hours >= (0)::numeric)),
+    CONSTRAINT check_payroll_settlement_cases_included_shape CHECK ((((status)::text <> ALL ((ARRAY['in_payroll'::character varying, 'settled'::character varying])::text[])) OR ((destination_kind)::text = 'supplemental'::text) OR (included_payroll_batch_id IS NOT NULL))),
+    CONSTRAINT check_payroll_settlement_cases_owner_role CHECK (((owner_role)::text = 'aire_admins'::text)),
+    CONSTRAINT check_payroll_settlement_cases_resolution_shape CHECK ((((status)::text = ANY ((ARRAY['settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[])) = (resolved_at IS NOT NULL))),
+    CONSTRAINT check_payroll_settlement_cases_routing_shape CHECK (((((destination_kind)::text = 'regular'::text) AND (target_payroll_calendar_period_id IS NOT NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'supplemental'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'unassigned'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = ANY ((ARRAY['open'::character varying, 'superseded'::character varying])::text[]))) OR (((destination_kind)::text = 'not_payable'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = 'not_payable'::text)))),
+    CONSTRAINT check_payroll_settlement_cases_snapshot CHECK ((jsonb_typeof(source_snapshot) = 'object'::text)),
+    CONSTRAINT check_payroll_settlement_cases_status CHECK (((status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying, 'settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[])))
+);
+
+
+--
+-- Name: payroll_settlement_cases_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_settlement_cases_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_settlement_cases_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_settlement_cases_id_seq OWNED BY public.payroll_settlement_cases.id;
+
+
+--
+-- Name: payroll_settlement_reconciliations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_settlement_reconciliations (
+    id bigint NOT NULL,
+    payroll_calendar_period_id bigint NOT NULL,
+    reconciled_at timestamp(6) without time zone NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_settlement_reconciliations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_settlement_reconciliations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_settlement_reconciliations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_settlement_reconciliations_id_seq OWNED BY public.payroll_settlement_reconciliations.id;
 
 
 --
@@ -875,12 +1011,12 @@ ALTER SEQUENCE public.report_exports_id_seq OWNED BY public.report_exports.id;
 
 CREATE TABLE public.schedule_time_presets (
     id bigint NOT NULL,
+    label character varying NOT NULL,
+    start_time time without time zone NOT NULL,
+    end_time time without time zone NOT NULL,
+    "position" integer DEFAULT 0 NOT NULL,
     active boolean DEFAULT true NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
-    end_time time without time zone NOT NULL,
-    label character varying NOT NULL,
-    "position" integer DEFAULT 0 NOT NULL,
-    start_time time without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL
 );
 
@@ -910,14 +1046,14 @@ ALTER SEQUENCE public.schedule_time_presets_id_seq OWNED BY public.schedule_time
 
 CREATE TABLE public.schedules (
     id bigint NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    created_by_id bigint,
+    user_id bigint,
+    work_date date NOT NULL,
+    start_time time without time zone NOT NULL,
     end_time time without time zone NOT NULL,
     notes text,
-    start_time time without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL,
-    user_id bigint,
-    work_date date NOT NULL
+    created_by_id bigint,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
 );
 
 
@@ -955,11 +1091,11 @@ CREATE TABLE public.schema_migrations (
 
 CREATE TABLE public.settings (
     id bigint NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    description character varying,
     key character varying,
-    updated_at timestamp(6) without time zone NOT NULL,
-    value text
+    value text,
+    description character varying,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
 );
 
 
@@ -1029,13 +1165,13 @@ ALTER SEQUENCE public.site_media_id_seq OWNED BY public.site_media.id;
 
 CREATE TABLE public.time_categories (
     id bigint NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    description text,
-    hourly_rate_cents integer,
-    is_active boolean DEFAULT true,
-    key character varying,
     name character varying NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
+    description text,
+    is_active boolean DEFAULT true,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    key character varying,
+    hourly_rate_cents integer
 );
 
 
@@ -1064,32 +1200,32 @@ ALTER SEQUENCE public.time_categories_id_seq OWNED BY public.time_categories.id;
 
 CREATE TABLE public.time_entries (
     id bigint NOT NULL,
-    admin_override boolean DEFAULT false NOT NULL,
-    approval_note text,
-    approval_status character varying,
-    approved_at timestamp(6) without time zone,
-    approved_by_id bigint,
-    attendance_status character varying,
+    user_id bigint,
+    time_category_id bigint,
+    work_date date NOT NULL,
+    hours numeric(4,2) NOT NULL,
+    description text,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
     break_minutes integer,
+    start_time time without time zone,
+    end_time time without time zone,
+    schedule_id bigint,
     clock_in_at timestamp(6) without time zone,
     clock_out_at timestamp(6) without time zone,
-    clock_source character varying,
-    created_at timestamp(6) without time zone NOT NULL,
-    description text,
-    end_time time without time zone,
     entry_method character varying DEFAULT 'manual'::character varying NOT NULL,
-    hours numeric(4,2) NOT NULL,
-    overtime_approved_at timestamp(6) without time zone,
-    overtime_approved_by_id bigint,
-    overtime_note text,
-    overtime_status character varying,
-    schedule_id bigint,
-    start_time time without time zone,
     status character varying DEFAULT 'completed'::character varying NOT NULL,
-    time_category_id bigint,
-    updated_at timestamp(6) without time zone NOT NULL,
-    user_id bigint,
-    work_date date NOT NULL,
+    admin_override boolean DEFAULT false NOT NULL,
+    attendance_status character varying,
+    approval_status character varying,
+    approved_by_id bigint,
+    approved_at timestamp(6) without time zone,
+    approval_note text,
+    overtime_status character varying,
+    overtime_approved_by_id bigint,
+    overtime_approved_at timestamp(6) without time zone,
+    overtime_note text,
+    clock_source character varying,
     effective_rate_cents_snapshot integer,
     lock_version integer DEFAULT 0 NOT NULL
 );
@@ -1120,11 +1256,11 @@ ALTER SEQUENCE public.time_entries_id_seq OWNED BY public.time_entries.id;
 
 CREATE TABLE public.time_entry_breaks (
     id bigint NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    duration_minutes integer,
-    end_time timestamp(6) without time zone,
-    start_time timestamp(6) without time zone NOT NULL,
     time_entry_id bigint NOT NULL,
+    start_time timestamp(6) without time zone NOT NULL,
+    end_time timestamp(6) without time zone,
+    duration_minutes integer,
+    created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL
 );
 
@@ -1220,19 +1356,19 @@ ALTER SEQUENCE public.user_time_categories_id_seq OWNED BY public.user_time_cate
 CREATE TABLE public.users (
     id bigint NOT NULL,
     clerk_id character varying NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
     email character varying,
     first_name character varying,
+    last_name character varying,
+    role character varying DEFAULT 'employee'::character varying,
+    phone character varying,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    kiosk_pin_digest character varying,
+    kiosk_pin_lookup_hash character varying,
+    kiosk_pin_last_rotated_at timestamp(6) without time zone,
     kiosk_enabled boolean DEFAULT false NOT NULL,
     kiosk_failed_attempts_count integer DEFAULT 0 NOT NULL,
     kiosk_locked_until timestamp(6) without time zone,
-    kiosk_pin_digest character varying,
-    kiosk_pin_last_rotated_at timestamp(6) without time zone,
-    kiosk_pin_lookup_hash character varying,
-    last_name character varying,
-    phone character varying,
-    role character varying DEFAULT 'employee'::character varying,
-    updated_at timestamp(6) without time zone NOT NULL,
     approval_group character varying,
     is_active boolean DEFAULT true NOT NULL,
     public_team_enabled boolean DEFAULT false NOT NULL,
@@ -1250,8 +1386,8 @@ CREATE TABLE public.users (
     CONSTRAINT check_public_team_photo_position_x_range CHECK (((public_team_photo_position_x >= 0) AND (public_team_photo_position_x <= 100))),
     CONSTRAINT check_public_team_photo_position_y_range CHECK (((public_team_photo_position_y >= 0) AND (public_team_photo_position_y <= 100))),
     CONSTRAINT check_users_kiosk_matches_time_tracking CHECK ((kiosk_enabled = time_tracking_enabled)),
-    CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY (ARRAY[('clerk'::character varying)::text, ('local'::character varying)::text]))),
-    CONSTRAINT check_valid_role CHECK (((role)::text = ANY (ARRAY[('admin'::character varying)::text, ('employee'::character varying)::text])))
+    CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY ((ARRAY['clerk'::character varying, 'local'::character varying])::text[]))),
+    CONSTRAINT check_valid_role CHECK (((role)::text = ANY ((ARRAY['admin'::character varying, 'employee'::character varying])::text[])))
 );
 
 
@@ -1384,6 +1520,27 @@ ALTER TABLE ONLY public.payroll_integration_grants ALTER COLUMN id SET DEFAULT n
 --
 
 ALTER TABLE ONLY public.payroll_outbox_events ALTER COLUMN id SET DEFAULT nextval('public.payroll_outbox_events_id_seq'::regclass);
+
+
+--
+-- Name: payroll_settlement_case_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_case_events ALTER COLUMN id SET DEFAULT nextval('public.payroll_settlement_case_events_id_seq'::regclass);
+
+
+--
+-- Name: payroll_settlement_cases id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_cases ALTER COLUMN id SET DEFAULT nextval('public.payroll_settlement_cases_id_seq'::regclass);
+
+
+--
+-- Name: payroll_settlement_reconciliations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_reconciliations ALTER COLUMN id SET DEFAULT nextval('public.payroll_settlement_reconciliations_id_seq'::regclass);
 
 
 --
@@ -1608,6 +1765,30 @@ ALTER TABLE ONLY public.payroll_outbox_events
 
 
 --
+-- Name: payroll_settlement_case_events payroll_settlement_case_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_case_events
+    ADD CONSTRAINT payroll_settlement_case_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_settlement_cases payroll_settlement_cases_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_cases
+    ADD CONSTRAINT payroll_settlement_cases_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_settlement_reconciliations payroll_settlement_reconciliations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_reconciliations
+    ADD CONSTRAINT payroll_settlement_reconciliations_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: report_exports report_exports_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1792,6 +1973,69 @@ CREATE INDEX idx_payroll_outbox_due ON public.payroll_outbox_events USING btree 
 --
 
 CREATE INDEX idx_payroll_outbox_period ON public.payroll_outbox_events USING btree (payroll_calendar_period_id);
+
+
+--
+-- Name: idx_payroll_settlement_case_events_case; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_settlement_case_events_case ON public.payroll_settlement_case_events USING btree (payroll_settlement_case_id);
+
+
+--
+-- Name: idx_payroll_settlement_case_events_timeline; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_settlement_case_events_timeline ON public.payroll_settlement_case_events USING btree (payroll_settlement_case_id, occurred_at);
+
+
+--
+-- Name: idx_payroll_settlement_cases_active_origin_entry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_settlement_cases_active_origin_entry ON public.payroll_settlement_cases USING btree (origin_payroll_batch_id, source_time_entry_id) WHERE ((status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying])::text[]));
+
+
+--
+-- Name: idx_payroll_settlement_cases_included_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_settlement_cases_included_batch ON public.payroll_settlement_cases USING btree (included_payroll_batch_id);
+
+
+--
+-- Name: idx_payroll_settlement_cases_origin_exclusion_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_settlement_cases_origin_exclusion_unique ON public.payroll_settlement_cases USING btree (origin_payroll_batch_exclusion_id) WHERE (origin_payroll_batch_exclusion_id IS NOT NULL);
+
+
+--
+-- Name: idx_payroll_settlement_cases_synthetic_origin_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_settlement_cases_synthetic_origin_unique ON public.payroll_settlement_cases USING btree (origin_payroll_batch_id, source_time_entry_id, origin_reason, source_time_entry_version) WHERE (origin_payroll_batch_exclusion_id IS NULL);
+
+
+--
+-- Name: idx_payroll_settlement_cases_target_period; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_settlement_cases_target_period ON public.payroll_settlement_cases USING btree (target_payroll_calendar_period_id);
+
+
+--
+-- Name: idx_payroll_settlement_cases_work_queue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_settlement_cases_work_queue ON public.payroll_settlement_cases USING btree (status, action_due_on);
+
+
+--
+-- Name: idx_payroll_settlement_reconciliations_period; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_settlement_reconciliations_period ON public.payroll_settlement_reconciliations USING btree (payroll_calendar_period_id);
 
 
 --
@@ -2166,6 +2410,55 @@ CREATE UNIQUE INDEX index_payroll_outbox_events_on_event_id ON public.payroll_ou
 
 
 --
+-- Name: index_payroll_settlement_case_events_on_actor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_settlement_case_events_on_actor_id ON public.payroll_settlement_case_events USING btree (actor_id);
+
+
+--
+-- Name: index_payroll_settlement_case_events_on_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_settlement_case_events_on_event_id ON public.payroll_settlement_case_events USING btree (event_id);
+
+
+--
+-- Name: index_payroll_settlement_cases_on_assigned_to_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_settlement_cases_on_assigned_to_id ON public.payroll_settlement_cases USING btree (assigned_to_id);
+
+
+--
+-- Name: index_payroll_settlement_cases_on_origin_payroll_batch_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_settlement_cases_on_origin_payroll_batch_id ON public.payroll_settlement_cases USING btree (origin_payroll_batch_id);
+
+
+--
+-- Name: index_payroll_settlement_cases_on_public_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_settlement_cases_on_public_id ON public.payroll_settlement_cases USING btree (public_id);
+
+
+--
+-- Name: index_payroll_settlement_cases_on_source_time_entry_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_settlement_cases_on_source_time_entry_id ON public.payroll_settlement_cases USING btree (source_time_entry_id);
+
+
+--
+-- Name: index_payroll_settlement_cases_on_supersedes_case_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_settlement_cases_on_supersedes_case_id ON public.payroll_settlement_cases USING btree (supersedes_case_id);
+
+
+--
 -- Name: index_report_exports_on_checksum; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2372,7 +2665,7 @@ CREATE INDEX index_time_entries_on_work_date ON public.time_entries USING btree 
 -- Name: index_time_entries_one_active_per_user; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX index_time_entries_one_active_per_user ON public.time_entries USING btree (user_id) WHERE ((status)::text = ANY (ARRAY[('clocked_in'::character varying)::text, ('on_break'::character varying)::text]));
+CREATE UNIQUE INDEX index_time_entries_one_active_per_user ON public.time_entries USING btree (user_id) WHERE ((status)::text = ANY ((ARRAY['clocked_in'::character varying, 'on_break'::character varying])::text[]));
 
 
 --
@@ -2607,6 +2900,20 @@ CREATE TRIGGER payroll_outbox_events_payload_immutable BEFORE DELETE OR UPDATE O
 
 
 --
+-- Name: payroll_settlement_case_events payroll_settlement_case_events_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_settlement_case_events_append_only BEFORE DELETE OR UPDATE ON public.payroll_settlement_case_events FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_settlement_case_events payroll_settlement_case_events_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_settlement_case_events_prevent_truncate BEFORE TRUNCATE ON public.payroll_settlement_case_events FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
 -- Name: time_entries fk_rails_1a91ee6a57; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2652,6 +2959,14 @@ ALTER TABLE ONLY public.payroll_batch_entries
 
 ALTER TABLE ONLY public.employee_pay_rates
     ADD CONSTRAINT fk_rails_31663a1dca FOREIGN KEY (time_category_id) REFERENCES public.time_categories(id);
+
+
+--
+-- Name: payroll_settlement_reconciliations fk_rails_31d292553b; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_reconciliations
+    ADD CONSTRAINT fk_rails_31d292553b FOREIGN KEY (payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id) ON DELETE RESTRICT;
 
 
 --
@@ -2719,11 +3034,27 @@ ALTER TABLE ONLY public.time_entries
 
 
 --
+-- Name: payroll_settlement_cases fk_rails_5fcbd37628; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_cases
+    ADD CONSTRAINT fk_rails_5fcbd37628 FOREIGN KEY (origin_payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: payroll_batches fk_rails_634c1f225c; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payroll_batches
     ADD CONSTRAINT fk_rails_634c1f225c FOREIGN KEY (finalized_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: payroll_settlement_cases fk_rails_63b2b1283f; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_cases
+    ADD CONSTRAINT fk_rails_63b2b1283f FOREIGN KEY (origin_payroll_batch_exclusion_id) REFERENCES public.payroll_batch_exclusions(id) ON DELETE RESTRICT;
 
 
 --
@@ -2743,11 +3074,35 @@ ALTER TABLE ONLY public.payroll_calendar_periods
 
 
 --
+-- Name: payroll_settlement_cases fk_rails_80fb0295f2; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_cases
+    ADD CONSTRAINT fk_rails_80fb0295f2 FOREIGN KEY (included_payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: payroll_settlement_cases fk_rails_8fd3fba472; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_cases
+    ADD CONSTRAINT fk_rails_8fd3fba472 FOREIGN KEY (assigned_to_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
 -- Name: payroll_entry_processing_events fk_rails_94a8c847a2; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payroll_entry_processing_events
     ADD CONSTRAINT fk_rails_94a8c847a2 FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE CASCADE;
+
+
+--
+-- Name: payroll_settlement_case_events fk_rails_98f55c85d5; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_case_events
+    ADD CONSTRAINT fk_rails_98f55c85d5 FOREIGN KEY (actor_id) REFERENCES public.users(id) ON DELETE RESTRICT;
 
 
 --
@@ -2767,6 +3122,14 @@ ALTER TABLE ONLY public.leave_requests
 
 
 --
+-- Name: payroll_settlement_cases fk_rails_a72c455e9b; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_cases
+    ADD CONSTRAINT fk_rails_a72c455e9b FOREIGN KEY (supersedes_case_id) REFERENCES public.payroll_settlement_cases(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: user_time_categories fk_rails_ad936d8258; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2780,6 +3143,14 @@ ALTER TABLE ONLY public.user_time_categories
 
 ALTER TABLE ONLY public.leave_requests
     ADD CONSTRAINT fk_rails_ae3b26a732 FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: payroll_settlement_case_events fk_rails_aee89cc6b6; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_case_events
+    ADD CONSTRAINT fk_rails_aee89cc6b6 FOREIGN KEY (payroll_settlement_case_id) REFERENCES public.payroll_settlement_cases(id) ON DELETE RESTRICT;
 
 
 --
@@ -2847,12 +3218,21 @@ ALTER TABLE ONLY public.schedules
 
 
 --
+-- Name: payroll_settlement_cases fk_rails_f9c6b16c38; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_cases
+    ADD CONSTRAINT fk_rails_f9c6b16c38 FOREIGN KEY (target_payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id) ON DELETE RESTRICT;
+
+
+--
 -- PostgreSQL database dump complete
 --
 
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260913030000'),
 ('20260913020000'),
 ('20260913010000'),
 ('20260904011000'),

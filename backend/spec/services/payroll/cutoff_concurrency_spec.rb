@@ -9,19 +9,27 @@ RSpec.describe "Payroll cutoff concurrency" do
   self.use_transactional_tests = false
 
   after do
-    ActiveRecord::Base.connection.execute(<<~SQL)
-      TRUNCATE TABLE
-        payroll_outbox_events,
-        payroll_calendar_period_revisions,
-        payroll_calendar_periods,
-        payroll_entry_processing_events,
-        payroll_batch_processing_events,
-        payroll_batch_exclusions,
-        payroll_batch_entries,
-        payroll_batches,
-        audit_logs
-      RESTART IDENTITY CASCADE
-    SQL
+    connection = ActiveRecord::Base.connection
+    connection.execute("ALTER TABLE payroll_settlement_case_events DISABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
+    begin
+      connection.execute(<<~SQL)
+        TRUNCATE TABLE
+          payroll_settlement_case_events,
+          payroll_settlement_cases,
+          payroll_outbox_events,
+          payroll_calendar_period_revisions,
+          payroll_calendar_periods,
+          payroll_entry_processing_events,
+          payroll_batch_processing_events,
+          payroll_batch_exclusions,
+          payroll_batch_entries,
+          payroll_batches,
+          audit_logs
+        RESTART IDENTITY CASCADE
+      SQL
+    ensure
+      connection.execute("ALTER TABLE payroll_settlement_case_events ENABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
+    end
   end
 
   it "turns concurrent publication retries into one retained revision" do

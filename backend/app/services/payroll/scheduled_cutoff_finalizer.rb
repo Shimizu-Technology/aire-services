@@ -6,20 +6,36 @@ module Payroll
 
     class << self
       def call_due(now: Time.current)
+        reconcile_settlement_cases_safely
         PayrollCalendarPeriod.due_at(now).order(:cutoff_at, :id).pluck(:id).map do |period_id|
-          new(period_id: period_id, now: now).call
+          new(period_id: period_id, now: now, reconcile_settlement_cases: false).call
         end
+      end
+
+      def reconcile_settlement_cases_safely
+        SettlementCaseCoordinator.sync_finalized_periods!
+      rescue StandardError => e
+        Rails.error.report(
+          e,
+          handled: true,
+          severity: :warning,
+          context: { operation: "settlement_case_reconciliation" }
+        )
+        Rails.logger.error("Payroll settlement reconciliation failed: #{e.class}: #{e.message}")
+        nil
       end
     end
 
     attr_reader :period_id, :now
 
-    def initialize(period_id:, now: Time.current)
+    def initialize(period_id:, now: Time.current, reconcile_settlement_cases: true)
       @period_id = period_id
       @now = now
+      @reconcile_settlement_cases = reconcile_settlement_cases
     end
 
     def call
+      self.class.reconcile_settlement_cases_safely if reconcile_settlement_cases
       batch = finalize_transaction!
       { period_id: period_id, status: batch ? "finalized" : "skipped", payroll_batch_id: batch&.public_id }
     rescue StandardError => e
@@ -28,6 +44,8 @@ module Payroll
     end
 
     private
+
+    attr_reader :reconcile_settlement_cases
 
     def finalize_transaction!
       PayrollCalendarPeriod.transaction do
@@ -41,7 +59,8 @@ module Payroll
           end_date: period.end_date,
           actor: nil,
           cutoff_at: period.cutoff_at.iso8601,
-          automated_cutoff: true
+          automated_cutoff: true,
+          calendar_period: period
         ).call
         period.update!(
           status: "finalized",
@@ -59,9 +78,10 @@ module Payroll
     end
 
     def due?(period)
-      period.status.in?(%w[scheduled failed]) &&
-        period.cutoff_at <= now &&
-        (period.next_finalization_attempt_at.nil? || period.next_finalization_attempt_at <= now)
+      return false if period.cutoff_at > now
+      return true if period.status == "scheduled"
+
+      period.status == "failed" && period.next_finalization_attempt_at.present? && period.next_finalization_attempt_at <= now
     end
 
     def create_outbox_event!(period, batch)
@@ -122,11 +142,12 @@ module Payroll
 
         attempts = period.finalization_attempts + 1
         external_period_id = period.external_pay_period_id
+        retryable = !error.is_a?(BatchFinalizer::OutOfOrderFinalizationError)
         period.update!(
           status: "failed",
           finalization_attempts: attempts,
           last_finalization_attempt_at: now,
-          next_finalization_attempt_at: now + retry_delay(attempts),
+          next_finalization_attempt_at: retryable ? now + retry_delay(attempts) : nil,
           last_finalization_error: safe_error(error)
         )
         AuditLog.record!(
@@ -142,7 +163,8 @@ module Payroll
             schedule_version: period.schedule_version,
             cutoff_at: period.cutoff_at.iso8601,
             attempt: attempts,
-            retry_at: period.next_finalization_attempt_at.iso8601,
+            retry_at: period.next_finalization_attempt_at&.iso8601,
+            retryable: retryable,
             error_class: error.class.name,
             error: safe_error(error)
           }

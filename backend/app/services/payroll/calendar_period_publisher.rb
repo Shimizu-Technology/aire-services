@@ -34,6 +34,7 @@ module Payroll
         end
         record_revision!(period)
         record_audit!(period, created: created)
+        SettlementCaseCoordinator.route_open_cases_to_period!(period)
         Result.new(period: period, created: created, idempotent: false)
       end
     rescue ActiveRecord::RecordNotUnique
@@ -133,6 +134,7 @@ module Payroll
       end
 
       reject_overlap!(excluding: period)
+      reject_invalid_settlement_routes!(period)
       period.update!(period_attributes.merge(
         status: "scheduled",
         next_finalization_attempt_at: attributes.fetch(:cutoff_at),
@@ -141,6 +143,17 @@ module Payroll
         last_finalization_error: nil
       ))
       period
+    end
+
+    def reject_invalid_settlement_routes!(period)
+      invalid_route = period.targeted_payroll_settlement_cases
+        .active
+        .joins(:origin_payroll_batch)
+        .where("payroll_batches.end_date >= ?", attributes.fetch(:start_date))
+        .exists?
+      return unless invalid_route
+
+      raise ConflictError, "The revised period would no longer be after an assigned settlement case"
     end
 
     def reject_overlap!(excluding: nil)

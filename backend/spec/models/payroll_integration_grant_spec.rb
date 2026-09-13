@@ -28,6 +28,17 @@ RSpec.describe PayrollIntegrationGrant, type: :model do
     end.to raise_error(ActiveRecord::RecordInvalid, /unsupported/)
   end
 
+  it "supports separately scoped correction and settlement-case commands" do
+    grant = described_class.issue!(
+      user: create(:user, :admin),
+      capabilities: %w[time_correction settlement_case_management]
+    )
+
+    expect(grant.allows?("time_correction")).to be(true)
+    expect(grant.allows?("settlement_case_management")).to be(true)
+    expect(grant.allows?("payroll_finalization")).to be(false)
+  end
+
   it "rejects an unbounded grant lifetime" do
     expect do
       described_class.issue!(

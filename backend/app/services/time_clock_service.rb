@@ -336,6 +336,7 @@ class TimeClockService
 
         entry.update!(attrs)
         record_review_event!("time_entry.approved", entry, approved_by, note)
+        record_payroll_case_approval_event!(entry, approved_by, "approved", note)
       end
       entry
     end
@@ -357,6 +358,7 @@ class TimeClockService
           approval_note: note
         )
         record_review_event!("time_entry.denied", entry, denied_by, note, outcome: "denied")
+        record_payroll_case_approval_event!(entry, denied_by, "denied", note)
       end
       entry
     end
@@ -376,6 +378,7 @@ class TimeClockService
           overtime_note: note
         )
         record_review_event!("time_entry.overtime_approved", entry, approved_by, note)
+        record_payroll_case_approval_event!(entry, approved_by, "approved", note, approval_kind: "overtime")
       end
       entry
     end
@@ -395,6 +398,7 @@ class TimeClockService
           overtime_note: note
         )
         record_review_event!("time_entry.overtime_denied", entry, denied_by, note, outcome: "denied")
+        record_payroll_case_approval_event!(entry, denied_by, "denied", note, approval_kind: "overtime")
       end
       entry
     end
@@ -518,6 +522,21 @@ class TimeClockService
           review_note: note.to_s.strip.presence
         }.compact
       )
+    end
+
+    def record_payroll_case_approval_event!(entry, actor, decision, note, approval_kind: "time_entry")
+      PayrollSettlementCase.active.where(source_time_entry_id: entry.id).find_each do |settlement_case|
+        settlement_case.payroll_settlement_case_events.create!(
+          event_id: SecureRandom.uuid,
+          actor: actor,
+          actor_payroll_integration_uuid: actor.payroll_integration_uuid,
+          event_type: "approval_changed",
+          from_status: settlement_case.status,
+          to_status: settlement_case.status,
+          occurred_at: Time.current,
+          metadata: { approval_kind: approval_kind, decision: decision, note: note.to_s.strip.presence }.compact
+        )
+      end
     end
 
     # Evaluates whether an entry triggers overtime thresholds.

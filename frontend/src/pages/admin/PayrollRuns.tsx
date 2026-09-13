@@ -64,8 +64,13 @@ function formatDateTime(value: string) {
   }).format(new Date(value))
 }
 
-function formatHours(value: number) {
-  return `${Number(value).toFixed(2)} hrs`
+function safeNumber(value: unknown) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+function formatHours(value: unknown) {
+  return `${safeNumber(value).toFixed(2)} hrs`
 }
 
 function localDateTimeToIso(value: string) {
@@ -837,8 +842,8 @@ export default function PayrollRuns() {
               </div>
               <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
                 <span>{formatHours(batch.summary.total_hours)}</span>
-                <span>{batch.summary.employee_count} employees</span>
-                <span>{batch.summary.exclusion_count} excluded</span>
+                <span>{safeNumber(batch.summary.employee_count)} employees</span>
+                <span>{safeNumber(batch.summary.exclusion_count)} excluded</span>
               </div>
             </button>
           ))}

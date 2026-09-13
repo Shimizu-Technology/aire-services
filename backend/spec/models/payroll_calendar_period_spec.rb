@@ -11,6 +11,40 @@ RSpec.describe PayrollCalendarPeriod, type: :model do
     expect(period.errors[:cutoff_days_before]).to be_present
   end
 
+  it "only schedules failed periods that have a retry time" do
+    guam = ActiveSupport::TimeZone["Pacific/Guam"]
+    now = guam.local(2026, 12, 1, 17)
+    scheduled = create(
+      :payroll_calendar_period,
+      start_date: Date.new(2026, 10, 1),
+      end_date: Date.new(2026, 10, 15),
+      pay_date: Date.new(2026, 10, 25),
+      cutoff_at: guam.local(2026, 10, 18, 17),
+      next_finalization_attempt_at: nil
+    )
+    retryable = create(
+      :payroll_calendar_period,
+      start_date: Date.new(2026, 10, 16),
+      end_date: Date.new(2026, 10, 31),
+      pay_date: Date.new(2026, 11, 10),
+      cutoff_at: guam.local(2026, 11, 3, 17),
+      status: "failed",
+      next_finalization_attempt_at: now
+    )
+    blocked = create(
+      :payroll_calendar_period,
+      start_date: Date.new(2026, 11, 1),
+      end_date: Date.new(2026, 11, 15),
+      pay_date: Date.new(2026, 11, 25),
+      cutoff_at: guam.local(2026, 11, 18, 17),
+      status: "failed",
+      next_finalization_attempt_at: nil
+    )
+
+    expect(described_class.due_at(now)).to contain_exactly(scheduled, retryable)
+    expect(described_class.due_at(now)).not_to include(blocked)
+  end
+
 
   it "enforces the exact T-7 calendar date in Pacific/Guam" do
     guam = ActiveSupport::TimeZone["Pacific/Guam"]

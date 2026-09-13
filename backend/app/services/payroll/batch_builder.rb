@@ -8,13 +8,14 @@ module Payroll
     PAIR_QUERY_BATCH_SIZE = 500
     SOURCE = "aire_services"
 
-    attr_reader :start_date, :end_date, :cutoff_at, :batch_reference
+    attr_reader :start_date, :end_date, :cutoff_at, :batch_reference, :calendar_period
 
-    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW")
+    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @cutoff_at = cutoff_at
       @batch_reference = batch_reference
+      @calendar_period = calendar_period
       raise ArgumentError, "end_date must be on or after start_date" if @end_date < @start_date
       raise ArgumentError, "date range may not exceed #{MAX_RANGE_DAYS} days" if (@end_date - @start_date).to_i > MAX_RANGE_DAYS
     end
@@ -88,6 +89,17 @@ module Payroll
     def settlement_seed_entries(latest_batch)
       nominal = staff_entries.where(work_date: start_date..end_date).to_a
       return [ nominal, [] ] unless latest_batch
+
+      if calendar_period
+        targeted_ids = PayrollSettlementCase
+          .active
+          .where(target_payroll_calendar_period: calendar_period)
+          .distinct
+          .pluck(:source_time_entry_id)
+        carryovers = staff_entries.where(id: targeted_ids).to_a
+        existing_ids = carryovers.map(&:id)
+        return [ (nominal + carryovers).uniq(&:id), targeted_ids - existing_ids ]
+      end
 
       latest_cutoff = latest_batch.cutoff_at
       carryover_ids = unresolved_carryover_ids(latest_batch)

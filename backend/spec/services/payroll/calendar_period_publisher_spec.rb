@@ -49,6 +49,44 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     expect(period.payroll_calendar_period_revisions.order(:schedule_version).pluck(:schedule_version)).to eq([ 1, 2 ])
   end
 
+  it "rejects a revision that would move an assigned settlement case before its origin" do
+    target_attributes = attributes.merge(
+      external_pay_period_id: "cornerstone-2026-11-a",
+      start_date: "2026-11-01",
+      end_date: "2026-11-15",
+      pay_date: "2026-11-25",
+      cutoff_at: "2026-11-18T17:00:00+10:00"
+    )
+    period = described_class.new(target_attributes, now: now).call.period
+    origin_batch = create(
+      :payroll_batch,
+      start_date: Date.new(2026, 10, 16),
+      end_date: Date.new(2026, 10, 31),
+      cutoff_at: guam.local(2026, 11, 3, 17),
+      finalized_at: guam.local(2026, 11, 3, 17)
+    )
+    create(
+      :payroll_settlement_case,
+      origin_payroll_batch: origin_batch,
+      destination_kind: "regular",
+      status: "scheduled",
+      target_payroll_calendar_period: period,
+      target_external_pay_period_id: period.external_pay_period_id
+    )
+    invalid_revision = target_attributes.merge(
+      schedule_version: 2,
+      publication_id: SecureRandom.uuid,
+      start_date: "2026-10-16",
+      end_date: "2026-10-31",
+      pay_date: "2026-11-10",
+      cutoff_at: "2026-11-03T17:00:00+10:00"
+    )
+
+    expect { described_class.new(invalid_revision, now: now).call }
+      .to raise_error(described_class::ConflictError, /assigned settlement case/)
+    expect(period.reload.start_date).to eq(Date.new(2026, 11, 1))
+  end
+
   it "rejects a reused publication ID with different content" do
     described_class.new(attributes, now: now).call
 

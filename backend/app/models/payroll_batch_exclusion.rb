@@ -11,6 +11,10 @@ class PayrollBatchExclusion < ApplicationRecord
   ].freeze
 
   belongs_to :payroll_batch
+  has_one :payroll_settlement_case,
+          foreign_key: :origin_payroll_batch_exclusion_id,
+          dependent: :restrict_with_error,
+          inverse_of: :origin_payroll_batch_exclusion
 
   validates :source_time_entry_id, :source_user_id, :reason, presence: true
   validates :source_user_uuid,
