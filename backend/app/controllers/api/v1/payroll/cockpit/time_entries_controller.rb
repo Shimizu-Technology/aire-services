@@ -81,7 +81,9 @@ module Api
           private
 
           def serialize_command_entry(entry, period)
-            entry = entry.reload
+            entry = TimeEntry
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .find(entry.id)
             lifecycle = ::Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
             snapshot = period && ::Payroll::CockpitPeriodSnapshot.new(period: period, entries: [ entry ]).call
             { time_entry: ::Payroll::CockpitTimeEntrySerializer.new(

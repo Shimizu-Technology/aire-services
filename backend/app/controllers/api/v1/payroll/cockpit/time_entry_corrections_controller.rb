@@ -38,7 +38,9 @@ module Api
           private
 
           def serialize(entry)
-            entry = entry.reload
+            entry = TimeEntry
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .find(entry.id)
             lifecycle = ::Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
             period = PayrollCalendarPeriod
               .where("start_date <= ? AND end_date >= ?", entry.work_date, entry.work_date)
