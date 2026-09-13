@@ -13,7 +13,7 @@ module Api
             entry = TimeEntry
               .joins(:user)
               .merge(User.staff)
-              .includes(:user, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
               .find(params[:time_entry_id])
             run_command(
               action: "time_entry.correction",

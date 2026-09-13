@@ -21,6 +21,7 @@ module Payroll
         break_minutes: entry.break_minutes.to_i,
         breaks: entry.time_entry_breaks.sort_by(&:start_time).map { |record| serialize_break(record) },
         category: serialize_category,
+        available_time_categories: serialize_available_time_categories,
         capture: {
           entry_method: entry.entry_method,
           clock_source: entry.clock_source,
@@ -77,6 +78,15 @@ module Payroll
       return unless entry.time_category
 
       { id: entry.time_category.id.to_s, key: entry.time_category.key, name: entry.time_category.name }
+    end
+
+    def serialize_available_time_categories
+      return [] unless entry.user
+
+      entry.user.assigned_time_categories
+        .select(&:is_active?)
+        .sort_by { |category| [ category.name.downcase, category.id ] }
+        .map { |category| { id: category.id.to_s, key: category.key, name: category.name } }
     end
 
     def serialize_actor(actor)
