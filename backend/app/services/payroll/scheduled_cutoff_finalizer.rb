@@ -31,7 +31,8 @@ module Payroll
 
     def finalize_transaction!
       PayrollCalendarPeriod.transaction do
-        period = PayrollCalendarPeriod.lock.find(period_id)
+        period = PayrollCalendarPeriod.lock("FOR UPDATE SKIP LOCKED").find_by(id: period_id)
+        return nil unless period
         return period.payroll_batch if period.status == "finalized"
         return nil unless due?(period)
 

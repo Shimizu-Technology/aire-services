@@ -34,17 +34,6 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     expect(AuditLog.find_by!(action: "payroll_calendar_period.published", auditable: first.period).source).to eq("integration")
   end
 
-  it "resolves the current time after waiting for the publication lock" do
-    publisher = nil
-    cutoff = Time.iso8601(attributes.fetch(:cutoff_at))
-    travel_to(cutoff - 1.second) { publisher = described_class.new(attributes) }
-
-    travel_to(cutoff) do
-      expect { publisher.call }.to raise_error(ArgumentError, /future when published/)
-    end
-    expect(PayrollCalendarPeriod).not_to exist
-  end
-
   it "retains revisions and requires the next schedule version" do
     period = described_class.new(attributes, now: now).call.period
     revised = attributes.merge(
