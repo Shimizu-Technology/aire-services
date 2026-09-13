@@ -17,6 +17,13 @@ class Rack::Attack
     end
   end
 
+  # The cockpit records failed authentication attempts. Bound request volume so
+  # a bad client cannot turn those security records into an unbounded write
+  # stream while leaving ample room for normal polling and operator actions.
+  throttle("payroll_cockpit/ip", limit: 300, period: 1.minute) do |req|
+    req.ip if req.path.start_with?("/api/v1/payroll/cockpit/")
+  end
+
   self.throttled_responder = lambda do |request|
     match_data = request.env["rack.attack.match_data"]
     now = match_data[:epoch_time]

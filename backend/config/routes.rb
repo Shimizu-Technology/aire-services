@@ -34,6 +34,21 @@ Rails.application.routes.draw do
             post :processing_events
           end
         end
+
+        namespace :cockpit do
+          resources :employees, only: [ :index ]
+          resources :exceptions, only: [ :index ]
+          resources :time_entries, only: [ :index ] do
+            member do
+              post :approval
+            end
+          end
+          resources :periods, only: [ :show ], param: :id do
+            member do
+              post :finalize
+            end
+          end
+        end
       end
 
       # Staff/admin routes

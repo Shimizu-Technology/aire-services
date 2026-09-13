@@ -118,6 +118,19 @@ $$;
 
 
 --
+-- Name: protect_payroll_integration_command(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_payroll_integration_command() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'payroll integration commands are append-only';
+END;
+$$;
+
+
+--
 -- Name: protect_payroll_outbox_payload(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -613,7 +626,7 @@ CREATE TABLE public.payroll_calendar_periods (
     CONSTRAINT check_payroll_calendar_period_date_order CHECK ((end_date >= start_date)),
     CONSTRAINT check_payroll_calendar_period_pay_date CHECK ((pay_date > end_date)),
     CONSTRAINT check_payroll_calendar_period_semimonthly CHECK ((((EXTRACT(day FROM start_date) = (1)::numeric) AND (EXTRACT(day FROM end_date) = (15)::numeric) AND (date_trunc('month'::text, (start_date)::timestamp without time zone) = date_trunc('month'::text, (end_date)::timestamp without time zone))) OR ((EXTRACT(day FROM start_date) = (16)::numeric) AND (end_date = ((date_trunc('month'::text, (start_date)::timestamp without time zone) + '1 mon -1 days'::interval))::date)))),
-    CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY ((ARRAY['scheduled'::character varying, 'failed'::character varying, 'finalized'::character varying])::text[]))),
+    CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY (ARRAY[('scheduled'::character varying)::text, ('failed'::character varying)::text, ('finalized'::character varying)::text]))),
     CONSTRAINT check_payroll_calendar_period_time_zone CHECK (((time_zone)::text = 'Pacific/Guam'::text)),
     CONSTRAINT check_payroll_calendar_period_version CHECK ((schedule_version > 0))
 );
@@ -681,6 +694,86 @@ ALTER SEQUENCE public.payroll_entry_processing_events_id_seq OWNED BY public.pay
 
 
 --
+-- Name: payroll_integration_commands; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_integration_commands (
+    id bigint NOT NULL,
+    command_id uuid NOT NULL,
+    action character varying NOT NULL,
+    actor_id bigint NOT NULL,
+    actor_payroll_integration_uuid uuid NOT NULL,
+    target_type character varying NOT NULL,
+    target_id bigint NOT NULL,
+    expected_version integer NOT NULL,
+    request_checksum character varying NOT NULL,
+    response_status integer NOT NULL,
+    result_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_commands_expected_version CHECK ((expected_version >= 0)),
+    CONSTRAINT check_payroll_commands_response_status CHECK (((response_status >= 200) AND (response_status <= 299))),
+    CONSTRAINT check_payroll_commands_result_metadata_object CHECK ((jsonb_typeof(result_metadata) = 'object'::text))
+);
+
+
+--
+-- Name: payroll_integration_commands_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_integration_commands_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_integration_commands_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_integration_commands_id_seq OWNED BY public.payroll_integration_commands.id;
+
+
+--
+-- Name: payroll_integration_grants; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_integration_grants (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    token_digest character varying NOT NULL,
+    token_hint character varying NOT NULL,
+    capabilities character varying[] DEFAULT '{}'::character varying[] NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    expires_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_integration_grant_capabilities CHECK ((capabilities <@ ARRAY['time_approval'::character varying, 'payroll_finalization'::character varying]))
+);
+
+
+--
+-- Name: payroll_integration_grants_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_integration_grants_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_integration_grants_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_integration_grants_id_seq OWNED BY public.payroll_integration_grants.id;
+
+
+--
 -- Name: payroll_outbox_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -703,7 +796,7 @@ CREATE TABLE public.payroll_outbox_events (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     CONSTRAINT check_payroll_outbox_delivery_attempts CHECK ((delivery_attempts >= 0)),
-    CONSTRAINT check_payroll_outbox_delivery_status CHECK (((delivery_status)::text = ANY ((ARRAY['pending'::character varying, 'failed'::character varying, 'delivered'::character varying])::text[])))
+    CONSTRAINT check_payroll_outbox_delivery_status CHECK (((delivery_status)::text = ANY (ARRAY[('pending'::character varying)::text, ('failed'::character varying)::text, ('delivered'::character varying)::text])))
 );
 
 
@@ -997,7 +1090,8 @@ CREATE TABLE public.time_entries (
     updated_at timestamp(6) without time zone NOT NULL,
     user_id bigint,
     work_date date NOT NULL,
-    effective_rate_cents_snapshot integer
+    effective_rate_cents_snapshot integer,
+    lock_version integer DEFAULT 0 NOT NULL
 );
 
 
@@ -1272,6 +1366,20 @@ ALTER TABLE ONLY public.payroll_entry_processing_events ALTER COLUMN id SET DEFA
 
 
 --
+-- Name: payroll_integration_commands id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_integration_commands ALTER COLUMN id SET DEFAULT nextval('public.payroll_integration_commands_id_seq'::regclass);
+
+
+--
+-- Name: payroll_integration_grants id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_integration_grants ALTER COLUMN id SET DEFAULT nextval('public.payroll_integration_grants_id_seq'::regclass);
+
+
+--
 -- Name: payroll_outbox_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1476,6 +1584,22 @@ ALTER TABLE ONLY public.payroll_entry_processing_events
 
 
 --
+-- Name: payroll_integration_commands payroll_integration_commands_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_integration_commands
+    ADD CONSTRAINT payroll_integration_commands_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_integration_grants payroll_integration_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_integration_grants
+    ADD CONSTRAINT payroll_integration_grants_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: payroll_outbox_events payroll_outbox_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1633,6 +1757,13 @@ CREATE UNIQUE INDEX idx_payroll_calendar_revisions_period_version ON public.payr
 --
 
 CREATE UNIQUE INDEX idx_payroll_calendar_revisions_publication ON public.payroll_calendar_period_revisions USING btree (publication_id);
+
+
+--
+-- Name: idx_payroll_commands_target; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_commands_target ON public.payroll_integration_commands USING btree (target_type, target_id);
 
 
 --
@@ -1997,6 +2128,34 @@ CREATE UNIQUE INDEX index_payroll_entry_processing_events_on_event_id ON public.
 --
 
 CREATE INDEX index_payroll_entry_processing_events_on_payroll_batch_id ON public.payroll_entry_processing_events USING btree (payroll_batch_id);
+
+
+--
+-- Name: index_payroll_integration_commands_on_actor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_integration_commands_on_actor_id ON public.payroll_integration_commands USING btree (actor_id);
+
+
+--
+-- Name: index_payroll_integration_commands_on_command_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_integration_commands_on_command_id ON public.payroll_integration_commands USING btree (command_id);
+
+
+--
+-- Name: index_payroll_integration_grants_on_token_digest; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_integration_grants_on_token_digest ON public.payroll_integration_grants USING btree (token_digest);
+
+
+--
+-- Name: index_payroll_integration_grants_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_integration_grants_on_user_id ON public.payroll_integration_grants USING btree (user_id);
 
 
 --
@@ -2427,6 +2586,20 @@ CREATE TRIGGER payroll_entry_processing_events_append_only BEFORE DELETE OR UPDA
 
 
 --
+-- Name: payroll_integration_commands payroll_integration_commands_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_integration_commands_append_only BEFORE DELETE OR UPDATE ON public.payroll_integration_commands FOR EACH ROW EXECUTE FUNCTION public.protect_payroll_integration_command();
+
+
+--
+-- Name: payroll_integration_commands payroll_integration_commands_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_integration_commands_prevent_truncate BEFORE TRUNCATE ON public.payroll_integration_commands FOR EACH STATEMENT EXECUTE FUNCTION public.protect_payroll_integration_command();
+
+
+--
 -- Name: payroll_outbox_events payroll_outbox_events_payload_immutable; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2554,6 +2727,14 @@ ALTER TABLE ONLY public.payroll_batches
 
 
 --
+-- Name: payroll_integration_grants fk_rails_6cad167610; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_integration_grants
+    ADD CONSTRAINT fk_rails_6cad167610 FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: payroll_calendar_periods fk_rails_76b188599e; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2672,6 +2853,7 @@ ALTER TABLE ONLY public.schedules
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260913020000'),
 ('20260913010000'),
 ('20260904011000'),
 ('20260904010000'),

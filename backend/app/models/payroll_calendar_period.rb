@@ -48,6 +48,7 @@ class PayrollCalendarPeriod < ApplicationRecord
       cutoff_at: cutoff_at.in_time_zone(time_zone).iso8601,
       time_zone: time_zone,
       cutoff_days_before: cutoff_days_before,
+      version: lock_version,
       schedule_version: schedule_version,
       publication_id: publication_id,
       status: status,

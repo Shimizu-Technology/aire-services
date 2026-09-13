@@ -20,6 +20,7 @@ class User < ApplicationRecord
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
   has_many :generated_report_exports, class_name: "ReportExport", foreign_key: "generated_by_id", dependent: :nullify
   has_many :employee_pay_rates, dependent: :destroy
+  has_many :payroll_integration_grants, dependent: :destroy
   has_many :user_time_categories, dependent: :destroy
   has_many :assigned_time_categories, through: :user_time_categories, source: :time_category
   has_many :user_approval_groups, dependent: :destroy
