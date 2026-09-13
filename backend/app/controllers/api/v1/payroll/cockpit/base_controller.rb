@@ -35,6 +35,18 @@ module Api
             PayrollCalendarPeriod.find_by!(external_pay_period_id: params[:external_pay_period_id].presence || params[:id])
           end
 
+          def payroll_period_entry_scope(period)
+            staff_entries = TimeEntry.joins(:user).merge(User.staff)
+            nominal = staff_entries.where(work_date: period.start_date..period.end_date)
+            return nominal unless period.payroll_batch_id
+
+            represented_ids = PayrollBatchEntry.where(payroll_batch_id: period.payroll_batch_id).pluck(:source_time_entry_id)
+            represented_ids.concat(
+              PayrollBatchExclusion.where(payroll_batch_id: period.payroll_batch_id).pluck(:source_time_entry_id)
+            )
+            nominal.or(staff_entries.where(id: represented_ids))
+          end
+
           def command_params
             params.permit(:command_id, :expected_version, :reason, :decision)
           end
@@ -53,7 +65,7 @@ module Api
             )
           end
 
-          def run_command(action:, target:, payload:, replay:, status: :ok)
+          def run_command(action:, target:, payload:, replay:, response: nil, status: :ok)
             command = command_params
             reason = command[:reason].to_s.strip
 
@@ -71,7 +83,13 @@ module Api
               [ body, status, result_metadata ]
             end
 
-            response_body = result.replayed ? replay.call(target.reload, result.receipt.result_metadata) : result.body
+            response_body = if result.replayed
+              replay.call(target.reload, result.receipt.result_metadata)
+            elsif response
+              response.call(target.reload, result.body)
+            else
+              result.body
+            end
             render json: response_body.merge(
               command: { id: command[:command_id], replayed: result.replayed }
             ), status: result.status

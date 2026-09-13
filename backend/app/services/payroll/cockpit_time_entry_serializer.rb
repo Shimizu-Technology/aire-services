@@ -2,9 +2,10 @@
 
 module Payroll
   class CockpitTimeEntrySerializer
-    def initialize(entry, lifecycle: nil)
+    def initialize(entry, lifecycle: nil, payroll_state: nil)
       @entry = entry
       @lifecycle = lifecycle
+      @payroll_state = payroll_state
     end
 
     def as_json
@@ -31,7 +32,10 @@ module Payroll
           missing_punch: entry.status.in?(%w[clocked_in on_break]) || entry.end_time.blank?,
           approval_status: entry.approval_status || (entry.clock_entry? ? "not_required" : "pending"),
           overtime_status: entry.overtime_status || "none",
-          payable_now: entry.counts_toward_hours?
+          payable_now: payroll_state ? payroll_state.fetch(:payable_now) : entry.counts_toward_hours?,
+          payroll_disposition: payroll_state&.fetch(:payroll_disposition, nil),
+          payroll_exclusion_reasons: payroll_state&.fetch(:payroll_exclusion_reasons, []) || [],
+          included_hours: payroll_state&.fetch(:included_hours, 0) || 0
         },
         approval: {
           actor: serialize_actor(entry.approved_by),
@@ -57,7 +61,7 @@ module Payroll
 
     private
 
-    attr_reader :entry, :lifecycle
+    attr_reader :entry, :lifecycle, :payroll_state
 
     def serialize_break(record)
       {

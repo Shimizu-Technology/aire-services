@@ -159,8 +159,203 @@ RSpec.describe "Payroll cockpit API", type: :request do
       total_entries: 1,
       eligible_entries: 1,
       eligible_hours: 8.0,
+      held_entries: 0,
+      held_hours: 0.0,
       pending_approvals: 0
     )
+  end
+
+  it "reports eligibility at the immutable cutoff instead of the entry's current state" do
+    cutoff = period.cutoff_at
+    ordinary = create_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      hours: 8,
+      created_at: cutoff + 1.minute,
+      updated_at: cutoff + 1.minute
+    )
+    manual = create_entry(
+      hours: 7.5,
+      approval_status: "approved",
+      approved_at: cutoff + 2.minutes,
+      approved_by: admin,
+      created_at: cutoff - 1.day,
+      updated_at: cutoff + 2.minutes
+    )
+
+    get "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:readiness)).to include(
+      total_hours: 16.0,
+      eligible_entries: 0,
+      eligible_hours: 0.0,
+      held_entries: 2,
+      held_hours: 16.0,
+      pending_approvals: 0
+    )
+
+    get "/api/v1/payroll/cockpit/time_entries",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    states = json.fetch(:time_entries).index_by { |entry| entry.fetch(:id) }
+    expect(states.dig(ordinary.id.to_s, :state)).to include(
+      payable_now: false,
+      payroll_disposition: "created_after_cutoff",
+      payroll_exclusion_reasons: [ "created_after_cutoff" ]
+    )
+    expect(states.dig(manual.id.to_s, :state)).to include(
+      payable_now: false,
+      payroll_disposition: "approved_after_cutoff",
+      payroll_exclusion_reasons: [ "approved_after_cutoff" ]
+    )
+
+    get "/api/v1/payroll/cockpit/exceptions",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(json.fetch(:time_exceptions).pluck(:id)).to contain_exactly(ordinary.id.to_s, manual.id.to_s)
+  end
+
+  it "keeps finalized cockpit totals tied to the persisted batch after later approval" do
+    cutoff = period.cutoff_at
+    entry = create_entry(
+      hours: 8,
+      created_at: cutoff - 1.day,
+      updated_at: cutoff - 1.day
+    )
+
+    travel_to(cutoff + 1.minute) do
+      result = Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call
+      expect(result.fetch(:status)).to eq("finalized")
+      TimeClockService.approve_entry(entry: entry, approved_by: admin, note: "Approved after cutoff")
+    end
+
+    get "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:readiness)).to include(
+      eligible_entries: 0,
+      eligible_hours: 0.0,
+      held_entries: 1,
+      held_hours: 8.0,
+      pending_approvals: 0
+    )
+
+    get "/api/v1/payroll/cockpit/time_entries",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(json.dig(:time_entries, 0, :state)).to include(
+      payable_now: false,
+      payroll_disposition: "pending_approval"
+    )
+  end
+
+  it "does not rewrite a finalized category exception from the live entry" do
+    cutoff = period.cutoff_at
+    entry = create_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      created_at: cutoff - 1.day,
+      updated_at: cutoff - 1.day
+    )
+    entry.update_columns(time_category_id: nil, updated_at: cutoff - 1.day)
+
+    travel_to(cutoff + 1.minute) do
+      result = Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call
+      expect(result.fetch(:status)).to eq("finalized")
+    end
+    entry.update!(time_category: category)
+
+    get "/api/v1/payroll/cockpit/time_entries",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:time_entries, 0, :state)).to include(
+      payable_now: true,
+      payroll_disposition: "missing_category"
+    )
+  end
+
+  it "shows time submitted after finalization as held for the next payroll" do
+    cutoff = period.cutoff_at
+    travel_to(cutoff + 1.minute) do
+      result = Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call
+      expect(result.fetch(:status)).to eq("finalized")
+    end
+
+    late_entry = travel_to(cutoff + 2.minutes) do
+      create_entry(entry_method: "clock", approval_status: nil)
+    end
+
+    get "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:readiness)).to include(held_entries: 1, held_hours: 8.0)
+
+    get "/api/v1/payroll/cockpit/exceptions",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(json.fetch(:time_exceptions).pluck(:id)).to eq([ late_entry.id.to_s ])
+    expect(json.dig(:time_exceptions, 0, :state)).to include(
+      payable_now: false,
+      payroll_disposition: "created_after_cutoff"
+    )
+  end
+
+  it "holds an older entry moved into a finalized period" do
+    cutoff = period.cutoff_at
+    entry = create_entry(
+      work_date: period.start_date - 1.day,
+      entry_method: "clock",
+      approval_status: nil,
+      created_at: cutoff - 1.day,
+      updated_at: cutoff - 1.day
+    )
+    travel_to(cutoff + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call.fetch(:status))
+        .to eq("finalized")
+      entry.update!(work_date: period.start_date)
+    end
+
+    get "/api/v1/payroll/cockpit/exceptions",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_exceptions).pluck(:id)).to eq([ entry.id.to_s ])
+    expect(json.dig(:time_exceptions, 0, :state)).to include(
+      payable_now: false,
+      payroll_disposition: "changed_after_cutoff"
+    )
+  end
+
+  it "retains an included entry moved outside its finalized period" do
+    cutoff = period.cutoff_at
+    entry = create_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      created_at: cutoff - 1.day,
+      updated_at: cutoff - 1.day
+    )
+    travel_to(cutoff + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call.fetch(:status))
+        .to eq("finalized")
+      entry.update!(work_date: period.start_date - 1.day)
+    end
+
+    get "/api/v1/payroll/cockpit/time_entries",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_entries).pluck(:id)).to eq([ entry.id.to_s ])
+    expect(json.dig(:time_entries, 0, :state)).to include(
+      payable_now: true,
+      payroll_disposition: "changed_after_cutoff",
+      payroll_exclusion_reasons: [ "changed_after_cutoff" ]
+    )
+
+    get "/api/v1/payroll/cockpit/exceptions",
+        params: { external_pay_period_id: period.external_pay_period_id }, headers: headers
+    expect(json.fetch(:time_exceptions).pluck(:id)).to eq([ entry.id.to_s ])
   end
 
   it "requires an active AIRE administrator for commands" do
@@ -226,6 +421,11 @@ RSpec.describe "Payroll cockpit API", type: :request do
 
   it "approves once, replays safely, and rejects a reused command with different input" do
     entry = create_entry
+    baseline_transactions = ActiveRecord::Base.connection.open_transactions
+    expect(Payroll::BatchBuilder).to receive(:new).and_wrap_original do |original, *arguments, **keywords|
+      expect(ActiveRecord::Base.connection.open_transactions).to eq(baseline_transactions)
+      original.call(*arguments, **keywords)
+    end
     command_id = SecureRandom.uuid
     payload = {
       command_id: command_id,
