@@ -626,7 +626,7 @@ CREATE TABLE public.payroll_calendar_periods (
     CONSTRAINT check_payroll_calendar_period_date_order CHECK ((end_date >= start_date)),
     CONSTRAINT check_payroll_calendar_period_pay_date CHECK ((pay_date > end_date)),
     CONSTRAINT check_payroll_calendar_period_semimonthly CHECK ((((EXTRACT(day FROM start_date) = (1)::numeric) AND (EXTRACT(day FROM end_date) = (15)::numeric) AND (date_trunc('month'::text, (start_date)::timestamp without time zone) = date_trunc('month'::text, (end_date)::timestamp without time zone))) OR ((EXTRACT(day FROM start_date) = (16)::numeric) AND (end_date = ((date_trunc('month'::text, (start_date)::timestamp without time zone) + '1 mon -1 days'::interval))::date)))),
-    CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY ((ARRAY['scheduled'::character varying, 'failed'::character varying, 'finalized'::character varying])::text[]))),
+    CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY (ARRAY[('scheduled'::character varying)::text, ('failed'::character varying)::text, ('finalized'::character varying)::text]))),
     CONSTRAINT check_payroll_calendar_period_time_zone CHECK (((time_zone)::text = 'Pacific/Guam'::text)),
     CONSTRAINT check_payroll_calendar_period_version CHECK ((schedule_version > 0))
 );
@@ -796,7 +796,7 @@ CREATE TABLE public.payroll_outbox_events (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     CONSTRAINT check_payroll_outbox_delivery_attempts CHECK ((delivery_attempts >= 0)),
-    CONSTRAINT check_payroll_outbox_delivery_status CHECK (((delivery_status)::text = ANY ((ARRAY['pending'::character varying, 'failed'::character varying, 'delivered'::character varying])::text[])))
+    CONSTRAINT check_payroll_outbox_delivery_status CHECK (((delivery_status)::text = ANY (ARRAY[('pending'::character varying)::text, ('failed'::character varying)::text, ('delivered'::character varying)::text])))
 );
 
 
@@ -836,10 +836,10 @@ CREATE TABLE public.payroll_settlement_case_events (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    CONSTRAINT check_payroll_settlement_case_events_from_status CHECK (((from_status IS NULL) OR ((from_status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying, 'settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[])))),
+    CONSTRAINT check_payroll_settlement_case_events_from_status CHECK (((from_status IS NULL) OR ((from_status)::text = ANY (ARRAY[('open'::character varying)::text, ('scheduled'::character varying)::text, ('in_payroll'::character varying)::text, ('settled'::character varying)::text, ('not_payable'::character varying)::text, ('superseded'::character varying)::text])))),
     CONSTRAINT check_payroll_settlement_case_events_metadata CHECK ((jsonb_typeof(metadata) = 'object'::text)),
-    CONSTRAINT check_payroll_settlement_case_events_to_status CHECK (((to_status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying, 'settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[]))),
-    CONSTRAINT check_payroll_settlement_case_events_type CHECK (((event_type)::text = ANY ((ARRAY['opened'::character varying, 'routed'::character varying, 'rerouted'::character varying, 'corrected'::character varying, 'approval_changed'::character varying, 'included'::character varying, 'imported'::character varying, 'committed'::character varying, 'payment_prepared'::character varying, 'payment_issued'::character varying, 'payment_failed'::character varying, 'payment_voided'::character varying, 'payment_returned'::character varying, 'settled'::character varying, 'marked_not_payable'::character varying, 'superseded'::character varying])::text[])))
+    CONSTRAINT check_payroll_settlement_case_events_to_status CHECK (((to_status)::text = ANY (ARRAY[('open'::character varying)::text, ('scheduled'::character varying)::text, ('in_payroll'::character varying)::text, ('settled'::character varying)::text, ('not_payable'::character varying)::text, ('superseded'::character varying)::text]))),
+    CONSTRAINT check_payroll_settlement_case_events_type CHECK (((event_type)::text = ANY (ARRAY[('opened'::character varying)::text, ('routed'::character varying)::text, ('rerouted'::character varying)::text, ('corrected'::character varying)::text, ('approval_changed'::character varying)::text, ('included'::character varying)::text, ('imported'::character varying)::text, ('committed'::character varying)::text, ('payment_prepared'::character varying)::text, ('payment_issued'::character varying)::text, ('payment_failed'::character varying)::text, ('payment_voided'::character varying)::text, ('payment_returned'::character varying)::text, ('settled'::character varying)::text, ('marked_not_payable'::character varying)::text, ('superseded'::character varying)::text])))
 );
 
 
@@ -893,14 +893,14 @@ CREATE TABLE public.payroll_settlement_cases (
     source_snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    CONSTRAINT check_payroll_settlement_cases_destination CHECK (((destination_kind)::text = ANY ((ARRAY['unassigned'::character varying, 'regular'::character varying, 'supplemental'::character varying, 'not_payable'::character varying])::text[]))),
+    CONSTRAINT check_payroll_settlement_cases_destination CHECK (((destination_kind)::text = ANY (ARRAY[('unassigned'::character varying)::text, ('regular'::character varying)::text, ('supplemental'::character varying)::text, ('not_payable'::character varying)::text]))),
     CONSTRAINT check_payroll_settlement_cases_hours CHECK ((held_total_hours >= (0)::numeric)),
-    CONSTRAINT check_payroll_settlement_cases_included_shape CHECK ((((status)::text <> ALL ((ARRAY['in_payroll'::character varying, 'settled'::character varying])::text[])) OR ((destination_kind)::text = 'supplemental'::text) OR (included_payroll_batch_id IS NOT NULL))),
+    CONSTRAINT check_payroll_settlement_cases_included_shape CHECK ((((status)::text <> ALL (ARRAY[('in_payroll'::character varying)::text, ('settled'::character varying)::text])) OR ((destination_kind)::text = 'supplemental'::text) OR (included_payroll_batch_id IS NOT NULL))),
     CONSTRAINT check_payroll_settlement_cases_owner_role CHECK (((owner_role)::text = 'aire_admins'::text)),
-    CONSTRAINT check_payroll_settlement_cases_resolution_shape CHECK ((((status)::text = ANY ((ARRAY['settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[])) = (resolved_at IS NOT NULL))),
-    CONSTRAINT check_payroll_settlement_cases_routing_shape CHECK (((((destination_kind)::text = 'regular'::text) AND (target_payroll_calendar_period_id IS NOT NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'supplemental'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'unassigned'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = ANY ((ARRAY['open'::character varying, 'superseded'::character varying])::text[]))) OR (((destination_kind)::text = 'not_payable'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = 'not_payable'::text)))),
+    CONSTRAINT check_payroll_settlement_cases_resolution_shape CHECK ((((status)::text = ANY (ARRAY[('settled'::character varying)::text, ('not_payable'::character varying)::text, ('superseded'::character varying)::text])) = (resolved_at IS NOT NULL))),
+    CONSTRAINT check_payroll_settlement_cases_routing_shape CHECK (((((destination_kind)::text = 'regular'::text) AND (target_payroll_calendar_period_id IS NOT NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'supplemental'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'unassigned'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = ANY (ARRAY[('open'::character varying)::text, ('superseded'::character varying)::text]))) OR (((destination_kind)::text = 'not_payable'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = 'not_payable'::text)))),
     CONSTRAINT check_payroll_settlement_cases_snapshot CHECK ((jsonb_typeof(source_snapshot) = 'object'::text)),
-    CONSTRAINT check_payroll_settlement_cases_status CHECK (((status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying, 'settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[])))
+    CONSTRAINT check_payroll_settlement_cases_status CHECK (((status)::text = ANY (ARRAY[('open'::character varying)::text, ('scheduled'::character varying)::text, ('in_payroll'::character varying)::text, ('settled'::character varying)::text, ('not_payable'::character varying)::text, ('superseded'::character varying)::text])))
 );
 
 
@@ -1160,6 +1160,375 @@ ALTER SEQUENCE public.site_media_id_seq OWNED BY public.site_media.id;
 
 
 --
+-- Name: solid_queue_blocked_executions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_blocked_executions (
+    id bigint NOT NULL,
+    job_id bigint NOT NULL,
+    queue_name character varying NOT NULL,
+    priority integer DEFAULT 0 NOT NULL,
+    concurrency_key character varying NOT NULL,
+    expires_at timestamp(6) without time zone NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_blocked_executions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_blocked_executions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_blocked_executions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_blocked_executions_id_seq OWNED BY public.solid_queue_blocked_executions.id;
+
+
+--
+-- Name: solid_queue_claimed_executions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_claimed_executions (
+    id bigint NOT NULL,
+    job_id bigint NOT NULL,
+    process_id bigint,
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_claimed_executions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_claimed_executions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_claimed_executions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_claimed_executions_id_seq OWNED BY public.solid_queue_claimed_executions.id;
+
+
+--
+-- Name: solid_queue_failed_executions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_failed_executions (
+    id bigint NOT NULL,
+    job_id bigint NOT NULL,
+    error text,
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_failed_executions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_failed_executions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_failed_executions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_failed_executions_id_seq OWNED BY public.solid_queue_failed_executions.id;
+
+
+--
+-- Name: solid_queue_jobs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_jobs (
+    id bigint NOT NULL,
+    queue_name character varying NOT NULL,
+    class_name character varying NOT NULL,
+    arguments text,
+    priority integer DEFAULT 0 NOT NULL,
+    active_job_id character varying,
+    scheduled_at timestamp(6) without time zone,
+    finished_at timestamp(6) without time zone,
+    concurrency_key character varying,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_jobs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_jobs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_jobs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_jobs_id_seq OWNED BY public.solid_queue_jobs.id;
+
+
+--
+-- Name: solid_queue_pauses; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_pauses (
+    id bigint NOT NULL,
+    queue_name character varying NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_pauses_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_pauses_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_pauses_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_pauses_id_seq OWNED BY public.solid_queue_pauses.id;
+
+
+--
+-- Name: solid_queue_processes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_processes (
+    id bigint NOT NULL,
+    kind character varying NOT NULL,
+    last_heartbeat_at timestamp(6) without time zone NOT NULL,
+    supervisor_id bigint,
+    pid integer NOT NULL,
+    hostname character varying,
+    metadata text,
+    created_at timestamp(6) without time zone NOT NULL,
+    name character varying NOT NULL
+);
+
+
+--
+-- Name: solid_queue_processes_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_processes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_processes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_processes_id_seq OWNED BY public.solid_queue_processes.id;
+
+
+--
+-- Name: solid_queue_ready_executions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_ready_executions (
+    id bigint NOT NULL,
+    job_id bigint NOT NULL,
+    queue_name character varying NOT NULL,
+    priority integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_ready_executions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_ready_executions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_ready_executions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_ready_executions_id_seq OWNED BY public.solid_queue_ready_executions.id;
+
+
+--
+-- Name: solid_queue_recurring_executions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_recurring_executions (
+    id bigint NOT NULL,
+    job_id bigint NOT NULL,
+    task_key character varying NOT NULL,
+    run_at timestamp(6) without time zone NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_recurring_executions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_recurring_executions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_recurring_executions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_recurring_executions_id_seq OWNED BY public.solid_queue_recurring_executions.id;
+
+
+--
+-- Name: solid_queue_recurring_tasks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_recurring_tasks (
+    id bigint NOT NULL,
+    key character varying NOT NULL,
+    schedule character varying NOT NULL,
+    command character varying(2048),
+    class_name character varying,
+    arguments text,
+    queue_name character varying,
+    priority integer DEFAULT 0,
+    static boolean DEFAULT true NOT NULL,
+    description text,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_recurring_tasks_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_recurring_tasks_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_recurring_tasks_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_recurring_tasks_id_seq OWNED BY public.solid_queue_recurring_tasks.id;
+
+
+--
+-- Name: solid_queue_scheduled_executions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_scheduled_executions (
+    id bigint NOT NULL,
+    job_id bigint NOT NULL,
+    queue_name character varying NOT NULL,
+    priority integer DEFAULT 0 NOT NULL,
+    scheduled_at timestamp(6) without time zone NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_scheduled_executions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_scheduled_executions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_scheduled_executions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_scheduled_executions_id_seq OWNED BY public.solid_queue_scheduled_executions.id;
+
+
+--
+-- Name: solid_queue_semaphores; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solid_queue_semaphores (
+    id bigint NOT NULL,
+    key character varying NOT NULL,
+    value integer DEFAULT 1 NOT NULL,
+    expires_at timestamp(6) without time zone NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: solid_queue_semaphores_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.solid_queue_semaphores_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: solid_queue_semaphores_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.solid_queue_semaphores_id_seq OWNED BY public.solid_queue_semaphores.id;
+
+
+--
 -- Name: time_categories; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1386,8 +1755,8 @@ CREATE TABLE public.users (
     CONSTRAINT check_public_team_photo_position_x_range CHECK (((public_team_photo_position_x >= 0) AND (public_team_photo_position_x <= 100))),
     CONSTRAINT check_public_team_photo_position_y_range CHECK (((public_team_photo_position_y >= 0) AND (public_team_photo_position_y <= 100))),
     CONSTRAINT check_users_kiosk_matches_time_tracking CHECK ((kiosk_enabled = time_tracking_enabled)),
-    CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY ((ARRAY['clerk'::character varying, 'local'::character varying])::text[]))),
-    CONSTRAINT check_valid_role CHECK (((role)::text = ANY ((ARRAY['admin'::character varying, 'employee'::character varying])::text[])))
+    CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY (ARRAY[('clerk'::character varying)::text, ('local'::character varying)::text]))),
+    CONSTRAINT check_valid_role CHECK (((role)::text = ANY (ARRAY[('admin'::character varying)::text, ('employee'::character varying)::text])))
 );
 
 
@@ -1576,6 +1945,83 @@ ALTER TABLE ONLY public.settings ALTER COLUMN id SET DEFAULT nextval('public.set
 --
 
 ALTER TABLE ONLY public.site_media ALTER COLUMN id SET DEFAULT nextval('public.site_media_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_blocked_executions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_blocked_executions ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_blocked_executions_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_claimed_executions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_claimed_executions ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_claimed_executions_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_failed_executions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_failed_executions ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_failed_executions_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_jobs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_jobs ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_jobs_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_pauses id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_pauses ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_pauses_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_processes id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_processes ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_processes_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_ready_executions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_ready_executions ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_ready_executions_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_recurring_executions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_recurring_executions ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_recurring_executions_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_recurring_tasks id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_recurring_tasks ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_recurring_tasks_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_scheduled_executions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_scheduled_executions ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_scheduled_executions_id_seq'::regclass);
+
+
+--
+-- Name: solid_queue_semaphores id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_semaphores ALTER COLUMN id SET DEFAULT nextval('public.solid_queue_semaphores_id_seq'::regclass);
 
 
 --
@@ -1837,6 +2283,94 @@ ALTER TABLE ONLY public.site_media
 
 
 --
+-- Name: solid_queue_blocked_executions solid_queue_blocked_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_blocked_executions
+    ADD CONSTRAINT solid_queue_blocked_executions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_claimed_executions solid_queue_claimed_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_claimed_executions
+    ADD CONSTRAINT solid_queue_claimed_executions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_failed_executions solid_queue_failed_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_failed_executions
+    ADD CONSTRAINT solid_queue_failed_executions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_jobs solid_queue_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_jobs
+    ADD CONSTRAINT solid_queue_jobs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_pauses solid_queue_pauses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_pauses
+    ADD CONSTRAINT solid_queue_pauses_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_processes solid_queue_processes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_processes
+    ADD CONSTRAINT solid_queue_processes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_ready_executions solid_queue_ready_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_ready_executions
+    ADD CONSTRAINT solid_queue_ready_executions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_recurring_executions solid_queue_recurring_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_recurring_executions
+    ADD CONSTRAINT solid_queue_recurring_executions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_recurring_tasks solid_queue_recurring_tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_recurring_tasks
+    ADD CONSTRAINT solid_queue_recurring_tasks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_scheduled_executions solid_queue_scheduled_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_scheduled_executions
+    ADD CONSTRAINT solid_queue_scheduled_executions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solid_queue_semaphores solid_queue_semaphores_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_semaphores
+    ADD CONSTRAINT solid_queue_semaphores_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: time_categories time_categories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1993,7 +2527,7 @@ CREATE INDEX idx_payroll_settlement_case_events_timeline ON public.payroll_settl
 -- Name: idx_payroll_settlement_cases_active_origin_entry; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_payroll_settlement_cases_active_origin_entry ON public.payroll_settlement_cases USING btree (origin_payroll_batch_id, source_time_entry_id) WHERE ((status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying])::text[]));
+CREATE UNIQUE INDEX idx_payroll_settlement_cases_active_origin_entry ON public.payroll_settlement_cases USING btree (origin_payroll_batch_id, source_time_entry_id) WHERE ((status)::text = ANY (ARRAY[('open'::character varying)::text, ('scheduled'::character varying)::text, ('in_payroll'::character varying)::text]));
 
 
 --
@@ -2578,6 +3112,195 @@ CREATE INDEX index_site_media_on_uploaded_by_id ON public.site_media USING btree
 
 
 --
+-- Name: index_solid_queue_blocked_executions_for_maintenance; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_blocked_executions_for_maintenance ON public.solid_queue_blocked_executions USING btree (expires_at, concurrency_key);
+
+
+--
+-- Name: index_solid_queue_blocked_executions_for_release; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_blocked_executions_for_release ON public.solid_queue_blocked_executions USING btree (concurrency_key, priority, job_id);
+
+
+--
+-- Name: index_solid_queue_blocked_executions_on_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_blocked_executions_on_job_id ON public.solid_queue_blocked_executions USING btree (job_id);
+
+
+--
+-- Name: index_solid_queue_claimed_executions_on_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_claimed_executions_on_job_id ON public.solid_queue_claimed_executions USING btree (job_id);
+
+
+--
+-- Name: index_solid_queue_claimed_executions_on_process_id_and_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_claimed_executions_on_process_id_and_job_id ON public.solid_queue_claimed_executions USING btree (process_id, job_id);
+
+
+--
+-- Name: index_solid_queue_dispatch_all; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_dispatch_all ON public.solid_queue_scheduled_executions USING btree (scheduled_at, priority, job_id);
+
+
+--
+-- Name: index_solid_queue_failed_executions_on_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_failed_executions_on_job_id ON public.solid_queue_failed_executions USING btree (job_id);
+
+
+--
+-- Name: index_solid_queue_jobs_for_alerting; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_jobs_for_alerting ON public.solid_queue_jobs USING btree (scheduled_at, finished_at);
+
+
+--
+-- Name: index_solid_queue_jobs_for_filtering; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_jobs_for_filtering ON public.solid_queue_jobs USING btree (queue_name, finished_at);
+
+
+--
+-- Name: index_solid_queue_jobs_on_active_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_jobs_on_active_job_id ON public.solid_queue_jobs USING btree (active_job_id);
+
+
+--
+-- Name: index_solid_queue_jobs_on_class_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_jobs_on_class_name ON public.solid_queue_jobs USING btree (class_name);
+
+
+--
+-- Name: index_solid_queue_jobs_on_finished_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_jobs_on_finished_at ON public.solid_queue_jobs USING btree (finished_at);
+
+
+--
+-- Name: index_solid_queue_pauses_on_queue_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_pauses_on_queue_name ON public.solid_queue_pauses USING btree (queue_name);
+
+
+--
+-- Name: index_solid_queue_poll_all; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_poll_all ON public.solid_queue_ready_executions USING btree (priority, job_id);
+
+
+--
+-- Name: index_solid_queue_poll_by_queue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_poll_by_queue ON public.solid_queue_ready_executions USING btree (queue_name, priority, job_id);
+
+
+--
+-- Name: index_solid_queue_processes_on_last_heartbeat_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_processes_on_last_heartbeat_at ON public.solid_queue_processes USING btree (last_heartbeat_at);
+
+
+--
+-- Name: index_solid_queue_processes_on_name_and_supervisor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_processes_on_name_and_supervisor_id ON public.solid_queue_processes USING btree (name, supervisor_id);
+
+
+--
+-- Name: index_solid_queue_processes_on_supervisor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_processes_on_supervisor_id ON public.solid_queue_processes USING btree (supervisor_id);
+
+
+--
+-- Name: index_solid_queue_ready_executions_on_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_ready_executions_on_job_id ON public.solid_queue_ready_executions USING btree (job_id);
+
+
+--
+-- Name: index_solid_queue_recurring_executions_on_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_recurring_executions_on_job_id ON public.solid_queue_recurring_executions USING btree (job_id);
+
+
+--
+-- Name: index_solid_queue_recurring_executions_on_task_key_and_run_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_recurring_executions_on_task_key_and_run_at ON public.solid_queue_recurring_executions USING btree (task_key, run_at);
+
+
+--
+-- Name: index_solid_queue_recurring_tasks_on_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_recurring_tasks_on_key ON public.solid_queue_recurring_tasks USING btree (key);
+
+
+--
+-- Name: index_solid_queue_recurring_tasks_on_static; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_recurring_tasks_on_static ON public.solid_queue_recurring_tasks USING btree (static);
+
+
+--
+-- Name: index_solid_queue_scheduled_executions_on_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_scheduled_executions_on_job_id ON public.solid_queue_scheduled_executions USING btree (job_id);
+
+
+--
+-- Name: index_solid_queue_semaphores_on_expires_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_semaphores_on_expires_at ON public.solid_queue_semaphores USING btree (expires_at);
+
+
+--
+-- Name: index_solid_queue_semaphores_on_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_solid_queue_semaphores_on_key ON public.solid_queue_semaphores USING btree (key);
+
+
+--
+-- Name: index_solid_queue_semaphores_on_key_and_value; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_solid_queue_semaphores_on_key_and_value ON public.solid_queue_semaphores USING btree (key, value);
+
+
+--
 -- Name: index_time_categories_on_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2665,7 +3388,7 @@ CREATE INDEX index_time_entries_on_work_date ON public.time_entries USING btree 
 -- Name: index_time_entries_one_active_per_user; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX index_time_entries_one_active_per_user ON public.time_entries USING btree (user_id) WHERE ((status)::text = ANY ((ARRAY['clocked_in'::character varying, 'on_break'::character varying])::text[]));
+CREATE UNIQUE INDEX index_time_entries_one_active_per_user ON public.time_entries USING btree (user_id) WHERE ((status)::text = ANY (ARRAY[('clocked_in'::character varying)::text, ('on_break'::character varying)::text]));
 
 
 --
@@ -2962,11 +3685,27 @@ ALTER TABLE ONLY public.employee_pay_rates
 
 
 --
+-- Name: solid_queue_recurring_executions fk_rails_318a5533ed; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_recurring_executions
+    ADD CONSTRAINT fk_rails_318a5533ed FOREIGN KEY (job_id) REFERENCES public.solid_queue_jobs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: payroll_settlement_reconciliations fk_rails_31d292553b; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payroll_settlement_reconciliations
     ADD CONSTRAINT fk_rails_31d292553b FOREIGN KEY (payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: solid_queue_failed_executions fk_rails_39bbc7a631; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_failed_executions
+    ADD CONSTRAINT fk_rails_39bbc7a631 FOREIGN KEY (job_id) REFERENCES public.solid_queue_jobs(id) ON DELETE CASCADE;
 
 
 --
@@ -3015,6 +3754,14 @@ ALTER TABLE ONLY public.leave_requests
 
 ALTER TABLE ONLY public.time_entry_breaks
     ADD CONSTRAINT fk_rails_4cb8cc8496 FOREIGN KEY (time_entry_id) REFERENCES public.time_entries(id);
+
+
+--
+-- Name: solid_queue_blocked_executions fk_rails_4cd34e2228; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_blocked_executions
+    ADD CONSTRAINT fk_rails_4cd34e2228 FOREIGN KEY (job_id) REFERENCES public.solid_queue_jobs(id) ON DELETE CASCADE;
 
 
 --
@@ -3082,6 +3829,14 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 
 
 --
+-- Name: solid_queue_ready_executions fk_rails_81fcbd66af; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_ready_executions
+    ADD CONSTRAINT fk_rails_81fcbd66af FOREIGN KEY (job_id) REFERENCES public.solid_queue_jobs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: payroll_settlement_cases fk_rails_8fd3fba472; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3119,6 +3874,14 @@ ALTER TABLE ONLY public.active_storage_variant_records
 
 ALTER TABLE ONLY public.leave_requests
     ADD CONSTRAINT fk_rails_996ad01a40 FOREIGN KEY (reviewed_by_id) REFERENCES public.users(id);
+
+
+--
+-- Name: solid_queue_claimed_executions fk_rails_9cfe4d4944; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_claimed_executions
+    ADD CONSTRAINT fk_rails_9cfe4d4944 FOREIGN KEY (job_id) REFERENCES public.solid_queue_jobs(id) ON DELETE CASCADE;
 
 
 --
@@ -3178,6 +3941,14 @@ ALTER TABLE ONLY public.active_storage_attachments
 
 
 --
+-- Name: solid_queue_scheduled_executions fk_rails_c4316f352d; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solid_queue_scheduled_executions
+    ADD CONSTRAINT fk_rails_c4316f352d FOREIGN KEY (job_id) REFERENCES public.solid_queue_jobs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: report_exports fk_rails_c507e69606; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3232,6 +4003,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260914010000'),
 ('20260913030000'),
 ('20260913020000'),
 ('20260913010000'),
