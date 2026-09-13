@@ -528,6 +528,20 @@ RSpec.describe "Payroll cockpit API", type: :request do
   it "denies pending overtime only with an explicit reason" do
     entry = create_entry(approval_status: "approved", overtime_status: "pending")
 
+    expect do
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/overtime_approval",
+           params: {
+             command_id: SecureRandom.uuid,
+             expected_version: entry.lock_version,
+             decision: "deny"
+           }.to_json,
+           headers: headers
+    end.not_to change(PayrollIntegrationCommand, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(entry.reload.overtime_status).to eq("pending")
+    expect(AuditLog.where(action: "payroll_cockpit.time_entry_overtime_denied")).not_to exist
+
     post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/overtime_approval",
          params: {
            command_id: SecureRandom.uuid,

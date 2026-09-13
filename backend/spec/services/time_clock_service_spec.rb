@@ -432,6 +432,22 @@ RSpec.describe TimeClockService, type: :service do
       expect(described_class.check_overtime_status(user, entry)).to eq("pending")
       expect(peer.reload.hours).to eq(2)
     end
+
+    it "detects weekly overtime for an edited entry while its daily total remains below the threshold" do
+      Setting.set("overtime_daily_threshold_hours", "8")
+      Setting.set("overtime_weekly_threshold_hours", "10")
+      monday = Date.new(2026, 9, 7)
+      peer = create(:time_entry, user: user, work_date: monday, approval_status: "approved")
+      entry = create(:time_entry, user: user, work_date: monday + 2.days, approval_status: "approved")
+      peer.update_column(:hours, 7)
+      entry.update_column(:hours, 7)
+
+      entry.hours = 2
+      expect(described_class.check_overtime_status(user, entry)).to eq("none")
+
+      entry.hours = 4
+      expect(described_class.check_overtime_status(user, entry)).to eq("pending")
+    end
   end
 
   describe ".current_status" do
