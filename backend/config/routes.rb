@@ -42,6 +42,13 @@ Rails.application.routes.draw do
             member do
               post :approval
             end
+            resource :correction, only: [ :create ], controller: :time_entry_corrections
+          end
+          resources :settlement_cases, only: [ :index ], param: :id do
+            member do
+              post :route, action: :route_case
+              post :acknowledge
+            end
           end
           resources :periods, only: [ :show ], param: :id do
             member do

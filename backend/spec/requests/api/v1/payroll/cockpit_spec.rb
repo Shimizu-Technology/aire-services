@@ -637,6 +637,205 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(period.reload.status).to eq("scheduled")
   end
 
+  it "lists settlement cases and routes one to a named supplemental payroll idempotently" do
+    entry = create_entry
+    settlement_case = create(
+      :payroll_settlement_case,
+      source_time_entry_id: entry.id,
+      source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid,
+      source_snapshot: { employee_name: employee.full_name, work_date: entry.work_date.iso8601 }
+    )
+
+    get "/api/v1/payroll/cockpit/settlement_cases", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:settlement_cases)).to include(
+      include(
+        id: settlement_case.public_id,
+        status: "open",
+        source_time_entry_id: entry.id.to_s,
+        routing: include(destination_kind: "unassigned", owner_role: "aire_admins")
+      )
+    )
+
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "settlement_case_management" ])
+    command_headers = headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+    command_id = SecureRandom.uuid
+    payload = {
+      command_id: command_id,
+      expected_version: settlement_case.lock_version,
+      destination_kind: "supplemental",
+      target_external_pay_period_id: "cornerstone-supplemental-2026-10-01",
+      action_due_on: "2026-10-28",
+      assigned_to_id: admin.id,
+      reason: "The payment deadline is before the next regular payroll"
+    }
+
+    post "/api/v1/payroll/cockpit/settlement_cases/#{settlement_case.public_id}/route",
+         params: payload.to_json, headers: command_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:settlement_case, :routing)).to include(
+      destination_kind: "supplemental",
+      target_external_pay_period_id: "cornerstone-supplemental-2026-10-01",
+      action_due_on: "2026-10-28"
+    )
+    expect(json.dig(:settlement_case, :events).pluck(:event_type)).to eq(%w[routed])
+
+    post "/api/v1/payroll/cockpit/settlement_cases/#{settlement_case.public_id}/route",
+         params: payload.to_json, headers: command_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:command, :replayed)).to be(true)
+    expect(json).not_to have_key(:settlement_case)
+  end
+
+  it "records source-linked supplemental payment acknowledgements in order without inferring settlement" do
+    entry = create_entry
+    settlement_case = create(
+      :payroll_settlement_case,
+      source_time_entry_id: entry.id,
+      source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid,
+      destination_kind: "supplemental",
+      target_external_pay_period_id: "supplemental-case-1",
+      action_due_on: Date.new(2026, 10, 28),
+      status: "scheduled"
+    )
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "settlement_case_management" ])
+    command_headers = headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+
+    %w[imported committed payment_prepared].each_with_index do |event_type, index|
+      post "/api/v1/payroll/cockpit/settlement_cases/#{settlement_case.public_id}/acknowledge",
+           params: {
+             command_id: SecureRandom.uuid,
+             expected_version: settlement_case.reload.lock_version,
+             event_type: event_type,
+             occurred_at: format("2026-10-27T%02d:00:00+10:00", 9 + index),
+             reason: "Cornerstone moved the supplemental item forward",
+             metadata: { external_payroll_item_id: "item-42" }
+           }.to_json,
+           headers: command_headers
+      expect(response).to have_http_status(:ok)
+    end
+
+    post "/api/v1/payroll/cockpit/settlement_cases/#{settlement_case.public_id}/acknowledge",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: settlement_case.reload.lock_version,
+           event_type: "payment_issued",
+           occurred_at: "2026-10-27T12:00:00+10:00",
+           reason: "Cornerstone released physical check 1042",
+           metadata: {
+             external_pay_period_id: "supplemental-case-1",
+             external_payroll_item_id: "item-42",
+             payment_method: "physical_check",
+             payment_reference: "1042"
+           }
+         }.to_json,
+         headers: command_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:settlement_case, :status)).to eq("in_payroll")
+    expect(json.dig(:settlement_case, :processing)).to include(
+      status: "payment_issued",
+      payment_method: "physical_check",
+      payment_reference: "1042"
+    )
+    expect(json.dig(:settlement_case, :status)).not_to eq("settled")
+  end
+
+  it "rejects out-of-order settlement acknowledgements" do
+    settlement_case = create(
+      :payroll_settlement_case,
+      destination_kind: "supplemental",
+      target_external_pay_period_id: "supplemental-case-2",
+      status: "scheduled"
+    )
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "settlement_case_management" ])
+
+    post "/api/v1/payroll/cockpit/settlement_cases/#{settlement_case.public_id}/acknowledge",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: settlement_case.lock_version,
+           event_type: "payment_issued",
+           occurred_at: "2026-10-27T12:00:00+10:00",
+           reason: "Invalid shortcut"
+         }.to_json,
+         headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to include("record imported next")
+    expect(settlement_case.reload.status).to eq("scheduled")
+  end
+
+  it "rejects a supplemental acknowledgement timestamp before the prior processing event" do
+    settlement_case = create(
+      :payroll_settlement_case,
+      destination_kind: "supplemental",
+      target_external_pay_period_id: "supplemental-case-3",
+      status: "scheduled"
+    )
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "settlement_case_management" ])
+    command_headers = headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+
+    post "/api/v1/payroll/cockpit/settlement_cases/#{settlement_case.public_id}/acknowledge",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: settlement_case.lock_version,
+           event_type: "imported",
+           occurred_at: "2026-10-27T09:00:00+10:00",
+           reason: "Cornerstone imported the supplemental item"
+         }.to_json,
+         headers: command_headers
+    expect(response).to have_http_status(:ok)
+
+    post "/api/v1/payroll/cockpit/settlement_cases/#{settlement_case.public_id}/acknowledge",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: settlement_case.reload.lock_version,
+           event_type: "committed",
+           occurred_at: "2026-10-27T08:59:59+10:00",
+           reason: "Invalid historical timestamp"
+         }.to_json,
+         headers: command_headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to include("earlier than the previous processing event")
+    expect(settlement_case.reload.payroll_settlement_case_events.pluck(:event_type)).to eq([ "imported" ])
+  end
+
+  it "corrects a missing punch through AIRE and requires a new explicit approval" do
+    entry = create_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      status: "clocked_in",
+      start_time: ActiveSupport::TimeZone["Pacific/Guam"].local(period.start_date.year, period.start_date.month, period.start_date.day, 8),
+      end_time: nil,
+      hours: 0
+    )
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "time_correction" ])
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/correction",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: entry.lock_version,
+           end_time: "17:00",
+           breaks: [ { start_time: "12:00", end_time: "13:00" } ],
+           reason: "Employee confirmed the missing clock-out"
+         }.to_json,
+         headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:time_entry, :state)).to include(approval_status: "pending")
+    expect(json.dig(:time_entry, :state, :missing_punch)).to be(false)
+    expect(entry.reload).to have_attributes(status: "completed", approval_status: "pending", hours: 8.0, break_minutes: 60)
+    expect(entry.time_entry_breaks.sole.duration_minutes).to eq(60)
+    expect(AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry).metadata)
+      .to include("requires_approval" => true)
+  end
+
   it "enforces append-only command receipts in PostgreSQL" do
     entry = create_entry
     receipt = PayrollIntegrationCommand.create!(

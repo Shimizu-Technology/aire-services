@@ -48,7 +48,25 @@ module Api
           end
 
           def command_params
-            params.permit(:command_id, :expected_version, :reason, :decision)
+            params.permit(
+              :command_id,
+              :expected_version,
+              :reason,
+              :decision,
+              :destination_kind,
+              :target_external_pay_period_id,
+              :action_due_on,
+              :assigned_to_id,
+              :event_type,
+              :occurred_at,
+              :work_date,
+              :start_time,
+              :end_time,
+              :time_category_id,
+              :description,
+              breaks: [ :start_time, :end_time ],
+              metadata: {}
+            )
           end
 
           def audit_payroll_cockpit_read

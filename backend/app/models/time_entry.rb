@@ -32,6 +32,7 @@ class TimeEntry < ApplicationRecord
 
   before_validation :calculate_hours_from_times, if: -> { start_time.present? && end_time.present? }
   before_validation :set_zero_hours_if_clocked_in, if: -> { status.in?(%w[clocked_in on_break]) }
+  after_commit :capture_post_cutoff_payroll_case, on: [ :create, :update ], if: :payroll_case_relevant_change?
 
   scope :for_date, ->(date) { where(work_date: date) }
   scope :for_week, ->(date) { where(work_date: date.beginning_of_week(:sunday)..date.end_of_week(:sunday)) }
@@ -151,6 +152,20 @@ class TimeEntry < ApplicationRecord
   end
 
   private
+
+  PAYROLL_CASE_ATTRIBUTES = %w[
+    user_id work_date start_time end_time hours break_minutes time_category_id status
+    approval_status approved_at overtime_status overtime_approved_at
+  ].freeze
+
+  def payroll_case_relevant_change?
+    (previous_changes.keys & PAYROLL_CASE_ATTRIBUTES).any?
+  end
+
+  def capture_post_cutoff_payroll_case
+    previous_work_date = previous_changes.dig("work_date", 0)
+    PayrollSettlementCaseCaptureJob.perform_later(id, previous_work_date&.to_s)
+  end
 
   def set_zero_hours_if_clocked_in
     self.hours = 0 if hours.blank?

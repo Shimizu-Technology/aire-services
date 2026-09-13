@@ -34,6 +34,7 @@ module Payroll
         end
         record_revision!(period)
         record_audit!(period, created: created)
+        SettlementCaseCoordinator.route_open_cases_to_period!(period)
         Result.new(period: period, created: created, idempotent: false)
       end
     rescue ActiveRecord::RecordNotUnique

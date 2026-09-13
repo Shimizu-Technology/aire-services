@@ -245,6 +245,7 @@ module Api
         entry_id = @time_entry.id
 
         TimeEntry.transaction do
+          ::Payroll::SettlementCaseCoordinator.record_deletion!(@time_entry, actor: current_user)
           @time_entry.destroy!
 
           AuditLog.record!(

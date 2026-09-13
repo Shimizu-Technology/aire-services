@@ -29,6 +29,8 @@ See:
 
 Finalized payroll cutoffs use AIRE's [Payroll Batch v2 contract](docs/PAYROLL_BATCH_V2_CONTRACT.md). A batch is an immutable settlement ledger: payable hours are frozen at one cutoff instant, unresolved work remains traceable, and later approvals or corrections become explicit adjustments in a future batch. Cornerstone Payroll should import by batch ID and verify the canonical SHA-256 checksum before applying it.
 
+Cornerstone's operator-facing AIRE cockpit uses the scoped [payroll cockpit API](docs/PAYROLL_COCKPIT_API.md). AIRE retains authority for time, approvals, corrections, cutoffs, and named settlement cases; Cornerstone retains authority for gross-to-net payroll, physical checks, liabilities, filings, and final payment status.
+
 ## Source of truth for extraction/planning
 - `docs/PROJECT-OVERVIEW.md`
 - `docs/PORTING-CHECKLIST.md`

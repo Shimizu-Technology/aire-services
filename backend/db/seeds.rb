@@ -80,7 +80,12 @@ if Rails.env.development? || Rails.env.test?
       user.assign_attributes(
         first_name: attrs[:first_name],
         role: attrs[:role],
-        clerk_id: "dev_#{SecureRandom.hex(8)}"
+        clerk_id: "dev_#{SecureRandom.hex(8)}",
+        personal_access_enabled: true,
+        profile_source: "clerk",
+        time_tracking_enabled: false,
+        kiosk_enabled: false,
+        is_active: true
       )
       user.save!
       puts "  Created #{attrs[:first_name]} (#{attrs[:email]})"

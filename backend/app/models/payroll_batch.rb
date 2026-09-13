@@ -8,6 +8,16 @@ class PayrollBatch < ApplicationRecord
   has_many :payroll_batch_exclusions, dependent: :restrict_with_error
   has_many :payroll_batch_processing_events, dependent: :restrict_with_error
   has_many :payroll_entry_processing_events, dependent: :restrict_with_error
+  has_many :origin_payroll_settlement_cases,
+           class_name: "PayrollSettlementCase",
+           foreign_key: :origin_payroll_batch_id,
+           dependent: :restrict_with_error,
+           inverse_of: :origin_payroll_batch
+  has_many :included_payroll_settlement_cases,
+           class_name: "PayrollSettlementCase",
+           foreign_key: :included_payroll_batch_id,
+           dependent: :restrict_with_error,
+           inverse_of: :included_payroll_batch
   has_one :payroll_calendar_period, dependent: :restrict_with_error
 
   validates :public_id, :start_date, :end_date, :cutoff_at, :finalized_at, :checksum, presence: true

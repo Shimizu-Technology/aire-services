@@ -107,6 +107,46 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     end
   end
 
+  it "blocks out-of-order automated finalization without retrying or pulling future carryovers backward" do
+    later_batch = PayrollBatch.create!(
+      public_id: "AIRE-PAY-LATER-BATCH",
+      start_date: Date.new(2026, 10, 16),
+      end_date: Date.new(2026, 10, 31),
+      cutoff_at: cutoff + 15.days,
+      finalized_at: cutoff + 15.days,
+      checksum: "b" * 64
+    )
+    later_entry = time_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      work_date: Date.new(2026, 10, 20),
+      created_at: cutoff + 10.days
+    )
+    later_batch.payroll_batch_exclusions.create!(
+      source_time_entry_id: later_entry.id,
+      source_user_id: later_entry.user_id,
+      source_user_uuid: later_entry.user.payroll_integration_uuid,
+      reason: "pending_approval",
+      held_total_hours: later_entry.hours,
+      snapshot: { work_date: later_entry.work_date.iso8601 }
+    )
+
+    travel_to(cutoff + 20.days) do
+      result = described_class.new(period_id: period.id, now: Time.current).call
+      period.reload
+
+      expect(result).to include(status: "failed", error: /later payroll batch/)
+      expect(period.status).to eq("failed")
+      expect(period.next_finalization_attempt_at).to be_nil
+      expect(period.last_finalization_error).to include("Review this older period")
+      expect(period.payroll_batch).to be_nil
+      expect(PayrollBatch.count).to eq(1)
+      expect(PayrollSettlementCase.count).to eq(0)
+      audit = AuditLog.find_by!(action: "payroll_calendar_period.finalization_failed", auditable: period)
+      expect(audit.metadata).to include("retryable" => false, "retry_at" => nil)
+    end
+  end
+
   it "reports repeated cutoff failures to production error monitoring" do
     period.update!(finalization_attempts: 4)
     allow(Payroll::BatchFinalizer).to receive(:new).and_raise("database unavailable")

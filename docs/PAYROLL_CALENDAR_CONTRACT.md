@@ -62,6 +62,10 @@ At cutoff:
 
 Repeating the cutoff worker does not create another batch or event.
 
+The scheduler processes due periods from oldest to newest. If a later batch already exists, AIRE does not automatically backfill an older period: it marks the older calendar period as needing attention without scheduling another automatic retry. This protects the settlement ledger from pulling work or corrections from a later cutoff into an earlier batch.
+
+Every immutable exclusion creates a settlement case in the same transaction. Eligible late or unapproved work is assigned to the next published regular period. If that period is not published yet, the case stays open under the AIRE-admin role with an action due date. An administrator working through Cornerstone can reroute it to a named supplemental run when the payment deadline requires earlier handling.
+
 ## AIRE-to-Cornerstone event delivery
 
 AIRE posts pending events to `CORNERSTONE_PAYROLL_EVENTS_URL` with:

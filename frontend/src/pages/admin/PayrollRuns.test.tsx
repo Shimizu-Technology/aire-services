@@ -228,6 +228,25 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/not yet recognized by this version of AIRE/)).toBeInTheDocument()
   })
 
+  it('renders zero-value fallbacks for incomplete historical batch summaries', async () => {
+    apiMock.getPayrollBatches.mockResolvedValue({ data: {
+      payroll_batches: [{ ...finalized, summary: {} }],
+      total_count: 1,
+      truncated: false,
+    } })
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+
+    renderPayrollRuns()
+
+    expect(await screen.findByText('0.00 hrs')).toBeInTheDocument()
+    expect(screen.getByText('0 employees')).toBeInTheDocument()
+    expect(screen.getByText('0 excluded')).toBeInTheDocument()
+  })
+
   it('opens a linked period and preserves it across the workspace', async () => {
     renderPayrollRuns('/admin/payroll?start_date=2026-08-01&end_date=2026-08-15')
     await screen.findByText('No payroll batches have been finalized yet.')
