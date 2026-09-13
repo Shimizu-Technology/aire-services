@@ -70,7 +70,7 @@ module Payroll
       end
 
       def route_open_cases_to_period!(period)
-        return if period.status == "finalized"
+        return unless routable_regular_period?(period)
 
         PayrollSettlementCase
           .where(status: "open", destination_kind: "unassigned", origin_reason: AUTO_ROUTE_REASONS)
@@ -317,10 +317,14 @@ module Payroll
 
       def next_regular_period(period)
         PayrollCalendarPeriod
-          .where.not(status: "finalized")
+          .where("status = 'scheduled' OR (status = 'failed' AND next_finalization_attempt_at IS NOT NULL)")
           .where("start_date > ?", period.end_date)
           .order(:start_date, :id)
           .first
+      end
+
+      def routable_regular_period?(period)
+        period.status == "scheduled" || (period.status == "failed" && period.next_finalization_attempt_at.present?)
       end
 
       def relevant_periods_for(entry, previous_work_date:)

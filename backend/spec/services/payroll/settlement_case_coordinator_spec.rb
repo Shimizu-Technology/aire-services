@@ -82,6 +82,25 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
     )
   end
 
+  it "skips a failed period that cannot be retried when automatically naming the next payroll" do
+    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "failed-route-origin")
+    unavailable = calendar_period(start_date: Date.new(2026, 10, 16), pay_date: Date.new(2026, 11, 10), external_id: "failed-route-target")
+    unavailable.update!(status: "failed", next_finalization_attempt_at: nil)
+    available = calendar_period(start_date: Date.new(2026, 11, 1), pay_date: Date.new(2026, 11, 25), external_id: "scheduled-route-target")
+    held = entry(period: origin)
+
+    travel_to(origin.cutoff_at + 1.minute) do
+      Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
+    end
+
+    settlement_case = PayrollSettlementCase.find_by!(source_time_entry_id: held.id)
+    expect(settlement_case).to have_attributes(
+      status: "scheduled",
+      target_payroll_calendar_period_id: available.id,
+      target_external_pay_period_id: "scheduled-route-target"
+    )
+  end
+
   it "preserves the initiating administrator on asynchronously captured case events" do
     origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "actor-origin")
     admin = create(:user, :admin)
