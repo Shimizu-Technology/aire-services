@@ -10,18 +10,23 @@ module Payroll
 
     attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note,
                 :manual_processing, :cutoff_at, :processed_at, :external_pay_period_id, :processing_note,
-                :acknowledge_missing_categories
+                :acknowledge_missing_categories, :automated_cutoff
 
     def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil,
                    manual_processing: false, cutoff_at: nil, processed_at: nil, external_pay_period_id: nil,
-                   processing_note: nil, acknowledge_missing_categories: false)
+                   processing_note: nil, acknowledge_missing_categories: false, automated_cutoff: false)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @actor = actor
       @acknowledge_negative_adjustments = ActiveModel::Type::Boolean.new.cast(acknowledge_negative_adjustments)
       @negative_adjustment_note = negative_adjustment_note.to_s.strip
       @manual_processing = ActiveModel::Type::Boolean.new.cast(manual_processing)
-      @cutoff_at = parse_manual_time!(cutoff_at, "cutoff_at") if @manual_processing
+      @automated_cutoff = ActiveModel::Type::Boolean.new.cast(automated_cutoff)
+      @cutoff_at = if @manual_processing
+        parse_manual_time!(cutoff_at, "cutoff_at")
+      elsif cutoff_at.present?
+        parse_time!(cutoff_at, "cutoff_at")
+      end
       @processed_at = parse_manual_time!(processed_at, "processed_at") if @manual_processing
       @external_pay_period_id = external_pay_period_id.to_s.strip
       @processing_note = processing_note.to_s.strip
@@ -31,6 +36,7 @@ module Payroll
         raise ArgumentError, "date range may not exceed #{BatchBuilder::MAX_RANGE_DAYS} days"
       end
       validate_manual_processing_input! if @manual_processing
+      validate_automated_cutoff_input! if @automated_cutoff
     end
 
     def call
@@ -41,7 +47,7 @@ module Payroll
         lock_finalization!
         lock_source_ledger!
         source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        cutoff = manual_processing ? cutoff_at : Time.current
+        cutoff = cutoff_at || Time.current
         reference = build_reference(cutoff)
         reject_overlapping_batch!
         result = BatchBuilder.new(
@@ -58,7 +64,7 @@ module Payroll
           start_date: result.fetch(:start_date),
           end_date: result.fetch(:end_date),
           cutoff_at: cutoff,
-          finalized_at: cutoff,
+          finalized_at: automated_cutoff ? Time.current : cutoff,
           finalized_by: actor,
           checksum: checksum,
           payload: payload,
@@ -73,6 +79,8 @@ module Payroll
         AuditLog.record!(
           action: "payroll_batch.finalized",
           actor: actor,
+          actor_kind: actor ? "user" : "system",
+          source: actor ? "admin" : "system",
           auditable: batch,
           event_category: "payroll",
           metadata: {
@@ -84,6 +92,7 @@ module Payroll
             issues: batch.issues,
             negative_adjustment_note: negative_adjustment_note.presence,
             manual_processing: manual_processing,
+            automated_cutoff: automated_cutoff,
             processing_note: processing_note.presence,
             external_pay_period_id: external_pay_period_id.presence,
             processed_at: processed_at&.iso8601
@@ -112,11 +121,21 @@ module Payroll
     def parse_manual_time!(value, name)
       raise ArgumentError, "#{name} is required when recording manually processed payroll" if value.blank?
 
+      parse_time!(value, name)
+    end
+
+    def parse_time!(value, name)
       begin
         Time.iso8601(value.to_s)
       rescue ArgumentError
         raise ArgumentError, "#{name} must be a valid ISO 8601 timestamp"
       end
+    end
+
+    def validate_automated_cutoff_input!
+      raise ArgumentError, "automated cutoff cannot be combined with manual processing" if manual_processing
+      raise ArgumentError, "cutoff_at is required for an automated cutoff" if cutoff_at.blank?
+      raise ArgumentError, "cutoff_at cannot be in the future" if cutoff_at > Time.current
     end
 
     def validate_manual_processing_input!
@@ -180,10 +199,11 @@ module Payroll
       issues = result.fetch(:issues)
       if issues.fetch(:missing_category_count).positive?
         unless manual_processing && acknowledge_missing_categories
-          raise FinalizationError, "Resolve missing work categories before finalizing this payroll batch"
+          raise FinalizationError, "Resolve missing work categories before finalizing this payroll batch" unless automated_cutoff
         end
       end
       return unless issues.fetch(:negative_adjustment_count).positive?
+      return if automated_cutoff
       return if acknowledge_negative_adjustments && negative_adjustment_note.present?
 
       raise FinalizationError, "Negative payroll corrections require acknowledgement and an explanatory note"
@@ -224,13 +244,22 @@ module Payroll
 
     def finalized_payload(payload)
       payload.deep_dup.merge(
-        finalized_by: {
-          id: actor.id,
-          name: actor.full_name,
-          email: actor.email
-        },
-        negative_adjustment_acknowledgement: negative_adjustment_note.presence
+        finalized_by: finalized_by_payload,
+        negative_adjustment_acknowledgement: negative_adjustment_note.presence,
+        requires_negative_adjustment_review: requires_negative_adjustment_review(payload)
       ).compact
+    end
+
+    def finalized_by_payload
+      return { kind: "system", name: "AIRE automatic payroll cutoff" } unless actor
+
+      { id: actor.id, name: actor.full_name, email: actor.email }
+    end
+
+    def requires_negative_adjustment_review(payload)
+      return unless automated_cutoff && payload.dig(:issues, :negative_adjustment_count).to_i.positive?
+
+      true
     end
 
     def build_reference(cutoff)

@@ -28,6 +28,7 @@ Rails.application.routes.draw do
 
       namespace :payroll do
         resource :time_summary, only: [ :show ], controller: :time_summaries
+        resources :calendar_periods, only: [ :index, :show, :update ], param: :id
         resources :batches, only: [ :index, :show ] do
           member do
             post :processing_events

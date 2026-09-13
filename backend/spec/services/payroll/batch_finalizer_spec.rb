@@ -19,6 +19,8 @@ RSpec.describe Payroll::BatchFinalizer do
       end_time: guam.local(date.year, date.month, date.day, 8) + hours.hours,
       hours: hours,
       status: "completed",
+      entry_method: "clock",
+      clock_source: "mobile",
       approval_status: approval_status,
       overtime_status: overtime_status
     }
@@ -165,6 +167,31 @@ RSpec.describe Payroll::BatchFinalizer do
       expect(correction.source_kind).to eq("correction")
       expect(correction.total_hours.to_f).to eq(-2.0)
       expect(batch.payload["negative_adjustment_acknowledgement"]).to eq("Corrected an overstated clock-out")
+    end
+  end
+
+  it "locks an automated cutoff while clearly flagging a negative correction for payroll review" do
+    entry = nil
+    travel_to(guam.local(2026, 5, 16, 9)) do
+      entry = create_entry(date: Date.new(2026, 5, 5))
+      finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+    end
+
+    travel_to(guam.local(2026, 6, 1, 9)) do
+      entry.update!(end_time: entry.end_time - 2.hours)
+      batch = finalize(
+        start_date: "2026-05-16",
+        end_date: "2026-05-31",
+        cutoff_at: Time.current.iso8601,
+        automated_cutoff: true
+      )
+
+      expect(batch.issues).to include("negative_adjustment_count" => 1)
+      expect(batch.payload).to include("requires_negative_adjustment_review" => true)
+      expect(batch.payload["negative_adjustment_acknowledgement"]).to be_nil
+      adjustments = batch.payroll_batch_entries.where(source_kind: "correction")
+      expect(adjustments.count).to eq(1)
+      expect(adjustments.sole).to have_attributes(source_time_entry_id: entry.id, total_hours: -2.0)
     end
   end
 
@@ -317,7 +344,7 @@ RSpec.describe Payroll::BatchFinalizer do
     expect(pairs).to include([ employee.id, Date.new(2026, 4, 19) ])
   end
 
-  it "blocks missing payroll dimensions and overlapping finalized periods" do
+  it "flags missing payroll dimensions at an automated cutoff and blocks overlapping finalized periods" do
     travel_to(guam.local(2026, 5, 16, 9)) do
       entry = create_entry(date: Date.new(2026, 5, 5))
       entry.update_columns(time_category_id: nil, effective_rate_cents_snapshot: nil)
@@ -326,11 +353,29 @@ RSpec.describe Payroll::BatchFinalizer do
         finalize(start_date: "2026-05-01", end_date: "2026-05-15")
       end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /missing work categories/)
 
-      entry.update!(time_category: category)
-      finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+      batch = finalize(
+        start_date: "2026-05-01",
+        end_date: "2026-05-15",
+        cutoff_at: Time.current.iso8601,
+        automated_cutoff: true
+      )
+      expect(batch.payroll_batch_entries.find_by!(source_time_entry_id: entry.id).source_category_id).to be_nil
+      expect(batch.issues).to include("missing_category_count" => 1)
       expect do
         finalize(start_date: "2026-05-10", end_date: "2026-05-20")
       end.to raise_error(Payroll::BatchFinalizer::ExistingBatchError, /already covers/)
+    end
+  end
+
+  it "holds a legacy manual entry without explicit approval" do
+    travel_to(guam.local(2026, 5, 16, 9)) do
+      entry = create_entry(date: Date.new(2026, 5, 5))
+      entry.update_columns(entry_method: "manual", clock_source: nil, approval_status: nil)
+
+      batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+
+      expect(batch.payroll_batch_entries).to be_empty
+      expect(batch.payroll_batch_exclusions.find_by!(source_time_entry_id: entry.id).reason).to eq("pending_approval")
     end
   end
 

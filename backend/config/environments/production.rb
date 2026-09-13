@@ -47,9 +47,8 @@ Rails.application.configure do
   # Use memory cache (sufficient for JWKS caching, no DB table required)
   config.cache_store = :memory_store
 
-  # AIRE currently has no background jobs, so keep production work inline by
-  # default and avoid booting a database-backed queue that continuously polls
-  # Postgres. Deployments that add durable jobs must opt in explicitly.
+  # Payroll cutoffs and integration delivery must continue without an operator
+  # request, so production defaults to the durable Solid Queue runtime.
   active_job_queue_adapter = QueueRuntime.adapter
   config.active_job.queue_adapter = active_job_queue_adapter.to_sym
   if QueueRuntime.solid_queue?

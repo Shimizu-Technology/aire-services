@@ -67,6 +67,82 @@ END;
 $$;
 
 
+--
+-- Name: protect_payroll_calendar_period_after_cutoff(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_payroll_calendar_period_after_cutoff() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'payroll calendar periods cannot be deleted';
+  END IF;
+
+  IF OLD.status = 'finalized' THEN
+    RAISE EXCEPTION 'finalized payroll calendar periods are immutable';
+  END IF;
+
+  IF (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') >= OLD.cutoff_at
+     AND (
+       NEW.external_pay_period_id IS DISTINCT FROM OLD.external_pay_period_id
+       OR NEW.start_date IS DISTINCT FROM OLD.start_date
+       OR NEW.end_date IS DISTINCT FROM OLD.end_date
+       OR NEW.pay_date IS DISTINCT FROM OLD.pay_date
+       OR NEW.cutoff_at IS DISTINCT FROM OLD.cutoff_at
+       OR NEW.time_zone IS DISTINCT FROM OLD.time_zone
+       OR NEW.cutoff_days_before IS DISTINCT FROM OLD.cutoff_days_before
+       OR NEW.schedule_version IS DISTINCT FROM OLD.schedule_version
+       OR NEW.publication_id IS DISTINCT FROM OLD.publication_id
+       OR NEW.request_checksum IS DISTINCT FROM OLD.request_checksum
+     ) THEN
+    RAISE EXCEPTION 'payroll calendar schedules cannot change after cutoff';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: protect_payroll_calendar_revision(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_payroll_calendar_revision() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'payroll calendar revisions are append-only';
+END;
+$$;
+
+
+--
+-- Name: protect_payroll_outbox_payload(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_payroll_outbox_payload() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'payroll outbox events cannot be deleted';
+  END IF;
+
+  IF NEW.event_id IS DISTINCT FROM OLD.event_id
+     OR NEW.event_type IS DISTINCT FROM OLD.event_type
+     OR NEW.payroll_calendar_period_id IS DISTINCT FROM OLD.payroll_calendar_period_id
+     OR NEW.payload IS DISTINCT FROM OLD.payload
+     OR NEW.occurred_at IS DISTINCT FROM OLD.occurred_at
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'payroll outbox event payloads are immutable';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -470,6 +546,99 @@ ALTER SEQUENCE public.payroll_batches_id_seq OWNED BY public.payroll_batches.id;
 
 
 --
+-- Name: payroll_calendar_period_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_calendar_period_revisions (
+    id bigint NOT NULL,
+    payroll_calendar_period_id bigint NOT NULL,
+    schedule_version integer NOT NULL,
+    publication_id uuid NOT NULL,
+    request_checksum character varying NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    published_at timestamp(6) without time zone NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_calendar_revision_version CHECK ((schedule_version > 0))
+);
+
+
+--
+-- Name: payroll_calendar_period_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_calendar_period_revisions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_calendar_period_revisions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_calendar_period_revisions_id_seq OWNED BY public.payroll_calendar_period_revisions.id;
+
+
+--
+-- Name: payroll_calendar_periods; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_calendar_periods (
+    id bigint NOT NULL,
+    external_pay_period_id character varying NOT NULL,
+    start_date date NOT NULL,
+    end_date date NOT NULL,
+    pay_date date NOT NULL,
+    cutoff_at timestamp(6) without time zone NOT NULL,
+    time_zone character varying DEFAULT 'Pacific/Guam'::character varying NOT NULL,
+    cutoff_days_before integer DEFAULT 7 NOT NULL,
+    schedule_version integer NOT NULL,
+    publication_id uuid NOT NULL,
+    request_checksum character varying NOT NULL,
+    status character varying DEFAULT 'scheduled'::character varying NOT NULL,
+    payroll_batch_id bigint,
+    finalized_at timestamp(6) without time zone,
+    finalization_attempts integer DEFAULT 0 NOT NULL,
+    last_finalization_attempt_at timestamp(6) without time zone,
+    next_finalization_attempt_at timestamp(6) without time zone,
+    last_finalization_error character varying,
+    lock_version integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_calendar_period_cutoff_date CHECK (((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - cutoff_days_before))),
+    CONSTRAINT check_payroll_calendar_period_cutoff_days CHECK ((cutoff_days_before = 7)),
+    CONSTRAINT check_payroll_calendar_period_date_order CHECK ((end_date >= start_date)),
+    CONSTRAINT check_payroll_calendar_period_pay_date CHECK ((pay_date > end_date)),
+    CONSTRAINT check_payroll_calendar_period_semimonthly CHECK ((((EXTRACT(day FROM start_date) = (1)::numeric) AND (EXTRACT(day FROM end_date) = (15)::numeric) AND (date_trunc('month'::text, (start_date)::timestamp without time zone) = date_trunc('month'::text, (end_date)::timestamp without time zone))) OR ((EXTRACT(day FROM start_date) = (16)::numeric) AND (end_date = ((date_trunc('month'::text, (start_date)::timestamp without time zone) + '1 mon -1 days'::interval))::date)))),
+    CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY ((ARRAY['scheduled'::character varying, 'failed'::character varying, 'finalized'::character varying])::text[]))),
+    CONSTRAINT check_payroll_calendar_period_time_zone CHECK (((time_zone)::text = 'Pacific/Guam'::text)),
+    CONSTRAINT check_payroll_calendar_period_version CHECK ((schedule_version > 0))
+);
+
+
+--
+-- Name: payroll_calendar_periods_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_calendar_periods_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_calendar_periods_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_calendar_periods_id_seq OWNED BY public.payroll_calendar_periods.id;
+
+
+--
 -- Name: payroll_entry_processing_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -509,6 +678,52 @@ CREATE SEQUENCE public.payroll_entry_processing_events_id_seq
 --
 
 ALTER SEQUENCE public.payroll_entry_processing_events_id_seq OWNED BY public.payroll_entry_processing_events.id;
+
+
+--
+-- Name: payroll_outbox_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_outbox_events (
+    id bigint NOT NULL,
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    event_type character varying NOT NULL,
+    payroll_calendar_period_id bigint NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    occurred_at timestamp(6) without time zone NOT NULL,
+    delivery_status character varying DEFAULT 'pending'::character varying NOT NULL,
+    delivery_attempts integer DEFAULT 0 NOT NULL,
+    last_delivery_attempt_at timestamp(6) without time zone,
+    next_delivery_attempt_at timestamp(6) without time zone,
+    delivery_enqueued_until timestamp(6) without time zone,
+    delivered_at timestamp(6) without time zone,
+    last_response_status integer,
+    last_error character varying,
+    lock_version integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_outbox_delivery_attempts CHECK ((delivery_attempts >= 0)),
+    CONSTRAINT check_payroll_outbox_delivery_status CHECK (((delivery_status)::text = ANY ((ARRAY['pending'::character varying, 'failed'::character varying, 'delivered'::character varying])::text[])))
+);
+
+
+--
+-- Name: payroll_outbox_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_outbox_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_outbox_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_outbox_events_id_seq OWNED BY public.payroll_outbox_events.id;
 
 
 --
@@ -941,8 +1156,8 @@ CREATE TABLE public.users (
     CONSTRAINT check_public_team_photo_position_x_range CHECK (((public_team_photo_position_x >= 0) AND (public_team_photo_position_x <= 100))),
     CONSTRAINT check_public_team_photo_position_y_range CHECK (((public_team_photo_position_y >= 0) AND (public_team_photo_position_y <= 100))),
     CONSTRAINT check_users_kiosk_matches_time_tracking CHECK ((kiosk_enabled = time_tracking_enabled)),
-    CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY ((ARRAY['clerk'::character varying, 'local'::character varying])::text[]))),
-    CONSTRAINT check_valid_role CHECK (((role)::text = ANY ((ARRAY['admin'::character varying, 'employee'::character varying])::text[])))
+    CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY (ARRAY[('clerk'::character varying)::text, ('local'::character varying)::text]))),
+    CONSTRAINT check_valid_role CHECK (((role)::text = ANY (ARRAY[('admin'::character varying)::text, ('employee'::character varying)::text])))
 );
 
 
@@ -1036,10 +1251,31 @@ ALTER TABLE ONLY public.payroll_batches ALTER COLUMN id SET DEFAULT nextval('pub
 
 
 --
+-- Name: payroll_calendar_period_revisions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_calendar_period_revisions ALTER COLUMN id SET DEFAULT nextval('public.payroll_calendar_period_revisions_id_seq'::regclass);
+
+
+--
+-- Name: payroll_calendar_periods id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_calendar_periods ALTER COLUMN id SET DEFAULT nextval('public.payroll_calendar_periods_id_seq'::regclass);
+
+
+--
 -- Name: payroll_entry_processing_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payroll_entry_processing_events ALTER COLUMN id SET DEFAULT nextval('public.payroll_entry_processing_events_id_seq'::regclass);
+
+
+--
+-- Name: payroll_outbox_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_outbox_events ALTER COLUMN id SET DEFAULT nextval('public.payroll_outbox_events_id_seq'::regclass);
 
 
 --
@@ -1208,11 +1444,43 @@ ALTER TABLE ONLY public.payroll_batches
 
 
 --
+-- Name: payroll_calendar_period_revisions payroll_calendar_period_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_calendar_period_revisions
+    ADD CONSTRAINT payroll_calendar_period_revisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_calendar_periods payroll_calendar_periods_no_overlap; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_calendar_periods
+    ADD CONSTRAINT payroll_calendar_periods_no_overlap EXCLUDE USING gist (daterange(start_date, end_date, '[]'::text) WITH &&);
+
+
+--
+-- Name: payroll_calendar_periods payroll_calendar_periods_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_calendar_periods
+    ADD CONSTRAINT payroll_calendar_periods_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: payroll_entry_processing_events payroll_entry_processing_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payroll_entry_processing_events
     ADD CONSTRAINT payroll_entry_processing_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_outbox_events payroll_outbox_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_outbox_events
+    ADD CONSTRAINT payroll_outbox_events_pkey PRIMARY KEY (id);
 
 
 --
@@ -1333,6 +1601,41 @@ CREATE INDEX idx_payroll_batch_processing_events_status ON public.payroll_batch_
 
 
 --
+-- Name: idx_payroll_calendar_periods_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_calendar_periods_due ON public.payroll_calendar_periods USING btree (status, cutoff_at, next_finalization_attempt_at);
+
+
+--
+-- Name: idx_payroll_calendar_periods_external_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_calendar_periods_external_id ON public.payroll_calendar_periods USING btree (external_pay_period_id);
+
+
+--
+-- Name: idx_payroll_calendar_revisions_period; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_calendar_revisions_period ON public.payroll_calendar_period_revisions USING btree (payroll_calendar_period_id);
+
+
+--
+-- Name: idx_payroll_calendar_revisions_period_version; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_calendar_revisions_period_version ON public.payroll_calendar_period_revisions USING btree (payroll_calendar_period_id, schedule_version);
+
+
+--
+-- Name: idx_payroll_calendar_revisions_publication; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_calendar_revisions_publication ON public.payroll_calendar_period_revisions USING btree (publication_id);
+
+
+--
 -- Name: idx_payroll_entry_processing_events_batch_status; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1344,6 +1647,20 @@ CREATE INDEX idx_payroll_entry_processing_events_batch_status ON public.payroll_
 --
 
 CREATE INDEX idx_payroll_entry_processing_events_entry_time ON public.payroll_entry_processing_events USING btree (source_time_entry_id, occurred_at);
+
+
+--
+-- Name: idx_payroll_outbox_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_outbox_due ON public.payroll_outbox_events USING btree (delivery_status, next_delivery_attempt_at, delivery_enqueued_until);
+
+
+--
+-- Name: idx_payroll_outbox_period; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_outbox_period ON public.payroll_outbox_events USING btree (payroll_calendar_period_id);
 
 
 --
@@ -1662,6 +1979,13 @@ CREATE UNIQUE INDEX index_payroll_batches_on_start_date_and_end_date ON public.p
 
 
 --
+-- Name: index_payroll_calendar_periods_on_payroll_batch_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_calendar_periods_on_payroll_batch_id ON public.payroll_calendar_periods USING btree (payroll_batch_id);
+
+
+--
 -- Name: index_payroll_entry_processing_events_on_event_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1673,6 +1997,13 @@ CREATE UNIQUE INDEX index_payroll_entry_processing_events_on_event_id ON public.
 --
 
 CREATE INDEX index_payroll_entry_processing_events_on_payroll_batch_id ON public.payroll_entry_processing_events USING btree (payroll_batch_id);
+
+
+--
+-- Name: index_payroll_outbox_events_on_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_outbox_events_on_event_id ON public.payroll_outbox_events USING btree (event_id);
 
 
 --
@@ -2075,10 +2406,31 @@ CREATE TRIGGER payroll_batches_append_only BEFORE DELETE OR UPDATE ON public.pay
 
 
 --
+-- Name: payroll_calendar_period_revisions payroll_calendar_period_revisions_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_calendar_period_revisions_append_only BEFORE DELETE OR UPDATE ON public.payroll_calendar_period_revisions FOR EACH ROW EXECUTE FUNCTION public.protect_payroll_calendar_revision();
+
+
+--
+-- Name: payroll_calendar_periods payroll_calendar_periods_cutoff_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_calendar_periods_cutoff_guard BEFORE DELETE OR UPDATE ON public.payroll_calendar_periods FOR EACH ROW EXECUTE FUNCTION public.protect_payroll_calendar_period_after_cutoff();
+
+
+--
 -- Name: payroll_entry_processing_events payroll_entry_processing_events_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER payroll_entry_processing_events_append_only BEFORE DELETE OR UPDATE ON public.payroll_entry_processing_events FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_outbox_events payroll_outbox_events_payload_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_outbox_events_payload_immutable BEFORE DELETE OR UPDATE ON public.payroll_outbox_events FOR EACH ROW EXECUTE FUNCTION public.protect_payroll_outbox_payload();
 
 
 --
@@ -2146,6 +2498,14 @@ ALTER TABLE ONLY public.schedules
 
 
 --
+-- Name: payroll_outbox_events fk_rails_3ef98dfa9e; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_outbox_events
+    ADD CONSTRAINT fk_rails_3ef98dfa9e FOREIGN KEY (payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: employee_pay_rates fk_rails_3f5ac92d21; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2191,6 +2551,14 @@ ALTER TABLE ONLY public.time_entries
 
 ALTER TABLE ONLY public.payroll_batches
     ADD CONSTRAINT fk_rails_634c1f225c FOREIGN KEY (finalized_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: payroll_calendar_periods fk_rails_76b188599e; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_calendar_periods
+    ADD CONSTRAINT fk_rails_76b188599e FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE RESTRICT;
 
 
 --
@@ -2274,6 +2642,14 @@ ALTER TABLE ONLY public.payroll_batch_exclusions
 
 
 --
+-- Name: payroll_calendar_period_revisions fk_rails_d376da3b87; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_calendar_period_revisions
+    ADD CONSTRAINT fk_rails_d376da3b87 FOREIGN KEY (payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: time_entries fk_rails_e358f238b8; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2296,6 +2672,7 @@ ALTER TABLE ONLY public.schedules
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260913010000'),
 ('20260904011000'),
 ('20260904010000'),
 ('20260902010000'),

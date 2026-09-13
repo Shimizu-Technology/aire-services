@@ -63,4 +63,28 @@ RSpec.describe TimeEntry, type: :model do
       expect(entry.errors[:time_category]).to include("must be active")
     end
   end
+
+  describe ".countable" do
+    it "matches per-entry payroll eligibility for every approval state and entry method" do
+      approval_states = [ nil, "pending", "approved", "denied" ]
+      entries = %w[clock manual].product(approval_states).map do |entry_method, approval_status|
+        create(
+          :time_entry,
+          entry_method: entry_method,
+          clock_source: entry_method == "clock" ? "kiosk" : nil,
+          approval_status: approval_status,
+          status: "completed"
+        )
+      end
+
+      countable_ids = described_class.countable.where(id: entries.map(&:id)).pluck(:id)
+
+      entries.each do |entry|
+        expect(countable_ids.include?(entry.id)).to eq(entry.counts_toward_hours?),
+          "expected scope and instance eligibility to agree for #{entry.entry_method}/#{entry.approval_status.inspect}"
+      end
+      expect(entries.select(&:counts_toward_hours?).map { |entry| [ entry.entry_method, entry.approval_status ] })
+        .to contain_exactly([ "clock", nil ], [ "clock", "approved" ], [ "manual", "approved" ])
+    end
+  end
 end

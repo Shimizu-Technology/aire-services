@@ -7,6 +7,18 @@ RSpec.describe QueueRuntime do
       expect(described_class.adapter({})).to eq("inline")
     end
 
+    it "defaults production to the durable queue" do
+      expect(described_class.adapter("RAILS_ENV" => "production")).to eq("solid_queue")
+    end
+
+    it "honors RACK_ENV when RAILS_ENV is absent" do
+      env = { "RACK_ENV" => "production" }
+
+      expect(described_class.environment(env)).to eq("production")
+      expect(described_class.adapter(env)).to eq("solid_queue")
+      expect(described_class.solid_queue_in_puma?(env)).to be(true)
+    end
+
     it "accepts supported adapters case-insensitively" do
       expect(described_class.adapter("ACTIVE_JOB_QUEUE_ADAPTER" => " Solid_Queue ")).to eq("solid_queue")
     end
@@ -38,6 +50,10 @@ RSpec.describe QueueRuntime do
         "ACTIVE_JOB_QUEUE_ADAPTER" => "inline",
         "SOLID_QUEUE_IN_PUMA" => "true"
       )).to be(false)
+    end
+
+    it "runs the durable queue in Puma by default in production" do
+      expect(described_class.solid_queue_in_puma?("RAILS_ENV" => "production")).to be(true)
     end
   end
 end
