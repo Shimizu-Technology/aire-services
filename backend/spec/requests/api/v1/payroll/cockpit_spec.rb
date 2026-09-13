@@ -646,10 +646,24 @@ RSpec.describe "Payroll cockpit API", type: :request do
       source_user_uuid: employee.payroll_integration_uuid,
       source_snapshot: { employee_name: employee.full_name, work_date: entry.work_date.iso8601 }
     )
+    second_entry = create_entry(work_date: period.start_date + 1.day)
+    create(
+      :payroll_settlement_case,
+      origin_payroll_batch: settlement_case.origin_payroll_batch,
+      source_time_entry_id: second_entry.id,
+      source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid
+    )
 
+    source_entry_loads = 0
+    allow(TimeEntry).to receive(:includes).and_wrap_original do |original, *arguments|
+      source_entry_loads += 1 if arguments == [ :user, :time_category ]
+      original.call(*arguments)
+    end
     get "/api/v1/payroll/cockpit/settlement_cases", headers: headers
 
     expect(response).to have_http_status(:ok)
+    expect(source_entry_loads).to eq(1)
     expect(json.fetch(:settlement_cases)).to include(
       include(
         id: settlement_case.public_id,
@@ -689,6 +703,36 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(response).to have_http_status(:ok)
     expect(json.dig(:command, :replayed)).to be(true)
     expect(json).not_to have_key(:settlement_case)
+  end
+
+  it "rejects a regular route to a failed period that has no scheduled retry" do
+    settlement_case = create(:payroll_settlement_case)
+    target = create(
+      :payroll_calendar_period,
+      external_pay_period_id: "nonretryable-target",
+      start_date: Date.new(2026, 11, 1),
+      end_date: Date.new(2026, 11, 15),
+      pay_date: Date.new(2026, 11, 25),
+      cutoff_at: ActiveSupport::TimeZone["Pacific/Guam"].local(2026, 11, 18, 17),
+      status: "failed",
+      next_finalization_attempt_at: nil,
+      last_finalization_error: "Requires operator review"
+    )
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: [ "settlement_case_management" ])
+
+    post "/api/v1/payroll/cockpit/settlement_cases/#{settlement_case.public_id}/route",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: settlement_case.lock_version,
+           destination_kind: "regular",
+           target_external_pay_period_id: target.external_pay_period_id,
+           reason: "Try an unavailable regular payroll"
+         }.to_json,
+         headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to include("future, unfinalized regular payroll period")
+    expect(settlement_case.reload).to have_attributes(status: "open", destination_kind: "unassigned")
   end
 
   it "records source-linked supplemental payment acknowledgements in order without inferring settlement" do

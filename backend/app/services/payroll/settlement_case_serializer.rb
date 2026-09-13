@@ -2,12 +2,15 @@
 
 module Payroll
   class SettlementCaseSerializer
-    def initialize(settlement_case)
+    SOURCE_ENTRY_NOT_LOADED = Object.new.freeze
+
+    def initialize(settlement_case, source_time_entry: SOURCE_ENTRY_NOT_LOADED)
       @settlement_case = settlement_case
+      @source_time_entry = source_time_entry
     end
 
     def as_json
-      entry = TimeEntry.includes(:user, :time_category).find_by(id: settlement_case.source_time_entry_id)
+      entry = source_time_entry
       snapshot = settlement_case.source_snapshot || {}
       {
         id: settlement_case.public_id,
@@ -57,6 +60,12 @@ module Payroll
     private
 
     attr_reader :settlement_case
+
+    def source_time_entry
+      return @source_time_entry unless @source_time_entry.equal?(SOURCE_ENTRY_NOT_LOADED)
+
+      @source_time_entry = TimeEntry.includes(:user, :time_category).find_by(id: settlement_case.source_time_entry_id)
+    end
 
     def category_for(entry, snapshot)
       return { id: entry.time_category.id, key: entry.time_category.key, name: entry.time_category.name } if entry&.time_category

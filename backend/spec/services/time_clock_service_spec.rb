@@ -386,6 +386,37 @@ RSpec.describe TimeClockService, type: :service do
         overtime_approved_at: nil
       )
     end
+
+    it "records overtime approval and denial in active settlement-case timelines" do
+      admin = create(:user, :admin)
+      approved_entry = create(:time_entry, user: user, approval_status: "approved", overtime_status: "pending")
+      denied_entry = create(:time_entry, user: user, approval_status: "approved", overtime_status: "pending")
+      origin_batch = create(:payroll_batch)
+      approved_case = create(
+        :payroll_settlement_case,
+        origin_payroll_batch: origin_batch,
+        source_time_entry_id: approved_entry.id,
+        source_user_id: user.id
+      )
+      denied_case = create(
+        :payroll_settlement_case,
+        origin_payroll_batch: origin_batch,
+        source_time_entry_id: denied_entry.id,
+        source_user_id: user.id
+      )
+
+      described_class.approve_overtime(entry: approved_entry, approved_by: admin, note: "Verified")
+      described_class.deny_overtime(entry: denied_entry, denied_by: admin, note: "Not authorized")
+
+      expect(approved_case.payroll_settlement_case_events.last).to have_attributes(
+        event_type: "approval_changed",
+        metadata: include("approval_kind" => "overtime", "decision" => "approved")
+      )
+      expect(denied_case.payroll_settlement_case_events.last).to have_attributes(
+        event_type: "approval_changed",
+        metadata: include("approval_kind" => "overtime", "decision" => "denied")
+      )
+    end
   end
 
   describe ".current_status" do

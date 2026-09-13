@@ -13,6 +13,7 @@ class PayrollCalendarPeriod < ApplicationRecord
            foreign_key: :target_payroll_calendar_period_id,
            dependent: :restrict_with_error,
            inverse_of: :target_payroll_calendar_period
+  has_one :payroll_settlement_reconciliation, dependent: :restrict_with_error
 
   validates :external_pay_period_id, :start_date, :end_date, :pay_date, :cutoff_at,
             :publication_id, :request_checksum, presence: true

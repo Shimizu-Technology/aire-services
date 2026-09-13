@@ -50,7 +50,9 @@ module Payroll
       case destination_kind
       when "regular"
         period = PayrollCalendarPeriod.find_by!(external_pay_period_id: target_external_pay_period_id)
-        if period.status == "finalized" || period.start_date <= settlement_case.origin_payroll_batch.end_date
+        retryable = period.status == "failed" && period.next_finalization_attempt_at.present?
+        eligible = period.status == "scheduled" || retryable
+        unless eligible && period.start_date > settlement_case.origin_payroll_batch.end_date
           raise RoutingError, "Choose a future, unfinalized regular payroll period"
         end
         [

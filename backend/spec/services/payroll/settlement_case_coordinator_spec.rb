@@ -82,6 +82,24 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
     )
   end
 
+  it "preserves the initiating administrator on asynchronously captured case events" do
+    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "actor-origin")
+    admin = create(:user, :admin)
+    travel_to(origin.cutoff_at + 1.minute) do
+      Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
+    end
+    late = entry(period: origin, approval_status: "approved", created_at: origin.cutoff_at + 2.minutes)
+
+    Current.set(user: nil) do
+      PayrollSettlementCaseCaptureJob.perform_now(late.id, nil, admin.id)
+    end
+
+    opened = PayrollSettlementCase.find_by!(source_time_entry_id: late.id)
+      .payroll_settlement_case_events.find_by!(event_type: "opened")
+    expect(opened.actor).to eq(admin)
+    expect(opened.actor_payroll_integration_uuid).to eq(admin.payroll_integration_uuid)
+  end
+
   it "captures the paid-hour correction when an included entry becomes unpayable after cutoff" do
     origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "approval-origin")
     target = calendar_period(start_date: Date.new(2026, 10, 16), pay_date: Date.new(2026, 11, 10), external_id: "approval-target")
@@ -151,5 +169,77 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
       status: "scheduled"
     )
     expect(settlement_case.source_snapshot).to include("employee_name" => "Case Worker")
+  end
+
+  it "supersedes an unassigned correction before creating the deletion case" do
+    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "unassigned-delete-origin")
+    included = entry(period: origin, approval_status: "approved")
+    included.update_columns(entry_method: "clock", clock_source: "kiosk")
+
+    travel_to(origin.cutoff_at + 1.minute) do
+      Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
+      included.update!(end_time: included.end_time + 1.hour)
+      described_class.record_entry!(included)
+      described_class.record_deletion!(included, actor: create(:user, :admin))
+    end
+
+    cases = PayrollSettlementCase.where(source_time_entry_id: included.id).order(:id)
+    expect(cases.count).to eq(2)
+    expect(cases.first).to have_attributes(status: "superseded", destination_kind: "unassigned")
+    expect(cases.last).to have_attributes(status: "open", origin_reason: "deleted_after_cutoff", destination_kind: "unassigned")
+  end
+
+  it "keeps not-payable settlement cases out of the ready-for-payroll count" do
+    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "not-payable-origin")
+    held = entry(period: origin)
+    travel_to(origin.cutoff_at + 1.minute) do
+      Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
+    end
+    held.update!(approval_status: "approved", approved_by: create(:user, :admin), approved_at: Time.current)
+    settlement_case = PayrollSettlementCase.find_by!(source_time_entry_id: held.id)
+    Payroll::SettlementCaseRouter.new(
+      settlement_case: settlement_case,
+      destination_kind: "not_payable",
+      target_external_pay_period_id: nil,
+      action_due_on: nil,
+      assigned_to_id: nil,
+      reason: "Reviewed and determined not payable",
+      actor: create(:user, :admin)
+    ).call
+
+    queue = Payroll::CarryoverQueue.new.call
+
+    expect(queue.dig(:items, 0, :status)).to eq("not_payable")
+    expect(queue.fetch(:summary)).to include(ready_for_next_batch_count: 0, not_payable_count: 1)
+  end
+
+  it "reconciles old unmarked periods once while continuing to revisit recent periods" do
+    old_batch = create(
+      :payroll_batch,
+      start_date: Date.new(2025, 1, 1),
+      end_date: Date.new(2025, 1, 15),
+      cutoff_at: guam.local(2025, 1, 18, 17),
+      finalized_at: guam.local(2025, 1, 18, 17)
+    )
+    old_period = create(
+      :payroll_calendar_period,
+      start_date: old_batch.start_date,
+      end_date: old_batch.end_date,
+      pay_date: Date.new(2025, 1, 25),
+      cutoff_at: old_batch.cutoff_at,
+      status: "finalized",
+      payroll_batch: old_batch,
+      finalized_at: old_batch.finalized_at,
+      next_finalization_attempt_at: nil
+    )
+
+    travel_to(guam.local(2026, 10, 1, 9)) do
+      described_class.sync_finalized_periods!
+      expect(old_period.reload.payroll_settlement_reconciliation).to be_present
+
+      expect(described_class).not_to receive(:record_missing_exclusion_cases!)
+        .with(have_attributes(id: old_period.id))
+      described_class.sync_finalized_periods!
+    end
   end
 end

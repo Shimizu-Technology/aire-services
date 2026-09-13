@@ -164,7 +164,7 @@ class TimeEntry < ApplicationRecord
 
   def capture_post_cutoff_payroll_case
     previous_work_date = previous_changes.dig("work_date", 0)
-    PayrollSettlementCaseCaptureJob.perform_later(id, previous_work_date&.to_s)
+    PayrollSettlementCaseCaptureJob.perform_later(id, previous_work_date&.to_s, Current.user&.id)
   end
 
   def set_zero_hours_if_clocked_in

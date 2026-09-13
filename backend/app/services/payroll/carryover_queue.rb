@@ -67,7 +67,7 @@ module Payroll
         .to_a
         .group_by { |event| [ event.payroll_batch_id, event.source_time_entry_id ] }
       settlement_cases = PayrollSettlementCase
-        .includes(:target_payroll_calendar_period, :assigned_to)
+        .includes(:target_payroll_calendar_period, :assigned_to, :payroll_settlement_case_events)
         .where(source_time_entry_id: entry_ids)
         .order(:id)
         .to_a
@@ -103,7 +103,9 @@ module Payroll
       entry_events = batch ? processing_events.fetch([ batch.id, exclusion.source_time_entry_id ], []) : []
       processing = entry_processing_status(entry_events) || batch&.processing_status
       snapshot = exclusion.snapshot || {}
-      status = status_for(exclusion, entry, batch, processing)
+      return if settlement_case&.status.in?(%w[settled superseded])
+
+      status = status_for(exclusion, entry, batch, processing, settlement_case)
 
       {
         source_time_entry_id: exclusion.source_time_entry_id.to_s,
@@ -139,7 +141,15 @@ module Payroll
       }
     end
 
-    def status_for(exclusion, entry, batch, processing)
+    def status_for(exclusion, entry, batch, processing, settlement_case)
+      return "not_payable" if settlement_case&.status == "not_payable"
+      if settlement_case&.destination_kind == "supplemental" && settlement_case.status == "in_payroll"
+        settlement_status = settlement_case.payroll_settlement_case_events
+          .select { |event| event.event_type.in?(SettlementCaseAcknowledger::EVENT_TYPES) }
+          .max_by { |event| [ event.occurred_at, event.id ] }
+          &.event_type
+        return settlement_status if settlement_status
+      end
       return processing&.fetch(:status, nil) || "awaiting_cornerstone" if batch
       return "not_payable" if entry.nil? || exclusion.reason.in?(%w[denied_approval denied_overtime])
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])

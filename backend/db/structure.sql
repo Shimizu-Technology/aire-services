@@ -898,7 +898,7 @@ CREATE TABLE public.payroll_settlement_cases (
     CONSTRAINT check_payroll_settlement_cases_included_shape CHECK ((((status)::text <> ALL ((ARRAY['in_payroll'::character varying, 'settled'::character varying])::text[])) OR ((destination_kind)::text = 'supplemental'::text) OR (included_payroll_batch_id IS NOT NULL))),
     CONSTRAINT check_payroll_settlement_cases_owner_role CHECK (((owner_role)::text = 'aire_admins'::text)),
     CONSTRAINT check_payroll_settlement_cases_resolution_shape CHECK ((((status)::text = ANY ((ARRAY['settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[])) = (resolved_at IS NOT NULL))),
-    CONSTRAINT check_payroll_settlement_cases_routing_shape CHECK (((((destination_kind)::text = 'regular'::text) AND (target_payroll_calendar_period_id IS NOT NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'supplemental'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'unassigned'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = 'open'::text)) OR (((destination_kind)::text = 'not_payable'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = 'not_payable'::text)))),
+    CONSTRAINT check_payroll_settlement_cases_routing_shape CHECK (((((destination_kind)::text = 'regular'::text) AND (target_payroll_calendar_period_id IS NOT NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'supplemental'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NOT NULL)) OR (((destination_kind)::text = 'unassigned'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = ANY ((ARRAY['open'::character varying, 'superseded'::character varying])::text[]))) OR (((destination_kind)::text = 'not_payable'::text) AND (target_payroll_calendar_period_id IS NULL) AND (target_external_pay_period_id IS NULL) AND ((status)::text = 'not_payable'::text)))),
     CONSTRAINT check_payroll_settlement_cases_snapshot CHECK ((jsonb_typeof(source_snapshot) = 'object'::text)),
     CONSTRAINT check_payroll_settlement_cases_status CHECK (((status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying, 'settled'::character varying, 'not_payable'::character varying, 'superseded'::character varying])::text[])))
 );
@@ -921,6 +921,38 @@ CREATE SEQUENCE public.payroll_settlement_cases_id_seq
 --
 
 ALTER SEQUENCE public.payroll_settlement_cases_id_seq OWNED BY public.payroll_settlement_cases.id;
+
+
+--
+-- Name: payroll_settlement_reconciliations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_settlement_reconciliations (
+    id bigint NOT NULL,
+    payroll_calendar_period_id bigint NOT NULL,
+    reconciled_at timestamp(6) without time zone NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_settlement_reconciliations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_settlement_reconciliations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_settlement_reconciliations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_settlement_reconciliations_id_seq OWNED BY public.payroll_settlement_reconciliations.id;
 
 
 --
@@ -1505,6 +1537,13 @@ ALTER TABLE ONLY public.payroll_settlement_cases ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: payroll_settlement_reconciliations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_reconciliations ALTER COLUMN id SET DEFAULT nextval('public.payroll_settlement_reconciliations_id_seq'::regclass);
+
+
+--
 -- Name: report_exports id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1742,6 +1781,14 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 
 
 --
+-- Name: payroll_settlement_reconciliations payroll_settlement_reconciliations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_reconciliations
+    ADD CONSTRAINT payroll_settlement_reconciliations_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: report_exports report_exports_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1943,6 +1990,13 @@ CREATE INDEX idx_payroll_settlement_case_events_timeline ON public.payroll_settl
 
 
 --
+-- Name: idx_payroll_settlement_cases_active_origin_entry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_settlement_cases_active_origin_entry ON public.payroll_settlement_cases USING btree (origin_payroll_batch_id, source_time_entry_id) WHERE ((status)::text = ANY ((ARRAY['open'::character varying, 'scheduled'::character varying, 'in_payroll'::character varying])::text[]));
+
+
+--
 -- Name: idx_payroll_settlement_cases_included_batch; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1975,6 +2029,13 @@ CREATE INDEX idx_payroll_settlement_cases_target_period ON public.payroll_settle
 --
 
 CREATE INDEX idx_payroll_settlement_cases_work_queue ON public.payroll_settlement_cases USING btree (status, action_due_on);
+
+
+--
+-- Name: idx_payroll_settlement_reconciliations_period; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_settlement_reconciliations_period ON public.payroll_settlement_reconciliations USING btree (payroll_calendar_period_id);
 
 
 --
@@ -2898,6 +2959,14 @@ ALTER TABLE ONLY public.payroll_batch_entries
 
 ALTER TABLE ONLY public.employee_pay_rates
     ADD CONSTRAINT fk_rails_31663a1dca FOREIGN KEY (time_category_id) REFERENCES public.time_categories(id);
+
+
+--
+-- Name: payroll_settlement_reconciliations fk_rails_31d292553b; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_settlement_reconciliations
+    ADD CONSTRAINT fk_rails_31d292553b FOREIGN KEY (payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id) ON DELETE RESTRICT;
 
 
 --

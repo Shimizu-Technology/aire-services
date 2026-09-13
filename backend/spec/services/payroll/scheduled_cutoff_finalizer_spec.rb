@@ -107,6 +107,33 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     end
   end
 
+  it "does not misclassify reconciliation failure as a failure of a directly requested cutoff" do
+    time_entry(entry_method: "clock", approval_status: nil)
+    allow(Payroll::SettlementCaseCoordinator).to receive(:sync_finalized_periods!).and_raise("old reconciliation failed")
+    allow(Rails.error).to receive(:report)
+
+    travel_to(cutoff + 2.minutes) do
+      result = described_class.new(period_id: period.id).call
+
+      expect(result[:status]).to eq("finalized")
+      expect(period.reload.status).to eq("finalized")
+      expect(AuditLog.where(action: "payroll_calendar_period.finalization_failed", auditable: period)).not_to exist
+    end
+  end
+
+  it "continues processing due periods when the reconciliation sweep fails" do
+    time_entry(entry_method: "clock", approval_status: nil)
+    allow(Payroll::SettlementCaseCoordinator).to receive(:sync_finalized_periods!).and_raise("old reconciliation failed")
+    allow(Rails.error).to receive(:report)
+
+    travel_to(cutoff + 2.minutes) do
+      result = described_class.call_due
+
+      expect(result).to contain_exactly(include(status: "finalized"))
+      expect(period.reload.status).to eq("finalized")
+    end
+  end
+
   it "blocks out-of-order automated finalization without retrying or pulling future carryovers backward" do
     later_batch = PayrollBatch.create!(
       public_id: "AIRE-PAY-LATER-BATCH",

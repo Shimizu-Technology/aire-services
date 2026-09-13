@@ -3,6 +3,7 @@
 module Payroll
   class SettlementCaseCoordinator
     AUTO_ROUTE_REASONS = (PayrollBatchExclusion::CARRYOVER_REASONS + %w[changed_after_cutoff deleted_after_cutoff]).freeze
+    DEFAULT_RECONCILIATION_LOOKBACK_DAYS = 62
 
     class << self
       def prepare_for_period!(period)
@@ -10,9 +11,16 @@ module Payroll
       end
 
       def sync_finalized_periods!
-        PayrollCalendarPeriod.where(status: "finalized").includes(:payroll_batch).find_each do |period|
-          record_missing_exclusion_cases!(period)
-          record_post_cutoff_entries!(period)
+        reconciliation_scope.includes(:payroll_batch).find_each do |period|
+          begin
+            record_missing_exclusion_cases!(period)
+            record_post_cutoff_entries!(period)
+            PayrollSettlementReconciliation.create_or_find_by!(payroll_calendar_period: period) do |marker|
+              marker.reconciled_at = Time.current
+            end
+          rescue StandardError => e
+            report_reconciliation_failure(period, e)
+          end
         end
       end
 
@@ -74,7 +82,8 @@ module Payroll
           end
       end
 
-      def record_entry!(entry, previous_work_date: nil)
+      def record_entry!(entry, previous_work_date: nil, actor: nil, actor_id: nil)
+        resolved_actor = actor || User.find_by(id: actor_id) || Current.user
         relevant_periods_for(entry, previous_work_date: previous_work_date).each do |period|
           next unless entry.created_at > period.cutoff_at || entry.updated_at > period.cutoff_at
           next if PayrollSettlementCase.active.exists?(origin_payroll_batch: period.payroll_batch, source_time_entry_id: entry.id)
@@ -102,7 +111,7 @@ module Payroll
             work_date: entry.work_date,
             held_hours: held_hours,
             source_snapshot: snapshot_for(entry),
-            actor: Current.user
+            actor: resolved_actor
           )
         end
       end
@@ -257,8 +266,53 @@ module Payroll
           source_time_entry_id: source_time_entry_id,
           origin_reason: reason
         )
+        active_case = PayrollSettlementCase.active.find_by(
+          origin_payroll_batch: origin_batch,
+          source_time_entry_id: source_time_entry_id
+        )
+        return active_case if active_case
+
         scope = exclusion ? scope.where(origin_payroll_batch_exclusion: exclusion) : scope.where(source_time_entry_version: source_time_entry_version)
-        scope.find_by!
+        scope.take!
+      end
+
+      def reconciliation_scope
+        lookback_start = Date.current - reconciliation_lookback_days.days
+        PayrollCalendarPeriod
+          .where(status: "finalized")
+          .left_outer_joins(:payroll_settlement_reconciliation)
+          .where(
+            "payroll_settlement_reconciliations.id IS NULL OR payroll_calendar_periods.end_date >= ?",
+            lookback_start
+          )
+      end
+
+      def reconciliation_lookback_days
+        Integer(ENV.fetch("PAYROLL_SETTLEMENT_RECONCILIATION_LOOKBACK_DAYS", DEFAULT_RECONCILIATION_LOOKBACK_DAYS.to_s), 10)
+          .clamp(1, 366)
+      rescue ArgumentError
+        DEFAULT_RECONCILIATION_LOOKBACK_DAYS
+      end
+
+      def report_reconciliation_failure(period, error)
+        Rails.error.report(
+          error,
+          handled: true,
+          severity: :warning,
+          context: { payroll_calendar_period_id: period.external_pay_period_id, operation: "settlement_case_reconciliation" }
+        )
+        AuditLog.record!(
+          action: "payroll_settlement_cases.reconciliation_failed",
+          actor: nil,
+          actor_kind: "system",
+          source: "system",
+          event_category: "payroll",
+          outcome: "failed",
+          auditable: period,
+          metadata: { error_class: error.class.name, error: error.message.to_s.truncate(500) }
+        )
+      rescue StandardError => reporting_error
+        Rails.logger.error("Payroll settlement reconciliation reporting failed: #{reporting_error.class}: #{reporting_error.message}")
       end
 
       def next_regular_period(period)

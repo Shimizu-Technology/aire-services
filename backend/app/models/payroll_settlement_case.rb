@@ -62,7 +62,9 @@ class PayrollSettlementCase < ApplicationRecord
       errors.add(:target_external_pay_period_id, "is required for a supplemental payroll") if target_external_pay_period_id.blank?
       errors.add(:target_payroll_calendar_period, "must be blank for a supplemental payroll") if target_payroll_calendar_period.present?
     elsif destination_kind == "unassigned"
-      errors.add(:status, "must be open while the destination is unassigned") unless status == "open"
+      unless status.in?(%w[open superseded])
+        errors.add(:status, "must be open or superseded while the destination is unassigned")
+      end
       errors.add(:base, "unassigned cases cannot name a payroll period") if target_payroll_calendar_period.present? || target_external_pay_period_id.present?
     elsif destination_kind == "not_payable"
       errors.add(:status, "must be not_payable for a not-payable destination") unless status == "not_payable"

@@ -6,10 +6,23 @@ module Payroll
 
     class << self
       def call_due(now: Time.current)
-        SettlementCaseCoordinator.sync_finalized_periods!
+        reconcile_settlement_cases_safely
         PayrollCalendarPeriod.due_at(now).order(:cutoff_at, :id).pluck(:id).map do |period_id|
           new(period_id: period_id, now: now, reconcile_settlement_cases: false).call
         end
+      end
+
+      def reconcile_settlement_cases_safely
+        SettlementCaseCoordinator.sync_finalized_periods!
+      rescue StandardError => e
+        Rails.error.report(
+          e,
+          handled: true,
+          severity: :warning,
+          context: { operation: "settlement_case_reconciliation" }
+        )
+        Rails.logger.error("Payroll settlement reconciliation failed: #{e.class}: #{e.message}")
+        nil
       end
     end
 
@@ -22,7 +35,7 @@ module Payroll
     end
 
     def call
-      SettlementCaseCoordinator.sync_finalized_periods! if reconcile_settlement_cases
+      self.class.reconcile_settlement_cases_safely if reconcile_settlement_cases
       batch = finalize_transaction!
       { period_id: period_id, status: batch ? "finalized" : "skipped", payroll_batch_id: batch&.public_id }
     rescue StandardError => e

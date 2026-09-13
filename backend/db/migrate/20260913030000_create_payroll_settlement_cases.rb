@@ -49,6 +49,11 @@ class CreatePayrollSettlementCases < ActiveRecord::Migration[8.0]
               unique: true,
               where: "origin_payroll_batch_exclusion_id IS NULL",
               name: "idx_payroll_settlement_cases_synthetic_origin_unique"
+    add_index :payroll_settlement_cases,
+              [ :origin_payroll_batch_id, :source_time_entry_id ],
+              unique: true,
+              where: "status IN ('open', 'scheduled', 'in_payroll')",
+              name: "idx_payroll_settlement_cases_active_origin_entry"
     add_check_constraint :payroll_settlement_cases,
                          "held_total_hours >= 0",
                          name: "check_payroll_settlement_cases_hours"
@@ -68,7 +73,7 @@ class CreatePayrollSettlementCases < ActiveRecord::Migration[8.0]
                          <<~SQL.squish,
                            (destination_kind = 'regular' AND target_payroll_calendar_period_id IS NOT NULL AND target_external_pay_period_id IS NOT NULL)
                            OR (destination_kind = 'supplemental' AND target_payroll_calendar_period_id IS NULL AND target_external_pay_period_id IS NOT NULL)
-                           OR (destination_kind = 'unassigned' AND target_payroll_calendar_period_id IS NULL AND target_external_pay_period_id IS NULL AND status = 'open')
+                           OR (destination_kind = 'unassigned' AND target_payroll_calendar_period_id IS NULL AND target_external_pay_period_id IS NULL AND status IN ('open', 'superseded'))
                            OR (destination_kind = 'not_payable' AND target_payroll_calendar_period_id IS NULL AND target_external_pay_period_id IS NULL AND status = 'not_payable')
                          SQL
                          name: "check_payroll_settlement_cases_routing_shape"
@@ -110,6 +115,14 @@ class CreatePayrollSettlementCases < ActiveRecord::Migration[8.0]
     add_check_constraint :payroll_settlement_case_events,
                          "to_status IN ('open', 'scheduled', 'in_payroll', 'settled', 'not_payable', 'superseded')",
                          name: "check_payroll_settlement_case_events_to_status"
+
+    create_table :payroll_settlement_reconciliations do |t|
+      t.references :payroll_calendar_period, null: false,
+                   foreign_key: { on_delete: :restrict },
+                   index: { unique: true, name: "idx_payroll_settlement_reconciliations_period" }
+      t.datetime :reconciled_at, null: false
+      t.timestamps
+    end
 
     remove_check_constraint :payroll_integration_grants,
                             "capabilities <@ ARRAY['time_approval', 'payroll_finalization']::varchar[]",

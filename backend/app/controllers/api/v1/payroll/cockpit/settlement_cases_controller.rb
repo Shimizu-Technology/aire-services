@@ -28,9 +28,16 @@ module Api
             end
             queue_summary = summary(scope)
             page = pagination_for(scope, maximum: 250)
+            records = page.fetch(:records)
+            source_entries = TimeEntry
+              .includes(:user, :time_category)
+              .where(id: records.map(&:source_time_entry_id))
+              .index_by(&:id)
 
             render json: {
-              settlement_cases: page.fetch(:records).map { |settlement_case| serialize(settlement_case) },
+              settlement_cases: records.map do |settlement_case|
+                serialize(settlement_case, source_time_entry: source_entries[settlement_case.source_time_entry_id])
+              end,
               pagination: page.fetch(:metadata),
               summary: queue_summary
             }
@@ -88,8 +95,11 @@ module Api
             @settlement_case = PayrollSettlementCase.find_by!(public_id: params[:id])
           end
 
-          def serialize(settlement_case)
-            ::Payroll::SettlementCaseSerializer.new(settlement_case.reload).as_json
+          def serialize(settlement_case, source_time_entry: ::Payroll::SettlementCaseSerializer::SOURCE_ENTRY_NOT_LOADED)
+            ::Payroll::SettlementCaseSerializer.new(
+              settlement_case.reload,
+              source_time_entry: source_time_entry
+            ).as_json
           end
 
           def summary(scope)
