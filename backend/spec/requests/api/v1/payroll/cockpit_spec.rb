@@ -103,6 +103,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
   end
 
   it "returns full entry detail, lifecycle, exceptions, leave, and carryover summaries" do
+    employee.assigned_time_categories << category
     entry = create_entry(description: "Corrected shift")
     create(:leave_request, user: employee, start_date: period.start_date, end_date: period.start_date + 1.day)
 
@@ -117,6 +118,9 @@ RSpec.describe "Payroll cockpit API", type: :request do
       description: "Corrected shift"
     )
     expect(json.dig(:time_entries, 0, :capture)).to include(entry_method: "manual", ordinary: false)
+    expect(json.dig(:time_entries, 0, :available_time_categories)).to eq([
+      { id: category.id.to_s, key: "operations", name: "Operations" }
+    ])
     expect(json.dig(:time_entries, 0, :state)).to include(approval_status: "pending", payable_now: false)
     expect(json.dig(:time_entries, 0, :lifecycle)).to include(status: "awaiting_approval")
 

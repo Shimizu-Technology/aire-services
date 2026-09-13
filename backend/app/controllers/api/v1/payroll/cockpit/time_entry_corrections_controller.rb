@@ -13,7 +13,7 @@ module Api
             entry = TimeEntry
               .joins(:user)
               .merge(User.staff)
-              .includes(:user, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
               .find(params[:time_entry_id])
             run_command(
               action: "time_entry.correction",
@@ -38,7 +38,9 @@ module Api
           private
 
           def serialize(entry)
-            entry = entry.reload
+            entry = TimeEntry
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .find(entry.id)
             lifecycle = ::Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
             period = PayrollCalendarPeriod
               .where("start_date <= ? AND end_date >= ?", entry.work_date, entry.work_date)

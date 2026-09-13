@@ -12,7 +12,7 @@ module Api
           def index
             period = parse_period!
             scope = payroll_period_entry_scope(period)
-              .includes(:user, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
               .order(:work_date, :start_time, :id)
             scope = scope.where(user_id: params[:employee_id]) if params[:employee_id].present?
             scope = scope.where(approval_status: params[:approval_status]) if params[:approval_status].present?
@@ -38,7 +38,7 @@ module Api
             entry = TimeEntry
               .joins(:user)
               .merge(User.staff)
-              .includes(:user, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
               .find(params[:id])
             decision = command_params[:decision].to_s.strip.downcase
             run_command(
@@ -81,7 +81,9 @@ module Api
           private
 
           def serialize_command_entry(entry, period)
-            entry = entry.reload
+            entry = TimeEntry
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .find(entry.id)
             lifecycle = ::Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
             snapshot = period && ::Payroll::CockpitPeriodSnapshot.new(period: period, entries: [ entry ]).call
             { time_entry: ::Payroll::CockpitTimeEntrySerializer.new(
