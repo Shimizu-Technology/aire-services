@@ -41,6 +41,7 @@ Rails.application.routes.draw do
           resources :time_entries, only: [ :index ] do
             member do
               post :approval
+              post :overtime_approval
             end
             resource :correction, only: [ :create ], controller: :time_entry_corrections
           end

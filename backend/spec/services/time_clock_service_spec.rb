@@ -417,6 +417,21 @@ RSpec.describe TimeClockService, type: :service do
         metadata: include("approval_kind" => "overtime", "decision" => "denied")
       )
     end
+
+    it "counts an edited persisted entry exactly once when recalculating overtime" do
+      Setting.set("overtime_daily_threshold_hours", "8")
+      peer = create(:time_entry, user: user, work_date: Date.current, approval_status: "approved")
+      entry = create(:time_entry, user: user, work_date: Date.current, approval_status: "approved")
+      peer.update_column(:hours, 2)
+      entry.update_column(:hours, 7)
+      entry.hours = 1
+
+      expect(described_class.check_overtime_status(user, entry)).to eq("none")
+
+      entry.hours = 7
+      expect(described_class.check_overtime_status(user, entry)).to eq("pending")
+      expect(peer.reload.hours).to eq(2)
+    end
   end
 
   describe ".current_status" do

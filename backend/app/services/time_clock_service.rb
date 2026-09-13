@@ -539,19 +539,25 @@ class TimeClockService
       end
     end
 
-    # Evaluates whether an entry triggers overtime thresholds.
-    # include_entry_hours: true when entry is unsaved (clock_out flow),
-    # false when entry is already persisted (edit flow) to avoid double-counting.
+    # Evaluates whether an entry triggers overtime thresholds. When including the
+    # in-memory entry, its persisted row is excluded before the current hours are
+    # added so both new and edited entries are counted exactly once.
     def check_overtime_status(user, entry, include_entry_hours: true)
       daily_threshold = (Setting.get("overtime_daily_threshold_hours") || "8").to_f
       weekly_threshold = (Setting.get("overtime_weekly_threshold_hours") || "40").to_f
 
-      daily_hours = hours_today(user, entry.work_date)
-      weekly_hours = hours_this_week(user, entry.work_date)
-
       if include_entry_hours
-        daily_hours += entry.hours
-        weekly_hours += entry.hours
+        daily_scope = TimeEntry.countable.for_user(user).for_date(entry.work_date)
+        weekly_scope = TimeEntry.countable.for_user(user).for_week(entry.work_date)
+        if entry.persisted?
+          daily_scope = daily_scope.where.not(id: entry.id)
+          weekly_scope = weekly_scope.where.not(id: entry.id)
+        end
+        daily_hours = daily_scope.sum(:hours).to_f + entry.hours.to_f
+        weekly_hours = weekly_scope.sum(:hours).to_f + entry.hours.to_f
+      else
+        daily_hours = hours_today(user, entry.work_date)
+        weekly_hours = hours_this_week(user, entry.work_date)
       end
 
       if daily_hours > daily_threshold || weekly_hours > weekly_threshold
