@@ -48,12 +48,11 @@ Rails.application.configure do
   config.cache_store = :memory_store
 
   # Payroll cutoffs and integration delivery must continue without an operator
-  # request, so production defaults to the durable Solid Queue runtime.
+  # request, so production defaults to the durable Solid Queue runtime. AIRE's
+  # single-database deployment intentionally uses Active Record's primary
+  # connection rather than Solid Queue's optional separate database role.
   active_job_queue_adapter = QueueRuntime.adapter
   config.active_job.queue_adapter = active_job_queue_adapter.to_sym
-  if QueueRuntime.solid_queue?
-    config.solid_queue.connects_to = { database: { writing: :queue } }
-  end
 
   # Ignore bad email addresses and do not raise email delivery errors.
   # Set this to true and configure the email server for immediate delivery to raise delivery errors.

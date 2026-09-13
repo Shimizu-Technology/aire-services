@@ -37,12 +37,11 @@ production:
   primary: &primary_production
     <<: *default
     url: <%= ENV["DATABASE_URL"] %>
+  # Solid Queue shares the primary Neon database. Its tables are installed by
+  # the normal migration path so Render's `db:prepare` cannot skip them.
   cache:
     <<: *primary_production
     migrations_paths: db/cache_migrate
-  queue:
-    <<: *primary_production
-    migrations_paths: db/queue_migrate
   cable:
     <<: *primary_production
     migrations_paths: db/cable_migrate
