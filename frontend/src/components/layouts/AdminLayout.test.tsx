@@ -31,7 +31,10 @@ vi.mock('../../lib/api', () => ({
 }))
 
 vi.mock('@clerk/clerk-react', () => ({
-  SignedIn: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SignedIn: ({ children }: { children: ReactNode }) => {
+    if (!authMock.value.isClerkEnabled) throw new Error('SignedIn rendered without ClerkProvider')
+    return <>{children}</>
+  },
   UserButton: () => <div>User menu</div>,
 }))
 
@@ -50,6 +53,7 @@ function renderLayout(initialEntry = '/admin') {
 
 describe('AdminLayout kiosk PIN setup', () => {
   beforeEach(() => {
+    authMock.value.isClerkEnabled = true
     authMock.value.userRole = 'employee'
     authMock.value.currentUser = {
       full_name: 'Hourly Pilot',
@@ -114,5 +118,15 @@ describe('AdminLayout kiosk PIN setup', () => {
 
     expect(screen.getAllByRole('link', { name: /my time/i }).length).toBeGreaterThan(0)
     expect(screen.queryByRole('link', { name: /time & payroll/i })).not.toBeInTheDocument()
+  })
+
+  it('renders the local admin workspace without Clerk provider components', () => {
+    authMock.value.isClerkEnabled = false
+    authMock.value.currentUser.needs_kiosk_pin_setup = false
+
+    renderLayout('/admin/payroll')
+
+    expect(screen.getByText('Payroll content')).toBeInTheDocument()
+    expect(screen.queryByText('User menu')).not.toBeInTheDocument()
   })
 })

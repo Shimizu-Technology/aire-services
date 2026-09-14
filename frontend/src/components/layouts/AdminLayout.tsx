@@ -137,9 +137,11 @@ export default function AdminLayout() {
             </div>
             <Link to="/kiosk" className="text-sm text-slate-500 hover:text-slate-900" target="_blank" rel="noopener noreferrer">Kiosk</Link>
             <Link to="/" className="text-sm text-slate-500 hover:text-slate-900">View Site</Link>
-            <SignedIn>
-              <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
-            </SignedIn>
+            {isClerkEnabled && (
+              <SignedIn>
+                <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
+              </SignedIn>
+            )}
           </div>
         </div>
       </div>
