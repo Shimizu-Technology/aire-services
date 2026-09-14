@@ -6,9 +6,11 @@ This API lets Cornerstone Payroll show AIRE's payroll-relevant time data and per
 
 Every request requires `X-Payroll-Shared-Secret`. Read endpoints run as the trusted Cornerstone integration and are recorded in AIRE's audit log.
 
-Commands also require an `X-Aire-Delegation-Token` issued by AIRE. The raw token is shown once when the grant is created; AIRE stores only its SHA-256 digest and a short non-secret hint. Each grant expires after 90 days by default, may never last longer than one year, names its allowed capabilities (`time_approval`, `payroll_finalization`, `time_correction`, and/or `settlement_case_management`), and is bound to one AIRE user. AIRE checks the grant, expiration, current user status, personal access, and current administrator role on every command. A request header cannot grant or elevate an AIRE role.
+Commands also require a personal AIRE administrator identity. The normal path is a durable account link: Cornerstone sends `X-Cornerstone-Actor-Id`, and AIRE resolves it to the administrator who approved the connection. AIRE checks the linked user's current administrator role, active status, and personal sign-in access on every command. The connection has no timer-based expiration. It stops immediately when either side disconnects it or the AIRE account loses access.
 
-Until the AIRE settings screen for grant rotation is added, provision a grant from an authenticated Rails console with `PayrollIntegrationGrant.issue!`. Copy `issued_token` directly into Cornerstone's secret store; it becomes unavailable after the record is reloaded. Revoke access by setting the grant's `active` field to `false`. Never place the raw token in logs, source control, or ordinary settings payloads.
+Cornerstone starts the link with `POST /api/v1/payroll/account_link_sessions`. The request requires the shared secret and includes the Cornerstone actor ID, actor email, and a secure Cornerstone return URL. AIRE returns a 10-minute, single-use authorization URL. The operator signs in to AIRE, reviews both account identities and the allowed payroll actions, and confirms the link. Cornerstone can then check or revoke the link with `GET` or `DELETE /api/v1/payroll/account_links/:external_actor_id`.
+
+The former `X-Aire-Delegation-Token` path remains available during migration. Those grants retain their configured capability and expiration checks. New setup should use account linking; operators no longer need to generate, copy, store, or renew personal tokens.
 
 Every command body requires:
 
@@ -18,7 +20,7 @@ Every command body requires:
 
 An exact retry returns the stored status, sets `command.replayed` to `true`, and returns the minimal immutable `command_result` without executing the action again. The caller then refreshes the normal read endpoint if it needs current resource data. This avoids presenting later edits as though they were the original command result. The receipt retains only target IDs, versions, outcome state, and request checksum—not employee names, email addresses, notes, reasons, or timecard payloads. Reusing a command ID for different input or submitting a stale version returns `409 Conflict`. Successful command receipts and audit events are append-only.
 
-Approval and denial commands return `200 OK` when first accepted and on an exact replay. A due finalization request returns `202 Accepted`, including on replay. Missing authentication returns `401 Unauthorized`; an invalid, expired, inactive, or insufficiently scoped delegation returns `403 Forbidden`; a stale version or reused command ID with different input returns `409 Conflict`; and malformed input or an action that is not currently allowed returns `422 Unprocessable Entity`.
+Approval and denial commands return `200 OK` when first accepted and on an exact replay. A due finalization request returns `202 Accepted`, including on replay. Missing authentication returns `401 Unauthorized`; a missing or inactive account link, an invalid legacy delegation, or an ineligible AIRE account returns `403 Forbidden`; a stale version or reused command ID with different input returns `409 Conflict`; and malformed input or an action that is not currently allowed returns `422 Unprocessable Entity`.
 
 ## Read endpoints
 
