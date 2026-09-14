@@ -67,3 +67,61 @@ RSpec.describe PayrollAccountLinkSession, type: :model do
     expect(session.errors[:return_url]).to include("must be a secure HTTP URL")
   end
 end
+
+RSpec.describe "Payroll account-link authorization concurrency" do
+  self.use_transactional_tests = false
+
+  let(:external_actor_id) { "concurrent-#{SecureRandom.hex(8)}" }
+  let!(:admin) do
+    create(
+      :user,
+      :admin,
+      is_active: true,
+      personal_access_enabled: true,
+      email: "concurrent-link-#{SecureRandom.hex(8)}@example.test",
+      clerk_id: "concurrent_link_#{SecureRandom.hex(8)}"
+    )
+  end
+  let!(:link_session) do
+    PayrollAccountLinkSession.issue!(
+      external_actor_id: external_actor_id,
+      external_actor_email: "chels@example.com",
+      return_url: "https://payroll.example.com/time-tracking-sources"
+    )
+  end
+
+  after do
+    PayrollAccountLinkSession.where(external_actor_id: external_actor_id).delete_all
+    PayrollAccountLink.where(external_actor_id: external_actor_id).delete_all
+    User.where(id: admin.id).delete_all
+  end
+
+  it "allows exactly one of two simultaneous authorization attempts" do
+    ready = Queue.new
+    start = Queue.new
+    workers = 2.times.map do
+      Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          session_copy = PayrollAccountLinkSession.find(link_session.id)
+          admin_copy = User.find(admin.id)
+          ready << true
+          start.pop
+          session_copy.authorize!(admin_copy)
+        rescue StandardError => e
+          e
+        end
+      end
+    end
+
+    2.times { ready.pop }
+    2.times { start << true }
+    results = workers.map(&:value)
+
+    expect(results.count { |result| result.is_a?(PayrollAccountLink) }).to eq(1)
+    errors = results.grep(ActiveRecord::RecordInvalid)
+    expect(errors.one?).to eq(true)
+    expect(errors.first.message).to include("already been used")
+    expect(PayrollAccountLink.where(external_actor_id: external_actor_id).count).to eq(1)
+    expect(link_session.reload.consumed_at).to be_present
+  end
+end

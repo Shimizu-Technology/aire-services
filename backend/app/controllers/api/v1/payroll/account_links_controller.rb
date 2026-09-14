@@ -16,18 +16,22 @@ module Api
         def destroy
           link = find_link
           if link&.active?
-            link.revoke!
-            AuditLog.record!(
-              action: "payroll_account_link.disconnected",
-              actor: nil,
-              actor_kind: "integration",
-              source: "integration",
-              auditable: link,
-              event_category: "security",
-              metadata: { external_system: link.external_system, external_actor_id: link.external_actor_id }
-            )
+            PayrollAccountLink.transaction do
+              link.revoke!
+              AuditLog.record!(
+                action: "payroll_account_link.disconnected",
+                actor: nil,
+                actor_kind: "integration",
+                source: "integration",
+                auditable: link,
+                event_category: "security",
+                metadata: { external_system: link.external_system, external_actor_id: link.external_actor_id }
+              )
+            end
           end
           render json: { account_link: serialize_link(link) }
+        rescue ActiveRecord::RecordInvalid => e
+          render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
         end
 
         private

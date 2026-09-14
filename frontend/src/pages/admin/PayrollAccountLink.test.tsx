@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import PayrollAccountLink from './PayrollAccountLink'
@@ -27,6 +27,18 @@ function renderPage(path = '/admin/payroll-link?token=aire_link_test') {
     <MemoryRouter initialEntries={[path]}>
       <PayrollAccountLink />
     </MemoryRouter>,
+  )
+}
+
+function SwitchablePage() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <button type="button" onClick={() => navigate('/admin/payroll-link?token=aire_link_second')}>
+        Open another request
+      </button>
+      <PayrollAccountLink />
+    </>
   )
 }
 
@@ -73,5 +85,43 @@ describe('PayrollAccountLink', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('expired')
     })
     expect(screen.getByRole('button', { name: /Connect and return/i })).toBeEnabled()
+  })
+
+  it('never displays or authorizes consent details loaded for a previous token', async () => {
+    let resolveSecond!: (value: {
+      data: { account_link_session: typeof session }
+    }) => void
+    const secondResponse = new Promise<{ data: { account_link_session: typeof session } }>((resolve) => {
+      resolveSecond = resolve
+    })
+    apiMock.getPayrollAccountLinkSession
+      .mockResolvedValueOnce({ data: { account_link_session: session } })
+      .mockReturnValueOnce(secondResponse)
+
+    render(
+      <MemoryRouter initialEntries={['/admin/payroll-link?token=aire_link_first']}>
+        <SwitchablePage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Chels Admin')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open another request' }))
+
+    expect(screen.queryByText('Chels Admin')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Connect and return/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Checking this connection request')
+
+    resolveSecond({
+      data: {
+        account_link_session: {
+          ...session,
+          external_actor_email: 'dafne@cornerstone.gu',
+          aire_user: { name: 'Dafne Admin', email: 'dafne@aire.gu' },
+        },
+      },
+    })
+
+    expect(await screen.findByText('Dafne Admin')).toBeInTheDocument()
+    expect(screen.queryByText('Chels Admin')).not.toBeInTheDocument()
   })
 })

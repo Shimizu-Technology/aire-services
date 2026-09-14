@@ -406,6 +406,44 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(entry.approved_by).to eq(admin)
   end
 
+  it "rejects revoked links and linked users who no longer have administrator access" do
+    entry = create_entry
+    invalid_states = [
+      [ :revoked, {} ],
+      [ :non_admin, { role: "employee" } ],
+      [ :inactive, { is_active: false } ],
+      [ :personal_access_disabled, { personal_access_enabled: false } ]
+    ]
+
+    invalid_states.each_with_index do |(state, user_attributes), index|
+      actor = create(:user, :admin, is_active: true, personal_access_enabled: true)
+      actor_id = "cornerstone-invalid-link-#{index}"
+      link = PayrollAccountLink.create!(
+        user: actor,
+        external_actor_id: actor_id,
+        external_actor_email: "operator-#{index}@example.com",
+        linked_at: Time.current
+      )
+      if state == :revoked
+        link.update_columns(active: false, revoked_at: Time.current, updated_at: Time.current)
+      else
+        actor.update_columns(user_attributes.merge(updated_at: Time.current))
+      end
+
+      post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+           params: {
+             command_id: SecureRandom.uuid,
+             expected_version: entry.lock_version,
+             decision: "approve",
+             reason: "This request must remain blocked"
+           }.to_json,
+           headers: headers.except("X-Aire-Delegation-Token").merge("X-Cornerstone-Actor-Id" => actor_id)
+
+      expect(response).to have_http_status(:forbidden), "expected #{state} link to be forbidden"
+      expect(entry.reload.approval_status).to eq("pending")
+    end
+  end
+
   it "rejects delegations whose administrator is inactive or lacks personal access" do
     entry = create_entry
 

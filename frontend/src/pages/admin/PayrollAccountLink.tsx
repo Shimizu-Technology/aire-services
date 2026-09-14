@@ -19,14 +19,19 @@ function callbackWithResult(rawUrl: string, result: string) {
 export default function PayrollAccountLink() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') || ''
-  const [session, setSession] = useState<PayrollAccountLinkSession | null>(null)
+  const [loadedSession, setLoadedSession] = useState<{ token: string; data: PayrollAccountLinkSession } | null>(null)
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const session = loadedSession?.token === token ? loadedSession.data : null
 
   useEffect(() => {
     let active = true
     const load = async () => {
+      setLoading(true)
+      setLoadedSession(null)
+      setError(null)
+      setConnecting(false)
       if (!token) {
         setError('This connection link is incomplete. Return to Cornerstone and start again.')
         setLoading(false)
@@ -38,7 +43,7 @@ export default function PayrollAccountLink() {
       if (response.error || !response.data?.account_link_session) {
         setError(response.error || 'This connection request is invalid or has expired.')
       } else {
-        setSession(response.data.account_link_session)
+        setLoadedSession({ token, data: response.data.account_link_session })
       }
       setLoading(false)
     }
@@ -52,7 +57,7 @@ export default function PayrollAccountLink() {
   )
 
   const connect = async () => {
-    if (!token) return
+    if (!token || loadedSession?.token !== token) return
     setConnecting(true)
     setError(null)
     const response = await api.authorizePayrollAccountLink(token)
@@ -67,14 +72,14 @@ export default function PayrollAccountLink() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_-44px_rgba(15,23,42,0.7)]">
-        <div className="relative overflow-hidden bg-slate-950 px-6 py-8 text-white sm:px-9">
+        <div className="relative overflow-hidden bg-[linear-gradient(135deg,#0f172a,#1e3a5f)] px-6 py-8 text-white sm:px-9">
           <div className="absolute -right-12 -top-20 h-52 w-52 rounded-full bg-cyan-400/15 blur-3xl" aria-hidden="true" />
           <div className="relative flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/25 bg-cyan-300/10">
-              <Link2 className="h-6 w-6 text-cyan-300" aria-hidden="true" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10">
+              <Link2 className="h-6 w-6 text-white" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">One-time connection</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-100">One-time connection</p>
               <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Connect AIRE to Cornerstone Payroll</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
                 Confirm once, then manage AIRE payroll work from Cornerstone without copying tokens or reconnecting every 90 days.
@@ -86,7 +91,7 @@ export default function PayrollAccountLink() {
         <div className="p-6 sm:p-9">
           {loading && (
             <div className="flex min-h-52 items-center justify-center gap-3 text-sm text-slate-600" role="status">
-              <Loader2 className="h-5 w-5 animate-spin text-cyan-700" aria-hidden="true" />
+              <Loader2 className="h-5 w-5 animate-spin text-[#1e3a5f]" aria-hidden="true" />
               Checking this connection request…
             </div>
           )}
@@ -105,8 +110,8 @@ export default function PayrollAccountLink() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cornerstone account</p>
                   <p className="mt-2 break-words text-sm font-semibold text-slate-950">{session.external_actor_email || 'Your signed-in payroll account'}</p>
                 </div>
-                <div className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-cyan-800">AIRE account</p>
+                <div className="rounded-2xl border border-[#1e3a5f]/20 bg-[#1e3a5f]/5 px-4 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#1e3a5f]">AIRE account</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">{session.aire_user.name}</p>
                   {session.aire_user.email && <p className="mt-1 break-words text-xs text-slate-600">{session.aire_user.email}</p>}
                 </div>
@@ -114,7 +119,7 @@ export default function PayrollAccountLink() {
 
               <div>
                 <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-5 w-5 text-cyan-700" aria-hidden="true" />
+                  <ShieldCheck className="h-5 w-5 text-[#1e3a5f]" aria-hidden="true" />
                   <h2 className="font-semibold text-slate-950">Cornerstone will be able to</h2>
                 </div>
                 <ul className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -144,7 +149,7 @@ export default function PayrollAccountLink() {
                   type="button"
                   onClick={() => void connect()}
                   disabled={connecting}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-cyan-700 px-6 py-2.5 text-sm font-semibold text-white shadow-[0_12px_28px_-16px_rgba(14,116,144,0.8)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[#1e3a5f] px-6 py-2.5 text-sm font-semibold text-white shadow-[0_12px_28px_-16px_rgba(30,58,95,0.8)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#162d4b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e3a5f] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
                 >
                   {connecting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Link2 className="h-4 w-4" aria-hidden="true" />}
                   {connecting ? 'Connecting…' : 'Connect and return to Cornerstone'}

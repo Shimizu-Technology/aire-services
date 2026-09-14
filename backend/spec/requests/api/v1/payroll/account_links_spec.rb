@@ -56,6 +56,37 @@ RSpec.describe "Payroll account links", type: :request do
     expect(response.parsed_body.dig("account_link", "connected")).to eq(false)
   end
 
+  it "rolls back authorization when the connected audit event cannot be written" do
+    session = PayrollAccountLinkSession.issue!(
+      external_actor_id: "cornerstone-user-atomic-connect",
+      external_actor_email: "chels@example.com",
+      return_url: "https://payroll.example.com/time-tracking-sources"
+    )
+    fail_audit_for("payroll_account_link.connected")
+
+    post "/api/v1/payroll/account_link_sessions/#{CGI.escapeURIComponent(session.issued_token)}/authorize",
+         headers: admin_headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(PayrollAccountLink.where(external_actor_id: "cornerstone-user-atomic-connect")).to be_empty
+    expect(session.reload).to have_attributes(consumed_at: nil, linked_user_id: nil)
+  end
+
+  it "rolls back revocation when the disconnected audit event cannot be written" do
+    link = PayrollAccountLink.create!(
+      user: admin,
+      external_actor_id: "cornerstone-user-atomic-disconnect",
+      external_actor_email: "chels@example.com",
+      linked_at: Time.current
+    )
+    fail_audit_for("payroll_account_link.disconnected")
+
+    delete "/api/v1/payroll/account_links/#{link.external_actor_id}", headers: service_headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(link.reload).to have_attributes(active: true, revoked_at: nil)
+  end
+
   it "requires service authentication to begin or inspect a connection" do
     post "/api/v1/payroll/account_link_sessions", params: { external_actor_id: "42" }
     expect(response).to have_http_status(:unauthorized)
@@ -80,5 +111,17 @@ RSpec.describe "Payroll account links", type: :request do
 
     expect(response).to have_http_status(:forbidden)
     expect(PayrollAccountLink.count).to eq(0)
+  end
+
+  def fail_audit_for(action)
+    allow(AuditLog).to receive(:record!).and_wrap_original do |original, **attributes|
+      if attributes[:action] == action
+        invalid_audit = AuditLog.new
+        invalid_audit.errors.add(:base, "simulated audit failure")
+        raise ActiveRecord::RecordInvalid, invalid_audit
+      end
+
+      original.call(**attributes)
+    end
   end
 end

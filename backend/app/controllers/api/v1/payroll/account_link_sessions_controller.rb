@@ -43,14 +43,20 @@ module Api
 
         def authorize
           session = available_session!
-          link = session.authorize!(current_user)
-          AuditLog.record!(
-            action: "payroll_account_link.connected",
-            actor: current_user,
-            auditable: link,
-            event_category: "security",
-            metadata: { external_system: link.external_system, external_actor_id: link.external_actor_id }
-          )
+          link = PayrollAccountLink.transaction do
+            authorized_link = session.authorize!(current_user)
+            AuditLog.record!(
+              action: "payroll_account_link.connected",
+              actor: current_user,
+              auditable: authorized_link,
+              event_category: "security",
+              metadata: {
+                external_system: authorized_link.external_system,
+                external_actor_id: authorized_link.external_actor_id
+              }
+            )
+            authorized_link
+          end
 
           render json: {
             account_link: serialize_link(link),
