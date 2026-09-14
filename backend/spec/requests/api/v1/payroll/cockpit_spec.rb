@@ -171,40 +171,35 @@ RSpec.describe "Payroll cockpit API", type: :request do
   end
 
   it "previews exact regular, overtime, and carryover hours for manual payroll entry without a calendar period" do
-    prior_pay_date = period.start_date + 4.days
-    prior_period = create(
-      :payroll_calendar_period,
-      start_date: (period.start_date - 1.month).change(day: 16),
-      end_date: period.start_date - 1.day,
-      pay_date: prior_pay_date,
-      cutoff_at: prior_pay_date.beginning_of_day - 7.days
-    )
+    manual_start = period.end_date + 1.day
+    manual_end = manual_start + 14.days
     carryover = create_entry(
-      work_date: prior_period.end_date,
+      work_date: period.end_date,
       entry_method: "manual",
       approval_status: "pending",
       start_time: ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 9, 0),
       end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 11, 30)
     )
-    travel_to(prior_period.cutoff_at + 1.minute) do
-      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: prior_period.id, now: Time.current).call.fetch(:status))
+    travel_to(period.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call.fetch(:status))
         .to eq("finalized")
     end
     carryover.update!(
       approval_status: "approved",
-      approved_at: period.start_date.beginning_of_day,
+      approved_at: manual_start.beginning_of_day,
       approved_by: admin
     )
     create_entry(
-      work_date: period.start_date,
+      work_date: manual_start,
       entry_method: "clock",
       approval_status: nil,
       hours: 8
     )
+    expect(PayrollCalendarPeriod.where("start_date <= ? AND end_date >= ?", manual_end, manual_start)).to be_empty
 
-    travel_to(period.end_date.end_of_day) do
+    travel_to(manual_end.end_of_day) do
       get "/api/v1/payroll/cockpit/manual_review",
-          params: { start_date: period.start_date.iso8601, end_date: period.end_date.iso8601 },
+          params: { start_date: manual_start.iso8601, end_date: manual_end.iso8601 },
           headers: headers
     end
 
