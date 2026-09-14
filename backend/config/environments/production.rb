@@ -22,14 +22,26 @@ Rails.application.configure do
   # Store durable admin-uploaded media in S3.
   config.active_storage.service = :amazon
 
-  # Assume all access to the app is happening through a SSL-terminating reverse proxy.
-  # config.assume_ssl = true
+  # Render terminates TLS before forwarding requests to Rails. Trust that proxy
+  # signal so Rails generates secure URLs and cookies instead of treating the
+  # internal hop as plain HTTP.
+  config.assume_ssl = true
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  # config.force_ssl = true
+  config.force_ssl = true
 
   # Skip http-to-https redirect for the default health check endpoint.
-  # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
+  config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
+
+  required_encryption_variables = %w[
+    ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY
+    ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY
+    ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT
+  ]
+  missing_encryption_variables = required_encryption_variables.select { |name| ENV[name].blank? }
+  if missing_encryption_variables.any?
+    raise "Missing required Active Record Encryption configuration: #{missing_encryption_variables.join(', ')}"
+  end
 
   # Log to STDOUT with the current request id as a default log tag.
   config.log_tags = [ :request_id ]
