@@ -29,6 +29,7 @@ Approval and denial commands return `200 OK` when first accepted and on an exact
 - `GET /api/v1/payroll/cockpit/time_entries?external_pay_period_id=...`
 - `GET /api/v1/payroll/cockpit/exceptions?external_pay_period_id=...`
 - `GET /api/v1/payroll/cockpit/settlement_cases?external_pay_period_id=...`
+- `GET /api/v1/payroll/cockpit/manual_review?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
 
 Employee and time-entry results are paginated with `page` and `per_page`. The employee limit is 100 rows per page; the time-entry limit is 250. The payload intentionally omits phone numbers, kiosk credentials, location data, public-site fields, and unrelated operational records.
 
@@ -37,6 +38,8 @@ The exceptions endpoint paginates time exceptions with `page` and `per_page`, an
 The period overview includes readiness totals, finalized-batch identity and checksum, batch processing history, and carryover counts. Readiness is evaluated at the published cutoff—not from an entry's current approval state—and a finalized period is read from its persisted immutable rows and exclusions. Time submitted or approved after cutoff remains visible as held for a later payroll. Entry rows preserve the AIRE view of punches, breaks, work category, capture source, manual/ordinary state, approvals, missing punches, cutoff disposition, included hours, exclusion reasons, and the entry-to-payment lifecycle.
 
 The settlement-case endpoint is the durable work queue for time that was not included at cutoff or changed afterward. Each case retains the source-entry version, original batch and reason, hours, responsible AIRE-admin role, action due date, named regular or supplemental destination, and append-only event timeline. A regular destination points to a published AIRE calendar period. A supplemental destination points to an explicit Cornerstone run ID. When no future period has been published, the case remains visibly open with a decision due date; publishing the next regular period assigns eligible carryovers automatically.
+
+The manual-review endpoint is a read-only bridge for an operator who must process an existing Cornerstone pay period before an AIRE calendar was published. It evaluates the requested dates at the current time using the same Batch v2 eligibility and carryover rules as finalization, then returns employee regular and overtime hours, eligible carryover, exclusions, issues, and totals. It does not create or finalize a batch, lock time, change approvals, or mark anything paid. Cornerstone uses it only to compare AIRE's live payable hours with manually entered payroll hours.
 
 ## Command endpoints
 
