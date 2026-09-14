@@ -24,6 +24,8 @@ RSpec.describe ProductionReadiness do
       "ACTIVE_JOB_QUEUE_ADAPTER" => "solid_queue",
       "SOLID_QUEUE_IN_PUMA" => "true",
       "REQUIRE_MFA" => "true",
+      "CLERK_MFA_ATTESTED_INSTANCE_ID" => "ins_live",
+      "CLERK_MFA_EVIDENCE_REF" => "security-evidence/aire-mfa-cutover-2026-09-14",
       "FRONTEND_URL" => "https://aire.example.com",
       "CLERK_SECRET_KEY" => "sk_live_secret",
       "CLERK_JWKS_URL" => "https://clerk.example.com/.well-known/jwks.json",
@@ -157,8 +159,50 @@ RSpec.describe ProductionReadiness do
     report = readiness.run(live: false)
 
     expect(report.failures.map(&:name)).to contain_exactly(
-      "MFA enforcement is attested",
+      "MFA enforcement has instance-bound evidence",
       "production Clerk credentials are configured"
+    )
+  end
+
+  it "requires instance-bound MFA evidence in addition to the attestation flag" do
+    env.delete("CLERK_MFA_EVIDENCE_REF")
+
+    report = readiness.run(live: false)
+
+    expect(report.failures.map(&:name)).to include("MFA enforcement has instance-bound evidence")
+  end
+
+  it "rejects malformed or multiline MFA evidence bindings" do
+    invalid_bindings = [
+      [ "not-a-clerk-instance", "security-evidence/aire" ],
+      [ "ins_live", "security-evidence/aire\nforged" ],
+      [ "\nins_live", "security-evidence/aire" ],
+      [ "ins_live\r\n", "security-evidence/aire" ],
+      [ "ins_live", "\nsecurity-evidence/aire" ],
+      [ "ins_live", "security-evidence/aire\r\n" ]
+    ]
+
+    invalid_bindings.each do |instance_id, evidence_ref|
+      env["CLERK_MFA_ATTESTED_INSTANCE_ID"] = instance_id
+      env["CLERK_MFA_EVIDENCE_REF"] = evidence_ref
+
+      report = readiness.run(live: false)
+
+      expect(report.failures.map(&:name)).to include("MFA enforcement has instance-bound evidence")
+    end
+  end
+
+  it "requires the authenticated Clerk instance to match the MFA evidence" do
+    allow(http_get).to receive(:call).and_wrap_original do |original, uri, token|
+      next [ 200, { "id" => "ins_different" } ] if uri.host == "api.clerk.com"
+
+      original.call(uri, token)
+    end
+
+    report = readiness.run(live: true)
+
+    expect(report.failures.map(&:name)).to include(
+      "the Clerk Backend API accepts the configured key and matches MFA evidence"
     )
   end
 
