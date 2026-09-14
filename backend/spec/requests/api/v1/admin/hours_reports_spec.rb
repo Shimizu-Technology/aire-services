@@ -101,10 +101,10 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(json.dig(:summary, :total_hours)).to eq(11.95)
     expect(json.dig(:employees, 0, :total_hours)).to eq(11.95)
     expect(json.dig(:breakdowns, :by_category, 0)).to include(
-      name: "Flight Instruction", total_hours: 11.95, regular_hours: 11.95, overtime_hours: 0.0, entries_count: 1
+      name: "Flight Instruction", total_hours: 11.95, regular_hours: 8.0, overtime_hours: 3.95, entries_count: 1
     )
     expect(json.dig(:breakdowns, :by_source, 0)).to include(
-      source: "mobile", total_hours: 11.95, regular_hours: 11.95, overtime_hours: 0.0, entries_count: 1
+      source: "mobile", total_hours: 11.95, regular_hours: 8.0, overtime_hours: 3.95, entries_count: 1
     )
   end
 

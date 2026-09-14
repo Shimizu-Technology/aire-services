@@ -143,6 +143,32 @@ RSpec.describe Payroll::BatchFinalizer do
     end
   end
 
+  it "holds daily overtime until it is explicitly approved" do
+    travel_to(guam.local(2026, 5, 16, 9)) do
+      create_entry(date: Date.new(2026, 5, 5), hours: 8)
+      overtime_entry = create_entry(
+        date: Date.new(2026, 5, 5),
+        hours: 6,
+        approval_status: "approved",
+        overtime_status: "pending"
+      )
+      overtime_entry.update_columns(
+        start_time: guam.local(2026, 5, 5, 16),
+        end_time: guam.local(2026, 5, 5, 22)
+      )
+
+      batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+
+      expect(batch.summary).to include("regular_hours" => 8.0, "overtime_hours" => 0.0)
+      exclusion = batch.payroll_batch_exclusions.find_by!(source_time_entry_id: overtime_entry.id)
+      expect(exclusion).to have_attributes(
+        reason: "pending_overtime",
+        held_regular_hours: 0,
+        held_overtime_hours: 6
+      )
+    end
+  end
+
   it "requires explicit acknowledgement and a note before finalizing a negative correction" do
     entry = nil
     travel_to(guam.local(2026, 5, 16, 9)) do

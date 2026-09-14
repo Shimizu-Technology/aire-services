@@ -55,6 +55,7 @@ At cutoff:
 
 - completed `clock` entries, including kiosk, mobile, and legacy clock sources, are eligible without a second approval;
 - manual entries and manually corrected entries require explicit approval;
+- regular and overtime hours are split using AIRE's configured daily and weekly thresholds, without double-counting hours that cross both thresholds;
 - entries created or approved after cutoff, open clocks, pending or denied approvals, and unresolved overtime are retained with a reason;
 - missing work categories remain visible in the immutable source batch and block downstream processing until reviewed;
 - negative correction rows are retained in the source batch and marked as requiring review before downstream payroll processing; and

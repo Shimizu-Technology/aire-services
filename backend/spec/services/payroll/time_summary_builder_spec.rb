@@ -4,7 +4,7 @@ require "rails_helper"
 
 RSpec.describe Payroll::TimeSummaryBuilder do
   describe "#call" do
-    it "does not pool weekly overtime thresholds across employees in summary totals" do
+    it "applies daily overtime independently without pooling thresholds across employees" do
       first_user = create(:user, first_name: "Alex", last_name: "CFI")
       second_user = create(:user, first_name: "Bailey", last_name: "CFI")
       category = create(:time_category, name: "Flight Instruction", key: "aire_flight_instruction")
@@ -25,9 +25,9 @@ RSpec.describe Payroll::TimeSummaryBuilder do
 
       expect(payload[:schema_version]).to eq("1.0")
       expect(payload.dig(:summary, :countable_hours)).to eq(60.0)
-      expect(payload.dig(:summary, :regular_hours)).to eq(60.0)
-      expect(payload.dig(:summary, :overtime_hours)).to eq(0.0)
-      expect(payload.fetch(:employees)).to all(include(regular_hours: 30.0, overtime_hours: 0.0))
+      expect(payload.dig(:summary, :regular_hours)).to eq(48.0)
+      expect(payload.dig(:summary, :overtime_hours)).to eq(12.0)
+      expect(payload.fetch(:employees)).to all(include(regular_hours: 24.0, overtime_hours: 6.0))
       expect(payload.fetch(:employees)).to all(satisfy do |employee|
         employee.fetch(:days).map { |day| day.fetch(:work_date) } ==
           (Date.new(2026, 5, 18)..Date.new(2026, 5, 24)).map(&:iso8601)
@@ -77,12 +77,12 @@ RSpec.describe Payroll::TimeSummaryBuilder do
 
       expect(employee).to include(
         total_hours: 20.0,
-        regular_hours: 10.0,
-        overtime_hours: 10.0
+        regular_hours: 8.0,
+        overtime_hours: 12.0
       )
       expect(payload.dig(:summary, :countable_hours)).to eq(20.0)
-      expect(payload.dig(:summary, :regular_hours)).to eq(10.0)
-      expect(payload.dig(:summary, :overtime_hours)).to eq(10.0)
+      expect(payload.dig(:summary, :regular_hours)).to eq(8.0)
+      expect(payload.dig(:summary, :overtime_hours)).to eq(12.0)
     end
 
     it "exports category-level regular and overtime hours for payroll imports" do
@@ -111,17 +111,17 @@ RSpec.describe Payroll::TimeSummaryBuilder do
 
       expect(employee).to include(
         total_hours: 43.0,
-        regular_hours: 40.0,
-        overtime_hours: 3.0
+        regular_hours: 16.0,
+        overtime_hours: 27.0
       )
       expect(ground_bucket).to include(
         hours: 20.0,
         total_hours: 20.0,
-        regular_hours: 17.0,
-        overtime_hours: 3.0
+        regular_hours: 8.0,
+        overtime_hours: 12.0
       )
-      expect(payload.dig(:summary, :regular_hours)).to eq(40.0)
-      expect(payload.dig(:summary, :overtime_hours)).to eq(3.0)
+      expect(payload.dig(:summary, :regular_hours)).to eq(16.0)
+      expect(payload.dig(:summary, :overtime_hours)).to eq(27.0)
     end
 
     it "keeps pending work tracked without treating it as an included-hour blocker" do
