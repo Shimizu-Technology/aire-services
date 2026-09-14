@@ -70,4 +70,18 @@ RSpec.describe Payroll::WeeklyOvertimeAllocator do
     expect(allocations.values.sum { |row| row.fetch(:regular_hours) }).to eq(10.0)
     expect(allocations.values.sum { |row| row.fetch(:overtime_hours) }).to eq(5.0)
   end
+
+  it "uses overtime thresholds saved in settings when overrides are omitted" do
+    sunday = Date.new(2026, 9, 13)
+    Setting.set("overtime_daily_threshold_hours", "6")
+    Setting.set("overtime_weekly_threshold_hours", "10")
+
+    allocations = described_class.call([
+      entry(id: 1, date: sunday, hour: 8, hours: 7),
+      entry(id: 2, date: sunday + 1.day, hour: 8, hours: 6)
+    ])
+
+    expect(allocations.fetch(1)).to include(regular_hours: 6.0, overtime_hours: 1.0)
+    expect(allocations.fetch(2)).to include(regular_hours: 3.0, overtime_hours: 3.0)
+  end
 end
