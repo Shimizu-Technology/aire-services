@@ -396,6 +396,81 @@ ALTER SEQUENCE public.leave_requests_id_seq OWNED BY public.leave_requests.id;
 
 
 --
+-- Name: payroll_account_link_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_account_link_sessions (
+    id bigint NOT NULL,
+    token_digest character varying NOT NULL,
+    external_system character varying DEFAULT 'cornerstone_payroll'::character varying NOT NULL,
+    external_actor_id character varying NOT NULL,
+    external_actor_email character varying,
+    return_url character varying NOT NULL,
+    expires_at timestamp(6) without time zone NOT NULL,
+    consumed_at timestamp(6) without time zone,
+    linked_user_id bigint,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_account_link_sessions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_account_link_sessions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_account_link_sessions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_account_link_sessions_id_seq OWNED BY public.payroll_account_link_sessions.id;
+
+
+--
+-- Name: payroll_account_links; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_account_links (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    external_system character varying DEFAULT 'cornerstone_payroll'::character varying NOT NULL,
+    external_actor_id character varying NOT NULL,
+    external_actor_email character varying,
+    active boolean DEFAULT true NOT NULL,
+    linked_at timestamp(6) without time zone NOT NULL,
+    revoked_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_account_links_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_account_links_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_account_links_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_account_links_id_seq OWNED BY public.payroll_account_links.id;
+
+
+--
 -- Name: payroll_batch_entries; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1822,6 +1897,20 @@ ALTER TABLE ONLY public.leave_requests ALTER COLUMN id SET DEFAULT nextval('publ
 
 
 --
+-- Name: payroll_account_link_sessions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_account_link_sessions ALTER COLUMN id SET DEFAULT nextval('public.payroll_account_link_sessions_id_seq'::regclass);
+
+
+--
+-- Name: payroll_account_links id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_account_links ALTER COLUMN id SET DEFAULT nextval('public.payroll_account_links_id_seq'::regclass);
+
+
+--
 -- Name: payroll_batch_entries id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2120,6 +2209,22 @@ ALTER TABLE ONLY public.employee_pay_rates
 
 ALTER TABLE ONLY public.leave_requests
     ADD CONSTRAINT leave_requests_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_account_link_sessions payroll_account_link_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_account_link_sessions
+    ADD CONSTRAINT payroll_account_link_sessions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_account_links payroll_account_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_account_links
+    ADD CONSTRAINT payroll_account_links_pkey PRIMARY KEY (id);
 
 
 --
@@ -2430,6 +2535,20 @@ CREATE UNIQUE INDEX idx_employee_pay_rates_user_category ON public.employee_pay_
 --
 
 CREATE INDEX idx_on_export_type_start_date_end_date_1234e92c05 ON public.report_exports USING btree (export_type, start_date, end_date);
+
+
+--
+-- Name: idx_payroll_account_links_external_actor; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_account_links_external_actor ON public.payroll_account_links USING btree (external_system, external_actor_id);
+
+
+--
+-- Name: idx_payroll_account_links_external_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payroll_account_links_external_user ON public.payroll_account_links USING btree (external_system, user_id);
 
 
 --
@@ -2780,6 +2899,34 @@ CREATE INDEX index_leave_requests_on_user_id ON public.leave_requests USING btre
 --
 
 CREATE INDEX index_leave_requests_on_user_id_and_start_date ON public.leave_requests USING btree (user_id, start_date);
+
+
+--
+-- Name: index_payroll_account_link_sessions_on_expires_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_account_link_sessions_on_expires_at ON public.payroll_account_link_sessions USING btree (expires_at);
+
+
+--
+-- Name: index_payroll_account_link_sessions_on_linked_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_account_link_sessions_on_linked_user_id ON public.payroll_account_link_sessions USING btree (linked_user_id);
+
+
+--
+-- Name: index_payroll_account_link_sessions_on_token_digest; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_account_link_sessions_on_token_digest ON public.payroll_account_link_sessions USING btree (token_digest);
+
+
+--
+-- Name: index_payroll_account_links_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_account_links_on_user_id ON public.payroll_account_links USING btree (user_id);
 
 
 --
@@ -3701,6 +3848,14 @@ ALTER TABLE ONLY public.payroll_settlement_reconciliations
 
 
 --
+-- Name: payroll_account_link_sessions fk_rails_335464c4c1; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_account_link_sessions
+    ADD CONSTRAINT fk_rails_335464c4c1 FOREIGN KEY (linked_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
 -- Name: solid_queue_failed_executions fk_rails_39bbc7a631; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3810,6 +3965,14 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 
 ALTER TABLE ONLY public.payroll_integration_grants
     ADD CONSTRAINT fk_rails_6cad167610 FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: payroll_account_links fk_rails_6f62c05926; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_account_links
+    ADD CONSTRAINT fk_rails_6f62c05926 FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE RESTRICT;
 
 
 --
@@ -4003,6 +4166,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260915010000'),
 ('20260914010000'),
 ('20260913030000'),
 ('20260913020000'),

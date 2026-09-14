@@ -15,6 +15,11 @@ module PayrollCockpitAuthenticatable
   def authenticate_payroll_actor!
     return if performed?
 
+    external_actor_id = request.headers["X-Cornerstone-Actor-Id"].to_s.strip
+    if external_actor_id.present?
+      return authenticate_linked_payroll_actor!(external_actor_id)
+    end
+
     delegation_token = request.headers["X-Aire-Delegation-Token"].to_s
     if delegation_token.blank?
       audit_payroll_authorization_denial(nil, "delegation_token_missing")
@@ -40,6 +45,21 @@ module PayrollCockpitAuthenticatable
     end
 
     @payroll_grant = grant
+    Current.user = @payroll_actor
+  end
+
+  def authenticate_linked_payroll_actor!(external_actor_id)
+    link = PayrollAccountLink.active.includes(:user).find_by(
+      external_system: PayrollAccountLink::EXTERNAL_SYSTEM,
+      external_actor_id: external_actor_id
+    )
+    unless link&.connected?
+      audit_payroll_authorization_denial("account_link", "account_link_missing_or_inactive")
+      return render json: { error: "Connect your AIRE administrator account in Cornerstone before using payroll actions" }, status: :forbidden
+    end
+
+    @payroll_actor = link.user
+    @payroll_account_link = link
     Current.user = @payroll_actor
   end
 

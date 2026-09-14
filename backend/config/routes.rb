@@ -28,6 +28,10 @@ Rails.application.routes.draw do
 
       namespace :payroll do
         resource :time_summary, only: [ :show ], controller: :time_summaries
+        resources :account_link_sessions, only: [ :create, :show ], param: :token do
+          post :authorize, on: :member
+        end
+        resources :account_links, only: [ :show, :destroy ], param: :external_actor_id
         resources :calendar_periods, only: [ :index, :show, :update ], param: :id
         resources :batches, only: [ :index, :show ] do
           member do

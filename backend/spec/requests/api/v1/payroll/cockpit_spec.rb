@@ -383,6 +383,29 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(AuditLog.where(action: "payroll_cockpit.authorization_denied", outcome: "denied")).to exist
   end
 
+  it "accepts a permanent, revocable account link instead of a delegation token" do
+    entry = create_entry
+    PayrollAccountLink.create!(
+      user: admin,
+      external_actor_id: "cornerstone-user-42",
+      external_actor_email: "chels@example.com",
+      linked_at: Time.current
+    )
+
+    post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/approval",
+         params: {
+           command_id: SecureRandom.uuid,
+           expected_version: entry.lock_version,
+           decision: "approve",
+           reason: "Reviewed through Cornerstone"
+         }.to_json,
+         headers: headers.except("X-Aire-Delegation-Token").merge("X-Cornerstone-Actor-Id" => "cornerstone-user-42")
+
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload.approval_status).to eq("approved")
+    expect(entry.approved_by).to eq(admin)
+  end
+
   it "rejects delegations whose administrator is inactive or lacks personal access" do
     entry = create_entry
 

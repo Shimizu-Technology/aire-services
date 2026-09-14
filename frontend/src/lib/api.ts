@@ -1196,6 +1196,23 @@ export interface PayrollBatchDetail extends PayrollBatchListItem {
   payload: PayrollBatchPayload;
 }
 
+export interface PayrollAccountLinkSession {
+  external_actor_email: string | null;
+  expires_at: string;
+  return_url: string;
+  aire_user: {
+    name: string;
+    email: string | null;
+  };
+}
+
+export interface PayrollAccountLink {
+  connected: boolean;
+  aire_user_name?: string;
+  aire_user_email?: string | null;
+  linked_at?: string;
+}
+
 // Schedule Types
 
 export interface Schedule {
@@ -1266,6 +1283,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ pin }),
     }),
+
+  getPayrollAccountLinkSession: (token: string) =>
+    fetchApi<{ account_link_session: PayrollAccountLinkSession }>(
+      `/api/v1/payroll/account_link_sessions/${encodeURIComponent(token)}`
+    ),
+
+  authorizePayrollAccountLink: (token: string) =>
+    fetchApi<{ account_link: PayrollAccountLink; redirect_url: string }>(
+      `/api/v1/payroll/account_link_sessions/${encodeURIComponent(token)}/authorize`,
+      { method: 'POST' }
+    ),
 
   // Contact form (public)
   getPublicContactSettings: () =>

@@ -30,6 +30,8 @@ class User < ApplicationRecord
   has_many :generated_report_exports, class_name: "ReportExport", foreign_key: "generated_by_id", dependent: :nullify
   has_many :employee_pay_rates, dependent: :destroy
   has_many :payroll_integration_grants, dependent: :destroy
+  has_one :payroll_account_link, dependent: :restrict_with_error
+  has_many :payroll_account_link_sessions, foreign_key: :linked_user_id, dependent: :nullify
   has_many :user_time_categories, dependent: :destroy
   has_many :assigned_time_categories, through: :user_time_categories, source: :time_category
   has_many :user_approval_groups, dependent: :destroy
