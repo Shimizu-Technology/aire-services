@@ -56,6 +56,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
       "/api/v1/payroll/cockpit/employees",
       "/api/v1/payroll/cockpit/exceptions?external_pay_period_id=missing",
       "/api/v1/payroll/cockpit/time_entries?external_pay_period_id=missing",
+      "/api/v1/payroll/cockpit/manual_review?start_date=2026-10-01&end_date=2026-10-15",
       "/api/v1/payroll/cockpit/periods/missing"
     ]
 
@@ -167,6 +168,61 @@ RSpec.describe "Payroll cockpit API", type: :request do
       held_hours: 0.0,
       pending_approvals: 0
     )
+  end
+
+  it "previews exact regular, overtime, and carryover hours for manual payroll entry without a calendar period" do
+    prior_pay_date = period.start_date + 4.days
+    prior_period = create(
+      :payroll_calendar_period,
+      start_date: (period.start_date - 1.month).change(day: 16),
+      end_date: period.start_date - 1.day,
+      pay_date: prior_pay_date,
+      cutoff_at: prior_pay_date.beginning_of_day - 7.days
+    )
+    carryover = create_entry(
+      work_date: prior_period.end_date,
+      entry_method: "manual",
+      approval_status: "pending",
+      start_time: ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 9, 0),
+      end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 11, 30)
+    )
+    travel_to(prior_period.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: prior_period.id, now: Time.current).call.fetch(:status))
+        .to eq("finalized")
+    end
+    carryover.update!(
+      approval_status: "approved",
+      approved_at: period.start_date.beginning_of_day,
+      approved_by: admin
+    )
+    create_entry(
+      work_date: period.start_date,
+      entry_method: "clock",
+      approval_status: nil,
+      hours: 8
+    )
+
+    travel_to(period.end_date.end_of_day) do
+      get "/api/v1/payroll/cockpit/manual_review",
+          params: { start_date: period.start_date.iso8601, end_date: period.end_date.iso8601 },
+          headers: headers
+    end
+
+    expect(response).to have_http_status(:ok)
+    employee = json.fetch(:employees).find { |row| row.fetch(:source_user_id) == carryover.user_id.to_s }
+    expect(employee).to include(total_hours: 10.5, regular_hours: 10.5, overtime_hours: 0.0)
+    expect(employee.fetch(:adjustments)).to include(include(source_kind: "carryover", total_hours: 2.5))
+    expect(json.fetch(:summary)).to include(total_hours: 10.5, carryover_count: 1)
+    expect(json).not_to include(:batch_id, :checksum)
+  end
+
+  it "validates manual-review dates" do
+    get "/api/v1/payroll/cockpit/manual_review",
+        params: { start_date: "not-a-date", end_date: period.end_date.iso8601 },
+        headers: headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to include("start_date must be a valid ISO 8601 date")
   end
 
   it "reports eligibility at the immutable cutoff instead of the entry's current state" do

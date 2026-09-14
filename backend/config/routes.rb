@@ -42,6 +42,7 @@ Rails.application.routes.draw do
         namespace :cockpit do
           resources :employees, only: [ :index ]
           resources :exceptions, only: [ :index ]
+          resource :manual_review, only: [ :show ]
           resources :time_entries, only: [ :index ] do
             member do
               post :approval
