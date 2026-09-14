@@ -7,13 +7,23 @@ require "mail"
 require "net/http"
 require "securerandom"
 require "stringio"
+require "timeout"
 require "uri"
 
 class ProductionReadiness
   MAX_PROVIDER_RESPONSE_BYTES = 1.megabyte
+  PROVIDER_TOTAL_TIMEOUT_SECONDS = 15
   REQUIRED_RECURRING_JOBS = {
-    "finalize_due_payroll_cutoffs" => "PayrollCutoffFinalizationJob",
-    "deliver_payroll_outbox_events" => "PayrollOutboxDeliveryJob"
+    "finalize_due_payroll_cutoffs" => {
+      "class" => "PayrollCutoffFinalizationJob",
+      "queue" => "payroll",
+      "schedule" => "every minute"
+    },
+    "deliver_payroll_outbox_events" => {
+      "class" => "PayrollOutboxDeliveryJob",
+      "queue" => "payroll",
+      "schedule" => "every minute"
+    }
   }.freeze
 
   Check = Data.define(:name, :passed, :detail)
@@ -55,7 +65,9 @@ class ProductionReadiness
     storage_factory: -> { ActiveStorage::Blob.service },
     outbox_events: PayrollOutboxEvent,
     recurring_config: Rails.application.config_for(:recurring),
-    http_get: nil
+    http_get: nil,
+    http_start: nil,
+    monotonic_clock: nil
   )
     @env = env
     @environment = environment
@@ -67,6 +79,8 @@ class ProductionReadiness
     @outbox_events = outbox_events
     @recurring_config = recurring_config
     @http_get = http_get || method(:default_http_get)
+    @http_start = http_start || method(:default_http_start)
+    @monotonic_clock = monotonic_clock || -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
   end
 
   def run(live: environment.production?)
@@ -78,14 +92,17 @@ class ProductionReadiness
   private
 
   attr_reader :env, :environment, :config, :primary_record, :queue_process,
-    :job_adapter, :storage_factory, :outbox_events, :recurring_config, :http_get
+    :job_adapter, :storage_factory, :outbox_events, :recurring_config, :http_get,
+    :http_start, :monotonic_clock
 
   def configuration_checks
     [
       check("RAILS_ENV is production") { environment.production? },
       check("TLS is effectively forced") { config.force_ssl == true && config.assume_ssl == true },
       check("S3 is the effective Active Storage service") { config.active_storage.service.to_sym == :amazon },
-      check("Solid Queue is the effective job adapter") { job_adapter.class.name.include?("SolidQueue") },
+      check("Solid Queue is the effective job adapter") do
+        job_adapter.instance_of?(ActiveJob::QueueAdapters::SolidQueueAdapter)
+      end,
       check("the in-process Solid Queue worker is enabled") { QueueRuntime.solid_queue_in_puma?(env) },
       check("MFA enforcement is attested") { env["REQUIRE_MFA"] == "true" },
       check("the frontend origin is an explicit production HTTPS origin") { production_https_origin?(env["FRONTEND_URL"]) },
@@ -173,8 +190,10 @@ class ProductionReadiness
 
   def recurring_jobs_configured?
     jobs = recurring_config.to_h.deep_stringify_keys
-    REQUIRED_RECURRING_JOBS.all? do |name, class_name|
-      jobs.dig(name, "class") == class_name && jobs.dig(name, "schedule").present?
+    REQUIRED_RECURRING_JOBS.all? do |name, expected|
+      actual = jobs.fetch(name, {})
+      actual.slice(*expected.keys).transform_values { |value| value.to_s.squish.downcase } ==
+        expected.transform_values { |value| value.to_s.squish.downcase }
     end
   end
 
@@ -248,12 +267,19 @@ class ProductionReadiness
     request["Authorization"] = "Bearer #{bearer_token}" if bearer_token.present?
     request["Accept"] = "application/json"
 
+    deadline = monotonic_clock.call + PROVIDER_TOTAL_TIMEOUT_SECONDS
     response = nil
     body = +""
-    Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 5, read_timeout: 10) do |http|
+    http_start.call(
+      uri,
+      use_ssl: true,
+      open_timeout: bounded_provider_timeout(deadline, 5),
+      read_timeout: bounded_provider_timeout(deadline, 10)
+    ) do |http|
       http.request(request) do |provider_response|
         response = provider_response
         provider_response.read_body do |chunk|
+          http.read_timeout = bounded_provider_timeout(deadline, 10)
           body << chunk
           raise IOError, "Provider response exceeded readiness limit" if body.bytesize > MAX_PROVIDER_RESPONSE_BYTES
         end
@@ -264,5 +290,16 @@ class ProductionReadiness
     [ response.code.to_i, parsed_body ]
   rescue JSON::ParserError
     [ response.code.to_i, {} ]
+  end
+
+  def bounded_provider_timeout(deadline, idle_limit)
+    remaining = deadline - monotonic_clock.call
+    raise Timeout::Error, "Provider readiness deadline exceeded" unless remaining.positive?
+
+    [ idle_limit, remaining ].min
+  end
+
+  def default_http_start(uri, **options, &block)
+    Net::HTTP.start(uri.host, uri.port, **options, &block)
   end
 end

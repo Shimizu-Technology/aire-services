@@ -110,20 +110,22 @@ RSpec.describe ProductionReadiness do
     end
   end
 
-  subject(:readiness) do
-    described_class.new(
+  let(:job_adapter) { ActiveJob::QueueAdapters::SolidQueueAdapter.new }
+  let(:readiness_options) do
+    {
       env: env,
       environment: environment,
       config: config,
       primary_record: record_class,
       queue_process: queue_process,
-      job_adapter: FakeSolidQueueAdapter.new,
+      job_adapter: job_adapter,
       storage_factory: -> { storage },
       outbox_events: outbox_events,
       recurring_config: recurring_config,
       http_get: http_get
-    )
+    }
   end
+  subject(:readiness) { described_class.new(**readiness_options) }
 
   before do
     allow(ActiveRecord::Migration).to receive(:check_all_pending!).and_return(nil)
@@ -160,6 +162,16 @@ RSpec.describe ProductionReadiness do
     )
   end
 
+  context "with a similarly named non-Solid Queue adapter" do
+    let(:job_adapter) { FakeSolidQueueAdapter.new }
+
+    it "rejects the adapter" do
+      report = readiness.run(live: false)
+
+      expect(report.failures.map(&:name)).to include("Solid Queue is the effective job adapter")
+    end
+  end
+
   it "rejects a non-HTTPS frontend and an unexpected payroll destination path" do
     env["FRONTEND_URL"] = "http://aire.example.com"
     env["CORNERSTONE_PAYROLL_EVENTS_URL"] = "https://payroll.example.com/up"
@@ -174,6 +186,22 @@ RSpec.describe ProductionReadiness do
 
   it "requires both payroll recurring jobs" do
     recurring_config.delete("deliver_payroll_outbox_events")
+
+    report = readiness.run(live: false)
+
+    expect(report.failures.map(&:name)).to include("the payroll cutoff and delivery schedules are configured")
+  end
+
+  it "requires payroll recurring jobs to use the payroll queue" do
+    recurring_config["deliver_payroll_outbox_events"]["queue"] = "default"
+
+    report = readiness.run(live: false)
+
+    expect(report.failures.map(&:name)).to include("the payroll cutoff and delivery schedules are configured")
+  end
+
+  it "requires the one-minute payroll recurring cadence" do
+    recurring_config["finalize_due_payroll_cutoffs"]["schedule"] = "every 5 minutes"
 
     report = readiness.run(live: false)
 
@@ -217,5 +245,35 @@ RSpec.describe ProductionReadiness do
 
     expect(report.failures.map(&:name)).to include("the S3 upload/read/delete round trip succeeds")
     expect(storage.deleted.length).to eq(1)
+  end
+
+  it "enforces one total deadline across a slow streaming provider response" do
+    monotonic_time = 0.0
+    provider_response = instance_double(Net::HTTPResponse, code: "200")
+    http = instance_double(Net::HTTP)
+    http_start = lambda do |_uri, **options, &block|
+      expect(options).to include(use_ssl: true, open_timeout: 5, read_timeout: 10)
+      block.call(http)
+    end
+
+    allow(http).to receive(:request).and_yield(provider_response)
+    allow(http).to receive(:read_timeout=)
+    allow(provider_response).to receive(:read_body) do |&block|
+      block.call("{")
+      monotonic_time = described_class::PROVIDER_TOTAL_TIMEOUT_SECONDS + 0.1
+      block.call("}")
+    end
+
+    service = described_class.new(
+      **readiness_options.merge(
+        http_get: nil,
+        http_start: http_start,
+        monotonic_clock: -> { monotonic_time }
+      )
+    )
+
+    expect do
+      service.send(:default_http_get, URI("https://provider.example.com/readiness"), nil)
+    end.to raise_error(Timeout::Error, "Provider readiness deadline exceeded")
   end
 end
