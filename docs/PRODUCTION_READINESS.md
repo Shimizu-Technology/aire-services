@@ -24,7 +24,7 @@ RAILS_ENV=production bin/rails production:readiness
 
 Keep the final `EVIDENCE` line with the release record. Every check must pass on the exact deployed revision.
 
-`REQUIRE_MFA=true` is an operational attestation, not an MFA implementation. Set it only after AIRE uses a production Clerk instance, registration is restricted to the approved invitation policy, and at least two recovery administrators have tested MFA enrollment and recovery.
+`REQUIRE_MFA=true` is an operational attestation, not an MFA implementation. Set it only after AIRE uses a production Clerk instance, registration is restricted to the approved invitation policy, and at least two recovery administrators have tested MFA enrollment and recovery. Record the exact Clerk instance ID in `CLERK_MFA_ATTESTED_INSTANCE_ID` and a single-line pointer to the retained, independently reviewed cutover evidence in `CLERK_MFA_EVIDENCE_REF`. The live gate authenticates to Clerk and requires the provider's instance ID to match that recorded ID; Clerk's instance endpoint does not expose MFA policy, so the evidence record must document the policy and recovery test directly.
 
 ## Manual evidence that still requires people
 

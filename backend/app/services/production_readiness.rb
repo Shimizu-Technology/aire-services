@@ -104,7 +104,7 @@ class ProductionReadiness
         job_adapter.instance_of?(ActiveJob::QueueAdapters::SolidQueueAdapter)
       end,
       check("the in-process Solid Queue worker is enabled") { QueueRuntime.solid_queue_in_puma?(env) },
-      check("MFA enforcement is attested") { env["REQUIRE_MFA"] == "true" },
+      check("MFA enforcement has instance-bound evidence") { mfa_attestation_recorded? },
       check("the frontend origin is an explicit production HTTPS origin") { production_https_origin?(env["FRONTEND_URL"]) },
       check("production Clerk credentials are configured") { production_clerk_configuration? },
       check("S3 credentials and bucket are configured") { s3_configuration_present? },
@@ -124,7 +124,7 @@ class ProductionReadiness
         queue_process.where(kind: "Worker", last_heartbeat_at: 5.minutes.ago..).exists?
       end,
       check("the S3 upload/read/delete round trip succeeds") { storage_round_trip },
-      check("the Clerk Backend API accepts the configured key") { clerk_ready? },
+      check("the Clerk Backend API accepts the configured key and matches MFA evidence") { clerk_ready? },
       check("the Clerk JWKS endpoint is reachable") { clerk_jwks_ready? },
       check("the Resend sender domain is ready") { resend_ready? },
       check("the Cornerstone payroll API health endpoint is reachable") { cornerstone_ready? },
@@ -154,6 +154,17 @@ class ProductionReadiness
 
   def production_clerk_configuration?
     env["CLERK_SECRET_KEY"].to_s.start_with?("sk_live_") && production_https_url?(clerk_jwks_url)
+  end
+
+  def mfa_attestation_recorded?
+    instance_id = env["CLERK_MFA_ATTESTED_INSTANCE_ID"].to_s.strip
+    evidence_ref = env["CLERK_MFA_EVIDENCE_REF"].to_s.strip
+
+    env["REQUIRE_MFA"] == "true" &&
+      instance_id.match?(/\Ains_[A-Za-z0-9]+\z/) &&
+      evidence_ref.present? &&
+      evidence_ref.bytesize <= 500 &&
+      !evidence_ref.match?(/[\r\n]/)
   end
 
   def s3_configuration_present?
@@ -220,7 +231,10 @@ class ProductionReadiness
 
   def clerk_ready?
     status, body = http_get.call(URI("https://api.clerk.com/v1/instance"), env.fetch("CLERK_SECRET_KEY"))
-    status == 200 && body.is_a?(Hash) && body["id"].present?
+    status == 200 &&
+      body.is_a?(Hash) &&
+      body["id"].present? &&
+      body["id"] == env["CLERK_MFA_ATTESTED_INSTANCE_ID"].to_s.strip
   end
 
   def clerk_jwks_ready?
