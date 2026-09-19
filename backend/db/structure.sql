@@ -78,11 +78,9 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'payroll calendar periods cannot be deleted';
   END IF;
-
   IF OLD.status = 'finalized' THEN
     RAISE EXCEPTION 'finalized payroll calendar periods are immutable';
   END IF;
-
   IF (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') >= OLD.cutoff_at
      AND (
        NEW.external_pay_period_id IS DISTINCT FROM OLD.external_pay_period_id
@@ -92,13 +90,14 @@ BEGIN
        OR NEW.cutoff_at IS DISTINCT FROM OLD.cutoff_at
        OR NEW.time_zone IS DISTINCT FROM OLD.time_zone
        OR NEW.cutoff_days_before IS DISTINCT FROM OLD.cutoff_days_before
+       OR NEW.cutoff_policy IS DISTINCT FROM OLD.cutoff_policy
+       OR NEW.cutoff_days_after_pay_date IS DISTINCT FROM OLD.cutoff_days_after_pay_date
        OR NEW.schedule_version IS DISTINCT FROM OLD.schedule_version
        OR NEW.publication_id IS DISTINCT FROM OLD.publication_id
        OR NEW.request_checksum IS DISTINCT FROM OLD.request_checksum
      ) THEN
     RAISE EXCEPTION 'payroll calendar schedules cannot change after cutoff';
   END IF;
-
   RETURN NEW;
 END;
 $$;
@@ -696,7 +695,9 @@ CREATE TABLE public.payroll_calendar_periods (
     lock_version integer DEFAULT 0 NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    CONSTRAINT check_payroll_calendar_period_cutoff_date CHECK (((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - cutoff_days_before))),
+    cutoff_policy character varying DEFAULT 'before_current_pay_date'::character varying NOT NULL,
+    cutoff_days_after_pay_date integer,
+    CONSTRAINT check_payroll_calendar_period_cutoff_date CHECK (((((cutoff_policy)::text = 'before_current_pay_date'::text) AND (cutoff_days_after_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - cutoff_days_before))) OR (((cutoff_policy)::text = 'after_regular_pay_date'::text) AND (cutoff_days_after_pay_date = 7) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date + cutoff_days_after_pay_date)) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::time without time zone = '17:00:00'::time without time zone)))),
     CONSTRAINT check_payroll_calendar_period_cutoff_days CHECK ((cutoff_days_before = 7)),
     CONSTRAINT check_payroll_calendar_period_date_order CHECK ((end_date >= start_date)),
     CONSTRAINT check_payroll_calendar_period_pay_date CHECK ((pay_date > end_date)),
@@ -846,6 +847,94 @@ CREATE SEQUENCE public.payroll_integration_grants_id_seq
 --
 
 ALTER SEQUENCE public.payroll_integration_grants_id_seq OWNED BY public.payroll_integration_grants.id;
+
+
+--
+-- Name: payroll_manual_allocation_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_manual_allocation_events (
+    id bigint NOT NULL,
+    payroll_manual_allocation_id bigint NOT NULL,
+    actor_id bigint NOT NULL,
+    event_type character varying NOT NULL,
+    occurred_at timestamp(6) without time zone NOT NULL,
+    payment_method character varying,
+    payment_reference character varying,
+    reason text NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: payroll_manual_allocation_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_manual_allocation_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_manual_allocation_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_manual_allocation_events_id_seq OWNED BY public.payroll_manual_allocation_events.id;
+
+
+--
+-- Name: payroll_manual_allocations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_manual_allocations (
+    id bigint NOT NULL,
+    time_entry_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    recorded_by_id bigint NOT NULL,
+    source_user_uuid uuid NOT NULL,
+    source_time_entry_version integer NOT NULL,
+    work_date date NOT NULL,
+    pay_date date NOT NULL,
+    time_category_id bigint,
+    regular_hours numeric(8,2) NOT NULL,
+    overtime_hours numeric(8,2) NOT NULL,
+    external_pay_period_id character varying NOT NULL,
+    external_payroll_item_id character varying NOT NULL,
+    payment_method character varying,
+    payment_reference character varying,
+    status character varying DEFAULT 'committed'::character varying NOT NULL,
+    reason text NOT NULL,
+    issued_at timestamp(6) without time zone,
+    voided_at timestamp(6) without time zone,
+    lock_version integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT manual_allocation_positive_hours CHECK (((regular_hours >= (0)::numeric) AND (overtime_hours >= (0)::numeric) AND ((regular_hours + overtime_hours) > (0)::numeric))),
+    CONSTRAINT manual_allocation_status CHECK (((status)::text = ANY ((ARRAY['committed'::character varying, 'issued'::character varying, 'voided'::character varying])::text[])))
+);
+
+
+--
+-- Name: payroll_manual_allocations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_manual_allocations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_manual_allocations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_manual_allocations_id_seq OWNED BY public.payroll_manual_allocations.id;
 
 
 --
@@ -1974,6 +2063,20 @@ ALTER TABLE ONLY public.payroll_integration_grants ALTER COLUMN id SET DEFAULT n
 
 
 --
+-- Name: payroll_manual_allocation_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocation_events ALTER COLUMN id SET DEFAULT nextval('public.payroll_manual_allocation_events_id_seq'::regclass);
+
+
+--
+-- Name: payroll_manual_allocations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocations ALTER COLUMN id SET DEFAULT nextval('public.payroll_manual_allocations_id_seq'::regclass);
+
+
+--
 -- Name: payroll_outbox_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2305,6 +2408,22 @@ ALTER TABLE ONLY public.payroll_integration_commands
 
 ALTER TABLE ONLY public.payroll_integration_grants
     ADD CONSTRAINT payroll_integration_grants_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_manual_allocation_events payroll_manual_allocation_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocation_events
+    ADD CONSTRAINT payroll_manual_allocation_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_manual_allocations payroll_manual_allocations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocations
+    ADD CONSTRAINT payroll_manual_allocations_pkey PRIMARY KEY (id);
 
 
 --
@@ -2902,6 +3021,27 @@ CREATE INDEX index_leave_requests_on_user_id_and_start_date ON public.leave_requ
 
 
 --
+-- Name: index_manual_allocation_events_on_allocation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_manual_allocation_events_on_allocation ON public.payroll_manual_allocation_events USING btree (payroll_manual_allocation_id);
+
+
+--
+-- Name: index_manual_allocations_on_entry_and_payroll_item; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_manual_allocations_on_entry_and_payroll_item ON public.payroll_manual_allocations USING btree (time_entry_id, external_payroll_item_id);
+
+
+--
+-- Name: index_manual_allocations_on_payroll_item; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_manual_allocations_on_payroll_item ON public.payroll_manual_allocations USING btree (external_pay_period_id, external_payroll_item_id);
+
+
+--
 -- Name: index_payroll_account_link_sessions_on_expires_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3081,6 +3221,34 @@ CREATE UNIQUE INDEX index_payroll_integration_grants_on_token_digest ON public.p
 --
 
 CREATE INDEX index_payroll_integration_grants_on_user_id ON public.payroll_integration_grants USING btree (user_id);
+
+
+--
+-- Name: index_payroll_manual_allocation_events_on_actor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_manual_allocation_events_on_actor_id ON public.payroll_manual_allocation_events USING btree (actor_id);
+
+
+--
+-- Name: index_payroll_manual_allocations_on_recorded_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_manual_allocations_on_recorded_by_id ON public.payroll_manual_allocations USING btree (recorded_by_id);
+
+
+--
+-- Name: index_payroll_manual_allocations_on_time_entry_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_manual_allocations_on_time_entry_id ON public.payroll_manual_allocations USING btree (time_entry_id);
+
+
+--
+-- Name: index_payroll_manual_allocations_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_manual_allocations_on_user_id ON public.payroll_manual_allocations USING btree (user_id);
 
 
 --
@@ -3784,6 +3952,14 @@ CREATE TRIGGER payroll_settlement_case_events_prevent_truncate BEFORE TRUNCATE O
 
 
 --
+-- Name: payroll_manual_allocations fk_rails_086e3c35c2; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocations
+    ADD CONSTRAINT fk_rails_086e3c35c2 FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
 -- Name: time_entries fk_rails_1a91ee6a57; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3869,6 +4045,14 @@ ALTER TABLE ONLY public.solid_queue_failed_executions
 
 ALTER TABLE ONLY public.time_entries
     ADD CONSTRAINT fk_rails_3afcdd7800 FOREIGN KEY (approved_by_id) REFERENCES public.users(id);
+
+
+--
+-- Name: payroll_manual_allocations fk_rails_3b16dab34b; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocations
+    ADD CONSTRAINT fk_rails_3b16dab34b FOREIGN KEY (time_entry_id) REFERENCES public.time_entries(id);
 
 
 --
@@ -3984,6 +4168,14 @@ ALTER TABLE ONLY public.payroll_calendar_periods
 
 
 --
+-- Name: payroll_manual_allocations fk_rails_7c0a9e324c; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocations
+    ADD CONSTRAINT fk_rails_7c0a9e324c FOREIGN KEY (recorded_by_id) REFERENCES public.users(id);
+
+
+--
 -- Name: payroll_settlement_cases fk_rails_80fb0295f2; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4088,6 +4280,14 @@ ALTER TABLE ONLY public.time_entries
 
 
 --
+-- Name: payroll_manual_allocation_events fk_rails_bde813144c; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocation_events
+    ADD CONSTRAINT fk_rails_bde813144c FOREIGN KEY (payroll_manual_allocation_id) REFERENCES public.payroll_manual_allocations(id);
+
+
+--
 -- Name: site_media fk_rails_bf8870d145; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4152,6 +4352,14 @@ ALTER TABLE ONLY public.schedules
 
 
 --
+-- Name: payroll_manual_allocation_events fk_rails_f249ad28c0; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocation_events
+    ADD CONSTRAINT fk_rails_f249ad28c0 FOREIGN KEY (actor_id) REFERENCES public.users(id);
+
+
+--
 -- Name: payroll_settlement_cases fk_rails_f9c6b16c38; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4166,6 +4374,8 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260920020000'),
+('20260920010000'),
 ('20260915010000'),
 ('20260914010000'),
 ('20260913030000'),

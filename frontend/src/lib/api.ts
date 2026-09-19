@@ -820,7 +820,9 @@ export type PayrollEntryLifecycleStatus =
   | 'payment_prepared'
   | 'payment_issued'
   | 'payment_failed'
-  | 'payment_voided';
+  | 'payment_voided'
+  | 'partially_paid'
+  | 'partially_allocated';
 
 export interface PayrollEntrySettlement {
   batch_id: string;
@@ -846,6 +848,8 @@ export interface PayrollEntryLifecycle {
   payment_reference?: string | null;
   occurred_at?: string | null;
   latest_excluded_batch_id?: string | null;
+  manually_committed_hours?: number;
+  manually_paid_hours?: number;
   settlements: PayrollEntrySettlement[];
 }
 

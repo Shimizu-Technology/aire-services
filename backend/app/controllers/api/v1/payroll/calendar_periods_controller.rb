@@ -65,6 +65,8 @@ module Api
             :cutoff_at,
             :time_zone,
             :cutoff_days_before,
+            :cutoff_policy,
+            :cutoff_days_after_pay_date,
             :schedule_version,
             :publication_id
           )

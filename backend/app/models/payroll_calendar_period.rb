@@ -3,6 +3,7 @@
 class PayrollCalendarPeriod < ApplicationRecord
   BUSINESS_TIME_ZONE = "Pacific/Guam"
   CUTOFF_DAYS_BEFORE = 7
+  CUTOFF_POLICIES = %w[before_current_pay_date after_regular_pay_date].freeze
   STATUSES = %w[scheduled failed finalized].freeze
 
   belongs_to :payroll_batch, optional: true
@@ -23,6 +24,7 @@ class PayrollCalendarPeriod < ApplicationRecord
   validates :request_checksum, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :time_zone, inclusion: { in: [ BUSINESS_TIME_ZONE ] }
   validates :cutoff_days_before, numericality: { equal_to: CUTOFF_DAYS_BEFORE }
+  validates :cutoff_policy, inclusion: { in: CUTOFF_POLICIES }
   validates :schedule_version, numericality: { only_integer: true, greater_than: 0 }
   validates :status, inclusion: { in: STATUSES }
   validates :finalization_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
@@ -53,7 +55,9 @@ class PayrollCalendarPeriod < ApplicationRecord
       pay_date: pay_date.iso8601,
       cutoff_at: cutoff_at.in_time_zone(time_zone).iso8601,
       time_zone: time_zone,
-      cutoff_days_before: cutoff_days_before,
+      cutoff_policy: cutoff_policy,
+      cutoff_days_before: cutoff_policy == "before_current_pay_date" ? cutoff_days_before : nil,
+      cutoff_days_after_pay_date: cutoff_days_after_pay_date,
       version: lock_version,
       schedule_version: schedule_version,
       publication_id: publication_id,
@@ -87,12 +91,16 @@ class PayrollCalendarPeriod < ApplicationRecord
   def cutoff_matches_policy
     return if cutoff_at.blank? || pay_date.blank? || time_zone.blank?
     return unless time_zone == BUSINESS_TIME_ZONE
-    return unless cutoff_days_before == CUTOFF_DAYS_BEFORE
-
     local_cutoff_date = cutoff_at.in_time_zone(time_zone).to_date
-    return if local_cutoff_date == pay_date - cutoff_days_before
+    if cutoff_policy == "after_regular_pay_date"
+      return if cutoff_days_after_pay_date == 7 &&
+                local_cutoff_date == pay_date + 7 &&
+                cutoff_at.in_time_zone(time_zone).strftime("%H:%M") == "17:00"
 
-    errors.add(:cutoff_at, "must fall seven calendar days before the pay date in Pacific/Guam")
+      errors.add(:cutoff_at, "must be 5:00 p.m. Guam, seven days after this regular pay date")
+    elsif local_cutoff_date != pay_date - cutoff_days_before
+      errors.add(:cutoff_at, "must fall seven calendar days before the pay date in Pacific/Guam")
+    end
   end
 
   def finalized_state_is_complete

@@ -3,7 +3,8 @@
 module Payroll
   class CalendarPeriodPublisher
     ADVISORY_LOCK_KEY = 638_318_282
-    SCHEMA_VERSION = "1.0"
+    SCHEMA_VERSION = "1.1"
+    LEGACY_SCHEMA_VERSION = "1.0"
 
     class ConflictError < StandardError; end
 
@@ -54,9 +55,12 @@ module Payroll
       values = input.to_h.symbolize_keys
       time_zone = values.fetch(:time_zone, PayrollCalendarPeriod::BUSINESS_TIME_ZONE).to_s
       cutoff_days = Integer(values.fetch(:cutoff_days_before, PayrollCalendarPeriod::CUTOFF_DAYS_BEFORE).to_s, 10)
+      schema_version = values.fetch(:schema_version, LEGACY_SCHEMA_VERSION).to_s
+      cutoff_policy = values.fetch(:cutoff_policy, "before_current_pay_date").to_s
+      cutoff_days_after = values[:cutoff_days_after_pay_date].present? ? Integer(values[:cutoff_days_after_pay_date].to_s, 10) : nil
       cutoff_at = parse_time!(values.fetch(:cutoff_at), "cutoff_at")
       normalized = {
-        schema_version: values.fetch(:schema_version, SCHEMA_VERSION).to_s,
+        schema_version: schema_version,
         external_pay_period_id: values.fetch(:external_pay_period_id).to_s.strip,
         start_date: parse_date!(values.fetch(:start_date), "start_date"),
         end_date: parse_date!(values.fetch(:end_date), "end_date"),
@@ -67,7 +71,17 @@ module Payroll
         schedule_version: Integer(values.fetch(:schedule_version).to_s, 10),
         publication_id: values.fetch(:publication_id).to_s.downcase
       }
-      raise ArgumentError, "schema_version must be #{SCHEMA_VERSION}" unless normalized[:schema_version] == SCHEMA_VERSION
+      unless [ LEGACY_SCHEMA_VERSION, SCHEMA_VERSION ].include?(schema_version)
+        raise ArgumentError, "schema_version must be #{LEGACY_SCHEMA_VERSION} or #{SCHEMA_VERSION}"
+      end
+      if schema_version == SCHEMA_VERSION
+        unless cutoff_policy == "after_regular_pay_date" && cutoff_days_after == 7
+          raise ArgumentError, "Provide the seven-day-after-regular-pay-date cutoff policy"
+        end
+        normalized.merge!(cutoff_policy: cutoff_policy, cutoff_days_after_pay_date: cutoff_days_after)
+      elsif cutoff_policy != "before_current_pay_date" || cutoff_days_after
+        raise ArgumentError, "Legacy cutoff publications cannot use the prior-pay-date policy"
+      end
       raise ArgumentError, "external_pay_period_id is required" if normalized[:external_pay_period_id].blank?
       raise ArgumentError, "external_pay_period_id is too long" if normalized[:external_pay_period_id].length > 128
 
@@ -78,7 +92,7 @@ module Payroll
     rescue TypeError, ArgumentError => e
       raise e unless e.message.match?(/invalid value for Integer|base specified for non string value/)
 
-      raise ArgumentError, "schedule_version and cutoff_days_before must be integers"
+      raise ArgumentError, "schedule_version and cutoff days must be integers"
     end
 
     def validate_publishable_time!
@@ -175,6 +189,8 @@ module Payroll
         :cutoff_at,
         :time_zone,
         :cutoff_days_before,
+        :cutoff_policy,
+        :cutoff_days_after_pay_date,
         :schedule_version,
         :publication_id,
         :request_checksum
@@ -222,6 +238,8 @@ module Payroll
           cutoff_at: period.cutoff_at.iso8601,
           time_zone: period.time_zone,
           cutoff_days_before: period.cutoff_days_before,
+          cutoff_policy: period.cutoff_policy,
+          cutoff_days_after_pay_date: period.cutoff_days_after_pay_date,
           request_checksum: period.request_checksum
         }
       )

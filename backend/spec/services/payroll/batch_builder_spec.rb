@@ -59,4 +59,82 @@ RSpec.describe Payroll::BatchBuilder do
     expect(row.fetch(:snapshot)).to include("deleted_after_prior_batch" => true)
     expect(row.fetch(:snapshot).to_json).not_to match(/(?:effective|hourly)_rate/)
   end
+
+  it "classifies a legacy uncategorized entry when its employee has exactly one active category" do
+    user.assigned_time_categories << category
+    legacy_entry = create(:time_entry, user: user, time_category: category,
+                                       work_date: Date.new(2026, 8, 20),
+                                       status: "completed", approval_status: "approved",
+                                       approved_at: Time.zone.parse("2026-08-21 09:00"),
+                                       created_at: Time.zone.parse("2026-08-20 09:00"),
+                                       updated_at: Time.zone.parse("2026-08-21 09:00"))
+    legacy_entry.update_columns(time_category_id: nil)
+    legacy_entry.reload
+
+    result = described_class.new(start_date: "2026-08-16", end_date: "2026-08-31",
+                                 cutoff_at: Time.zone.parse("2026-09-10 09:00")).call
+    row = result.fetch(:rows).find { |item| item.fetch(:source_time_entry_id) == legacy_entry.id }
+
+    expect(row).to include(source_category_id: category.id, line_key: "category:#{category.id}")
+    expect(row.dig(:snapshot, "time_category_inferred_from_sole_assignment")).to be(true)
+    expect(result.dig(:issues, :missing_category_count)).to eq(0)
+    expect(legacy_entry.reload.time_category_id).to be_nil
+  end
+
+  it "revisits manually paid entries in a week affected by a new entry" do
+    paid_entry = create(:time_entry, user: user, time_category: category,
+                                     work_date: Date.new(2026, 9, 15),
+                                     status: "completed", approval_status: "approved")
+    PayrollManualAllocation.create!(
+      time_entry: paid_entry, user: user, recorded_by: create(:user, :admin),
+      source_user_uuid: user.payroll_integration_uuid,
+      source_time_entry_version: paid_entry.lock_version,
+      work_date: paid_entry.work_date, pay_date: Date.new(2026, 9, 16),
+      time_category_id: category.id, regular_hours: 8, overtime_hours: 0,
+      external_pay_period_id: "68", external_payroll_item_id: "1438",
+      reason: "Paid on the prior regular payroll"
+    )
+    new_entry = create(:time_entry, user: user, time_category: category,
+                                   work_date: Date.new(2026, 9, 16),
+                                   status: "completed", approval_status: "approved")
+
+    week = new_entry.work_date.beginning_of_week(:sunday)
+    ids = builder.send(:settlement_entry_ids, [ new_entry ], [], Set.new([ [ user.id, week ] ]))
+
+    expect(ids).to contain_exactly(new_entry.id, paid_entry.id)
+  end
+
+  it "does not reinterpret unchanged paid weeks when a separate held entry is reviewed later" do
+    paid = create(:time_entry, user: user, time_category: category,
+                               work_date: Date.new(2026, 8, 20), status: "completed",
+                               approval_status: "approved",
+                               approved_at: Time.zone.parse("2026-08-21 09:00"),
+                               created_at: Time.zone.parse("2026-08-20 09:00"),
+                               updated_at: Time.zone.parse("2026-08-21 09:00"))
+    held = create(:time_entry, user: user, time_category: category,
+                               work_date: Date.new(2026, 8, 15), status: "completed",
+                               approval_status: "approved",
+                               approved_at: Time.zone.parse("2026-09-04 09:00"),
+                               created_at: Time.zone.parse("2026-08-15 09:00"),
+                               updated_at: Time.zone.parse("2026-09-04 09:00"))
+    batch = create(:payroll_batch, start_date: Date.new(2026, 8, 16),
+                                  end_date: Date.new(2026, 8, 31),
+                                  cutoff_at: Time.zone.parse("2026-09-01 17:00"),
+                                  finalized_at: Time.zone.parse("2026-09-01 17:00"))
+    batch.payroll_batch_entries.create!(source_time_entry_id: paid.id, source_user_id: user.id,
+                                        source_category_id: category.id, work_date: paid.work_date,
+                                        week_start: paid.work_date.beginning_of_week(:sunday),
+                                        total_hours: 8, regular_hours: 8, overtime_hours: 0,
+                                        source_kind: "current", line_key: "category:#{category.id}", snapshot: {})
+    batch.payroll_batch_exclusions.create!(source_time_entry_id: held.id, source_user_id: user.id,
+                                           reason: "approved_after_cutoff", held_total_hours: 8,
+                                           held_regular_hours: 8, held_overtime_hours: 0, snapshot: {})
+
+    result = described_class.new(start_date: "2026-08-16", end_date: "2026-08-31",
+                                 cutoff_at: Time.zone.parse("2026-09-03 17:00")).call
+
+    expect(result.fetch(:rows)).to be_empty
+    expect(result.fetch(:exclusions).map { |row| row.fetch(:source_time_entry_id) }).to contain_exactly(held.id)
+    expect(result.dig(:issues, :negative_adjustment_count)).to eq(0)
+  end
 end

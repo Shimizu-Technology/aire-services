@@ -41,6 +41,12 @@ Rails.application.routes.draw do
 
         namespace :cockpit do
           resources :employees, only: [ :index ]
+          resources :manual_allocations, only: [ :index, :create ] do
+            member do
+              post :issue
+              post :void
+            end
+          end
           resources :exceptions, only: [ :index ]
           resource :manual_review, only: [ :show ]
           resources :time_entries, only: [ :index ] do
