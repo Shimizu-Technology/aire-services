@@ -5,6 +5,10 @@ module Api
     module Payroll
       module Cockpit
         class ManualReviewsController < BaseController
+          PAYROLL_COMMAND_CAPABILITY = "settlement_case_management"
+
+          before_action :authenticate_payroll_actor!, only: :show
+
           def show
             review = ::Payroll::BatchBuilder.new(
               start_date: params[:start_date],
@@ -13,7 +17,7 @@ module Api
               batch_reference: "MANUAL-REVIEW"
             ).call.fetch(:payload)
 
-            render json: review.slice(
+            payload = review.slice(
               :start_date,
               :end_date,
               :generated_at,
@@ -22,6 +26,31 @@ module Api
               :issues,
               :summary
             )
+            allocations = PayrollManualAllocation
+              .includes(:user)
+              .where(work_date: Date.iso8601(params[:start_date])..Date.iso8601(params[:end_date]))
+            if params[:external_pay_period_id].present?
+              allocations = allocations.or(
+                PayrollManualAllocation.includes(:user).where(external_pay_period_id: params[:external_pay_period_id].to_s)
+              )
+            end
+            payload[:manual_allocations] = allocations.order(:work_date, :id).map do |allocation|
+              {
+                id: allocation.id.to_s,
+                source_time_entry_id: allocation.time_entry_id.to_s,
+                source_user_uuid: allocation.source_user_uuid,
+                display_name: allocation.user.full_name,
+                original_work_date: allocation.work_date.iso8601,
+                regular_hours: allocation.regular_hours.to_f,
+                overtime_hours: allocation.overtime_hours.to_f,
+                status: allocation.status,
+                external_pay_period_id: allocation.external_pay_period_id,
+                external_payroll_item_id: allocation.external_payroll_item_id,
+                payment_reference: allocation.payment_reference
+              }.compact
+            end
+
+            render json: payload
           rescue ArgumentError => e
             render json: { error: e.message }, status: :unprocessable_entity
           end

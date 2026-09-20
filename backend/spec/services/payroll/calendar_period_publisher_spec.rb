@@ -34,6 +34,43 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     expect(AuditLog.find_by!(action: "payroll_calendar_period.published", auditable: first.period).source).to eq("integration")
   end
 
+  it "reports a missing legacy cutoff day count as a validation error" do
+    period = described_class.new(attributes, now: now).call.period
+    period.cutoff_days_before = nil
+
+    expect(period).not_to be_valid
+    expect(period.errors[:cutoff_days_before]).to be_present
+  end
+
+  it "locks a regular period seven days after its own scheduled pay date at 5 p.m. Guam" do
+    new_policy = attributes.except(:cutoff_days_before).merge(
+      schema_version: "1.1",
+      cutoff_at: "2026-11-01T17:00:00+10:00",
+      cutoff_policy: "after_regular_pay_date",
+      cutoff_days_after_pay_date: 7
+    )
+
+    period = described_class.new(new_policy, now: now).call.period
+
+    expect(period).to have_attributes(cutoff_policy: "after_regular_pay_date",
+                                      cutoff_days_after_pay_date: 7,
+                                      cutoff_at: Time.iso8601("2026-11-01T17:00:00+10:00"))
+    expect(period.as_contract_json).to include(cutoff_policy: "after_regular_pay_date",
+                                               cutoff_days_after_pay_date: 7)
+
+    invalid = new_policy.merge(publication_id: SecureRandom.uuid,
+                               schedule_version: 2, cutoff_at: "2026-10-31T17:00:00+10:00")
+    expect { described_class.new(invalid, now: now).call }
+      .to raise_error(ActiveRecord::RecordInvalid, /seven days after/)
+
+    [ "2026-11-01T17:00:30+10:00", "2026-11-01T17:00:00.100000+10:00" ].each do |cutoff|
+      invalid_time = new_policy.merge(publication_id: SecureRandom.uuid,
+                                      schedule_version: 2, cutoff_at: cutoff)
+      expect { described_class.new(invalid_time, now: now).call }
+        .to raise_error(ActiveRecord::RecordInvalid, /seven days after/)
+    end
+  end
+
   it "retains revisions and requires the next schedule version" do
     period = described_class.new(attributes, now: now).call.period
     revised = attributes.merge(
