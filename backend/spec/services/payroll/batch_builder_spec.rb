@@ -172,6 +172,31 @@ RSpec.describe Payroll::BatchBuilder do
     expect(seeds.map(&:id)).to include(older_entry.id)
   end
 
+  it "revisits an older entry when its payment link is voided after the last batch" do
+    older_entry = create(:time_entry, user: user, time_category: category,
+                                      work_date: Date.new(2026, 8, 15),
+                                      status: "completed", approval_status: "approved")
+    allocation = PayrollManualAllocation.create!(
+      time_entry: older_entry, user: user, recorded_by: create(:user, :admin),
+      source_user_uuid: user.payroll_integration_uuid,
+      source_time_entry_version: older_entry.lock_version,
+      work_date: older_entry.work_date, pay_date: Date.new(2026, 9, 1),
+      time_category_id: category.id, regular_hours: 8, overtime_hours: 0,
+      external_pay_period_id: "67", external_payroll_item_id: "104",
+      reason: "Previously paid and then voided"
+    )
+    allocation.update_columns(
+      status: "voided", voided_at: Time.zone.parse("2026-09-19 09:00"),
+      created_at: Time.zone.parse("2026-09-17 09:00"),
+      updated_at: Time.zone.parse("2026-09-19 09:00")
+    )
+    latest_batch = create(:payroll_batch, cutoff_at: Time.zone.parse("2026-09-18 17:00"))
+
+    seeds, = builder.send(:settlement_seed_entries, latest_batch)
+
+    expect(seeds.map(&:id)).to include(older_entry.id)
+  end
+
   it "does not reinterpret unchanged paid weeks when a separate held entry is reviewed later" do
     paid = create(:time_entry, user: user, time_category: category,
                                work_date: Date.new(2026, 8, 20), status: "completed",

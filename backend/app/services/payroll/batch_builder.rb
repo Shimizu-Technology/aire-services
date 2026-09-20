@@ -142,10 +142,12 @@ module Payroll
           EXISTS (
             SELECT 1 FROM payroll_manual_allocations allocations
             WHERE allocations.time_entry_id = time_entries.id
-              AND allocations.status IN ('committed', 'issued')
               AND (
-                allocations.created_at > :latest_cutoff
-                OR time_entries.updated_at > :latest_cutoff
+                allocations.updated_at > :latest_cutoff
+                OR (
+                  allocations.status IN ('committed', 'issued')
+                  AND time_entries.updated_at > :latest_cutoff
+                )
               )
           )
         SQL

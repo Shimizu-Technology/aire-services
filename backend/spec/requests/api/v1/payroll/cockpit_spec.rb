@@ -23,6 +23,10 @@ RSpec.describe "Payroll cockpit API", type: :request do
       "Content-Type" => "application/json"
     }
   end
+  let(:settlement_headers) do
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management])
+    headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+  end
 
   around do |example|
     previous = ENV["PAYROLL_SHARED_SECRET"]
@@ -79,6 +83,17 @@ RSpec.describe "Payroll cockpit API", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(json.fetch(:manual_allocations)).to eq([])
+  end
+
+  it "requires settlement management delegation to read manual payroll reviews" do
+    path = "/api/v1/payroll/cockpit/manual_review"
+    params = { start_date: "2026-10-01", end_date: "2026-10-15" }
+
+    get path, params: params, headers: headers
+    expect(response).to have_http_status(:forbidden)
+
+    get path, params: params, headers: settlement_headers
+    expect(response).to have_http_status(:ok)
   end
 
   it "returns only payroll-appropriate employee identity fields with bounded pagination" do
@@ -213,7 +228,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
     travel_to(manual_end.end_of_day) do
       get "/api/v1/payroll/cockpit/manual_review",
           params: { start_date: manual_start.iso8601, end_date: manual_end.iso8601 },
-          headers: headers
+          headers: settlement_headers
     end
 
     expect(response).to have_http_status(:ok)
@@ -227,7 +242,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
   it "validates manual-review dates" do
     get "/api/v1/payroll/cockpit/manual_review",
         params: { start_date: "not-a-date", end_date: period.end_date.iso8601 },
-        headers: headers
+        headers: settlement_headers
 
     expect(response).to have_http_status(:unprocessable_entity)
     expect(json.fetch(:error)).to include("start_date must be a valid ISO 8601 date")

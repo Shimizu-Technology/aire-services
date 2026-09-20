@@ -5,6 +5,10 @@ module Api
     module Payroll
       module Cockpit
         class ManualReviewsController < BaseController
+          PAYROLL_COMMAND_CAPABILITY = "settlement_case_management"
+
+          before_action :authenticate_payroll_actor!, only: :show
+
           def show
             review = ::Payroll::BatchBuilder.new(
               start_date: params[:start_date],
