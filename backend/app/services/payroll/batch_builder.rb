@@ -92,7 +92,7 @@ module Payroll
 
     def settlement_seed_entries(latest_batch)
       nominal = staff_entries.where(work_date: start_date..end_date).to_a
-      manual_corrections = manually_allocated_entries_changed_since_payment
+      manual_corrections = manually_allocated_entries_changed_since_payment(latest_batch)
       return [ (nominal + manual_corrections).uniq(&:id), [] ] unless latest_batch
 
       # A later review of an already finalized date range must not reinterpret
@@ -135,16 +135,21 @@ module Payroll
       [ (nominal + carryovers + historical + changed_prior + manual_corrections).uniq(&:id), deleted_entry_ids ]
     end
 
-    def manually_allocated_entries_changed_since_payment
-      ids = PayrollManualAllocation.active
-        .where("work_date < ?", start_date)
-        .pluck(:time_entry_id)
-      return [] if ids.empty?
-
-      staff_entries.where(id: ids).to_a.select do |entry|
-        PayrollManualAllocation.active.where(time_entry_id: entry.id)
-          .where("created_at < ?", entry.updated_at).exists?
-      end
+    def manually_allocated_entries_changed_since_payment(latest_batch)
+      latest_cutoff = latest_batch&.cutoff_at || Time.at(0)
+      staff_entries.where("time_entries.work_date < ?", start_date)
+        .where(<<~SQL, latest_cutoff: latest_cutoff)
+          EXISTS (
+            SELECT 1 FROM payroll_manual_allocations allocations
+            WHERE allocations.time_entry_id = time_entries.id
+              AND allocations.status IN ('committed', 'issued')
+              AND (
+                allocations.created_at > :latest_cutoff
+                OR time_entries.updated_at > :latest_cutoff
+              )
+          )
+        SQL
+        .to_a
     end
 
     def unresolved_carryover_ids(latest_batch)

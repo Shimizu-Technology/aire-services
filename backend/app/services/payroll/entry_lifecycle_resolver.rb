@@ -42,7 +42,6 @@ module Payroll
         .group_by(&:source_time_entry_id)
         .transform_values(&:last)
       manual_by_entry = PayrollManualAllocation
-        .includes(:payroll_manual_allocation_events)
         .where(time_entry_id: entry_ids)
         .order(:id)
         .to_a
@@ -141,11 +140,13 @@ module Payroll
       if active_manual.any?
         paid = settlements.select { |settlement| settlement.fetch(:status) == "payment_issued" }
           .sum { |settlement| BigDecimal(settlement.fetch(:total_hours).to_s) }
-        committed = settlements.select { |settlement| settlement.fetch(:status) == "committed" }
-          .sum { |settlement| BigDecimal(settlement.fetch(:total_hours).to_s) }
-        return "partially_paid" if paid.positive? && (paid < entry.hours.to_d || committed.positive?)
+        unpaid_allocated = settlements.select do |settlement|
+          settlement.fetch(:status).in?(%w[finalized imported committed payment_prepared])
+        end.sum { |settlement| BigDecimal(settlement.fetch(:total_hours).to_s) }
+        allocated = paid + unpaid_allocated
+        return "partially_paid" if paid.positive? && (paid < entry.hours.to_d || unpaid_allocated.positive?)
         return "payment_issued" if paid.positive?
-        return "partially_allocated" if committed < entry.hours.to_d
+        return "partially_allocated" if allocated < entry.hours.to_d
 
         return "committed"
       end

@@ -1889,10 +1889,11 @@ export default function TimeTracking() {
                 </div>
                 <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
                 <ReportMetric label="Ready / awaiting" value={String((reportSummary.payroll_statuses?.ready_for_cutoff || 0) + (reportSummary.payroll_statuses?.awaiting_approval || 0))} />
                 <ReportMetric label="In payroll" value={String((reportSummary.payroll_statuses?.finalized || 0) + (reportSummary.payroll_statuses?.imported || 0) + (reportSummary.payroll_statuses?.committed || 0))} />
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
+                <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
                 <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
@@ -2268,8 +2269,14 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                         <div className="mt-2"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></div>
                         {entry.payroll_lifecycle && (entry.payroll_lifecycle.manually_paid_hours || entry.payroll_lifecycle.manually_committed_hours) ? (
                           <p className="mt-2 text-xs text-text-muted">
-                            {Number(entry.payroll_lifecycle.manually_paid_hours || 0).toFixed(2)}h paid by manually issued Cornerstone check
-                            {entry.payroll_lifecycle.manually_committed_hours ? ` · ${Number(entry.payroll_lifecycle.manually_committed_hours).toFixed(2)}h committed, not yet paid` : ''}
+                            {[
+                              entry.payroll_lifecycle.manually_paid_hours
+                                ? `${Number(entry.payroll_lifecycle.manually_paid_hours).toFixed(2)}h paid by issued Cornerstone check`
+                                : null,
+                              entry.payroll_lifecycle.manually_committed_hours
+                                ? `${Number(entry.payroll_lifecycle.manually_committed_hours).toFixed(2)}h committed, not yet paid`
+                                : null,
+                            ].filter(Boolean).join(' · ')}
                           </p>
                         ) : null}
                         {entry.payroll_lifecycle && entry.payroll_lifecycle.settlements.length > 0 && (

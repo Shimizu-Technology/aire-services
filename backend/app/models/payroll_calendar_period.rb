@@ -91,14 +91,16 @@ class PayrollCalendarPeriod < ApplicationRecord
   def cutoff_matches_policy
     return if cutoff_at.blank? || pay_date.blank? || time_zone.blank?
     return unless time_zone == BUSINESS_TIME_ZONE
-    local_cutoff_date = cutoff_at.in_time_zone(time_zone).to_date
     if cutoff_policy == "after_regular_pay_date"
+      expected_date = pay_date + 7
+      expected_cutoff = Time.find_zone!(time_zone).local(
+        expected_date.year, expected_date.month, expected_date.day, 17, 0, 0
+      )
       return if cutoff_days_after_pay_date == 7 &&
-                local_cutoff_date == pay_date + 7 &&
-                cutoff_at.in_time_zone(time_zone).strftime("%H:%M") == "17:00"
+                cutoff_at == expected_cutoff
 
       errors.add(:cutoff_at, "must be 5:00 p.m. Guam, seven days after this regular pay date")
-    elsif local_cutoff_date != pay_date - cutoff_days_before
+    elsif cutoff_at.in_time_zone(time_zone).to_date != pay_date - cutoff_days_before
       errors.add(:cutoff_at, "must fall seven calendar days before the pay date in Pacific/Guam")
     end
   end

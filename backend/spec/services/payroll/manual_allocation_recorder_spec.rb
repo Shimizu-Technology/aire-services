@@ -50,12 +50,35 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(allocation.payroll_manual_allocation_events.pluck(:event_type)).to eq(%w[committed issued])
   end
 
-  it "refuses a second manual claim on hours already assigned to another payroll item" do
+  it "refuses to over-allocate hours across two payroll items" do
     commit_hours
 
     expect { commit_hours(payroll_item_id: "1439") }
       .to raise_error(described_class::Error, /exceed the AIRE regular or overtime hours/)
     expect(PayrollManualAllocation.count).to eq(1)
+  end
+
+  it "refuses to link the same AIRE entry to the same payroll item twice" do
+    commit_hours
+
+    expect { commit_hours }
+      .to raise_error(described_class::Error, /already linked/)
+    expect(PayrollManualAllocation.count).to eq(1)
+  end
+
+  it "protects payment events from direct database mutation" do
+    event = commit_hours.payroll_manual_allocation_events.first
+
+    [
+      "UPDATE payroll_manual_allocation_events SET reason = 'rewritten' WHERE id = #{event.id}",
+      "DELETE FROM payroll_manual_allocation_events WHERE id = #{event.id}",
+      "TRUNCATE payroll_manual_allocation_events"
+    ].each do |sql|
+      expect do
+        ActiveRecord::Base.transaction(requires_new: true) { ActiveRecord::Base.connection.execute(sql) }
+      end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
+    end
+    expect(event.reload.event_type).to eq("committed")
   end
 
   it "returns voided manual hours to the payable preview and preserves the void event" do

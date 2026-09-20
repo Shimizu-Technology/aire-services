@@ -54,6 +54,13 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
                                schedule_version: 2, cutoff_at: "2026-10-31T17:00:00+10:00")
     expect { described_class.new(invalid, now: now).call }
       .to raise_error(ActiveRecord::RecordInvalid, /seven days after/)
+
+    [ "2026-11-01T17:00:30+10:00", "2026-11-01T17:00:00.100000+10:00" ].each do |cutoff|
+      invalid_time = new_policy.merge(publication_id: SecureRandom.uuid,
+                                      schedule_version: 2, cutoff_at: cutoff)
+      expect { described_class.new(invalid_time, now: now).call }
+        .to raise_error(ActiveRecord::RecordInvalid, /seven days after/)
+    end
   end
 
   it "retains revisions and requires the next schedule version" do

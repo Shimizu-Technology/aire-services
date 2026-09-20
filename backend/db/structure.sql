@@ -863,7 +863,8 @@ CREATE TABLE public.payroll_manual_allocation_events (
     payment_reference character varying,
     reason text NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_payroll_manual_allocation_events_type CHECK (((event_type)::text = ANY ((ARRAY['committed'::character varying, 'issued'::character varying, 'voided'::character varying])::text[])))
 );
 
 
@@ -3931,6 +3932,20 @@ CREATE TRIGGER payroll_integration_commands_prevent_truncate BEFORE TRUNCATE ON 
 
 
 --
+-- Name: payroll_manual_allocation_events payroll_manual_allocation_events_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_manual_allocation_events_append_only BEFORE DELETE OR UPDATE ON public.payroll_manual_allocation_events FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_manual_allocation_events payroll_manual_allocation_events_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_manual_allocation_events_prevent_truncate BEFORE TRUNCATE ON public.payroll_manual_allocation_events FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
 -- Name: payroll_outbox_events payroll_outbox_events_payload_immutable; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4374,6 +4389,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260920030000'),
 ('20260920020000'),
 ('20260920010000'),
 ('20260915010000'),
@@ -4464,4 +4480,3 @@ INSERT INTO "schema_migrations" (version) VALUES
 ('20260119104955'),
 ('20260119104947'),
 ('20260119104942');
-

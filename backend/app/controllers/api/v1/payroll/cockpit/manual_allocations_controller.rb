@@ -7,7 +7,7 @@ module Api
         class ManualAllocationsController < BaseController
           PAYROLL_COMMAND_CAPABILITY = "settlement_case_management"
 
-          before_action :authenticate_payroll_actor!, only: %i[create issue void]
+          before_action :authenticate_payroll_actor!, only: %i[index create issue void]
 
           def index
             period_id = params[:external_pay_period_id].to_s.strip
@@ -127,7 +127,7 @@ module Api
               payment_reference: allocation.payment_reference,
               issued_at: allocation.issued_at&.iso8601,
               voided_at: allocation.voided_at&.iso8601,
-              events: allocation.payroll_manual_allocation_events.order(:id).map do |event|
+              events: allocation.payroll_manual_allocation_events.sort_by(&:id).map do |event|
                 { event_type: event.event_type, occurred_at: event.occurred_at.iso8601,
                   reason: event.reason, payment_reference: event.payment_reference }
               end

@@ -104,6 +104,74 @@ RSpec.describe Payroll::BatchBuilder do
     expect(ids).to contain_exactly(new_entry.id, paid_entry.id)
   end
 
+  it "exports only the unpaid remainder of a partly allocated entry" do
+    current = create(:time_entry, user: user, time_category: category,
+                                  work_date: Date.new(2026, 8, 20), hours: 8,
+                                  status: "completed", approval_status: "approved")
+    PayrollManualAllocation.create!(
+      time_entry: current, user: user, recorded_by: create(:user, :admin),
+      source_user_uuid: user.payroll_integration_uuid,
+      source_time_entry_version: current.lock_version,
+      work_date: current.work_date, pay_date: Date.new(2026, 9, 1),
+      time_category_id: category.id, regular_hours: 2, overtime_hours: 0,
+      external_pay_period_id: "67", external_payroll_item_id: "101",
+      reason: "Two hours already paid in Cornerstone"
+    )
+
+    result = described_class.new(start_date: "2026-08-16", end_date: "2026-08-31",
+                                 cutoff_at: Time.zone.parse("2026-09-30 17:00")).call
+    rows = result.fetch(:rows).select { |row| row.fetch(:source_time_entry_id) == current.id }
+
+    expect(rows.sum { |row| row.fetch(:regular_hours) }).to eq(6)
+    expect(rows.sum { |row| row.fetch(:overtime_hours) }).to eq(0)
+  end
+
+  it "exports a negative correction when paid hours exceed a later source reduction" do
+    current = create(:time_entry, user: user, time_category: category,
+                                  work_date: Date.new(2026, 8, 20), hours: 8,
+                                  status: "completed", approval_status: "approved")
+    PayrollManualAllocation.create!(
+      time_entry: current, user: user, recorded_by: create(:user, :admin),
+      source_user_uuid: user.payroll_integration_uuid,
+      source_time_entry_version: current.lock_version,
+      work_date: current.work_date, pay_date: Date.new(2026, 9, 1),
+      time_category_id: category.id, regular_hours: 8, overtime_hours: 0,
+      external_pay_period_id: "67", external_payroll_item_id: "102",
+      reason: "Eight hours already paid in Cornerstone"
+    )
+    current.update!(end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 15, 0, 0))
+    expect(current.reload.hours).to eq(6)
+
+    result = described_class.new(start_date: "2026-08-16", end_date: "2026-08-31",
+                                 cutoff_at: Time.zone.parse("2026-09-30 17:00")).call
+    rows = result.fetch(:rows).select { |row| row.fetch(:source_time_entry_id) == current.id }
+
+    expect(rows.sum { |row| row.fetch(:regular_hours) }).to eq(-2)
+    expect(result.dig(:issues, :negative_adjustment_count)).to eq(1)
+  end
+
+  it "revisits an older entry when its payment link is newer than the last batch" do
+    older_entry = create(:time_entry, user: user, time_category: category,
+                                      work_date: Date.new(2026, 8, 15),
+                                      status: "completed", approval_status: "approved")
+    older_entry.update_columns(created_at: Time.zone.parse("2026-08-15 09:00"),
+                               updated_at: Time.zone.parse("2026-08-16 09:00"))
+    PayrollManualAllocation.create!(
+      time_entry: older_entry, user: user, recorded_by: create(:user, :admin),
+      source_user_uuid: user.payroll_integration_uuid,
+      source_time_entry_version: older_entry.lock_version,
+      work_date: older_entry.work_date, pay_date: Date.new(2026, 9, 1),
+      time_category_id: category.id, regular_hours: 8, overtime_hours: 0,
+      external_pay_period_id: "67", external_payroll_item_id: "103",
+      reason: "Linked after the previous AIRE batch"
+    )
+    latest_batch = create(:payroll_batch, cutoff_at: Time.zone.parse("2026-09-18 17:00"))
+
+    seeds, = builder.send(:settlement_seed_entries, latest_batch)
+
+    expect(seeds.map(&:id)).to include(older_entry.id)
+  end
+
   it "does not reinterpret unchanged paid weeks when a separate held entry is reviewed later" do
     paid = create(:time_entry, user: user, time_category: category,
                                work_date: Date.new(2026, 8, 20), status: "completed",

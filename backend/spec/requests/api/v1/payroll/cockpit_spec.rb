@@ -57,6 +57,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
       "/api/v1/payroll/cockpit/exceptions?external_pay_period_id=missing",
       "/api/v1/payroll/cockpit/time_entries?external_pay_period_id=missing",
       "/api/v1/payroll/cockpit/manual_review?start_date=2026-10-01&end_date=2026-10-15",
+      "/api/v1/payroll/cockpit/manual_allocations?external_pay_period_id=67",
       "/api/v1/payroll/cockpit/periods/missing"
     ]
 
@@ -66,6 +67,18 @@ RSpec.describe "Payroll cockpit API", type: :request do
       end.to change { AuditLog.where(action: "payroll_cockpit.authorization_denied").count }.by(1)
       expect(response).to have_http_status(:unauthorized)
     end
+  end
+
+  it "requires settlement management delegation to read payment allocations" do
+    get "/api/v1/payroll/cockpit/manual_allocations", params: { external_pay_period_id: "67" }, headers: headers
+    expect(response).to have_http_status(:forbidden)
+
+    settlement_grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management])
+    allowed_headers = headers.merge("X-Aire-Delegation-Token" => settlement_grant.issued_token)
+    get "/api/v1/payroll/cockpit/manual_allocations", params: { external_pay_period_id: "67" }, headers: allowed_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:manual_allocations)).to eq([])
   end
 
   it "returns only payroll-appropriate employee identity fields with bounded pagination" do

@@ -99,7 +99,8 @@ module Payroll
         .where(work_date: entry.work_date.beginning_of_week(:sunday)..entry.work_date.end_of_week(:sunday))
         .order(:work_date, :id)
         .to_a
-      result = WeeklyOvertimeAllocator.call(entries).fetch(entry.id)
+      result = WeeklyOvertimeAllocator.call(entries)[entry.id]
+      raise Error, "This AIRE entry is not eligible for payroll; refresh its approval status" unless result
       {
         regular_hours: BigDecimal(result.fetch(:regular_hours).to_s).round(2),
         overtime_hours: entry.overtime_status == "approved" ? BigDecimal(result.fetch(:overtime_hours).to_s).round(2) : 0.to_d
