@@ -43,6 +43,10 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
                     occurred_at: "2026-09-17T15:00:00+10:00", reason: "Chelsea confirmed physical check delivery")
 
+    expect(allocation.reload.issued_at).to eq(Time.iso8601("2026-09-17T15:00:00+10:00"))
+    expect(allocation.payroll_manual_allocation_events.find_by!(event_type: "issued").occurred_at)
+      .to eq(allocation.issued_at)
+
     lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
     expect(lifecycle.fetch(:status)).to eq("payment_issued")
     expect(lifecycle.fetch(:payment_reference)).to eq("01045")
@@ -85,6 +89,10 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     allocation = commit_hours
     recorder.void!(allocation: allocation, occurred_at: "2026-09-18T15:00:00+10:00",
                    reason: "The linked Cornerstone check was voided")
+
+    expect(allocation.reload.voided_at).to eq(Time.iso8601("2026-09-18T15:00:00+10:00"))
+    expect(allocation.payroll_manual_allocation_events.find_by!(event_type: "voided").occurred_at)
+      .to eq(allocation.voided_at)
 
     preview = Payroll::BatchBuilder.new(
       start_date: "2026-08-01", end_date: "2026-08-15", cutoff_at: Time.zone.parse("2026-09-19 17:00")

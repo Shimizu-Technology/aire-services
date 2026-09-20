@@ -65,6 +65,7 @@ module Payroll
         issued_at: issued_at
       )
       record_event!(allocation, "issued", explanation,
+                    occurred_at: issued_at,
                     payment_method: method, payment_reference: reference)
       close_fully_paid_cases!(allocation)
       allocation
@@ -80,6 +81,7 @@ module Payroll
       voided_at = timestamp!(occurred_at)
       allocation.update!(status: "voided", voided_at: voided_at)
       record_event!(allocation, "voided", explanation,
+                    occurred_at: voided_at,
                     payment_method: allocation.payment_method,
                     payment_reference: allocation.payment_reference)
       allocation
