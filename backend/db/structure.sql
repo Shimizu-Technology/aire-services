@@ -3239,6 +3239,13 @@ CREATE INDEX index_payroll_manual_allocations_on_recorded_by_id ON public.payrol
 
 
 --
+-- Name: index_payroll_manual_allocations_on_time_category_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_manual_allocations_on_time_category_id ON public.payroll_manual_allocations USING btree (time_category_id);
+
+
+--
 -- Name: index_payroll_manual_allocations_on_time_entry_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3967,6 +3974,14 @@ CREATE TRIGGER payroll_settlement_case_events_prevent_truncate BEFORE TRUNCATE O
 
 
 --
+-- Name: payroll_manual_allocations fk_manual_allocations_time_category; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocations
+    ADD CONSTRAINT fk_manual_allocations_time_category FOREIGN KEY (time_category_id) REFERENCES public.time_categories(id);
+
+
+--
 -- Name: payroll_manual_allocations fk_rails_086e3c35c2; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4389,6 +4404,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260920040000'),
 ('20260920030000'),
 ('20260920020000'),
 ('20260920010000'),

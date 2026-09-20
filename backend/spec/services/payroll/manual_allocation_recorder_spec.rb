@@ -93,6 +93,34 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.dig(entry.id, :status)).to eq("payment_voided")
   end
 
+  it "shows a later paid batch instead of an older voided manual link" do
+    allocation = commit_hours
+    recorder.void!(allocation: allocation, occurred_at: "2026-09-18T15:00:00+10:00",
+                   reason: "The linked Cornerstone check was voided")
+    batch = create(:payroll_batch, cutoff_at: Time.zone.parse("2026-09-19 17:00"),
+                                  finalized_at: Time.zone.parse("2026-09-19 17:00"))
+    batch.payroll_batch_entries.create!(
+      source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid,
+      source_category_id: category.id, work_date: entry.work_date,
+      week_start: entry.work_date.beginning_of_week(:sunday),
+      total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0,
+      source_kind: "carryover", line_key: "category:#{category.id}", snapshot: {}
+    )
+    batch.payroll_entry_processing_events.create!(
+      event_id: SecureRandom.uuid, source_time_entry_id: entry.id,
+      source_user_uuid: employee.payroll_integration_uuid,
+      status: "payment_issued", external_system: "cornerstone",
+      external_pay_period_id: "69", external_payroll_item_id: "1500",
+      payment_method: "paper_check", payment_reference: "01046",
+      occurred_at: Time.zone.parse("2026-09-20 09:00")
+    )
+
+    lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
+    expect(lifecycle.fetch(:status)).to eq("payment_issued")
+    expect(lifecycle.fetch(:payment_reference)).to eq("01046")
+  end
+
   it "does not reoffer delivered hours merely because someone voids their payroll link" do
     allocation = commit_hours
     recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",

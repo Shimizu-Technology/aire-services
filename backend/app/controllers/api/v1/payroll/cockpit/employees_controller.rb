@@ -10,7 +10,11 @@ module Api
               .includes(:assigned_time_categories, :user_approval_groups)
               .order(:last_name, :first_name, :id)
             if params[:employee_id].present?
-              employee_id = Integer(params[:employee_id].to_s, 10)
+              begin
+                employee_id = Integer(params[:employee_id].to_s, 10)
+              rescue ArgumentError
+                return render json: { error: "employee_id must be a positive integer" }, status: :unprocessable_entity
+              end
               return render json: { error: "employee_id must be positive" }, status: :unprocessable_entity unless employee_id.positive?
 
               scope = scope.where(id: employee_id)
@@ -29,8 +33,6 @@ module Api
               employees: page.fetch(:records).map { |user| serialize_employee(user) },
               pagination: page.fetch(:metadata)
             }
-          rescue ArgumentError
-            render json: { error: "employee_id must be a positive integer" }, status: :unprocessable_entity
           end
 
           private

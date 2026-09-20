@@ -34,6 +34,14 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     expect(AuditLog.find_by!(action: "payroll_calendar_period.published", auditable: first.period).source).to eq("integration")
   end
 
+  it "reports a missing legacy cutoff day count as a validation error" do
+    period = described_class.new(attributes, now: now).call.period
+    period.cutoff_days_before = nil
+
+    expect(period).not_to be_valid
+    expect(period.errors[:cutoff_days_before]).to be_present
+  end
+
   it "locks a regular period seven days after its own scheduled pay date at 5 p.m. Guam" do
     new_policy = attributes.except(:cutoff_days_before).merge(
       schema_version: "1.1",

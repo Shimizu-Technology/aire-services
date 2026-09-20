@@ -13,7 +13,7 @@ module Api
               batch_reference: "MANUAL-REVIEW"
             ).call.fetch(:payload)
 
-            response = review.slice(
+            payload = review.slice(
               :start_date,
               :end_date,
               :generated_at,
@@ -30,7 +30,7 @@ module Api
                 PayrollManualAllocation.includes(:user).where(external_pay_period_id: params[:external_pay_period_id].to_s)
               )
             end
-            response[:manual_allocations] = allocations.order(:work_date, :id).map do |allocation|
+            payload[:manual_allocations] = allocations.order(:work_date, :id).map do |allocation|
               {
                 id: allocation.id.to_s,
                 source_time_entry_id: allocation.time_entry_id.to_s,
@@ -46,7 +46,7 @@ module Api
               }.compact
             end
 
-            render json: response
+            render json: payload
           rescue ArgumentError => e
             render json: { error: e.message }, status: :unprocessable_entity
           end

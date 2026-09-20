@@ -150,7 +150,12 @@ module Payroll
 
         return "committed"
       end
-      return "payment_voided" if manual.any?
+      if manual.any?
+        latest_batch_settlement = settlements.reject { |settlement| settlement.fetch(:batch_id).start_with?("manual-") }.last
+        return latest_batch_settlement.fetch(:status) if latest_batch_settlement
+
+        return "payment_voided"
+      end
       return settlements.last.fetch(:status) if settlements.any?
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
       return "awaiting_approval" if entry.approval_status == "pending" || entry.overtime_status == "pending"

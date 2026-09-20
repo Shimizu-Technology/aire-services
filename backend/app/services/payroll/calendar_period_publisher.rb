@@ -80,7 +80,7 @@ module Payroll
         end
         normalized.merge!(cutoff_policy: cutoff_policy, cutoff_days_after_pay_date: cutoff_days_after)
       elsif cutoff_policy != "before_current_pay_date" || cutoff_days_after
-        raise ArgumentError, "Legacy cutoff publications cannot use the prior-pay-date policy"
+        raise ArgumentError, "schema_version #{LEGACY_SCHEMA_VERSION} requires before_current_pay_date without cutoff_days_after_pay_date"
       end
       raise ArgumentError, "external_pay_period_id is required" if normalized[:external_pay_period_id].blank?
       raise ArgumentError, "external_pay_period_id is too long" if normalized[:external_pay_period_id].length > 128

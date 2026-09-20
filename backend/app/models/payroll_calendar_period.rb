@@ -100,7 +100,7 @@ class PayrollCalendarPeriod < ApplicationRecord
                 cutoff_at == expected_cutoff
 
       errors.add(:cutoff_at, "must be 5:00 p.m. Guam, seven days after this regular pay date")
-    elsif cutoff_at.in_time_zone(time_zone).to_date != pay_date - cutoff_days_before
+    elsif cutoff_days_before.present? && cutoff_at.in_time_zone(time_zone).to_date != pay_date - cutoff_days_before
       errors.add(:cutoff_at, "must fall seven calendar days before the pay date in Pacific/Guam")
     end
   end
