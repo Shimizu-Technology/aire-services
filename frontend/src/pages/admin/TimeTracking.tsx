@@ -257,6 +257,7 @@ const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
   payment_voided: 'border-red-200 bg-red-50 text-red-800',
   partially_paid: 'border-amber-200 bg-amber-50 text-amber-800',
   partially_allocated: 'border-amber-200 bg-amber-50 text-amber-800',
+  payment_attested_pending_evidence: 'border-amber-300 bg-amber-50 text-amber-900',
 }
 
 function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycle }) {
@@ -268,7 +269,7 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
   const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
-  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'partially_paid', 'partially_allocated', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'payment_attested_pending_evidence', 'partially_paid', 'partially_allocated', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
   return priority.map((status) => entries.find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
 }
 
@@ -2268,6 +2269,12 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                         </div>
                         <div className="mt-1 text-xs text-text-muted">{entry.time_category?.name || 'Uncategorized'} · {entry.entry_method} · {entry.clock_source || 'legacy'}</div>
                         <div className="mt-2"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></div>
+                        {entry.payroll_lifecycle?.status === 'payment_attested_pending_evidence' && (
+                          <p className="mt-2 text-xs leading-5 text-amber-900">
+                            {Number(entry.payroll_lifecycle.payment_attested_hours || 0).toFixed(2)}h held from future payroll based on an owner payment statement. Check number, amount, and delivery date still need to be matched; this is not a verified paid record.
+                            {entry.payroll_lifecycle.payment_attestation_source_changed && ' The AIRE entry changed after the statement and needs review.'}
+                          </p>
+                        )}
                         {entry.payroll_lifecycle && (entry.payroll_lifecycle.manually_paid_hours || entry.payroll_lifecycle.manually_committed_hours) ? (
                           <p className="mt-2 text-xs text-text-muted">
                             {[

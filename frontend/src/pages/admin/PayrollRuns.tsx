@@ -19,6 +19,7 @@ import {
 } from '../../lib/payrollPeriods'
 
 const ISSUE_LABELS: Array<[keyof PayrollBatchIssues, string]> = [
+  ['payment_attestation_pending_count', 'Payment reported, check details pending'],
   ['pending_approval_count', 'Pending approval'],
   ['denied_approval_count', 'Denied'],
   ['open_clock_count', 'Still clocked in'],
@@ -218,7 +219,7 @@ function issueDestination(key: keyof PayrollBatchIssues, period: PayrollPeriod) 
 }
 
 function IssueSummary({ issues, period }: { issues: PayrollBatchIssues; period: PayrollPeriod }) {
-  const active = ISSUE_LABELS.filter(([key]) => issues[key] > 0)
+  const active = ISSUE_LABELS.filter(([key]) => (issues[key] ?? 0) > 0)
   if (active.length === 0) {
     return <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">No unresolved or blocking items were found for this cutoff.</p>
   }

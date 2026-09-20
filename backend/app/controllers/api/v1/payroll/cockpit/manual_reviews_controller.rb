@@ -51,6 +51,25 @@ module Api
               }.compact
             end
 
+            attestations = PayrollPaymentAttestation.pending_evidence
+              .includes(:user, :time_entry)
+              .where(work_date: Date.iso8601(params[:start_date])..Date.iso8601(params[:end_date]))
+              .order(:work_date, :id)
+            payload[:payment_attestations] = attestations.map do |attestation|
+              {
+                id: attestation.id.to_s,
+                source_time_entry_id: attestation.time_entry_id.to_s,
+                source_user_uuid: attestation.source_user_uuid,
+                display_name: attestation.user.full_name,
+                original_work_date: attestation.work_date.iso8601,
+                hours: attestation.hours.to_f,
+                status: attestation.status,
+                attested_at: attestation.attested_at.iso8601,
+                source_changed: attestation.source_changed?,
+                evidence_needed: "Match the actual Cornerstone payroll item, check number, amount, and delivery date before marking paid"
+              }
+            end
+
             render json: payload
           rescue ArgumentError => e
             render json: { error: e.message }, status: :unprocessable_entity

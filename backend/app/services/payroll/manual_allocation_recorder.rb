@@ -13,6 +13,9 @@ module Payroll
     def commit!(entry:, source_user_uuid:, regular_hours:, overtime_hours:,
                 external_pay_period_id:, external_payroll_item_id:, pay_date:, reason:)
       validate_entry!(entry, source_user_uuid)
+      if PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: entry.id)
+        raise Error, "This entry is held by an owner payment attestation; resolve its evidence before linking another paycheck"
+      end
       regular = hours!(regular_hours)
       overtime = hours!(overtime_hours)
       raise Error, "Choose at least some hours to reconcile" unless (regular + overtime).positive?

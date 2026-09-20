@@ -47,6 +47,9 @@ Rails.application.routes.draw do
               post :void
             end
           end
+          resources :payment_attestations, only: [ :index, :create ] do
+            post :retract, on: :member
+          end
           resources :exceptions, only: [ :index ]
           resource :manual_review, only: [ :show ]
           resources :time_entries, only: [ :index ] do

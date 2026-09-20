@@ -12,6 +12,7 @@ module Payroll
 
     def call
       rows, exclusions, summary, issues = snapshot_records
+      attested_ids = PayrollPaymentAttestation.pending_evidence.where(time_entry_id: entry_ids).pluck(:time_entry_id).to_set
       rows_by_entry = rows.group_by { |row| source_entry_id(row) }
       exclusions_by_entry = exclusions.group_by { |row| source_entry_id(row) }
       missing_category_ids = rows.filter_map do |row|
@@ -28,8 +29,8 @@ module Payroll
         [
           entry.id,
           {
-            payable_now: included,
-            payroll_disposition: disposition(included, reasons, missing_category_ids.include?(entry.id)),
+            payable_now: included && !attested_ids.include?(entry.id),
+            payroll_disposition: attested_ids.include?(entry.id) ? "payment_attested_pending_evidence" : disposition(included, reasons, missing_category_ids.include?(entry.id)),
             payroll_exclusion_reasons: reasons,
             included_hours: included_hours
           }
@@ -39,7 +40,7 @@ module Payroll
       Result.new(
         readiness: readiness(summary, issues, rows_by_entry, exclusions),
         entry_states: entry_states,
-        exception_entry_ids: (exclusions_by_entry.keys + missing_category_ids).uniq
+        exception_entry_ids: (exclusions_by_entry.keys + missing_category_ids + attested_ids.to_a).uniq
       )
     end
 
@@ -109,6 +110,7 @@ module Payroll
         aggregate_version(TimeEntryBreak.where(time_entry_id: relevant_entry_ids)),
         aggregate_version(TimeCategory.where(id: relevant_category_ids)),
         aggregate_version(User.where(id: relevant_user_ids)),
+        aggregate_version(PayrollPaymentAttestation.where(time_entry_id: relevant_entry_ids)),
         latest_batch&.cache_key_with_version,
         relevant_deletion_version
       ]

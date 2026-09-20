@@ -822,7 +822,8 @@ export type PayrollEntryLifecycleStatus =
   | 'payment_failed'
   | 'payment_voided'
   | 'partially_paid'
-  | 'partially_allocated';
+  | 'partially_allocated'
+  | 'payment_attested_pending_evidence';
 
 export interface PayrollEntrySettlement {
   batch_id: string;
@@ -852,6 +853,9 @@ export interface PayrollEntryLifecycle {
   latest_excluded_batch_id?: string | null;
   manually_committed_hours?: number;
   manually_paid_hours?: number;
+  payment_attested_hours?: number;
+  payment_attested_at?: string;
+  payment_attestation_source_changed?: boolean;
   settlements: PayrollEntrySettlement[];
 }
 
@@ -1056,6 +1060,7 @@ export interface PayrollBatchSummary {
 }
 
 export interface PayrollBatchIssues {
+  payment_attestation_pending_count?: number;
   missing_category_count: number;
   negative_adjustment_count: number;
   pending_approval_count: number;

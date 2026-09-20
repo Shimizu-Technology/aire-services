@@ -987,6 +987,88 @@ ALTER SEQUENCE public.payroll_outbox_events_id_seq OWNED BY public.payroll_outbo
 
 
 --
+-- Name: payroll_payment_attestation_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_payment_attestation_events (
+    id bigint NOT NULL,
+    payroll_payment_attestation_id bigint NOT NULL,
+    actor_id bigint NOT NULL,
+    event_type character varying NOT NULL,
+    occurred_at timestamp(6) without time zone NOT NULL,
+    reason text NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT payment_attestation_event_type CHECK (((event_type)::text = ANY ((ARRAY['attested'::character varying, 'retracted'::character varying])::text[])))
+);
+
+
+--
+-- Name: payroll_payment_attestation_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_payment_attestation_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_payment_attestation_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_payment_attestation_events_id_seq OWNED BY public.payroll_payment_attestation_events.id;
+
+
+--
+-- Name: payroll_payment_attestations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_payment_attestations (
+    id bigint NOT NULL,
+    time_entry_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    recorded_by_id bigint NOT NULL,
+    source_user_uuid uuid NOT NULL,
+    source_time_entry_version integer NOT NULL,
+    work_date date NOT NULL,
+    hours numeric(8,2) NOT NULL,
+    status character varying DEFAULT 'pending_evidence'::character varying NOT NULL,
+    reason text NOT NULL,
+    attested_at timestamp(6) without time zone NOT NULL,
+    retracted_at timestamp(6) without time zone,
+    retracted_by_id bigint,
+    retraction_reason text,
+    lock_version integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT payment_attestation_retraction_complete CHECK (((((status)::text = 'pending_evidence'::text) AND (retracted_at IS NULL) AND (retracted_by_id IS NULL) AND (retraction_reason IS NULL)) OR (((status)::text = 'retracted'::text) AND (retracted_at IS NOT NULL) AND (retracted_by_id IS NOT NULL) AND (retraction_reason IS NOT NULL)))),
+    CONSTRAINT payment_attestation_valid_state CHECK (((hours > (0)::numeric) AND ((status)::text = ANY ((ARRAY['pending_evidence'::character varying, 'retracted'::character varying])::text[]))))
+);
+
+
+--
+-- Name: payroll_payment_attestations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_payment_attestations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_payment_attestations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_payment_attestations_id_seq OWNED BY public.payroll_payment_attestations.id;
+
+
+--
 -- Name: payroll_settlement_case_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2087,6 +2169,20 @@ ALTER TABLE ONLY public.payroll_outbox_events ALTER COLUMN id SET DEFAULT nextva
 
 
 --
+-- Name: payroll_payment_attestation_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestation_events ALTER COLUMN id SET DEFAULT nextval('public.payroll_payment_attestation_events_id_seq'::regclass);
+
+
+--
+-- Name: payroll_payment_attestations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations ALTER COLUMN id SET DEFAULT nextval('public.payroll_payment_attestations_id_seq'::regclass);
+
+
+--
 -- Name: payroll_settlement_case_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2435,6 +2531,22 @@ ALTER TABLE ONLY public.payroll_manual_allocations
 
 ALTER TABLE ONLY public.payroll_outbox_events
     ADD CONSTRAINT payroll_outbox_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_payment_attestation_events payroll_payment_attestation_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestation_events
+    ADD CONSTRAINT payroll_payment_attestation_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_payment_attestations payroll_payment_attestations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations
+    ADD CONSTRAINT payroll_payment_attestations_pkey PRIMARY KEY (id);
 
 
 --
@@ -3045,6 +3157,13 @@ CREATE INDEX index_manual_allocations_on_payroll_item ON public.payroll_manual_a
 
 
 --
+-- Name: index_payment_attestation_events_on_attestation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payment_attestation_events_on_attestation ON public.payroll_payment_attestation_events USING btree (payroll_payment_attestation_id);
+
+
+--
 -- Name: index_payroll_account_link_sessions_on_expires_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3266,6 +3385,41 @@ CREATE INDEX index_payroll_manual_allocations_on_user_id ON public.payroll_manua
 --
 
 CREATE UNIQUE INDEX index_payroll_outbox_events_on_event_id ON public.payroll_outbox_events USING btree (event_id);
+
+
+--
+-- Name: index_payroll_payment_attestation_events_on_actor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_payment_attestation_events_on_actor_id ON public.payroll_payment_attestation_events USING btree (actor_id);
+
+
+--
+-- Name: index_payroll_payment_attestations_on_recorded_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_payment_attestations_on_recorded_by_id ON public.payroll_payment_attestations USING btree (recorded_by_id);
+
+
+--
+-- Name: index_payroll_payment_attestations_on_retracted_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_payment_attestations_on_retracted_by_id ON public.payroll_payment_attestations USING btree (retracted_by_id);
+
+
+--
+-- Name: index_payroll_payment_attestations_on_time_entry_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_payment_attestations_on_time_entry_id ON public.payroll_payment_attestations USING btree (time_entry_id);
+
+
+--
+-- Name: index_payroll_payment_attestations_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_payment_attestations_on_user_id ON public.payroll_payment_attestations USING btree (user_id);
 
 
 --
@@ -3962,6 +4116,20 @@ CREATE TRIGGER payroll_outbox_events_payload_immutable BEFORE DELETE OR UPDATE O
 
 
 --
+-- Name: payroll_payment_attestation_events payroll_payment_attestation_events_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_payment_attestation_events_append_only BEFORE DELETE OR UPDATE ON public.payroll_payment_attestation_events FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_payment_attestation_events payroll_payment_attestation_events_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_payment_attestation_events_prevent_truncate BEFORE TRUNCATE ON public.payroll_payment_attestation_events FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
 -- Name: payroll_settlement_case_events payroll_settlement_case_events_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3992,6 +4160,14 @@ ALTER TABLE ONLY public.payroll_manual_allocations
 
 
 --
+-- Name: payroll_payment_attestations fk_rails_09f9465d79; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations
+    ADD CONSTRAINT fk_rails_09f9465d79 FOREIGN KEY (retracted_by_id) REFERENCES public.users(id);
+
+
+--
 -- Name: time_entries fk_rails_1a91ee6a57; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4013,6 +4189,14 @@ ALTER TABLE ONLY public.audit_logs
 
 ALTER TABLE ONLY public.payroll_batch_processing_events
     ADD CONSTRAINT fk_rails_2065ea9686 FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE CASCADE;
+
+
+--
+-- Name: payroll_payment_attestations fk_rails_211ae83d74; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations
+    ADD CONSTRAINT fk_rails_211ae83d74 FOREIGN KEY (recorded_by_id) REFERENCES public.users(id);
 
 
 --
@@ -4144,6 +4328,14 @@ ALTER TABLE ONLY public.user_time_categories
 
 
 --
+-- Name: payroll_payment_attestations fk_rails_53d42b7a54; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations
+    ADD CONSTRAINT fk_rails_53d42b7a54 FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
 -- Name: time_entries fk_rails_5a62b64f2d; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4272,6 +4464,14 @@ ALTER TABLE ONLY public.solid_queue_claimed_executions
 
 
 --
+-- Name: payroll_payment_attestation_events fk_rails_a48631bea5; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestation_events
+    ADD CONSTRAINT fk_rails_a48631bea5 FOREIGN KEY (actor_id) REFERENCES public.users(id);
+
+
+--
 -- Name: payroll_settlement_cases fk_rails_a72c455e9b; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4301,6 +4501,14 @@ ALTER TABLE ONLY public.leave_requests
 
 ALTER TABLE ONLY public.payroll_settlement_case_events
     ADD CONSTRAINT fk_rails_aee89cc6b6 FOREIGN KEY (payroll_settlement_case_id) REFERENCES public.payroll_settlement_cases(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: payroll_payment_attestations fk_rails_b2516ff337; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations
+    ADD CONSTRAINT fk_rails_b2516ff337 FOREIGN KEY (time_entry_id) REFERENCES public.time_entries(id);
 
 
 --
@@ -4384,6 +4592,14 @@ ALTER TABLE ONLY public.schedules
 
 
 --
+-- Name: payroll_payment_attestation_events fk_rails_e81c621c98; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestation_events
+    ADD CONSTRAINT fk_rails_e81c621c98 FOREIGN KEY (payroll_payment_attestation_id) REFERENCES public.payroll_payment_attestations(id);
+
+
+--
 -- Name: payroll_manual_allocation_events fk_rails_f249ad28c0; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4406,6 +4622,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260921010000'),
 ('20260920050000'),
 ('20260920040000'),
 ('20260920030000'),
