@@ -864,6 +864,7 @@ CREATE TABLE public.payroll_manual_allocation_events (
     reason text NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    payment_effective_on date,
     CONSTRAINT check_payroll_manual_allocation_events_type CHECK (((event_type)::text = ANY ((ARRAY['committed'::character varying, 'issued'::character varying, 'voided'::character varying])::text[])))
 );
 
@@ -914,6 +915,7 @@ CREATE TABLE public.payroll_manual_allocations (
     lock_version integer DEFAULT 0 NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    payment_effective_on date,
     CONSTRAINT manual_allocation_positive_hours CHECK (((regular_hours >= (0)::numeric) AND (overtime_hours >= (0)::numeric) AND ((regular_hours + overtime_hours) > (0)::numeric))),
     CONSTRAINT manual_allocation_status CHECK (((status)::text = ANY ((ARRAY['committed'::character varying, 'issued'::character varying, 'voided'::character varying])::text[])))
 );
@@ -4404,6 +4406,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260920050000'),
 ('20260920040000'),
 ('20260920030000'),
 ('20260920020000'),

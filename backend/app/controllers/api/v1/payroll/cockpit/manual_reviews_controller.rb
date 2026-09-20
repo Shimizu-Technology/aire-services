@@ -46,7 +46,8 @@ module Api
                 status: allocation.status,
                 external_pay_period_id: allocation.external_pay_period_id,
                 external_payroll_item_id: allocation.external_payroll_item_id,
-                payment_reference: allocation.payment_reference
+                payment_reference: allocation.payment_reference,
+                payment_effective_on: allocation.payment_effective_on&.iso8601
               }.compact
             end
 

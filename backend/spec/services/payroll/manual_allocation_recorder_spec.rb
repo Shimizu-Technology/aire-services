@@ -41,15 +41,21 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.dig(entry.id, :status)).to eq("committed")
 
     recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                    payment_effective_on: "2026-09-16",
                     occurred_at: "2026-09-17T15:00:00+10:00", reason: "Chelsea confirmed physical check delivery")
 
     expect(allocation.reload.issued_at).to eq(Time.iso8601("2026-09-17T15:00:00+10:00"))
     expect(allocation.payroll_manual_allocation_events.find_by!(event_type: "issued").occurred_at)
       .to eq(allocation.issued_at)
+    expect(allocation.payment_effective_on).to eq(Date.new(2026, 9, 16))
+    expect(allocation.payroll_manual_allocation_events.find_by!(event_type: "issued").payment_effective_on)
+      .to eq(Date.new(2026, 9, 16))
 
     lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
     expect(lifecycle.fetch(:status)).to eq("payment_issued")
     expect(lifecycle.fetch(:payment_reference)).to eq("01045")
+    expect(lifecycle.fetch(:payment_effective_on)).to eq("2026-09-16")
+    expect(lifecycle.fetch(:settlements).last.fetch(:payment_effective_on)).to eq("2026-09-16")
     expect(lifecycle.fetch(:manually_paid_hours)).to eq(6.1)
     expect(allocation.payroll_manual_allocation_events.pluck(:event_type)).to eq(%w[committed issued])
   end
@@ -60,6 +66,23 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect { commit_hours(payroll_item_id: "1439") }
       .to raise_error(described_class::Error, /exceed the AIRE regular or overtime hours/)
     expect(PayrollManualAllocation.count).to eq(1)
+  end
+
+  it "does not invent a payment date when evidence is missing or later than the record" do
+    allocation = commit_hours
+
+    expect do
+      recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                      payment_effective_on: "", occurred_at: "2026-09-17T15:00:00+10:00",
+                      reason: "Check delivery confirmed without a date")
+    end.to raise_error(described_class::Error, /Payment date must use YYYY-MM-DD/)
+    expect do
+      recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                      payment_effective_on: "2026-09-18", occurred_at: "2026-09-17T15:00:00+10:00",
+                      reason: "Check delivery confirmed in the future")
+    end.to raise_error(described_class::Error, /cannot be after/)
+    expect(allocation.reload.status).to eq("committed")
+    expect(allocation.payment_effective_on).to be_nil
   end
 
   it "refuses to link the same AIRE entry to the same payroll item twice" do
@@ -132,6 +155,7 @@ RSpec.describe Payroll::ManualAllocationRecorder do
   it "does not reoffer delivered hours merely because someone voids their payroll link" do
     allocation = commit_hours
     recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                    payment_effective_on: "2026-09-17",
                     occurred_at: "2026-09-17T15:00:00+10:00", reason: "Chelsea confirmed physical check delivery")
 
     expect do

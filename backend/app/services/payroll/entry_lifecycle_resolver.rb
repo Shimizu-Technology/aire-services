@@ -62,6 +62,7 @@ module Payroll
           label: LABELS.fetch(current_status),
           payment_method: latest_payment&.payment_method || latest_event&.payment_method,
           payment_reference: latest_payment&.payment_reference || latest_event&.payment_reference,
+          payment_effective_on: latest_payment&.payment_effective_on&.iso8601 || latest_event&.metadata&.dig("payment_effective_on"),
           occurred_at: latest_event&.occurred_at&.iso8601 || settlements.last&.dig(:occurred_at),
           latest_excluded_batch_id: latest_exclusion&.payroll_batch&.public_id,
           manually_committed_hours: round_hours(manual.select { |row| row.status == "committed" }.sum(&:total_hours)),
@@ -110,6 +111,7 @@ module Payroll
           external_payroll_item_id: event&.external_payroll_item_id,
           payment_method: event&.payment_method,
           payment_reference: event&.payment_reference,
+          payment_effective_on: event&.metadata&.dig("payment_effective_on"),
           event: event
         }.compact
       end
@@ -131,7 +133,8 @@ module Payroll
         external_pay_period_id: allocation.external_pay_period_id,
         external_payroll_item_id: allocation.external_payroll_item_id,
         payment_method: allocation.payment_method,
-        payment_reference: allocation.payment_reference
+        payment_reference: allocation.payment_reference,
+        payment_effective_on: allocation.payment_effective_on&.iso8601
       }.compact
     end
 

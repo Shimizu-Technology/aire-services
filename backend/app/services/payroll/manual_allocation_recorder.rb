@@ -53,20 +53,25 @@ module Payroll
       allocation
     end
 
-    def issue!(allocation:, payment_method:, payment_reference:, occurred_at:, reason:)
+    def issue!(allocation:, payment_method:, payment_reference:, payment_effective_on:, occurred_at:, reason:)
       raise Error, "Only committed hours can be marked paid" unless allocation.status == "committed"
 
       method = required_reference!(payment_method, "Payment method")
       reference = required_reference!(payment_reference, "Check or payment reference")
       explanation = required_reason!(reason)
       issued_at = timestamp!(occurred_at)
+      paid_on = date!(payment_effective_on, label: "Payment date")
+      if paid_on > issued_at.in_time_zone("Pacific/Guam").to_date
+        raise Error, "Payment date cannot be after the time payment was recorded"
+      end
       allocation.update!(
         status: "issued", payment_method: method, payment_reference: reference,
-        issued_at: issued_at
+        issued_at: issued_at, payment_effective_on: paid_on
       )
       record_event!(allocation, "issued", explanation,
                     occurred_at: issued_at,
-                    payment_method: method, payment_reference: reference)
+                    payment_method: method, payment_reference: reference,
+                    payment_effective_on: paid_on)
       close_fully_paid_cases!(allocation)
       allocation
     end
@@ -150,10 +155,10 @@ module Payroll
       raise Error, "Use a timestamp with an explicit UTC offset"
     end
 
-    def date!(value)
+    def date!(value, label: "Pay date")
       Date.iso8601(value.to_s)
     rescue Date::Error
-      raise Error, "Pay date must use YYYY-MM-DD"
+      raise Error, "#{label} must use YYYY-MM-DD"
     end
 
     def route_fully_allocated_cases!(entry, allocation)
@@ -204,10 +209,11 @@ module Payroll
     end
 
     def record_event!(allocation, event_type, reason, occurred_at: Time.current,
-                      payment_method: nil, payment_reference: nil)
+                      payment_method: nil, payment_reference: nil, payment_effective_on: nil)
       allocation.payroll_manual_allocation_events.create!(
         actor: @actor, event_type: event_type, occurred_at: occurred_at,
-        reason: reason, payment_method: payment_method, payment_reference: payment_reference
+        reason: reason, payment_method: payment_method, payment_reference: payment_reference,
+        payment_effective_on: payment_effective_on
       )
     end
   end

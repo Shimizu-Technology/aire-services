@@ -261,7 +261,8 @@ const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
 
 function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycle }) {
   if (!lifecycle) return <span className="text-xs text-text-muted">Not tracked</span>
-  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null].filter(Boolean).join(' · ')
+  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
+    lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
   return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{lifecycle.label}</span>
 }
 
@@ -2285,6 +2286,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                               <p key={`${entry.id}-${settlement.batch_id}`}>
                                 {formatDate(settlement.start_date)}–{formatDate(settlement.end_date)} · {settlement.total_hours.toFixed(2)}h · {settlement.label}
                                 {settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
+                                {settlement.status === 'payment_issued' ? ` · ${settlement.payment_effective_on ? `paid ${formatDate(settlement.payment_effective_on)}` : 'payment date not recorded'}` : ''}
                               </p>
                             ))}
                           </div>

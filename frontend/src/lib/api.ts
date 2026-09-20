@@ -839,6 +839,7 @@ export interface PayrollEntrySettlement {
   external_payroll_item_id?: string | null;
   payment_method?: string | null;
   payment_reference?: string | null;
+  payment_effective_on?: string | null;
 }
 
 export interface PayrollEntryLifecycle {
@@ -846,6 +847,7 @@ export interface PayrollEntryLifecycle {
   label: string;
   payment_method?: string | null;
   payment_reference?: string | null;
+  payment_effective_on?: string | null;
   occurred_at?: string | null;
   latest_excluded_batch_id?: string | null;
   manually_committed_hours?: number;
