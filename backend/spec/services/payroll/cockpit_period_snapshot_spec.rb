@@ -34,4 +34,27 @@ RSpec.describe Payroll::CockpitPeriodSnapshot do
     expect(first_page.entry_states.dig(first.id, :payable_now)).to be(true)
     expect(second_page.entry_states.dig(second.id, :payable_now)).to be(true)
   end
+
+  it "separates pending payment attestations from eligible and held hours" do
+    entry = create(:time_entry, user: employee, time_category: category,
+                                work_date: period.start_date, hours: 8,
+                                status: "completed", entry_method: "manual",
+                                approval_status: "approved", approved_at: Time.current)
+    Payroll::PaymentAttestationRecorder.new(actor: create(:user, :admin)).attest!(
+      entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+      reason: "Owner confirmed the work was paid; original check evidence is still pending."
+    )
+
+    snapshot = described_class.new(period: period, entries: [ entry ]).call
+
+    expect(snapshot.readiness).to include(
+      total_entries: 1, total_hours: 8.0,
+      eligible_entries: 0, eligible_hours: 0.0,
+      held_entries: 0, held_hours: 0.0,
+      payment_attested_pending_evidence_entries: 1,
+      payment_attested_pending_evidence_hours: 8.0
+    )
+    expect(snapshot.entry_states.dig(entry.id, :payable_now)).to be(false)
+    expect(snapshot.entry_states.dig(entry.id, :payroll_disposition)).to eq("payment_attested_pending_evidence")
+  end
 end

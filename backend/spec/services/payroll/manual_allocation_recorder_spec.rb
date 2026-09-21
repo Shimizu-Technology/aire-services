@@ -85,6 +85,20 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(allocation.payment_effective_on).to be_nil
   end
 
+  it "does not accept a future payment date disguised by a future record timestamp" do
+    allocation = commit_hours
+    future_time = Time.current + 2.days
+
+    expect do
+      recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                      payment_effective_on: future_time.in_time_zone("Pacific/Guam").to_date.iso8601,
+                      occurred_at: future_time.iso8601,
+                      reason: "Attempted premature check-delivery confirmation")
+    end.to raise_error(described_class::Error, /future time/)
+    expect(allocation.reload.status).to eq("committed")
+    expect(allocation.payment_effective_on).to be_nil
+  end
+
   it "refuses to link the same AIRE entry to the same payroll item twice" do
     commit_hours
 

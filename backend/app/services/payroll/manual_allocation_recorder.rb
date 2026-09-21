@@ -63,6 +63,8 @@ module Payroll
       reference = required_reference!(payment_reference, "Check or payment reference")
       explanation = required_reason!(reason)
       issued_at = timestamp!(occurred_at)
+      raise Error, "Payment cannot be recorded at a future time" if issued_at > Time.current
+
       paid_on = date!(payment_effective_on, label: "Payment date")
       if paid_on > issued_at.in_time_zone("Pacific/Guam").to_date
         raise Error, "Payment date cannot be after the time payment was recorded"

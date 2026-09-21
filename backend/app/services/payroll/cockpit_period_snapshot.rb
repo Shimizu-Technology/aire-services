@@ -38,7 +38,7 @@ module Payroll
       end
 
       Result.new(
-        readiness: readiness(summary, issues, rows_by_entry, exclusions),
+        readiness: readiness(summary, issues, rows_by_entry, exclusions, attested_ids),
         entry_states: entry_states,
         exception_entry_ids: (exclusions_by_entry.keys + missing_category_ids + attested_ids.to_a).uniq
       )
@@ -168,17 +168,21 @@ module Payroll
       @entry_ids ||= entries.map(&:id)
     end
 
-    def readiness(summary, issues, rows_by_entry, exclusions)
+    def readiness(summary, issues, rows_by_entry, exclusions, attested_ids)
       entry_ids = entries.map(&:id).to_set
-      eligible_entry_ids = rows_by_entry.keys.select { |id| entry_ids.include?(id) }
-      held_entry_ids = exclusions.map { |row| source_entry_id(row) }.uniq
+      eligible_entry_ids = rows_by_entry.keys.select { |id| entry_ids.include?(id) && !attested_ids.include?(id) }
+      held_exclusions = exclusions.reject { |row| attested_ids.include?(source_entry_id(row)) }
+      held_entry_ids = held_exclusions.map { |row| source_entry_id(row) }.uniq
+      attested_entries = entries.select { |entry| attested_ids.include?(entry.id) }
       {
         total_entries: entries.length,
         total_hours: round_hours(entries.sum { |entry| entry.hours.to_d }),
         eligible_entries: eligible_entry_ids.length,
         eligible_hours: round_hours(value(summary, :total_hours).to_d),
         held_entries: held_entry_ids.length,
-        held_hours: round_hours(exclusions.sum { |row| value(row, :held_total_hours).to_d }),
+        held_hours: round_hours(held_exclusions.sum { |row| value(row, :held_total_hours).to_d }),
+        payment_attested_pending_evidence_entries: attested_entries.length,
+        payment_attested_pending_evidence_hours: round_hours(attested_entries.sum { |entry| entry.hours.to_d }),
         pending_approvals: entries.count { |entry| entry.approval_status == "pending" },
         denied_entries: entries.count { |entry| entry.approval_status == "denied" },
         missing_punches: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) || entry.end_time.blank? },
