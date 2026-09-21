@@ -6,7 +6,7 @@ module Payroll
   class HoursReportBuilder
     BUSINESS_TIMEZONE = TimeClockService::BUSINESS_TIMEZONE
     WEEKLY_OVERTIME_THRESHOLD = WeeklyOvertimeAllocator::STATUTORY_WEEKLY_THRESHOLD
-    MAX_RANGE_DAYS = 62
+    LONG_SHIFT_HOURS = 12
 
     attr_reader :params, :start_date, :end_date, :context_start_date, :context_end_date
 
@@ -15,8 +15,6 @@ module Payroll
       @start_date = parse_date!(params[:start_date], "start_date")
       @end_date = parse_date!(params[:end_date], "end_date")
       raise ArgumentError, "end_date must be on or after start_date" if @end_date < @start_date
-      raise ArgumentError, "date range may not exceed #{MAX_RANGE_DAYS} days" if (@end_date - @start_date).to_i > MAX_RANGE_DAYS
-
       @context_start_date = @start_date.beginning_of_week(:sunday)
       @context_end_date = @end_date.end_of_week(:sunday)
     end
@@ -26,6 +24,7 @@ module Payroll
       user_ids = scoped_users.map(&:id)
       control_entries = overtime_context_entries_scope(context_start_date..context_end_date, user_ids).to_a
       report_entries = report_entries_scope(context_start_date..context_end_date, user_ids).to_a
+      @entry_quality_flags = build_entry_quality_flags((control_entries + report_entries).uniq(&:id))
       @payroll_lifecycles = EntryLifecycleResolver.new(entries: (control_entries + report_entries)).call
       control_period_entries = control_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
@@ -40,6 +39,7 @@ module Payroll
         generated_at: Time.current.iso8601,
         filters: serialized_filters,
         ready: report_ready?(period_issues),
+        quality: report_quality(employees),
         summary: summary(employees, control_period_entries),
         breakdowns: breakdowns,
         employees: employees
@@ -69,7 +69,9 @@ module Payroll
       when "pending"
         scope = scope.where(is_active: true, personal_access_enabled: true).where("clerk_id LIKE 'pending_%'")
       when "inactive"
-        scope = scope.where(is_active: false)
+        scope = scope.where(is_active: false, terminated_at: nil)
+      when "terminated"
+        scope = scope.where.not(terminated_at: nil)
       end
 
       scope.for_approval_group(params[:approval_group])
@@ -155,6 +157,8 @@ module Payroll
         is_intern: user.is_intern,
         employee_type: user.is_intern? ? "Intern" : "Staff",
         status: user_status(user),
+        terminated_at: user.terminated_at&.iso8601,
+        termination_effective_on: user.termination_effective_on&.iso8601,
         approval_group: user.approval_group,
         approval_group_label: user.approval_group_label,
         approval_group_keys: user.approval_group_keys,
@@ -165,8 +169,12 @@ module Payroll
         overtime_hours: overtime_hours,
         break_hours: break_hours,
         entries_count: countable_period_entries.size,
+        days_worked: days.size,
+        first_work_date: days.first&.fetch(:work_date),
+        last_work_date: days.last&.fetch(:work_date),
         ready: report_ready?(issues),
         issues: issues,
+        quality: quality_for(control_period_entries),
         payroll_statuses: EntryLifecycleResolver.summary(lifecycle_period_entries.filter_map { |entry| payroll_lifecycle_for(entry) }),
         days: days,
         excluded_entries: excluded_period_entries.map { |entry| serialize_entry(entry, {}) },
@@ -261,6 +269,7 @@ module Payroll
           name: entry.time_category.name
         } : nil,
         payroll_lifecycle: payroll_lifecycle_for(entry),
+        quality_flags: @entry_quality_flags.fetch(entry.id, []),
         breaks: entry.time_entry_breaks.sort_by(&:start_time).map do |entry_break|
           {
             id: entry_break.id,
@@ -286,6 +295,73 @@ module Payroll
 
     def report_ready?(issues)
       issues.fetch(:uncategorized_count).zero?
+    end
+
+    def report_quality(employees)
+      totals = {
+        missing_category_count: employees.sum { |employee| employee.dig(:quality, :missing_category_count).to_i },
+        missing_description_count: employees.sum { |employee| employee.dig(:quality, :missing_description_count).to_i },
+        long_shift_count: employees.sum { |employee| employee.dig(:quality, :long_shift_count).to_i },
+        overlapping_entry_count: employees.sum { |employee| employee.dig(:quality, :overlapping_entry_count).to_i }
+      }
+      totals.merge(status: totals.values.sum.zero? ? "clear" : "needs_review")
+    end
+
+    def quality_for(entries)
+      completed_entries = entries.select { |entry| entry.status == "completed" }
+      counts = completed_entries.each_with_object(Hash.new(0)) do |entry, result|
+        @entry_quality_flags.fetch(entry.id, []).each { |flag| result[flag] += 1 }
+      end
+
+      {
+        status: counts.values.sum.zero? ? "clear" : "needs_review",
+        missing_category_count: counts["missing_category"],
+        missing_description_count: counts["missing_description"],
+        long_shift_count: counts["long_shift"],
+        overlapping_entry_count: counts["overlap"]
+      }
+    end
+
+    def build_entry_quality_flags(entries)
+      flags = Hash.new { |hash, key| hash[key] = [] }
+      completed_entries = entries.select { |entry| entry.status == "completed" }
+
+      completed_entries.each do |entry|
+        flags[entry.id] << "missing_category" if entry.time_category_id.nil?
+        flags[entry.id] << "missing_description" if entry.description.blank?
+        flags[entry.id] << "long_shift" if entry.hours.to_f >= LONG_SHIFT_HOURS
+      end
+
+      completed_entries.group_by(&:user_id).each_value do |user_entries|
+        intervals = user_entries.filter_map do |entry|
+          interval = entry_interval(entry)
+          [ entry, *interval ] if interval
+        end.sort_by { |_entry, starts_at, _ends_at| starts_at }
+
+        active = []
+        intervals.each do |entry, starts_at, ends_at|
+          active.reject! { |_other_entry, _other_starts_at, other_ends_at| other_ends_at <= starts_at }
+          active.each do |other_entry, other_starts_at, other_ends_at|
+            next unless starts_at < other_ends_at && ends_at > other_starts_at
+
+            flags[entry.id] << "overlap"
+            flags[other_entry.id] << "overlap"
+          end
+          active << [ entry, starts_at, ends_at ]
+        end
+      end
+
+      flags.transform_values(&:uniq)
+    end
+
+    def entry_interval(entry)
+      return if entry.start_time.blank? || entry.end_time.blank?
+
+      start_seconds = entry.start_time.in_time_zone(BUSINESS_TIMEZONE).seconds_since_midnight
+      end_seconds = entry.end_time.in_time_zone(BUSINESS_TIMEZONE).seconds_since_midnight
+      end_seconds += 1.day.to_i if end_seconds <= start_seconds
+      day_seconds = entry.work_date.jd * 1.day.to_i
+      [ day_seconds + start_seconds, day_seconds + end_seconds ]
     end
 
     def summary(employees, period_entries)
@@ -353,10 +429,7 @@ module Payroll
     end
 
     def user_status(user)
-      return "inactive" unless user.is_active?
-      return "pending" if user.pending_invite?
-
-      "active"
+      user.employment_status
     end
 
     def payroll_lifecycle_for(entry)

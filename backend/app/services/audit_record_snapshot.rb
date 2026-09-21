@@ -7,6 +7,7 @@ class AuditRecordSnapshot
       personal_access_enabled profile_source time_tracking_enabled kiosk_enabled
       public_team_enabled public_team_name public_team_title public_team_sort_order
       public_team_photo_position_x public_team_photo_position_y
+      terminated_at termination_effective_on termination_reason terminated_by_id
     ],
     "TimeEntry" => %w[
       user_id work_date start_time end_time hours description time_category_id break_minutes

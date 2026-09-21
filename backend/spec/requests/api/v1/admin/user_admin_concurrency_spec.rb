@@ -33,13 +33,13 @@ RSpec.describe "Admin access transition concurrency", type: :request do
           controller.request = ActionController::TestRequest.create(controller.class)
           controller.response = ActionDispatch::TestResponse.new
           controller.instance_variable_set(:@_response_body, nil)
-          controller.params = ActionController::Parameters.new(id: target.id, is_active: false)
+          controller.params = ActionController::Parameters.new(id: target.id, effective_on: Date.current.iso8601)
           controller.instance_variable_set(:@current_user, actor)
           controller.instance_variable_set(:@user, target)
 
           ready << true
           start.pop
-          controller.update
+          controller.terminate
 
           controller.response.status
         end

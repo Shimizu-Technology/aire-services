@@ -54,6 +54,64 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(employee_row.fetch(:weeks).first.fetch(:context_note)).to match(/outside this filtered report selection/)
   end
 
+  it "supports historical report ranges longer than 62 days" do
+    create_entry(user: employee, date: Date.new(2025, 1, 15), hours: 4)
+    create_entry(user: employee, date: Date.new(2026, 9, 1), hours: 6)
+
+    get "/api/v1/admin/hours_report",
+        params: { start_date: "2025-01-01", end_date: "2026-09-21", user_id: employee.id },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:summary, :total_hours)).to eq(10.0)
+    expect(json.dig(:employees, 0, :days_worked)).to eq(2)
+    expect(json.dig(:employees, 0, :first_work_date)).to eq("2025-01-15")
+    expect(json.dig(:employees, 0, :last_work_date)).to eq("2026-09-01")
+  end
+
+  it "keeps terminated employees and their hours available in historical reports" do
+    create_entry(user: employee, date: Date.new(2026, 9, 10), hours: 8)
+    employee.update!(
+      is_active: false,
+      terminated_at: Time.zone.parse("2026-09-20 12:00:00"),
+      termination_effective_on: Date.new(2026, 9, 20),
+      terminated_by: admin
+    )
+
+    get "/api/v1/admin/hours_report",
+        params: { start_date: "2026-09-01", end_date: "2026-09-21", status: "terminated" },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:employees, 0)).to include(
+      id: employee.id,
+      status: "terminated",
+      termination_effective_on: "2026-09-20",
+      total_hours: 8.0
+    )
+  end
+
+  it "flags report quality issues without changing payroll readiness" do
+    first = create_entry(user: employee, date: Date.new(2026, 9, 10), hours: 13, start_hour: 7)
+    second = create_entry(user: employee, date: Date.new(2026, 9, 10), hours: 2, start_hour: 8)
+    first.update!(description: nil)
+    second.update!(description: "Training")
+
+    get "/api/v1/admin/hours_report",
+        params: { start_date: "2026-09-01", end_date: "2026-09-21", user_id: employee.id },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json[:ready]).to be(true)
+    expect(json.dig(:quality, :status)).to eq("needs_review")
+    expect(json.dig(:quality, :missing_description_count)).to eq(1)
+    expect(json.dig(:quality, :long_shift_count)).to eq(1)
+    expect(json.dig(:quality, :overlapping_entry_count)).to eq(2)
+    flags = json.dig(:employees, 0, :days, 0, :entries).index_by { |entry| entry.fetch(:id) }
+    expect(flags.fetch(first.id).fetch(:quality_flags)).to contain_exactly("missing_description", "long_shift", "overlap")
+    expect(flags.fetch(second.id).fetch(:quality_flags)).to contain_exactly("overlap")
+  end
+
   it "calculates OT against all weekly hours even when category filter narrows displayed hours" do
     category_b = create(:time_category, name: "Admin Duties")
     (Date.new(2026, 6, 1)..Date.new(2026, 6, 5)).each do |date|

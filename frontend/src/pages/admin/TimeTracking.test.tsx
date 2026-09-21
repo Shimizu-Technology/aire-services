@@ -43,6 +43,7 @@ function makeHoursReport(startDate: string, endDate: string, totalHours: number)
     context_end_date: endDate,
     generated_at: '2026-08-31T00:00:00Z',
     ready: true,
+    quality: { status: 'clear', missing_category_count: 0, missing_description_count: 0, long_shift_count: 0, overlapping_entry_count: 0 },
     filters: {},
     summary: {
       employee_count: 0,
@@ -93,6 +94,25 @@ describe('TimeTracking routed report periods', () => {
       start_date: '2026-07-01',
       end_date: '2026-07-15',
     })))
+  })
+
+  it('defaults historical reports to every employment status and provides quick periods', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({ status: 'all' })))
+    expect(screen.getByDisplayValue('All statuses')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Year to date' }))
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: '2026-01-01',
+      end_date: '2026-09-22',
+      status: 'all',
+    })))
+    expect(screen.getByTestId('location-search')).toHaveTextContent('status=all')
   })
 
   it('carries an edited report period into approvals', async () => {
@@ -225,6 +245,8 @@ describe('TimeTracking routed report periods', () => {
       is_intern: false,
       employee_type: 'Staff',
       status: 'active',
+      terminated_at: null,
+      termination_effective_on: null,
       approval_group_label: 'Maintenance',
       approval_group_labels: ['Maintenance'],
       total_hours: 6.1,
@@ -232,7 +254,11 @@ describe('TimeTracking routed report periods', () => {
       overtime_hours: 0,
       break_hours: 0,
       entries_count: 1,
+      days_worked: 1,
+      first_work_date: '2026-05-01',
+      last_work_date: '2026-05-01',
       ready: true,
+      quality: { status: 'clear', missing_category_count: 0, missing_description_count: 0, long_shift_count: 0, overlapping_entry_count: 0 },
       issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
       categories: [{ id: 1, key: 'other', name: 'Other', total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_hours: 0, entries_count: 1 }],
       weeks: [],
@@ -243,6 +269,7 @@ describe('TimeTracking routed report periods', () => {
           total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_minutes: 0, description: null, entry_method: 'clock', clock_source: 'kiosk',
           approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 1, key: 'other', name: 'Other' }, breaks: [],
           payroll_lifecycle: { status: 'payment_issued', label: 'Paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [] },
+          quality_flags: [],
         }],
       }],
     }]
@@ -276,12 +303,18 @@ describe('TimeTracking routed report periods', () => {
       is_intern: false,
       employee_type: 'Staff',
       status: 'active',
+      terminated_at: null,
+      termination_effective_on: null,
       total_hours: 3,
       regular_hours: 3,
       overtime_hours: 0,
       break_hours: 0,
       entries_count: 1,
+      days_worked: 1,
+      first_work_date: '2026-08-16',
+      last_work_date: '2026-08-16',
       ready: false,
+      quality: { status: 'needs_review', missing_category_count: 1, missing_description_count: 0, long_shift_count: 0, overlapping_entry_count: 0 },
       issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 1 },
       categories: report.breakdowns.by_category,
       weeks: [],
@@ -291,6 +324,7 @@ describe('TimeTracking routed report periods', () => {
           id: 53, work_date: '2026-08-16', start_time: '09:00', end_time: '12:00', formatted_start_time: '9:00 AM', formatted_end_time: '12:00 PM',
           total_hours: 3, regular_hours: 3, overtime_hours: 0, break_minutes: 0, description: 'Legacy category remediation', entry_method: 'manual', clock_source: 'legacy',
           approval_status: null, approved_by: null, approved_at: null, overtime_status: 'none', time_category: null, breaks: [],
+          quality_flags: ['missing_category'],
         }],
       }],
     }]

@@ -41,6 +41,7 @@ interface TimeEntryItem {
   approval_status?: 'pending' | 'approved' | 'denied' | null
   overtime_status?: 'none' | 'pending' | 'approved' | 'denied' | null
   payroll_lifecycle?: PayrollEntryLifecycle
+  quality_flags?: HoursReportEntry['quality_flags']
   attendance_status?: 'early' | 'on_time' | 'late' | null
   admin_override?: boolean
   clock_in_at?: string | null
@@ -86,6 +87,9 @@ interface UserOption {
   display_name?: string
   full_name?: string
   role: string
+  is_active: boolean
+  employment_status: 'active' | 'pending' | 'inactive' | 'terminated'
+  termination_effective_on?: string | null
   is_intern?: boolean
   approval_group?: string | null
   approval_group_label?: string
@@ -168,6 +172,44 @@ function formatHours(value: number): string {
   return Number(value).toFixed(2)
 }
 
+function guamToday(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Pacific/Guam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value])) as Record<string, string>
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function reportPresetRange(preset: 'current_period' | 'previous_period' | 'this_month' | 'last_month' | 'year_to_date'): PayrollPeriod {
+  const today = guamToday()
+  const [year, month, day] = today.split('-').map(Number)
+  const iso = (valueYear: number, valueMonth: number, valueDay: number) =>
+    `${valueYear}-${String(valueMonth).padStart(2, '0')}-${String(valueDay).padStart(2, '0')}`
+  const monthEnd = (valueYear: number, valueMonth: number) => new Date(Date.UTC(valueYear, valueMonth, 0)).getUTCDate()
+
+  if (preset === 'current_period') return currentPayrollPeriod()
+  if (preset === 'this_month') return { start: iso(year, month, 1), end: today }
+  if (preset === 'year_to_date') return { start: iso(year, 1, 1), end: today }
+
+  const previousMonth = month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 }
+  if (preset === 'last_month') {
+    return {
+      start: iso(previousMonth.year, previousMonth.month, 1),
+      end: iso(previousMonth.year, previousMonth.month, monthEnd(previousMonth.year, previousMonth.month)),
+    }
+  }
+
+  return day > 15
+    ? { start: iso(year, month, 1), end: iso(year, month, 15) }
+    : {
+      start: iso(previousMonth.year, previousMonth.month, 16),
+      end: iso(previousMonth.year, previousMonth.month, monthEnd(previousMonth.year, previousMonth.month)),
+    }
+}
+
 function sortEntriesChronologically(a: TimeEntryItem, b: TimeEntryItem): number {
   const aStart = a.start_time || ''
   const bStart = b.start_time || ''
@@ -206,7 +248,9 @@ function linkedOvertimeStatus(searchParams: URLSearchParams): ReportOvertimeStat
 }
 
 function linkedCategoryFilter(searchParams: URLSearchParams) {
-  return searchParams.get('category_status') === 'uncategorized' ? 'uncategorized' : ''
+  if (searchParams.get('category_status') === 'uncategorized') return 'uncategorized'
+  const categoryId = searchParams.get('time_category_id')
+  return /^\d+$/.test(categoryId || '') ? categoryId! : ''
 }
 
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
@@ -226,6 +270,7 @@ function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem
     approval_status: entry.approval_status as TimeEntryItem['approval_status'],
     overtime_status: entry.overtime_status as TimeEntryItem['overtime_status'],
     payroll_lifecycle: entry.payroll_lifecycle,
+    quality_flags: entry.quality_flags,
     user: {
       id: employee.id,
       email: employee.email || '',
@@ -285,6 +330,38 @@ function EmployeeReviewBadge({ employee }: { employee: HoursReportEmployee }) {
   return <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Needs review</span>
 }
 
+function EmploymentStatusBadge({ employee }: { employee: HoursReportEmployee }) {
+  const styles = employee.status === 'terminated'
+    ? 'border-rose-200 bg-rose-50 text-rose-700'
+    : employee.status === 'inactive'
+      ? 'border-slate-200 bg-slate-100 text-slate-700'
+      : employee.status === 'pending'
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  const label = employee.status === 'terminated' ? 'Terminated' : employee.status.charAt(0).toUpperCase() + employee.status.slice(1)
+  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles}`}>{label}</span>
+}
+
+const QUALITY_FLAG_LABELS: Record<NonNullable<TimeEntryItem['quality_flags']>[number], string> = {
+  missing_category: 'Missing category',
+  missing_description: 'Missing note',
+  long_shift: 'Long shift',
+  overlap: 'Overlapping time',
+}
+
+function EntryQualityFlags({ flags = [] }: { flags?: TimeEntryItem['quality_flags'] }) {
+  if (flags.length === 0) return null
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {flags.map((flag) => (
+        <span key={flag} className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+          {QUALITY_FLAG_LABELS[flag]}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export default function TimeTracking() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { userRole, isClerkEnabled } = useAuthContext()
@@ -324,16 +401,19 @@ export default function TimeTracking() {
   const [reportFilters, setReportFilters] = useState(() => ({
     start_date: initialLinkedPeriod?.start ?? formatDateISO(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
     end_date: initialLinkedPeriod?.end ?? formatDateISO(new Date()),
-    user_id: '',
-    time_category_id: '',
-    approval_group: 'all' as 'all' | ApprovalGroupFilter,
-    employee_status: 'current' as 'active' | 'current' | 'pending' | 'inactive',
-    role: '' as '' | 'admin' | 'employee',
-    clock_source: '' as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
-    entry_method: '' as '' | 'clock' | 'manual',
+    user_id: /^\d+$/.test(searchParams.get('user_id') || '') ? searchParams.get('user_id')! : '',
+    time_category_id: routedCategoryFilter || (/^\d+$/.test(searchParams.get('time_category_id') || '') ? searchParams.get('time_category_id')! : ''),
+    approval_group: (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter,
+    employee_status: (searchParams.get('status') === 'active' || searchParams.get('status') === 'current' || searchParams.get('status') === 'pending' || searchParams.get('status') === 'inactive' || searchParams.get('status') === 'terminated'
+      ? searchParams.get('status')
+      : 'all') as 'all' | 'active' | 'current' | 'pending' | 'inactive' | 'terminated',
+    role: (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee',
+    clock_source: (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
+    entry_method: (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual',
     approval_status: routedApprovalStatus,
     overtime_status: routedOvertimeStatus,
   }))
+  const lastUrlSyncedReportFilters = useRef(reportFilters)
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
   const [selectedReportEmployee, setSelectedReportEmployee] = useState<HoursReportEmployee | null>(null)
@@ -457,6 +537,9 @@ export default function TimeTracking() {
           display_name: u.display_name,
           full_name: u.full_name,
           role: u.role,
+          is_active: u.is_active,
+          employment_status: u.employment_status,
+          termination_effective_on: u.termination_effective_on,
           time_category_ids: u.time_category_ids ?? [],
         })))
       }
@@ -577,6 +660,37 @@ export default function TimeTracking() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [routedApprovalStatus, routedCategoryFilter, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
+
+  useEffect(() => {
+    if (lastUrlSyncedReportFilters.current === reportFilters) return
+    lastUrlSyncedReportFilters.current = reportFilters
+    if (activeTab !== 'reports') return
+
+    const next = new URLSearchParams(searchParams)
+    const values: Record<string, string> = {
+      start_date: reportFilters.start_date,
+      end_date: reportFilters.end_date,
+      user_id: reportFilters.user_id,
+      approval_group: reportFilters.approval_group,
+      status: reportFilters.employee_status,
+      role: reportFilters.role,
+      clock_source: reportFilters.clock_source,
+      entry_method: reportFilters.entry_method,
+      approval_status: reportFilters.approval_status,
+      overtime_status: reportFilters.overtime_status,
+    }
+
+    Object.entries(values).forEach(([key, value]) => {
+      if (value && !(key === 'approval_group' && value === 'all')) next.set(key, value)
+      else next.delete(key)
+    })
+    next.delete('category_status')
+    next.delete('time_category_id')
+    if (reportFilters.time_category_id === 'uncategorized') next.set('category_status', 'uncategorized')
+    else if (reportFilters.time_category_id) next.set('time_category_id', reportFilters.time_category_id)
+
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+  }, [activeTab, reportFilters, searchParams, setSearchParams])
 
   useEffect(() => {
     loadEntries()
@@ -983,7 +1097,7 @@ export default function TimeTracking() {
               >
                 <option value="">All Employees</option>
                 {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.display_name || user.email?.split('@')[0] || 'Team member'}</option>
+                  <option key={user.id} value={user.id}>{user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
                 ))}
               </select>
             </div>
@@ -1592,7 +1706,7 @@ export default function TimeTracking() {
                       <option value="">Select user...</option>
                       {users.map(user => (
                         <option key={user.id} value={user.id}>
-                          {(user.full_name || user.display_name || user.email || 'Team member')} ({user.role})
+                          {(user.full_name || user.display_name || user.email || 'Team member')} ({user.role}){user.employment_status === 'terminated' ? ' — terminated' : user.employment_status === 'inactive' ? ' — inactive' : ''}
                         </option>
                       ))}
                     </select>
@@ -1748,6 +1862,29 @@ export default function TimeTracking() {
               />
             </div>
 
+            <div className="mb-5 flex flex-wrap gap-2" aria-label="Quick report periods">
+              {([
+                ['current_period', 'Current pay period'],
+                ['previous_period', 'Previous pay period'],
+                ['this_month', 'This month'],
+                ['last_month', 'Last month'],
+                ['year_to_date', 'Year to date'],
+              ] as const).map(([preset, label]) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    const period = reportPresetRange(preset)
+                    setReportFilters((current) => ({ ...current, start_date: period.start, end_date: period.end }))
+                  }}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                >
+                  {label}
+                </button>
+              ))}
+              <span className="self-center text-xs text-text-muted">or choose any start and end dates below</span>
+            </div>
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Start Date</label>
@@ -1761,7 +1898,7 @@ export default function TimeTracking() {
                 <label className="mb-1 block text-sm text-text-muted">Employee</label>
                 <select value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All employees</option>
-                  {users.map(user => <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email || 'Team member'}</option>)}
+                  {users.map(user => <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>)}
                 </select>
               </div>
               <div>
@@ -1775,10 +1912,12 @@ export default function TimeTracking() {
               <div>
                 <label className="mb-1 block text-sm text-text-muted">Employee Status</label>
                 <select value={reportFilters.employee_status} onChange={(e) => setReportFilters({ ...reportFilters, employee_status: e.target.value as typeof reportFilters.employee_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="all">All statuses</option>
                   <option value="current">Current users</option>
                   <option value="active">Active only</option>
                   <option value="pending">Pending only</option>
                   <option value="inactive">Inactive only</option>
+                  <option value="terminated">Terminated only</option>
                 </select>
               </div>
               <div>
@@ -1878,6 +2017,26 @@ export default function TimeTracking() {
             </div>
           )}
 
+          {hoursReport?.quality.status === 'needs_review' && (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4" aria-labelledby="report-quality-heading">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 id="report-quality-heading" className="font-semibold text-amber-950">Time data worth reviewing</h3>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
+                    These checks do not change payroll totals or cutoff readiness. They highlight entries that may need a note or a quick accuracy check.
+                  </p>
+                </div>
+                <span className="inline-flex w-fit rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800">Quality review</span>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <ReportMetric label="Missing categories" value={String(hoursReport.quality.missing_category_count)} tone={hoursReport.quality.missing_category_count > 0 ? 'warning' : 'normal'} />
+                <ReportMetric label="Missing notes" value={String(hoursReport.quality.missing_description_count)} tone={hoursReport.quality.missing_description_count > 0 ? 'warning' : 'normal'} />
+                <ReportMetric label="Long shifts" value={String(hoursReport.quality.long_shift_count)} tone={hoursReport.quality.long_shift_count > 0 ? 'warning' : 'normal'} />
+                <ReportMetric label="Overlapping entries" value={String(hoursReport.quality.overlapping_entry_count)} tone={hoursReport.quality.overlapping_entry_count > 0 ? 'warning' : 'normal'} />
+              </div>
+            </section>
+          )}
+
           {hoursReport && (
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="payroll-lifecycle-summary">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -1923,9 +2082,15 @@ export default function TimeTracking() {
                 >
                   <span className="flex items-start justify-between gap-3">
                     <span>
-                      <span className="block font-semibold text-primary-dark">{employee.full_name}</span>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-primary-dark">{employee.full_name}</span>
+                        <EmploymentStatusBadge employee={employee} />
+                      </span>
                       <span className="mt-0.5 block text-xs text-text-muted">
                         {employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'} · {employee.is_intern ? 'Intern' : 'Staff'}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-text-muted">
+                        {employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)} to ${formatDate(employee.last_work_date)}` : ''}
                       </span>
                     </span>
                     <PayrollLifecycleBadge lifecycle={employeePayrollLabel(employee)} />
@@ -1975,7 +2140,10 @@ export default function TimeTracking() {
                     <tr><td colSpan={11} className="px-4 py-8 text-center text-text-muted">No hours match this range.</td></tr>
                   ) : hoursSummaryRows.map((employee) => (
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
-                      <td className="px-4 py-3 text-sm font-semibold text-primary-dark">{employee.full_name}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-primary-dark">
+                        <div className="flex flex-wrap items-center gap-2"><span>{employee.full_name}</span><EmploymentStatusBadge employee={employee} /></div>
+                        <div className="mt-1 text-xs font-normal text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)}–${formatDate(employee.last_work_date)}` : ''}</div>
+                      </td>
                       <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
                       <td className="px-4 py-3 text-center text-sm">
                         {employee.is_intern ? (
@@ -2172,10 +2340,11 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 id={titleId} className="text-xl font-bold text-primary-dark">{employee.full_name}</h2>
+              <div className="flex flex-wrap items-center gap-2"><h2 id={titleId} className="text-xl font-bold text-primary-dark">{employee.full_name}</h2><EmploymentStatusBadge employee={employee} /></div>
               <p className="mt-1 text-sm text-text-muted">
                 {employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'} · {employee.is_intern ? 'Intern' : 'Staff'} · {employee.total_hours.toFixed(2)}h total · {employee.overtime_hours.toFixed(2)}h OT
               </p>
+              <p className="mt-1 text-xs text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)} to ${formatDate(employee.last_work_date)}` : ''}{employee.termination_effective_on ? ` · Terminated effective ${formatDate(employee.termination_effective_on)}` : ''}</p>
             </div>
             <button ref={closeButtonRef} type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>
           </div>
@@ -2263,6 +2432,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                           <span className="font-semibold text-primary">{entry.total_hours.toFixed(2)}h</span>
                         </div>
                         <div className="mt-1 text-xs text-text-muted">{entry.time_category?.name || 'Uncategorized'} · {entry.entry_method} · {entry.clock_source || 'legacy'}</div>
+                        <EntryQualityFlags flags={entry.quality_flags} />
                         <div className="mt-2"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></div>
                         {entry.payroll_lifecycle && entry.payroll_lifecycle.settlements.length > 0 && (
                           <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 text-xs text-text-muted">
@@ -2326,6 +2496,7 @@ function DetailedEntriesTable({
   onEdit: (entry: TimeEntryItem) => void
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+  const [visibleGroupCount, setVisibleGroupCount] = useState(100)
 
   const groups = entries.reduce((acc, entry) => {
     const name = entry.user.full_name || entry.user.display_name || entry.user.email?.split('@')[0] || 'Team member'
@@ -2379,7 +2550,7 @@ function DetailedEntriesTable({
             ) : groupList.length === 0 ? (
               <tr><td colSpan={colCount} className="px-4 py-8 text-center text-text-muted">No entries found</td></tr>
             ) : (
-              groupList.slice(0, 100).map(([key, group]) => {
+              groupList.slice(0, visibleGroupCount).map(([key, group]) => {
                 const isExpanded = expandedKeys.has(key)
                 const totalHours = group.entries.reduce((s, e) => s + e.hours, 0)
                 const totalBreaks = group.entries.reduce((s, e) => s + (e.break_minutes || 0), 0)
@@ -2389,6 +2560,7 @@ function DetailedEntriesTable({
                 const firstStart = group.entries[0].formatted_start_time
                 const lastEnd = group.entries[group.entries.length - 1].formatted_end_time
                 const descriptions = group.entries.map(e => e.description).filter(Boolean)
+                const qualityFlags = [...new Set(group.entries.flatMap((entry) => entry.quality_flags || []))]
 
                 return (
                   <Fragment key={key}>
@@ -2425,7 +2597,10 @@ function DetailedEntriesTable({
                         {hasMultiple && <span className="text-[10px] text-text-muted font-normal ml-1">({group.entries.length})</span>}
                       </td>
                       <td className="px-4 py-3 text-sm text-text-muted text-right">{totalBreaks > 0 ? `${totalBreaks}m` : '—'}</td>
-                      <td className="px-4 py-3 text-sm text-text-muted truncate max-w-[200px]">{descriptions.length > 0 ? descriptions.join('; ') : '-'}</td>
+                      <td className="px-4 py-3 max-w-[220px] text-sm text-text-muted">
+                        <div className="truncate">{descriptions.length > 0 ? descriptions.join('; ') : '-'}</div>
+                        <EntryQualityFlags flags={qualityFlags} />
+                      </td>
                       <td className="px-4 py-3 text-sm">
                         <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter((entry) => entry.payroll_lifecycle).map((entry) => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map((lifecycle) => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
                       </td>
@@ -2448,7 +2623,10 @@ function DetailedEntriesTable({
                         <td className="px-4 py-2 text-xs text-text-muted uppercase">{entry.clock_source || 'legacy'}</td>
                         <td className="px-4 py-2 text-xs text-primary font-semibold text-right">{entry.hours.toFixed(2)}</td>
                         <td className="px-4 py-2 text-xs text-text-muted text-right">{entry.break_minutes ? `${entry.break_minutes}m` : '—'}</td>
-                        <td className="px-4 py-2 text-xs text-text-muted truncate max-w-[200px]">{entry.description || '-'}</td>
+                        <td className="px-4 py-2 max-w-[220px] text-xs text-text-muted">
+                          <div className="truncate">{entry.description || '-'}</div>
+                          <EntryQualityFlags flags={entry.quality_flags} />
+                        </td>
                         <td className="px-4 py-2 text-xs"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></td>
                         {isAdmin && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button></td>}
                       </tr>
@@ -2459,9 +2637,12 @@ function DetailedEntriesTable({
             )}
           </tbody>
         </table>
-        {groupList.length > 100 && (
-          <div className="px-4 py-3 text-center text-sm text-text-muted border-t border-neutral-warm">
-            Showing first 100 groups of {groupList.length} total
+        {groupList.length > visibleGroupCount && (
+          <div className="border-t border-neutral-warm px-4 py-4 text-center">
+            <button type="button" onClick={() => setVisibleGroupCount((count) => Math.min(count + 100, groupList.length))} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-cyan-50">
+              Show {Math.min(100, groupList.length - visibleGroupCount)} more groups
+            </button>
+            <div className="mt-2 text-xs text-text-muted">Showing {visibleGroupCount} of {groupList.length}</div>
           </div>
         )}
       </div>
