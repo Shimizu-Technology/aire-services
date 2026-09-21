@@ -113,7 +113,7 @@ module Payroll
       raise Error, "This AIRE entry is not eligible for payroll; refresh its approval status" unless result
       {
         regular_hours: BigDecimal(result.fetch(:regular_hours).to_s).round(2),
-        overtime_hours: entry.overtime_status == "approved" ? BigDecimal(result.fetch(:overtime_hours).to_s).round(2) : 0.to_d
+        overtime_hours: entry.overtime_status.in?(%w[pending denied]) ? 0.to_d : BigDecimal(result.fetch(:overtime_hours).to_s).round(2)
       }
     end
 
@@ -121,9 +121,11 @@ module Payroll
       return entry.time_category_id if entry.time_category_id.present?
 
       categories = entry.user.assigned_time_categories.where(is_active: true).pluck(:id)
-      raise Error, "Assign the AIRE time category before reconciling these hours" unless categories.one?
-
-      categories.first
+      # Historical source entries may have no category even though the exact
+      # hours and issued check are verified. Keep the allocation uncategorized
+      # when several assignments are possible rather than inventing a wage
+      # classification or offering the already-paid hours again.
+      categories.first if categories.one?
     end
 
     def hours!(value)

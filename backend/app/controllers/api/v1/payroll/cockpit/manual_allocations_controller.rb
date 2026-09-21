@@ -46,7 +46,7 @@ module Api
               )
               [ { manual_allocation: serialize(allocation) }, { manual_allocation_id: allocation.id } ]
             end
-          rescue Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
+          rescue ::Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
             audit_invalid_command(entry, e) if entry
             render json: { error: e.message }, status: :unprocessable_entity
           rescue ActiveRecord::RecordNotUnique
@@ -99,7 +99,7 @@ module Api
               end
               [ {}, { manual_allocation_id: locked_allocation.id, status: locked_allocation.status } ]
             end
-          rescue Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
+          rescue ::Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
             audit_invalid_command(allocation, e) if allocation
             render json: { error: e.message }, status: :unprocessable_entity
           end

@@ -175,4 +175,39 @@ RSpec.describe Payroll::ManualAllocationRecorder do
                        reason: "Verified against the issued Cornerstone adjustment check")
     end.to raise_error(described_class::Error, /identity changed/)
   end
+
+  it "accepts weekly overtime with no separate overtime approval when the batch builder includes it" do
+    entry.update_columns(hours: 9.0, overtime_status: "none")
+    entry.reload
+    preview = Payroll::BatchBuilder.new(
+      start_date: "2026-08-01", end_date: "2026-08-15", cutoff_at: Time.zone.parse("2026-09-18 17:00")
+    ).call.fetch(:payload)
+    adjustment = preview.fetch(:employees).first.fetch(:adjustments).first
+    expect(adjustment.fetch(:regular_hours)).to eq(8.0)
+    expect(adjustment.fetch(:overtime_hours)).to eq(1.0)
+
+    allocation = recorder.commit!(
+      entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+      regular_hours: "8.00", overtime_hours: "1.00",
+      external_pay_period_id: "68", external_payroll_item_id: "1438",
+      pay_date: "2026-09-17", reason: "Exact AIRE weekly overtime on the issued check"
+    )
+    expect(allocation).to have_attributes(regular_hours: 8, overtime_hours: 1)
+  end
+
+  it "preserves an unresolved legacy category when exact paid hours are reconciled" do
+    other_category = create(:time_category)
+    employee.user_time_categories.create!(time_category: category)
+    employee.user_time_categories.create!(time_category: other_category)
+    entry.update_columns(time_category_id: nil)
+    entry.reload
+
+    allocation = commit_hours
+
+    expect(allocation.time_category_id).to be_nil
+    expect(entry.reload.time_category_id).to be_nil
+    expect(allocation.regular_hours).to eq(6.1)
+    expect(Payroll::BatchBuilder.new(start_date: "2026-08-01", end_date: "2026-08-15").call.fetch(:payload)
+      .fetch(:summary).fetch(:total_hours)).to eq(0.0)
+  end
 end
