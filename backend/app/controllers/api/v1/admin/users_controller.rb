@@ -241,42 +241,17 @@ module Api
 
           begin
             ActiveRecord::Base.transaction do
-              User.with_admin_access_lock do
-                @user.reload
-                if @user.terminated?
-                  return render json: { error: "This employee is already terminated" }, status: :unprocessable_entity
-                end
-
-                if last_active_admin?(@user)
-                  return render json: { error: "AIRE Ops must keep at least one active admin with personal sign-in" }, status: :unprocessable_entity
-                end
-
-                previous_status = @user.employment_status
-                previously_active = @user.is_active?
-                @user.update!(
-                  is_active: false,
-                  public_team_enabled: false,
-                  terminated_at: Time.current,
-                  termination_effective_on: effective_on,
-                  termination_reason: params[:reason].to_s.strip.presence,
-                  terminated_by: current_user
-                )
-                AuditLog.record!(
-                  action: "admin.users.terminate",
-                  auditable: @user,
-                  actor: current_user,
-                  event_category: "users",
-                  changes: {
-                    is_active: [ previously_active, false ],
-                    employment_status: [ previous_status, "terminated" ],
-                    termination_effective_on: [ nil, effective_on.iso8601 ]
-                  }
-                )
+              if @user.admin?
+                User.with_admin_access_lock { terminate_user_under_lock(effective_on) }
+              else
+                terminate_user_under_lock(effective_on)
               end
             end
           rescue ActiveRecord::RecordInvalid => e
             return render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
           end
+
+          return if performed?
 
           render json: { user: serialize_user(@user.reload) }
         end
@@ -701,6 +676,48 @@ module Api
         def last_active_admin?(user)
           user.admin? && user.is_active? && user.personal_access_enabled? &&
             !User.admins.where(is_active: true, personal_access_enabled: true).where.not(id: user.id).exists?
+        end
+
+        def terminate_user_under_lock(effective_on)
+          @user.with_lock do
+            @user.reload
+            if @user.terminated?
+              render json: { error: "This employee is already terminated" }, status: :unprocessable_entity
+              return
+            end
+
+            if @user.time_entries.where(status: %w[clocked_in on_break]).exists?
+              render json: { error: "Clock this employee out before terminating them so their final shift is recorded correctly." }, status: :unprocessable_entity
+              return
+            end
+
+            if last_active_admin?(@user)
+              render json: { error: "AIRE Ops must keep at least one active admin with personal sign-in" }, status: :unprocessable_entity
+              return
+            end
+
+            previous_status = @user.employment_status
+            previously_active = @user.is_active?
+            @user.update!(
+              is_active: false,
+              public_team_enabled: false,
+              terminated_at: Time.current,
+              termination_effective_on: effective_on,
+              termination_reason: params[:reason].to_s.strip.presence,
+              terminated_by: current_user
+            )
+            AuditLog.record!(
+              action: "admin.users.terminate",
+              auditable: @user,
+              actor: current_user,
+              event_category: "users",
+              changes: {
+                is_active: [ previously_active, false ],
+                employment_status: [ previous_status, "terminated" ],
+                termination_effective_on: [ nil, effective_on.iso8601 ]
+              }
+            )
+          end
         end
 
         def normalized_photo_position(value, axis_label)
