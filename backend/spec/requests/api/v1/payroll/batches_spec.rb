@@ -243,7 +243,7 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
       payment_reference: "5001"
     )
     source_entry = TimeEntry.find(batch_entry.source_time_entry_id)
-    lifecycle = Payroll::EntryLifecycleResolver.new(entries: [source_entry]).call.fetch(source_entry.id)
+    lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ source_entry ]).call.fetch(source_entry.id)
     expect(lifecycle.fetch(:payment_effective_on)).to eq("2026-09-04")
     expect(lifecycle.fetch(:settlements).last.fetch(:payment_effective_on)).to eq("2026-09-04")
 
