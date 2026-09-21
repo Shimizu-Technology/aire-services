@@ -243,6 +243,10 @@ module Api
             ActiveRecord::Base.transaction do
               User.with_admin_access_lock do
                 @user.reload
+                if @user.terminated?
+                  return render json: { error: "This employee is already terminated" }, status: :unprocessable_entity
+                end
+
                 if last_active_admin?(@user)
                   return render json: { error: "AIRE Ops must keep at least one active admin with personal sign-in" }, status: :unprocessable_entity
                 end

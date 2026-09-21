@@ -136,6 +136,16 @@ export default function Users() {
   const createModalRef = useRef<HTMLDivElement>(null)
   const editModalRef = useRef<HTMLDivElement>(null)
   const pinModalRef = useRef<HTMLDivElement>(null)
+  const terminationDialogRef = useRef<HTMLDivElement>(null)
+  const terminationTriggerRef = useRef<HTMLButtonElement | null>(null)
+
+  const closeTerminationModal = useCallback(() => {
+    setTerminationUser(null)
+    setTerminationError('')
+    const trigger = terminationTriggerRef.current
+    terminationTriggerRef.current = null
+    if (trigger) window.setTimeout(() => trigger.focus(), 0)
+  }, [])
 
   useEffect(() => {
     if (showCreateModal && createModalRef.current) {
@@ -157,6 +167,41 @@ export default function Users() {
       if (first) setTimeout(() => first.focus(), 0)
     }
   }, [pinModalUser])
+
+  useEffect(() => {
+    const dialog = terminationDialogRef.current
+    if (!terminationUser || !dialog) return
+
+    const firstField = dialog.querySelector<HTMLElement>('[data-termination-autofocus]')
+    if (firstField) window.setTimeout(() => firstField.focus(), 0)
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeTerminationModal()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.offsetParent !== null)
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    dialog.addEventListener('keydown', handleKeyDown)
+    return () => dialog.removeEventListener('keydown', handleKeyDown)
+  }, [closeTerminationModal, terminationUser])
 
   const applyFetchedData = useCallback((
     usersRes: Awaited<ReturnType<typeof api.getAdminUsers>>,
@@ -597,7 +642,8 @@ export default function Users() {
     }
   }
 
-  const openTerminationModal = (user: AdminUser) => {
+  const openTerminationModal = (user: AdminUser, trigger: HTMLButtonElement) => {
+    terminationTriggerRef.current = trigger
     setTerminationUser(user)
     setTerminationEffectiveOn(formatDateISO(new Date()))
     setTerminationReason('')
@@ -621,7 +667,7 @@ export default function Users() {
       const savedUser = response.data.user
       patchLocalUser(savedUser.id, () => savedUser)
       loadEditState(savedUser)
-      setTerminationUser(null)
+      closeTerminationModal()
     } finally {
       setSavingTermination(false)
     }
@@ -1550,7 +1596,10 @@ export default function Users() {
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => editingUser.is_active ? openTerminationModal(editingUser) : handleReactivate(editingUser)}
+                  onClick={(event) => {
+                    if (editingUser.is_active) openTerminationModal(editingUser, event.currentTarget)
+                    else void handleReactivate(editingUser)
+                  }}
                   disabled={savingEdit}
                   className={`rounded-xl border px-4 py-3 text-sm font-medium transition disabled:opacity-50 ${editingUser.is_active ? 'border-rose-200 text-rose-700 hover:bg-rose-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
                 >
@@ -1574,7 +1623,7 @@ export default function Users() {
 
       {terminationUser && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/65 p-4" role="presentation">
-          <div role="dialog" aria-modal="true" aria-labelledby="termination-modal-title" className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-7">
+          <div ref={terminationDialogRef} role="dialog" aria-modal="true" aria-labelledby="termination-modal-title" className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-7">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-600">Preserve employment history</p>
@@ -1583,7 +1632,7 @@ export default function Users() {
                   This disables sign-in and clock access. The employee record, time entries, schedules, payroll trail, and historical reports stay intact.
                 </p>
               </div>
-              <button type="button" aria-label="Close" onClick={() => setTerminationUser(null)} className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+              <button type="button" aria-label="Close" onClick={closeTerminationModal} className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -1591,7 +1640,7 @@ export default function Users() {
             <div className="mt-6 space-y-4">
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Last day of employment</span>
-                <input type="date" value={terminationEffectiveOn} max={formatDateISO(new Date())} onChange={(event) => setTerminationEffectiveOn(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                <input data-termination-autofocus type="date" value={terminationEffectiveOn} max={formatDateISO(new Date())} onChange={(event) => setTerminationEffectiveOn(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
               </label>
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Internal note <span className="font-normal text-slate-400">(optional)</span></span>
@@ -1606,7 +1655,7 @@ export default function Users() {
             {terminationError && <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{terminationError}</div>}
 
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => setTerminationUser(null)} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Cancel</button>
+              <button type="button" onClick={closeTerminationModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Cancel</button>
               <button type="button" onClick={() => void handleTerminate()} disabled={savingTermination || !terminationEffectiveOn} className="rounded-xl bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:opacity-50">
                 {savingTermination ? 'Terminating…' : 'Confirm termination'}
               </button>

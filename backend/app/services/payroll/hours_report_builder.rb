@@ -7,6 +7,7 @@ module Payroll
     BUSINESS_TIMEZONE = TimeClockService::BUSINESS_TIMEZONE
     WEEKLY_OVERTIME_THRESHOLD = WeeklyOvertimeAllocator::STATUTORY_WEEKLY_THRESHOLD
     LONG_SHIFT_HOURS = 12
+    MAX_SYNC_ENTRIES = 50_000
 
     attr_reader :params, :start_date, :end_date, :context_start_date, :context_end_date
 
@@ -22,10 +23,12 @@ module Payroll
     def call
       scoped_users = users_scope.to_a
       user_ids = scoped_users.map(&:id)
-      control_entries = overtime_context_entries_scope(context_start_date..context_end_date, user_ids).to_a
-      report_entries = report_entries_scope(context_start_date..context_end_date, user_ids).to_a
-      @entry_quality_flags = build_entry_quality_flags((control_entries + report_entries).uniq(&:id))
-      @payroll_lifecycles = EntryLifecycleResolver.new(entries: (control_entries + report_entries)).call
+      control_scope = overtime_context_entries_scope(context_start_date..context_end_date, user_ids)
+      enforce_sync_entry_limit!(control_scope)
+      control_entries = control_scope.to_a
+      report_entries = filter_report_entries(control_entries)
+      @entry_quality_flags = build_entry_quality_flags(control_entries)
+      @payroll_lifecycles = EntryLifecycleResolver.new(entries: control_entries).call
       control_period_entries = control_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
       breakdowns = build_breakdowns(employees)
@@ -81,18 +84,28 @@ module Payroll
       base_entries_scope(range, user_ids)
     end
 
-    def report_entries_scope(range, user_ids)
-      scope = base_entries_scope(range, user_ids)
-      if params[:category_status].to_s == "uncategorized"
-        scope = scope.where(time_category_id: nil)
-      elsif params[:time_category_id].present?
-        scope = scope.where(time_category_id: params[:time_category_id])
+    def enforce_sync_entry_limit!(scope)
+      entry_count = scope.unscope(:order).limit(MAX_SYNC_ENTRIES + 1).count
+      return if entry_count <= MAX_SYNC_ENTRIES
+
+      raise ArgumentError,
+        "This report contains more than #{MAX_SYNC_ENTRIES.to_fs(:delimited)} time entries. " \
+        "Keep any date range you need, but narrow the employee or department filter before running it."
+    end
+
+    def filter_report_entries(entries)
+      allowed_approval_statuses = approval_status_value(params[:approval_status]) if params[:approval_status].present?
+
+      entries.select do |entry|
+        next false if params[:category_status].to_s == "uncategorized" && entry.time_category_id.present?
+        next false if params[:category_status].to_s != "uncategorized" && params[:time_category_id].present? && entry.time_category_id != params[:time_category_id].to_i
+        next false if params[:clock_source].present? && entry.clock_source != params[:clock_source].to_s
+        next false if params[:entry_method].present? && entry.entry_method != params[:entry_method].to_s
+        next false if allowed_approval_statuses && !Array(allowed_approval_statuses).include?(entry.approval_status)
+        next false if params[:overtime_status].present? && entry.overtime_status != params[:overtime_status].to_s
+
+        true
       end
-      scope = scope.where(clock_source: params[:clock_source]) if params[:clock_source].present?
-      scope = scope.where(entry_method: params[:entry_method]) if params[:entry_method].present?
-      scope = scope.where(approval_status: approval_status_value(params[:approval_status])) if params[:approval_status].present?
-      scope = scope.where(overtime_status: params[:overtime_status]) if params[:overtime_status].present?
-      scope
     end
 
     def base_entries_scope(range, user_ids)
@@ -338,16 +351,16 @@ module Payroll
           [ entry, *interval ] if interval
         end.sort_by { |_entry, starts_at, _ends_at| starts_at }
 
-        active = []
+        farthest_ending_interval = nil
         intervals.each do |entry, starts_at, ends_at|
-          active.reject! { |_other_entry, _other_starts_at, other_ends_at| other_ends_at <= starts_at }
-          active.each do |other_entry, other_starts_at, other_ends_at|
-            next unless starts_at < other_ends_at && ends_at > other_starts_at
-
+          if farthest_ending_interval.nil? || starts_at >= farthest_ending_interval.last
+            farthest_ending_interval = [ entry, ends_at ]
+          else
+            other_entry = farthest_ending_interval.first
             flags[entry.id] << "overlap"
             flags[other_entry.id] << "overlap"
+            farthest_ending_interval = [ entry, ends_at ] if ends_at > farthest_ending_interval.last
           end
-          active << [ entry, starts_at, ends_at ]
         end
       end
 

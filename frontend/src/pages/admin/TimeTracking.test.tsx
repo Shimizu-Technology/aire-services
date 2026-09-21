@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,6 +29,7 @@ function TimeRouteHarness() {
     <>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-07-01&end_date=2026-07-15')}>Open July report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&approval_status=denied&overtime_status=denied')}>Open denied report</button>
+      <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&status=terminated')}>Open terminated report</button>
       <output data-testid="location-search">{location.search}</output>
       <TimeTracking />
     </>
@@ -106,10 +107,21 @@ describe('TimeTracking routed report periods', () => {
     await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({ status: 'all' })))
     expect(screen.getByDisplayValue('All statuses')).toBeInTheDocument()
 
+    const guamDateParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Pacific/Guam',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date()).reduce<Record<string, string>>((parts, part) => {
+      if (part.type !== 'literal') parts[part.type] = part.value
+      return parts
+    }, {})
+    const guamToday = `${guamDateParts.year}-${guamDateParts.month}-${guamDateParts.day}`
+
     fireEvent.click(screen.getByRole('button', { name: 'Year to date' }))
     await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({
-      start_date: '2026-01-01',
-      end_date: '2026-09-22',
+      start_date: `${guamDateParts.year}-01-01`,
+      end_date: guamToday,
       status: 'all',
     })))
     expect(screen.getByTestId('location-search')).toHaveTextContent('status=all')
@@ -161,6 +173,13 @@ describe('TimeTracking routed report periods', () => {
       approval_status: 'denied',
       overtime_status: 'denied',
     })))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open terminated report' }))
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'terminated',
+    })))
+    expect(await screen.findByDisplayValue('Terminated only')).toBeInTheDocument()
   })
 
   it('opens the linked missing-category remediation report', async () => {
@@ -289,6 +308,7 @@ describe('TimeTracking routed report periods', () => {
   it('labels a legacy missing category as uncategorized in detailed entries', async () => {
     const report = makeHoursReport('2026-08-01', '2026-08-31', 3)
     report.ready = false
+    report.quality = { status: 'needs_review', missing_category_count: 1, missing_description_count: 0, long_shift_count: 0, overlapping_entry_count: 0 }
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1, uncategorized_count: 1 }
     report.breakdowns.by_category = [{ id: null, key: null, name: 'Uncategorized', total_hours: 3, regular_hours: 3, overtime_hours: 0, break_hours: 0, entries_count: 1 }]
     report.breakdowns.by_source = [{ source: 'legacy', total_hours: 3, regular_hours: 3, overtime_hours: 0, break_hours: 0, entries_count: 1 }]
@@ -336,6 +356,11 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
+    const qualityPanel = (await screen.findByRole('heading', { name: 'Time data worth reviewing' })).closest('section')
+    expect(qualityPanel).not.toBeNull()
+    expect(within(qualityPanel!).getByText('Missing categories')).toBeInTheDocument()
+    expect(within(qualityPanel!).getByText('1')).toBeInTheDocument()
+    expect(screen.getAllByText('Missing category', { exact: true }).length).toBeGreaterThan(0)
     expect(await screen.findByRole('row', { name: /Sun, Aug 16 Legacy Entry.*Uncategorized.*3.00.*Edit/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     expect(await screen.findByRole('heading', { name: 'Edit Time Entry' })).toBeInTheDocument()

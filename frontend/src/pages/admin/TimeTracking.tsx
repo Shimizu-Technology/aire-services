@@ -222,6 +222,7 @@ function sortEntriesChronologically(a: TimeEntryItem, b: TimeEntryItem): number 
 type TimeTab = Exclude<TimePayrollSection, 'payroll'>
 type ReportApprovalStatus = '' | 'pending' | 'approved' | 'denied' | 'approved_or_standard'
 type ReportOvertimeStatus = '' | 'none' | 'pending' | 'approved' | 'denied'
+type ReportEmployeeStatus = 'all' | 'active' | 'current' | 'pending' | 'inactive' | 'terminated'
 
 function timeTabFromSearchParams(searchParams: URLSearchParams): TimeTab {
   const tab = searchParams.get('tab')
@@ -251,6 +252,13 @@ function linkedCategoryFilter(searchParams: URLSearchParams) {
   if (searchParams.get('category_status') === 'uncategorized') return 'uncategorized'
   const categoryId = searchParams.get('time_category_id')
   return /^\d+$/.test(categoryId || '') ? categoryId! : ''
+}
+
+function linkedEmployeeStatus(searchParams: URLSearchParams): ReportEmployeeStatus {
+  const status = searchParams.get('status')
+  return status === 'active' || status === 'current' || status === 'pending' || status === 'inactive' || status === 'terminated'
+    ? status
+    : 'all'
 }
 
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
@@ -372,6 +380,7 @@ export default function TimeTracking() {
   const routedApprovalStatus = linkedApprovalStatus(searchParams)
   const routedOvertimeStatus = linkedOvertimeStatus(searchParams)
   const routedCategoryFilter = linkedCategoryFilter(searchParams)
+  const routedEmployeeStatus = linkedEmployeeStatus(searchParams)
   const initialLinkedPeriod = routedPeriod
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -404,9 +413,7 @@ export default function TimeTracking() {
     user_id: /^\d+$/.test(searchParams.get('user_id') || '') ? searchParams.get('user_id')! : '',
     time_category_id: routedCategoryFilter || (/^\d+$/.test(searchParams.get('time_category_id') || '') ? searchParams.get('time_category_id')! : ''),
     approval_group: (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter,
-    employee_status: (searchParams.get('status') === 'active' || searchParams.get('status') === 'current' || searchParams.get('status') === 'pending' || searchParams.get('status') === 'inactive' || searchParams.get('status') === 'terminated'
-      ? searchParams.get('status')
-      : 'all') as 'all' | 'active' | 'current' | 'pending' | 'inactive' | 'terminated',
+    employee_status: routedEmployeeStatus,
     role: (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee',
     clock_source: (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
     entry_method: (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual',
@@ -647,6 +654,7 @@ export default function TimeTracking() {
           && current.approval_status === routedApprovalStatus
           && current.overtime_status === routedOvertimeStatus
           && current.time_category_id === routedCategoryFilter
+          && current.employee_status === routedEmployeeStatus
         ) return current
         return {
           ...current,
@@ -655,11 +663,12 @@ export default function TimeTracking() {
           approval_status: routedApprovalStatus,
           overtime_status: routedOvertimeStatus,
           time_category_id: routedCategoryFilter,
+          employee_status: routedEmployeeStatus,
         }
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [routedApprovalStatus, routedCategoryFilter, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
+  }, [routedApprovalStatus, routedCategoryFilter, routedEmployeeStatus, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
 
   useEffect(() => {
     if (lastUrlSyncedReportFilters.current === reportFilters) return
@@ -2199,7 +2208,13 @@ export default function TimeTracking() {
             <HoursBreakdownCard title="Hours by Source" label="Source" rows={reportBySource.map((row) => ({ ...row, label: row.source.toUpperCase() }))} />
           </div>
 
-          <DetailedEntriesTable entries={reportData} isAdmin={isAdmin} loading={reportLoading} onEdit={openEditEntry} />
+          <DetailedEntriesTable
+            key={`${hoursReport?.generated_at ?? 'empty'}:${hoursReport?.start_date ?? ''}:${hoursReport?.end_date ?? ''}:${reportData.length}`}
+            entries={reportData}
+            isAdmin={isAdmin}
+            loading={reportLoading}
+            onEdit={openEditEntry}
+          />
           <EmployeeReportDrawer employee={selectedReportEmployee} onClose={handleCloseEmployeeReportDrawer} />
         </div>
       )}

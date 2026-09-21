@@ -69,6 +69,20 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(json.dig(:employees, 0, :last_work_date)).to eq("2026-09-01")
   end
 
+  it "bounds synchronous work by entry count without limiting the requested dates" do
+    stub_const("Payroll::HoursReportBuilder::MAX_SYNC_ENTRIES", 1)
+    create_entry(user: employee, date: Date.new(2024, 1, 15), hours: 4)
+    create_entry(user: employee, date: Date.new(2026, 9, 1), hours: 6)
+
+    get "/api/v1/admin/hours_report",
+        params: { start_date: "2024-01-01", end_date: "2026-09-21", user_id: employee.id },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to match(/more than 1 time entries/i)
+    expect(json.fetch(:error)).to match(/narrow the employee or department/i)
+  end
+
   it "keeps terminated employees and their hours available in historical reports" do
     create_entry(user: employee, date: Date.new(2026, 9, 10), hours: 8)
     employee.update!(

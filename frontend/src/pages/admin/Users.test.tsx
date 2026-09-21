@@ -306,12 +306,14 @@ describe('Users filters', () => {
     apiMock.terminateUser.mockResolvedValueOnce({ data: { user: terminated } })
     render(<Users />)
 
+    fireEvent.change(await screen.findByLabelText(/status/i), { target: { value: 'all' } })
     const aliceName = await screen.findByText('Alice Pilot')
     fireEvent.click(within(aliceName.closest('tr')!).getByRole('button', { name: /^edit$/i }))
     fireEvent.click(within(screen.getByRole('dialog', { name: /edit alice pilot/i })).getByRole('button', { name: /terminate employment/i }))
 
     const dialog = screen.getByRole('dialog', { name: /terminate alice pilot/i })
     expect(within(dialog).getByText(/time entries, schedules, payroll trail, and historical reports stay intact/i)).toBeInTheDocument()
+    await waitFor(() => expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveFocus())
     fireEvent.change(within(dialog).getByLabelText(/last day of employment/i), { target: { value: '2026-09-21' } })
     fireEvent.change(within(dialog).getByLabelText(/internal note/i), { target: { value: 'Employment ended' } })
     fireEvent.click(within(dialog).getByRole('button', { name: /confirm termination/i }))
@@ -320,6 +322,40 @@ describe('Users filters', () => {
       effective_on: '2026-09-21',
       reason: 'Employment ended',
     }))
-    expect(await screen.findByText('Terminated')).toBeInTheDocument()
+    const updatedAliceRow = (await screen.findByText('Alice Pilot')).closest('tr')
+    expect(updatedAliceRow).not.toBeNull()
+    expect(within(updatedAliceRow!).getByText('Terminated')).toBeInTheDocument()
+  })
+
+  it('reactivates a terminated employee and updates their status in place', async () => {
+    const terminated = makeUser({
+      id: 1,
+      full_name: 'Alice Pilot',
+      display_name: 'Alice Pilot',
+      email: 'alice@aire.test',
+      is_active: false,
+      employment_status: 'terminated',
+      termination_effective_on: '2026-09-21',
+      terminated_at: '2026-09-22T00:00:00Z',
+    })
+    const reactivated = makeUser({
+      id: 1,
+      full_name: 'Alice Pilot',
+      display_name: 'Alice Pilot',
+      email: 'alice@aire.test',
+    })
+    apiMock.getAdminUsers.mockResolvedValueOnce({ data: { users: [terminated] } })
+    apiMock.reactivateUser.mockResolvedValueOnce({ data: { user: reactivated } })
+    render(<Users />)
+
+    fireEvent.change(await screen.findByLabelText(/status/i), { target: { value: 'all' } })
+    const aliceName = await screen.findByText('Alice Pilot')
+    fireEvent.click(within(aliceName.closest('tr')!).getByRole('button', { name: /^edit$/i }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: /edit alice pilot/i })).getByRole('button', { name: /reactivate user/i }))
+
+    await waitFor(() => expect(apiMock.reactivateUser).toHaveBeenCalledWith(1))
+    const updatedAliceRow = (await screen.findByText('Alice Pilot')).closest('tr')
+    expect(updatedAliceRow).not.toBeNull()
+    expect(within(updatedAliceRow!).getByText('Active')).toBeInTheDocument()
   })
 })
