@@ -4622,6 +4622,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260921020300'),
 ('20260921010000'),
 ('20260920050000'),
 ('20260920040000'),

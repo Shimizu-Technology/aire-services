@@ -4,6 +4,7 @@ require "rails_helper"
 require Rails.root.join("db/migrate/20260921020000_set_verified_francisco_maintenance_rate")
 require Rails.root.join("db/migrate/20260921020100_record_verified_jeremiah_payment_hold")
 require Rails.root.join("db/migrate/20260921020200_connect_verified_cornerstone_payroll_admins")
+require Rails.root.join("db/migrate/20260921020300_record_verified_legacy_payment_holds")
 
 RSpec.describe "verified Cornerstone rollout migrations", type: :model do
   def create_francisco!(**attributes)
@@ -102,6 +103,48 @@ RSpec.describe "verified Cornerstone rollout migrations", type: :model do
       allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
 
       expect { described_class.new.up }.to raise_error(RuntimeError, /administrators are missing/)
+    end
+  end
+
+  describe RecordVerifiedLegacyPaymentHolds do
+    it "pins the exact owner-attested entries and fails closed when an identity is absent" do
+      expect(described_class::ENTRIES.length).to eq(20)
+      expect(described_class::ENTRIES.values.sum { |(_, _, hours)| hours.to_d }).to eq(113.84.to_d)
+      expect(described_class::ENTRIES.values.map(&:first).uniq.sort).to eq(described_class::USERS.keys.sort)
+
+      expect { described_class.new.up }.to raise_error(RuntimeError, /employees are missing/)
+    end
+
+    it "records each exact source entry once and removes it from future payroll" do
+      create(:user, :admin, id: 1)
+      users = described_class::USERS.to_h do |user_id, source_uuid|
+        [ user_id, create(:user, :employee, id: user_id, payroll_integration_uuid: source_uuid) ]
+      end
+      category = create(:time_category)
+      described_class::ENTRIES.each do |entry_id, (user_id, work_date, hours)|
+        started_at = ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 8)
+        create(
+          :time_entry, id: entry_id, user: users.fetch(user_id), time_category: category,
+          work_date: Date.iso8601(work_date), start_time: started_at,
+          end_time: started_at + hours.to_d.hours, hours: hours,
+          status: "completed", entry_method: "clock", clock_source: "legacy",
+          approval_status: "approved"
+        )
+      end
+
+      expect { described_class.new.up }.to change(PayrollPaymentAttestation, :count).by(20)
+      expect { described_class.new.up }.not_to change(PayrollPaymentAttestation, :count)
+      expect(PayrollPaymentAttestation.pending_evidence.sum(:hours)).to eq(113.84.to_d)
+      expect(
+        Payroll::BatchBuilder.new(
+          start_date: "2026-05-01", end_date: "2026-05-15",
+          cutoff_at: Time.zone.parse("2026-09-21 17:00")
+        ).call.dig(:summary, :total_hours)
+      ).to eq(0.0)
+    end
+
+    it "cannot erase an owner attestation through a migration rollback" do
+      expect { described_class.new.down }.to raise_error(ActiveRecord::IrreversibleMigration)
     end
   end
 end
