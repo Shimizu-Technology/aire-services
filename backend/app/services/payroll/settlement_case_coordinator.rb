@@ -83,6 +83,8 @@ module Payroll
       end
 
       def record_entry!(entry, previous_work_date: nil, actor: nil, actor_id: nil)
+        return if PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: entry.id)
+
         resolved_actor = actor || User.find_by(id: actor_id) || Current.user
         relevant_periods_for(entry, previous_work_date: previous_work_date).each do |period|
           next unless entry.created_at > period.cutoff_at || entry.updated_at > period.cutoff_at
@@ -206,6 +208,8 @@ module Payroll
       end
 
       def create_for_exclusion!(period:, batch:, exclusion:, actor:, supersedes_case: nil)
+        return if PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: exclusion.source_time_entry_id)
+
         existing = PayrollSettlementCase.find_by(origin_payroll_batch_exclusion: exclusion)
         return existing if existing
 

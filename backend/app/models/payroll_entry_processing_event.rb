@@ -18,8 +18,21 @@ class PayrollEntryProcessingEvent < ApplicationRecord
             allow_nil: true
   validates :payment_method, length: { maximum: 50 }, allow_nil: true
   validates :payment_reference, length: { maximum: 200 }, allow_nil: true
+  validate :valid_payment_effective_on
 
   def readonly?
     persisted?
+  end
+
+  private
+
+  def valid_payment_effective_on
+    value = metadata&.fetch("payment_effective_on", nil)
+    return if value.blank?
+
+    date = Date.iso8601(value)
+    errors.add(:metadata, "payment date cannot be in the future") if date > Time.zone.today
+  rescue ArgumentError, TypeError
+    errors.add(:metadata, "payment date must use YYYY-MM-DD")
   end
 end

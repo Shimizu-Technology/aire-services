@@ -14,7 +14,8 @@ module Payroll
       "payment_failed" => "Payment needs attention",
       "payment_voided" => "Payment voided",
       "partially_paid" => "Partially paid",
-      "partially_allocated" => "Partially assigned to payroll"
+      "partially_allocated" => "Partially assigned to payroll",
+      "payment_attested_pending_evidence" => "Payment reported; check details pending"
     }.freeze
 
     def initialize(entries:)
@@ -46,13 +47,17 @@ module Payroll
         .order(:id)
         .to_a
         .group_by(&:time_entry_id)
+      attestations_by_entry = PayrollPaymentAttestation.pending_evidence
+        .where(time_entry_id: entry_ids)
+        .index_by(&:time_entry_id)
 
       entries.each_with_object({}) do |entry, result|
         manual = manual_by_entry.fetch(entry.id, [])
+        attestation = attestations_by_entry[entry.id]
         settlements = settlements_for(rows_by_entry.fetch(entry.id, []), entry_events)
         settlements.concat(manual.map { |allocation| manual_settlement(allocation) })
         settlements.sort_by! { |settlement| [ settlement.fetch(:occurred_at), settlement.fetch(:batch_id) ] }
-        current_status = status_for(entry, settlements, manual)
+        current_status = attestation ? "payment_attested_pending_evidence" : status_for(entry, settlements, manual)
         latest_event = settlements.last&.fetch(:event, nil)
         latest_exclusion = latest_exclusions[entry.id]
         latest_payment = manual.reverse.find { |allocation| allocation.status == "issued" }
@@ -62,10 +67,14 @@ module Payroll
           label: LABELS.fetch(current_status),
           payment_method: latest_payment&.payment_method || latest_event&.payment_method,
           payment_reference: latest_payment&.payment_reference || latest_event&.payment_reference,
+          payment_effective_on: latest_payment&.payment_effective_on&.iso8601 || latest_event&.metadata&.dig("payment_effective_on"),
           occurred_at: latest_event&.occurred_at&.iso8601 || settlements.last&.dig(:occurred_at),
           latest_excluded_batch_id: latest_exclusion&.payroll_batch&.public_id,
           manually_committed_hours: round_hours(manual.select { |row| row.status == "committed" }.sum(&:total_hours)),
           manually_paid_hours: round_hours(manual.select { |row| row.status == "issued" }.sum(&:total_hours)),
+          payment_attested_hours: attestation && round_hours(attestation.hours),
+          payment_attested_at: attestation&.attested_at&.iso8601,
+          payment_attestation_source_changed: attestation&.source_changed?,
           settlements: settlements.map { |settlement| settlement.except(:event) }
         }.compact
       end
@@ -110,6 +119,7 @@ module Payroll
           external_payroll_item_id: event&.external_payroll_item_id,
           payment_method: event&.payment_method,
           payment_reference: event&.payment_reference,
+          payment_effective_on: event&.metadata&.dig("payment_effective_on"),
           event: event
         }.compact
       end
@@ -131,7 +141,8 @@ module Payroll
         external_pay_period_id: allocation.external_pay_period_id,
         external_payroll_item_id: allocation.external_payroll_item_id,
         payment_method: allocation.payment_method,
-        payment_reference: allocation.payment_reference
+        payment_reference: allocation.payment_reference,
+        payment_effective_on: allocation.payment_effective_on&.iso8601
       }.compact
     end
 

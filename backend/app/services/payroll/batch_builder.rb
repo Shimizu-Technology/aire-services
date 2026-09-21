@@ -31,6 +31,7 @@ module Payroll
       settlement_ids = settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
       preload_first_exclusion_references(settlement_ids)
       preload_manual_allocations(settlement_ids)
+      preload_payment_attestations(settlement_ids)
       # Held/denied entries still need exclusion rows, but must not pull a
       # previously paid workweek back through today's overtime allocator.
       current_by_id = (context_entries + seed_entries).index_by(&:id)
@@ -58,6 +59,7 @@ module Payroll
       exclusions.sort_by! { |row| [ row[:source_user_id], row[:work_date], row[:source_time_entry_id], row[:reason] ] }
       negative_rows = rows.select { |row| row[:regular_hours].negative? || row[:overtime_hours].negative? }
       issues = blocking.merge(
+        payment_attestation_pending_count: @payment_attestations_by_entry.size,
         negative_adjustment_count: negative_rows.size,
         pending_approval_count: exclusions.count { |row| row[:reason].in?(%w[pending_approval approved_after_cutoff created_after_cutoff]) },
         denied_approval_count: exclusions.count { |row| row[:reason] == "denied_approval" },
@@ -93,7 +95,8 @@ module Payroll
     def settlement_seed_entries(latest_batch)
       nominal = staff_entries.where(work_date: start_date..end_date).to_a
       manual_corrections = manually_allocated_entries_changed_since_payment(latest_batch)
-      return [ (nominal + manual_corrections).uniq(&:id), [] ] unless latest_batch
+      retracted = retracted_attestation_entries(latest_batch)
+      return [ (nominal + manual_corrections + retracted).uniq(&:id), [] ] unless latest_batch
 
       # A later review of an already finalized date range must not reinterpret
       # unchanged paid entries under today's overtime/category rules. Seed only
@@ -113,7 +116,7 @@ module Payroll
           .pluck(:source_time_entry_id)
         carryovers = staff_entries.where(id: targeted_ids).to_a
         existing_ids = carryovers.map(&:id)
-        return [ (nominal + carryovers + manual_corrections).uniq(&:id), targeted_ids - existing_ids ]
+        return [ (nominal + carryovers + manual_corrections + retracted).uniq(&:id), targeted_ids - existing_ids ]
       end
 
       latest_cutoff = latest_batch.cutoff_at
@@ -132,7 +135,15 @@ module Payroll
         .distinct
         .pluck(:auditable_id)
 
-      [ (nominal + carryovers + historical + changed_prior + manual_corrections).uniq(&:id), deleted_entry_ids ]
+      [ (nominal + carryovers + historical + changed_prior + manual_corrections + retracted).uniq(&:id), deleted_entry_ids ]
+    end
+
+    def retracted_attestation_entries(latest_batch)
+      latest_cutoff = latest_batch&.cutoff_at || Time.at(0)
+      staff_entries.where(id: PayrollPaymentAttestation
+        .where(status: "retracted")
+        .where("retracted_at > ?", latest_cutoff)
+        .select(:time_entry_id)).to_a
     end
 
     def manually_allocated_entries_changed_since_payment(latest_batch)
@@ -306,6 +317,10 @@ module Payroll
       snapshot = entry_snapshot(entry)
       held_regular, held_overtime = held_hours(entry, regular, overtime)
 
+      # A payment attestation prevents a duplicate import, but deliberately
+      # does not count as a settled payroll payment or an approval decision.
+      return [ zero_hours, [] ] if @payment_attestations_by_entry.key?(entry.id)
+
       if entry.created_at > cutoff_at
         return [ zero_hours, [ exclusion_for(entry, "created_after_cutoff", entry.hours, held_regular, held_overtime, snapshot) ] ]
       end
@@ -369,6 +384,12 @@ module Payroll
         .where(time_entry_id: entry_ids.to_a)
         .to_a
         .group_by(&:time_entry_id)
+    end
+
+    def preload_payment_attestations(entry_ids)
+      @payment_attestations_by_entry = PayrollPaymentAttestation.pending_evidence
+        .where(time_entry_id: entry_ids.to_a)
+        .index_by(&:time_entry_id)
     end
 
     def manually_allocated_hours(entry_id)

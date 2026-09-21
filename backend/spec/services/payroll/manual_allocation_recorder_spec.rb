@@ -41,15 +41,21 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.dig(entry.id, :status)).to eq("committed")
 
     recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                    payment_effective_on: "2026-09-16",
                     occurred_at: "2026-09-17T15:00:00+10:00", reason: "Chelsea confirmed physical check delivery")
 
     expect(allocation.reload.issued_at).to eq(Time.iso8601("2026-09-17T15:00:00+10:00"))
     expect(allocation.payroll_manual_allocation_events.find_by!(event_type: "issued").occurred_at)
       .to eq(allocation.issued_at)
+    expect(allocation.payment_effective_on).to eq(Date.new(2026, 9, 16))
+    expect(allocation.payroll_manual_allocation_events.find_by!(event_type: "issued").payment_effective_on)
+      .to eq(Date.new(2026, 9, 16))
 
     lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id)
     expect(lifecycle.fetch(:status)).to eq("payment_issued")
     expect(lifecycle.fetch(:payment_reference)).to eq("01045")
+    expect(lifecycle.fetch(:payment_effective_on)).to eq("2026-09-16")
+    expect(lifecycle.fetch(:settlements).last.fetch(:payment_effective_on)).to eq("2026-09-16")
     expect(lifecycle.fetch(:manually_paid_hours)).to eq(6.1)
     expect(allocation.payroll_manual_allocation_events.pluck(:event_type)).to eq(%w[committed issued])
   end
@@ -60,6 +66,37 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect { commit_hours(payroll_item_id: "1439") }
       .to raise_error(described_class::Error, /exceed the AIRE regular or overtime hours/)
     expect(PayrollManualAllocation.count).to eq(1)
+  end
+
+  it "does not invent a payment date when evidence is missing or later than the record" do
+    allocation = commit_hours
+
+    expect do
+      recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                      payment_effective_on: "", occurred_at: "2026-09-17T15:00:00+10:00",
+                      reason: "Check delivery confirmed without a date")
+    end.to raise_error(described_class::Error, /Payment date must use YYYY-MM-DD/)
+    expect do
+      recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                      payment_effective_on: "2026-09-18", occurred_at: "2026-09-17T15:00:00+10:00",
+                      reason: "Check delivery confirmed in the future")
+    end.to raise_error(described_class::Error, /cannot be after/)
+    expect(allocation.reload.status).to eq("committed")
+    expect(allocation.payment_effective_on).to be_nil
+  end
+
+  it "does not accept a future payment date disguised by a future record timestamp" do
+    allocation = commit_hours
+    future_time = Time.current + 2.days
+
+    expect do
+      recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                      payment_effective_on: future_time.in_time_zone("Pacific/Guam").to_date.iso8601,
+                      occurred_at: future_time.iso8601,
+                      reason: "Attempted premature check-delivery confirmation")
+    end.to raise_error(described_class::Error, /future time/)
+    expect(allocation.reload.status).to eq("committed")
+    expect(allocation.payment_effective_on).to be_nil
   end
 
   it "refuses to link the same AIRE entry to the same payroll item twice" do
@@ -132,6 +169,7 @@ RSpec.describe Payroll::ManualAllocationRecorder do
   it "does not reoffer delivered hours merely because someone voids their payroll link" do
     allocation = commit_hours
     recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+                    payment_effective_on: "2026-09-17",
                     occurred_at: "2026-09-17T15:00:00+10:00", reason: "Chelsea confirmed physical check delivery")
 
     expect do
@@ -150,5 +188,40 @@ RSpec.describe Payroll::ManualAllocationRecorder do
                        pay_date: "2026-09-17",
                        reason: "Verified against the issued Cornerstone adjustment check")
     end.to raise_error(described_class::Error, /identity changed/)
+  end
+
+  it "accepts weekly overtime with no separate overtime approval when the batch builder includes it" do
+    entry.update_columns(hours: 9.0, overtime_status: "none")
+    entry.reload
+    preview = Payroll::BatchBuilder.new(
+      start_date: "2026-08-01", end_date: "2026-08-15", cutoff_at: Time.zone.parse("2026-09-18 17:00")
+    ).call.fetch(:payload)
+    adjustment = preview.fetch(:employees).first.fetch(:adjustments).first
+    expect(adjustment.fetch(:regular_hours)).to eq(8.0)
+    expect(adjustment.fetch(:overtime_hours)).to eq(1.0)
+
+    allocation = recorder.commit!(
+      entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+      regular_hours: "8.00", overtime_hours: "1.00",
+      external_pay_period_id: "68", external_payroll_item_id: "1438",
+      pay_date: "2026-09-17", reason: "Exact AIRE weekly overtime on the issued check"
+    )
+    expect(allocation).to have_attributes(regular_hours: 8, overtime_hours: 1)
+  end
+
+  it "preserves an unresolved legacy category when exact paid hours are reconciled" do
+    other_category = create(:time_category)
+    employee.user_time_categories.create!(time_category: category)
+    employee.user_time_categories.create!(time_category: other_category)
+    entry.update_columns(time_category_id: nil)
+    entry.reload
+
+    allocation = commit_hours
+
+    expect(allocation.time_category_id).to be_nil
+    expect(entry.reload.time_category_id).to be_nil
+    expect(allocation.regular_hours).to eq(6.1)
+    expect(Payroll::BatchBuilder.new(start_date: "2026-08-01", end_date: "2026-08-15").call.fetch(:payload)
+      .fetch(:summary).fetch(:total_hours)).to eq(0.0)
   end
 end

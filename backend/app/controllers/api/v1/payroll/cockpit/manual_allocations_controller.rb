@@ -46,7 +46,7 @@ module Api
               )
               [ { manual_allocation: serialize(allocation) }, { manual_allocation_id: allocation.id } ]
             end
-          rescue Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
+          rescue ::Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
             audit_invalid_command(entry, e) if entry
             render json: { error: e.message }, status: :unprocessable_entity
           rescue ActiveRecord::RecordNotUnique
@@ -71,7 +71,7 @@ module Api
 
           def transition_params
             params.permit(:command_id, :expected_version, :reason, :occurred_at,
-                          :payment_method, :payment_reference)
+                          :payment_method, :payment_reference, :payment_effective_on)
           end
 
           def transition!(action)
@@ -89,6 +89,7 @@ module Api
                   allocation: locked_allocation,
                   payment_method: permitted.fetch(:payment_method),
                   payment_reference: permitted.fetch(:payment_reference),
+                  payment_effective_on: permitted.fetch(:payment_effective_on),
                   occurred_at: permitted.fetch(:occurred_at),
                   reason: reason
                 )
@@ -98,7 +99,7 @@ module Api
               end
               [ {}, { manual_allocation_id: locked_allocation.id, status: locked_allocation.status } ]
             end
-          rescue Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
+          rescue ::Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
             audit_invalid_command(allocation, e) if allocation
             render json: { error: e.message }, status: :unprocessable_entity
           end
@@ -125,11 +126,13 @@ module Api
               status: allocation.status,
               payment_method: allocation.payment_method,
               payment_reference: allocation.payment_reference,
+              payment_effective_on: allocation.payment_effective_on&.iso8601,
               issued_at: allocation.issued_at&.iso8601,
               voided_at: allocation.voided_at&.iso8601,
               events: allocation.payroll_manual_allocation_events.sort_by(&:id).map do |event|
                 { event_type: event.event_type, occurred_at: event.occurred_at.iso8601,
-                  reason: event.reason, payment_reference: event.payment_reference }
+                  payment_effective_on: event.payment_effective_on&.iso8601,
+                  reason: event.reason, payment_reference: event.payment_reference }.compact
               end
             }.compact
           end

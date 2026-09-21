@@ -257,17 +257,19 @@ const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
   payment_voided: 'border-red-200 bg-red-50 text-red-800',
   partially_paid: 'border-amber-200 bg-amber-50 text-amber-800',
   partially_allocated: 'border-amber-200 bg-amber-50 text-amber-800',
+  payment_attested_pending_evidence: 'border-amber-300 bg-amber-50 text-amber-900',
 }
 
 function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycle }) {
   if (!lifecycle) return <span className="text-xs text-text-muted">Not tracked</span>
-  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null].filter(Boolean).join(' · ')
+  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
+    lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
   return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{lifecycle.label}</span>
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
   const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
-  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'partially_paid', 'partially_allocated', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'payment_attested_pending_evidence', 'partially_paid', 'partially_allocated', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
   return priority.map((status) => entries.find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
 }
 
@@ -1889,12 +1891,13 @@ export default function TimeTracking() {
                 </div>
                 <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
                 <ReportMetric label="Ready / awaiting" value={String((reportSummary.payroll_statuses?.ready_for_cutoff || 0) + (reportSummary.payroll_statuses?.awaiting_approval || 0))} />
                 <ReportMetric label="In payroll" value={String((reportSummary.payroll_statuses?.finalized || 0) + (reportSummary.payroll_statuses?.imported || 0) + (reportSummary.payroll_statuses?.committed || 0))} />
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
                 <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
+                <ReportMetric label="Check evidence pending" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
               </div>
@@ -2267,6 +2270,12 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                         </div>
                         <div className="mt-1 text-xs text-text-muted">{entry.time_category?.name || 'Uncategorized'} · {entry.entry_method} · {entry.clock_source || 'legacy'}</div>
                         <div className="mt-2"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></div>
+                        {entry.payroll_lifecycle?.status === 'payment_attested_pending_evidence' && (
+                          <p className="mt-2 text-xs leading-5 text-amber-900">
+                            {Number(entry.payroll_lifecycle.payment_attested_hours || 0).toFixed(2)}h held from future payroll based on an owner payment statement. Check number, amount, and delivery date still need to be matched; this is not a verified paid record.
+                            {entry.payroll_lifecycle.payment_attestation_source_changed && ' The AIRE entry changed after the statement and needs review.'}
+                          </p>
+                        )}
                         {entry.payroll_lifecycle && (entry.payroll_lifecycle.manually_paid_hours || entry.payroll_lifecycle.manually_committed_hours) ? (
                           <p className="mt-2 text-xs text-text-muted">
                             {[
@@ -2285,6 +2294,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                               <p key={`${entry.id}-${settlement.batch_id}`}>
                                 {formatDate(settlement.start_date)}–{formatDate(settlement.end_date)} · {settlement.total_hours.toFixed(2)}h · {settlement.label}
                                 {settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
+                                {settlement.status === 'payment_issued' ? ` · ${settlement.payment_effective_on ? `paid ${formatDate(settlement.payment_effective_on)}` : 'payment date not recorded'}` : ''}
                               </p>
                             ))}
                           </div>

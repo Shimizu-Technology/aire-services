@@ -227,7 +227,8 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
       source_time_entry_id: batch_entry.source_time_entry_id,
       source_user_uuid: batch_entry.source_user_uuid,
       payment_method: "paper_check",
-      payment_reference: "5001"
+      payment_reference: "5001",
+      metadata: { payment_effective_on: "2026-09-04" }
     }
 
     expect do
@@ -241,6 +242,10 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
       source_user_uuid: employee.payroll_integration_uuid,
       payment_reference: "5001"
     )
+    source_entry = TimeEntry.find(batch_entry.source_time_entry_id)
+    lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ source_entry ]).call.fetch(source_entry.id)
+    expect(lifecycle.fetch(:payment_effective_on)).to eq("2026-09-04")
+    expect(lifecycle.fetch(:settlements).last.fetch(:payment_effective_on)).to eq("2026-09-04")
 
     expect do
       post "/api/v1/payroll/batches/#{batch.public_id}/processing_events", params: event, headers: headers
@@ -269,5 +274,26 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
          headers: headers
     expect(response).to have_http_status(:conflict)
     expect(json.fetch(:error)).to match(/identity/i)
+  end
+
+  it "rejects an invalid payment date without recording paid evidence" do
+    batch = finalized_batch
+    batch_entry = batch.payroll_batch_entries.first
+
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+           params: {
+             event_id: "cornerstone-entry-invalid-payment-date",
+             status: "payment_issued",
+             occurred_at: "2026-09-04T10:00:00+10:00",
+             external_system: "cornerstone_payroll",
+             source_time_entry_id: batch_entry.source_time_entry_id,
+             metadata: { payment_effective_on: "not-a-date" }
+           },
+           headers: { "X-Payroll-Shared-Secret" => secret }
+    end.not_to change(PayrollEntryProcessingEvent, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json.fetch(:error)).to match(/payment date must use YYYY-MM-DD/i)
   end
 end

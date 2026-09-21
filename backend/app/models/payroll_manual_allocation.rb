@@ -15,6 +15,7 @@ class PayrollManualAllocation < ApplicationRecord
             :external_pay_period_id, :external_payroll_item_id, :reason, presence: true
   validates :status, inclusion: { in: STATUSES }
   validates :regular_hours, :overtime_hours, numericality: { greater_than_or_equal_to: 0 }
+  validates :payment_effective_on, presence: true, if: -> { status == "issued" && will_save_change_to_status? }
   validate :positive_total_hours
   validate :time_entry_identity
 
