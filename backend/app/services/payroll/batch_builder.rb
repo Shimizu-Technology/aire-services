@@ -429,6 +429,7 @@ module Payroll
     def settlement_rows_for(entry, target, prior_rows)
       balances = prior_balances(prior_rows)
       current_key = dimension_key(resolved_time_category(entry)&.id)
+      normalize_inferred_legacy_category!(entry, balances, current_key)
       keys = balances.keys.to_set
       keys << current_key if target.values.any?(&:nonzero?)
       has_prior = balances.values.any? { |balance| balance.fetch(:totals).values.any?(&:nonzero?) }
@@ -444,6 +445,26 @@ module Payroll
         else
           row_for_prior_dimension(entry, delta, balances.fetch(key).fetch(:latest), key)
         end
+      end
+    end
+
+    def normalize_inferred_legacy_category!(entry, balances, current_key)
+      legacy_key = dimension_key(nil)
+      return unless entry.time_category_id.nil? && current_key != legacy_key && balances.key?(legacy_key)
+
+      legacy = balances.delete(legacy_key)
+      current = balances[current_key]
+      balances[current_key] = if current
+        {
+          totals: current.fetch(:totals).to_h do |key, value|
+            [ key, round_hours(value + legacy.fetch(:totals).fetch(key)) ]
+          end,
+          latest: [ current.fetch(:latest), legacy.fetch(:latest) ].max_by do |row|
+            [ row.payroll_batch.cutoff_at, row.id ]
+          end
+        }
+      else
+        legacy
       end
     end
 

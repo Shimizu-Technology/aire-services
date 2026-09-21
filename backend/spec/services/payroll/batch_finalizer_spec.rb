@@ -456,8 +456,8 @@ RSpec.describe Payroll::BatchFinalizer do
   it "maps a real PostgreSQL source-ledger lock timeout to the retryable payroll error" do
     database_config = ActiveRecord::Base.connection_db_config.configuration_hash
     locker = PG.connect(
-      host: database_config[:host],
-      port: database_config[:port],
+      host: database_config[:host].presence || ENV["PGHOST"],
+      port: database_config[:port].presence || ENV["PGPORT"],
       user: database_config[:username],
       password: database_config[:password],
       dbname: database_config.fetch(:database)

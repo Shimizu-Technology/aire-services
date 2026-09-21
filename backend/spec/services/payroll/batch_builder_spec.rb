@@ -81,6 +81,28 @@ RSpec.describe Payroll::BatchBuilder do
     expect(legacy_entry.reload.time_category_id).to be_nil
   end
 
+  it "does not manufacture a category correction when a prior uncategorized entry now infers its sole category" do
+    user.assigned_time_categories << category
+    legacy_entry = create(:time_entry, user: user, time_category: category,
+                                       work_date: Date.new(2026, 8, 15), hours: 6)
+    legacy_entry.update_columns(time_category_id: nil)
+    prior = PayrollBatchEntry.new(
+      payroll_batch: PayrollBatch.new(cutoff_at: Time.zone.parse("2026-09-01 17:00")),
+      source_time_entry_id: legacy_entry.id, source_user_id: user.id,
+      source_user_uuid: user.payroll_integration_uuid, source_category_id: nil,
+      work_date: legacy_entry.work_date, week_start: legacy_entry.work_date.beginning_of_week(:sunday),
+      total_hours: 6, regular_hours: 6, overtime_hours: 0,
+      source_kind: "current", line_key: "category:none", snapshot: { "time_category" => nil }
+    )
+
+    rows = builder.send(
+      :settlement_rows_for, legacy_entry.reload,
+      { total_hours: 6.to_d, regular_hours: 6.to_d, overtime_hours: 0.to_d }, [ prior ]
+    )
+
+    expect(rows).to be_empty
+  end
+
   it "revisits manually paid entries in a week affected by a new entry" do
     paid_entry = create(:time_entry, user: user, time_category: category,
                                      work_date: Date.new(2026, 9, 15),
