@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class SetVerifiedFranciscoMaintenanceRate < ActiveRecord::Migration[8.1]
+  # Francisco San Nicolas is the employee known operationally as Kiko.
+  OPERATIONAL_NAME = "Kiko"
   SOURCE_USER_ID = 39
   SOURCE_UUID = "b726ad82-8589-41d1-80ce-ce74de6f9621"
   CATEGORY_KEY = "aire_maintenance"
