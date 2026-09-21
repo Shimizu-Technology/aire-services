@@ -13,7 +13,11 @@ class ConnectVerifiedCornerstonePayrollAdmins < ActiveRecord::Migration[8.1]
   def up
     users = User.where(id: VERIFIED.keys).index_by(&:id)
     # Non-production databases may not contain the AIRE client at all.
-    return if users.empty?
+    if users.empty?
+      raise "Verified AIRE payroll administrators are missing" if Rails.env.production?
+
+      return
+    end
 
     raise "Verified AIRE payroll administrators are missing" unless users.length == VERIFIED.length
 

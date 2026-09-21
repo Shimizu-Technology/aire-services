@@ -17,11 +17,7 @@ class RecordVerifiedJeremiahPaymentHold < ActiveRecord::Migration[8.1]
 
   def up
     person = User.find_by(id: USER_ID)
-    unless person
-      raise "Verified historical AIRE employee is missing" if Rails.env.production?
-
-      return
-    end
+    raise "Verified historical AIRE employee is missing" unless person
     raise "Verified historical AIRE identity changed" unless person.payroll_integration_uuid == USER_UUID && person.staff?
 
     entries = TimeEntry.where(id: ENTRY_DATES.keys).index_by(&:id)
