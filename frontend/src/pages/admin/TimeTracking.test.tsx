@@ -211,6 +211,26 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.queryByText('11.9')).not.toBeInTheDocument()
   })
 
+  it('counts payment attestations separately from paid and payable report statuses', async () => {
+    const report = makeHoursReport('2026-08-01', '2026-08-15', 8)
+    report.summary = {
+      ...report.summary,
+      entries_count: 1,
+      payroll_statuses: { payment_attested_pending_evidence: 1 },
+    }
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    const metric = await screen.findByText('Check evidence pending')
+    expect(metric.parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Paid').parentElement).toHaveTextContent('0')
+  })
+
   it('keeps payroll status and exact hours visible in the mobile employee summary', async () => {
     const report = makeHoursReport('2026-05-01', '2026-05-15', 6.1)
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
