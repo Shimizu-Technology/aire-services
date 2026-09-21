@@ -15,7 +15,7 @@ module Payroll
       "payment_voided" => "Payment voided",
       "partially_paid" => "Partially paid",
       "partially_allocated" => "Partially assigned to payroll",
-      "payment_attested_pending_evidence" => "Payment reported; check details pending"
+      "payment_attested_pending_evidence" => "Paid — owner attested; check details pending"
     }.freeze
 
     def initialize(entries:)
