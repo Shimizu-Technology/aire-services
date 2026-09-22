@@ -9,7 +9,8 @@ RSpec.describe Payroll::PaymentAttestationRecorder do
     create(:time_entry, user: employee, time_category: create(:time_category),
                         work_date: Date.new(2026, 5, 11), hours: 8,
                         status: "completed", entry_method: "manual",
-                        approval_status: "approved", approved_at: Time.zone.parse("2026-05-27 10:00"))
+                        approval_status: "approved", approved_at: Time.zone.parse("2026-05-27 10:00"),
+                        created_at: Time.zone.parse("2026-05-11 17:00"))
   end
   let(:recorder) { described_class.new(actor: actor) }
   let(:statement) { "Leon confirmed this maintenance work was paid; Chelsea will identify the original check." }

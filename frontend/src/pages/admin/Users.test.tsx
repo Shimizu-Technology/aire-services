@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,6 +12,8 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   inviteUser: vi.fn(),
   updateUser: vi.fn(),
+  terminateUser: vi.fn(),
+  reactivateUser: vi.fn(),
   deleteUser: vi.fn(),
   resendInvite: vi.fn(),
   resetKioskPin: vi.fn(),
@@ -46,7 +48,7 @@ const categories: AdminTimeCategory[] = [
 ]
 
 function makeUser(overrides: Partial<AdminUser>): AdminUser {
-  return {
+  const user: AdminUser = {
     id: 1,
     email: 'user@example.com',
     first_name: 'Test',
@@ -58,6 +60,12 @@ function makeUser(overrides: Partial<AdminUser>): AdminUser {
     approval_group: null,
     approval_group_label: undefined,
     is_active: true,
+    employment_status: 'active',
+    terminated_at: null,
+    termination_effective_on: null,
+    termination_reason: null,
+    terminated_by: null,
+    can_delete_permanently: false,
     is_pending: false,
     has_clerk_account: true,
     uses_clerk_profile: true,
@@ -80,6 +88,8 @@ function makeUser(overrides: Partial<AdminUser>): AdminUser {
     updated_at: '2026-05-01T00:00:00Z',
     ...overrides,
   }
+  if (!overrides.employment_status) user.employment_status = user.is_active ? (user.is_pending ? 'pending' : 'active') : 'inactive'
+  return user
 }
 
 describe('Users filters', () => {
@@ -89,6 +99,8 @@ describe('Users filters', () => {
     apiMock.getAdminAppSettings.mockReset()
     apiMock.inviteUser.mockReset()
     apiMock.updateUser.mockReset()
+    apiMock.terminateUser.mockReset()
+    apiMock.reactivateUser.mockReset()
 
     apiMock.getAdminUsers.mockResolvedValue({
       data: {
@@ -137,6 +149,8 @@ describe('Users filters', () => {
     apiMock.getAdminAppSettings.mockResolvedValue({ data: { settings: {}, approval_groups: approvalGroups } })
     apiMock.inviteUser.mockResolvedValue({ data: { user: makeUser({}), invitation_email_sent: true, kiosk_pin: null } })
     apiMock.updateUser.mockResolvedValue({ data: { user: makeUser({}) } })
+    apiMock.terminateUser.mockResolvedValue({ data: { user: makeUser({ is_active: false, employment_status: 'terminated' }) } })
+    apiMock.reactivateUser.mockResolvedValue({ data: { user: makeUser({}) } })
   })
 
   it('narrows the users table by search and filters', async () => {
@@ -277,5 +291,71 @@ describe('Users filters', () => {
       kiosk_enabled: true,
       time_category_ids: [1],
     }))
+  })
+
+  it('uses the termination workflow and explains that history is preserved', async () => {
+    const terminated = makeUser({
+      id: 1,
+      full_name: 'Alice Pilot',
+      display_name: 'Alice Pilot',
+      is_active: false,
+      employment_status: 'terminated',
+      termination_effective_on: '2026-09-21',
+      terminated_at: '2026-09-22T00:00:00Z',
+    })
+    apiMock.terminateUser.mockResolvedValueOnce({ data: { user: terminated } })
+    render(<Users />)
+
+    fireEvent.change(await screen.findByLabelText(/status/i), { target: { value: 'all' } })
+    const aliceName = await screen.findByText('Alice Pilot')
+    fireEvent.click(within(aliceName.closest('tr')!).getByRole('button', { name: /^edit$/i }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: /edit alice pilot/i })).getByRole('button', { name: /terminate employment/i }))
+
+    const dialog = screen.getByRole('dialog', { name: /terminate alice pilot/i })
+    expect(within(dialog).getByText(/time entries, schedules, payroll trail, and historical reports stay intact/i)).toBeInTheDocument()
+    await waitFor(() => expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveFocus())
+    fireEvent.change(within(dialog).getByLabelText(/last day of employment/i), { target: { value: '2026-09-21' } })
+    fireEvent.change(within(dialog).getByLabelText(/internal note/i), { target: { value: 'Employment ended' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: /confirm termination/i }))
+
+    await waitFor(() => expect(apiMock.terminateUser).toHaveBeenCalledWith(1, {
+      effective_on: '2026-09-21',
+      reason: 'Employment ended',
+    }))
+    const updatedAliceRow = (await screen.findByText('Alice Pilot')).closest('tr')
+    expect(updatedAliceRow).not.toBeNull()
+    expect(within(updatedAliceRow!).getByText('Terminated')).toBeInTheDocument()
+  })
+
+  it('reactivates a terminated employee and updates their status in place', async () => {
+    const terminated = makeUser({
+      id: 1,
+      full_name: 'Alice Pilot',
+      display_name: 'Alice Pilot',
+      email: 'alice@aire.test',
+      is_active: false,
+      employment_status: 'terminated',
+      termination_effective_on: '2026-09-21',
+      terminated_at: '2026-09-22T00:00:00Z',
+    })
+    const reactivated = makeUser({
+      id: 1,
+      full_name: 'Alice Pilot',
+      display_name: 'Alice Pilot',
+      email: 'alice@aire.test',
+    })
+    apiMock.getAdminUsers.mockResolvedValueOnce({ data: { users: [terminated] } })
+    apiMock.reactivateUser.mockResolvedValueOnce({ data: { user: reactivated } })
+    render(<Users />)
+
+    fireEvent.change(await screen.findByLabelText(/status/i), { target: { value: 'all' } })
+    const aliceName = await screen.findByText('Alice Pilot')
+    fireEvent.click(within(aliceName.closest('tr')!).getByRole('button', { name: /^edit$/i }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: /edit alice pilot/i })).getByRole('button', { name: /reactivate user/i }))
+
+    await waitFor(() => expect(apiMock.reactivateUser).toHaveBeenCalledWith(1))
+    const updatedAliceRow = (await screen.findByText('Alice Pilot')).closest('tr')
+    expect(updatedAliceRow).not.toBeNull()
+    expect(within(updatedAliceRow!).getByText('Active')).toBeInTheDocument()
   })
 })

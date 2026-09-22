@@ -10,55 +10,56 @@ class TimeClockService
   class << self
     # ── Clock In ──
     def clock_in(user:, admin_override_by: nil, time_category_id: nil, clock_source: nil, location: nil)
-      now = Time.current
-      guam_now = now.in_time_zone(business_timezone)
-      today = guam_now.to_date
-
-      raise ClockError, "Time tracking is not enabled for this person" unless user.time_tracking_enabled?
-      raise ClockError, "You are already clocked in" if active_entry_for(user)
-      validate_clock_in_location!(user: user, location: location, admin_override_by: admin_override_by, clock_source: clock_source)
-
-      schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
-
-      schedule_required = Setting.get("schedule_required_for_clock_in") == "true"
-      if schedule_required && !schedule && !admin_override_by
-        raise ClockError, "No shift scheduled for today. Contact your manager if you need to work today."
-      end
-
-      if schedule && !admin_override_by
-        validate_clock_in_time(now, schedule)
-      end
-
-      selected_time_category = nil
-      if time_category_id.present?
-        selected_time_category = TimeCategory.active.find_by(id: time_category_id)
-        raise ClockError, "Selected work category is invalid or inactive" unless selected_time_category
-      else
-        assigned_categories = user.assigned_time_categories.active.limit(2).to_a
-        selected_time_category = assigned_categories.first if assigned_categories.one?
-      end
-      validate_time_category_assignment!(user, selected_time_category, admin_override_by: admin_override_by)
-
-      entry = TimeEntry.new(
-        user: user,
-        work_date: today,
-        start_time: guam_now,
-        clock_in_at: now,
-        entry_method: "clock",
-        status: "clocked_in",
-        hours: 0,
-        schedule: schedule,
-        time_category: selected_time_category,
-        clock_source: clock_source,
-        admin_override: admin_override_by.present?,
-        approval_status: nil,
-        approval_note: unscheduled_approval_note_for(user: user, schedule: schedule),
-        attendance_status: schedule ? calculate_attendance_status(now, schedule) : nil
-      )
-
+      entry = nil
       clock_write_transaction do
-        entry.save!
-        record_time_event!("time_entry.clocked_in", entry, user: user, actor: admin_override_by, source: clock_source)
+        # Termination uses the same row lock. Whichever operation wins must be
+        # visible before the other can decide whether a live shift is allowed.
+        with_clock_in_user_lock(user) do
+          raise ClockError, "Time tracking is not enabled for an inactive employee" unless user.is_active?
+          raise ClockError, "Time tracking is not enabled for this person" unless user.time_tracking_enabled?
+          raise ClockError, "You are already clocked in" if active_entry_for(user)
+
+          now = Time.current
+          guam_now = now.in_time_zone(business_timezone)
+          today = guam_now.to_date
+          validate_clock_in_location!(user: user, location: location, admin_override_by: admin_override_by, clock_source: clock_source)
+
+          schedule = Schedule.for_user(user.id).for_date(today).order(created_at: :desc).first
+          schedule_required = Setting.get("schedule_required_for_clock_in") == "true"
+          if schedule_required && !schedule && !admin_override_by
+            raise ClockError, "No shift scheduled for today. Contact your manager if you need to work today."
+          end
+          validate_clock_in_time(now, schedule) if schedule && !admin_override_by
+
+          selected_time_category = nil
+          if time_category_id.present?
+            selected_time_category = TimeCategory.active.find_by(id: time_category_id)
+            raise ClockError, "Selected work category is invalid or inactive" unless selected_time_category
+          else
+            assigned_categories = user.assigned_time_categories.active.limit(2).to_a
+            selected_time_category = assigned_categories.first if assigned_categories.one?
+          end
+          validate_time_category_assignment!(user, selected_time_category, admin_override_by: admin_override_by)
+
+          entry = TimeEntry.new(
+            user: user,
+            work_date: today,
+            start_time: guam_now,
+            clock_in_at: now,
+            entry_method: "clock",
+            status: "clocked_in",
+            hours: 0,
+            schedule: schedule,
+            time_category: selected_time_category,
+            clock_source: clock_source,
+            admin_override: admin_override_by.present?,
+            approval_status: nil,
+            approval_note: unscheduled_approval_note_for(user: user, schedule: schedule),
+            attendance_status: schedule ? calculate_attendance_status(now, schedule) : nil
+          )
+          entry.save!
+          record_time_event!("time_entry.clocked_in", entry, user: user, actor: admin_override_by, source: clock_source)
+        end
       end
       broadcast_time_clock_update("clock_in", user)
       entry
@@ -413,6 +414,18 @@ class TimeClockService
       end
     rescue ActiveRecord::LockWaitTimeout
       raise ClockError, "Payroll is being finalized right now. Please try this time-clock action again in a moment."
+    end
+
+    def with_clock_in_user_lock(user)
+      if user.admin?
+        User.with_admin_access_lock do
+          user.lock!
+          yield
+        end
+      else
+        user.lock!
+        yield
+      end
     end
 
     def active_entry_for(user)
@@ -777,6 +790,7 @@ class TimeClockService
     def can_clock_in_info(user, schedule, existing_entry: nil)
       active = existing_entry.nil? ? active_entry_for(user) : existing_entry
       return { allowed: false, reason: "already_clocked_in" } if active
+      return { allowed: false, reason: "inactive_employee" } unless user.is_active?
       return { allowed: false, reason: "time_tracking_disabled" } unless user.time_tracking_enabled?
       return { allowed: false, reason: "categories_missing" } if user.assigned_time_categories.active.none?
 

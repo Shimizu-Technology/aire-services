@@ -14,6 +14,20 @@ RSpec.describe TimeClockService, type: :service do
   end
 
   describe ".clock_in" do
+    it "rejects inactive employees even when an admin supplies the override" do
+      Setting.set("schedule_required_for_clock_in", "false")
+      admin = create(:user, :admin)
+      category = create(:time_category)
+      UserTimeCategory.create!(user: user, time_category: category)
+      user.update!(is_active: false)
+
+      expect do
+        described_class.clock_in(user: user, admin_override_by: admin, time_category_id: category.id)
+      end.to raise_error(TimeClockService::ClockError, /inactive employee/i)
+
+      expect(user.time_entries).to be_empty
+    end
+
     it "rejects disabled time tracking without creating an entry" do
       Setting.set("schedule_required_for_clock_in", "false")
       allow(user).to receive(:time_tracking_enabled?).and_return(false)

@@ -256,6 +256,9 @@ export interface UserSummary {
   display_name: string;
   full_name: string;
   role: string;
+  is_active: boolean;
+  employment_status: 'active' | 'pending' | 'inactive' | 'terminated';
+  termination_effective_on?: string | null;
   is_intern?: boolean;
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string;
@@ -287,6 +290,12 @@ export interface AdminUser {
   approval_group_labels?: string[];
   approval_groups?: ApprovalGroupOption[];
   is_active: boolean;
+  employment_status: 'active' | 'pending' | 'inactive' | 'terminated';
+  terminated_at: string | null;
+  termination_effective_on: string | null;
+  termination_reason: string | null;
+  terminated_by: { id: number; full_name: string } | null;
+  can_delete_permanently: boolean;
   is_pending: boolean;
   has_clerk_account: boolean;
   uses_clerk_profile: boolean;
@@ -808,6 +817,7 @@ export interface HoursReportEntry {
   time_category: { id: number; key?: string | null; name: string } | null;
   breaks: Array<{ id: number; start_time: string | null; end_time: string | null; duration_minutes: number | null }>;
   payroll_lifecycle?: PayrollEntryLifecycle;
+  quality_flags: Array<'missing_category' | 'missing_description' | 'long_shift' | 'overlap'>;
 }
 
 export type PayrollEntryLifecycleStatus =
@@ -909,7 +919,9 @@ export interface HoursReportEmployee {
   role: 'admin' | 'employee';
   is_intern: boolean;
   employee_type?: 'Intern' | 'Staff' | string;
-  status: 'active' | 'pending' | 'inactive';
+  status: 'active' | 'pending' | 'inactive' | 'terminated';
+  terminated_at: string | null;
+  termination_effective_on: string | null;
   approval_group?: ApprovalGroup | null;
   approval_group_label?: string | null;
   approval_group_keys?: ApprovalGroup[];
@@ -920,6 +932,9 @@ export interface HoursReportEmployee {
   overtime_hours: number;
   break_hours: number;
   entries_count: number;
+  days_worked: number;
+  first_work_date: string | null;
+  last_work_date: string | null;
   ready: boolean;
   issues: {
     pending_count: number;
@@ -929,6 +944,7 @@ export interface HoursReportEmployee {
     open_clock_count: number;
     uncategorized_count: number;
   };
+  quality: HoursReportQuality;
   payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
   days: HoursReportDay[];
   excluded_entries?: HoursReportEntry[];
@@ -957,6 +973,7 @@ export interface HoursReportResponse {
   context_end_date: string;
   generated_at: string;
   ready: boolean;
+  quality: HoursReportQuality;
   filters: HoursReportFilters;
   summary: {
     employee_count: number;
@@ -985,7 +1002,7 @@ export interface HoursReportParams {
   end_date: string;
   user_id?: number;
   role?: 'admin' | 'employee';
-  status?: 'active' | 'current' | 'pending' | 'inactive';
+  status?: 'all' | 'active' | 'current' | 'pending' | 'inactive' | 'terminated';
   approval_group?: ApprovalGroupFilter | 'all';
   time_category_id?: number;
   category_status?: 'uncategorized';
@@ -994,6 +1011,14 @@ export interface HoursReportParams {
   approval_status?: 'pending' | 'approved' | 'denied' | 'approved_or_standard';
   overtime_status?: 'none' | 'pending' | 'approved' | 'denied';
   include_empty?: boolean;
+}
+
+export interface HoursReportQuality {
+  status: 'clear' | 'needs_review';
+  missing_category_count: number;
+  missing_description_count: number;
+  long_shift_count: number;
+  overlapping_entry_count: number;
 }
 
 export interface AuditLogEntry {
@@ -1444,6 +1469,17 @@ export const api = {
   deleteUser: (id: number) =>
     fetchApi<void>(`/api/v1/admin/users/${id}`, {
       method: 'DELETE',
+    }),
+
+  terminateUser: (id: number, data: { effective_on: string; reason?: string }) =>
+    fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}/terminate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  reactivateUser: (id: number) =>
+    fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}/reactivate`, {
+      method: 'POST',
     }),
 
   resendInvite: (id: number) =>
