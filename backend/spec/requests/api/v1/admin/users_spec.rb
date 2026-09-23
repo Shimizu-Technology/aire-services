@@ -619,6 +619,38 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(entry.reload.user_id).to eq(employee.id)
     end
 
+    it "rejects permanent deletion when the user authored a payroll settlement event" do
+      unused = create(:user, :employee, clerk_id: "pending_settlement_actor")
+      settlement_case = create(:payroll_settlement_case)
+      settlement_case.payroll_settlement_case_events.create!(
+        event_id: SecureRandom.uuid,
+        event_type: "opened",
+        to_status: "open",
+        occurred_at: Time.current,
+        actor: unused
+      )
+
+      delete "/api/v1/admin/users/#{unused.id}", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:blockers]).to include("payroll settlement events")
+      expect(unused.reload).to be_present
+    end
+
+    it "returns the deletion contract when a dependency appears during deletion" do
+      unused = create(:user, :employee, clerk_id: "pending_delete_race")
+      allow_any_instance_of(User).to receive(:permanent_deletion_blockers).and_return([])
+      allow_any_instance_of(User).to receive(:destroy!).and_raise(
+        ActiveRecord::RecordNotDestroyed.new("blocked", unused.tap { |record| record.errors.add(:base, "New history was recorded") })
+      )
+
+      delete "/api/v1/admin/users/#{unused.id}", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/terminate the employee instead/i)
+      expect(json[:blockers]).to include("New history was recorded")
+    end
+
     it "allows permanent deletion only for a never-used pending profile" do
       unused = create(:user, :employee, clerk_id: "pending_unused_profile")
 

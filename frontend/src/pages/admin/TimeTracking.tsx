@@ -385,6 +385,11 @@ export default function TimeTracking() {
   const routedOvertimeStatus = linkedOvertimeStatus(searchParams)
   const routedCategoryFilter = linkedCategoryFilter(searchParams)
   const routedEmployeeStatus = linkedEmployeeStatus(searchParams)
+  const routedUserId = /^\d+$/.test(searchParams.get('user_id') || '') ? searchParams.get('user_id')! : ''
+  const routedApprovalGroup = (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter
+  const routedRole = (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee'
+  const routedClockSource = (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy'
+  const routedEntryMethod = (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual'
   const initialLinkedPeriod = routedPeriod
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -414,13 +419,13 @@ export default function TimeTracking() {
   const [reportFilters, setReportFilters] = useState(() => ({
     start_date: initialLinkedPeriod?.start ?? formatDateISO(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
     end_date: initialLinkedPeriod?.end ?? formatDateISO(new Date()),
-    user_id: /^\d+$/.test(searchParams.get('user_id') || '') ? searchParams.get('user_id')! : '',
+    user_id: routedUserId,
     time_category_id: routedCategoryFilter || (/^\d+$/.test(searchParams.get('time_category_id') || '') ? searchParams.get('time_category_id')! : ''),
-    approval_group: (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter,
+    approval_group: routedApprovalGroup,
     employee_status: routedEmployeeStatus,
-    role: (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee',
-    clock_source: (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
-    entry_method: (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual',
+    role: routedRole,
+    clock_source: routedClockSource,
+    entry_method: routedEntryMethod,
     approval_status: routedApprovalStatus,
     overtime_status: routedOvertimeStatus,
   }))
@@ -603,6 +608,9 @@ export default function TimeTracking() {
   const loadReport = useCallback(async () => {
     const requestSequence = ++reportRequestSequence.current
     setReportLoading(true)
+    setHoursReport(null)
+    setReportData([])
+    setSelectedReportEmployee(null)
     try {
       const response = await api.getHoursReport({
         start_date: reportFilters.start_date,
@@ -659,6 +667,11 @@ export default function TimeTracking() {
           && current.overtime_status === routedOvertimeStatus
           && current.time_category_id === routedCategoryFilter
           && current.employee_status === routedEmployeeStatus
+          && current.user_id === routedUserId
+          && current.approval_group === routedApprovalGroup
+          && current.role === routedRole
+          && current.clock_source === routedClockSource
+          && current.entry_method === routedEntryMethod
         ) return current
         return {
           ...current,
@@ -668,11 +681,16 @@ export default function TimeTracking() {
           overtime_status: routedOvertimeStatus,
           time_category_id: routedCategoryFilter,
           employee_status: routedEmployeeStatus,
+          user_id: routedUserId,
+          approval_group: routedApprovalGroup,
+          role: routedRole,
+          clock_source: routedClockSource,
+          entry_method: routedEntryMethod,
         }
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [routedApprovalStatus, routedCategoryFilter, routedEmployeeStatus, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
+  }, [routedApprovalGroup, routedApprovalStatus, routedCategoryFilter, routedClockSource, routedEmployeeStatus, routedEntryMethod, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart, routedRole, routedUserId])
 
   useEffect(() => {
     if (lastUrlSyncedReportFilters.current === reportFilters) return
@@ -1890,7 +1908,7 @@ export default function TimeTracking() {
                     const period = reportPresetRange(preset)
                     setReportFilters((current) => ({ ...current, start_date: period.start, end_date: period.end }))
                   }}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                  className="rounded-full border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary-dark transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {label}
                 </button>

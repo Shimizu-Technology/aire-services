@@ -221,6 +221,11 @@ module Api
 
           @user.destroy!
           head :no_content
+        rescue ActiveRecord::RecordNotDestroyed => e
+          render json: {
+            error: "This is not an unused profile and cannot be permanently deleted. Terminate the employee instead so their history stays available.",
+            blockers: e.record.errors.full_messages
+          }, status: :unprocessable_entity
         end
 
         def terminate

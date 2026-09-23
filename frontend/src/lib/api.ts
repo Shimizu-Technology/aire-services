@@ -602,7 +602,7 @@ export interface ClockStatus {
   } | null;
   can_clock_in: boolean;
   time_tracking_enabled: boolean;
-  clock_in_blocked_reason: 'already_clocked_in' | 'time_tracking_disabled' | 'categories_missing' | 'no_schedule' | 'too_early' | 'shift_ended' | null;
+  clock_in_blocked_reason: 'already_clocked_in' | 'time_tracking_disabled' | 'categories_missing' | 'no_schedule' | 'too_early' | 'shift_ended' | 'inactive_employee' | null;
   minutes_until?: number;
   clock_in_location_required?: boolean;
   clock_in_location_name?: string | null;

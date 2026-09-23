@@ -193,6 +193,7 @@ class User < ApplicationRecord
     blockers << "payroll integration history" if payroll_integration_grants.exists? || payroll_account_link.present? || payroll_account_link_sessions.exists?
     blockers << "finalized payroll history" if PayrollBatchEntry.where(source_user_id: id).exists? || PayrollBatchExclusion.where(source_user_id: id).exists?
     blockers << "payroll settlement history" if PayrollSettlementCase.where(source_user_id: id).exists?
+    blockers << "payroll settlement events" if payroll_settlement_case_events.exists?
     blockers << "saved report history" if ReportExport.where("employee_ids @> ?", [ id ].to_json).exists?
     blockers
   end

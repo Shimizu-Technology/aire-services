@@ -30,6 +30,7 @@ function TimeRouteHarness() {
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-07-01&end_date=2026-07-15')}>Open July report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&approval_status=denied&overtime_status=denied')}>Open denied report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&status=terminated')}>Open terminated report</button>
+      <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=7&approval_group=maintenance&role=employee&clock_source=kiosk&entry_method=clock')}>Open filtered report</button>
       <output data-testid="location-search">{location.search}</output>
       <TimeTracking />
     </>
@@ -182,6 +183,25 @@ describe('TimeTracking routed report periods', () => {
     expect(await screen.findByDisplayValue('Terminated only')).toBeInTheDocument()
   })
 
+  it('synchronizes every URL-backed report filter during same-route navigation', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open filtered report' }))
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 7,
+      approval_group: 'maintenance',
+      role: 'employee',
+      clock_source: 'kiosk',
+      entry_method: 'clock',
+    })))
+  })
+
   it('opens the linked missing-category remediation report', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&category_status=uncategorized']}>
@@ -229,6 +249,25 @@ describe('TimeTracking routed report periods', () => {
       'href',
       '/admin/payroll?start_date=2026-07-01&end_date=2026-07-15',
     )
+  })
+
+  it('clears prior report results when the next request fails', async () => {
+    apiMock.getHoursReport
+      .mockReset()
+      .mockResolvedValueOnce({ data: makeHoursReport('2026-08-01', '2026-08-15', 11) })
+      .mockResolvedValueOnce({ error: 'This report contains too many detailed entries' })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    expect((await screen.findAllByText('11.00')).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Open July report' }))
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('11.00')).not.toBeInTheDocument())
   })
 
   it('shows exact two-decimal report totals without rounding 11.95 to 11.9', async () => {
