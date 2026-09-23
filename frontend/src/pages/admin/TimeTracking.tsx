@@ -385,7 +385,10 @@ export default function TimeTracking() {
   const routedOvertimeStatus = linkedOvertimeStatus(searchParams)
   const routedCategoryFilter = linkedCategoryFilter(searchParams)
   const routedEmployeeStatus = linkedEmployeeStatus(searchParams)
-  const routedUserId = /^\d+$/.test(searchParams.get('user_id') || '') ? searchParams.get('user_id')! : ''
+  const routedUserId = (() => {
+    const value = searchParams.get('user_id') || ''
+    return /^\d+$/.test(value) ? value.replace(/^0+(?=\d)/, '') : ''
+  })()
   const routedApprovalGroup = (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter
   const routedRole = (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee'
   const routedClockSource = (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy'
@@ -433,6 +436,7 @@ export default function TimeTracking() {
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
   const [selectedReportEmployee, setSelectedReportEmployee] = useState<HoursReportEmployee | null>(null)
+  const [reportError, setReportError] = useState<string | null>(null)
   const handleCloseEmployeeReportDrawer = useCallback(() => {
     setSelectedReportEmployee(null)
   }, [])
@@ -611,6 +615,7 @@ export default function TimeTracking() {
     setHoursReport(null)
     setReportData([])
     setSelectedReportEmployee(null)
+    setReportError(null)
     try {
       const response = await api.getHoursReport({
         start_date: reportFilters.start_date,
@@ -630,7 +635,7 @@ export default function TimeTracking() {
       if (requestSequence !== reportRequestSequence.current) return
 
       if (response.error) {
-        setError(response.error)
+        setReportError(response.error)
         return
       }
 
@@ -640,7 +645,7 @@ export default function TimeTracking() {
         setReportData(reportEntriesForDetailTable(response.data))
       }
     } catch {
-      if (requestSequence === reportRequestSequence.current) console.error('Failed to load report')
+      if (requestSequence === reportRequestSequence.current) setReportError('Failed to load hours report')
     } finally {
       if (requestSequence === reportRequestSequence.current) setReportLoading(false)
     }
@@ -654,6 +659,15 @@ export default function TimeTracking() {
     const requestedTab = timeTabFromSearchParams(searchParams)
     setActiveTab((current) => current === requestedTab ? current : requestedTab)
   }, [searchParams])
+
+  useEffect(() => {
+    const rawUserId = searchParams.get('user_id')
+    if (!rawUserId || !routedUserId || rawUserId === routedUserId) return
+
+    const next = new URLSearchParams(searchParams)
+    next.set('user_id', routedUserId)
+    setSearchParams(next, { replace: true })
+  }, [routedUserId, searchParams, setSearchParams])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2008,6 +2022,15 @@ export default function TimeTracking() {
             </div>
           </div>
 
+          {reportError && (
+            <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-900">
+              <div className="font-semibold">Unable to load the hours report</div>
+              <p className="mt-1 text-sm leading-6">{reportError}</p>
+            </div>
+          )}
+
+          {!reportError && (
+          <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
             <ReportMetric label="Total Hours" value={reportLoading ? '…' : formatHours(reportSummary.total_hours)} emphasize />
             <ReportMetric label="Regular" value={reportLoading ? '…' : formatHours(reportSummary.regular_hours)} />
@@ -2239,6 +2262,8 @@ export default function TimeTracking() {
             loading={reportLoading}
             onEdit={openEditEntry}
           />
+          </>
+          )}
           <EmployeeReportDrawer employee={selectedReportEmployee} onClose={handleCloseEmployeeReportDrawer} />
         </div>
       )}

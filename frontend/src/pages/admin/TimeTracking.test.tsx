@@ -202,6 +202,31 @@ describe('TimeTracking routed report periods', () => {
     })))
   })
 
+  it('canonicalizes a routed employee ID before selecting and requesting it', async () => {
+    apiMock.getUsers.mockResolvedValue({
+      data: {
+        users: [{
+          id: 7,
+          full_name: 'Seven Employee',
+          display_name: 'Seven Employee',
+          email: 'seven@example.com',
+          employment_status: 'active',
+        }],
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=007']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({ user_id: 7 })))
+    expect(await screen.findByDisplayValue('Seven Employee')).toHaveValue('7')
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('user_id=7'))
+    expect(screen.getByTestId('location-search')).not.toHaveTextContent('user_id=007')
+  })
+
   it('opens the linked missing-category remediation report', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&category_status=uncategorized']}>
@@ -268,6 +293,9 @@ describe('TimeTracking routed report periods', () => {
 
     await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByText('11.00')).not.toBeInTheDocument())
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load the hours report')
+    expect(screen.getByRole('alert')).toHaveTextContent('This report contains too many detailed entries')
+    expect(screen.queryByText('No hours match this range.')).not.toBeInTheDocument()
   })
 
   it('shows exact two-decimal report totals without rounding 11.95 to 11.9', async () => {
