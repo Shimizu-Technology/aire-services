@@ -27,10 +27,10 @@ period_for = lambda do |date|
   end
 end
 
-periods = (-4..1).map do |offset|
+periods = (-4..1).flat_map do |offset|
   reference = now.to_date.advance(months: offset)
   [ period_for.call(reference.change(day: 1)), period_for.call(reference.change(day: 16)) ]
-end.flatten(1).uniq.sort_by(&:first)
+end.uniq.sort_by(&:first)
 
 manual_dates = periods.select do |(_start_date, end_date)|
   pay_date = end_date + 1.day
