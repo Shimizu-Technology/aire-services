@@ -10,13 +10,15 @@ class User < ApplicationRecord
   has_secure_password :kiosk_pin, validations: false
 
   has_many :audit_logs, dependent: :nullify
-  has_many :time_entries, dependent: :nullify
+  belongs_to :terminated_by, class_name: "User", optional: true
+  has_many :terminated_users, class_name: "User", foreign_key: :terminated_by_id, dependent: :nullify, inverse_of: :terminated_by
+  has_many :time_entries, dependent: :restrict_with_error
   has_many :approved_time_entries, class_name: "TimeEntry", foreign_key: "approved_by_id", dependent: :nullify
   has_many :overtime_approved_time_entries, class_name: "TimeEntry", foreign_key: "overtime_approved_by_id", dependent: :nullify
-  has_many :leave_requests, dependent: :destroy
+  has_many :leave_requests, dependent: :restrict_with_error
   has_many :reviewed_leave_requests, class_name: "LeaveRequest", foreign_key: "reviewed_by_id", dependent: :nullify
   has_many :cancelled_leave_requests, class_name: "LeaveRequest", foreign_key: "cancelled_by_id", dependent: :nullify
-  has_many :schedules, dependent: :nullify
+  has_many :schedules, dependent: :restrict_with_error
   has_many :assigned_payroll_settlement_cases,
            class_name: "PayrollSettlementCase",
            foreign_key: :assigned_to_id,
@@ -28,8 +30,8 @@ class User < ApplicationRecord
            inverse_of: :actor
   has_many :created_schedules, class_name: "Schedule", foreign_key: "created_by_id", dependent: :nullify
   has_many :generated_report_exports, class_name: "ReportExport", foreign_key: "generated_by_id", dependent: :nullify
-  has_many :employee_pay_rates, dependent: :destroy
-  has_many :payroll_integration_grants, dependent: :destroy
+  has_many :employee_pay_rates, dependent: :restrict_with_error
+  has_many :payroll_integration_grants, dependent: :restrict_with_error
   has_one :payroll_account_link, dependent: :restrict_with_error
   has_many :payroll_account_link_sessions, foreign_key: :linked_user_id, dependent: :nullify
   has_many :user_time_categories, dependent: :destroy
@@ -54,6 +56,7 @@ class User < ApplicationRecord
   validates :public_team_photo_position_x, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
   validates :public_team_photo_position_y, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
   validates :role, inclusion: { in: %w[admin employee] }
+  validates :termination_reason, length: { maximum: 1_000 }, allow_blank: true
   validate :approval_group_must_be_configured
   validate :public_team_profile_is_complete
   validates :kiosk_pin_lookup_hash, uniqueness: { message: "This PIN is already in use by another employee. Please choose a different PIN." }, allow_nil: true
@@ -64,6 +67,7 @@ class User < ApplicationRecord
   validate :local_profiles_require_first_name
   validate :time_tracking_and_kiosk_access_match
   validate :active_staff_requires_access
+  validate :termination_metadata_is_consistent
 
   before_validation :set_payroll_integration_uuid, on: :create
   before_validation :set_default_kiosk_enabled
@@ -166,6 +170,41 @@ class User < ApplicationRecord
     personal_access_enabled? && (clerk_id.blank? || clerk_id.start_with?("pending_"))
   end
 
+  def terminated?
+    terminated_at.present?
+  end
+
+  def employment_status
+    return "terminated" if terminated?
+    return "inactive" unless is_active?
+    return "pending" if pending_invite?
+
+    "active"
+  end
+
+  def permanent_deletion_blockers
+    blockers = []
+    blockers << "activated sign-in" unless clerk_id.to_s.start_with?("pending_")
+    blockers << "termination record" if terminated?
+    blockers << "time entries" if time_entries.exists?
+    blockers << "schedules" if schedules.exists?
+    blockers << "leave requests" if leave_requests.exists?
+    blockers << "pay-rate history" if employee_pay_rates.exists?
+    blockers << "payroll integration history" if payroll_integration_grants.exists? || payroll_account_link.present? || payroll_account_link_sessions.exists?
+    blockers << "finalized payroll history" if PayrollBatchEntry.where(source_user_id: id).exists? || PayrollBatchExclusion.where(source_user_id: id).exists?
+    blockers << "payroll settlement history" if PayrollSettlementCase.where(source_user_id: id).exists?
+    blockers << "payroll settlement events" if payroll_settlement_case_events.exists?
+    blockers << "saved report history" if ReportExport.where("employee_ids @> ?", [ id ].to_json).exists?
+    blockers
+  end
+
+  def can_delete_permanently?
+    return false unless clerk_id.to_s.start_with?("pending_")
+    return false if terminated?
+
+    permanent_deletion_blockers.empty?
+  end
+
   def profile_name
     [ first_name, last_name ].map(&:presence).compact.join(" ").presence
   end
@@ -254,6 +293,13 @@ class User < ApplicationRecord
   end
 
   private
+
+  def termination_metadata_is_consistent
+    return unless terminated_at.present?
+
+    errors.add(:is_active, "must be disabled for a terminated employee") if is_active?
+    errors.add(:termination_effective_on, "is required for a terminated employee") if termination_effective_on.blank?
+  end
 
   def set_payroll_integration_uuid
     self.payroll_integration_uuid ||= SecureRandom.uuid

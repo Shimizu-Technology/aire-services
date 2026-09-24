@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,6 +29,8 @@ function TimeRouteHarness() {
     <>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-07-01&end_date=2026-07-15')}>Open July report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&approval_status=denied&overtime_status=denied')}>Open denied report</button>
+      <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&status=terminated')}>Open terminated report</button>
+      <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=7&approval_group=maintenance&role=employee&clock_source=kiosk&entry_method=clock')}>Open filtered report</button>
       <output data-testid="location-search">{location.search}</output>
       <TimeTracking />
     </>
@@ -43,6 +45,7 @@ function makeHoursReport(startDate: string, endDate: string, totalHours: number)
     context_end_date: endDate,
     generated_at: '2026-08-31T00:00:00Z',
     ready: true,
+    quality: { status: 'clear', missing_category_count: 0, missing_description_count: 0, long_shift_count: 0, overlapping_entry_count: 0 },
     filters: {},
     summary: {
       employee_count: 0,
@@ -95,6 +98,36 @@ describe('TimeTracking routed report periods', () => {
     })))
   })
 
+  it('defaults historical reports to every employment status and provides quick periods', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({ status: 'all' })))
+    expect(screen.getByDisplayValue('All statuses')).toBeInTheDocument()
+
+    const guamDateParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Pacific/Guam',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date()).reduce<Record<string, string>>((parts, part) => {
+      if (part.type !== 'literal') parts[part.type] = part.value
+      return parts
+    }, {})
+    const guamToday = `${guamDateParts.year}-${guamDateParts.month}-${guamDateParts.day}`
+
+    fireEvent.click(screen.getByRole('button', { name: 'Year to date' }))
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: `${guamDateParts.year}-01-01`,
+      end_date: guamToday,
+      status: 'all',
+    })))
+    expect(screen.getByTestId('location-search')).toHaveTextContent('status=all')
+  })
+
   it('carries an edited report period into approvals', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
@@ -141,6 +174,57 @@ describe('TimeTracking routed report periods', () => {
       approval_status: 'denied',
       overtime_status: 'denied',
     })))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open terminated report' }))
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'terminated',
+    })))
+    expect(await screen.findByDisplayValue('Terminated only')).toBeInTheDocument()
+  })
+
+  it('synchronizes every URL-backed report filter during same-route navigation', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open filtered report' }))
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 7,
+      approval_group: 'maintenance',
+      role: 'employee',
+      clock_source: 'kiosk',
+      entry_method: 'clock',
+    })))
+  })
+
+  it('canonicalizes a routed employee ID before selecting and requesting it', async () => {
+    apiMock.getUsers.mockResolvedValue({
+      data: {
+        users: [{
+          id: 7,
+          full_name: 'Seven Employee',
+          display_name: 'Seven Employee',
+          email: 'seven@example.com',
+          employment_status: 'active',
+        }],
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=007']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({ user_id: 7 })))
+    expect(await screen.findByDisplayValue('Seven Employee')).toHaveValue('7')
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('user_id=7'))
+    expect(screen.getByTestId('location-search')).not.toHaveTextContent('user_id=007')
   })
 
   it('opens the linked missing-category remediation report', async () => {
@@ -190,6 +274,28 @@ describe('TimeTracking routed report periods', () => {
       'href',
       '/admin/payroll?start_date=2026-07-01&end_date=2026-07-15',
     )
+  })
+
+  it('clears prior report results when the next request fails', async () => {
+    apiMock.getHoursReport
+      .mockReset()
+      .mockResolvedValueOnce({ data: makeHoursReport('2026-08-01', '2026-08-15', 11) })
+      .mockResolvedValueOnce({ error: 'This report contains too many detailed entries' })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    expect((await screen.findAllByText('11.00')).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Open July report' }))
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('11.00')).not.toBeInTheDocument())
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load the hours report')
+    expect(screen.getByRole('alert')).toHaveTextContent('This report contains too many detailed entries')
+    expect(screen.queryByText('No hours match this range.')).not.toBeInTheDocument()
   })
 
   it('shows exact two-decimal report totals without rounding 11.95 to 11.9', async () => {
@@ -245,6 +351,8 @@ describe('TimeTracking routed report periods', () => {
       is_intern: false,
       employee_type: 'Staff',
       status: 'active',
+      terminated_at: null,
+      termination_effective_on: null,
       approval_group_label: 'Maintenance',
       approval_group_labels: ['Maintenance'],
       total_hours: 6.1,
@@ -252,7 +360,11 @@ describe('TimeTracking routed report periods', () => {
       overtime_hours: 0,
       break_hours: 0,
       entries_count: 1,
+      days_worked: 1,
+      first_work_date: '2026-05-01',
+      last_work_date: '2026-05-01',
       ready: true,
+      quality: { status: 'clear', missing_category_count: 0, missing_description_count: 0, long_shift_count: 0, overlapping_entry_count: 0 },
       issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
       categories: [{ id: 1, key: 'other', name: 'Other', total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_hours: 0, entries_count: 1 }],
       weeks: [],
@@ -263,6 +375,7 @@ describe('TimeTracking routed report periods', () => {
           total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_minutes: 0, description: null, entry_method: 'clock', clock_source: 'kiosk',
           approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 1, key: 'other', name: 'Other' }, breaks: [],
           payroll_lifecycle: { status: 'payment_issued', label: 'Paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [] },
+          quality_flags: [],
         }],
       }],
     }]
@@ -282,6 +395,7 @@ describe('TimeTracking routed report periods', () => {
   it('labels a legacy missing category as uncategorized in detailed entries', async () => {
     const report = makeHoursReport('2026-08-01', '2026-08-31', 3)
     report.ready = false
+    report.quality = { status: 'needs_review', missing_category_count: 1, missing_description_count: 0, long_shift_count: 0, overlapping_entry_count: 0 }
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1, uncategorized_count: 1 }
     report.breakdowns.by_category = [{ id: null, key: null, name: 'Uncategorized', total_hours: 3, regular_hours: 3, overtime_hours: 0, break_hours: 0, entries_count: 1 }]
     report.breakdowns.by_source = [{ source: 'legacy', total_hours: 3, regular_hours: 3, overtime_hours: 0, break_hours: 0, entries_count: 1 }]
@@ -296,12 +410,18 @@ describe('TimeTracking routed report periods', () => {
       is_intern: false,
       employee_type: 'Staff',
       status: 'active',
+      terminated_at: null,
+      termination_effective_on: null,
       total_hours: 3,
       regular_hours: 3,
       overtime_hours: 0,
       break_hours: 0,
       entries_count: 1,
+      days_worked: 1,
+      first_work_date: '2026-08-16',
+      last_work_date: '2026-08-16',
       ready: false,
+      quality: { status: 'needs_review', missing_category_count: 1, missing_description_count: 0, long_shift_count: 0, overlapping_entry_count: 0 },
       issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 1 },
       categories: report.breakdowns.by_category,
       weeks: [],
@@ -311,6 +431,7 @@ describe('TimeTracking routed report periods', () => {
           id: 53, work_date: '2026-08-16', start_time: '09:00', end_time: '12:00', formatted_start_time: '9:00 AM', formatted_end_time: '12:00 PM',
           total_hours: 3, regular_hours: 3, overtime_hours: 0, break_minutes: 0, description: 'Legacy category remediation', entry_method: 'manual', clock_source: 'legacy',
           approval_status: null, approved_by: null, approved_at: null, overtime_status: 'none', time_category: null, breaks: [],
+          quality_flags: ['missing_category'],
         }],
       }],
     }]
@@ -322,6 +443,11 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
+    const qualityPanel = (await screen.findByRole('heading', { name: 'Time data worth reviewing' })).closest('section')
+    expect(qualityPanel).not.toBeNull()
+    expect(within(qualityPanel!).getByText('Missing categories')).toBeInTheDocument()
+    expect(within(qualityPanel!).getByText('1')).toBeInTheDocument()
+    expect(screen.getAllByText('Missing category', { exact: true }).length).toBeGreaterThan(0)
     expect(await screen.findByRole('row', { name: /Sun, Aug 16 Legacy Entry.*Uncategorized.*3.00.*Edit/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     expect(await screen.findByRole('heading', { name: 'Edit Time Entry' })).toBeInTheDocument()

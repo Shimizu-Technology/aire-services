@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api } from '../../lib/api'
 import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
-import { formatDateTime } from '../../lib/dateUtils'
+import { formatDateInTimeZoneISO, formatDateTime } from '../../lib/dateUtils'
 import { initialsForName } from '../../lib/initials'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
@@ -73,7 +73,7 @@ export default function Users() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | AdminUser['role']>('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive'>('active')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive' | 'terminated'>('active')
   const [departmentFilter, setDepartmentFilter] = useState<'all' | 'unassigned' | ApprovalGroup>('all')
   const [kioskFilter, setKioskFilter] = useState<'all' | 'pin_ready' | 'no_pin' | 'locked'>('all')
   const [publicTeamFilter, setPublicTeamFilter] = useState<'all' | 'visible' | 'hidden'>('all')
@@ -128,9 +128,24 @@ export default function Users() {
 
   const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
+  const [terminationUser, setTerminationUser] = useState<AdminUser | null>(null)
+  const [terminationEffectiveOn, setTerminationEffectiveOn] = useState(formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
+  const [terminationReason, setTerminationReason] = useState('')
+  const [terminationError, setTerminationError] = useState('')
+  const [savingTermination, setSavingTermination] = useState(false)
   const createModalRef = useRef<HTMLDivElement>(null)
   const editModalRef = useRef<HTMLDivElement>(null)
   const pinModalRef = useRef<HTMLDivElement>(null)
+  const terminationDialogRef = useRef<HTMLDivElement>(null)
+  const terminationTriggerRef = useRef<HTMLButtonElement | null>(null)
+
+  const closeTerminationModal = useCallback(() => {
+    setTerminationUser(null)
+    setTerminationError('')
+    const trigger = terminationTriggerRef.current
+    terminationTriggerRef.current = null
+    if (trigger) window.setTimeout(() => trigger.focus(), 0)
+  }, [])
 
   useEffect(() => {
     if (showCreateModal && createModalRef.current) {
@@ -152,6 +167,41 @@ export default function Users() {
       if (first) setTimeout(() => first.focus(), 0)
     }
   }, [pinModalUser])
+
+  useEffect(() => {
+    const dialog = terminationDialogRef.current
+    if (!terminationUser || !dialog) return
+
+    const firstField = dialog.querySelector<HTMLElement>('[data-termination-autofocus]')
+    if (firstField) window.setTimeout(() => firstField.focus(), 0)
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeTerminationModal()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.offsetParent !== null)
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    dialog.addEventListener('keydown', handleKeyDown)
+    return () => dialog.removeEventListener('keydown', handleKeyDown)
+  }, [closeTerminationModal, terminationUser])
 
   const applyFetchedData = useCallback((
     usersRes: Awaited<ReturnType<typeof api.getAdminUsers>>,
@@ -231,7 +281,8 @@ export default function Users() {
 
       if (statusFilter === 'active' && (!user.is_active || user.is_pending)) return false
       if (statusFilter === 'pending' && (!user.is_active || !user.is_pending)) return false
-      if (statusFilter === 'inactive' && user.is_active) return false
+      if (statusFilter === 'inactive' && user.employment_status !== 'inactive') return false
+      if (statusFilter === 'terminated' && user.employment_status !== 'terminated') return false
 
       const userDepartmentKeys = user.approval_group_keys ?? (user.approval_group ? [user.approval_group] : [])
       if (departmentFilter === 'unassigned' && userDepartmentKeys.length > 0) return false
@@ -245,10 +296,10 @@ export default function Users() {
       if (publicTeamFilter === 'hidden' && user.is_active && user.public_team_enabled) return false
 
       if (!normalizedSearchTerm) return true
-      const statusTokens = user.is_pending ? ['pending'] : [user.is_active ? 'active' : 'inactive']
+      const statusTokens = [user.employment_status]
 
-      if (['active', 'inactive', 'pending'].includes(normalizedSearchTerm)) {
-        return statusTokens.includes(normalizedSearchTerm)
+      if (['active', 'inactive', 'pending', 'terminated'].includes(normalizedSearchTerm)) {
+        return statusTokens.includes(normalizedSearchTerm as AdminUser['employment_status'])
       }
 
       const searchableText = [
@@ -575,11 +626,11 @@ export default function Users() {
     }
   }
 
-  const handleSetUserActive = async (user: AdminUser, isActive: boolean) => {
+  const handleReactivate = async (user: AdminUser) => {
     setSavingEdit(true)
     setEditError('')
     try {
-      const response = await api.updateUser(user.id, { is_active: isActive })
+      const response = await api.reactivateUser(user.id)
       if (response.error) {
         setEditError(response.error)
       } else if (response.data?.user) {
@@ -591,8 +642,39 @@ export default function Users() {
     }
   }
 
+  const openTerminationModal = (user: AdminUser, trigger: HTMLButtonElement) => {
+    terminationTriggerRef.current = trigger
+    setTerminationUser(user)
+    setTerminationEffectiveOn(formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
+    setTerminationReason('')
+    setTerminationError('')
+  }
+
+  const handleTerminate = async () => {
+    if (!terminationUser) return
+    setSavingTermination(true)
+    setTerminationError('')
+    try {
+      const response = await api.terminateUser(terminationUser.id, {
+        effective_on: terminationEffectiveOn,
+        reason: terminationReason.trim() || undefined,
+      })
+      if (response.error || !response.data?.user) {
+        setTerminationError(response.error || 'Unable to terminate this employee')
+        return
+      }
+
+      const savedUser = response.data.user
+      patchLocalUser(savedUser.id, () => savedUser)
+      loadEditState(savedUser)
+      closeTerminationModal()
+    } finally {
+      setSavingTermination(false)
+    }
+  }
+
   const handleDelete = async (user: AdminUser) => {
-    if (!confirm(`Remove ${user.display_name || user.email || 'this user'} from AIRE Ops access?`)) return
+    if (!confirm(`Permanently delete the unused profile for ${user.display_name || user.email || 'this user'}? This is only allowed before any work history exists.`)) return
     setDeletingIds((prev) => new Set(prev).add(user.id))
     try {
       const response = await api.deleteUser(user.id)
@@ -665,6 +747,14 @@ export default function Users() {
   }
 
   function renderStatusBadge(user: AdminUser) {
+    if (user.employment_status === 'terminated') {
+      return (
+        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+          Terminated
+        </span>
+      )
+    }
+
     if (!user.is_active) {
       return (
         <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
@@ -781,6 +871,7 @@ export default function Users() {
                     <option value="active">Active</option>
                     <option value="pending">Pending</option>
                     <option value="inactive">Inactive</option>
+                    <option value="terminated">Terminated</option>
                   </select>
                 </label>
                 <label className="block">
@@ -926,6 +1017,9 @@ export default function Users() {
                     </td>
                     <td className="px-5 py-4">
                       {renderStatusBadge(user)}
+                      {user.termination_effective_on && (
+                        <div className="mt-1 text-xs text-slate-500">Effective {user.termination_effective_on}</div>
+                      )}
                     </td>
                     <td className="px-5 py-4">
                       <div className="space-y-1 text-sm">
@@ -970,15 +1064,15 @@ export default function Users() {
                             {resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}
                           </button>
                         )}
-                        {!user.is_active && (
+                        {user.can_delete_permanently && (
                           <button
                             type="button"
                             onClick={() => handleDelete(user)}
                             disabled={deletingIds.has(user.id)}
                             className="text-red-600 transition hover:text-red-800 disabled:opacity-50"
-                            title="Permanent removal is only shown for inactive users. Make inactive is preferred for payroll history."
+                            title="Delete a never-used profile that has no work or payroll history"
                           >
-                            {deletingIds.has(user.id) ? 'Removing…' : 'Remove'}
+                            {deletingIds.has(user.id) ? 'Deleting…' : 'Delete unused profile'}
                           </button>
                         )}
                       </div>
@@ -1486,8 +1580,11 @@ export default function Users() {
                 <div className="mt-1">
                   {editingUser.is_active
                     ? 'This employee record is active. The access capabilities above determine how they can use AIRE Ops.'
-                    : 'Inactive users cannot sign in or clock in until you reactivate them.'}
+                    : editingUser.employment_status === 'terminated'
+                      ? `Terminated${editingUser.termination_effective_on ? ` effective ${editingUser.termination_effective_on}` : ''}. Their hours and payroll history remain available in reports.`
+                      : 'Inactive users cannot sign in or clock in until you reactivate them.'}
                 </div>
+                {editingUser.termination_reason && <div className="mt-2 text-xs">Reason: {editingUser.termination_reason}</div>}
               </div>
 
               {editError && (
@@ -1499,11 +1596,14 @@ export default function Users() {
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => handleSetUserActive(editingUser, !editingUser.is_active)}
+                  onClick={(event) => {
+                    if (editingUser.is_active) openTerminationModal(editingUser, event.currentTarget)
+                    else void handleReactivate(editingUser)
+                  }}
                   disabled={savingEdit}
                   className={`rounded-xl border px-4 py-3 text-sm font-medium transition disabled:opacity-50 ${editingUser.is_active ? 'border-rose-200 text-rose-700 hover:bg-rose-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
                 >
-                  {editingUser.is_active ? 'Make inactive' : 'Reactivate user'}
+                  {editingUser.is_active ? 'Terminate employment' : 'Reactivate user'}
                 </button>
                 <button type="button" onClick={closeEditModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
                   Cancel
@@ -1517,6 +1617,49 @@ export default function Users() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {terminationUser && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/65 p-4" role="presentation">
+          <div ref={terminationDialogRef} role="dialog" aria-modal="true" aria-labelledby="termination-modal-title" className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-600">Preserve employment history</p>
+                <h2 id="termination-modal-title" className="mt-2 text-xl font-semibold text-slate-950">Terminate {terminationUser.full_name || terminationUser.display_name}</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  This disables sign-in and clock access. The employee record, time entries, schedules, payroll trail, and historical reports stay intact.
+                </p>
+              </div>
+              <button type="button" aria-label="Close" onClick={closeTerminationModal} className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-700">Last day of employment</span>
+                <input data-termination-autofocus type="date" value={terminationEffectiveOn} max={formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')} onChange={(event) => setTerminationEffectiveOn(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-700">Internal note <span className="font-normal text-slate-400">(optional)</span></span>
+                <textarea value={terminationReason} maxLength={1000} onChange={(event) => setTerminationReason(event.target.value)} rows={3} placeholder="Reason or offboarding note" className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+              If this employee is currently clocked in, AIRE will stop here and ask you to close the shift first so the final hours are accurate.
+            </div>
+
+            {terminationError && <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{terminationError}</div>}
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button type="button" onClick={closeTerminationModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Cancel</button>
+              <button type="button" onClick={() => void handleTerminate()} disabled={savingTermination || !terminationEffectiveOn} className="rounded-xl bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:opacity-50">
+                {savingTermination ? 'Terminating…' : 'Confirm termination'}
+              </button>
+            </div>
           </div>
         </div>
       )}

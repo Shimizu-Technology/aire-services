@@ -523,14 +523,14 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(kiosk_only_user.reload.personal_access_enabled).to be(false)
     end
 
-    it "deactivates another user" do
+    it "requires the termination workflow instead of a bare deactivation" do
       patch "/api/v1/admin/users/#{employee.id}",
             params: { is_active: false },
             headers: auth_headers_for[admin]
 
-      expect(response).to have_http_status(:ok)
-      expect(json.dig(:user, :is_active)).to eq(false)
-      expect(employee.reload.is_active).to eq(false)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/termination action/i)
+      expect(employee.reload.is_active).to eq(true)
     end
 
     it "does not let admins deactivate themselves" do
@@ -541,6 +541,123 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       expect(response).to have_http_status(:unprocessable_entity)
       expect(json[:error]).to match(/cannot deactivate your own account/i)
       expect(admin.reload.is_active).to eq(true)
+    end
+  end
+
+  describe "POST /api/v1/admin/users/:id/terminate" do
+    it "terminates access while preserving the employee and their time history" do
+      category = create(:time_category)
+      entry = create(:time_entry, user: employee, time_category: category)
+
+      post "/api/v1/admin/users/#{employee.id}/terminate",
+           params: { effective_on: "2026-09-21", reason: "Employment ended" },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.fetch(:user)).to include(
+        id: employee.id,
+        is_active: false,
+        employment_status: "terminated",
+        termination_effective_on: "2026-09-21",
+        termination_reason: "Employment ended",
+        can_delete_permanently: false
+      )
+      expect(employee.reload).to be_terminated
+      expect(employee.terminated_by).to eq(admin)
+      expect(entry.reload.user).to eq(employee)
+    end
+
+    it "requires an open shift to be closed first" do
+      category = create(:time_category)
+      create(:time_entry, user: employee, time_category: category, status: "clocked_in", end_time: nil)
+
+      post "/api/v1/admin/users/#{employee.id}/terminate",
+           params: { effective_on: "2026-09-21" },
+           headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/clock this employee out/i)
+      expect(employee.reload.is_active).to be(true)
+    end
+  end
+
+  describe "POST /api/v1/admin/users/:id/reactivate" do
+    it "clears termination metadata and restores access" do
+      employee.update!(
+        is_active: false,
+        terminated_at: 1.day.ago,
+        termination_effective_on: Date.new(2026, 9, 21),
+        termination_reason: "Employment ended",
+        terminated_by: admin
+      )
+
+      post "/api/v1/admin/users/#{employee.id}/reactivate", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:ok)
+      expect(json.fetch(:user)).to include(is_active: true, employment_status: "active")
+      expect(employee.reload).to have_attributes(
+        is_active: true,
+        terminated_at: nil,
+        termination_effective_on: nil,
+        termination_reason: nil,
+        terminated_by_id: nil
+      )
+    end
+  end
+
+  describe "DELETE /api/v1/admin/users/:id" do
+    it "rejects permanent deletion when work history exists" do
+      category = create(:time_category)
+      entry = create(:time_entry, user: employee, time_category: category)
+
+      delete "/api/v1/admin/users/#{employee.id}", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/terminate the employee instead/i)
+      expect(json[:blockers]).to include("time entries")
+      expect(employee.reload).to be_present
+      expect(entry.reload.user_id).to eq(employee.id)
+    end
+
+    it "rejects permanent deletion when the user authored a payroll settlement event" do
+      unused = create(:user, :employee, clerk_id: "pending_settlement_actor")
+      settlement_case = create(:payroll_settlement_case)
+      settlement_case.payroll_settlement_case_events.create!(
+        event_id: SecureRandom.uuid,
+        event_type: "opened",
+        to_status: "open",
+        occurred_at: Time.current,
+        actor: unused
+      )
+
+      delete "/api/v1/admin/users/#{unused.id}", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:blockers]).to include("payroll settlement events")
+      expect(unused.reload).to be_present
+    end
+
+    it "returns the deletion contract when a dependency appears during deletion" do
+      unused = create(:user, :employee, clerk_id: "pending_delete_race")
+      allow_any_instance_of(User).to receive(:permanent_deletion_blockers).and_return([])
+      allow_any_instance_of(User).to receive(:destroy!).and_raise(
+        ActiveRecord::RecordNotDestroyed.new("blocked", unused.tap { |record| record.errors.add(:base, "New history was recorded") })
+      )
+
+      delete "/api/v1/admin/users/#{unused.id}", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to match(/terminate the employee instead/i)
+      expect(json[:blockers]).to include("New history was recorded")
+    end
+
+    it "allows permanent deletion only for a never-used pending profile" do
+      unused = create(:user, :employee, clerk_id: "pending_unused_profile")
+
+      delete "/api/v1/admin/users/#{unused.id}", headers: auth_headers_for[admin]
+
+      expect(response).to have_http_status(:no_content)
+      expect(User.where(id: unused.id)).not_to exist
     end
   end
 end

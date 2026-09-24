@@ -1818,7 +1818,7 @@ ALTER SEQUENCE public.time_categories_id_seq OWNED BY public.time_categories.id;
 
 CREATE TABLE public.time_entries (
     id bigint NOT NULL,
-    user_id bigint,
+    user_id bigint NOT NULL,
     time_category_id bigint,
     work_date date NOT NULL,
     hours numeric(4,2) NOT NULL,
@@ -2001,6 +2001,10 @@ CREATE TABLE public.users (
     profile_source character varying DEFAULT 'local'::character varying NOT NULL,
     time_tracking_enabled boolean DEFAULT false NOT NULL,
     payroll_integration_uuid uuid DEFAULT gen_random_uuid() NOT NULL,
+    terminated_at timestamp(6) without time zone,
+    termination_effective_on date,
+    termination_reason text,
+    terminated_by_id bigint,
     CONSTRAINT check_public_team_photo_position_x_range CHECK (((public_team_photo_position_x >= 0) AND (public_team_photo_position_x <= 100))),
     CONSTRAINT check_public_team_photo_position_y_range CHECK (((public_team_photo_position_y >= 0) AND (public_team_photo_position_y <= 100))),
     CONSTRAINT check_users_kiosk_matches_time_tracking CHECK ((kiosk_enabled = time_tracking_enabled)),
@@ -4018,6 +4022,13 @@ CREATE INDEX index_users_on_role ON public.users USING btree (role);
 
 
 --
+-- Name: index_users_on_terminated_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_users_on_terminated_by_id ON public.users USING btree (terminated_by_id);
+
+
+--
 -- Name: index_users_on_time_tracking_enabled; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4528,6 +4539,14 @@ ALTER TABLE ONLY public.payroll_manual_allocation_events
 
 
 --
+-- Name: users fk_rails_bb6c1cdd53; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT fk_rails_bb6c1cdd53 FOREIGN KEY (terminated_by_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
 -- Name: site_media fk_rails_bf8870d145; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4622,6 +4641,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260922080000'),
 ('20260921020300'),
 ('20260921010000'),
 ('20260920050000'),

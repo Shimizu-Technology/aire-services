@@ -14,6 +14,8 @@ module Api
                         :show,
                         :update,
                         :destroy,
+                        :terminate,
+                        :reactivate,
                         :resend_invite,
                         :reset_kiosk_pin,
                         :public_team_photo,
@@ -38,7 +40,9 @@ module Api
           if params[:status] == "active"
             @users = @users.where(is_active: true).where.not(id: pending_scope.select(:id))
           elsif params[:status] == "inactive"
-            @users = @users.where(is_active: false)
+            @users = @users.where(is_active: false, terminated_at: nil)
+          elsif params[:status] == "terminated"
+            @users = @users.where.not(terminated_at: nil)
           elsif params[:status] == "pending"
             @users = pending_scope.where(is_active: true)
           end
@@ -207,8 +211,87 @@ module Api
             return render json: { error: "You cannot delete your own account" }, status: :unprocessable_entity
           end
 
-          @user.destroy
+          blockers = @user.permanent_deletion_blockers
+          if blockers.any?
+            return render json: {
+              error: "This is not an unused profile and cannot be permanently deleted. Terminate the employee instead so their history stays available.",
+              blockers: blockers
+            }, status: :unprocessable_entity
+          end
+
+          @user.destroy!
           head :no_content
+        rescue ActiveRecord::RecordNotDestroyed => e
+          render json: {
+            error: "This is not an unused profile and cannot be permanently deleted. Terminate the employee instead so their history stays available.",
+            blockers: e.record.errors.full_messages
+          }, status: :unprocessable_entity
+        end
+
+        def terminate
+          if @user.id == current_user.id
+            return render json: { error: "You cannot terminate your own account" }, status: :unprocessable_entity
+          end
+
+          if @user.terminated?
+            return render json: { error: "This employee is already terminated" }, status: :unprocessable_entity
+          end
+
+          if @user.time_entries.where(status: %w[clocked_in on_break]).exists?
+            return render json: { error: "Clock this employee out before terminating them so their final shift is recorded correctly." }, status: :unprocessable_entity
+          end
+
+          effective_on = termination_effective_on
+          return if performed?
+
+          begin
+            ActiveRecord::Base.transaction do
+              if @user.admin?
+                User.with_admin_access_lock { terminate_user_under_lock(effective_on) }
+              else
+                terminate_user_under_lock(effective_on)
+              end
+            end
+          rescue ActiveRecord::RecordInvalid => e
+            return render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
+          end
+
+          return if performed?
+
+          render json: { user: serialize_user(@user.reload) }
+        end
+
+        def reactivate
+          if @user.is_active? && !@user.terminated?
+            return render json: { user: serialize_user(@user) }
+          end
+
+          begin
+            ActiveRecord::Base.transaction do
+              previous_status = @user.employment_status
+              @user.update!(
+                is_active: true,
+                terminated_at: nil,
+                termination_effective_on: nil,
+                termination_reason: nil,
+                terminated_by: nil
+              )
+              AuditLog.record!(
+                action: "admin.users.reactivate",
+                auditable: @user,
+                actor: current_user,
+                event_category: "users",
+                changes: {
+                  is_active: [ false, true ],
+                  employment_status: [ previous_status, "active" ]
+                }
+              )
+            end
+          rescue ActiveRecord::RecordInvalid => e
+            return render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
+          end
+
+          render json: { user: serialize_user(@user.reload) }
         end
 
         def resend_invite
@@ -297,6 +380,12 @@ module Api
             approval_group_labels: user.approval_group_labels,
             approval_groups: user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } },
             is_active: user.is_active,
+            employment_status: user.employment_status,
+            terminated_at: user.terminated_at&.iso8601,
+            termination_effective_on: user.termination_effective_on&.iso8601,
+            termination_reason: user.termination_reason,
+            terminated_by: user.terminated_by ? { id: user.terminated_by.id, full_name: user.terminated_by.full_name } : nil,
+            can_delete_permanently: user.can_delete_permanently?,
             is_pending: user.pending_invite?,
             has_clerk_account: user.clerk_id.present? && !user.clerk_id.start_with?("pending_"),
             uses_clerk_profile: user.uses_clerk_profile?,
@@ -484,7 +573,17 @@ module Api
               return { local_attributes: {}, clerk_attributes: {} }
             end
 
-            permitted[:is_active] = is_active
+            if !is_active
+              render json: { error: "Use the termination action so the employee's final status and history are recorded." }, status: :unprocessable_entity
+              return { local_attributes: {}, clerk_attributes: {} }
+            end
+
+            if @user.terminated?
+              render json: { error: "Use the reactivation action for a terminated employee." }, status: :unprocessable_entity
+              return { local_attributes: {}, clerk_attributes: {} }
+            end
+
+            permitted[:is_active] = true
           end
 
           if params.key?(:public_team_enabled)
@@ -563,6 +662,67 @@ module Api
           return nil if User.admins.where(is_active: true, personal_access_enabled: true).where.not(id: @user.id).exists?
 
           "AIRE Ops must keep at least one active admin with personal sign-in"
+        end
+
+        def termination_effective_on
+          value = params[:effective_on].presence || Time.current.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date.iso8601
+          date = Date.iso8601(value.to_s)
+          today = Time.current.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date
+          if date > today
+            render json: { error: "Termination effective date cannot be in the future" }, status: :unprocessable_entity
+            return nil
+          end
+          date
+        rescue Date::Error
+          render json: { error: "Termination effective date must be a valid date" }, status: :unprocessable_entity
+          nil
+        end
+
+        def last_active_admin?(user)
+          user.admin? && user.is_active? && user.personal_access_enabled? &&
+            !User.admins.where(is_active: true, personal_access_enabled: true).where.not(id: user.id).exists?
+        end
+
+        def terminate_user_under_lock(effective_on)
+          @user.with_lock do
+            @user.reload
+            if @user.terminated?
+              render json: { error: "This employee is already terminated" }, status: :unprocessable_entity
+              return
+            end
+
+            if @user.time_entries.where(status: %w[clocked_in on_break]).exists?
+              render json: { error: "Clock this employee out before terminating them so their final shift is recorded correctly." }, status: :unprocessable_entity
+              return
+            end
+
+            if last_active_admin?(@user)
+              render json: { error: "AIRE Ops must keep at least one active admin with personal sign-in" }, status: :unprocessable_entity
+              return
+            end
+
+            previous_status = @user.employment_status
+            previously_active = @user.is_active?
+            @user.update!(
+              is_active: false,
+              public_team_enabled: false,
+              terminated_at: Time.current,
+              termination_effective_on: effective_on,
+              termination_reason: params[:reason].to_s.strip.presence,
+              terminated_by: current_user
+            )
+            AuditLog.record!(
+              action: "admin.users.terminate",
+              auditable: @user,
+              actor: current_user,
+              event_category: "users",
+              changes: {
+                is_active: [ previously_active, false ],
+                employment_status: [ previous_status, "terminated" ],
+                termination_effective_on: [ nil, effective_on.iso8601 ]
+              }
+            )
+          end
         end
 
         def normalized_photo_position(value, axis_label)

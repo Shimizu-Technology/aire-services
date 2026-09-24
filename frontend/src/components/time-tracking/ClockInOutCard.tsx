@@ -420,6 +420,11 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         {!isClockedIn && !status?.schedule && <NoScheduleMsg />}
         {!isClockedIn && blockedReason === 'too_early' && <TooEarlyMsg isAdmin={isAdmin} minutesUntil={status?.minutes_until} />}
         {!isClockedIn && blockedReason === 'shift_ended' && <ShiftEndedMsg isAdmin={isAdmin} />}
+        {!isClockedIn && blockedReason === 'inactive_employee' && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Employee is inactive
+          </div>
+        )}
 
         {!isClockedIn && categories.length > 0 && (
           <div className="mb-4 p-3.5 bg-secondary/40 rounded-xl border border-neutral-warm/50">
@@ -530,7 +535,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
                 {blockedReason === 'shift_ended' && 'Shift has ended'}
                 {blockedReason === 'categories_missing' && 'Work categories need to be assigned'}
                 {blockedReason === 'no_schedule' && 'No shift scheduled today'}
-                {isAdmin && ' — admin override available'}
+                {blockedReason === 'inactive_employee' && 'Employee is inactive'}
+                {isAdminOverridable && ' — admin override available'}
               </span>
             </div>
           )}

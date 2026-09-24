@@ -8,7 +8,7 @@ class TimeEntry < ApplicationRecord
   APPROVAL_STATUSES = %w[pending approved denied].freeze
   OVERTIME_STATUSES = %w[none pending approved denied].freeze
 
-  belongs_to :user, optional: true
+  belongs_to :user
   belongs_to :time_category, optional: true
   belongs_to :schedule, optional: true
   belongs_to :approved_by, class_name: "User", optional: true
