@@ -19,16 +19,18 @@ Rails.application.configure do
   # Enable serving of images, stylesheets, and JavaScripts from an asset server.
   # config.asset_host = "http://assets.example.com"
 
-  # Store durable admin-uploaded media in S3.
-  config.active_storage.service = :amazon
+  # Store durable admin-uploaded media in S3 by default. A controlled staging
+  # deployment may explicitly opt into a persistent local volume.
+  config.active_storage.service = ENV.fetch("ACTIVE_STORAGE_SERVICE", "amazon").to_sym
 
   # Render terminates TLS before forwarding requests to Rails. Trust that proxy
   # signal so Rails generates secure URLs and cookies instead of treating the
   # internal hop as plain HTTP.
-  config.assume_ssl = true
+  force_ssl = ENV.fetch("FORCE_SSL", "true").to_s.downcase == "true"
+  config.assume_ssl = ENV.fetch("ASSUME_SSL", force_ssl.to_s).to_s.downcase == "true"
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  config.force_ssl = true
+  config.force_ssl = force_ssl
 
   # Skip http-to-https redirect for the default health check endpoint.
   config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }

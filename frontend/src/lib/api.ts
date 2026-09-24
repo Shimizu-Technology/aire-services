@@ -1,7 +1,6 @@
 // AIRE Services API client
 import type { PublicContactInfoSettings } from './businessInfo'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+import { apiUrl } from './apiBase'
 
 interface ApiResponse<T> {
   data?: T;
@@ -40,7 +39,7 @@ async function fetchApi<T>(
       }
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(apiUrl(endpoint), {
       ...options,
       headers,
     });
@@ -133,7 +132,7 @@ async function fetchDownload(endpoint: string): Promise<DownloadResponse> {
       if (token) headers.Authorization = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, { headers });
+    const response = await fetch(apiUrl(endpoint), { headers });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       return {
@@ -173,7 +172,7 @@ async function fetchApiUpload<T>(
       if (token) headers.Authorization = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(apiUrl(endpoint), {
       ...options,
       method: options.method || 'POST',
       headers,
