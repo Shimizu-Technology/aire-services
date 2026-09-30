@@ -3,6 +3,8 @@
 class PayrollCalendarPeriod < ApplicationRecord
   BUSINESS_TIME_ZONE = "Pacific/Guam"
   CUTOFF_DAYS_BEFORE = 7
+  CUTOFF_RULES = %w[before_pay_date after_previous_regular_payday].freeze
+  SCHEMA_VERSIONS = %w[1.0 2.0].freeze
   STATUSES = %w[scheduled failed finalized].freeze
 
   belongs_to :payroll_batch, optional: true
@@ -23,6 +25,9 @@ class PayrollCalendarPeriod < ApplicationRecord
   validates :request_checksum, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :time_zone, inclusion: { in: [ BUSINESS_TIME_ZONE ] }
   validates :cutoff_days_before, numericality: { equal_to: CUTOFF_DAYS_BEFORE }
+  validates :schema_version, inclusion: { in: SCHEMA_VERSIONS }
+  validates :cutoff_rule, inclusion: { in: CUTOFF_RULES }
+  validates :cutoff_days, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 31 }
   validates :schedule_version, numericality: { only_integer: true, greater_than: 0 }
   validates :status, inclusion: { in: STATUSES }
   validates :finalization_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
@@ -46,14 +51,13 @@ class PayrollCalendarPeriod < ApplicationRecord
   end
 
   def as_contract_json(now: Time.current)
-    {
+    fields = {
       external_pay_period_id: external_pay_period_id,
       start_date: start_date.iso8601,
       end_date: end_date.iso8601,
       pay_date: pay_date.iso8601,
       cutoff_at: cutoff_at.in_time_zone(time_zone).iso8601,
       time_zone: time_zone,
-      cutoff_days_before: cutoff_days_before,
       version: lock_version,
       schedule_version: schedule_version,
       publication_id: publication_id,
@@ -66,6 +70,15 @@ class PayrollCalendarPeriod < ApplicationRecord
       next_finalization_attempt_at: next_finalization_attempt_at&.in_time_zone(time_zone)&.iso8601,
       last_finalization_error: last_finalization_error
     }.compact
+    if schema_version == "1.0"
+      fields[:cutoff_days_before] = cutoff_days_before
+    else
+      fields[:cutoff_rule] = cutoff_rule
+      fields[:cutoff_days] = cutoff_days
+      fields[:previous_regular_pay_date] = previous_regular_pay_date&.iso8601 if previous_regular_pay_date
+    end
+    fields[:schema_version] = schema_version
+    fields
   end
 
   private
@@ -87,12 +100,25 @@ class PayrollCalendarPeriod < ApplicationRecord
   def cutoff_matches_policy
     return if cutoff_at.blank? || pay_date.blank? || time_zone.blank?
     return unless time_zone == BUSINESS_TIME_ZONE
-    return unless cutoff_days_before == CUTOFF_DAYS_BEFORE
-
     local_cutoff_date = cutoff_at.in_time_zone(time_zone).to_date
-    return if local_cutoff_date == pay_date - cutoff_days_before
-
-    errors.add(:cutoff_at, "must fall seven calendar days before the pay date in Pacific/Guam")
+    if schema_version == "1.0"
+      if cutoff_rule != "before_pay_date" || cutoff_days != 7 || previous_regular_pay_date.present?
+        errors.add(:base, "version 1.0 requires the original seven-day cutoff policy")
+      end
+      errors.add(:cutoff_at, "must fall seven calendar days before the pay date in Pacific/Guam") unless local_cutoff_date == pay_date - 7
+    elsif schema_version == "2.0"
+      basis = cutoff_rule == "after_previous_regular_payday" ? previous_regular_pay_date : pay_date
+      if cutoff_rule == "after_previous_regular_payday" && (basis.nil? || basis >= pay_date)
+        errors.add(:previous_regular_pay_date, "must precede the target pay date")
+      elsif cutoff_rule == "before_pay_date" && previous_regular_pay_date.present?
+        errors.add(:previous_regular_pay_date, "must be blank for a pay-date cutoff")
+      elsif basis && cutoff_days && local_cutoff_date != (cutoff_rule == "after_previous_regular_payday" ? basis + cutoff_days : basis - cutoff_days)
+        errors.add(:cutoff_at, "does not match the published cutoff policy")
+      end
+      if cutoff_rule == "after_previous_regular_payday" && cutoff_at.in_time_zone(time_zone).to_date >= pay_date
+        errors.add(:cutoff_at, "must precede the target pay date")
+      end
+    end
   end
 
   def finalized_state_is_complete

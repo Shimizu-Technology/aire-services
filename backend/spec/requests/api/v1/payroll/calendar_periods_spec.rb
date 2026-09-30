@@ -73,6 +73,28 @@ RSpec.describe "Payroll calendar periods", type: :request do
       .to include("publication_id" => payload.fetch(:publication_id), "schedule_version" => 1)
   end
 
+  it "accepts and returns the previous-regular-payday cutoff contract" do
+    version_two = payload.except(:cutoff_days_before).merge(
+      schema_version: "2.0",
+      cutoff_rule: "after_previous_regular_payday",
+      cutoff_days: 7,
+      previous_regular_pay_date: "2026-10-10",
+      cutoff_at: "2026-10-17T17:00:00+10:00"
+    )
+
+    put "/api/v1/payroll/calendar_periods/#{period_id}", params: version_two.to_json, headers: headers
+
+    expect(response).to have_http_status(:created)
+    expect(response.parsed_body.fetch("payroll_calendar_period")).to include(
+      "schema_version" => "2.0",
+      "cutoff_rule" => "after_previous_regular_payday",
+      "cutoff_days" => 7,
+      "previous_regular_pay_date" => "2026-10-10",
+      "cutoff_at" => "2026-10-17T17:00:00+10:00"
+    )
+    expect(response.parsed_body.fetch("payroll_calendar_period")).not_to have_key("cutoff_days_before")
+  end
+
   it "returns actionable validation and conflict responses" do
     invalid = payload.merge(cutoff_at: "2026-10-18T17:00:00")
     put "/api/v1/payroll/calendar_periods/#{period_id}", params: invalid.to_json, headers: headers
