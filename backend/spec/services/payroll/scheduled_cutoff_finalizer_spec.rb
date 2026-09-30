@@ -37,6 +37,40 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     )
   end
 
+  def period_dates_before(pay_date)
+    end_date = if pay_date.day > 15
+      Date.new(pay_date.year, pay_date.month, 15)
+    else
+      (pay_date << 1).end_of_month
+    end
+    start_date = end_date.day == 15 ? end_date.beginning_of_month : Date.new(end_date.year, end_date.month, 16)
+    [ start_date, end_date ]
+  end
+
+  def revision_cutoff_period(cutoff_at)
+    pay_date = cutoff_at.in_time_zone("Pacific/Guam").to_date + 7.days
+    start_date, end_date = period_dates_before(pay_date)
+    create(
+      :payroll_calendar_period,
+      start_date: start_date,
+      end_date: end_date,
+      pay_date: pay_date,
+      cutoff_at: cutoff_at,
+      next_finalization_attempt_at: cutoff_at
+    )
+  end
+
+  def entry_for_revision_cutoff
+    local_today = Time.current.in_time_zone("Pacific/Guam").to_date
+    start_date, = period_dates_before(local_today + 7.days)
+    time_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      work_date: start_date + 4.days,
+      created_at: Time.current - 1.day
+    )
+  end
+
   it "independently finalizes a due period and records every held manual entry" do
     included = time_entry(entry_method: "clock", approval_status: nil)
     held = time_entry(entry_method: "manual", approval_status: "pending", work_date: Date.new(2026, 10, 6))
@@ -88,6 +122,70 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
 
       expect(batch.payroll_batch_entries.pluck(:source_time_entry_id)).to eq([ before_cutoff.id ])
       expect(batch.payroll_batch_exclusions.find_by!(source_time_entry_id: late.id).reason).to eq("created_after_cutoff")
+    end
+  end
+
+  it "uses the time ledger at the cutoff when an entry is edited before delayed finalization" do
+    entry = entry_for_revision_cutoff
+    cutoff_revision = PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last
+    frozen_period = revision_cutoff_period(cutoff_revision.recorded_at)
+    entry.update_columns(hours: 12, updated_at: Time.current)
+
+    travel_to(cutoff_revision.recorded_at + 2.minutes) do
+      result = described_class.new(period_id: frozen_period.id).call
+      Payroll::SettlementCaseCoordinator.sync_finalized_periods!
+
+      expect(result.fetch(:status)).to eq("finalized")
+      expect(frozen_period.reload.payroll_batch.payroll_batch_entries.sole.total_hours).to eq(8)
+      expect(frozen_period.payroll_batch.payroll_batch_entries.sole.snapshot).to include("hours" => 8.0)
+      expect(PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)).to have_attributes(
+        origin_reason: "changed_after_cutoff",
+        held_total_hours: 4
+      )
+    end
+  end
+
+  it "uses the time ledger at the cutoff when an entry is deleted before delayed finalization" do
+    entry = entry_for_revision_cutoff
+    cutoff_revision = PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last
+    frozen_period = revision_cutoff_period(cutoff_revision.recorded_at)
+    entry.destroy!
+
+    travel_to(cutoff_revision.recorded_at + 2.minutes) do
+      result = described_class.new(period_id: frozen_period.id).call
+      Payroll::SettlementCaseCoordinator.sync_finalized_periods!
+
+      expect(result.fetch(:status)).to eq("finalized")
+      expect(frozen_period.reload.payroll_batch.payroll_batch_entries.sole).to have_attributes(
+        source_time_entry_id: entry.id,
+        total_hours: 8
+      )
+      expect(PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)).to have_attributes(
+        origin_reason: "deleted_after_cutoff",
+        held_total_hours: 8
+      )
+    end
+  end
+
+  it "keeps deleted post-cutoff time visible as held for the following payroll" do
+    included = entry_for_revision_cutoff
+    cutoff_revision = PayrollTimeEntryRevision.where(source_time_entry_id: included.id).order(:id).last
+    frozen_period = revision_cutoff_period(cutoff_revision.recorded_at)
+    late = time_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      work_date: frozen_period.start_date + 5.days,
+      created_at: cutoff_revision.recorded_at + 1.minute
+    )
+    late.destroy!
+
+    travel_to(cutoff_revision.recorded_at + 2.minutes) do
+      result = described_class.new(period_id: frozen_period.id).call
+
+      expect(result.fetch(:status)).to eq("finalized")
+      expect(frozen_period.reload.payroll_batch.payroll_batch_entries.pluck(:source_time_entry_id)).to eq([ included.id ])
+      expect(frozen_period.payroll_batch.payroll_batch_exclusions.find_by!(source_time_entry_id: late.id))
+        .to have_attributes(reason: "created_after_cutoff", held_total_hours: 8)
     end
   end
 

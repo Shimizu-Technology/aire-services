@@ -187,6 +187,50 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/AIRE will include it automatically/)).toBeInTheDocument()
   })
 
+  it('explains post-cutoff edits and deletions in plain language', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [
+        {
+          source_time_entry_id: '61',
+          source_user_id: '7',
+          display_name: 'Alice Pilot',
+          email: 'alice@example.com',
+          category: { id: 3, key: 'flight', name: 'Flight Hours' },
+          original_work_date: '2026-08-20',
+          first_excluded_batch_id: 'AIRE-PAY-OLD',
+          latest_excluded_batch_id: 'AIRE-PAY-OLD',
+          exclusion_reason: 'changed_after_cutoff',
+          held_total_hours: 4,
+          current_total_hours: 4,
+          status: 'ready_for_next_batch',
+          included_batch: null,
+        },
+        {
+          source_time_entry_id: '62',
+          source_user_id: '8',
+          display_name: 'Ben Mechanic',
+          email: 'ben@example.com',
+          category: { id: 4, key: 'maintenance', name: 'Maintenance' },
+          original_work_date: '2026-08-21',
+          first_excluded_batch_id: 'AIRE-PAY-OLD',
+          latest_excluded_batch_id: 'AIRE-PAY-OLD',
+          exclusion_reason: 'deleted_after_cutoff',
+          held_total_hours: 8,
+          current_total_hours: 0,
+          status: 'ready_for_next_batch',
+          included_batch: null,
+        },
+      ],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 2, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+
+    renderPayrollRuns()
+
+    expect(await screen.findByText('Originally excluded: Edited after cutoff')).toBeInTheDocument()
+    expect(screen.getByText('Originally excluded: Deleted after cutoff')).toBeInTheDocument()
+  })
+
   it('shows exact paid and outstanding hours for a partially paid carryover entry', async () => {
     apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
       items: [{

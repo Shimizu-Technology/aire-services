@@ -58,7 +58,7 @@ module Payroll
           start_date: period.start_date,
           end_date: period.end_date,
           actor: nil,
-          cutoff_at: period.cutoff_at.iso8601,
+          cutoff_at: period.cutoff_at.iso8601(6),
           automated_cutoff: true,
           calendar_period: period
         ).call

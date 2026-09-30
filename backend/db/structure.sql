@@ -24,6 +24,72 @@ COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching
 
 
 --
+-- Name: capture_payroll_time_entry_revision(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.capture_payroll_time_entry_revision() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  source_row time_entries%ROWTYPE;
+  source_deleted boolean;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    source_row := OLD;
+    source_deleted := TRUE;
+  ELSE
+    source_row := NEW;
+    source_deleted := FALSE;
+  END IF;
+
+  INSERT INTO payroll_time_entry_revisions (
+    source_time_entry_id,
+    source_version,
+    source_user_id,
+    source_work_date,
+    deleted,
+    recorded_at,
+    snapshot
+  )
+  SELECT
+    source_row.id,
+    source_row.lock_version,
+    source_row.user_id,
+    source_row.work_date,
+    source_deleted,
+    clock_timestamp(),
+    jsonb_build_object(
+      'time_entry', to_jsonb(source_row),
+      'user', jsonb_build_object(
+        'id', users.id,
+        'payroll_integration_uuid', users.payroll_integration_uuid,
+        'first_name', users.first_name,
+        'last_name', users.last_name,
+        'email', users.email,
+        'role', users.role
+      ),
+      'time_category', CASE
+        WHEN time_categories.id IS NULL THEN NULL
+        ELSE jsonb_build_object(
+          'id', time_categories.id,
+          'key', time_categories.key,
+          'name', time_categories.name
+        )
+      END
+    )
+  FROM users
+  LEFT JOIN time_categories ON time_categories.id = source_row.time_category_id
+  WHERE users.id = source_row.user_id;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: protect_audit_logs_from_mutation(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -704,7 +770,7 @@ CREATE TABLE public.payroll_calendar_periods (
     cutoff_rule character varying DEFAULT 'before_pay_date'::character varying NOT NULL,
     cutoff_days integer DEFAULT 7 NOT NULL,
     previous_regular_pay_date date,
-    CONSTRAINT check_payroll_calendar_period_cutoff_date CHECK ((((schema_version)::text = ANY ((ARRAY['1.0'::character varying, '2.0'::character varying])::text[])) AND ((cutoff_rule)::text = ANY ((ARRAY['before_pay_date'::character varying, 'after_previous_regular_payday'::character varying])::text[])) AND ((cutoff_days >= 0) AND (cutoff_days <= 31)) AND ((((schema_version)::text = '1.0'::text) AND ((cutoff_rule)::text = 'before_pay_date'::text) AND (cutoff_days = 7) AND (previous_regular_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - 7))) OR (((schema_version)::text = '2.0'::text) AND ((((cutoff_rule)::text = 'before_pay_date'::text) AND (previous_regular_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - cutoff_days))) OR (((cutoff_rule)::text = 'after_previous_regular_payday'::text) AND (previous_regular_pay_date IS NOT NULL) AND (previous_regular_pay_date < pay_date) AND ((previous_regular_pay_date + cutoff_days) < pay_date) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (previous_regular_pay_date + cutoff_days)))))))),
+    CONSTRAINT check_payroll_calendar_period_cutoff_date CHECK ((((schema_version)::text = ANY (ARRAY[('1.0'::character varying)::text, ('2.0'::character varying)::text])) AND ((cutoff_rule)::text = ANY (ARRAY[('before_pay_date'::character varying)::text, ('after_previous_regular_payday'::character varying)::text])) AND ((cutoff_days >= 0) AND (cutoff_days <= 31)) AND ((((schema_version)::text = '1.0'::text) AND ((cutoff_rule)::text = 'before_pay_date'::text) AND (cutoff_days = 7) AND (previous_regular_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - 7))) OR (((schema_version)::text = '2.0'::text) AND ((((cutoff_rule)::text = 'before_pay_date'::text) AND (previous_regular_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - cutoff_days))) OR (((cutoff_rule)::text = 'after_previous_regular_payday'::text) AND (previous_regular_pay_date IS NOT NULL) AND (previous_regular_pay_date < pay_date) AND ((previous_regular_pay_date + cutoff_days) < pay_date) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (previous_regular_pay_date + cutoff_days)))))))),
     CONSTRAINT check_payroll_calendar_period_cutoff_days CHECK ((cutoff_days_before = 7)),
     CONSTRAINT check_payroll_calendar_period_date_order CHECK ((end_date >= start_date)),
     CONSTRAINT check_payroll_calendar_period_pay_date CHECK ((pay_date > end_date)),
@@ -760,7 +826,7 @@ CREATE TABLE public.payroll_entry_processing_events (
     total_hours numeric(8,2),
     regular_hours numeric(8,2),
     overtime_hours numeric(8,2),
-    CONSTRAINT payroll_entry_events_line_contract_shape CHECK ((((contract_version IS NULL) AND (source_line_key IS NULL) AND (source_kind IS NULL) AND (total_hours IS NULL) AND (regular_hours IS NULL) AND (overtime_hours IS NULL)) OR (((contract_version)::text = '2.0'::text) AND (source_line_key IS NOT NULL) AND ((source_kind)::text = ANY ((ARRAY['current'::character varying, 'carryover'::character varying, 'correction'::character varying])::text[])) AND (total_hours IS NOT NULL) AND (regular_hours IS NOT NULL) AND (overtime_hours IS NOT NULL) AND (total_hours = (regular_hours + overtime_hours)))))
+    CONSTRAINT payroll_entry_events_line_contract_shape CHECK ((((contract_version IS NULL) AND (source_line_key IS NULL) AND (source_kind IS NULL) AND (total_hours IS NULL) AND (regular_hours IS NULL) AND (overtime_hours IS NULL)) OR (((contract_version)::text = '2.0'::text) AND (source_line_key IS NOT NULL) AND ((source_kind)::text = ANY (ARRAY[('current'::character varying)::text, ('carryover'::character varying)::text, ('correction'::character varying)::text])) AND (total_hours IS NOT NULL) AND (regular_hours IS NOT NULL) AND (overtime_hours IS NOT NULL) AND (total_hours = (regular_hours + overtime_hours)))))
 );
 
 
@@ -1043,6 +1109,42 @@ CREATE SEQUENCE public.payroll_settlement_reconciliations_id_seq
 --
 
 ALTER SEQUENCE public.payroll_settlement_reconciliations_id_seq OWNED BY public.payroll_settlement_reconciliations.id;
+
+
+--
+-- Name: payroll_time_entry_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_time_entry_revisions (
+    id bigint NOT NULL,
+    source_time_entry_id bigint NOT NULL,
+    source_version integer NOT NULL,
+    source_user_id bigint NOT NULL,
+    source_work_date date NOT NULL,
+    deleted boolean DEFAULT false NOT NULL,
+    recorded_at timestamp(6) without time zone NOT NULL,
+    snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT check_payroll_time_entry_revisions_snapshot CHECK ((jsonb_typeof(snapshot) = 'object'::text))
+);
+
+
+--
+-- Name: payroll_time_entry_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_time_entry_revisions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_time_entry_revisions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_time_entry_revisions_id_seq OWNED BY public.payroll_time_entry_revisions.id;
 
 
 --
@@ -2021,6 +2123,13 @@ ALTER TABLE ONLY public.payroll_settlement_reconciliations ALTER COLUMN id SET D
 
 
 --
+-- Name: payroll_time_entry_revisions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_time_entry_revisions ALTER COLUMN id SET DEFAULT nextval('public.payroll_time_entry_revisions_id_seq'::regclass);
+
+
+--
 -- Name: report_exports id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2356,6 +2465,14 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 
 ALTER TABLE ONLY public.payroll_settlement_reconciliations
     ADD CONSTRAINT payroll_settlement_reconciliations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_time_entry_revisions payroll_time_entry_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_time_entry_revisions
+    ADD CONSTRAINT payroll_time_entry_revisions_pkey PRIMARY KEY (id);
 
 
 --
@@ -2715,6 +2832,20 @@ CREATE INDEX idx_payroll_settlement_cases_work_queue ON public.payroll_settlemen
 --
 
 CREATE UNIQUE INDEX idx_payroll_settlement_reconciliations_period ON public.payroll_settlement_reconciliations USING btree (payroll_calendar_period_id);
+
+
+--
+-- Name: idx_payroll_time_entry_revisions_entry_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_time_entry_revisions_entry_time ON public.payroll_time_entry_revisions USING btree (source_time_entry_id, recorded_at, id);
+
+
+--
+-- Name: idx_payroll_time_entry_revisions_user_work_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_time_entry_revisions_user_work_time ON public.payroll_time_entry_revisions USING btree (source_user_id, source_work_date, recorded_at);
 
 
 --
@@ -3817,6 +3948,27 @@ CREATE TRIGGER payroll_settlement_case_events_prevent_truncate BEFORE TRUNCATE O
 
 
 --
+-- Name: payroll_time_entry_revisions payroll_time_entry_revisions_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_time_entry_revisions_append_only BEFORE DELETE OR UPDATE ON public.payroll_time_entry_revisions FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_time_entry_revisions payroll_time_entry_revisions_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_time_entry_revisions_prevent_truncate BEFORE TRUNCATE ON public.payroll_time_entry_revisions FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: time_entries time_entries_capture_payroll_revision; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER time_entries_capture_payroll_revision AFTER INSERT OR DELETE OR UPDATE ON public.time_entries FOR EACH ROW EXECUTE FUNCTION public.capture_payroll_time_entry_revision();
+
+
+--
 -- Name: time_entries fk_rails_1a91ee6a57; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4207,6 +4359,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260930020000'),
 ('20260930010000'),
 ('20260929010000'),
 ('20260922080000'),

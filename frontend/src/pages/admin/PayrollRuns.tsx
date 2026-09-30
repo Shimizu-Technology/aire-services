@@ -35,6 +35,8 @@ const EXCLUSION_LABELS: Record<string, string> = {
   pending_overtime: 'Overtime pending approval',
   denied_overtime: 'Overtime denied',
   created_after_cutoff: 'Created after cutoff',
+  changed_after_cutoff: 'Edited after cutoff',
+  deleted_after_cutoff: 'Deleted after cutoff',
   approved_after_cutoff: 'Approved after cutoff',
   overtime_approved_after_cutoff: 'Overtime approved after cutoff',
 }

@@ -16,6 +16,7 @@ module Payroll
       @cutoff_at = cutoff_at
       @batch_reference = batch_reference
       @calendar_period = calendar_period
+      @revision_ledger = TimeEntryRevisionLedger.new(cutoff_at: cutoff_at) if calendar_period
       raise ArgumentError, "end_date must be on or after start_date" if @end_date < @start_date
       raise ArgumentError, "date range may not exceed #{MAX_RANGE_DAYS} days" if (@end_date - @start_date).to_i > MAX_RANGE_DAYS
     end
@@ -87,7 +88,13 @@ module Payroll
     end
 
     def settlement_seed_entries(latest_batch)
-      nominal = staff_entries.where(work_date: start_date..end_date).to_a
+      nominal = if revision_ledger?
+        frozen_entries = revision_ledger.entries_in_range(start_date..end_date)
+        late_entries = revision_ledger.entries_created_after_cutoff_in_range(start_date..end_date)
+        frozen_entries + late_entries
+      else
+        staff_entries.where(work_date: start_date..end_date).to_a
+      end
       return [ nominal, [] ] unless latest_batch
 
       if calendar_period
@@ -96,7 +103,11 @@ module Payroll
           .where(target_payroll_calendar_period: calendar_period)
           .distinct
           .pluck(:source_time_entry_id)
-        carryovers = staff_entries.where(id: targeted_ids).to_a
+        carryovers = if revision_ledger?
+          revision_ledger.entries_for_ids(targeted_ids)
+        else
+          staff_entries.where(id: targeted_ids).to_a
+        end
         existing_ids = carryovers.map(&:id)
         return [ (nominal + carryovers).uniq(&:id), targeted_ids - existing_ids ]
       end
@@ -132,7 +143,11 @@ module Payroll
     end
 
     def deleted_prior_rows(prior_by_entry)
-      existing_ids = TimeEntry.where(id: prior_by_entry.keys).pluck(:id).to_set
+      existing_ids = if revision_ledger?
+        revision_ledger.entries_for_ids(prior_by_entry.keys).map(&:id).to_set
+      else
+        TimeEntry.where(id: prior_by_entry.keys).pluck(:id).to_set
+      end
       prior_by_entry.filter_map do |entry_id, rows|
         next if existing_ids.include?(entry_id)
         next if prior_totals(rows).values.all?(&:zero?)
@@ -192,8 +207,19 @@ module Payroll
     def context_entries_for(pairs)
       return [] if pairs.empty?
 
+      if revision_ledger?
+        frozen_entries = revision_ledger.entries_for_pairs(pairs)
+        late_entries = revision_ledger.entries_created_after_cutoff_for_pairs(pairs)
+        return (frozen_entries + late_entries).uniq(&:id)
+          .sort_by { |entry| [ entry.work_date, entry.start_time, entry.created_at, entry.id ] }
+      end
+
+      current_context_entries_for(pairs)
+    end
+
+    def current_context_entries_for(pairs, scope: TimeEntry.all)
       pair_batches(pairs).flat_map do |pair_batch|
-        TimeEntry
+        scope
           .joins(pair_join_sql(pair_batch, user_column: "user_id") do
             <<~SQL
               ON affected_pairs.user_id = time_entries.user_id
@@ -205,6 +231,14 @@ module Payroll
       end
         .uniq(&:id)
         .sort_by { |entry| [ entry.work_date, entry.start_time, entry.created_at, entry.id ] }
+    end
+
+    def revision_ledger?
+      @revision_ledger&.available?
+    end
+
+    def revision_ledger
+      @revision_ledger
     end
 
     def overtime_allocations(entries)
