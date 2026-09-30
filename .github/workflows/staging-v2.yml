@@ -1,0 +1,162 @@
+name: Staging v2 images
+
+on:
+  pull_request:
+    branches: [staging-v2]
+  push:
+    branches: [staging-v2]
+  workflow_dispatch:
+
+concurrency:
+  group: staging-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aire_ops_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/aire_ops_test
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          working-directory: backend
+          bundler-cache: true
+      - run: bin/rails db:schema:load
+      - run: bundle exec rspec
+      - run: bin/brakeman --no-pager
+      - run: bin/bundler-audit
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc -b --noEmit
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  staging-configuration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Build API image
+        run: docker build --file backend/Dockerfile --tag aire-services-api:ci backend
+      - name: Build web image
+        env:
+          STAGING_CLERK_PUBLISHABLE_KEY: ${{ secrets.STAGING_CLERK_PUBLISHABLE_KEY }}
+        run: >-
+          docker build --file frontend/Dockerfile --tag aire-services-web:ci
+          --build-arg VITE_API_URL=
+          --build-arg VITE_CLERK_PUBLISHABLE_KEY="${STAGING_CLERK_PUBLISHABLE_KEY}"
+          frontend
+      - name: Validate staging Caddyfile
+        run: >-
+          docker run --rm --entrypoint caddy aire-services-web:ci
+          validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  publish-gate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging-v2'
+    needs: [backend, frontend, staging-configuration]
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.branch-head.outputs.current }}
+    steps:
+      - id: branch-head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          actual_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/staging-v2" --jq '.object.sha')"
+          if [[ "${actual_sha}" == "${EXPECTED_SHA}" ]]; then
+            echo "current=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "current=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging-v2' && needs.publish-gate.outputs.current == 'true'
+    needs: [publish-gate]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - image: aire-services-api
+            context: backend
+            file: backend/Dockerfile
+          - image: aire-services-web
+            context: frontend
+            file: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish API image
+        if: matrix.image == 'aire-services-api'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          platforms: linux/arm64
+          tags: |
+            ghcr.io/shimizu-technology/${{ matrix.image }}:${{ github.sha }}
+            ghcr.io/shimizu-technology/${{ matrix.image }}:staging-v2
+      - name: Build and publish web image
+        if: matrix.image == 'aire-services-web'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          platforms: linux/arm64
+          tags: |
+            ghcr.io/shimizu-technology/${{ matrix.image }}:${{ github.sha }}
+            ghcr.io/shimizu-technology/${{ matrix.image }}:staging-v2
+          build-args: |
+            VITE_API_URL=
+            VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.STAGING_CLERK_PUBLISHABLE_KEY }}

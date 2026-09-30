@@ -22,6 +22,14 @@ RSpec.describe Payroll::OutboxDispatcher do
       "PAYROLL_SHARED_SECRET" => "shared-secret"
     }
   end
+  let(:private_http_environment) do
+    environment.merge(
+      "CORNERSTONE_PAYROLL_EVENTS_URL" => "http://payroll-api:3000/api/v1/integrations/aire/events",
+      "DEPLOYMENT_ENV" => "staging",
+      "ALLOW_PRIVATE_INTEGRATION_HTTP" => "true",
+      "CORNERSTONE_PRIVATE_INTEGRATION_HOST" => "payroll-api"
+    )
+  end
 
   it "delivers the immutable event with authentication and an idempotency key" do
     captured = nil
@@ -120,6 +128,50 @@ RSpec.describe Payroll::OutboxDispatcher do
     expect(first[:status]).to eq("failed")
     expect(early[:status]).to eq("skipped")
     expect(event.reload.delivery_attempts).to eq(1)
+  end
+
+  it "allows only the explicitly named private Cornerstone service in staging" do
+    allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
+    captured = nil
+
+    result = described_class.new(
+      event_id: event.id,
+      now: now,
+      env: private_http_environment,
+      client: ->(uri, *, **) { captured = uri; Struct.new(:code).new("202") }
+    ).call
+
+    expect(result[:status]).to eq("delivered")
+    expect(captured.to_s).to eq(private_http_environment.fetch("CORNERSTONE_PAYROLL_EVENTS_URL"))
+  end
+
+  it "rejects a private HTTP destination outside the staging deployment" do
+    allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
+    invalid = private_http_environment.merge("DEPLOYMENT_ENV" => "production")
+
+    result = described_class.new(event_id: event.id, now: now, env: invalid, client: ->(*) { raise "not called" }).call
+
+    expect(result).to include(status: "failed", error: "CORNERSTONE_PAYROLL_EVENTS_URL must use HTTPS")
+  end
+
+  it "rejects a private HTTP destination without the explicit allow flag" do
+    allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
+    invalid = private_http_environment.merge("ALLOW_PRIVATE_INTEGRATION_HTTP" => "false")
+
+    result = described_class.new(event_id: event.id, now: now, env: invalid, client: ->(*) { raise "not called" }).call
+
+    expect(result).to include(status: "failed", error: "CORNERSTONE_PAYROLL_EVENTS_URL must use HTTPS")
+  end
+
+  it "rejects a private HTTP destination on any other port" do
+    allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
+    invalid = private_http_environment.merge(
+      "CORNERSTONE_PAYROLL_EVENTS_URL" => "http://payroll-api:3001/api/v1/integrations/aire/events"
+    )
+
+    result = described_class.new(event_id: event.id, now: now, env: invalid, client: ->(*) { raise "not called" }).call
+
+    expect(result).to include(status: "failed", error: "CORNERSTONE_PAYROLL_EVENTS_URL must use HTTPS")
   end
 
   it "enforces immutable payloads in PostgreSQL while allowing delivery metadata" do

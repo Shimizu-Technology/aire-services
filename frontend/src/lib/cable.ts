@@ -1,8 +1,6 @@
 // @ts-expect-error — @rails/actioncable has no published type declarations
 import { createConsumer, type Consumer, type Subscription } from '@rails/actioncable'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000'
-const WS_BASE = API_BASE.replace(/^http/, 'ws')
+import { cableUrl } from './apiBase'
 
 let consumer: Consumer | null = null
 
@@ -19,7 +17,7 @@ export async function getOrCreateConsumer(getToken: TokenProvider): Promise<Cons
   if (!token) return null
 
   if (consumer) consumer.disconnect()
-  consumer = createConsumer(`${WS_BASE}/cable?token=${encodeURIComponent(token)}`)
+  consumer = createConsumer(cableUrl(token))
   return consumer
 }
 
