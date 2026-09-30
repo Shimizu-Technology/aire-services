@@ -31,13 +31,21 @@ module Payroll
       existing = Setting.find_by(key: SOURCE_INSTANCE_SETTING_KEY)
       return validate_instance_id!(existing.value) if existing
 
-      Setting.create!(
-        key: SOURCE_INSTANCE_SETTING_KEY,
-        value: SecureRandom.uuid,
-        description: "Stable installation identity presented to connected payroll systems"
-      ).value
-    rescue ActiveRecord::RecordNotUnique
-      retry
+      now = Time.current
+      Setting.insert_all(
+        [
+          {
+            key: SOURCE_INSTANCE_SETTING_KEY,
+            value: SecureRandom.uuid,
+            description: "Stable installation identity presented to connected payroll systems",
+            created_at: now,
+            updated_at: now
+          }
+        ],
+        unique_by: :index_settings_on_key
+      )
+
+      validate_instance_id!(Setting.find_by!(key: SOURCE_INSTANCE_SETTING_KEY).value)
     end
 
     def self.validate_instance_id!(value)

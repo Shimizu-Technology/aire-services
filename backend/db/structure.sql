@@ -3384,7 +3384,7 @@ CREATE INDEX index_schedules_on_work_date ON public.schedules USING btree (work_
 -- Name: index_settings_on_key; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX index_settings_on_key ON public.settings USING btree (key);
+CREATE UNIQUE INDEX index_settings_on_key ON public.settings USING btree (key);
 
 
 --
@@ -4359,6 +4359,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261001020000'),
 ('20260930020000'),
 ('20260930010000'),
 ('20260929010000'),
