@@ -3,7 +3,9 @@
 module Payroll
   class CalendarPeriodPublisher
     ADVISORY_LOCK_KEY = 638_318_282
-    SCHEMA_VERSION = "1.0"
+    SUPPORTED_SCHEMA_VERSIONS = PayrollCalendarPeriod::SCHEMA_VERSIONS
+    CURRENT_SCHEMA_VERSION = SUPPORTED_SCHEMA_VERSIONS.last
+    SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
     class ConflictError < StandardError; end
 
@@ -53,21 +55,33 @@ module Payroll
     def normalize(input)
       values = input.to_h.symbolize_keys
       time_zone = values.fetch(:time_zone, PayrollCalendarPeriod::BUSINESS_TIME_ZONE).to_s
-      cutoff_days = Integer(values.fetch(:cutoff_days_before, PayrollCalendarPeriod::CUTOFF_DAYS_BEFORE).to_s, 10)
+      schema_version = values.fetch(:schema_version, "1.0").to_s
+      unless SUPPORTED_SCHEMA_VERSIONS.include?(schema_version)
+        raise ArgumentError, "schema_version must be #{SUPPORTED_SCHEMA_VERSIONS.to_sentence(two_words_connector: ' or ')}"
+      end
       cutoff_at = parse_time!(values.fetch(:cutoff_at), "cutoff_at")
       normalized = {
-        schema_version: values.fetch(:schema_version, SCHEMA_VERSION).to_s,
+        schema_version: schema_version,
         external_pay_period_id: values.fetch(:external_pay_period_id).to_s.strip,
         start_date: parse_date!(values.fetch(:start_date), "start_date"),
         end_date: parse_date!(values.fetch(:end_date), "end_date"),
         pay_date: parse_date!(values.fetch(:pay_date), "pay_date"),
         cutoff_at: cutoff_at,
         time_zone: time_zone,
-        cutoff_days_before: cutoff_days,
         schedule_version: Integer(values.fetch(:schedule_version).to_s, 10),
         publication_id: values.fetch(:publication_id).to_s.downcase
       }
-      raise ArgumentError, "schema_version must be #{SCHEMA_VERSION}" unless normalized[:schema_version] == SCHEMA_VERSION
+      if schema_version == "1.0"
+        normalized[:cutoff_days_before] = Integer(
+          values.fetch(:cutoff_days_before, PayrollCalendarPeriod::CUTOFF_DAYS_BEFORE).to_s,
+          10
+        )
+      else
+        raise ArgumentError, "cutoff_days_before is not used by schema 2.0" if values.key?(:cutoff_days_before)
+        normalized[:cutoff_rule] = values.fetch(:cutoff_rule).to_s
+        normalized[:cutoff_days] = Integer(values.fetch(:cutoff_days).to_s, 10)
+        normalized[:previous_regular_pay_date] = parse_date!(values.fetch(:previous_regular_pay_date), "previous_regular_pay_date") if values.key?(:previous_regular_pay_date)
+      end
       raise ArgumentError, "external_pay_period_id is required" if normalized[:external_pay_period_id].blank?
       raise ArgumentError, "external_pay_period_id is too long" if normalized[:external_pay_period_id].length > 128
 
@@ -78,7 +92,7 @@ module Payroll
     rescue TypeError, ArgumentError => e
       raise e unless e.message.match?(/invalid value for Integer|base specified for non string value/)
 
-      raise ArgumentError, "schedule_version and cutoff_days_before must be integers"
+      raise ArgumentError, "schedule_version and cutoff days must be integers"
     end
 
     def validate_publishable_time!
@@ -167,7 +181,7 @@ module Payroll
     end
 
     def period_attributes
-      attributes.slice(
+      fields = attributes.slice(
         :external_pay_period_id,
         :start_date,
         :end_date,
@@ -179,6 +193,17 @@ module Payroll
         :publication_id,
         :request_checksum
       )
+      fields[:schema_version] = attributes.fetch(:schema_version)
+      if attributes.fetch(:schema_version) == "2.0"
+        fields[:cutoff_rule] = attributes.fetch(:cutoff_rule)
+        fields[:cutoff_days] = attributes.fetch(:cutoff_days)
+        fields[:previous_regular_pay_date] = attributes[:previous_regular_pay_date]
+      else
+        fields[:cutoff_rule] = "before_pay_date"
+        fields[:cutoff_days] = 7
+        fields[:previous_regular_pay_date] = nil
+      end
+      fields
     end
 
     def record_revision!(period)
@@ -205,6 +230,15 @@ module Payroll
     end
 
     def record_audit!(period, created:)
+      cutoff_policy = if period.schema_version == "1.0"
+                        { cutoff_days_before: period.cutoff_days_before }
+      else
+                        {
+                          cutoff_rule: period.cutoff_rule,
+                          cutoff_days: period.cutoff_days,
+                          previous_regular_pay_date: period.previous_regular_pay_date&.iso8601
+                        }
+      end
       AuditLog.record!(
         action: created ? "payroll_calendar_period.published" : "payroll_calendar_period.revised",
         actor: nil,
@@ -221,8 +255,9 @@ module Payroll
           pay_date: period.pay_date.iso8601,
           cutoff_at: period.cutoff_at.iso8601,
           time_zone: period.time_zone,
-          cutoff_days_before: period.cutoff_days_before,
-          request_checksum: period.request_checksum
+          schema_version: period.schema_version,
+          request_checksum: period.request_checksum,
+          **cutoff_policy
         }
       )
     end

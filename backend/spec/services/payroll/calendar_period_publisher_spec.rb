@@ -49,6 +49,71 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     expect(period.payroll_calendar_period_revisions.order(:schedule_version).pluck(:schedule_version)).to eq([ 1, 2 ])
   end
 
+  it "accepts a version 2 target-run lock based on the previous regular payday" do
+    version_two = attributes.except(:cutoff_days_before).merge(
+      schema_version: "2.0",
+      cutoff_rule: "after_previous_regular_payday",
+      cutoff_days: 7,
+      previous_regular_pay_date: "2026-10-10",
+      cutoff_at: "2026-10-17T17:00:00+10:00"
+    )
+
+    result = described_class.new(version_two, now: now).call
+
+    expect(result.period).to have_attributes(
+      schema_version: "2.0",
+      cutoff_rule: "after_previous_regular_payday",
+      cutoff_days: 7,
+      previous_regular_pay_date: Date.new(2026, 10, 10)
+    )
+    expect(result.period.as_contract_json).to include(
+      cutoff_at: "2026-10-17T17:00:00+10:00",
+      previous_regular_pay_date: "2026-10-10"
+    )
+    expect(result.period.as_contract_json).not_to have_key(:cutoff_days_before)
+    audit_metadata = AuditLog.find_by!(action: "payroll_calendar_period.published", auditable: result.period).metadata
+    expect(audit_metadata).to include(
+      "schema_version" => "2.0",
+      "cutoff_rule" => "after_previous_regular_payday",
+      "cutoff_days" => 7,
+      "previous_regular_pay_date" => "2026-10-10"
+    )
+    expect(audit_metadata).not_to have_key("cutoff_days_before")
+  end
+
+  it "accepts a version 2 configurable pay-date cutoff without a previous payday" do
+    version_two = attributes.except(:cutoff_days_before).merge(
+      schema_version: "2.0",
+      cutoff_rule: "before_pay_date",
+      cutoff_days: 5,
+      cutoff_at: "2026-10-20T17:00:00+10:00"
+    )
+
+    result = described_class.new(version_two, now: now).call
+
+    expect(result.period).to have_attributes(
+      schema_version: "2.0",
+      cutoff_rule: "before_pay_date",
+      cutoff_days: 5,
+      previous_regular_pay_date: nil
+    )
+    expect(result.period.as_contract_json).not_to have_key(:cutoff_days_before)
+    expect(result.period.as_contract_json).not_to have_key(:previous_regular_pay_date)
+  end
+
+  it "rejects a version 2 cutoff that disagrees with its previous regular payday" do
+    version_two = attributes.except(:cutoff_days_before).merge(
+      schema_version: "2.0",
+      cutoff_rule: "after_previous_regular_payday",
+      cutoff_days: 7,
+      previous_regular_pay_date: "2026-10-10"
+    )
+
+    expect do
+      described_class.new(version_two, now: now).call
+    end.to raise_error(ActiveRecord::RecordInvalid, /published cutoff policy/)
+  end
+
   it "rejects a revision that would move an assigned settlement case before its origin" do
     target_attributes = attributes.merge(
       external_pay_period_id: "cornerstone-2026-11-a",
