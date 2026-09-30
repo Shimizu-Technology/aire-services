@@ -65,6 +65,18 @@ class PayrollBatch < ApplicationRecord
     }
   end
 
+  def processing_summary
+    batch_processing = processing_status
+    entry_events = payroll_entry_processing_events.to_a
+    return batch_processing if entry_events.empty?
+
+    Payroll::EntryProcessingSummary.new(
+      rows: payroll_batch_entries.to_a,
+      events: entry_events,
+      batch_processing: batch_processing
+    ).call
+  end
+
   private
 
   def end_date_on_or_after_start_date

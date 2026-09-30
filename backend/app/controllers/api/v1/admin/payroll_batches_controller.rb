@@ -10,7 +10,12 @@ module Api
         def index
           total_count = PayrollBatch.count
           batches = PayrollBatch
-            .includes(:finalized_by, :payroll_batch_processing_events)
+            .includes(
+              :finalized_by,
+              :payroll_batch_processing_events,
+              :payroll_batch_entries,
+              :payroll_entry_processing_events
+            )
             .order(finalized_at: :desc)
             .limit(100)
             .to_a
@@ -108,7 +113,7 @@ module Api
             finalized_at: batch.finalized_at.iso8601,
             finalized_by: batch.finalized_by && { id: batch.finalized_by.id, name: batch.finalized_by.full_name },
             checksum: batch.checksum,
-            processing: batch.processing_status,
+            processing: batch.processing_summary,
             summary: batch.summary,
             issues: batch.issues
           }

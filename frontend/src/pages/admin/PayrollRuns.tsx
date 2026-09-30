@@ -48,7 +48,7 @@ const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; 
   imported: { label: 'Imported to Cornerstone', detail: 'Cornerstone has added these hours to a draft payroll.', className: 'border-blue-200 bg-blue-50 text-blue-800' },
   committed: { label: 'Payroll committed', detail: 'Cornerstone has committed the payroll containing these hours.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
   payment_prepared: { label: 'Payment prepared', detail: 'Cornerstone prepared the payment, but AIRE is waiting for confirmation that it was delivered.', className: 'border-violet-200 bg-violet-50 text-violet-800' },
-  payment_issued: { label: 'Payment issued', detail: 'Cornerstone reported that payment was issued.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
+  payment_issued: { label: 'Paid', detail: 'Cornerstone confirmed that the payment was delivered or settled.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
   payment_failed: { label: 'Payment needs attention', detail: 'Cornerstone reported a payment problem that needs review.', className: 'border-red-200 bg-red-50 text-red-800' },
   payment_voided: { label: 'Payment voided', detail: 'Cornerstone voided this payment. The time remains traceable while the replacement is prepared.', className: 'border-red-200 bg-red-50 text-red-800' },
   partially_paid: { label: 'Partially paid', detail: 'Cornerstone paid some payable lines. The remaining hours stay visible until their payment is confirmed.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
@@ -76,6 +76,12 @@ function safeNumber(value: unknown) {
 
 function formatHours(value: unknown) {
   return `${safeNumber(value).toFixed(2)} hrs`
+}
+
+function processingProgress(processing: PayrollBatchListItem['processing']) {
+  if (!processing || !('paid_hours' in processing)) return null
+
+  return `${formatHours(processing.paid_hours)} paid · ${formatHours(processing.outstanding_hours)} outstanding`
 }
 
 function localDateTimeToIso(value: string) {
@@ -820,6 +826,7 @@ export default function PayrollRuns() {
               <h2 className="mt-1 text-2xl font-semibold text-slate-950">{formatDate(activePayload.start_date)}–{formatDate(activePayload.end_date)}</h2>
               {selectedBatch && <p className="mt-1 text-sm text-slate-500">{selectedBatch.id} · finalized {formatDateTime(selectedBatch.finalized_at)}</p>}
               {selectedBatch?.processing && <p className={`mt-1 text-sm font-medium ${selectedBatch.processing.status === 'payment_failed' ? 'text-red-700' : 'text-emerald-700'}`}>{processingLabel(selectedBatch)} · Cornerstone period {selectedBatch.processing.external_pay_period_id || 'not provided'} · {formatDateTime(selectedBatch.processing.occurred_at)}</p>}
+              {processingProgress(selectedBatch?.processing || null) && <p className="mt-1 text-sm text-slate-600">{processingProgress(selectedBatch?.processing || null)}</p>}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
@@ -856,6 +863,7 @@ export default function PayrollRuns() {
                 <span>{formatHours(batch.summary.total_hours)}</span>
                 <span>{safeNumber(batch.summary.employee_count)} employees</span>
                 <span>{safeNumber(batch.summary.exclusion_count)} excluded</span>
+                {processingProgress(batch.processing) && <span>{processingProgress(batch.processing)}</span>}
               </div>
             </button>
           ))}
