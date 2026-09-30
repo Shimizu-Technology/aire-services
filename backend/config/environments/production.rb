@@ -26,8 +26,14 @@ Rails.application.configure do
   # Render terminates TLS before forwarding requests to Rails. Trust that proxy
   # signal so Rails generates secure URLs and cookies instead of treating the
   # internal hop as plain HTTP.
-  force_ssl = ENV.fetch("FORCE_SSL", "true").to_s.downcase == "true"
-  config.assume_ssl = ENV.fetch("ASSUME_SSL", force_ssl.to_s).to_s.downcase == "true"
+  ssl_flag = lambda do |name, default|
+    value = ENV.fetch(name, default).to_s.strip.downcase
+    raise "#{name} must be true or false" unless %w[true false].include?(value)
+
+    value == "true"
+  end
+  force_ssl = ssl_flag.call("FORCE_SSL", "true")
+  config.assume_ssl = ssl_flag.call("ASSUME_SSL", force_ssl.to_s)
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
   config.force_ssl = force_ssl

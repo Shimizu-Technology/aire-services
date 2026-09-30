@@ -7,6 +7,10 @@ on:
     branches: [staging-v2]
   workflow_dispatch:
 
+concurrency:
+  group: staging-v2-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -33,8 +37,10 @@ jobs:
       RAILS_ENV: test
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/aire_ops_test
     steps:
-      - uses: actions/checkout@v5
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
         with:
           working-directory: backend
           bundler-cache: true
@@ -49,8 +55,10 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -64,7 +72,9 @@ jobs:
   staging-configuration:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - name: Build API image
         run: docker build --file backend/Dockerfile --tag aire-services-api:ci backend
       - name: Build web image
@@ -80,9 +90,28 @@ jobs:
           docker run --rm --entrypoint caddy aire-services-web:ci
           validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
-  publish:
+  publish-gate:
     if: github.event_name == 'push' && github.ref == 'refs/heads/staging-v2'
     needs: [backend, frontend, staging-configuration]
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.branch-head.outputs.current }}
+    steps:
+      - id: branch-head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          actual_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/staging-v2" --jq '.object.sha')"
+          if [[ "${actual_sha}" == "${EXPECTED_SHA}" ]]; then
+            echo "current=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "current=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging-v2' && needs.publish-gate.outputs.current == 'true'
+    needs: [publish-gate]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -97,16 +126,18 @@ jobs:
             context: frontend
             file: frontend/Dockerfile
     steps:
-      - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish API image
         if: matrix.image == 'aire-services-api'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -117,7 +148,7 @@ jobs:
             ghcr.io/shimizu-technology/${{ matrix.image }}:staging-v2
       - name: Build and publish web image
         if: matrix.image == 'aire-services-web'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
