@@ -168,9 +168,9 @@ module Payroll
     # User/category labels remain readable without blocking their writers; the
     # category IDs are already snapshotted on TimeEntry.
     def lock_source_ledger!
-      ActiveRecord::Base.connection.execute(
-        "LOCK TABLE time_entries, time_entry_breaks IN SHARE MODE"
-      )
+      tables = %w[time_entries time_entry_breaks]
+      tables << "payroll_time_entry_revisions" if ActiveRecord::Base.connection.data_source_exists?("payroll_time_entry_revisions")
+      ActiveRecord::Base.connection.execute("LOCK TABLE #{tables.join(', ')} IN SHARE MODE")
     end
 
     def record_source_ledger_blocking_window(started_at, outcome)

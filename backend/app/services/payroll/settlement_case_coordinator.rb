@@ -14,6 +14,7 @@ module Payroll
         reconciliation_scope.includes(:payroll_batch).find_each do |period|
           begin
             record_missing_exclusion_cases!(period)
+            record_post_cutoff_deletions!(period)
             record_post_cutoff_entries!(period)
             PayrollSettlementReconciliation.create_or_find_by!(payroll_calendar_period: period) do |marker|
               marker.reconciled_at = Time.current
@@ -203,6 +204,58 @@ module Payroll
           .where("time_entries.created_at > :cutoff OR time_entries.updated_at > :cutoff", cutoff: period.cutoff_at)
           .includes(:user, :time_category)
           .find_each { |entry| record_entry!(entry) }
+      end
+
+      def record_post_cutoff_deletions!(period)
+        represented_ids = period.payroll_batch.payroll_batch_entries.select(:source_time_entry_id)
+        PayrollTimeEntryRevision
+          .where(deleted: true, source_time_entry_id: represented_ids)
+          .where("recorded_at > ?", period.cutoff_at)
+          .order(:source_time_entry_id, :recorded_at, :id)
+          .find_each do |revision|
+            next if PayrollSettlementCase.exists?(
+              origin_payroll_batch: period.payroll_batch,
+              source_time_entry_id: revision.source_time_entry_id,
+              source_time_entry_version: revision.source_version,
+              origin_reason: "deleted_after_cutoff"
+            )
+
+            prior_rows = period.payroll_batch.payroll_batch_entries
+              .where(source_time_entry_id: revision.source_time_entry_id)
+            represented = prior_rows.sum(:total_hours).abs
+            next if represented.zero?
+
+            previous_case = PayrollSettlementCase.active.find_by(
+              origin_payroll_batch: period.payroll_batch,
+              source_time_entry_id: revision.source_time_entry_id
+            )
+            if previous_case
+              transition!(
+                previous_case,
+                status: "superseded",
+                resolved_at: revision.recorded_at,
+                event_type: "superseded",
+                actor: nil,
+                occurred_at: revision.recorded_at,
+                metadata: { reason: "source_time_entry_deleted" }
+              )
+            end
+            prior_snapshot = prior_rows.order(:id).last&.snapshot || {}
+            create_case!(
+              period: period,
+              origin_batch: period.payroll_batch,
+              source_time_entry_id: revision.source_time_entry_id,
+              source_time_entry_version: revision.source_version,
+              source_user_id: revision.source_user_id,
+              source_user_uuid: prior_snapshot["user_uuid"] || revision.snapshot.dig("user", "payroll_integration_uuid"),
+              reason: "deleted_after_cutoff",
+              work_date: revision.source_work_date,
+              held_hours: represented,
+              source_snapshot: prior_snapshot.merge("deleted_after_cutoff" => true),
+              actor: nil,
+              supersedes_case: previous_case
+            )
+          end
       end
 
       def create_for_exclusion!(period:, batch:, exclusion:, actor:, supersedes_case: nil)
