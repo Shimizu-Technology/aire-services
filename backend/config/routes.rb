@@ -40,7 +40,7 @@ Rails.application.routes.draw do
         end
 
         namespace :cockpit do
-          resources :employees, only: [ :index ]
+          resources :employees, only: [ :index, :show ]
           resources :exceptions, only: [ :index ]
           resource :manual_review, only: [ :show ]
           resources :time_entries, only: [ :index ] do

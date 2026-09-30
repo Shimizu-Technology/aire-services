@@ -86,6 +86,28 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
   end
 
+  it "returns one payroll employee identity for mapping verification" do
+    employee.assigned_time_categories << category
+
+    get "/api/v1/payroll/cockpit/employees/#{employee.id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:employee)).to include(
+      id: employee.id.to_s,
+      payroll_integration_id: employee.payroll_integration_uuid,
+      full_name: "Ari Worker",
+      email: employee.email,
+      active: true,
+      time_categories: [ include(key: "operations") ]
+    )
+  end
+
+  it "returns not found for an unknown mapping identity" do
+    get "/api/v1/payroll/cockpit/employees/999999", headers: headers
+
+    expect(response).to have_http_status(:not_found)
+  end
+
   it "ignores a blank employee active filter" do
     employee
     create(:user, :employee, is_active: false, personal_access_enabled: false, time_tracking_enabled: false)

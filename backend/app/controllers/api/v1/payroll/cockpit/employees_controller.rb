@@ -25,6 +25,14 @@ module Api
             }
           end
 
+          def show
+            user = User.staff
+              .includes(:assigned_time_categories, :user_approval_groups)
+              .find(params[:id])
+
+            render json: { employee: serialize_employee(user) }
+          end
+
           private
 
           def serialize_employee(user)
