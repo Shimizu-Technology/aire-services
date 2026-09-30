@@ -47,7 +47,8 @@ module Payroll
 
     def line_summary(row)
       candidates = events.select do |event|
-        event.source_line_key.present? ? event.source_line_key == row.line_key : true
+        event.source_time_entry_id == row.source_time_entry_id &&
+          (event.source_line_key.present? ? event.source_line_key == row.line_key : true)
       end
       event = candidates.max_by do |candidate|
         [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ]

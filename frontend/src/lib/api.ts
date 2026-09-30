@@ -1182,7 +1182,7 @@ export interface PayrollBatchListItem {
   finalized_at: string;
   finalized_by: { id: number; name: string } | null;
   checksum: string;
-  processing: PayrollBatchProcessingStatus | null;
+  processing: PayrollBatchProcessingStatus | PayrollEntryProcessingStatus | null;
   summary: PayrollBatchSummary;
   issues: PayrollBatchIssues;
 }

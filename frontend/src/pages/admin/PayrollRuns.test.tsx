@@ -270,6 +270,37 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/remaining hours stay visible/)).toBeInTheDocument()
   })
 
+  it('shows paid and outstanding hours on the finalized batch ledger', async () => {
+    const paidBatch = {
+      ...finalized,
+      processing: {
+        status: 'payment_issued' as const,
+        occurred_at: '2026-09-01T08:00:00Z',
+        external_system: 'cornerstone_payroll',
+        external_pay_period_id: '42',
+        paid_hours: 8,
+        outstanding_hours: 0,
+        lines: [],
+      },
+    }
+    apiMock.getPayrollBatches.mockResolvedValue({ data: {
+      payroll_batches: [paidBatch],
+      total_count: 1,
+      truncated: false,
+    } })
+    apiMock.getPayrollBatch.mockResolvedValue({ data: paidBatch })
+
+    renderPayrollRuns()
+
+    const batchButton = await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123.*Paid/i })
+    expect(screen.getByText('8.00 hrs paid · 0.00 hrs outstanding')).toBeInTheDocument()
+
+    fireEvent.click(batchButton)
+
+    expect(await screen.findByText(/Paid · Cornerstone period 42/)).toBeInTheDocument()
+    expect(screen.getAllByText('8.00 hrs paid · 0.00 hrs outstanding').length).toBeGreaterThan(1)
+  })
+
   it('renders safe fallbacks for processing statuses added by a newer backend', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({ data: {
       payroll_batches: [{
