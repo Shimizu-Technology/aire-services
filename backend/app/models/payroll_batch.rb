@@ -39,7 +39,8 @@ class PayrollBatch < ApplicationRecord
         "checksum_scope" => "payload_without_export",
         "readiness_status" => "finalized",
         "cutoff_at" => cutoff_at.iso8601,
-        "finalized_at" => finalized_at.iso8601
+        "finalized_at" => finalized_at.iso8601,
+        "integration" => Payroll::IntegrationProfile.call
       }
     )
   end

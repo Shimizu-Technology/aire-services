@@ -29,6 +29,7 @@ module Payroll
       {
         schema_version: "1.0",
         source: SOURCE,
+        integration: IntegrationProfile.call,
         start_date: start_date.iso8601,
         end_date: end_date.iso8601,
         generated_at: Time.current.iso8601,
