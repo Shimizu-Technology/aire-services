@@ -49,6 +49,9 @@ const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; 
   payment_issued: { label: 'Payment issued', detail: 'Cornerstone reported that payment was issued.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
   payment_failed: { label: 'Payment needs attention', detail: 'Cornerstone reported a payment problem that needs review.', className: 'border-red-200 bg-red-50 text-red-800' },
   payment_voided: { label: 'Payment voided', detail: 'Cornerstone voided this payment. The time remains traceable while the replacement is prepared.', className: 'border-red-200 bg-red-50 text-red-800' },
+  partially_paid: { label: 'Partially paid', detail: 'Cornerstone paid some payable lines. The remaining hours stay visible until their payment is confirmed.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
+  partially_prepared: { label: 'Partially prepared', detail: 'Cornerstone prepared some payable lines while the remaining hours continue through payroll.', className: 'border-violet-200 bg-violet-50 text-violet-800' },
+  partially_processed: { label: 'Partially processed', detail: 'Payable lines for this entry are at different payroll steps. AIRE will keep tracking each line separately.', className: 'border-blue-200 bg-blue-50 text-blue-800' },
   not_payable: { label: 'Not payable', detail: 'This entry was denied, removed, or otherwise closed without payment.', className: 'border-slate-200 bg-slate-100 text-slate-700' },
 }
 
@@ -175,6 +178,8 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
                 detail: 'Payroll reported a status that is not yet recognized by this version of AIRE.',
                 className: 'border-slate-200 bg-slate-100 text-slate-700',
               }
+              const processing = item.included_batch?.processing
+              const paymentProgress = processing && 'paid_hours' in processing ? processing : null
               return (
                 <article key={item.source_time_entry_id} className="rounded-2xl border border-slate-200 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -189,6 +194,11 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
                     <span>Originally excluded: {EXCLUSION_LABELS[item.exclusion_reason] || item.exclusion_reason}</span>
                   </div>
                   <p className="mt-3 text-sm leading-5 text-slate-600">{status.detail}</p>
+                  {paymentProgress && (
+                    <p className="mt-2 text-xs font-medium text-slate-700">
+                      {formatHours(paymentProgress.paid_hours)} paid · {formatHours(paymentProgress.outstanding_hours)} outstanding
+                    </p>
+                  )}
                   {item.included_batch && <p className="mt-2 text-xs text-slate-500">Later batch: {formatDate(item.included_batch.start_date)}–{formatDate(item.included_batch.end_date)} · {item.included_batch.id}</p>}
                 </article>
               )

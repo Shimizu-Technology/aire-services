@@ -226,6 +226,12 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
       external_payroll_item_id: "99",
       source_time_entry_id: batch_entry.source_time_entry_id,
       source_user_uuid: batch_entry.source_user_uuid,
+      contract_version: "2.0",
+      source_line_key: batch_entry.line_key,
+      source_kind: batch_entry.source_kind,
+      total_hours: batch_entry.total_hours.to_s,
+      regular_hours: batch_entry.regular_hours.to_s,
+      overtime_hours: batch_entry.overtime_hours.to_s,
       payment_method: "paper_check",
       payment_reference: "5001"
     }
@@ -239,6 +245,9 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
       status: "payment_issued",
       source_time_entry_id: batch_entry.source_time_entry_id.to_s,
       source_user_uuid: employee.payroll_integration_uuid,
+      contract_version: "2.0",
+      source_line_key: batch_entry.line_key,
+      total_hours: batch_entry.total_hours.to_s,
       payment_reference: "5001"
     )
 
@@ -269,5 +278,25 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
          headers: headers
     expect(response).to have_http_status(:conflict)
     expect(json.fetch(:error)).to match(/identity/i)
+
+    post "/api/v1/payroll/batches/#{batch.public_id}/processing_events",
+         params: event.merge(event_id: "cornerstone-entry-wrong-hours", total_hours: "7.00", regular_hours: "7.00"),
+         headers: headers
+    expect(response).to have_http_status(:conflict)
+    expect(json.fetch(:error)).to match(/finalized AIRE batch/i)
+
+    legacy_event = event.except(
+      :contract_version,
+      :source_line_key,
+      :source_kind,
+      :total_hours,
+      :regular_hours,
+      :overtime_hours
+    ).merge(event_id: "cornerstone-entry-legacy-42")
+    expect do
+      post "/api/v1/payroll/batches/#{batch.public_id}/processing_events", params: legacy_event, headers: headers
+    end.to change(PayrollEntryProcessingEvent, :count).by(1)
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:entry_processing, :contract_version)).to be_nil
   end
 end

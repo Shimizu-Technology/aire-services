@@ -308,6 +308,9 @@ const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
   payment_issued: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   payment_failed: 'border-red-200 bg-red-50 text-red-800',
   payment_voided: 'border-red-200 bg-red-50 text-red-800',
+  partially_paid: 'border-amber-200 bg-amber-50 text-amber-800',
+  partially_prepared: 'border-violet-200 bg-violet-50 text-violet-800',
+  partially_processed: 'border-blue-200 bg-blue-50 text-blue-800',
 }
 
 function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycle }) {
@@ -318,7 +321,7 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
   const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
-  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'partially_paid', 'partially_prepared', 'partially_processed', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
   return priority.map((status) => entries.find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
 }
 
@@ -2055,9 +2058,10 @@ export default function TimeTracking() {
                 </div>
                 <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
                 <ReportMetric label="Ready / awaiting" value={String((reportSummary.payroll_statuses?.ready_for_cutoff || 0) + (reportSummary.payroll_statuses?.awaiting_approval || 0))} />
                 <ReportMetric label="In payroll" value={String((reportSummary.payroll_statuses?.finalized || 0) + (reportSummary.payroll_statuses?.imported || 0) + (reportSummary.payroll_statuses?.committed || 0))} />
+                <ReportMetric label="Partial progress" value={String((reportSummary.payroll_statuses?.partially_processed || 0) + (reportSummary.payroll_statuses?.partially_prepared || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
                 <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) > 0 ? 'warning' : 'normal'} />
@@ -2454,6 +2458,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                             {entry.payroll_lifecycle.settlements.map((settlement) => (
                               <p key={`${entry.id}-${settlement.batch_id}`}>
                                 {formatDate(settlement.start_date)}–{formatDate(settlement.end_date)} · {settlement.total_hours.toFixed(2)}h · {settlement.label}
+                                {settlement.status.startsWith('partially_') ? ` · ${settlement.paid_hours.toFixed(2)}h paid · ${settlement.outstanding_hours.toFixed(2)}h outstanding` : ''}
                                 {settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
                               </p>
                             ))}

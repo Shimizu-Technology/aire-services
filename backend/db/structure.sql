@@ -753,7 +753,14 @@ CREATE TABLE public.payroll_entry_processing_events (
     occurred_at timestamp(6) without time zone NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL
+    updated_at timestamp(6) without time zone NOT NULL,
+    contract_version character varying,
+    source_line_key character varying,
+    source_kind character varying,
+    total_hours numeric(8,2),
+    regular_hours numeric(8,2),
+    overtime_hours numeric(8,2),
+    CONSTRAINT payroll_entry_events_line_contract_shape CHECK ((((contract_version IS NULL) AND (source_line_key IS NULL) AND (source_kind IS NULL) AND (total_hours IS NULL) AND (regular_hours IS NULL) AND (overtime_hours IS NULL)) OR (((contract_version)::text = '2.0'::text) AND (source_line_key IS NOT NULL) AND ((source_kind)::text = ANY ((ARRAY['current'::character varying, 'carryover'::character varying, 'correction'::character varying])::text[])) AND (total_hours IS NOT NULL) AND (regular_hours IS NOT NULL) AND (overtime_hours IS NOT NULL) AND (total_hours = (regular_hours + overtime_hours)))))
 );
 
 
@@ -2613,6 +2620,13 @@ CREATE INDEX idx_payroll_commands_target ON public.payroll_integration_commands 
 
 
 --
+-- Name: idx_payroll_entry_events_payable_line; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_entry_events_payable_line ON public.payroll_entry_processing_events USING btree (payroll_batch_id, source_time_entry_id, source_line_key, occurred_at);
+
+
+--
 -- Name: idx_payroll_entry_processing_events_batch_status; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4193,6 +4207,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260930010000'),
 ('20260929010000'),
 ('20260922080000'),
 ('20260915010000'),

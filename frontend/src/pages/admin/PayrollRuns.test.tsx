@@ -187,6 +187,45 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/AIRE will include it automatically/)).toBeInTheDocument()
   })
 
+  it('shows exact paid and outstanding hours for a partially paid carryover entry', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{
+        source_time_entry_id: '52',
+        source_user_id: '7',
+        display_name: 'Alice Pilot',
+        email: 'alice@example.com',
+        category: { id: 3, key: 'flight', name: 'Flight Hours' },
+        original_work_date: '2026-08-21',
+        first_excluded_batch_id: 'AIRE-PAY-OLD',
+        latest_excluded_batch_id: 'AIRE-PAY-CURRENT',
+        exclusion_reason: 'pending_approval',
+        held_total_hours: 8,
+        current_total_hours: 8,
+        status: 'partially_paid',
+        included_batch: {
+          id: 'AIRE-PAY-CURRENT',
+          start_date: '2026-09-01',
+          end_date: '2026-09-15',
+          processing: {
+            status: 'partially_paid',
+            occurred_at: '2026-09-16T08:00:00Z',
+            external_system: 'cornerstone_payroll',
+            paid_hours: 6,
+            outstanding_hours: 2,
+          },
+        },
+      }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 1, not_payable_count: 0 },
+      truncated: false,
+    } })
+
+    renderPayrollRuns()
+
+    expect(await screen.findByText('Partially paid')).toBeInTheDocument()
+    expect(screen.getByText('6.00 hrs paid · 2.00 hrs outstanding')).toBeInTheDocument()
+    expect(screen.getByText(/remaining hours stay visible/)).toBeInTheDocument()
+  })
+
   it('renders safe fallbacks for processing statuses added by a newer backend', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({ data: {
       payroll_batches: [{
