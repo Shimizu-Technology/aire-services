@@ -25,8 +25,16 @@ RSpec.describe "Api::V1::Payroll::TimeSummaries", type: :request do
       .and change { AuditLog.where(action: "payroll.time_summary_pulled").count }.by(1)
 
     expect(response).to have_http_status(:ok)
-    first_reference = JSON.parse(response.body).dig("export", "id")
+    payload = JSON.parse(response.body)
+    first_reference = payload.dig("export", "id")
     expect(first_reference).to start_with("AIRE-PAYROLL-")
+    expect(payload.fetch("integration")).to include(
+      "protocol" => "shimizu_time_payroll",
+      "protocol_version" => "1.0",
+      "source_type" => "aire_services"
+    )
+    expect(payload.dig("integration", "source_instance_id")).to match(Payroll::IntegrationProfile::UUID_PATTERN)
+    expect(payload.dig("integration", "capabilities")).to include("time_summary_v1", "exact_line_receipts_v2")
     expect(ReportExport.last).to have_attributes(protects_entries: true, readiness_status: "complete")
     expect(ReportExport.last.entry_ids).to contain_exactly(context_entry.id, period_entry.id)
     expect(AuditLog.where(action: "payroll.time_summary_pulled").last).to have_attributes(

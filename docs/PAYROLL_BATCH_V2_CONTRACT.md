@@ -20,7 +20,7 @@ GET /api/v1/payroll/batches/{batch_id}
 POST /api/v1/payroll/batches/{batch_id}/processing_events
 ```
 
-The list endpoint discovers finalized batches by their exact nominal dates. The detail endpoint returns the immutable payload plus an `export` envelope containing the stable batch ID, readiness state, cutoff timestamps, checksum algorithm, and checksum scope.
+The list endpoint discovers finalized batches by their exact nominal dates. The detail endpoint returns the immutable payload plus an `export` envelope containing the stable batch ID, readiness state, cutoff timestamps, checksum algorithm, checksum scope, and the source installation's `integration` identity. The integration identity contains the `shimizu_time_payroll` protocol and version, stable source instance UUID, source type, and supported capabilities. Consumers that have pinned an instance UUID must reject a missing or changed identity.
 
 The processing-events endpoint is the append-only acknowledgement channel back from Cornerstone Payroll. A batch event accepts an idempotent `event_id`, a status (`imported`, `committed`, `payment_issued`, or `payment_failed`), `occurred_at`, `external_system`, an optional external pay-period ID, and non-authoritative metadata.
 
@@ -36,7 +36,7 @@ An identical `event_id` replay returns HTTP `200` and must match the original ba
 
 To verify a payload:
 
-1. Save `export.checksum`, then remove the top-level `export` object.
+1. Save `export.checksum`, then remove the top-level `export` object. The transport-level `export.integration` identity is deliberately outside the immutable payroll payload and its checksum.
 2. Recursively convert object keys to strings and sort them lexicographically. Preserve array order.
 3. Normalize decimal values to the JSON float representation emitted by AIRE. AIRE converts Ruby decimal values to a float first, so `8.00`, `8.0`, and a JSON-decoded `8.0` all canonicalize as `8.0`; integer counts and cent amounts remain integers.
 4. Serialize the result as compact JSON and compute its SHA-256 hexadecimal digest. Do not otherwise round or reformat received numbers.

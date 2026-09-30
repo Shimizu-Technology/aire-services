@@ -69,6 +69,12 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(json.dig(:export)).to include(batch_id: batch.public_id, checksum: batch.checksum, readiness_status: "finalized")
+    expect(json.dig(:export, :integration)).to include(
+      protocol: "shimizu_time_payroll",
+      protocol_version: "1.0",
+      source_type: "aire_services"
+    )
+    expect(json.dig(:export, :integration, :source_instance_id)).to match(Payroll::IntegrationProfile::UUID_PATTERN)
     expect(json.dig(:employees, 0, :adjustments, 0, :source_kind)).to eq("current")
 
     response_payload = JSON.parse(response.body)
