@@ -122,6 +122,41 @@ RSpec.describe Payroll::OutboxDispatcher do
     expect(event.reload.delivery_attempts).to eq(1)
   end
 
+  it "allows only the explicitly named private Cornerstone service in staging" do
+    allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
+    staging = environment.merge(
+      "CORNERSTONE_PAYROLL_EVENTS_URL" => "http://payroll-api:3000/api/v1/integrations/aire/events",
+      "DEPLOYMENT_ENV" => "staging",
+      "ALLOW_PRIVATE_INTEGRATION_HTTP" => "true",
+      "CORNERSTONE_PRIVATE_INTEGRATION_HOST" => "payroll-api"
+    )
+    captured = nil
+
+    result = described_class.new(
+      event_id: event.id,
+      now: now,
+      env: staging,
+      client: ->(uri, *, **) { captured = uri; Struct.new(:code).new("202") }
+    ).call
+
+    expect(result[:status]).to eq("delivered")
+    expect(captured.to_s).to eq(staging.fetch("CORNERSTONE_PAYROLL_EVENTS_URL"))
+  end
+
+  it "rejects a private HTTP destination unless every staging guard matches" do
+    allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
+    base = environment.merge(
+      "CORNERSTONE_PAYROLL_EVENTS_URL" => "http://payroll-api:3000/api/v1/integrations/aire/events",
+      "DEPLOYMENT_ENV" => "staging",
+      "ALLOW_PRIVATE_INTEGRATION_HTTP" => "true",
+      "CORNERSTONE_PRIVATE_INTEGRATION_HOST" => "different-service"
+    )
+
+    result = described_class.new(event_id: event.id, now: now, env: base, client: ->(*) { raise "not called" }).call
+
+    expect(result).to include(status: "failed", error: "CORNERSTONE_PAYROLL_EVENTS_URL must use HTTPS")
+  end
+
   it "enforces immutable payloads in PostgreSQL while allowing delivery metadata" do
     event.update!(delivery_status: "failed", delivery_attempts: 1)
     expect(event.reload.delivery_status).to eq("failed")
