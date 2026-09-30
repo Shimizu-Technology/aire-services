@@ -216,7 +216,6 @@ module Payroll
             next if PayrollSettlementCase.exists?(
               origin_payroll_batch: period.payroll_batch,
               source_time_entry_id: revision.source_time_entry_id,
-              source_time_entry_version: revision.source_version,
               origin_reason: "deleted_after_cutoff"
             )
 

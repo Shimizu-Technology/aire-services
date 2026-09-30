@@ -176,10 +176,13 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
       described_class.record_deletion!(included, actor: create(:user, :admin))
+      included.update!(description: "changed while deletion was pending")
       included.destroy!
+      described_class.sync_finalized_periods!
     end
 
     settlement_case = PayrollSettlementCase.find_by!(source_time_entry_id: included.id)
+    expect(PayrollSettlementCase.where(source_time_entry_id: included.id).count).to eq(1)
     expect(settlement_case).to have_attributes(
       origin_reason: "deleted_after_cutoff",
       held_total_hours: 8,

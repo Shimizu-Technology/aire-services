@@ -77,7 +77,7 @@ module Payroll
         .where(deleted: false)
         .where("(snapshot -> 'time_entry' ->> 'created_at')::timestamp > ?", cutoff_at)
         .select("DISTINCT ON (source_time_entry_id) payroll_time_entry_revisions.*")
-        .order(:source_time_entry_id, :recorded_at, :id)
+        .order(:source_time_entry_id, recorded_at: :desc, id: :desc)
 
       PayrollTimeEntryRevision.from("(#{source.to_sql}) payroll_time_entry_revisions")
     end

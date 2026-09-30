@@ -22,7 +22,8 @@ class CreatePayrollTimeEntryRevisions < ActiveRecord::Migration[8.1]
                          "jsonb_typeof(snapshot) = 'object'",
                          name: "check_payroll_time_entry_revisions_snapshot"
 
-    execute <<~SQL
+    transaction do
+      execute <<~SQL
       CREATE OR REPLACE FUNCTION capture_payroll_time_entry_revision()
       RETURNS trigger AS $$
       DECLARE
@@ -137,7 +138,8 @@ class CreatePayrollTimeEntryRevisions < ActiveRecord::Migration[8.1]
       CREATE TRIGGER payroll_time_entry_revisions_prevent_truncate
       BEFORE TRUNCATE ON payroll_time_entry_revisions
       FOR EACH STATEMENT EXECUTE FUNCTION protect_finalized_payroll_records();
-    SQL
+      SQL
+    end
   end
 
   def down

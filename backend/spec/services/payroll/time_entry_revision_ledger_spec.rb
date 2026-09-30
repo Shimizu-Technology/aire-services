@@ -58,13 +58,14 @@ RSpec.describe Payroll::TimeEntryRevisionLedger do
     cutoff = PayrollTimeEntryRevision.where(source_time_entry_id: anchor.id).order(:id).last.recorded_at
     late = create_entry(work_date: Date.new(2026, 9, 6), hours: 4)
     late.update_columns(created_at: cutoff + 1.minute, updated_at: cutoff + 1.minute)
+    late.update_columns(hours: 12, updated_at: cutoff + 2.minutes)
     late.destroy!
 
     states = described_class.new(cutoff_at: cutoff)
       .entries_created_after_cutoff_in_range(Date.new(2026, 9, 1)..Date.new(2026, 9, 15))
 
     expect(states.map(&:id)).to eq([ late.id ])
-    expect(states.sole).to have_attributes(hours: 8)
+    expect(states.sole).to have_attributes(hours: 12)
     expect(states.sole.created_at).to be > cutoff
   end
 
