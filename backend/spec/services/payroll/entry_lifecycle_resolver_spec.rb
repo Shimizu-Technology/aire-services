@@ -56,6 +56,54 @@ RSpec.describe Payroll::EntryLifecycleResolver do
     )
   end
 
+  it "keeps a mixed voided settlement in the attention state" do
+    entry = create(
+      :time_entry,
+      status: "completed",
+      entry_method: "clock",
+      clock_source: "legacy",
+      approval_status: nil,
+      overtime_status: "none"
+    )
+    batch = create(:payroll_batch)
+    common = {
+      source_time_entry_id: entry.id,
+      source_user_id: entry.user_id,
+      source_user_uuid: entry.user.payroll_integration_uuid,
+      source_category_id: entry.time_category_id,
+      work_date: entry.work_date,
+      week_start: entry.work_date.beginning_of_week(:sunday),
+      source_kind: "current",
+      snapshot: {}
+    }
+    voided_line = batch.payroll_batch_entries.create!(
+      **common,
+      line_key: "operations",
+      total_hours: 6,
+      regular_hours: 6,
+      overtime_hours: 0
+    )
+    pending_line = batch.payroll_batch_entries.create!(
+      **common,
+      line_key: "training",
+      total_hours: 2,
+      regular_hours: 2,
+      overtime_hours: 0
+    )
+    create_event(batch, voided_line, status: "payment_voided", event_id: "voided-operations")
+    create_event(batch, pending_line, status: "committed", event_id: "committed-training")
+
+    lifecycle = described_class.new(entries: [ entry ]).call.fetch(entry.id)
+    settlement = lifecycle.fetch(:settlements).first
+
+    expect(lifecycle).to include(status: "payment_voided", label: "Payment voided")
+    expect(settlement).to include(
+      status: "payment_voided",
+      voided_hours: 6.0,
+      outstanding_hours: 8.0
+    )
+  end
+
   def create_event(batch, row, status:, event_id:)
     PayrollEntryProcessingEvent.create!(
       payroll_batch: batch,

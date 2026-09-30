@@ -5,6 +5,7 @@ module Payroll
     class LineConflictError < StandardError; end
     PARTIAL_STATUSES = {
       "payment_failed" => "payment_failed",
+      "payment_voided" => "payment_voided",
       "payment_issued" => "partially_paid",
       "payment_prepared" => "partially_prepared"
     }.freeze
