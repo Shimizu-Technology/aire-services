@@ -830,7 +830,25 @@ export type PayrollEntryLifecycleStatus =
   | 'payment_prepared'
   | 'payment_issued'
   | 'payment_failed'
-  | 'payment_voided';
+  | 'payment_voided'
+  | 'partially_paid'
+  | 'partially_prepared'
+  | 'partially_processed';
+
+export interface PayrollPayableLine {
+  source_time_entry_id: string;
+  source_line_key: string;
+  source_kind: string;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  status: PayrollEntryLifecycleStatus;
+  occurred_at?: string | null;
+  external_pay_period_id?: string | null;
+  external_payroll_item_id?: string | null;
+  payment_method?: string | null;
+  payment_reference?: string | null;
+}
 
 export interface PayrollEntrySettlement {
   batch_id: string;
@@ -843,6 +861,12 @@ export interface PayrollEntrySettlement {
   total_hours: number;
   regular_hours: number;
   overtime_hours: number;
+  paid_hours: number;
+  prepared_hours: number;
+  failed_hours: number;
+  voided_hours: number;
+  outstanding_hours: number;
+  payable_lines: PayrollPayableLine[];
   external_pay_period_id?: string | null;
   external_payroll_item_id?: string | null;
   payment_method?: string | null;
@@ -1172,8 +1196,14 @@ export interface PayrollBatchProcessingStatus {
 }
 
 export interface PayrollEntryProcessingStatus extends Omit<PayrollBatchProcessingStatus, 'status' | 'external_pay_period_id'> {
-  status: 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided';
+  status: 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed';
   external_pay_period_id?: string | null;
+  paid_hours?: number;
+  prepared_hours?: number;
+  failed_hours?: number;
+  voided_hours?: number;
+  outstanding_hours?: number;
+  lines?: PayrollPayableLine[];
 }
 
 export interface ManualPayrollProcessingInput {
@@ -1197,7 +1227,7 @@ export interface PayrollCarryoverItem {
   exclusion_reason: string;
   held_total_hours: number;
   current_total_hours: number | null;
-  status: 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'not_payable';
+  status: 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
   included_batch: {
     id: string;
     start_date: string;

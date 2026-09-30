@@ -287,7 +287,7 @@ describe('TimeTracking routed report periods', () => {
           id: 52, work_date: '2026-05-01', start_time: '09:00', end_time: '15:06', formatted_start_time: '9:00 AM', formatted_end_time: '3:06 PM',
           total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_minutes: 0, description: null, entry_method: 'clock', clock_source: 'kiosk',
           approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 1, key: 'other', name: 'Other' }, breaks: [],
-          payroll_lifecycle: { status: 'payment_issued', label: 'Paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [] },
+          payroll_lifecycle: { status: 'partially_paid', label: 'Partially paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [] },
           quality_flags: [],
         }],
       }],
@@ -300,7 +300,7 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
-    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
+    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
     expect(employeeCard).toBeInTheDocument()
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
   })

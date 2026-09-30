@@ -12,7 +12,10 @@ module Payroll
       "payment_prepared" => "Payment prepared",
       "payment_issued" => "Paid",
       "payment_failed" => "Payment needs attention",
-      "payment_voided" => "Payment voided"
+      "payment_voided" => "Payment voided",
+      "partially_paid" => "Partially paid",
+      "partially_prepared" => "Partially prepared",
+      "partially_processed" => "Partially processed"
     }.freeze
 
     def initialize(entries:)
@@ -75,12 +78,14 @@ module Payroll
     def settlements_for(rows, entry_events)
       rows.group_by(&:payroll_batch).sort_by { |batch, _| [ batch.cutoff_at, batch.id ] }.map do |batch, batch_rows|
         events = entry_events.fetch([ batch_rows.first.source_time_entry_id, batch.id ], [])
-        event = events.max_by do |candidate|
-          [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ]
-        end
         batch_processing = batch.processing_status
-        status = event&.status || batch_processing&.fetch(:status, nil) || "finalized"
-        occurred_at = event&.occurred_at&.iso8601 || batch_processing&.fetch(:occurred_at, nil) || batch.finalized_at.iso8601
+        processing = EntryProcessingSummary.new(
+          rows: batch_rows,
+          events: events,
+          batch_processing: batch_processing
+        ).call
+        status = processing.fetch(:status)
+        occurred_at = processing[:occurred_at] || batch.finalized_at.iso8601
 
         {
           batch_id: batch.public_id,
@@ -93,11 +98,17 @@ module Payroll
           total_hours: round_hours(batch_rows.sum(&:total_hours)),
           regular_hours: round_hours(batch_rows.sum(&:regular_hours)),
           overtime_hours: round_hours(batch_rows.sum(&:overtime_hours)),
-          external_pay_period_id: event&.external_pay_period_id || batch_processing&.fetch(:external_pay_period_id, nil),
-          external_payroll_item_id: event&.external_payroll_item_id,
-          payment_method: event&.payment_method,
-          payment_reference: event&.payment_reference,
-          event: event
+          paid_hours: processing.fetch(:paid_hours),
+          prepared_hours: processing.fetch(:prepared_hours),
+          failed_hours: processing.fetch(:failed_hours),
+          voided_hours: processing.fetch(:voided_hours),
+          outstanding_hours: processing.fetch(:outstanding_hours),
+          payable_lines: processing.fetch(:lines),
+          external_pay_period_id: processing[:external_pay_period_id],
+          external_payroll_item_id: processing[:external_payroll_item_id],
+          payment_method: processing[:payment_method],
+          payment_reference: processing[:payment_reference],
+          event: events.max_by { |candidate| [ candidate.occurred_at, candidate.id ] }
         }.compact
       end
     end

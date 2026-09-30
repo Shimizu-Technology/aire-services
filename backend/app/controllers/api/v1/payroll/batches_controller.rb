@@ -70,6 +70,12 @@ module Api
             :external_pay_period_id,
             :external_payroll_item_id,
             :source_time_entry_id,
+            :contract_version,
+            :source_line_key,
+            :source_kind,
+            :total_hours,
+            :regular_hours,
+            :overtime_hours,
             :source_user_uuid,
             :payment_method,
             :payment_reference,
@@ -136,8 +142,9 @@ module Api
         private
 
         def record_entry_processing_event(batch, permitted, occurred_at:, metadata:)
-          source_time_entry_id = Integer(permitted.fetch(:source_time_entry_id), 10)
-          batch_entry = batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)
+          source_time_entry_id = parse_source_time_entry_id(permitted.fetch(:source_time_entry_id))
+          line_attributes = payable_line_attributes!(batch, source_time_entry_id, permitted)
+          batch_entry = line_attributes.delete(:batch_entry) || batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)
           source_user_uuid = permitted[:source_user_uuid].to_s.strip.downcase.presence
           if source_user_uuid.present? && batch_entry.source_user_uuid.present? &&
              source_user_uuid != batch_entry.source_user_uuid.to_s
@@ -159,6 +166,7 @@ module Api
                   external_system: permitted.fetch(:external_system),
                   external_pay_period_id: permitted[:external_pay_period_id],
                   external_payroll_item_id: permitted[:external_payroll_item_id],
+                  **line_attributes,
                   payment_method: permitted[:payment_method],
                   payment_reference: permitted[:payment_reference],
                   metadata: metadata
@@ -179,6 +187,12 @@ module Api
                     external_system: event.external_system,
                     external_pay_period_id: event.external_pay_period_id,
                     external_payroll_item_id: event.external_payroll_item_id,
+                    contract_version: event.contract_version,
+                    source_line_key: event.source_line_key,
+                    source_kind: event.source_kind,
+                    total_hours: event.total_hours,
+                    regular_hours: event.regular_hours,
+                    overtime_hours: event.overtime_hours,
                     payment_method: event.payment_method,
                     payment_reference: event.payment_reference
                   }.compact
@@ -203,8 +217,10 @@ module Api
           end
 
           render json: { entry_processing: serialize_entry_processing_event(event) }, status: created ? :created : :ok
-        rescue ArgumentError
-          render json: { error: "source_time_entry_id must be an integer" }, status: :unprocessable_entity
+        rescue ArgumentError => e
+          render json: { error: e.message }, status: :unprocessable_entity
+        rescue ::Payroll::EntryProcessingSummary::LineConflictError => e
+          render json: { error: e.message }, status: :conflict
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Payroll batch entry not found" }, status: :not_found
         end
@@ -226,6 +242,12 @@ module Api
             event.external_system == permitted[:external_system] &&
             event.external_pay_period_id.to_s == permitted[:external_pay_period_id].to_s &&
             event.external_payroll_item_id.to_s == permitted[:external_payroll_item_id].to_s &&
+            event.contract_version.to_s == permitted[:contract_version].to_s &&
+            event.source_line_key.to_s == permitted[:source_line_key].to_s &&
+            event.source_kind.to_s == permitted[:source_kind].to_s &&
+            decimal_string(event.total_hours) == decimal_string(permitted[:total_hours]) &&
+            decimal_string(event.regular_hours) == decimal_string(permitted[:regular_hours]) &&
+            decimal_string(event.overtime_hours) == decimal_string(permitted[:overtime_hours]) &&
             event.payment_method.to_s == permitted[:payment_method].to_s &&
             event.payment_reference.to_s == permitted[:payment_reference].to_s &&
             normalized_entry_processing_time(event.occurred_at) == normalized_entry_processing_time(occurred_at) &&
@@ -242,6 +264,12 @@ module Api
             external_system: event.external_system,
             external_pay_period_id: event.external_pay_period_id,
             external_payroll_item_id: event.external_payroll_item_id,
+            contract_version: event.contract_version,
+            source_line_key: event.source_line_key,
+            source_kind: event.source_kind,
+            total_hours: event.total_hours&.to_s,
+            regular_hours: event.regular_hours&.to_s,
+            overtime_hours: event.overtime_hours&.to_s,
             payment_method: event.payment_method,
             payment_reference: event.payment_reference
           }.compact
@@ -255,6 +283,64 @@ module Api
         def normalized_entry_processing_time(value)
           precision = PayrollEntryProcessingEvent.columns_hash.fetch("occurred_at").precision || 6
           value.to_time.utc.floor(precision)
+        end
+
+        def parse_source_time_entry_id(value)
+          Integer(value, 10)
+        rescue ArgumentError, TypeError
+          raise ArgumentError, "source_time_entry_id must be an integer"
+        end
+
+        def payable_line_attributes!(batch, source_time_entry_id, permitted)
+          version = permitted[:contract_version].presence
+          line_values = permitted.values_at(:source_line_key, :source_kind, :total_hours, :regular_hours, :overtime_hours)
+          if version.nil?
+            raise ArgumentError, "contract_version is required for payable-line fields" if line_values.any?(&:present?)
+            return {}
+          end
+          unless version == PayrollEntryProcessingEvent::LINE_CONTRACT_VERSION
+            raise ArgumentError, "Unsupported entry processing contract version"
+          end
+
+          line_key = permitted.fetch(:source_line_key).to_s
+          raise ArgumentError, "source_line_key is required" if line_key.blank?
+          batch_entry = batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id, line_key: line_key)
+          attributes = {
+            contract_version: version,
+            source_line_key: line_key,
+            source_kind: permitted.fetch(:source_kind).to_s,
+            total_hours: parse_hours(permitted.fetch(:total_hours)),
+            regular_hours: parse_hours(permitted.fetch(:regular_hours)),
+            overtime_hours: parse_hours(permitted.fetch(:overtime_hours))
+          }
+          expected = {
+            source_kind: batch_entry.source_kind,
+            total_hours: batch_entry.total_hours,
+            regular_hours: batch_entry.regular_hours,
+            overtime_hours: batch_entry.overtime_hours
+          }
+          unless attributes.slice(*expected.keys) == expected
+            raise ::Payroll::EntryProcessingSummary::LineConflictError,
+                  "Payable-line hours or source kind do not match the finalized AIRE batch"
+          end
+
+          attributes.merge(batch_entry: batch_entry)
+        rescue KeyError
+          raise ArgumentError, "Complete payable-line identity and hours are required"
+        end
+
+        def parse_hours(value)
+          BigDecimal(value.to_s).round(2)
+        rescue ArgumentError
+          raise ArgumentError, "Payable-line hours must be numbers"
+        end
+
+        def decimal_string(value)
+          return "" if value.blank?
+
+          BigDecimal(value.to_s).round(2).to_s("F")
+        rescue ArgumentError
+          value.to_s
         end
 
         def batch_not_found
