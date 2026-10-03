@@ -176,12 +176,44 @@ RSpec.describe "Payroll cockpit API", type: :request do
   end
 
   it "summarizes readiness and exposes the immutable batch and processing history" do
-    create_entry(entry_method: "clock", approval_status: nil, hours: 8)
+    entry = create_entry(entry_method: "clock", approval_status: nil, hours: 8)
+
+    travel_to(period.cutoff_at + 1.minute) do
+      result = Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call
+      expect(result.fetch(:status)).to eq("finalized")
+    end
+    batch = period.reload.payroll_batch
+    batch_entry = batch.payroll_batch_entries.find_by!(source_time_entry_id: entry.id)
+    batch.payroll_batch_processing_events.create!(
+      event_id: "cornerstone-imported-cockpit",
+      status: "imported",
+      occurred_at: period.cutoff_at + 2.minutes,
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: period.external_pay_period_id
+    )
+    entry_event = batch.payroll_entry_processing_events.create!(
+      event_id: "cornerstone-check-issued-cockpit",
+      source_time_entry_id: entry.id,
+      source_user_uuid: employee.payroll_integration_uuid,
+      contract_version: "2.0",
+      source_line_key: batch_entry.line_key,
+      source_kind: batch_entry.source_kind,
+      total_hours: batch_entry.total_hours,
+      regular_hours: batch_entry.regular_hours,
+      overtime_hours: batch_entry.overtime_hours,
+      status: "payment_issued",
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: period.external_pay_period_id,
+      external_payroll_item_id: "payroll-item-88",
+      payment_method: "paper_check",
+      payment_reference: "5001",
+      occurred_at: period.cutoff_at + 3.minutes
+    )
 
     get "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}", headers: headers
 
     expect(response).to have_http_status(:ok)
-    expect(json.dig(:payroll_period, :version)).to eq(0)
+    expect(json.dig(:payroll_period, :version)).to eq(1)
     expect(json.fetch(:readiness)).to include(
       total_entries: 1,
       eligible_entries: 1,
@@ -189,6 +221,22 @@ RSpec.describe "Payroll cockpit API", type: :request do
       held_entries: 0,
       held_hours: 0.0,
       pending_approvals: 0
+    )
+    expect(json.fetch(:processing_history)).to include(
+      include(status: "imported", external_system: "cornerstone_payroll")
+    )
+    expect(json.fetch(:entry_processing_history)).to include(
+      include(
+        event_id: entry_event.event_id,
+        status: "payment_issued",
+        occurred_at: entry_event.occurred_at.iso8601,
+        source_time_entry_id: entry.id.to_s,
+        source_line_key: batch_entry.line_key,
+        total_hours: batch_entry.total_hours.to_s,
+        external_payroll_item_id: "payroll-item-88",
+        payment_method: "paper_check",
+        payment_reference: "5001"
+      )
     )
   end
 

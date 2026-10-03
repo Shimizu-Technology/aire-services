@@ -23,6 +23,7 @@ module Api
               ),
               finalized_batch: batch && serialize_batch(batch),
               processing_history: batch ? serialize_processing_history(batch) : [],
+              entry_processing_history: batch ? serialize_entry_processing_history(batch) : [],
               carryovers: ::Payroll::CarryoverQueue.new.call.fetch(:summary)
             }
           end
@@ -96,6 +97,23 @@ module Api
                 occurred_at: event.occurred_at.iso8601,
                 external_system: event.external_system,
                 external_pay_period_id: event.external_pay_period_id
+              }.compact
+            end
+          end
+
+          def serialize_entry_processing_history(batch)
+            batch.payroll_entry_processing_events.order(:occurred_at, :id).map do |event|
+              {
+                event_id: event.event_id,
+                status: event.status,
+                occurred_at: event.occurred_at.iso8601,
+                external_system: event.external_system,
+                external_payroll_item_id: event.external_payroll_item_id,
+                source_time_entry_id: event.source_time_entry_id.to_s,
+                source_line_key: event.source_line_key,
+                total_hours: event.total_hours&.to_s,
+                payment_method: event.payment_method,
+                payment_reference: event.payment_reference
               }.compact
             end
           end
