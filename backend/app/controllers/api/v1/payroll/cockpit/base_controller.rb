@@ -23,7 +23,7 @@ module Api
             per_page = 50 if per_page <= 0
             per_page = per_page.clamp(1, maximum)
             offset = (page - 1) * per_page
-            raise ArgumentError, "page exceeds the supported pagination range" if offset > 2**63 - 1
+            raise ActionController::BadRequest, "page exceeds the supported pagination range" if offset > 2**63 - 1
 
             total_count = scope.count
 

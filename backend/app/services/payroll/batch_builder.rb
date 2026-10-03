@@ -437,7 +437,8 @@ module Payroll
     end
 
     def preload_payment_attestations(entry_ids)
-      @payment_attestations_by_entry = PayrollPaymentAttestation.pending_evidence
+      attestations = calendar_period ? PayrollPaymentAttestation.blocking_at(cutoff_at) : PayrollPaymentAttestation.pending_evidence
+      @payment_attestations_by_entry = attestations
         .where(time_entry_id: entry_ids.to_a)
         .index_by(&:time_entry_id)
     end

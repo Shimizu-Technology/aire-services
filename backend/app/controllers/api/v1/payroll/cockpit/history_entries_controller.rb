@@ -26,7 +26,7 @@ module Api
               time_entries: entries.map { |entry| serialize(entry, lifecycles.fetch(entry.id)) },
               pagination: page.fetch(:metadata)
             }
-          rescue ArgumentError => error
+          rescue ArgumentError, ActionController::BadRequest => error
             render json: { error: error.message }, status: :unprocessable_entity
           end
 

@@ -99,7 +99,9 @@ module Payroll
               source_user_uuid: entry.user&.payroll_integration_uuid, reason: "pending_payment_attestation",
               work_date: attestation.work_date, held_hours: entry.hours.to_d, source_snapshot: snapshot_for(entry), actor: actor
             )
-            supersede_attestation_case!(held_case, attestation, actor)
+            if held_case.status == "open" && held_case.origin_reason == "pending_payment_attestation"
+              supersede_attestation_case!(held_case, attestation, actor)
+            end
           end
         end
         PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id)
@@ -112,27 +114,7 @@ module Payroll
             source_time_entry_id: attestation.time_entry_id
           )
 
-          # Releasing an evidence hold is not a payment decision or permission
-          # to reuse its old target. The administrator must review the current
-          # source and explicitly choose an unlocked destination.
-          current_entry = TimeEntry.find_by(id: attestation.time_entry_id)
-          transition!(
-            settlement_case,
-            status: "open", destination_kind: "unassigned",
-            target_payroll_calendar_period: nil, target_external_pay_period_id: nil,
-            included_payroll_batch: nil, resolved_at: nil, assigned_to: actor,
-            action_due_on: attestation.retracted_at.in_time_zone("Pacific/Guam").to_date,
-            resolution_note: "Review current source identity, hours and approvals before routing. #{reason}",
-            event_type: "rerouted", actor: actor, occurred_at: attestation.retracted_at,
-            metadata: {
-              reason: "payment_attestation_retracted", retraction_reason: reason,
-              payment_attestation_id: attestation.id, requires_explicit_routing: true,
-              source_review_required: true,
-              attested_source_time_entry_version: attestation.source_time_entry_version,
-              current_source_time_entry_version: current_entry&.lock_version,
-              current_source_user_uuid: current_entry&.user&.payroll_integration_uuid
-            }
-          )
+          require_explicit_attestation_review!(settlement_case, attestation, actor, reason)
         end
       end
 
@@ -312,6 +294,30 @@ module Payroll
           end
       end
 
+      def require_explicit_attestation_review!(settlement_case, attestation, actor, reason)
+        # Releasing an evidence hold is not a payment decision or permission
+        # to reuse its old target. The administrator must review the current
+        # source and explicitly choose an unlocked destination.
+        current_entry = TimeEntry.find_by(id: attestation.time_entry_id)
+        transition!(
+          settlement_case,
+          status: "open", destination_kind: "unassigned",
+          target_payroll_calendar_period: nil, target_external_pay_period_id: nil,
+          included_payroll_batch: nil, resolved_at: nil, assigned_to: actor,
+          action_due_on: attestation.retracted_at.in_time_zone("Pacific/Guam").to_date,
+          resolution_note: "Review current source identity, hours and approvals before routing. #{reason}",
+          event_type: "rerouted", actor: actor, occurred_at: attestation.retracted_at,
+          metadata: {
+            reason: "payment_attestation_retracted", retraction_reason: reason,
+            payment_attestation_id: attestation.id, requires_explicit_routing: true,
+            source_review_required: true,
+            attested_source_time_entry_version: attestation.source_time_entry_version,
+            current_source_time_entry_version: current_entry&.lock_version,
+            current_source_user_uuid: current_entry&.user&.payroll_integration_uuid
+          }
+        )
+      end
+
       def create_for_exclusion!(period:, batch:, exclusion:, actor:, supersedes_case: nil)
         return if exclusion.reason != "pending_payment_attestation" && PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: exclusion.source_time_entry_id)
 
@@ -334,8 +340,12 @@ module Payroll
           source_snapshot: snapshot,
           actor: actor
         )
-        attestation = PayrollPaymentAttestation.pending_evidence.find_by(time_entry_id: exclusion.source_time_entry_id)
-        supersede_attestation_case!(settlement_case, attestation, actor) if attestation
+        attestation = PayrollPaymentAttestation.blocking_at(period.cutoff_at).find_by(time_entry_id: exclusion.source_time_entry_id)
+        if attestation&.status == "pending_evidence"
+          supersede_attestation_case!(settlement_case, attestation, actor)
+        elsif attestation&.status == "retracted"
+          require_explicit_attestation_review!(settlement_case, attestation, attestation.retracted_by, attestation.retraction_reason)
+        end
         settlement_case
       rescue ActiveRecord::RecordNotUnique
         PayrollSettlementCase.find_by!(origin_payroll_batch_exclusion: exclusion)

@@ -189,6 +189,14 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
   end
 
+  it "rejects an employee page beyond the database offset range as a client error" do
+    get "/api/v1/payroll/cockpit/employees", params: { page: 2**63, per_page: 100 }, headers: headers
+
+    expect(response).to have_http_status(:bad_request)
+    expect(json.fetch(:error)).to include("pagination range")
+    expect(json).not_to have_key(:employees)
+  end
+
   it "returns one payroll employee identity for mapping verification" do
     employee.assigned_time_categories << category
 
