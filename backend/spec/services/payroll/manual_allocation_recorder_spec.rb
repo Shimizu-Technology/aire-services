@@ -223,6 +223,20 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(allocation).to have_attributes(regular_hours: 8, overtime_hours: 1)
   end
 
+  it "keeps fully allocated uncategorized hours out of a calendar revision snapshot" do
+    employee.user_time_categories.create!(time_category: category)
+    entry.update_columns(work_date: Date.new(2026, 10, 3), time_category_id: nil, approved_at: Time.current)
+    entry.reload
+    calendar = create(:payroll_calendar_period, start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15),
+                      pay_date: Date.new(2026, 10, 31), cutoff_at: Time.iso8601("2026-10-24T17:00:00+10:00"))
+    allocation = commit_hours
+    expect(allocation.time_category_id).to eq(category.id)
+    result = Payroll::BatchBuilder.new(start_date: calendar.start_date, end_date: calendar.end_date,
+                                      cutoff_at: calendar.cutoff_at, calendar_period: calendar).call
+    expect(result.fetch(:rows)).to be_empty
+    expect(result.dig(:summary, :total_hours)).to eq(0.0)
+  end
+
   it "does not create false category reversals for manually paid legacy work after assignments change" do
     employee.user_time_categories.create!(time_category: category)
     entry.update_columns(time_category_id: nil)

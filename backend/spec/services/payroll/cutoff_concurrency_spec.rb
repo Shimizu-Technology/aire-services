@@ -132,6 +132,63 @@ RSpec.describe "Payroll cutoff concurrency" do
     travel_back
   end
 
+  it "waits for finalization before an evidence command can read and claim source hours" do
+    actor = create(:user, :admin)
+    period = create(:payroll_calendar_period)
+    lock_ready = Queue.new
+    release_lock = Queue.new
+    entered = Queue.new
+    locker = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do |connection|
+        connection.transaction do
+          connection.execute("SELECT pg_advisory_xact_lock(#{Payroll::BatchFinalizer::ADVISORY_LOCK_KEY})")
+          lock_ready << true
+          release_lock.pop
+        end
+      end
+    end
+    lock_ready.pop
+    worker = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        Payroll::CockpitCommand.new(command_id: SecureRandom.uuid, action: "payroll_manual_allocation.commit",
+                                    actor: actor, target: period, expected_version: period.lock_version, payload: {}).call do
+          entered << true
+          [ {}, :created, {} ]
+        end
+      end
+    end
+    Timeout.timeout(5) do
+      loop do
+        waiting = ActiveRecord::Base.connection.select_value(<<~SQL).to_i
+          SELECT COUNT(*) FROM pg_locks
+          WHERE locktype = 'advisory' AND objid = #{Payroll::BatchFinalizer::ADVISORY_LOCK_KEY} AND NOT granted
+        SQL
+        break if waiting.positive?
+
+        Thread.pass
+      end
+    end
+    expect(entered).to be_empty
+    release_lock << true
+    locker.join
+    expect(worker.value.status).to eq(201)
+    expect(entered.pop).to eq(true)
+  ensure
+    release_lock << true if defined?(release_lock)
+    worker&.join
+    locker&.join
+    if actor
+      connection = ActiveRecord::Base.connection
+      connection.execute("ALTER TABLE payroll_integration_commands DISABLE TRIGGER payroll_integration_commands_append_only")
+      begin
+        PayrollIntegrationCommand.where(actor_id: actor.id).delete_all
+      ensure
+        connection.execute("ALTER TABLE payroll_integration_commands ENABLE TRIGGER payroll_integration_commands_append_only")
+      end
+      actor.delete
+    end
+  end
+
   it "creates one immutable batch and one outbox event under competing workers" do
     cutoff = 1.minute.ago
     pay_date = cutoff.in_time_zone("Pacific/Guam").to_date + 7
