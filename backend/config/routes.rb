@@ -41,6 +41,7 @@ Rails.application.routes.draw do
 
         namespace :cockpit do
           resources :employees, only: [ :index, :show ]
+          resources :history_entries, only: [ :index ]
           resources :manual_allocations, only: [ :index, :create ] do
             member do
               post :issue
