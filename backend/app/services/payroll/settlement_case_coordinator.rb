@@ -87,6 +87,21 @@ module Payroll
       end
 
       def reopen_attestation_cases!(attestation:, actor:, reason:)
+        entry = TimeEntry.find_by(id: attestation.time_entry_id)
+        if entry
+          relevant_periods_for(entry, previous_work_date: attestation.work_date).each do |period|
+            next if PayrollSettlementCase.exists?(origin_payroll_batch: period.payroll_batch, source_time_entry_id: entry.id)
+            next if period.payroll_batch.payroll_batch_entries.exists?(source_time_entry_id: entry.id)
+
+            held_case = create_case!(
+              period: period, origin_batch: period.payroll_batch, source_time_entry_id: entry.id,
+              source_time_entry_version: entry.lock_version, source_user_id: entry.user_id,
+              source_user_uuid: entry.user&.payroll_integration_uuid, reason: "pending_payment_attestation",
+              work_date: attestation.work_date, held_hours: entry.hours.to_d, source_snapshot: snapshot_for(entry), actor: actor
+            )
+            supersede_attestation_case!(held_case, attestation, actor)
+          end
+        end
         PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id)
           .lock.find_each do |settlement_case|
           closing_event = settlement_case.payroll_settlement_case_events.order(:id).last
@@ -298,13 +313,13 @@ module Payroll
       end
 
       def create_for_exclusion!(period:, batch:, exclusion:, actor:, supersedes_case: nil)
-        return if PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: exclusion.source_time_entry_id)
+        return if exclusion.reason != "pending_payment_attestation" && PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: exclusion.source_time_entry_id)
 
         existing = PayrollSettlementCase.find_by(origin_payroll_batch_exclusion: exclusion)
         return existing if existing
 
         snapshot = exclusion.snapshot || {}
-        create_case!(
+        settlement_case = create_case!(
           period: period,
           origin_batch: batch,
           exclusion: exclusion,
@@ -319,8 +334,16 @@ module Payroll
           source_snapshot: snapshot,
           actor: actor
         )
+        attestation = PayrollPaymentAttestation.pending_evidence.find_by(time_entry_id: exclusion.source_time_entry_id)
+        supersede_attestation_case!(settlement_case, attestation, actor) if attestation
+        settlement_case
       rescue ActiveRecord::RecordNotUnique
         PayrollSettlementCase.find_by!(origin_payroll_batch_exclusion: exclusion)
+      end
+
+      def supersede_attestation_case!(settlement_case, attestation, actor)
+        transition!(settlement_case, status: "superseded", resolved_at: Time.current, event_type: "superseded", actor: actor,
+                    metadata: { reason: "owner_payment_attestation_pending_evidence", payment_attestation_id: attestation.id })
       end
 
       def create_case!(period:, origin_batch:, source_time_entry_id:, source_time_entry_version:, source_user_id:, source_user_uuid:, reason:, work_date:,

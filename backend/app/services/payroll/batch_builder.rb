@@ -366,7 +366,9 @@ module Payroll
 
       # A payment attestation prevents a duplicate import, but deliberately
       # does not count as a settled payroll payment or an approval decision.
-      return [ zero_hours, [] ] if @payment_attestations_by_entry.key?(entry.id)
+      if @payment_attestations_by_entry.key?(entry.id)
+        return [ zero_hours, [ exclusion_for(entry, "pending_payment_attestation", entry.hours, held_regular, held_overtime, snapshot) ] ]
+      end
 
       if entry.created_at > cutoff_at
         return [ zero_hours, [ exclusion_for(entry, "created_after_cutoff", entry.hours, held_regular, held_overtime, snapshot) ] ]
@@ -611,7 +613,7 @@ module Payroll
           source_time_entry_id: entry.id,
           source_user_id: allocation.user_id,
           source_user_uuid: allocation.source_user_uuid,
-          source_category_id: allocation.time_category_id,
+          source_category_id: entry.time_category_id.nil? ? resolved_time_category(entry)&.id : allocation.time_category_id,
           work_date: allocation.work_date,
           week_start: allocation.work_date.beginning_of_week(:sunday),
           total_hours: allocation.total_hours,

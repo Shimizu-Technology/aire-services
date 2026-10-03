@@ -390,6 +390,16 @@ describe('TimeTracking routed report periods', () => {
     const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
     expect(employeeCard).toBeInTheDocument()
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
+    fireEvent.click(employeeCard)
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('6.10h total')
+    let finishReload!: (value: { data: HoursReportResponse }) => void
+    apiMock.getHoursReport.mockImplementationOnce(() => new Promise((resolve) => { finishReload = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open July report' }))
+    await waitFor(() => expect(finishReload).toBeDefined())
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('6.10h total')
+    const reloaded = { ...report, employees: [{ ...report.employees[0], total_hours: 9 }] }
+    await act(async () => finishReload({ data: reloaded }))
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('9.00h total')
   })
 
   it('labels a legacy missing category as uncategorized in detailed entries', async () => {

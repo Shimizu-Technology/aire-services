@@ -22,10 +22,13 @@ module Api
             per_page = params[per_page_param].to_i
             per_page = 50 if per_page <= 0
             per_page = per_page.clamp(1, maximum)
+            offset = (page - 1) * per_page
+            raise ArgumentError, "page exceeds the supported pagination range" if offset > 2**63 - 1
+
             total_count = scope.count
 
             {
-              records: scope.offset((page - 1) * per_page).limit(per_page),
+              records: scope.offset(offset).limit(per_page),
               metadata: {
                 current_page: page,
                 per_page: per_page,

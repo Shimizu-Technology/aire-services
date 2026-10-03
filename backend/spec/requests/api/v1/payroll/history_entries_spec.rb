@@ -125,6 +125,12 @@ RSpec.describe "Payroll history coverage API", type: :request do
     end
   end
 
+  it "rejects a page whose offset exceeds the database integer range" do
+    get path, params: { through_work_date: "2026-09-15", page: 2**63, per_page: 250 }, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.parsed_body.fetch("error")).to include("pagination range")
+  end
+
   [ { page: 0 }, { page: "1.5" }, { page: "abc" }, { per_page: -1 }, { per_page: "" } ].each do |paging|
     it "rejects invalid pagination #{paging.inspect}" do
       get path, params: { through_work_date: "2026-09-15" }.merge(paging), headers: headers

@@ -209,6 +209,31 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(allocation).to have_attributes(regular_hours: 8, overtime_hours: 1)
   end
 
+  it "uses the covering published calendar policy instead of later settings" do
+    entry.update_columns(hours: 9, overtime_status: "none")
+    create(:payroll_calendar_period, start_date: Date.new(2026, 8, 1), end_date: Date.new(2026, 8, 15),
+           pay_date: Date.new(2026, 8, 31), cutoff_at: Time.iso8601("2026-08-24T17:00:00+10:00"),
+           overtime_policy: { daily_threshold_hours: 8, weekly_threshold_hours: 40 })
+    Setting.set("overtime_daily_threshold_hours", "12")
+
+    allocation = recorder.commit!(entry: entry.reload, source_user_uuid: employee.payroll_integration_uuid,
+                                  regular_hours: 8, overtime_hours: 1, external_pay_period_id: "68",
+                                  external_payroll_item_id: "frozen-policy", pay_date: "2026-09-17",
+                                  reason: "Verified source hours against the published frozen overtime policy")
+    expect(allocation).to have_attributes(regular_hours: 8, overtime_hours: 1)
+  end
+
+  it "does not create false category reversals for manually paid legacy work after assignments change" do
+    employee.user_time_categories.create!(time_category: category)
+    entry.update_columns(time_category_id: nil)
+    allocation = commit_hours
+    employee.user_time_categories.create!(time_category: create(:time_category))
+
+    expect(allocation.time_category_id).to eq(category.id)
+    result = Payroll::BatchBuilder.new(start_date: "2026-08-01", end_date: "2026-08-15").call
+    expect(result.fetch(:rows)).to be_empty
+  end
+
   it "preserves an unresolved legacy category when exact paid hours are reconciled" do
     other_category = create(:time_category)
     employee.user_time_categories.create!(time_category: category)

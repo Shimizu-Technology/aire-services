@@ -1,11 +1,10 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Users from './Users'
 import type { AdminTimeCategory, AdminUser, ApprovalGroupOption } from '../../lib/api'
-import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
 
 const apiMock = vi.hoisted(() => ({
   getAdminUsers: vi.fn(),
@@ -294,7 +293,11 @@ describe('Users filters', () => {
     }))
   })
 
+  afterEach(() => vi.useRealTimers())
+
   it('uses the termination workflow and explains that history is preserved', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-22T15:30:00Z'))
     const terminated = makeUser({
       id: 1,
       full_name: 'Alice Pilot',
@@ -315,7 +318,8 @@ describe('Users filters', () => {
     const dialog = screen.getByRole('dialog', { name: /terminate alice pilot/i })
     expect(within(dialog).getByText(/time entries, schedules, payroll trail, and historical reports stay intact/i)).toBeInTheDocument()
     await waitFor(() => expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveFocus())
-    expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveAttribute('max', formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
+    expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveValue('2026-09-23')
+    expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveAttribute('max', '2026-09-23')
     fireEvent.change(within(dialog).getByLabelText(/last day of employment/i), { target: { value: '2026-09-21' } })
     fireEvent.change(within(dialog).getByLabelText(/internal note/i), { target: { value: 'Employment ended' } })
     fireEvent.click(within(dialog).getByRole('button', { name: /confirm termination/i }))

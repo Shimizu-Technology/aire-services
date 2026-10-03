@@ -3,7 +3,7 @@
 class PayrollBatchExclusion < ApplicationRecord
   REASONS = %w[
     pending_approval denied_approval open_clock pending_overtime denied_overtime
-    created_after_cutoff approved_after_cutoff overtime_approved_after_cutoff
+    created_after_cutoff approved_after_cutoff overtime_approved_after_cutoff pending_payment_attestation
   ].freeze
   CARRYOVER_REASONS = %w[
     pending_approval open_clock pending_overtime created_after_cutoff

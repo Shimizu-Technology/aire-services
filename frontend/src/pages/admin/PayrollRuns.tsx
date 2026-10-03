@@ -30,6 +30,7 @@ const ISSUE_LABELS: Array<[keyof PayrollBatchIssues, string]> = [
 ]
 
 const EXCLUSION_LABELS: Record<string, string> = {
+  pending_payment_attestation: 'Payment reported; check evidence pending',
   pending_approval: 'Pending approval',
   denied_approval: 'Denied',
   open_clock: 'Still clocked in',

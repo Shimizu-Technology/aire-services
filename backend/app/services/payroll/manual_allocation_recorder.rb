@@ -111,7 +111,14 @@ module Payroll
         .where(work_date: entry.work_date.beginning_of_week(:sunday)..entry.work_date.end_of_week(:sunday))
         .order(:work_date, :id)
         .to_a
-      result = WeeklyOvertimeAllocator.call(entries)[entry.id]
+      period = PayrollCalendarPeriod.where("start_date <= ? AND end_date >= ?", entry.work_date, entry.work_date).order(:id).last
+      if period && period.overtime_policy.blank?
+        raise Error, "Published calendar overtime policy requires review before reconciling"
+      end
+      policy = period ? period.overtime_policy.symbolize_keys : WeeklyOvertimeAllocator.configured_policy
+      result = WeeklyOvertimeAllocator.call(entries,
+        daily_threshold: policy.fetch(:daily_threshold_hours).to_f,
+        weekly_threshold: policy.fetch(:weekly_threshold_hours).to_f)[entry.id]
       raise Error, "This AIRE entry is not eligible for payroll; refresh its approval status" unless result
       {
         regular_hours: BigDecimal(result.fetch(:regular_hours).to_s).round(2),

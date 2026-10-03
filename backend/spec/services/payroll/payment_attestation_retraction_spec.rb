@@ -102,6 +102,63 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
     expect(PayrollManualAllocation.count).to eq(0)
   end
 
+  it "routes work held before its first cutoff after retraction" do
+    origin = period(Date.new(2026, 10, 1), Date.new(2026, 10, 31), Date.new(2026, 10, 15))
+    target = period(Date.new(2026, 10, 16), Date.new(2026, 11, 15), Date.new(2026, 10, 31))
+    entry = nil
+    attestation = nil
+    travel_to(guam.local(2026, 10, 3, 17)) do
+      entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 3),
+                     entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current)
+      attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+                                    reason: "Owner reported payment before any cutoff; check evidence remains pending")
+    end
+    travel_to(origin.cutoff_at + 1.minute) do
+      expect(preview(origin).fetch(:exclusions).sole.fetch(:reason)).to eq("pending_payment_attestation")
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
+      expect(origin.reload.payroll_batch.payroll_batch_entries).to be_empty
+      held_case = PayrollSettlementCase.find_by!(origin_payroll_batch: origin.payroll_batch, source_time_entry_id: entry.id)
+      expect(held_case.status).to eq("superseded")
+      recorder.retract!(attestation: attestation, reason: reason)
+      expect(held_case.reload).to have_attributes(status: "open", destination_kind: "unassigned")
+      expect(held_case.payroll_settlement_case_events.order(:id).last.metadata).to include("requires_explicit_routing" => true)
+      expect(preview(target).fetch(:rows)).to be_empty
+      route(held_case, target)
+      expect(preview(target).dig(:summary, :total_hours)).to eq(8.0)
+    end
+    travel_to(target.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: target.id).call.fetch(:status)).to eq("finalized")
+    end
+    expect(target.reload.payroll_batch.payroll_batch_entries.sole).to have_attributes(source_time_entry_id: entry.id, total_hours: 8)
+    expect(PayrollEntryProcessingEvent.count).to eq(0)
+  end
+
+  it "creates explicit review for a legacy frozen period that omitted the held source" do
+    origin = period(Date.new(2026, 10, 1), Date.new(2026, 10, 31), Date.new(2026, 10, 15))
+    target = period(Date.new(2026, 10, 16), Date.new(2026, 11, 15), Date.new(2026, 10, 31))
+    entry = nil
+    attestation = nil
+    travel_to(guam.local(2026, 10, 3, 17)) do
+      entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 3),
+                     entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current)
+      attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+                                    reason: "Owner reported payment before any cutoff; original evidence still pending")
+    end
+    travel_to(origin.cutoff_at + 1.minute) do
+      batch = create(:payroll_batch, start_date: origin.start_date, end_date: origin.end_date, cutoff_at: origin.cutoff_at)
+      origin.update!(status: "finalized", payroll_batch: batch, finalized_at: Time.current)
+      recorder.retract!(attestation: attestation, reason: reason)
+      held_case = PayrollSettlementCase.active.find_by!(origin_payroll_batch: batch, source_time_entry_id: entry.id)
+      expect(held_case).to have_attributes(status: "open", destination_kind: "unassigned")
+      expect(held_case.payroll_settlement_case_events.order(:id).last.metadata).to include("requires_explicit_routing" => true)
+      expect(preview(target).fetch(:rows)).to be_empty
+      route(held_case, target)
+      expect(preview(target).dig(:summary, :total_hours)).to eq(8.0)
+      expect(batch.payroll_batch_entries).to be_empty
+      expect(batch.payroll_batch_exclusions).to be_empty
+    end
+  end
+
   it "does not reopen unrelated closed cases or duplicate an already active successor" do
     origin, _old_target, _target, entry, settlement_case = held_case_fixture
     attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,

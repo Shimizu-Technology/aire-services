@@ -18,12 +18,16 @@ module Payroll
     end
 
     def require_coverage!
-      first_revisions = PayrollTimeEntryRevision
-        .select("DISTINCT ON (source_time_entry_id) payroll_time_entry_revisions.*")
-        .order(:source_time_entry_id, :recorded_at, :id)
-      gap = PayrollTimeEntryRevision.from("(#{first_revisions.to_sql}) payroll_time_entry_revisions")
+      gap = PayrollTimeEntryRevision
         .where("recorded_at > ?", cutoff_at)
         .where("(snapshot -> 'time_entry' ->> 'created_at')::timestamp <= ?", cutoff_at)
+        .where(<<~SQL, cutoff_at)
+          NOT EXISTS (
+            SELECT 1 FROM payroll_time_entry_revisions earlier
+            WHERE earlier.source_time_entry_id = payroll_time_entry_revisions.source_time_entry_id
+              AND earlier.recorded_at <= ?
+          )
+        SQL
         .exists?
       uncaptured = TimeEntry.where("created_at <= ?", cutoff_at)
         .where.not(id: PayrollTimeEntryRevision.select(:source_time_entry_id)).exists?

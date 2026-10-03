@@ -616,9 +616,6 @@ export default function TimeTracking() {
   const loadReport = useCallback(async () => {
     const requestSequence = ++reportRequestSequence.current
     setReportLoading(true)
-    setHoursReport(null)
-    setReportData([])
-    setSelectedReportEmployee(null)
     setReportError(null)
     try {
       const response = await api.getHoursReport({
@@ -639,6 +636,9 @@ export default function TimeTracking() {
       if (requestSequence !== reportRequestSequence.current) return
 
       if (response.error) {
+        setHoursReport(null)
+        setReportData([])
+        setSelectedReportEmployee(null)
         setReportError(response.error)
         return
       }
@@ -649,7 +649,12 @@ export default function TimeTracking() {
         setReportData(reportEntriesForDetailTable(response.data))
       }
     } catch {
-      if (requestSequence === reportRequestSequence.current) setReportError('Failed to load hours report')
+      if (requestSequence === reportRequestSequence.current) {
+        setHoursReport(null)
+        setReportData([])
+        setSelectedReportEmployee(null)
+        setReportError('Failed to load hours report')
+      }
     } finally {
       if (requestSequence === reportRequestSequence.current) setReportLoading(false)
     }
