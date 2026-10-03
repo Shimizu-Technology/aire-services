@@ -101,4 +101,16 @@ RSpec.describe Payroll::PaymentAttestationRecorder do
     expect(attestation.payroll_payment_attestation_events.pluck(:event_type)).to eq(%w[attested retracted])
     expect(preview.dig(:summary, :total_hours)).to eq(8.0)
   end
+
+  it "keeps the evidence hold intact if its case review cannot be restored" do
+    attestation = attest
+    allow(Payroll::SettlementCaseCoordinator).to receive(:reopen_attestation_cases!).and_raise("Case review failed")
+
+    expect do
+      recorder.retract!(attestation: attestation, reason: "Owner withdrew the statement after reviewing original payment evidence.")
+    end.to raise_error(RuntimeError, "Case review failed")
+
+    expect(attestation.reload.status).to eq("pending_evidence")
+    expect(attestation.payroll_payment_attestation_events.pluck(:event_type)).to eq([ "attested" ])
+  end
 end

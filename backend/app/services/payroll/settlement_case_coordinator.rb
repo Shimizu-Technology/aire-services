@@ -79,8 +79,46 @@ module Payroll
           .where("payroll_batches.end_date < ?", period.start_date)
           .lock
           .find_each do |settlement_case|
+            routing_event = settlement_case.payroll_settlement_case_events.where(event_type: %w[routed rerouted]).order(:id).last
+            next if routing_event&.metadata&.fetch("requires_explicit_routing", false)
+
             route_to_period!(settlement_case, period: period, actor: nil, reason: "Next published regular payroll")
           end
+      end
+
+      def reopen_attestation_cases!(attestation:, actor:, reason:)
+        PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id)
+          .lock.find_each do |settlement_case|
+          closing_event = settlement_case.payroll_settlement_case_events.order(:id).last
+          next unless closing_event&.event_type == "superseded" &&
+            closing_event.metadata["payment_attestation_id"].to_s == attestation.id.to_s
+          next if PayrollSettlementCase.active.exists?(
+            origin_payroll_batch: settlement_case.origin_payroll_batch,
+            source_time_entry_id: attestation.time_entry_id
+          )
+
+          # Releasing an evidence hold is not a payment decision or permission
+          # to reuse its old target. The administrator must review the current
+          # source and explicitly choose an unlocked destination.
+          current_entry = TimeEntry.find_by(id: attestation.time_entry_id)
+          transition!(
+            settlement_case,
+            status: "open", destination_kind: "unassigned",
+            target_payroll_calendar_period: nil, target_external_pay_period_id: nil,
+            included_payroll_batch: nil, resolved_at: nil, assigned_to: actor,
+            action_due_on: attestation.retracted_at.in_time_zone("Pacific/Guam").to_date,
+            resolution_note: "Review current source identity, hours and approvals before routing. #{reason}",
+            event_type: "rerouted", actor: actor, occurred_at: attestation.retracted_at,
+            metadata: {
+              reason: "payment_attestation_retracted", retraction_reason: reason,
+              payment_attestation_id: attestation.id, requires_explicit_routing: true,
+              source_review_required: true,
+              attested_source_time_entry_version: attestation.source_time_entry_version,
+              current_source_time_entry_version: current_entry&.lock_version,
+              current_source_user_uuid: current_entry&.user&.payroll_integration_uuid
+            }
+          )
+        end
       end
 
       def record_entry!(entry, previous_work_date: nil, actor: nil, actor_id: nil)

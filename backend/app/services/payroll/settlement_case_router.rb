@@ -52,8 +52,8 @@ module Payroll
         period = PayrollCalendarPeriod.find_by!(external_pay_period_id: target_external_pay_period_id)
         retryable = period.status == "failed" && period.next_finalization_attempt_at.present?
         eligible = period.status == "scheduled" || retryable
-        unless eligible && period.start_date > settlement_case.origin_payroll_batch.end_date
-          raise RoutingError, "Choose a future, unfinalized regular payroll period"
+        unless eligible && period.start_date > settlement_case.origin_payroll_batch.end_date && period.cutoff_at > Time.current
+          raise RoutingError, "Choose a future, unfinalized regular payroll period whose cutoff has not passed"
         end
         [
           {

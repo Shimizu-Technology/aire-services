@@ -49,18 +49,22 @@ module Payroll
     end
 
     def retract!(attestation:, reason:)
-      raise Error, "Only a pending attestation can be retracted" unless attestation.status == "pending_evidence"
       explanation = reason.to_s.strip
       raise Error, "Explain why the payment attestation is being retracted" if explanation.length < 20
 
-      attestation.update!(
-        status: "retracted", retracted_at: Time.current,
-        retracted_by: @actor, retraction_reason: explanation
-      )
-      attestation.payroll_payment_attestation_events.create!(
-        actor: @actor, event_type: "retracted", occurred_at: attestation.retracted_at,
-        reason: explanation
-      )
+      attestation.with_lock do
+        raise Error, "Only a pending attestation can be retracted" unless attestation.status == "pending_evidence"
+
+        attestation.update!(
+          status: "retracted", retracted_at: Time.current,
+          retracted_by: @actor, retraction_reason: explanation
+        )
+        attestation.payroll_payment_attestation_events.create!(
+          actor: @actor, event_type: "retracted", occurred_at: attestation.retracted_at,
+          reason: explanation
+        )
+        SettlementCaseCoordinator.reopen_attestation_cases!(attestation: attestation, actor: @actor, reason: explanation)
+      end
       attestation
     end
   end
