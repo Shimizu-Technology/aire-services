@@ -34,7 +34,9 @@ periods = (-4..2).flat_map do |offset|
   [ period_for.call(reference.change(day: 1)), period_for.call(reference.change(day: 16)) ]
 end.uniq.sort_by(&:first)
 
-pay_date_for = ->((_start_date, end_date)) { end_date + 1.day }
+pay_date_for = lambda do |(_start_date, end_date)|
+  end_date.day == 15 ? end_date.end_of_month : end_date.next_month.change(day: 15)
+end
 cutoff_for_index = lambda do |index|
   previous_pay_date = pay_date_for.call(periods.fetch(index - 1))
   cutoff_date = previous_pay_date + 7.days
@@ -118,7 +120,7 @@ ApplicationRecord.transaction do
   UserTimeCategory.create!(user: casey, time_category: connected_category, hourly_rate_cents: 2_000)
 
   create_entry = lambda do |user:, category:, work_date:, start_hour:, hours:, method:, approval:, overtime:, description:, timestamp:|
-    TimeEntry.create!(
+    entry = TimeEntry.create!(
       user: user,
       time_category: category,
       work_date: work_date,
@@ -138,6 +140,17 @@ ApplicationRecord.transaction do
       created_at: timestamp,
       updated_at: timestamp
     )
+    # This empty-database staging fixture simulates historical events. Explicit
+    # synthetic revisions provide its authored timeline; production backfills
+    # must retain their real recorded_at and cannot claim past cutoff evidence.
+    captured = PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last
+    PayrollTimeEntryRevision.create!(
+      captured.attributes.except("id").merge(
+        "recorded_at" => [ timestamp, entry.approved_at, entry.overtime_approved_at ].compact.max,
+        "snapshot" => captured.snapshot.merge("synthetic_fixture" => true)
+      )
+    )
+    entry
   end
 
   manual_start, manual_end = manual_dates

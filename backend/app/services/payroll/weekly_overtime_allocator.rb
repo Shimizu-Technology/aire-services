@@ -6,6 +6,13 @@ module Payroll
     STATUTORY_WEEKLY_THRESHOLD = 40.0
     BUSINESS_TIMEZONE = TimeClockService::BUSINESS_TIMEZONE
 
+    def self.configured_policy
+      {
+        daily_threshold_hours: configured_threshold("overtime_daily_threshold_hours", STATUTORY_DAILY_THRESHOLD),
+        weekly_threshold_hours: configured_threshold("overtime_weekly_threshold_hours", STATUTORY_WEEKLY_THRESHOLD)
+      }
+    end
+
     def self.call(
       entries,
       daily_threshold: configured_threshold("overtime_daily_threshold_hours", STATUTORY_DAILY_THRESHOLD),

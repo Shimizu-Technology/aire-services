@@ -7,6 +7,11 @@ module Api
         class BaseController < Api::V1::BaseController
           include PayrollCockpitAuthenticatable
 
+          rescue_from ::Payroll::TimeEntryRevisionLedger::CoverageError,
+                      ::Payroll::BatchBuilder::PolicyUnavailableError do |error|
+            render json: { error: error.message, review_required: true }, status: :unprocessable_entity
+          end
+
           before_action :authenticate_payroll_cockpit!
           after_action :audit_payroll_cockpit_read, if: -> { request.get? && response.successful? }
 
@@ -38,7 +43,10 @@ module Api
           def payroll_period_entry_scope(period)
             staff_entries = TimeEntry.joins(:user).merge(User.staff)
             nominal = staff_entries.where(work_date: period.start_date..period.end_date)
-            return nominal unless period.payroll_batch_id
+            unless period.payroll_batch_id
+              targeted_ids = PayrollSettlementCase.active.where(target_payroll_calendar_period: period).select(:source_time_entry_id)
+              return nominal.or(staff_entries.where(id: targeted_ids))
+            end
 
             represented_ids = PayrollBatchEntry.where(payroll_batch_id: period.payroll_batch_id).pluck(:source_time_entry_id)
             represented_ids.concat(

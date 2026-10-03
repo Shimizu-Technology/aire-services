@@ -9,6 +9,16 @@ module Api
             scope = User.staff
               .includes(:assigned_time_categories, :user_approval_groups)
               .order(:last_name, :first_name, :id)
+            if params[:employee_id].present?
+              begin
+                employee_id = Integer(params[:employee_id].to_s, 10)
+              rescue ArgumentError
+                return render json: { error: "employee_id must be a positive integer" }, status: :unprocessable_entity
+              end
+              return render json: { error: "employee_id must be positive" }, status: :unprocessable_entity unless employee_id.positive?
+
+              scope = scope.where(id: employee_id)
+            end
             active_filter = params[:active].presence
             if active_filter
               unless active_filter.in?(%w[true false])

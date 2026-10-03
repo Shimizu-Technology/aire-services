@@ -35,6 +35,9 @@ class PayrollCalendarPeriod < ApplicationRecord
   validate :pay_date_after_period
   validate :cutoff_matches_policy
   validate :finalized_state_is_complete
+  validate :valid_overtime_policy
+
+  before_validation :capture_overtime_policy, on: :create
 
   scope :due_at, lambda { |time|
     scheduled = where(status: "scheduled", cutoff_at: ..time)
@@ -70,6 +73,7 @@ class PayrollCalendarPeriod < ApplicationRecord
       next_finalization_attempt_at: next_finalization_attempt_at&.in_time_zone(time_zone)&.iso8601,
       last_finalization_error: last_finalization_error
     }.compact
+    fields[:overtime_policy] = overtime_policy if overtime_policy.present?
     if schema_version == "1.0"
       fields[:cutoff_days_before] = cutoff_days_before
     else
@@ -82,6 +86,24 @@ class PayrollCalendarPeriod < ApplicationRecord
   end
 
   private
+
+  def capture_overtime_policy
+    return if overtime_policy.present?
+
+    self.overtime_policy = Payroll::WeeklyOvertimeAllocator.configured_policy.stringify_keys
+  end
+
+  def valid_overtime_policy
+    if persisted? && will_save_change_to_overtime_policy? && overtime_policy_in_database.present?
+      errors.add(:overtime_policy, "cannot change after the calendar is published")
+    end
+    return if overtime_policy.blank? # Existing calendars require an explicit operator policy decision.
+
+    thresholds = %w[daily_threshold_hours weekly_threshold_hours].map { |key| overtime_policy[key] }
+    unless thresholds.all? { |value| value.is_a?(Numeric) && value.finite? && value.positive? }
+      errors.add(:overtime_policy, "requires positive daily and weekly thresholds")
+    end
+  end
 
   def semimonthly_period
     return if start_date.blank? || end_date.blank?

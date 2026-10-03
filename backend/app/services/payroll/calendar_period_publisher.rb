@@ -217,7 +217,9 @@ module Payroll
     end
 
     def revision_payload
-      attributes.except(:request_checksum).transform_values { |value| serialize(value) }
+      attributes.except(:request_checksum).transform_values { |value| serialize(value) }.merge(
+        overtime_policy: PayrollCalendarPeriod.find_by!(external_pay_period_id: attributes.fetch(:external_pay_period_id)).overtime_policy
+      )
     end
 
     def replay_result(revision)

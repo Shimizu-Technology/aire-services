@@ -24,6 +24,12 @@ module SharedSecretAuthenticatable
 
     unless ActiveSupport::SecurityUtils.fixed_length_secure_compare(provided_digest, expected_digest)
       render json: { error: "Invalid shared secret" }, status: :unauthorized
+      return
+    end
+
+    instance_id = request.headers["X-Payroll-Source-Instance-Id"].to_s.strip
+    if instance_id.present? && instance_id != Payroll::IntegrationProfile.source_instance_id
+      render json: { error: "Payroll source installation does not match the connected source" }, status: :conflict
     end
   end
 end

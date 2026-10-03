@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { api } from '../../lib/api'
 import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
-import { formatDateISO, formatDateTime } from '../../lib/dateUtils'
+import { formatDateInTimeZoneISO, formatDateTime } from '../../lib/dateUtils'
 import { initialsForName } from '../../lib/initials'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
@@ -129,7 +129,7 @@ export default function Users() {
   const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [terminationUser, setTerminationUser] = useState<AdminUser | null>(null)
-  const [terminationEffectiveOn, setTerminationEffectiveOn] = useState(formatDateISO(new Date()))
+  const [terminationEffectiveOn, setTerminationEffectiveOn] = useState(formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
   const [terminationReason, setTerminationReason] = useState('')
   const [terminationError, setTerminationError] = useState('')
   const [savingTermination, setSavingTermination] = useState(false)
@@ -645,7 +645,7 @@ export default function Users() {
   const openTerminationModal = (user: AdminUser, trigger: HTMLButtonElement) => {
     terminationTriggerRef.current = trigger
     setTerminationUser(user)
-    setTerminationEffectiveOn(formatDateISO(new Date()))
+    setTerminationEffectiveOn(formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
     setTerminationReason('')
     setTerminationError('')
   }
@@ -1640,7 +1640,7 @@ export default function Users() {
             <div className="mt-6 space-y-4">
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Last day of employment</span>
-                <input data-termination-autofocus type="date" value={terminationEffectiveOn} max={formatDateISO(new Date())} onChange={(event) => setTerminationEffectiveOn(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                <input data-termination-autofocus type="date" value={terminationEffectiveOn} max={formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')} onChange={(event) => setTerminationEffectiveOn(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
               </label>
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Internal note <span className="font-normal text-slate-400">(optional)</span></span>
