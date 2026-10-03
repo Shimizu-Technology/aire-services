@@ -191,7 +191,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
       external_system: "cornerstone_payroll",
       external_pay_period_id: period.external_pay_period_id
     )
-    batch.payroll_entry_processing_events.create!(
+    entry_event = batch.payroll_entry_processing_events.create!(
       event_id: "cornerstone-check-issued-cockpit",
       source_time_entry_id: entry.id,
       source_user_uuid: employee.payroll_integration_uuid,
@@ -227,10 +227,13 @@ RSpec.describe "Payroll cockpit API", type: :request do
     )
     expect(json.fetch(:entry_processing_history)).to include(
       include(
+        event_id: entry_event.event_id,
         status: "payment_issued",
+        occurred_at: entry_event.occurred_at.iso8601,
         source_time_entry_id: entry.id.to_s,
         source_line_key: batch_entry.line_key,
         total_hours: batch_entry.total_hours.to_s,
+        external_payroll_item_id: "payroll-item-88",
         payment_method: "paper_check",
         payment_reference: "5001"
       )
