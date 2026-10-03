@@ -25,6 +25,8 @@ class PayrollEntryProcessingEvent < ApplicationRecord
   validates :payment_method, length: { maximum: 50 }, allow_nil: true
   validates :payment_reference, length: { maximum: 200 }, allow_nil: true
   validate :line_contract_shape
+  validate :valid_payment_effective_on
+
 
   def readonly?
     persisted?
@@ -46,5 +48,15 @@ class PayrollEntryProcessingEvent < ApplicationRecord
     return if total_hours == regular_hours + overtime_hours
 
     errors.add(:total_hours, "must equal regular plus overtime hours")
+  end
+
+  def valid_payment_effective_on
+    value = metadata&.fetch("payment_effective_on", nil)
+    return if value.blank?
+
+    date = Date.iso8601(value)
+    errors.add(:metadata, "payment date cannot be in the future") if date > Time.current.in_time_zone("Pacific/Guam").to_date
+  rescue ArgumentError, TypeError
+    errors.add(:metadata, "payment date must use YYYY-MM-DD")
   end
 end

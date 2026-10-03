@@ -79,11 +79,48 @@ module Payroll
           .where("payroll_batches.end_date < ?", period.start_date)
           .lock
           .find_each do |settlement_case|
+            routing_event = settlement_case.payroll_settlement_case_events.where(event_type: %w[routed rerouted]).order(:id).last
+            next if routing_event&.metadata&.fetch("requires_explicit_routing", false)
+
             route_to_period!(settlement_case, period: period, actor: nil, reason: "Next published regular payroll")
           end
       end
 
+      def reopen_attestation_cases!(attestation:, actor:, reason:)
+        entry = TimeEntry.find_by(id: attestation.time_entry_id)
+        if entry
+          relevant_periods_for(entry, previous_work_date: attestation.work_date).each do |period|
+            next if PayrollSettlementCase.exists?(origin_payroll_batch: period.payroll_batch, source_time_entry_id: entry.id)
+            next if period.payroll_batch.payroll_batch_entries.exists?(source_time_entry_id: entry.id)
+
+            held_case = create_case!(
+              period: period, origin_batch: period.payroll_batch, source_time_entry_id: entry.id,
+              source_time_entry_version: entry.lock_version, source_user_id: entry.user_id,
+              source_user_uuid: entry.user&.payroll_integration_uuid, reason: "pending_payment_attestation",
+              work_date: attestation.work_date, held_hours: entry.hours.to_d, source_snapshot: snapshot_for(entry), actor: actor
+            )
+            if held_case.status == "open" && held_case.origin_reason == "pending_payment_attestation"
+              supersede_attestation_case!(held_case, attestation, actor)
+            end
+          end
+        end
+        PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id)
+          .lock.find_each do |settlement_case|
+          closing_event = settlement_case.payroll_settlement_case_events.order(:id).last
+          next unless closing_event&.event_type == "superseded" &&
+            closing_event.metadata["payment_attestation_id"].to_s == attestation.id.to_s
+          next if PayrollSettlementCase.active.exists?(
+            origin_payroll_batch: settlement_case.origin_payroll_batch,
+            source_time_entry_id: attestation.time_entry_id
+          )
+
+          require_explicit_attestation_review!(settlement_case, attestation, actor, reason)
+        end
+      end
+
       def record_entry!(entry, previous_work_date: nil, actor: nil, actor_id: nil)
+        return if PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: entry.id)
+
         resolved_actor = actor || User.find_by(id: actor_id) || Current.user
         relevant_periods_for(entry, previous_work_date: previous_work_date).each do |period|
           next unless entry.created_at > period.cutoff_at || entry.updated_at > period.cutoff_at
@@ -257,12 +294,38 @@ module Payroll
           end
       end
 
+      def require_explicit_attestation_review!(settlement_case, attestation, actor, reason)
+        # Releasing an evidence hold is not a payment decision or permission
+        # to reuse its old target. The administrator must review the current
+        # source and explicitly choose an unlocked destination.
+        current_entry = TimeEntry.find_by(id: attestation.time_entry_id)
+        transition!(
+          settlement_case,
+          status: "open", destination_kind: "unassigned",
+          target_payroll_calendar_period: nil, target_external_pay_period_id: nil,
+          included_payroll_batch: nil, resolved_at: nil, assigned_to: actor,
+          action_due_on: attestation.retracted_at.in_time_zone("Pacific/Guam").to_date,
+          resolution_note: "Review current source identity, hours and approvals before routing. #{reason}",
+          event_type: "rerouted", actor: actor, occurred_at: attestation.retracted_at,
+          metadata: {
+            reason: "payment_attestation_retracted", retraction_reason: reason,
+            payment_attestation_id: attestation.id, requires_explicit_routing: true,
+            source_review_required: true,
+            attested_source_time_entry_version: attestation.source_time_entry_version,
+            current_source_time_entry_version: current_entry&.lock_version,
+            current_source_user_uuid: current_entry&.user&.payroll_integration_uuid
+          }
+        )
+      end
+
       def create_for_exclusion!(period:, batch:, exclusion:, actor:, supersedes_case: nil)
+        return if exclusion.reason != "pending_payment_attestation" && PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: exclusion.source_time_entry_id)
+
         existing = PayrollSettlementCase.find_by(origin_payroll_batch_exclusion: exclusion)
         return existing if existing
 
         snapshot = exclusion.snapshot || {}
-        create_case!(
+        settlement_case = create_case!(
           period: period,
           origin_batch: batch,
           exclusion: exclusion,
@@ -277,8 +340,20 @@ module Payroll
           source_snapshot: snapshot,
           actor: actor
         )
+        attestation = PayrollPaymentAttestation.blocking_at(period.cutoff_at).find_by(time_entry_id: exclusion.source_time_entry_id)
+        if attestation&.status == "pending_evidence"
+          supersede_attestation_case!(settlement_case, attestation, actor)
+        elsif attestation&.status == "retracted"
+          require_explicit_attestation_review!(settlement_case, attestation, attestation.retracted_by, attestation.retraction_reason)
+        end
+        settlement_case
       rescue ActiveRecord::RecordNotUnique
         PayrollSettlementCase.find_by!(origin_payroll_batch_exclusion: exclusion)
+      end
+
+      def supersede_attestation_case!(settlement_case, attestation, actor)
+        transition!(settlement_case, status: "superseded", resolved_at: Time.current, event_type: "superseded", actor: actor,
+                    metadata: { reason: "owner_payment_attestation_pending_evidence", payment_attestation_id: attestation.id })
       end
 
       def create_case!(period:, origin_batch:, source_time_entry_id:, source_time_entry_version:, source_user_id:, source_user_uuid:, reason:, work_date:,

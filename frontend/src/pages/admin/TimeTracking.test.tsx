@@ -30,6 +30,7 @@ function TimeRouteHarness() {
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-07-01&end_date=2026-07-15')}>Open July report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&approval_status=denied&overtime_status=denied')}>Open denied report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&status=terminated')}>Open terminated report</button>
+      <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=7&approval_group=maintenance&role=employee&clock_source=kiosk&entry_method=clock')}>Open filtered report</button>
       <output data-testid="location-search">{location.search}</output>
       <TimeTracking />
     </>
@@ -182,6 +183,50 @@ describe('TimeTracking routed report periods', () => {
     expect(await screen.findByDisplayValue('Terminated only')).toBeInTheDocument()
   })
 
+  it('synchronizes every URL-backed report filter during same-route navigation', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open filtered report' }))
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 7,
+      approval_group: 'maintenance',
+      role: 'employee',
+      clock_source: 'kiosk',
+      entry_method: 'clock',
+    })))
+  })
+
+  it('canonicalizes a routed employee ID before selecting and requesting it', async () => {
+    apiMock.getUsers.mockResolvedValue({
+      data: {
+        users: [{
+          id: 7,
+          full_name: 'Seven Employee',
+          display_name: 'Seven Employee',
+          email: 'seven@example.com',
+          employment_status: 'active',
+        }],
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=007']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({ user_id: 7 })))
+    expect(await screen.findByDisplayValue('Seven Employee')).toHaveValue('7')
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('user_id=7'))
+    expect(screen.getByTestId('location-search')).not.toHaveTextContent('user_id=007')
+  })
+
   it('opens the linked missing-category remediation report', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&category_status=uncategorized']}>
@@ -231,6 +276,28 @@ describe('TimeTracking routed report periods', () => {
     )
   })
 
+  it('clears prior report results when the next request fails', async () => {
+    apiMock.getHoursReport
+      .mockReset()
+      .mockResolvedValueOnce({ data: makeHoursReport('2026-08-01', '2026-08-15', 11) })
+      .mockResolvedValueOnce({ error: 'This report contains too many detailed entries' })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    expect((await screen.findAllByText('11.00')).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Open July report' }))
+
+    await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('11.00')).not.toBeInTheDocument())
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load the hours report')
+    expect(screen.getByRole('alert')).toHaveTextContent('This report contains too many detailed entries')
+    expect(screen.queryByText('No hours match this range.')).not.toBeInTheDocument()
+  })
+
   it('shows exact two-decimal report totals without rounding 11.95 to 11.9', async () => {
     const report = makeHoursReport('2026-08-01', '2026-08-15', 11.95)
     report.breakdowns = {
@@ -248,6 +315,26 @@ describe('TimeTracking routed report periods', () => {
     expect((await screen.findAllByText('11.95')).length).toBeGreaterThan(0)
     expect(screen.getAllByText('11.95h').length).toBeGreaterThan(0)
     expect(screen.queryByText('11.9')).not.toBeInTheDocument()
+  })
+
+  it('counts payment attestations separately from paid and payable report statuses', async () => {
+    const report = makeHoursReport('2026-08-01', '2026-08-15', 8)
+    report.summary = {
+      ...report.summary,
+      entries_count: 1,
+      payroll_statuses: { payment_attested_pending_evidence: 1 },
+    }
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+
+    render(
+      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+        <TimeRouteHarness />
+      </MemoryRouter>,
+    )
+
+    const metric = await screen.findByText('Check evidence pending')
+    expect(metric.parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Paid').parentElement).toHaveTextContent('0')
   })
 
   it('keeps payroll status and exact hours visible in the mobile employee summary', async () => {
@@ -303,6 +390,16 @@ describe('TimeTracking routed report periods', () => {
     const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
     expect(employeeCard).toBeInTheDocument()
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
+    fireEvent.click(employeeCard)
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('6.10h total')
+    let finishReload!: (value: { data: HoursReportResponse }) => void
+    apiMock.getHoursReport.mockImplementationOnce(() => new Promise((resolve) => { finishReload = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open July report' }))
+    await waitFor(() => expect(finishReload).toBeDefined())
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('6.10h total')
+    const reloaded = { ...report, employees: [{ ...report.employees[0], total_hours: 9 }] }
+    await act(async () => finishReload({ data: reloaded }))
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('9.00h total')
   })
 
   it('labels a legacy missing category as uncategorized in detailed entries', async () => {

@@ -34,6 +34,26 @@ module Api
             }
           end
 
+          # An explicitly live, bounded source read supports legacy identity
+          # review even when no Cornerstone calendar has been published.
+          def show
+            entry = TimeEntry.joins(:user).merge(User.staff)
+              .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
+              .find(params[:id])
+            context = TimeEntry.countable.where(user_id: entry.user_id)
+              .where(work_date: entry.work_date.beginning_of_week(:sunday)..entry.work_date.end_of_week(:sunday))
+              .order(:work_date, :id).to_a
+            split = ::Payroll::WeeklyOvertimeAllocator.call(context).fetch(entry.id, { regular_hours: 0, overtime_hours: 0 })
+            body = serialize_command_entry(entry, nil)
+            body.fetch(:time_entry).merge!(
+              regular_hours: split.fetch(:regular_hours).to_f,
+              overtime_hours: split.fetch(:overtime_hours).to_f,
+              overtime_policy: ::Payroll::WeeklyOvertimeAllocator.configured_policy,
+              source_state: "current"
+            )
+            render json: body
+          end
+
           def approval
             entry = TimeEntry
               .joins(:user)

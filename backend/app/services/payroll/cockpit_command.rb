@@ -36,6 +36,7 @@ module Payroll
       body = nil
       concurrent_replay = nil
       ActiveRecord::Base.transaction do
+        lock_payroll_evidence!
         target.lock!
         existing = PayrollIntegrationCommand.find_by(command_id: command_id)
         if existing
@@ -53,6 +54,10 @@ module Payroll
       return concurrent_replay if concurrent_replay
 
       Result.new(body: body, status: receipt.response_status, replayed: false, receipt: receipt)
+    rescue ActiveRecord::LockWaitTimeout
+      error = ConflictError.new("Payroll finalization is busy. Refresh and retry this evidence command.")
+      audit_failure(error)
+      raise error
     rescue DuplicateReceiptError
       replay(PayrollIntegrationCommand.find_by!(command_id: command_id))
     rescue StaleObjectError, ConflictError => e
@@ -63,6 +68,16 @@ module Payroll
     private
 
     attr_reader :command_id, :action, :actor, :target, :expected_version, :request_checksum
+
+    # Claim checks and evidence writes must serialize with finalization before
+    # either side takes row locks or reads the other side's representation.
+    def lock_payroll_evidence!
+      return unless action.start_with?("payroll_manual_allocation.", "payroll_payment_attestation.")
+
+      connection = ActiveRecord::Base.connection
+      connection.execute("SET LOCAL lock_timeout = '5s'")
+      connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
+    end
 
     def replay(receipt)
       unless same_command?(receipt)

@@ -311,17 +311,22 @@ const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
   partially_paid: 'border-amber-200 bg-amber-50 text-amber-800',
   partially_prepared: 'border-violet-200 bg-violet-50 text-violet-800',
   partially_processed: 'border-blue-200 bg-blue-50 text-blue-800',
+  partially_allocated: 'border-amber-200 bg-amber-50 text-amber-800',
+  payment_attested_pending_evidence: 'border-amber-300 bg-amber-50 text-amber-900',
+
 }
 
 function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycle }) {
   if (!lifecycle) return <span className="text-xs text-text-muted">Not tracked</span>
-  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null].filter(Boolean).join(' · ')
+  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
+    lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
   return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{lifecycle.label}</span>
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
   const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
-  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'partially_paid', 'partially_prepared', 'partially_processed', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'payment_attested_pending_evidence', 'partially_allocated', 'partially_paid', 'partially_prepared', 'partially_processed', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+
   return priority.map((status) => entries.find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
 }
 
@@ -384,6 +389,14 @@ export default function TimeTracking() {
   const routedOvertimeStatus = linkedOvertimeStatus(searchParams)
   const routedCategoryFilter = linkedCategoryFilter(searchParams)
   const routedEmployeeStatus = linkedEmployeeStatus(searchParams)
+  const routedUserId = (() => {
+    const value = searchParams.get('user_id') || ''
+    return /^\d+$/.test(value) ? value.replace(/^0+(?=\d)/, '') : ''
+  })()
+  const routedApprovalGroup = (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter
+  const routedRole = (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee'
+  const routedClockSource = (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy'
+  const routedEntryMethod = (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual'
   const initialLinkedPeriod = routedPeriod
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -413,13 +426,13 @@ export default function TimeTracking() {
   const [reportFilters, setReportFilters] = useState(() => ({
     start_date: initialLinkedPeriod?.start ?? formatDateISO(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
     end_date: initialLinkedPeriod?.end ?? formatDateISO(new Date()),
-    user_id: /^\d+$/.test(searchParams.get('user_id') || '') ? searchParams.get('user_id')! : '',
+    user_id: routedUserId,
     time_category_id: routedCategoryFilter || (/^\d+$/.test(searchParams.get('time_category_id') || '') ? searchParams.get('time_category_id')! : ''),
-    approval_group: (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter,
+    approval_group: routedApprovalGroup,
     employee_status: routedEmployeeStatus,
-    role: (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee',
-    clock_source: (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
-    entry_method: (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual',
+    role: routedRole,
+    clock_source: routedClockSource,
+    entry_method: routedEntryMethod,
     approval_status: routedApprovalStatus,
     overtime_status: routedOvertimeStatus,
   }))
@@ -427,6 +440,7 @@ export default function TimeTracking() {
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
   const [selectedReportEmployee, setSelectedReportEmployee] = useState<HoursReportEmployee | null>(null)
+  const [reportError, setReportError] = useState<string | null>(null)
   const handleCloseEmployeeReportDrawer = useCallback(() => {
     setSelectedReportEmployee(null)
   }, [])
@@ -602,6 +616,7 @@ export default function TimeTracking() {
   const loadReport = useCallback(async () => {
     const requestSequence = ++reportRequestSequence.current
     setReportLoading(true)
+    setReportError(null)
     try {
       const response = await api.getHoursReport({
         start_date: reportFilters.start_date,
@@ -621,7 +636,10 @@ export default function TimeTracking() {
       if (requestSequence !== reportRequestSequence.current) return
 
       if (response.error) {
-        setError(response.error)
+        setHoursReport(null)
+        setReportData([])
+        setSelectedReportEmployee(null)
+        setReportError(response.error)
         return
       }
 
@@ -631,7 +649,12 @@ export default function TimeTracking() {
         setReportData(reportEntriesForDetailTable(response.data))
       }
     } catch {
-      if (requestSequence === reportRequestSequence.current) console.error('Failed to load report')
+      if (requestSequence === reportRequestSequence.current) {
+        setHoursReport(null)
+        setReportData([])
+        setSelectedReportEmployee(null)
+        setReportError('Failed to load hours report')
+      }
     } finally {
       if (requestSequence === reportRequestSequence.current) setReportLoading(false)
     }
@@ -647,6 +670,15 @@ export default function TimeTracking() {
   }, [searchParams])
 
   useEffect(() => {
+    const rawUserId = searchParams.get('user_id')
+    if (!rawUserId || !routedUserId || rawUserId === routedUserId) return
+
+    const next = new URLSearchParams(searchParams)
+    next.set('user_id', routedUserId)
+    setSearchParams(next, { replace: true })
+  }, [routedUserId, searchParams, setSearchParams])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       setReportFilters((current) => {
         const startDate = routedPeriodStart ?? current.start_date
@@ -658,6 +690,11 @@ export default function TimeTracking() {
           && current.overtime_status === routedOvertimeStatus
           && current.time_category_id === routedCategoryFilter
           && current.employee_status === routedEmployeeStatus
+          && current.user_id === routedUserId
+          && current.approval_group === routedApprovalGroup
+          && current.role === routedRole
+          && current.clock_source === routedClockSource
+          && current.entry_method === routedEntryMethod
         ) return current
         return {
           ...current,
@@ -667,11 +704,16 @@ export default function TimeTracking() {
           overtime_status: routedOvertimeStatus,
           time_category_id: routedCategoryFilter,
           employee_status: routedEmployeeStatus,
+          user_id: routedUserId,
+          approval_group: routedApprovalGroup,
+          role: routedRole,
+          clock_source: routedClockSource,
+          entry_method: routedEntryMethod,
         }
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [routedApprovalStatus, routedCategoryFilter, routedEmployeeStatus, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
+  }, [routedApprovalGroup, routedApprovalStatus, routedCategoryFilter, routedClockSource, routedEmployeeStatus, routedEntryMethod, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart, routedRole, routedUserId])
 
   useEffect(() => {
     if (lastUrlSyncedReportFilters.current === reportFilters) return
@@ -1889,7 +1931,7 @@ export default function TimeTracking() {
                     const period = reportPresetRange(preset)
                     setReportFilters((current) => ({ ...current, start_date: period.start, end_date: period.end }))
                   }}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                  className="rounded-full border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary-dark transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {label}
                 </button>
@@ -1989,6 +2031,15 @@ export default function TimeTracking() {
             </div>
           </div>
 
+          {reportError && (
+            <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-900">
+              <div className="font-semibold">Unable to load the hours report</div>
+              <p className="mt-1 text-sm leading-6">{reportError}</p>
+            </div>
+          )}
+
+          {!reportError && (
+          <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
             <ReportMetric label="Total Hours" value={reportLoading ? '…' : formatHours(reportSummary.total_hours)} emphasize />
             <ReportMetric label="Regular" value={reportLoading ? '…' : formatHours(reportSummary.regular_hours)} />
@@ -2058,12 +2109,15 @@ export default function TimeTracking() {
                 </div>
                 <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
+
                 <ReportMetric label="Ready / awaiting" value={String((reportSummary.payroll_statuses?.ready_for_cutoff || 0) + (reportSummary.payroll_statuses?.awaiting_approval || 0))} />
                 <ReportMetric label="In payroll" value={String((reportSummary.payroll_statuses?.finalized || 0) + (reportSummary.payroll_statuses?.imported || 0) + (reportSummary.payroll_statuses?.committed || 0))} />
                 <ReportMetric label="Partial progress" value={String((reportSummary.payroll_statuses?.partially_processed || 0) + (reportSummary.payroll_statuses?.partially_prepared || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
+                <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
+                <ReportMetric label="Check evidence pending" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
               </div>
@@ -2219,6 +2273,8 @@ export default function TimeTracking() {
             loading={reportLoading}
             onEdit={openEditEntry}
           />
+          </>
+          )}
           <EmployeeReportDrawer employee={selectedReportEmployee} onClose={handleCloseEmployeeReportDrawer} />
         </div>
       )}
@@ -2453,6 +2509,24 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                         <div className="mt-1 text-xs text-text-muted">{entry.time_category?.name || 'Uncategorized'} · {entry.entry_method} · {entry.clock_source || 'legacy'}</div>
                         <EntryQualityFlags flags={entry.quality_flags} />
                         <div className="mt-2"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></div>
+                        {entry.payroll_lifecycle?.status === 'payment_attested_pending_evidence' && (
+                          <p className="mt-2 text-xs leading-5 text-amber-900">
+                            {Number(entry.payroll_lifecycle.payment_attested_hours || 0).toFixed(2)}h held from future payroll based on an owner payment statement. Check number, amount, and delivery date still need to be matched; this is not a verified paid record.
+                            {entry.payroll_lifecycle.payment_attestation_source_changed && ' The AIRE entry changed after the statement and needs review.'}
+                          </p>
+                        )}
+                        {entry.payroll_lifecycle && (entry.payroll_lifecycle.manually_paid_hours || entry.payroll_lifecycle.manually_committed_hours) ? (
+                          <p className="mt-2 text-xs text-text-muted">
+                            {[
+                              entry.payroll_lifecycle.manually_paid_hours
+                                ? `${Number(entry.payroll_lifecycle.manually_paid_hours).toFixed(2)}h paid by issued Cornerstone check`
+                                : null,
+                              entry.payroll_lifecycle.manually_committed_hours
+                                ? `${Number(entry.payroll_lifecycle.manually_committed_hours).toFixed(2)}h committed, not yet paid`
+                                : null,
+                            ].filter(Boolean).join(' · ')}
+                          </p>
+                        ) : null}
                         {entry.payroll_lifecycle && entry.payroll_lifecycle.settlements.length > 0 && (
                           <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 text-xs text-text-muted">
                             {entry.payroll_lifecycle.settlements.map((settlement) => (
@@ -2460,6 +2534,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                                 {formatDate(settlement.start_date)}–{formatDate(settlement.end_date)} · {settlement.total_hours.toFixed(2)}h · {settlement.label}
                                 {settlement.status.startsWith('partially_') ? ` · ${settlement.paid_hours.toFixed(2)}h paid · ${settlement.outstanding_hours.toFixed(2)}h outstanding` : ''}
                                 {settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
+                                {settlement.status === 'payment_issued' ? ` · ${settlement.payment_effective_on ? `paid ${formatDate(settlement.payment_effective_on)}` : 'payment date not recorded'}` : ''}
                               </p>
                             ))}
                           </div>

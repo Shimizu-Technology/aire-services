@@ -601,7 +601,7 @@ export interface ClockStatus {
   } | null;
   can_clock_in: boolean;
   time_tracking_enabled: boolean;
-  clock_in_blocked_reason: 'already_clocked_in' | 'time_tracking_disabled' | 'categories_missing' | 'no_schedule' | 'too_early' | 'shift_ended' | null;
+  clock_in_blocked_reason: 'already_clocked_in' | 'time_tracking_disabled' | 'categories_missing' | 'no_schedule' | 'too_early' | 'shift_ended' | 'inactive_employee' | null;
   minutes_until?: number;
   clock_in_location_required?: boolean;
   clock_in_location_name?: string | null;
@@ -832,7 +832,9 @@ export type PayrollEntryLifecycleStatus =
   | 'payment_voided'
   | 'partially_paid'
   | 'partially_prepared'
-  | 'partially_processed';
+  | 'partially_processed'
+  | 'partially_allocated'
+  | 'payment_attested_pending_evidence';
 
 export interface PayrollPayableLine {
   source_time_entry_id: string;
@@ -848,6 +850,7 @@ export interface PayrollPayableLine {
   payment_method?: string | null;
   payment_reference?: string | null;
 }
+
 
 export interface PayrollEntrySettlement {
   batch_id: string;
@@ -870,6 +873,7 @@ export interface PayrollEntrySettlement {
   external_payroll_item_id?: string | null;
   payment_method?: string | null;
   payment_reference?: string | null;
+  payment_effective_on?: string | null;
 }
 
 export interface PayrollEntryLifecycle {
@@ -877,8 +881,14 @@ export interface PayrollEntryLifecycle {
   label: string;
   payment_method?: string | null;
   payment_reference?: string | null;
+  payment_effective_on?: string | null;
   occurred_at?: string | null;
   latest_excluded_batch_id?: string | null;
+  manually_committed_hours?: number;
+  manually_paid_hours?: number;
+  payment_attested_hours?: number;
+  payment_attested_at?: string;
+  payment_attestation_source_changed?: boolean;
   settlements: PayrollEntrySettlement[];
 }
 
@@ -1098,6 +1108,7 @@ export interface PayrollBatchSummary {
 }
 
 export interface PayrollBatchIssues {
+  payment_attestation_pending_count?: number;
   missing_category_count: number;
   negative_adjustment_count: number;
   pending_approval_count: number;

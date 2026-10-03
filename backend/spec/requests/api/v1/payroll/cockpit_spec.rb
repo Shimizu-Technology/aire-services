@@ -23,6 +23,10 @@ RSpec.describe "Payroll cockpit API", type: :request do
       "Content-Type" => "application/json"
     }
   end
+  let(:settlement_headers) do
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management])
+    headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
+  end
 
   around do |example|
     previous = ENV["PAYROLL_SHARED_SECRET"]
@@ -57,6 +61,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
       "/api/v1/payroll/cockpit/exceptions?external_pay_period_id=missing",
       "/api/v1/payroll/cockpit/time_entries?external_pay_period_id=missing",
       "/api/v1/payroll/cockpit/manual_review?start_date=2026-10-01&end_date=2026-10-15",
+      "/api/v1/payroll/cockpit/manual_allocations?external_pay_period_id=67",
       "/api/v1/payroll/cockpit/periods/missing"
     ]
 
@@ -66,6 +71,104 @@ RSpec.describe "Payroll cockpit API", type: :request do
       end.to change { AuditLog.where(action: "payroll_cockpit.authorization_denied").count }.by(1)
       expect(response).to have_http_status(:unauthorized)
     end
+  end
+
+  it "requires settlement management delegation to read payment allocations" do
+    get "/api/v1/payroll/cockpit/manual_allocations", params: { external_pay_period_id: "67" }, headers: headers
+    expect(response).to have_http_status(:forbidden)
+
+    settlement_grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management])
+    allowed_headers = headers.merge("X-Aire-Delegation-Token" => settlement_grant.issued_token)
+    get "/api/v1/payroll/cockpit/manual_allocations", params: { external_pay_period_id: "67" }, headers: allowed_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:manual_allocations)).to eq([])
+  end
+
+  it "requires settlement management delegation to read manual payroll reviews" do
+    path = "/api/v1/payroll/cockpit/manual_review"
+    params = { start_date: "2026-10-01", end_date: "2026-10-15" }
+
+    get path, params: params, headers: headers
+    expect(response).to have_http_status(:forbidden)
+
+    get path, params: params, headers: settlement_headers
+    expect(response).to have_http_status(:ok)
+  end
+
+  it "replays the original allocation acknowledgement after its payment state changes" do
+    entry = create_entry(approval_status: "approved", approved_at: Time.current, hours: 8)
+    path = "/api/v1/payroll/cockpit/manual_allocations"
+    payload = {
+      source_time_entry_id: entry.id, source_user_uuid: employee.payroll_integration_uuid,
+      command_id: SecureRandom.uuid, expected_version: entry.lock_version,
+      regular_hours: 8, overtime_hours: 0, external_pay_period_id: "67",
+      external_payroll_item_id: "91", pay_date: Date.current.iso8601,
+      reason: "Verified these hours against the historical check"
+    }
+    actor_headers = settlement_headers
+    post path, params: payload.to_json, headers: actor_headers
+    expect(response).to have_http_status(:created)
+    original = json.fetch(:manual_allocation)
+    allocation = PayrollManualAllocation.find(original.fetch(:id))
+
+    post "#{path}/#{allocation.id}/issue", params: {
+      command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
+      occurred_at: Time.current.iso8601, payment_effective_on: Date.current.iso8601,
+      payment_method: "check", payment_reference: "SYNTHETIC-91",
+      reason: "Verified physical check delivery evidence"
+    }.to_json, headers: actor_headers
+    expect(response).to have_http_status(:ok)
+    expect(allocation.reload.status).to eq("issued")
+
+    expect { post path, params: payload.to_json, headers: actor_headers }
+      .not_to change(PayrollManualAllocationEvent, :count)
+    expect(response).to have_http_status(:created)
+    expect(json.fetch(:manual_allocation)).to eq(original.slice(:id, :version, :status))
+    expect(json.dig(:command, :replayed)).to be(true)
+
+    post path, params: payload.merge(regular_hours: 7).to_json, headers: actor_headers
+    expect(response).to have_http_status(:conflict)
+    expect(PayrollManualAllocation.count).to eq(1)
+  end
+
+  it "replays the original attestation acknowledgement after retraction" do
+    entry = create_entry(approval_status: "approved", approved_at: Time.current, hours: 8)
+    path = "/api/v1/payroll/cockpit/payment_attestations"
+    payload = {
+      source_time_entry_id: entry.id, source_user_uuid: employee.payroll_integration_uuid,
+      command_id: SecureRandom.uuid, expected_version: entry.lock_version,
+      reason: "Owner reported payment; physical check evidence is being located"
+    }
+    actor_headers = settlement_headers
+    post path, params: payload.to_json, headers: actor_headers
+    expect(response).to have_http_status(:created)
+    original = json.fetch(:payment_attestation)
+    attestation = PayrollPaymentAttestation.find(original.fetch(:id))
+
+    post "#{path}/#{attestation.id}/retract", params: {
+      command_id: SecureRandom.uuid, expected_version: attestation.lock_version,
+      reason: "Owner corrected the statement after reviewing check evidence"
+    }.to_json, headers: actor_headers
+    expect(response).to have_http_status(:ok)
+    expect(attestation.reload.status).to eq("retracted")
+
+    expect { post path, params: payload.to_json, headers: actor_headers }
+      .not_to change(PayrollPaymentAttestationEvent, :count)
+    expect(response).to have_http_status(:created)
+    expect(json.fetch(:payment_attestation)).to eq(original.slice(:id, :version, :status))
+    expect(json.dig(:command, :replayed)).to be(true)
+    receipt = PayrollIntegrationCommand.find_by!(command_id: payload.fetch(:command_id))
+    expect(receipt.result_metadata.keys).to contain_exactly("payment_attestation_id", "result_version", "status")
+  end
+
+  it "returns an explicit review requirement for a calendar without frozen policy" do
+    period.update_columns(overtime_policy: {})
+    get "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}", headers: headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json).to include(review_required: true)
+    expect(json.fetch(:error)).to include("frozen overtime policy")
   end
 
   it "returns only payroll-appropriate employee identity fields with bounded pagination" do
@@ -84,6 +187,14 @@ RSpec.describe "Payroll cockpit API", type: :request do
     )
     expect(json.fetch(:employees).first).not_to have_key(:phone)
     expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
+  end
+
+  it "rejects an employee page beyond the database offset range as a client error" do
+    get "/api/v1/payroll/cockpit/employees", params: { page: 2**63, per_page: 100 }, headers: headers
+
+    expect(response).to have_http_status(:bad_request)
+    expect(json.fetch(:error)).to include("pagination range")
+    expect(json).not_to have_key(:employees)
   end
 
   it "returns one payroll employee identity for mapping verification" do
@@ -105,6 +216,28 @@ RSpec.describe "Payroll cockpit API", type: :request do
   it "returns not found for an unknown mapping identity" do
     get "/api/v1/payroll/cockpit/employees/999999", headers: headers
 
+    expect(response).to have_http_status(:not_found)
+  end
+
+  it "reads one current source identity without requiring a published calendar" do
+    entry = create(:time_entry, user: employee, time_category: category,
+                  work_date: Date.current, status: "completed", entry_method: "manual",
+                  approval_status: "approved", approved_at: Time.current)
+    expect(PayrollCalendarPeriod.count).to eq(0)
+    get "/api/v1/payroll/cockpit/time_entries/#{entry.id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_entry)).to include(
+      id: entry.id.to_s, version: entry.lock_version, work_date: entry.work_date.iso8601,
+      hours: 8.0, regular_hours: 8.0, overtime_hours: 0.0, source_state: "current",
+      employee: { id: employee.id.to_s, payroll_integration_id: employee.payroll_integration_uuid, name: employee.full_name },
+      category: { id: category.id.to_s, key: category.key, name: category.name }
+    )
+    expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
+  end
+
+  it "returns not found for a missing source entry through the bounded read" do
+    get "/api/v1/payroll/cockpit/time_entries/999999", headers: headers
     expect(response).to have_http_status(:not_found)
   end
 
@@ -270,7 +403,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
     travel_to(manual_end.end_of_day) do
       get "/api/v1/payroll/cockpit/manual_review",
           params: { start_date: manual_start.iso8601, end_date: manual_end.iso8601 },
-          headers: headers
+          headers: settlement_headers
     end
 
     expect(response).to have_http_status(:ok)
@@ -284,7 +417,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
   it "validates manual-review dates" do
     get "/api/v1/payroll/cockpit/manual_review",
         params: { start_date: "not-a-date", end_date: period.end_date.iso8601 },
-        headers: headers
+        headers: settlement_headers
 
     expect(response).to have_http_status(:unprocessable_entity)
     expect(json.fetch(:error)).to include("start_date must be a valid ISO 8601 date")

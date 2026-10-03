@@ -4,6 +4,7 @@ require "set"
 
 module Payroll
   class TimeEntryRevisionLedger
+    class CoverageError < StandardError; end
     attr_reader :cutoff_at
 
     def initialize(cutoff_at:)
@@ -14,6 +15,25 @@ module Payroll
       return @available if defined?(@available)
 
       @available = PayrollTimeEntryRevision.where("recorded_at <= ?", cutoff_at).exists?
+    end
+
+    def require_coverage!
+      gap = PayrollTimeEntryRevision
+        .where("recorded_at > ?", cutoff_at)
+        .where("(snapshot -> 'time_entry' ->> 'created_at')::timestamp <= ?", cutoff_at)
+        .where(<<~SQL, cutoff_at)
+          NOT EXISTS (
+            SELECT 1 FROM payroll_time_entry_revisions earlier
+            WHERE earlier.source_time_entry_id = payroll_time_entry_revisions.source_time_entry_id
+              AND earlier.recorded_at <= ?
+          )
+        SQL
+        .exists?
+      uncaptured = TimeEntry.where("created_at <= ?", cutoff_at)
+        .where.not(id: PayrollTimeEntryRevision.select(:source_time_entry_id)).exists?
+      return unless gap || uncaptured
+
+      raise CoverageError, "Revision history does not cover this cutoff; review legacy hours instead of reconstructing them from current time"
     end
 
     def entries_in_range(range)

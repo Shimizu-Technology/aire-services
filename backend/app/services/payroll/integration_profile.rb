@@ -15,6 +15,8 @@ module Payroll
       employee_directory
       payroll_cockpit
       account_linking
+      manual_allocations
+      payment_attestations
     ].freeze
 
     def self.call

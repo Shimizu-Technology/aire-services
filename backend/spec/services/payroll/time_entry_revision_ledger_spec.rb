@@ -27,6 +27,27 @@ RSpec.describe Payroll::TimeEntryRevisionLedger do
     )
   end
 
+  it "refuses to reconstruct a cutoff before a legacy entry's first captured revision" do
+    entry = create_entry
+    revision = PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).first
+    entry.update_columns(created_at: revision.recorded_at - 2.days)
+    # Model a migration snapshot of a source row that already existed; retain
+    # its real capture time rather than manufacturing a pre-cutoff revision.
+    legacy_id = entry.id + 1_000_000
+    PayrollTimeEntryRevision.create!(
+      source_time_entry_id: legacy_id, source_version: 0,
+      source_user_id: user.id, source_work_date: entry.work_date,
+      recorded_at: revision.recorded_at,
+      snapshot: revision.snapshot.deep_merge("time_entry" => {
+        "id" => legacy_id, "created_at" => (revision.recorded_at - 2.days).iso8601(6)
+      })
+    )
+
+    expect do
+      described_class.new(cutoff_at: revision.recorded_at - 1.day).require_coverage!
+    end.to raise_error(described_class::CoverageError, /Revision history does not cover/)
+  end
+
   it "returns the employee, category, and payable values recorded at the cutoff" do
     entry = create_entry
     first_revision = PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last
