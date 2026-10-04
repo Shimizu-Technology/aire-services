@@ -1241,7 +1241,8 @@ export interface PayrollCarryoverItem {
   exclusion_reason: string;
   held_total_hours: number;
   current_total_hours: number | null;
-  status: 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
+  payroll_lifecycle?: PayrollEntryLifecycle;
+  status: 'needs_review' | 'partially_allocated' | 'payment_attested_pending_evidence' | 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
   included_batch: {
     id: string;
     start_date: string;
@@ -1255,6 +1256,7 @@ export interface PayrollCarryoverQueue {
   summary: {
     awaiting_approval_count: number;
     ready_for_next_batch_count: number;
+    needs_review_count?: number;
     in_payroll_count: number;
     not_payable_count: number;
   };

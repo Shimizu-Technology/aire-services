@@ -89,16 +89,6 @@ class TimeEntry < ApplicationRecord
     status == "completed" && (clock_entry? ? !approval_status.in?(%w[denied pending]) : approval_status == "approved")
   end
 
-  # Legacy daily-only review flags are retained as evidence, but cannot hold
-  # regular hours when this entry has no payable weekly overtime.
-  def payroll_overtime_review_required?
-    return false unless overtime_status.in?(%w[pending denied]) && counts_toward_hours?
-
-    context = self.class.countable.where(user_id: user_id)
-      .where(work_date: work_date.beginning_of_week(:sunday)..work_date.end_of_week(:sunday)).to_a
-    Payroll::WeeklyOvertimeAllocator.call(context).fetch(id, {}).fetch(:overtime_hours, 0).positive?
-  end
-
   def active_payroll_exports
     ReportExport.active_for_entry(id)
   end

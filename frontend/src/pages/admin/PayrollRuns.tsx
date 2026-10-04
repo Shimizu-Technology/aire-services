@@ -44,6 +44,9 @@ const EXCLUSION_LABELS: Record<string, string> = {
 }
 
 const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; detail: string; className: string }> = {
+  needs_review: { label: 'Needs payroll review', detail: 'Review the recorded payments and choose a payroll destination in Cornerstone. These historical hours will not be included automatically.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
+  partially_allocated: { label: 'Partially assigned to payroll', detail: 'Some hours are already reserved in payroll. Review the remaining hours in Cornerstone before choosing a destination.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
+  payment_attested_pending_evidence: { label: 'Payment reported; evidence pending', detail: 'The owner reported these hours paid. They remain held while the payment evidence is reconciled in Cornerstone.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   awaiting_approval: { label: 'Needs approval', detail: 'Not payable until an authorized reviewer approves it.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   ready_for_next_batch: { label: 'Ready for next cutoff', detail: 'Approved after the earlier cutoff. AIRE will include it automatically in the next finalized batch.', className: 'border-cyan-200 bg-cyan-50 text-cyan-800' },
   awaiting_cornerstone: { label: 'Finalized in AIRE', detail: 'Included in a finalized batch and waiting to be imported into Cornerstone.', className: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
@@ -170,6 +173,7 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
             {[
               ['Needs approval', queue.summary.awaiting_approval_count],
               ['Ready for cutoff', queue.summary.ready_for_next_batch_count],
+              ['Needs payroll review', queue.summary.needs_review_count ?? 0],
               ['In payroll', queue.summary.in_payroll_count],
               ['Closed unpaid', queue.summary.not_payable_count],
             ].map(([label, value]) => (
@@ -189,7 +193,12 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
                 className: 'border-slate-200 bg-slate-100 text-slate-700',
               }
               const processing = item.included_batch?.processing
-              const paymentProgress = processing && 'paid_hours' in processing ? processing : null
+              const lifecycle = item.payroll_lifecycle
+              const recordedPaid = lifecycle?.settlements.reduce((sum, row) => sum + (row.paid_hours ?? (row.status === 'payment_issued' ? row.total_hours : 0)), 0) ?? 0
+              const paymentProgress = lifecycle ? {
+                paid_hours: recordedPaid,
+                outstanding_hours: Math.max(0, (item.current_total_hours ?? item.held_total_hours) - recordedPaid),
+              } : processing && 'paid_hours' in processing ? processing : null
               return (
                 <article key={item.source_time_entry_id} className="rounded-2xl border border-slate-200 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

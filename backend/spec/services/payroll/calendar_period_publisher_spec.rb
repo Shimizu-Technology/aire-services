@@ -23,6 +23,10 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     }
   end
 
+  around do |example|
+    travel_to(now) { example.run }
+  end
+
   it "publishes an auditable first version and replays it idempotently" do
     first = described_class.new(attributes, now: now).call
     replay = described_class.new(attributes, now: Time.iso8601(attributes.fetch(:cutoff_at)) + 1.hour).call
@@ -45,6 +49,9 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     expect(result.period.reload.overtime_policy).to eq(Payroll::WeeklyOvertimeAllocator.configured_policy.stringify_keys)
     expect(revision.payload.fetch("previous_overtime_policy")).to eq(legacy)
     expect(revision.payload.fetch("overtime_policy")).to eq(result.period.overtime_policy)
+    audit = AuditLog.find_by!(action: "payroll_calendar_period.revised", auditable: period)
+    expect(audit.metadata).to include("previous_overtime_policy" => legacy,
+                                      "overtime_policy" => result.period.overtime_policy)
     expect(described_class.new(revised, now: now).call.idempotent).to be(true)
     expect(period.payroll_calendar_period_revisions.count).to eq(2)
     expect do
