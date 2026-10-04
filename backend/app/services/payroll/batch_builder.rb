@@ -17,8 +17,8 @@ module Payroll
       @cutoff_at = cutoff_at
       @batch_reference = batch_reference
       @calendar_period = calendar_period
-      if calendar_period && calendar_period.overtime_policy.blank?
-        raise PolicyUnavailableError, "This calendar has no frozen overtime policy; review its policy before finalizing"
+      if calendar_period && !WeeklyOvertimeAllocator.supported_policy?(calendar_period.overtime_policy)
+        raise PolicyUnavailableError, "This calendar has no supported frozen overtime policy; weekly-only policy review is required; republish it before cutoff or arrange an operator-reviewed correction"
       end
       @revision_ledger = TimeEntryRevisionLedger.new(cutoff_at: cutoff_at) if calendar_period
       @revision_ledger&.require_coverage!
@@ -299,14 +299,7 @@ module Payroll
     def overtime_allocations(entries)
       entries.group_by(&:user_id).each_with_object({}) do |(_user_id, user_entries), memo|
         payable = user_entries.select { |entry| payable_at_cutoff?(entry) }
-        policy = calendar_period&.overtime_policy
-        options = if policy.present?
-          { daily_threshold: policy.fetch("daily_threshold_hours").to_f,
-            weekly_threshold: policy.fetch("weekly_threshold_hours").to_f }
-        else
-          {}
-        end
-        memo.merge!(WeeklyOvertimeAllocator.call(payable, **options))
+        memo.merge!(WeeklyOvertimeAllocator.call(payable))
       end
     end
 

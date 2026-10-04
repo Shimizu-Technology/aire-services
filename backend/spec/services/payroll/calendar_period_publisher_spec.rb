@@ -23,6 +23,10 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     }
   end
 
+  around do |example|
+    travel_to(now) { example.run }
+  end
+
   it "publishes an auditable first version and replays it idempotently" do
     first = described_class.new(attributes, now: now).call
     replay = described_class.new(attributes, now: Time.iso8601(attributes.fetch(:cutoff_at)) + 1.hour).call
@@ -32,6 +36,59 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     expect(replay.period).to eq(first.period)
     expect(first.period.payroll_calendar_period_revisions.count).to eq(1)
     expect(AuditLog.find_by!(action: "payroll_calendar_period.published", auditable: first.period).source).to eq("integration")
+  end
+
+  it "upgrades legacy policy only through an explicit publication and preserves revision evidence" do
+    period = described_class.new(attributes, now: now).call.period
+    legacy = { "daily_threshold_hours" => 8.0, "weekly_threshold_hours" => 40.0 }
+    period.update_columns(overtime_policy: legacy)
+    revised = attributes.merge(schedule_version: 2, publication_id: SecureRandom.uuid,
+                               overtime_policy: Payroll::WeeklyOvertimeAllocator.configured_policy)
+    result = described_class.new(revised, now: now).call
+    revision = period.payroll_calendar_period_revisions.order(:schedule_version).last
+    expect(result.period.reload.overtime_policy).to eq(Payroll::WeeklyOvertimeAllocator.configured_policy.stringify_keys)
+    expect(revision.payload.fetch("previous_overtime_policy")).to eq(legacy)
+    expect(revision.payload.fetch("overtime_policy")).to eq(result.period.overtime_policy)
+    audit = AuditLog.find_by!(action: "payroll_calendar_period.revised", auditable: period)
+    expect(audit.metadata).to include("previous_overtime_policy" => legacy,
+                                      "overtime_policy" => result.period.overtime_policy)
+    expect(described_class.new(revised, now: now).call.idempotent).to be(true)
+    expect(period.payroll_calendar_period_revisions.count).to eq(2)
+    expect do
+      described_class.new(revised.merge(overtime_policy: legacy), now: now).call
+    end.to raise_error(ArgumentError, /weekly-only/)
+  end
+
+  it "does not upgrade a legacy policy implicitly or after cutoff" do
+    period = described_class.new(attributes, now: now).call.period
+    legacy = { "daily_threshold_hours" => 8.0, "weekly_threshold_hours" => 40.0 }
+    period.update_columns(overtime_policy: legacy)
+    revised = attributes.merge(schedule_version: 2, publication_id: SecureRandom.uuid)
+    described_class.new(revised, now: now).call
+    expect(period.reload.overtime_policy).to eq(legacy)
+    explicit = revised.merge(schedule_version: 3, publication_id: SecureRandom.uuid,
+                             overtime_policy: Payroll::WeeklyOvertimeAllocator.configured_policy,
+                             cutoff_at: "2026-10-18T18:00:00+10:00")
+    expect do
+      described_class.new(explicit, now: Time.iso8601(attributes[:cutoff_at])).call
+    end.to raise_error(described_class::ConflictError, /cannot be revised after its cutoff/)
+    expect(period.reload.overtime_policy).to eq(legacy)
+  end
+
+  it "preserves finalized legacy policy and refuses new computations under it" do
+    period = described_class.new(attributes, now: now).call.period
+    legacy = { "daily_threshold_hours" => 8.0, "weekly_threshold_hours" => 40.0 }
+    batch = create(:payroll_batch)
+    period.update_columns(overtime_policy: legacy, status: "finalized", finalized_at: now, payroll_batch_id: batch.id)
+    revised = attributes.merge(schedule_version: 2, publication_id: SecureRandom.uuid,
+                               overtime_policy: Payroll::WeeklyOvertimeAllocator.configured_policy)
+    expect { described_class.new(revised, now: now).call }
+      .to raise_error(described_class::ConflictError, /cannot be revised after its cutoff/)
+    expect(period.reload.overtime_policy).to eq(legacy)
+    expect(period.payroll_calendar_period_revisions.count).to eq(1)
+    expect do
+      Payroll::BatchBuilder.new(start_date: period.start_date, end_date: period.end_date, calendar_period: period)
+    end.to raise_error(Payroll::BatchBuilder::PolicyUnavailableError, /operator-reviewed correction/)
   end
 
   it "retains revisions and requires the next schedule version" do

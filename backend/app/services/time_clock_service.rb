@@ -307,6 +307,7 @@ class TimeClockService
         } : nil,
         schedule_required_for_clock_in: Setting.get("schedule_required_for_clock_in") == "true",
         time_tracking_enabled: user.time_tracking_enabled?,
+        review_alerts: review_alerts(user, today),
         clock_in_location_required: location_policy[:enabled],
         clock_in_location_name: location_policy[:name],
         clock_in_location_radius_meters: location_policy[:radius_meters],
@@ -556,28 +557,20 @@ class TimeClockService
     # in-memory entry, its persisted row is excluded before the current hours are
     # added so both new and edited entries are counted exactly once.
     def check_overtime_status(user, entry, include_entry_hours: true)
-      daily_threshold = (Setting.get("overtime_daily_threshold_hours") || "8").to_f
-      weekly_threshold = (Setting.get("overtime_weekly_threshold_hours") || "40").to_f
+      context = TimeEntry.countable.for_user(user).for_week(entry.work_date)
+      context = context.where.not(id: entry.id) if include_entry_hours && entry.persisted?
+      entries = context.to_a
+      entries << entry if include_entry_hours
+      split = Payroll::WeeklyOvertimeAllocator.call(entries).fetch(entry.id, {})
+      split.fetch(:overtime_hours, 0).positive? ? "pending" : "none"
+    end
 
-      if include_entry_hours
-        daily_scope = TimeEntry.countable.for_user(user).for_date(entry.work_date)
-        weekly_scope = TimeEntry.countable.for_user(user).for_week(entry.work_date)
-        if entry.persisted?
-          daily_scope = daily_scope.where.not(id: entry.id)
-          weekly_scope = weekly_scope.where.not(id: entry.id)
-        end
-        daily_hours = daily_scope.sum(:hours).to_f + entry.hours.to_f
-        weekly_hours = weekly_scope.sum(:hours).to_f + entry.hours.to_f
-      else
-        daily_hours = hours_today(user, entry.work_date)
-        weekly_hours = hours_this_week(user, entry.work_date)
-      end
-
-      if daily_hours > daily_threshold || weekly_hours > weekly_threshold
-        "pending"
-      else
-        "none"
-      end
+    # Informational alerts are separate from payable overtime and approvals.
+    def review_alerts(user, date = Time.current.in_time_zone(business_timezone).to_date)
+      {
+        daily_threshold_exceeded: hours_today(user, date) > Setting.get("overtime_daily_threshold_hours").to_f,
+        weekly_threshold_exceeded: hours_this_week(user, date) > Setting.get("overtime_weekly_threshold_hours").to_f
+      }
     end
 
     private

@@ -65,6 +65,17 @@ describe('ClockInOutCard geofence messaging', () => {
     })
   })
 
+  it('shows review alerts without disabling the clock or calling them payable overtime', async () => {
+    const normal = await apiMock.getClockStatus()
+    apiMock.getClockStatus.mockResolvedValue({
+      data: { ...normal.data, review_alerts: { daily_threshold_exceeded: true, weekly_threshold_exceeded: false } },
+    })
+    render(<ClockInOutCard />)
+    expect(await screen.findByText(/Recorded hours passed a review threshold/)).toBeInTheDocument()
+    expect(screen.getByText(/overtime pay starts only after 40 hours/)).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /clock in/i })[0]).toBeEnabled()
+  })
+
   it('shows the geolocation permission error instead of a generic failure', async () => {
     const getCurrentPosition = vi.fn((_success, error) => {
       error({

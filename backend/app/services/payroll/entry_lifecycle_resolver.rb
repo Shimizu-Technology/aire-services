@@ -21,12 +21,17 @@ module Payroll
 
     }.freeze
 
-    def initialize(entries:)
+    def initialize(entries:, overtime_context_entries: nil, overtime_allocations: nil, weekly_overtime_reviews: nil)
       @entries = Array(entries).uniq(&:id)
+      @overtime_context_entries = overtime_context_entries
+      @overtime_allocations = overtime_allocations
+      @provided_weekly_overtime_reviews = weekly_overtime_reviews
     end
 
     def call
       return {} if entries.empty?
+
+      @weekly_overtime_reviews = @provided_weekly_overtime_reviews || WeeklyOvertimeReview.call(entries, context_entries: @overtime_context_entries, allocations: @overtime_allocations)
 
       rows_by_entry = PayrollBatchEntry
         .includes(payroll_batch: :payroll_batch_processing_events)
@@ -186,8 +191,8 @@ module Payroll
       end
       return settlements.last.fetch(:status) if settlements.any?
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
-      return "awaiting_approval" if entry.approval_status == "pending" || entry.overtime_status == "pending"
-      return "not_payable" if entry.approval_status == "denied" || entry.overtime_status == "denied"
+      return "awaiting_approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?) || (entry.overtime_status == "pending" && @weekly_overtime_reviews.fetch(entry.id, false))
+      return "not_payable" if entry.approval_status == "denied" || (entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false))
 
       "ready_for_cutoff"
     end

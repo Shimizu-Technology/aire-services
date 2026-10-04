@@ -28,7 +28,9 @@ module Payroll
       control_entries = control_scope.to_a
       report_entries = filter_report_entries(control_entries)
       @entry_quality_flags = build_entry_quality_flags(control_entries)
-      @payroll_lifecycles = EntryLifecycleResolver.new(entries: control_entries).call
+      @overtime_allocations_by_user = control_entries.group_by(&:user_id).transform_values { |rows| allocate_weekly_overtime(rows) }
+      allocations = @overtime_allocations_by_user.values.each_with_object({}) { |rows, result| result.merge!(rows) }
+      @payroll_lifecycles = EntryLifecycleResolver.new(entries: control_entries, overtime_allocations: allocations).call
       control_period_entries = control_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
       breakdowns = build_breakdowns(employees)
@@ -142,7 +144,7 @@ module Payroll
     end
 
     def build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
-      overtime_allocations = allocate_weekly_overtime(user_context_entries)
+      overtime_allocations = @overtime_allocations_by_user.fetch(user.id, {})
       period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       countable_period_entries = period_entries.select { |entry| countable?(entry) }
       lifecycle_period_entries = params[:user_id].present? ? control_period_entries : period_entries
@@ -438,7 +440,7 @@ module Payroll
     end
 
     def countable?(entry)
-      entry.status == "completed" && !entry.approval_status.in?(%w[denied pending])
+      entry.counts_toward_hours?
     end
 
     def user_status(user)

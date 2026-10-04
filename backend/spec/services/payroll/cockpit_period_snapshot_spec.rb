@@ -80,9 +80,9 @@ RSpec.describe Payroll::CockpitPeriodSnapshot do
     expect(result.fetch(:status)).to eq("finalized")
     row = frozen_period.reload.payroll_batch.payroll_batch_entries.sole
     expect(row.total_hours).to eq(10)
-    expect(row.regular_hours).to eq(8)
-    expect(row.overtime_hours).to eq(2)
+    expect(row.regular_hours).to eq(10)
+    expect(row.overtime_hours).to eq(0)
     expect(frozen_period.payroll_batch.payload.fetch("overtime_policy"))
-      .to include("daily_threshold_hours" => 8.0)
+      .to eq(Payroll::WeeklyOvertimeAllocator.configured_policy.stringify_keys)
   end
 end

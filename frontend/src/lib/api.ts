@@ -578,6 +578,10 @@ export interface ClockSession {
 }
 
 export interface ClockStatus {
+  review_alerts?: {
+    daily_threshold_exceeded: boolean;
+    weekly_threshold_exceeded: boolean;
+  };
   clocked_in: boolean;
   status: 'clocked_in' | 'on_break' | 'completed' | null;
   entry_id: number | null;
@@ -1237,7 +1241,8 @@ export interface PayrollCarryoverItem {
   exclusion_reason: string;
   held_total_hours: number;
   current_total_hours: number | null;
-  status: 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
+  payroll_lifecycle?: PayrollEntryLifecycle;
+  status: 'scheduled_supplemental' | 'needs_review' | 'partially_allocated' | 'payment_attested_pending_evidence' | 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
   included_batch: {
     id: string;
     start_date: string;
@@ -1251,6 +1256,7 @@ export interface PayrollCarryoverQueue {
   summary: {
     awaiting_approval_count: number;
     ready_for_next_batch_count: number;
+    needs_review_count?: number;
     in_payroll_count: number;
     not_payable_count: number;
   };

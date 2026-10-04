@@ -143,7 +143,7 @@ RSpec.describe Payroll::BatchFinalizer do
     end
   end
 
-  it "holds daily overtime until it is explicitly approved" do
+  it "does not hold legacy daily-only review flags when the week is below forty" do
     travel_to(guam.local(2026, 5, 16, 9)) do
       create_entry(date: Date.new(2026, 5, 5), hours: 8)
       overtime_entry = create_entry(
@@ -159,13 +159,40 @@ RSpec.describe Payroll::BatchFinalizer do
 
       batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
 
-      expect(batch.summary).to include("regular_hours" => 8.0, "overtime_hours" => 0.0)
-      exclusion = batch.payroll_batch_exclusions.find_by!(source_time_entry_id: overtime_entry.id)
-      expect(exclusion).to have_attributes(
-        reason: "pending_overtime",
-        held_regular_hours: 0,
-        held_overtime_hours: 6
-      )
+      expect(batch.summary).to include("regular_hours" => 14.0, "overtime_hours" => 0.0)
+      expect(batch.payroll_batch_exclusions.where(source_time_entry_id: overtime_entry.id)).not_to exist
+      expect(overtime_entry.reload.overtime_status).to eq("pending")
+    end
+  end
+
+  it "holds only genuine weekly overtime while including regular hours" do
+    travel_to(guam.local(2026, 5, 16, 9)) do
+      (Date.new(2026, 5, 3)..Date.new(2026, 5, 6)).each { |date| create_entry(date: date) }
+      target = create_entry(date: Date.new(2026, 5, 7), hours: 10,
+                            approval_status: "approved", overtime_status: "pending")
+      batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+      expect(batch.summary).to include("regular_hours" => 40.0, "overtime_hours" => 0.0)
+      expect(batch.payroll_batch_entries.find_by!(source_time_entry_id: target.id))
+        .to have_attributes(regular_hours: 8, overtime_hours: 0)
+      expect(batch.payroll_batch_exclusions.find_by!(source_time_entry_id: target.id))
+        .to have_attributes(reason: "pending_overtime", held_regular_hours: 0, held_overtime_hours: 2)
+    end
+  end
+
+  it "recomputes a later entry when backdated approved time changes its weekly split" do
+    travel_to(guam.local(2026, 5, 16, 9)) do
+      (Date.new(2026, 5, 4)..Date.new(2026, 5, 6)).each { |date| create_entry(date: date) }
+      target = create_entry(date: Date.new(2026, 5, 7), hours: 10, overtime_status: "none")
+      backdated = create_entry(date: Date.new(2026, 5, 3), hours: 10, approval_status: "pending")
+      expect(TimeClockService.check_overtime_status(employee, target)).to eq("none")
+      TimeClockService.approve_entry(entry: backdated, approved_by: admin)
+      expect(backdated.reload.overtime_status).to eq("none")
+      expect(TimeClockService.check_overtime_status(employee, target)).to eq("pending")
+      batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+      row = batch.payroll_batch_entries.find_by!(source_time_entry_id: target.id)
+      expect(row).to have_attributes(regular_hours: 6, overtime_hours: 4)
+      expect(target.reload.overtime_status).to eq("none")
+      expect(batch.summary).to include("regular_hours" => 40.0, "overtime_hours" => 4.0)
     end
   end
 

@@ -187,6 +187,55 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/AIRE will include it automatically/)).toBeInTheDocument()
   })
 
+  it('distinguishes historical review from recorded manual payments', async () => {
+    const common = {
+      source_user_id: '7', email: 'alice@example.com', category: null,
+      original_work_date: '2026-05-04', first_excluded_batch_id: 'AIRE-PAY-OLD',
+      latest_excluded_batch_id: 'AIRE-PAY-OLD', exclusion_reason: 'denied_overtime',
+      held_total_hours: 1, current_total_hours: 9, included_batch: null,
+    }
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [
+        { ...common, source_time_entry_id: '91', display_name: 'Historical review', status: 'needs_review' },
+        { ...common, source_time_entry_id: '92', display_name: 'Manual payment recorded', status: 'payment_issued',
+          payroll_lifecycle: { status: 'payment_issued', manually_paid_hours: 9,
+            settlements: [{ batch_id: 'manual-1', status: 'payment_issued', total_hours: 9 }] } },
+        { ...common, source_time_entry_id: '93', display_name: 'Partial manual payment', status: 'partially_paid',
+          payroll_lifecycle: { status: 'partially_paid', manually_paid_hours: 8,
+            settlements: [{ batch_id: 'manual-2', status: 'payment_issued', total_hours: 8 }] } },
+      ],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, needs_review_count: 1, in_payroll_count: 2, not_payable_count: 0 },
+      truncated: false,
+    } })
+    renderPayrollRuns()
+    expect(await screen.findByText('Historical review')).toBeInTheDocument()
+    expect(screen.getByText(/choose a payroll destination in Cornerstone/)).toBeInTheDocument()
+    expect(screen.getByText(/will not be included automatically/)).toBeInTheDocument()
+    expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
+    expect(screen.getByText('Paid', { selector: 'span' })).toBeInTheDocument()
+    expect(screen.getByText('9.00 hrs paid · 0.00 hrs outstanding')).toBeInTheDocument()
+    expect(screen.getByText('8.00 hrs paid · 1.00 hrs outstanding')).toBeInTheDocument()
+  })
+
+  it('explains a supplemental destination without promising automatic regular inclusion', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{
+        source_time_entry_id: '94', source_user_id: '7', display_name: 'Supplemental worker',
+        email: null, category: null, original_work_date: '2026-05-04',
+        first_excluded_batch_id: 'AIRE-PAY-OLD', latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: 'denied_overtime', held_total_hours: 1, current_total_hours: 9,
+        status: 'scheduled_supplemental', included_batch: null,
+      }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 1, not_payable_count: 0 },
+      truncated: false,
+    } })
+    renderPayrollRuns()
+    expect(await screen.findByText('Scheduled for supplemental payroll')).toBeInTheDocument()
+    expect(screen.getByText(/Complete that run and record its payment/)).toBeInTheDocument()
+    expect(screen.queryByText('Ready for next cutoff')).not.toBeInTheDocument()
+    expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
+  })
+
   it('explains post-cutoff edits and deletions in plain language', async () => {
     apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
       items: [

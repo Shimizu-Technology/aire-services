@@ -6,7 +6,7 @@ module Payroll
 
     def call
       carryover_entry_ids = PayrollBatchExclusion
-        .where(reason: PayrollBatchExclusion::CARRYOVER_REASONS)
+        .where(reason: PayrollBatchExclusion::CARRYOVER_REASONS + [ "denied_overtime" ])
         .select(:source_time_entry_id)
       latest_exclusion_ids = PayrollBatchExclusion
         .where(source_time_entry_id: carryover_entry_ids)
@@ -39,6 +39,7 @@ module Payroll
         summary: {
           awaiting_approval_count: 0,
           ready_for_next_batch_count: 0,
+          needs_review_count: 0,
           in_payroll_count: 0,
           not_payable_count: 0,
           unassigned_case_count: 0,
@@ -56,6 +57,8 @@ module Payroll
       exclusions = exclusion_ids.filter_map { |id| exclusions_by_id[id] }
       entry_ids = exclusions.map(&:source_time_entry_id)
       current_entries = TimeEntry.includes(:user, :time_category).where(id: entry_ids).index_by(&:id)
+      @weekly_overtime_reviews = WeeklyOvertimeReview.call(current_entries.values)
+      @lifecycles = EntryLifecycleResolver.new(entries: current_entries.values, weekly_overtime_reviews: @weekly_overtime_reviews).call
       later_entries = PayrollBatchEntry
         .includes(payroll_batch: :payroll_batch_processing_events)
         .where(source_time_entry_id: entry_ids)
@@ -88,7 +91,8 @@ module Payroll
       {
         awaiting_approval_count: items.count { |item| item[:status] == "awaiting_approval" },
         ready_for_next_batch_count: items.count { |item| item[:status] == "ready_for_next_batch" },
-        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided partially_paid partially_prepared partially_processed]) },
+        needs_review_count: items.count { |item| item[:status] == "needs_review" },
+        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided partially_paid partially_prepared partially_processed partially_allocated payment_attested_pending_evidence scheduled_supplemental]) },
         not_payable_count: items.count { |item| item[:status] == "not_payable" },
         unassigned_case_count: items.count { |item| item.dig(:settlement_case, :destination_kind) == "unassigned" },
         supplemental_case_count: items.count { |item| item.dig(:settlement_case, :destination_kind) == "supplemental" }
@@ -131,6 +135,7 @@ module Payroll
         held_total_hours: exclusion.held_total_hours.to_f,
         current_total_hours: entry&.hours&.to_f,
         status: status,
+        payroll_lifecycle: @lifecycles[entry&.id],
         included_batch: batch && {
           id: batch.public_id,
           start_date: batch.start_date.iso8601,
@@ -152,6 +157,12 @@ module Payroll
     end
 
     def status_for(exclusion, entry, batch, processing, settlement_case)
+      lifecycle = @lifecycles[entry&.id]
+      # Manual reservations and owner evidence holds remain authoritative even
+      # when the historical exclusion has no later batch or settlement case.
+      if lifecycle && (lifecycle[:payment_attested_hours] || lifecycle.fetch(:settlements).any? { |row| row.fetch(:batch_id).start_with?("manual-") })
+        return lifecycle.fetch(:status) == "finalized" ? "awaiting_cornerstone" : lifecycle.fetch(:status)
+      end
       return "not_payable" if settlement_case&.status == "not_payable"
       if settlement_case&.destination_kind == "supplemental" && settlement_case.status == "in_payroll"
         settlement_status = settlement_case.payroll_settlement_case_events
@@ -161,11 +172,24 @@ module Payroll
         return settlement_status if settlement_status
       end
       return processing&.fetch(:status, nil) || "awaiting_cornerstone" if batch
-      return "not_payable" if entry.nil? || exclusion.reason.in?(%w[denied_approval denied_overtime])
+      return "not_payable" if entry.nil? || exclusion.reason == "denied_approval"
+      if exclusion.reason == "denied_overtime" && entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false)
+        return "not_payable"
+      end
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
-      return "awaiting_approval" if entry.approval_status == "pending" || entry.overtime_status == "pending"
-      return "not_payable" if entry.approval_status == "denied" || entry.overtime_status == "denied"
-      return "ready_for_next_batch" if entry.status == "completed" && entry.approval_status.in?([ nil, "approved" ])
+      return "awaiting_approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?) || (entry.overtime_status == "pending" && @weekly_overtime_reviews.fetch(entry.id, false))
+      return "not_payable" if entry.approval_status == "denied" || (entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false))
+      # A supplemental destination is a named Cornerstone run, not a target
+      # regular calendar. Its routing cannot promise automatic batch inclusion.
+      return "scheduled_supplemental" if settlement_case&.destination_kind == "supplemental" && settlement_case.status == "scheduled"
+      if entry.counts_toward_hours?
+        # Legacy denied OT is not an automatic carryover reason. An operator
+        # must reconcile its payment history and explicitly choose a destination.
+        if exclusion.reason == "denied_overtime" && (!settlement_case || settlement_case.destination_kind == "unassigned")
+          return "needs_review"
+        end
+        return "ready_for_next_batch"
+      end
 
       "awaiting_approval"
     end
@@ -184,10 +208,12 @@ module Payroll
     def status_rank(status)
       {
         "ready_for_next_batch" => 0,
+        "needs_review" => 0,
         "awaiting_approval" => 1,
         "payment_failed" => 2,
         "payment_voided" => 2,
         "awaiting_cornerstone" => 3,
+        "scheduled_supplemental" => 3,
         "imported" => 4,
         "committed" => 5,
         "payment_prepared" => 6,

@@ -37,6 +37,8 @@ class PayrollCalendarPeriod < ApplicationRecord
   validate :finalized_state_is_complete
   validate :valid_overtime_policy
 
+  attr_accessor :allow_weekly_overtime_policy_upgrade
+
   before_validation :capture_overtime_policy, on: :create
 
   scope :due_at, lambda { |time|
@@ -94,14 +96,18 @@ class PayrollCalendarPeriod < ApplicationRecord
   end
 
   def valid_overtime_policy
-    if persisted? && will_save_change_to_overtime_policy? && overtime_policy_in_database.present?
-      errors.add(:overtime_policy, "cannot change after the calendar is published")
+    if persisted? && will_save_change_to_overtime_policy?
+      allowed_upgrade = allow_weekly_overtime_policy_upgrade && status != "finalized" && finalized_at.nil? && payroll_batch_id.nil? &&
+        cutoff_at > Time.current && !Payroll::WeeklyOvertimeAllocator.supported_policy?(overtime_policy_in_database) &&
+        Payroll::WeeklyOvertimeAllocator.supported_policy?(overtime_policy)
+      errors.add(:overtime_policy, "cannot change after the calendar is published") unless allowed_upgrade
     end
     return if overtime_policy.blank? # Existing calendars require an explicit operator policy decision.
 
-    thresholds = %w[daily_threshold_hours weekly_threshold_hours].map { |key| overtime_policy[key] }
-    unless thresholds.all? { |value| value.is_a?(Numeric) && value.finite? && value.positive? }
-      errors.add(:overtime_policy, "requires positive daily and weekly thresholds")
+    return if persisted? && !will_save_change_to_overtime_policy? # Preserve immutable legacy history.
+
+    unless Payroll::WeeklyOvertimeAllocator.supported_policy?(overtime_policy)
+      errors.add(:overtime_policy, "must use the weekly-only 40-hour Sunday–Saturday Guam policy")
     end
   end
 
