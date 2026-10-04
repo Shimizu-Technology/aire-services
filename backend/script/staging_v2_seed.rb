@@ -164,7 +164,7 @@ ApplicationRecord.transaction do
   create_entry.call(
     user: ari, category: reconciliation_category, work_date: manual_start, start_hour: 16, hours: 2,
     method: "manual", approval: "approved", overtime: "approved",
-    description: "Approved overtime included before cutoff", timestamp: before_cutoff
+    description: "Approved additional regular hours included before cutoff", timestamp: before_cutoff
   )
   create_entry.call(
     user: ari, category: reconciliation_category, work_date: manual_end, start_hour: 8, hours: 4,
@@ -179,7 +179,7 @@ ApplicationRecord.transaction do
     create_entry.call(
       user: casey, category: connected_category, work_date: connected_work_date, start_hour: 7, hours: 10,
       method: "clock", approval: nil, overtime: "approved",
-      description: "Connected-flow day with overtime", timestamp: live_timestamp
+      description: "Connected-flow long day below the weekly overtime threshold", timestamp: live_timestamp
     )
     create_entry.call(
       user: casey, category: connected_category, work_date: connected_work_date, start_hour: 17, hours: 2,

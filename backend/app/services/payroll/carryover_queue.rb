@@ -163,9 +163,9 @@ module Payroll
       return processing&.fetch(:status, nil) || "awaiting_cornerstone" if batch
       return "not_payable" if entry.nil? || exclusion.reason.in?(%w[denied_approval denied_overtime])
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
-      return "awaiting_approval" if entry.approval_status == "pending" || entry.overtime_status == "pending"
-      return "not_payable" if entry.approval_status == "denied" || entry.overtime_status == "denied"
-      return "ready_for_next_batch" if entry.status == "completed" && entry.approval_status.in?([ nil, "approved" ])
+      return "awaiting_approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?) || (entry.overtime_status == "pending" && entry.payroll_overtime_review_required?)
+      return "not_payable" if entry.approval_status == "denied" || (entry.overtime_status == "denied" && entry.payroll_overtime_review_required?)
+      return "ready_for_next_batch" if entry.counts_toward_hours?
 
       "awaiting_approval"
     end

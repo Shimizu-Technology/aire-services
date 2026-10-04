@@ -438,7 +438,7 @@ module Payroll
     end
 
     def countable?(entry)
-      entry.status == "completed" && !entry.approval_status.in?(%w[denied pending])
+      entry.counts_toward_hours?
     end
 
     def user_status(user)

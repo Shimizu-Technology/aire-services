@@ -57,6 +57,14 @@ module Api
         end
 
         def calendar_params
+          if params[:overtime_policy].present?
+            raise ArgumentError, "overtime_policy must be an object" unless params[:overtime_policy].respond_to?(:keys)
+
+            allowed = ::Payroll::WeeklyOvertimeAllocator.configured_policy.keys.map(&:to_s)
+            if (params[:overtime_policy].keys - allowed).any?
+              raise ArgumentError, "overtime_policy contains unsupported fields"
+            end
+          end
           params.permit(
             :schema_version,
             :start_date,
@@ -69,7 +77,8 @@ module Api
             :cutoff_days,
             :previous_regular_pay_date,
             :schedule_version,
-            :publication_id
+            :publication_id,
+            overtime_policy: %i[schema_version calculation weekly_threshold_hours workweek_start time_zone]
           )
         end
       end

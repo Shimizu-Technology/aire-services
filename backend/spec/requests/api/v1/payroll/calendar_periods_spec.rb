@@ -31,6 +31,19 @@ RSpec.describe "Payroll calendar periods", type: :request do
     ENV["PAYROLL_SHARED_SECRET"] = previous
   end
 
+  it "accepts the canonical nested policy and rejects malformed or extra fields" do
+    policy = Payroll::WeeklyOvertimeAllocator.configured_policy
+    put "/api/v1/payroll/calendar_periods/#{period_id}", params: payload.merge(overtime_policy: policy).to_json, headers: headers
+    expect(response).to have_http_status(:created)
+    expect(response.parsed_body.dig("payroll_calendar_period", "overtime_policy")).to eq(policy.stringify_keys)
+    [ "daily", policy.merge(daily_threshold_hours: 8), policy.merge(weekly_threshold_hours: 42) ].each do |invalid|
+      put "/api/v1/payroll/calendar_periods/#{period_id}",
+          params: payload.merge(overtime_policy: invalid).to_json, headers: headers
+      expect(response).to have_http_status(:unprocessable_entity)
+    end
+    expect(PayrollCalendarPeriodRevision.count).to eq(1)
+  end
+
   it "requires service authentication" do
     put "/api/v1/payroll/calendar_periods/#{period_id}", params: payload.to_json,
         headers: { "Content-Type" => "application/json" }

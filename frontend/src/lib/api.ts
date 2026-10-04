@@ -578,6 +578,10 @@ export interface ClockSession {
 }
 
 export interface ClockStatus {
+  review_alerts?: {
+    daily_threshold_exceeded: boolean;
+    weekly_threshold_exceeded: boolean;
+  };
   clocked_in: boolean;
   status: 'clocked_in' | 'on_break' | 'completed' | null;
   entry_id: number | null;

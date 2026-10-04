@@ -186,8 +186,8 @@ module Payroll
       end
       return settlements.last.fetch(:status) if settlements.any?
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
-      return "awaiting_approval" if entry.approval_status == "pending" || entry.overtime_status == "pending"
-      return "not_payable" if entry.approval_status == "denied" || entry.overtime_status == "denied"
+      return "awaiting_approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?) || (entry.overtime_status == "pending" && entry.payroll_overtime_review_required?)
+      return "not_payable" if entry.approval_status == "denied" || (entry.overtime_status == "denied" && entry.payroll_overtime_review_required?)
 
       "ready_for_cutoff"
     end

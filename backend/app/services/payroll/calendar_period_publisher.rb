@@ -82,6 +82,16 @@ module Payroll
         normalized[:cutoff_days] = Integer(values.fetch(:cutoff_days).to_s, 10)
         normalized[:previous_regular_pay_date] = parse_date!(values.fetch(:previous_regular_pay_date), "previous_regular_pay_date") if values.key?(:previous_regular_pay_date)
       end
+      if values.key?(:overtime_policy)
+        raw_policy = values.fetch(:overtime_policy)
+        raise ArgumentError, "overtime_policy must be an object" unless raw_policy.respond_to?(:to_h)
+
+        policy = raw_policy.to_h.stringify_keys
+        unless WeeklyOvertimeAllocator.supported_policy?(policy)
+          raise ArgumentError, "overtime_policy must use the weekly-only 40-hour Sunday–Saturday Guam policy"
+        end
+        normalized[:overtime_policy] = policy
+      end
       raise ArgumentError, "external_pay_period_id is required" if normalized[:external_pay_period_id].blank?
       raise ArgumentError, "external_pay_period_id is too long" if normalized[:external_pay_period_id].length > 128
 
@@ -149,6 +159,10 @@ module Payroll
 
       reject_overlap!(excluding: period)
       reject_invalid_settlement_routes!(period)
+      if attributes.key?(:overtime_policy) && period.overtime_policy != attributes.fetch(:overtime_policy)
+        @previous_overtime_policy = period.overtime_policy.deep_dup
+        period.allow_weekly_overtime_policy_upgrade = true
+      end
       period.update!(period_attributes.merge(
         status: "scheduled",
         next_finalization_attempt_at: attributes.fetch(:cutoff_at),
@@ -193,6 +207,7 @@ module Payroll
         :publication_id,
         :request_checksum
       )
+      fields[:overtime_policy] = attributes.fetch(:overtime_policy) if attributes.key?(:overtime_policy)
       fields[:schema_version] = attributes.fetch(:schema_version)
       if attributes.fetch(:schema_version) == "2.0"
         fields[:cutoff_rule] = attributes.fetch(:cutoff_rule)
@@ -211,7 +226,7 @@ module Payroll
         schedule_version: attributes.fetch(:schedule_version),
         publication_id: attributes.fetch(:publication_id),
         request_checksum: attributes.fetch(:request_checksum),
-        payload: revision_payload,
+        payload: revision_payload.merge(@previous_overtime_policy ? { previous_overtime_policy: @previous_overtime_policy } : {}),
         published_at: now
       )
     end
@@ -259,6 +274,8 @@ module Payroll
           time_zone: period.time_zone,
           schema_version: period.schema_version,
           request_checksum: period.request_checksum,
+          overtime_policy: period.overtime_policy,
+          previous_overtime_policy: @previous_overtime_policy,
           **cutoff_policy
         }
       )

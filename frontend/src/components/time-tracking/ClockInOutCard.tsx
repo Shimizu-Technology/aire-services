@@ -335,6 +335,11 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   return (
     <div className={`rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md overflow-hidden bg-white ${borderColor}`}>
       <div className={`h-1 ${stripeColor}`} />
+      {(status?.review_alerts?.daily_threshold_exceeded || status?.review_alerts?.weekly_threshold_exceeded) && (
+        <p className="border-b border-neutral-warm bg-secondary/60 px-5 py-3 text-sm text-text-muted">
+          Recorded hours passed a review threshold. This is an informational alert; overtime pay starts only after 40 hours in a Sunday–Saturday week.
+        </p>
+      )}
 
       {/* ─── Mobile / Tablet layout (stacked) ─── */}
       <div className="p-5 md:hidden">

@@ -191,12 +191,18 @@ RSpec.describe Payroll::ManualAllocationRecorder do
   end
 
   it "accepts weekly overtime with no separate overtime approval when the batch builder includes it" do
+    4.times do |offset|
+      create(:time_entry, user: employee, time_category: category,
+                          work_date: Date.new(2026, 8, 9) + offset,
+                          status: "completed", entry_method: "clock", approval_status: nil,
+                          created_at: Time.zone.parse("2026-08-09 18:00") + offset.days)
+    end
     entry.update_columns(hours: 9.0, overtime_status: "none")
     entry.reload
     preview = Payroll::BatchBuilder.new(
       start_date: "2026-08-01", end_date: "2026-08-15", cutoff_at: Time.zone.parse("2026-09-18 17:00")
     ).call.fetch(:payload)
-    adjustment = preview.fetch(:employees).first.fetch(:adjustments).first
+    adjustment = preview.fetch(:employees).first.fetch(:adjustments).find { |row| row[:source_time_entry_id] == entry.id.to_s }
     expect(adjustment.fetch(:regular_hours)).to eq(8.0)
     expect(adjustment.fetch(:overtime_hours)).to eq(1.0)
 
@@ -213,14 +219,14 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     entry.update_columns(hours: 9, overtime_status: "none")
     create(:payroll_calendar_period, start_date: Date.new(2026, 8, 1), end_date: Date.new(2026, 8, 15),
            pay_date: Date.new(2026, 8, 31), cutoff_at: Time.iso8601("2026-08-24T17:00:00+10:00"),
-           overtime_policy: { daily_threshold_hours: 8, weekly_threshold_hours: 40 })
+           overtime_policy: Payroll::WeeklyOvertimeAllocator.configured_policy)
     Setting.set("overtime_daily_threshold_hours", "12")
 
     allocation = recorder.commit!(entry: entry.reload, source_user_uuid: employee.payroll_integration_uuid,
-                                  regular_hours: 8, overtime_hours: 1, external_pay_period_id: "68",
+                                  regular_hours: 9, overtime_hours: 0, external_pay_period_id: "68",
                                   external_payroll_item_id: "frozen-policy", pay_date: "2026-09-17",
                                   reason: "Verified source hours against the published frozen overtime policy")
-    expect(allocation).to have_attributes(regular_hours: 8, overtime_hours: 1)
+    expect(allocation).to have_attributes(regular_hours: 9, overtime_hours: 0)
   end
 
   it "keeps fully allocated uncategorized hours out of a calendar revision snapshot" do

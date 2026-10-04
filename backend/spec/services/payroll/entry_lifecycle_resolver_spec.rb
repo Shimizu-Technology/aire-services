@@ -3,6 +3,19 @@
 require "rails_helper"
 
 RSpec.describe Payroll::EntryLifecycleResolver do
+  it "keeps legacy daily-only review flags without holding regular hours" do
+    employee = create(:user, :employee)
+    category = create(:time_category)
+    entry = create(:time_entry, user: employee, time_category: category,
+                               status: "completed", entry_method: "clock", approval_status: nil,
+                               overtime_status: "pending")
+    entry.update_columns(hours: 9)
+    expect(described_class.new(entries: [ entry.reload ]).call.dig(entry.id, :status)).to eq("ready_for_cutoff")
+    expect(entry.reload.overtime_status).to eq("pending")
+    entry.update_column(:overtime_status, "denied")
+    expect(described_class.new(entries: [ entry.reload ]).call.dig(entry.id, :status)).to eq("ready_for_cutoff")
+  end
+
   it "reports paid and outstanding hours from exact payable-line receipts" do
     entry = create(
       :time_entry,

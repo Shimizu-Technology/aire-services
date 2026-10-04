@@ -443,11 +443,11 @@ RSpec.describe TimeClockService, type: :service do
       expect(described_class.check_overtime_status(user, entry)).to eq("none")
 
       entry.hours = 7
-      expect(described_class.check_overtime_status(user, entry)).to eq("pending")
+      expect(described_class.check_overtime_status(user, entry)).to eq("none")
       expect(peer.reload.hours).to eq(2)
     end
 
-    it "detects weekly overtime for an edited entry while its daily total remains below the threshold" do
+    it "keeps review-alert thresholds separate from overtime approval" do
       Setting.set("overtime_daily_threshold_hours", "8")
       Setting.set("overtime_weekly_threshold_hours", "10")
       monday = Date.new(2026, 9, 7)
@@ -460,7 +460,8 @@ RSpec.describe TimeClockService, type: :service do
       expect(described_class.check_overtime_status(user, entry)).to eq("none")
 
       entry.hours = 4
-      expect(described_class.check_overtime_status(user, entry)).to eq("pending")
+      expect(described_class.check_overtime_status(user, entry)).to eq("none")
+      expect(described_class.review_alerts(user, entry.work_date)).to include(weekly_threshold_exceeded: true)
     end
   end
 

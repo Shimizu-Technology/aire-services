@@ -219,6 +219,19 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(response).to have_http_status(:not_found)
   end
 
+  it "reports long days below forty as regular in live source detail" do
+    entry = create(:time_entry, user: employee, time_category: category,
+                               work_date: Date.current, status: "completed", entry_method: "manual",
+                               approval_status: "approved", approved_at: Time.current,
+                               end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 23))
+    Setting.set("overtime_daily_threshold_hours", "6")
+    Setting.set("overtime_weekly_threshold_hours", "10")
+    get "/api/v1/payroll/cockpit/time_entries/#{entry.id}", headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_entry)).to include(hours: 14.0, regular_hours: 14.0, overtime_hours: 0.0)
+    expect(json.dig(:time_entry, :overtime_policy)).to eq(Payroll::WeeklyOvertimeAllocator.configured_policy)
+  end
+
   it "reads one current source identity without requiring a published calendar" do
     entry = create(:time_entry, user: employee, time_category: category,
                   work_date: Date.current, status: "completed", entry_method: "manual",
@@ -1305,7 +1318,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
          headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
 
     expect(response).to have_http_status(:ok)
-    expect(entry.reload).to have_attributes(hours: 10.0, approval_status: "pending", overtime_status: "pending")
+    expect(entry.reload).to have_attributes(hours: 10.0, approval_status: "pending", overtime_status: "none")
   end
 
   it "rolls back the entry and break replacement when correction auditing fails" do
