@@ -92,7 +92,7 @@ module Payroll
         awaiting_approval_count: items.count { |item| item[:status] == "awaiting_approval" },
         ready_for_next_batch_count: items.count { |item| item[:status] == "ready_for_next_batch" },
         needs_review_count: items.count { |item| item[:status] == "needs_review" },
-        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided partially_paid partially_prepared partially_processed partially_allocated payment_attested_pending_evidence]) },
+        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided partially_paid partially_prepared partially_processed partially_allocated payment_attested_pending_evidence scheduled_supplemental]) },
         not_payable_count: items.count { |item| item[:status] == "not_payable" },
         unassigned_case_count: items.count { |item| item.dig(:settlement_case, :destination_kind) == "unassigned" },
         supplemental_case_count: items.count { |item| item.dig(:settlement_case, :destination_kind) == "supplemental" }
@@ -179,6 +179,9 @@ module Payroll
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
       return "awaiting_approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?) || (entry.overtime_status == "pending" && @weekly_overtime_reviews.fetch(entry.id, false))
       return "not_payable" if entry.approval_status == "denied" || (entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false))
+      # A supplemental destination is a named Cornerstone run, not a target
+      # regular calendar. Its routing cannot promise automatic batch inclusion.
+      return "scheduled_supplemental" if settlement_case&.destination_kind == "supplemental" && settlement_case.status == "scheduled"
       if entry.counts_toward_hours?
         # Legacy denied OT is not an automatic carryover reason. An operator
         # must reconcile its payment history and explicitly choose a destination.
@@ -210,6 +213,7 @@ module Payroll
         "payment_failed" => 2,
         "payment_voided" => 2,
         "awaiting_cornerstone" => 3,
+        "scheduled_supplemental" => 3,
         "imported" => 4,
         "committed" => 5,
         "payment_prepared" => 6,

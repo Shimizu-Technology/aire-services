@@ -1242,7 +1242,7 @@ export interface PayrollCarryoverItem {
   held_total_hours: number;
   current_total_hours: number | null;
   payroll_lifecycle?: PayrollEntryLifecycle;
-  status: 'needs_review' | 'partially_allocated' | 'payment_attested_pending_evidence' | 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
+  status: 'scheduled_supplemental' | 'needs_review' | 'partially_allocated' | 'payment_attested_pending_evidence' | 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
   included_batch: {
     id: string;
     start_date: string;

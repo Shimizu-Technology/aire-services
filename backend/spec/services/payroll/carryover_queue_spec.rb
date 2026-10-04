@@ -120,6 +120,28 @@ RSpec.describe Payroll::CarryoverQueue do
     expect(target.reload.overtime_status).to eq("denied")
   end
 
+  [ "denied_overtime", "pending_approval" ].each do |historical_reason|
+    it "tracks explicitly routed supplemental #{historical_reason} hours without promising a regular cutoff" do
+      target = entry(date: Date.new(2026, 5, 4))
+      exclusion = exclude(target, reason: historical_reason)
+      settlement_case = create(:payroll_settlement_case, origin_payroll_batch: exclusion.payroll_batch,
+                               origin_payroll_batch_exclusion: exclusion, source_time_entry_id: target.id,
+                               source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+                               origin_reason: historical_reason, original_work_date: target.work_date)
+      Payroll::SettlementCaseRouter.new(
+        settlement_case: settlement_case, destination_kind: "supplemental",
+        target_external_pay_period_id: "supplemental-historical-correction",
+        action_due_on: Date.new(2026, 10, 10), assigned_to_id: nil,
+        reason: "Reviewed payment history; settle in a separate supplemental run", actor: create(:user, :admin)
+      ).call
+      result = described_class.new.call
+      expect(result.fetch(:items).sole).to include(status: "scheduled_supplemental", included_batch: nil)
+      expect(result.fetch(:summary)).to include(ready_for_next_batch_count: 0, in_payroll_count: 1)
+      expect(settlement_case.reload.target_payroll_calendar_period).to be_nil
+      expect(target.reload.overtime_status).to eq("denied")
+    end
+  end
+
   it "continues to hold genuine denied weekly overtime while retaining historical evidence" do
     5.times { |offset| entry(date: Date.new(2026, 5, 3) + offset, hours: 8, overtime_status: "approved") }
     target = entry(date: Date.new(2026, 5, 8), hours: 2)

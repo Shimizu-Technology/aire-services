@@ -44,6 +44,7 @@ const EXCLUSION_LABELS: Record<string, string> = {
 }
 
 const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; detail: string; className: string }> = {
+  scheduled_supplemental: { label: 'Scheduled for supplemental payroll', detail: 'Assigned to a supplemental payroll in Cornerstone. Complete that run and record its payment; these hours will not be included automatically in a regular cutoff.', className: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
   needs_review: { label: 'Needs payroll review', detail: 'Review the recorded payments and choose a payroll destination in Cornerstone. These historical hours will not be included automatically.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   partially_allocated: { label: 'Partially assigned to payroll', detail: 'Some hours are already reserved in payroll. Review the remaining hours in Cornerstone before choosing a destination.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   payment_attested_pending_evidence: { label: 'Payment reported; evidence pending', detail: 'The owner reported these hours paid. They remain held while the payment evidence is reconciled in Cornerstone.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
