@@ -32,6 +32,7 @@ function TimeRouteHarness() {
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&approval_status=denied&overtime_status=denied')}>Open denied report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&status=terminated')}>Open terminated report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=7&approval_group=maintenance&role=employee&clock_source=kiosk&entry_method=clock')}>Open filtered report</button>
+      <button type="button" onClick={() => navigate(location.pathname + location.search + '&context=changed')}>Change unrelated context</button>
       <output data-testid="location-search">{location.search}</output>
       <TimeTracking />
     </>
@@ -96,6 +97,21 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.getByTestId('location-search')).not.toHaveTextContent('prefill=true')
     expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-10-01')
     expect(screen.getByTestId('location-search')).toHaveTextContent('user_id=7')
+  })
+
+  it('keeps one shift request when unrelated URL context changes while loading', async () => {
+    let resolveShift!: (value: unknown) => void
+    apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, email: 'casey@example.test', display_name: 'Casey' }] } })
+    apiMock.getSchedule.mockReturnValue(new Promise((resolve) => { resolveShift = resolve }))
+    render(<MemoryRouter initialEntries={['/admin/time?prefill=true&schedule_id=9&user_id=7']}><TimeRouteHarness /></MemoryRouter>)
+    await waitFor(() => expect(apiMock.getSchedule).toHaveBeenCalledTimes(1))
+    screen.getAllByRole('button', { name: '+ Add' }).forEach(button => expect(button).toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Change unrelated context' }))
+    expect(apiMock.getSchedule).toHaveBeenCalledTimes(1)
+    await act(async () => { resolveShift({ data: { schedule: { id: 9, user_id: 7, work_date: '2026-10-06', start_time: '09:00', end_time: '17:00', formatted_time_range: '9:00 AM - 5:00 PM' } } }) })
+    await waitFor(() => expect(screen.getByLabelText('Entry Owner')).toHaveValue('7'))
+    expect(screen.getByTestId('location-search')).toHaveTextContent('context=changed')
+    expect(apiMock.getSchedule).toHaveBeenCalledTimes(1)
   })
 
   it('retains a failed shift link and retries without substituting the administrator', async () => {

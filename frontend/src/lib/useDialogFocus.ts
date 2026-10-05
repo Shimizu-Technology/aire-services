@@ -1,5 +1,22 @@
 import { useEffect, useEffectEvent, type RefObject } from 'react'
 
+let scrollLocks = 0
+let previousBodyOverflow = ''
+
+/** Shared by dialogs so one closing overlay cannot unlock another. */
+export function lockDialogScroll() {
+  if (scrollLocks === 0) previousBodyOverflow = document.body.style.overflow
+  scrollLocks += 1
+  document.body.style.overflow = 'hidden'
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    scrollLocks -= 1
+    if (scrollLocks === 0) document.body.style.overflow = previousBodyOverflow
+  }
+}
+
 /** Keep keyboard navigation inside an open dialog and return to its trigger. */
 export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>, onClose: () => void) {
   const close = useEffectEvent(onClose)
@@ -7,8 +24,7 @@ export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>
     if (!open || !ref.current) return
     const dialog = ref.current
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const unlockScroll = lockDialogScroll()
     const controls = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')).filter(element => element.getClientRects().length > 0)
     ;(controls()[0] || dialog).focus()
     function handleKey(event: KeyboardEvent) {
@@ -25,7 +41,7 @@ export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>
     document.addEventListener('keydown', handleKey, true)
     return () => {
       document.removeEventListener('keydown', handleKey, true)
-      document.body.style.overflow = previousOverflow
+      unlockScroll()
       if (trigger?.isConnected) trigger.focus()
     }
   }, [open, ref])

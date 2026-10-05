@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useEffectEvent, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useDialogFocus } from '../../lib/useDialogFocus'
@@ -381,6 +381,14 @@ function EntryQualityFlags({ flags = [] }: { flags?: TimeEntryItem['quality_flag
 
 export default function TimeTracking() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const routedPrefill = searchParams.get('prefill')
+  const routedScheduleId = searchParams.get('schedule_id') || ''
+  const routedPrefillOwner = searchParams.get('user_id') || ''
+  const clearShiftPrefill = useEffectEvent(() => {
+    const next = new URLSearchParams(searchParams)
+    for (const key of ['prefill', 'schedule_id', 'date', 'start_time', 'end_time', 'notes']) next.delete(key)
+    setSearchParams(next, { replace: true })
+  })
   const { userRole, isClerkEnabled } = useAuthContext()
   const authSaysAdmin = !isClerkEnabled || userRole === 'admin'
   const routedPeriod = linkedPayrollPeriod(searchParams)
@@ -803,10 +811,10 @@ export default function TimeTracking() {
   // Load the exact shift after identity and category options are available.
   // Retain the link on failure so Retry and refresh can recover it.
   useEffect(() => {
-    if (searchParams.get('prefill') !== 'true' || !optionsReady) return
+    if (routedPrefill !== 'true' || !optionsReady) return
     let cancelled = false
-    const scheduleId = searchParams.get('schedule_id') || ''
-    const expectedOwner = searchParams.get('user_id') || ''
+    const scheduleId = routedScheduleId
+    const expectedOwner = routedPrefillOwner
     setPrefillError(null)
 
     const initialize = async () => {
@@ -843,16 +851,14 @@ export default function TimeTracking() {
           break_minutes: null,
         })
         setShowModal(true)
-        const next = new URLSearchParams(searchParams)
-        for (const key of ['prefill', 'schedule_id', 'date', 'start_time', 'end_time', 'notes']) next.delete(key)
-        setSearchParams(next, { replace: true })
+        clearShiftPrefill()
       } catch {
         if (!cancelled) setPrefillError('Unable to load the scheduled shift. Please try again.')
       }
     }
     void initialize()
     return () => { cancelled = true }
-  }, [searchParams, setSearchParams, optionsReady, users, isAdmin, currentUserId, initialCategoryForOwner, prefillRetry])
+  }, [routedPrefill, routedScheduleId, routedPrefillOwner, optionsReady, users, isAdmin, currentUserId, initialCategoryForOwner, prefillRetry])
 
   // Navigation
   const goToToday = () => setCurrentDate(new Date())
@@ -878,16 +884,17 @@ export default function TimeTracking() {
   }
 
   // Modal handlers
-  const openNewEntry = (date?: Date, prefillStart?: string, prefillEnd?: string, prefillNotes?: string) => {
+  const openNewEntry = (date?: Date, prefillStart?: string, prefillEnd?: string, prefillNotes?: string, ownerId?: number | null) => {
     if (!optionsReady || searchParams.get('prefill') === 'true') return
+    const selectedOwner = ownerId ?? (isAdmin && entryFilters.user_id ? Number(entryFilters.user_id) : currentUserId)
     setEditingEntry(null)
     setFormData({
       work_date: formatDateISO(date || currentDate),
       start_time: prefillStart || '08:00',
       end_time: prefillEnd || '17:00',
       description: prefillNotes || '',
-      time_category_id: initialCategoryForOwner(isAdmin && entryFilters.user_id ? Number(entryFilters.user_id) : currentUserId),
-      user_id: isAdmin && entryFilters.user_id ? entryFilters.user_id : currentUserId?.toString() || '',
+      time_category_id: initialCategoryForOwner(selectedOwner),
+      user_id: selectedOwner?.toString() || '',
       break_minutes: null
     })
     setShowModal(true)
@@ -1547,6 +1554,7 @@ export default function TimeTracking() {
                     })}
                     <button
                       onClick={() => openNewEntry(date)}
+                      disabled={!optionsReady || routedPrefill === 'true'}
                     className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary sm:p-2"
                   >
                     + Add
@@ -1570,6 +1578,7 @@ export default function TimeTracking() {
               <p className="text-primary-dark font-medium">No time entries for this day</p>
               <button
                 onClick={() => openNewEntry()}
+                disabled={!optionsReady || routedPrefill === 'true'}
                 className="mt-4 text-primary hover:text-primary-dark font-semibold"
               >
                 Log your first entry
@@ -1694,21 +1703,12 @@ export default function TimeTracking() {
                 openEditEntry(entry)
               }}
               onAddEntry={() => {
+                if (!optionsReady || routedPrefill === 'true') return
                 const e = personDayModal.entries[0]
                 const userId = e ? e.user.id : currentUserId
                 returnToPersonDay.current = { name: personDayModal.name, date: personDayModal.date, userId: userId || 0 }
                 setPersonDayModal(null)
-                setEditingEntry(null)
-                setFormData({
-                  work_date: personDayModal.date,
-                  start_time: '08:00',
-                  end_time: '17:00',
-                  description: '',
-                  time_category_id: initialCategoryForOwner(userId || null),
-                  user_id: userId?.toString() || '',
-                  break_minutes: null
-                })
-                setShowModal(true)
+                openNewEntry(new Date(`${personDayModal.date}T00:00:00`), undefined, undefined, undefined, userId)
               }}
               onDeleteEntry={async (entry) => {
                 await handleDelete(entry)

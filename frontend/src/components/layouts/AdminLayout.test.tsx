@@ -90,6 +90,37 @@ describe('AdminLayout kiosk PIN setup', () => {
     expect(window.localStorage.getItem('aire-admin-sidebar-collapsed')).toBe('true')
   })
 
+  it('closes mobile navigation on desktop resize and focuses a visible link', () => {
+    authMock.value.currentUser.needs_kiosk_pin_setup = false
+    window.innerWidth = 390
+    renderLayout()
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }))
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(screen.getByRole('button', { name: 'Close navigation' })).toHaveFocus()
+    window.innerWidth = 1280
+    fireEvent(window, new Event('resize'))
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
+    expect(screen.getByRole('link', { name: 'My Dashboard' })).toHaveFocus()
+  })
+
+  it('suspends mobile navigation when required PIN setup arrives', () => {
+    authMock.value.currentUser.needs_kiosk_pin_setup = false
+    window.innerWidth = 390
+    const view = renderLayout()
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }))
+    authMock.value.currentUser = { full_name: 'Hourly Pilot', needs_kiosk_pin_setup: true }
+    view.rerender(<MemoryRouter><AdminLayout /></MemoryRouter>)
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: /create your kiosk pin/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/^pin$/i)).toHaveFocus()
+    expect(document.body.style.overflow).toBe('hidden')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: /create your kiosk pin/i })).toBeInTheDocument()
+    view.unmount()
+    expect(document.body.style.overflow).toBe('')
+  })
+
   it('blocks a personal time-tracking user until they create a PIN', async () => {
     renderLayout()
 
