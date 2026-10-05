@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import Users from './Users'
 import type { AdminTimeCategory, AdminUser, ApprovalGroupOption } from '../../lib/api'
 
@@ -394,6 +394,16 @@ describe('Users filters', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
+  })
+
+  it('removes the edit deep link on close and preserves directory filters', async () => {
+    function Address() { return <output aria-label="Directory address">{useLocation().search}</output> }
+    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=1&search=Alice']}><Users /><Address /></MemoryRouter>)
+    const dialog = await screen.findByRole('dialog', { name: /edit alice pilot/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Directory address')).toHaveTextContent('?search=Alice')
+    expect(screen.getByLabelText('Directory address')).not.toHaveTextContent('edit_user_id')
   })
 
 })

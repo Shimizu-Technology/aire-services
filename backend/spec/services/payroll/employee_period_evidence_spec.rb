@@ -120,6 +120,8 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
       work_date: row.work_date, week_start: row.work_date.beginning_of_week(:sunday), line_key: "legacy",
       source_kind: "current", regular_hours: 8, overtime_hours: 0, total_hours: 8, snapshot: {})
     expect(saved.source_user_uuid).to be_nil
+    PayrollBatchProcessingEvent.create!(payroll_batch: batch, event_id: SecureRandom.uuid, external_system: "cornerstone_payroll", status: "payment_issued", occurred_at: Time.current)
+    expect(result[:totals]).to include(issued_hours: 0.0, exported_hours: 0.0, needs_reconciliation_hours: 8.0, identity_review_count: 1)
     expect(result[:periods].first).to include(review_required: true)
     expect(result[:totals][:identity_review_count]).to eq(1)
     expect(saved.reload.source_user_uuid).to be_nil
@@ -143,6 +145,28 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
       source_kind: "current", regular_hours: 8, overtime_hours: 0, total_hours: 8, snapshot: {})
     expect(result[:totals]).to include(exported_hours: 0.0, needs_reconciliation_hours: 8.0, identity_review_count: 1)
     expect(described_class.new(user: employee).call(period_id: "2026-09-01")[:period][:coverage_lines].first).to include(identity_state: "frozen_owner_mismatch", coverage_state: "identity_review")
+  end
+
+  it "attributes frozen work by stable UUID across a saved numeric owner change without moving current work" do
+    row = entry(8)
+    other = create(:user, :employee)
+    row.update_column(:user_id, other.id)
+    batch = create(:payroll_batch)
+    saved = batch.payroll_batch_entries.create!(source_time_entry_id: row.id, source_user_id: other.id,
+      source_user_uuid: employee.payroll_integration_uuid, source_category_id: row.time_category_id,
+      work_date: row.work_date, week_start: row.work_date.beginning_of_week(:sunday), line_key: "stable-owner",
+      source_kind: "current", regular_hours: 8, overtime_hours: 0, total_hours: 8, snapshot: {})
+    receipt(batch, saved, "payment_issued")
+    stranger = create(:user, :employee)
+    batch.payroll_batch_entries.create!(source_time_entry_id: row.id + 1000, source_user_id: stranger.id,
+      source_user_uuid: stranger.payroll_integration_uuid, source_category_id: row.time_category_id,
+      work_date: row.work_date, week_start: row.work_date.beginning_of_week(:sunday), line_key: "unrelated-owner",
+      source_kind: "current", regular_hours: 3, overtime_hours: 0, total_hours: 3, snapshot: {})
+    expect(result[:totals]).to include(worked_hours: 0.0, issued_hours: 8.0, identity_review_count: 0)
+    detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+    expect(detail[:coverage_lines]).to contain_exactly(include(source_user_id: other.id.to_s, source_user_uuid: employee.payroll_integration_uuid, source_time_entry_id: row.id.to_s))
+    expect(described_class.new(user: other).call[:totals]).to include(worked_hours: 8.0, issued_hours: 0.0, identity_review_count: 1, needs_reconciliation_hours: 8.0)
+    expect(saved.reload.source_user_id).to eq(other.id)
   end
 
   it "paginates more than 250 details without changing totals and rejects cross-person cursors" do
@@ -199,6 +223,35 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     expect { described_class.new(user: employee, params: { entry_id: stranger.id }).call(period_id: "2026-09-01") }.to raise_error(ActiveRecord::RecordNotFound)
     cursor = described_class.new(user: employee, params: { detail_per_page: 1 }).call(period_id: "2026-09-01")[:period][:detail_pagination][:next_cursor]
     expect { described_class.new(user: employee, params: { detail_per_page: 1, entry_id: target.id, detail_cursor: cursor }).call(period_id: "2026-09-01") }.to raise_error(ArgumentError, /Detail cursor/)
+  end
+
+  it "preserves issued over-coverage as evidence and does not invent negative remaining hours or money owed" do
+    row = entry(8)
+    allocation(row, 10, "issued")
+    detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+    expect(detail[:entries].first).to include(eligible_hours: 8.0, issued_hours: 10.0, needs_reconciliation_hours: 0.0)
+    expect(detail[:summary]).to include(eligible_hours: 8.0, issued_hours: 10.0, needs_reconciliation_hours: 0.0)
+    expect(detail[:amount_owed]).to be_nil
+  end
+
+  it "shows batch-only payment status without claiming exact-line coverage" do
+    row = entry(8)
+    batch = create(:payroll_batch)
+    line(batch, row, 8)
+    PayrollBatchProcessingEvent.create!(payroll_batch: batch, event_id: SecureRandom.uuid, external_system: "cornerstone_payroll", status: "payment_issued", occurred_at: Time.current)
+    expect(result[:totals]).to include(issued_hours: 0.0, needs_reconciliation_hours: 8.0, receipt_review_count: 1)
+    expect(described_class.new(user: employee).call(period_id: "2026-09-01")[:period][:coverage_lines].first).to include(status: "payment_issued", coverage_state: "receipt_review", receipt_scope: "batch")
+  end
+
+  it "credits legacy entry receipts only when their frozen payable line is unambiguous" do
+    row = entry(8)
+    batch = create(:payroll_batch)
+    line(batch, row, 8)
+    PayrollEntryProcessingEvent.create!(payroll_batch: batch, source_time_entry_id: row.id, event_id: SecureRandom.uuid,
+      source_user_uuid: employee.payroll_integration_uuid, external_system: "cornerstone_payroll", status: "payment_issued", occurred_at: Time.current)
+    expect(result[:totals]).to include(issued_hours: 8.0, receipt_review_count: 0)
+    line(batch, row, 1, -1, "correction")
+    expect(result[:totals]).to include(issued_hours: 0.0, receipt_review_count: 2, needs_reconciliation_hours: 8.0)
   end
 
   it "rejects invalid dates and page sizes" do

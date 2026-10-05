@@ -365,6 +365,8 @@ export default function Users() {
   }
 
   const closeEditModal = () => {
+    setQuery((previous) => { const next = new URLSearchParams(previous); next.delete('edit_user_id'); return next }, { replace: true })
+    handledEdit.current = null
     setEditingUser(null)
     setEditFirstName('')
     setEditLastName('')
