@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useEffectEvent, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
@@ -380,6 +381,14 @@ function EntryQualityFlags({ flags = [] }: { flags?: TimeEntryItem['quality_flag
 
 export default function TimeTracking() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const routedPrefill = searchParams.get('prefill')
+  const routedScheduleId = searchParams.get('schedule_id') || ''
+  const routedPrefillOwner = searchParams.get('user_id') || ''
+  const clearShiftPrefill = useEffectEvent(() => {
+    const next = new URLSearchParams(searchParams)
+    for (const key of ['prefill', 'schedule_id', 'date', 'start_time', 'end_time', 'notes']) next.delete(key)
+    setSearchParams(next, { replace: true })
+  })
   const { userRole, isClerkEnabled } = useAuthContext()
   const authSaysAdmin = !isClerkEnabled || userRole === 'admin'
   const routedPeriod = linkedPayrollPeriod(searchParams)
@@ -406,6 +415,10 @@ export default function TimeTracking() {
   const [pendingApprovalSummary, setPendingApprovalSummary] = useState<PendingApprovalsSummary | null>(null)
   const [isAdmin, setIsAdmin] = useState(authSaysAdmin)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+  const [optionsReady, setOptionsReady] = useState(false)
+  const [optionsError, setOptionsError] = useState<string | null>(null)
+  const [prefillError, setPrefillError] = useState<string | null>(null)
+  const [prefillRetry, setPrefillRetry] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
@@ -417,7 +430,7 @@ export default function TimeTracking() {
   
   // Entries filters (for Time Entries tab)
   const [entryFilters, setEntryFilters] = useState({
-    user_id: '',
+    user_id: routedUserId,
     time_category_id: '',
   })
   const [showDenied, setShowDenied] = useState(false)
@@ -454,6 +467,7 @@ export default function TimeTracking() {
 
   // Modal state
   const [showModal, setShowModal] = useState(false)
+  const createDialogRef = useRef<HTMLDivElement>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<TimeEntryItem | null>(null)
   const [formData, setFormData] = useState({
@@ -543,12 +557,19 @@ export default function TimeTracking() {
 
   // Load categories and users
   const loadOptions = useCallback(async () => {
+    setOptionsReady(false)
+    setOptionsError(null)
     try {
       const [catResponse, userResponse, currentUserResponse] = await Promise.all([
         api.getTimeCategories(),
         api.getUsers(),
         api.getCurrentUser()
       ])
+
+      if (!catResponse.data || !currentUserResponse.data || (currentUserResponse.data.user.is_admin && !userResponse.data)) {
+        setOptionsError(catResponse.error || currentUserResponse.error || userResponse.error || 'Unable to load people and work categories.')
+        return
+      }
 
       if (catResponse.data) {
         setCategories(catResponse.data.time_categories as unknown as TimeCategory[])
@@ -572,8 +593,9 @@ export default function TimeTracking() {
         setIsAdmin(currentUserResponse.data.user.is_admin)
         setCurrentUserId(currentUserResponse.data.user.id)
       }
+      setOptionsReady(true)
     } catch {
-      console.error('Failed to load options')
+      setOptionsError('Unable to load people and work categories. Please try again.')
     }
   }, [])
 
@@ -668,6 +690,11 @@ export default function TimeTracking() {
     const requestedTab = timeTabFromSearchParams(searchParams)
     setActiveTab((current) => current === requestedTab ? current : requestedTab)
   }, [searchParams])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setEntryFilters(current => current.user_id === routedUserId ? current : { ...current, user_id: routedUserId }), 0)
+    return () => window.clearTimeout(timer)
+  }, [routedUserId])
 
   useEffect(() => {
     const rawUserId = searchParams.get('user_id')
@@ -781,32 +808,57 @@ export default function TimeTracking() {
     }
   }, [activeTab])
 
-  // Handle prefill from schedule
+  // Load the exact shift after identity and category options are available.
+  // Retain the link on failure so Retry and refresh can recover it.
   useEffect(() => {
-    const prefill = searchParams.get('prefill')
-    if (prefill === 'true') {
-      const date = searchParams.get('date') || formatDateISO(new Date())
-      const startTime = searchParams.get('start_time') || '08:00'
-      const endTime = searchParams.get('end_time') || '17:00'
-      const notes = searchParams.get('notes') || ''
-      
-      // Open modal with pre-filled data
-      setEditingEntry(null)
-      setFormData({
-        work_date: date,
-        start_time: startTime,
-        end_time: endTime,
-        description: notes,
-        time_category_id: initialCategoryForOwner(currentUserId),
-            user_id: currentUserId?.toString() || '',
-        break_minutes: null
-      })
-      setShowModal(true)
-      
-      // Clear the URL params
-      setSearchParams({})
+    if (routedPrefill !== 'true' || !optionsReady) return
+    let cancelled = false
+    const scheduleId = routedScheduleId
+    const expectedOwner = routedPrefillOwner
+    setPrefillError(null)
+
+    const initialize = async () => {
+      if (!/^[1-9]\d*$/.test(scheduleId) || !/^[1-9]\d*$/.test(expectedOwner)) {
+        setPrefillError('This shift link is incomplete. Open Log Time from Schedule again.')
+        return
+      }
+      try {
+        const response = await api.getSchedule(Number(scheduleId))
+        if (cancelled) return
+        if (response.error || !response.data) {
+          setPrefillError(response.error || 'Unable to load the scheduled shift.')
+          return
+        }
+        const shift = response.data.schedule
+        const owner = users.find((user) => user.id === shift.user_id)
+        if (String(shift.user_id) !== expectedOwner || (!isAdmin && shift.user_id !== currentUserId)) {
+          setPrefillError('The shift employee has changed or is unavailable to your account. Open Schedule again.')
+          return
+        }
+        if (isAdmin && !owner) {
+          setPrefillError('The scheduled employee is unavailable. Review their access in Team before logging time.')
+          return
+        }
+        setEditingEntry(null)
+        setCurrentDate(new Date(`${shift.work_date}T00:00:00`))
+        setFormData({
+          work_date: shift.work_date,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+          description: [`Scheduled shift: ${shift.formatted_time_range}`, shift.notes].filter(Boolean).join(' — '),
+          time_category_id: initialCategoryForOwner(shift.user_id),
+          user_id: String(shift.user_id),
+          break_minutes: null,
+        })
+        setShowModal(true)
+        clearShiftPrefill()
+      } catch {
+        if (!cancelled) setPrefillError('Unable to load the scheduled shift. Please try again.')
+      }
     }
-  }, [searchParams, setSearchParams, currentUserId, initialCategoryForOwner])
+    void initialize()
+    return () => { cancelled = true }
+  }, [routedPrefill, routedScheduleId, routedPrefillOwner, optionsReady, users, isAdmin, currentUserId, initialCategoryForOwner, prefillRetry])
 
   // Navigation
   const goToToday = () => setCurrentDate(new Date())
@@ -832,15 +884,17 @@ export default function TimeTracking() {
   }
 
   // Modal handlers
-  const openNewEntry = (date?: Date, prefillStart?: string, prefillEnd?: string, prefillNotes?: string) => {
+  const openNewEntry = (date?: Date, prefillStart?: string, prefillEnd?: string, prefillNotes?: string, ownerId?: number | null) => {
+    if (!optionsReady || searchParams.get('prefill') === 'true') return
+    const selectedOwner = ownerId ?? (isAdmin && entryFilters.user_id ? Number(entryFilters.user_id) : currentUserId)
     setEditingEntry(null)
     setFormData({
       work_date: formatDateISO(date || currentDate),
       start_time: prefillStart || '08:00',
       end_time: prefillEnd || '17:00',
       description: prefillNotes || '',
-      time_category_id: initialCategoryForOwner(currentUserId),
-        user_id: currentUserId?.toString() || '',
+      time_category_id: initialCategoryForOwner(selectedOwner),
+      user_id: selectedOwner?.toString() || '',
       break_minutes: null
     })
     setShowModal(true)
@@ -881,6 +935,7 @@ export default function TimeTracking() {
   }
 
   const closeCreateModal = () => {
+    if (saving) return
     setShowModal(false)
     const ctx = returnToPersonDay.current
     if (ctx) {
@@ -893,6 +948,8 @@ export default function TimeTracking() {
       }
     }
   }
+
+  useDialogFocus(showModal, createDialogRef, () => { if (!saving) closeCreateModal() })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1098,7 +1155,8 @@ export default function TimeTracking() {
         action={activeTab === 'entries' ? (
           <button
             onClick={() => openNewEntry()}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+            disabled={!optionsReady || searchParams.get('prefill') === 'true'}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-60 hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
           >
             <PlusIcon />
             <span>Log Time</span>
@@ -1146,7 +1204,7 @@ export default function TimeTracking() {
               <label className="block text-sm text-text-muted mb-1">Employee</label>
               <select
                 value={entryFilters.user_id}
-                onChange={(e) => setEntryFilters({ ...entryFilters, user_id: e.target.value })}
+                onChange={(e) => { const next = new URLSearchParams(searchParams); if (e.target.value) next.set('user_id', e.target.value); else next.delete('user_id'); setSearchParams(next, { replace: true }) }}
                 className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
               >
                 <option value="">All Employees</option>
@@ -1174,7 +1232,7 @@ export default function TimeTracking() {
           {/* Clear filters button */}
           {(entryFilters.user_id || entryFilters.time_category_id) && (
             <button
-              onClick={() => setEntryFilters({ user_id: '', time_category_id: '' })}
+              onClick={() => { setEntryFilters({ user_id: '', time_category_id: '' }); const next = new URLSearchParams(searchParams); next.delete('user_id'); setSearchParams(next, { replace: true }) }}
               className="mt-3 text-sm text-primary hover:text-primary-dark font-medium"
             >
               Clear all filters
@@ -1341,6 +1399,18 @@ export default function TimeTracking() {
       )}
 
       {/* Error Display */}
+      {optionsError && searchParams.get('prefill') !== 'true' && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+        <p>{optionsError}</p>
+        <button type="button" onClick={() => void loadOptions()} className="mt-2 min-h-11 underline">Retry people and categories</button>
+      </div>}
+      {searchParams.get('prefill') === 'true' && (
+        <div role={prefillError || optionsError ? 'alert' : 'status'} className="rounded-xl border border-slate-200 bg-white p-4">
+          <p>{prefillError || optionsError || 'Loading the scheduled shift and employee…'}</p>
+          {(prefillError || optionsError) && (
+            <button type="button" onClick={() => { if (!optionsReady) void loadOptions(); else setPrefillRetry((value) => value + 1) }} className="mt-2 min-h-11 text-primary underline">Retry scheduled shift</button>
+          )}
+        </div>
+      )}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800">
           {error}
@@ -1484,6 +1554,7 @@ export default function TimeTracking() {
                     })}
                     <button
                       onClick={() => openNewEntry(date)}
+                      disabled={!optionsReady || routedPrefill === 'true'}
                     className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary sm:p-2"
                   >
                     + Add
@@ -1507,6 +1578,7 @@ export default function TimeTracking() {
               <p className="text-primary-dark font-medium">No time entries for this day</p>
               <button
                 onClick={() => openNewEntry()}
+                disabled={!optionsReady || routedPrefill === 'true'}
                 className="mt-4 text-primary hover:text-primary-dark font-semibold"
               >
                 Log your first entry
@@ -1631,21 +1703,12 @@ export default function TimeTracking() {
                 openEditEntry(entry)
               }}
               onAddEntry={() => {
+                if (!optionsReady || routedPrefill === 'true') return
                 const e = personDayModal.entries[0]
                 const userId = e ? e.user.id : currentUserId
                 returnToPersonDay.current = { name: personDayModal.name, date: personDayModal.date, userId: userId || 0 }
                 setPersonDayModal(null)
-                setEditingEntry(null)
-                setFormData({
-                  work_date: personDayModal.date,
-                  start_time: '08:00',
-                  end_time: '17:00',
-                  description: '',
-                  time_category_id: initialCategoryForOwner(userId || null),
-                  user_id: userId?.toString() || '',
-                  break_minutes: null
-                })
-                setShowModal(true)
+                openNewEntry(new Date(`${personDayModal.date}T00:00:00`), undefined, undefined, undefined, userId)
               }}
               onDeleteEntry={async (entry) => {
                 await handleDelete(entry)
@@ -1682,9 +1745,10 @@ export default function TimeTracking() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ duration: 0.25, delay: 0.1 }}
-            className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            ref={createDialogRef} role="dialog" aria-modal="true" aria-labelledby="time-create-title" tabIndex={-1}
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90dvh] overflow-y-auto">
             <div className="p-6">
-              <h2 className="text-xl font-bold text-primary-dark mb-1">Log Time</h2>
+              <h2 id="time-create-title" className="text-xl font-bold text-primary-dark mb-1">Log Time</h2>
               <p className="mb-4 text-sm leading-6 text-primary-dark/70">
                 Manual time is saved for review and must be explicitly approved before it can be included in payroll.
               </p>
@@ -1742,10 +1806,11 @@ export default function TimeTracking() {
                 {/* Entry Owner (admin create only) */}
                 {isAdmin && (
                   <div>
-                    <label className="block text-sm font-medium text-primary-dark mb-1">
+                    <label htmlFor="time-entry-owner" className="block text-sm font-medium text-primary-dark mb-1">
                       Entry Owner
                     </label>
                     <select
+                      id="time-entry-owner"
                       value={formData.user_id}
                       onChange={(e) => {
                         const userId = e.target.value ? Number(e.target.value) : null
@@ -1818,7 +1883,7 @@ export default function TimeTracking() {
                   <label className="block text-sm font-medium text-primary-dark mb-1">
                     Work category *
                   </label>
-                  <select
+                  <select aria-label="Work category"
                     value={formData.time_category_id}
                     onChange={(e) => setFormData({ ...formData, time_category_id: e.target.value })}
                     className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"

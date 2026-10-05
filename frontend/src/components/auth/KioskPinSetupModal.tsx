@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 
 interface KioskPinSetupModalProps {
@@ -13,6 +14,8 @@ export default function KioskPinSetupModal({ open, userName, onComplete }: Kiosk
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const pinInputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useDialogFocus(open, dialogRef, () => { /* Required setup stays open until saved. */ })
 
   useEffect(() => {
     if (!open) {
@@ -23,7 +26,7 @@ export default function KioskPinSetupModal({ open, userName, onComplete }: Kiosk
       return
     }
 
-    setTimeout(() => pinInputRef.current?.focus(), 0)
+    pinInputRef.current?.focus()
   }, [open])
 
   const pinLooksValid = useMemo(() => /^\d{4,8}$/.test(pin), [pin])
@@ -68,7 +71,7 @@ export default function KioskPinSetupModal({ open, userName, onComplete }: Kiosk
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="kiosk-pin-setup-title" className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="kiosk-pin-setup-title" className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Kiosk setup</p>
           <h2 id="kiosk-pin-setup-title" className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Create your kiosk PIN</h2>

@@ -28,6 +28,8 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
       if (result.data) {
         setWorkers(result.data.workers)
         setFetchError(false)
+      } else {
+        setFetchError(true)
       }
     } catch {
       setFetchError(true)
@@ -146,7 +148,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     : workers.filter(w => w.schedule || w.status === 'clocked_in' || w.status === 'on_break' || w.status === 'clocked_out')
   const hiddenCount = workers.length - relevantWorkers.length
 
-  if (relevantWorkers.length === 0 && !showAll) {
+  if (relevantWorkers.length === 0 && !showAll && !fetchError) {
     if (!alwaysShow) return null
     return (
       <div className={cardClass}>
@@ -194,10 +196,11 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     <div className={cardClass}>
       {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
       <div className="p-5 flex-1">
+        {fetchError && <div role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Team status could not refresh. Showing the last successful snapshot. <button type="button" onClick={fetchWorkers} className="min-h-11 underline">Retry team status</button></div>}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-primary-dark text-base">Today's Team</h3>
-            {cableConnected && (
+            {cableConnected && !fetchError && (
               <span className="flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Live
