@@ -40,7 +40,9 @@ Rails.application.routes.draw do
         end
 
         namespace :cockpit do
-          resources :employees, only: [ :index, :show ]
+          resources :employees, only: [ :index, :show ] do
+            resources :periods, only: [ :index, :show ], controller: :employee_periods
+          end
           resources :history_entries, only: [ :index ]
           resources :manual_allocations, only: [ :index, :create ] do
             member do
@@ -134,6 +136,7 @@ Rails.application.routes.draw do
         get "settings/place_details", to: "settings#place_details"
         resource :settings, only: [ :show, :update ]
         resources :users, only: [ :index, :show, :create, :update, :destroy ] do
+          resources :periods, only: [ :index, :show ], controller: :employee_periods
           member do
             post :resend_invite
             post :reset_kiosk_pin

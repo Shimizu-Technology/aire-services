@@ -15,6 +15,7 @@ import AireCareers from './pages/aire/AireCareers'
 import AireKiosk from './pages/aire/AireKiosk'
 
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
+const EmployeeWorkspace = lazy(() => import('./pages/admin/EmployeeWorkspace'))
 const Users = lazy(() => import('./pages/admin/Users'))
 const TimeTracking = lazy(() => import('./pages/admin/TimeTracking'))
 const Schedule = lazy(() => import('./pages/admin/Schedule'))
@@ -115,6 +116,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="users/:id" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<AdminLoadingFallback />}><EmployeeWorkspace /></Suspense></ProtectedRoute>} />
           <Route
             path="users"
             element={
