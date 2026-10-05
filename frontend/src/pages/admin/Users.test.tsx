@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import Users from './Users'
 import type { AdminTimeCategory, AdminUser, ApprovalGroupOption } from '../../lib/api'
 
@@ -154,7 +155,7 @@ describe('Users filters', () => {
   })
 
   it('narrows the users table by search and filters', async () => {
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
 
     expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
     expect(screen.getByText('Blake Ops')).toBeInTheDocument()
@@ -194,7 +195,7 @@ describe('Users filters', () => {
 
   it('creates a personal account without collecting a duplicate name', async () => {
     apiMock.inviteUser.mockResolvedValueOnce({ data: { user: makeUser({}), invitation_email_sent: null, kiosk_pin: null } })
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
     await screen.findByText('Alice Pilot')
 
     fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
@@ -223,7 +224,7 @@ describe('Users filters', () => {
     apiMock.inviteUser.mockResolvedValueOnce({
       data: { user: makeUser({ personal_access_enabled: false, profile_source: 'local' }), invitation_email_sent: null, kiosk_pin: '481205' },
     })
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
     await screen.findByText('Alice Pilot')
 
     fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
@@ -247,7 +248,7 @@ describe('Users filters', () => {
   })
 
   it('allows a personal account that does not track hours', async () => {
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
     await screen.findByText('Alice Pilot')
 
     fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
@@ -265,7 +266,7 @@ describe('Users filters', () => {
   })
 
   it('keeps time tracking and kiosk access enabled when changing a user to kiosk-only', async () => {
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
 
     const aliceName = await screen.findByText('Alice Pilot')
     const aliceRow = aliceName.closest('tr')
@@ -308,7 +309,7 @@ describe('Users filters', () => {
       terminated_at: '2026-09-22T00:00:00Z',
     })
     apiMock.terminateUser.mockResolvedValueOnce({ data: { user: terminated } })
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
 
     fireEvent.change(await screen.findByLabelText(/status/i), { target: { value: 'all' } })
     const aliceName = await screen.findByText('Alice Pilot')
@@ -352,7 +353,7 @@ describe('Users filters', () => {
     })
     apiMock.getAdminUsers.mockResolvedValueOnce({ data: { users: [terminated] } })
     apiMock.reactivateUser.mockResolvedValueOnce({ data: { user: reactivated } })
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
 
     fireEvent.change(await screen.findByLabelText(/status/i), { target: { value: 'all' } })
     const aliceName = await screen.findByText('Alice Pilot')
@@ -364,4 +365,45 @@ describe('Users filters', () => {
     expect(updatedAliceRow).not.toBeNull()
     expect(within(updatedAliceRow!).getByText('Active')).toBeInTheDocument()
   })
+
+  it('reports directory errors with retry rather than a false empty team', async () => {
+    apiMock.getAdminUsers.mockResolvedValueOnce({ error: 'Directory temporarily unavailable' })
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Directory temporarily unavailable')
+    expect(screen.queryByText('No team members yet.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Total Team Members')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await screen.findByText('Alice Pilot')
+  })
+
+  it('restores directory filters from the URL and links the employee with that return context', async () => {
+    render(<MemoryRouter initialEntries={['/admin/users?search=Alice&status=active']}><Users /></MemoryRouter>)
+    const link = await screen.findByRole('link', { name: 'Alice Pilot' })
+    expect(link).toHaveAttribute('href', expect.stringContaining('return_to=%2Fadmin%2Fusers%3Fsearch%3DAlice%26status%3Dactive'))
+    expect(screen.getByPlaceholderText('Name, email, title, category...')).toHaveValue('Alice')
+    expect(screen.queryByText('Blake Ops')).not.toBeInTheDocument()
+  })
+
+  it('closes the create dialog on Escape and returns focus to its trigger', async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Alice Pilot')
+    const trigger = screen.getByRole('button', { name: 'Add team member' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    await screen.findByRole('dialog', { name: 'Add team member' })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('removes the edit deep link on close and preserves directory filters', async () => {
+    function Address() { return <output aria-label="Directory address">{useLocation().search}</output> }
+    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=1&search=Alice']}><Users /><Address /></MemoryRouter>)
+    const dialog = await screen.findByRole('dialog', { name: /edit alice pilot/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Directory address')).toHaveTextContent('?search=Alice')
+    expect(screen.getByLabelText('Directory address')).not.toHaveTextContent('edit_user_id')
+  })
+
 })
