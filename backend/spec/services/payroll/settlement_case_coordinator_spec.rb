@@ -264,4 +264,53 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
       described_class.sync_finalized_periods!
     end
   end
+
+  it "revisits a recent finalized period without duplicate markers or failure events" do
+    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25))
+    entry(period: origin)
+
+    travel_to(origin.cutoff_at + 1.minute) do
+      Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
+      described_class.sync_finalized_periods!
+      marker = origin.reload.payroll_settlement_reconciliation
+      expect(marker).to be_present
+
+      expect { described_class.sync_finalized_periods! }.not_to change(PayrollSettlementReconciliation, :count)
+      expect(origin.reload.payroll_settlement_reconciliation.id).to eq(marker.id)
+      expect(AuditLog.where(action: "payroll_settlement_cases.reconciliation_failed")).to be_empty
+    end
+  end
+
+  it "captures newly added late work when a recent period already has a marker" do
+    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25))
+
+    travel_to(origin.cutoff_at + 1.minute) do
+      Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
+      described_class.sync_finalized_periods!
+      expect(origin.reload.payroll_settlement_reconciliation).to be_present
+      late = entry(period: origin, approval_status: "approved", created_at: Time.current)
+
+      described_class.sync_finalized_periods!
+      expect(PayrollSettlementCase.active.where(source_time_entry_id: late.id)).to exist
+      expect { described_class.sync_finalized_periods! }.not_to change(PayrollSettlementCase, :count)
+      expect(AuditLog.where(action: "payroll_settlement_cases.reconciliation_failed")).to be_empty
+    end
+  end
+
+  it "keeps the database uniqueness constraint on reconciliation markers" do
+    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25))
+    marker = PayrollSettlementReconciliation.create_or_find_by!(payroll_calendar_period: origin) do |record|
+      record.reconciled_at = Time.current
+    end
+
+    found = PayrollSettlementReconciliation.create_or_find_by!(payroll_calendar_period: origin) do |record|
+      record.reconciled_at = Time.current
+    end
+    expect(found.id).to eq(marker.id)
+    expect do
+      PayrollSettlementReconciliation.transaction(requires_new: true) do
+        PayrollSettlementReconciliation.create!(payroll_calendar_period: origin, reconciled_at: Time.current)
+      end
+    end.to raise_error(ActiveRecord::RecordNotUnique)
+  end
 end

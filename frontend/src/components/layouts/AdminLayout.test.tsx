@@ -53,6 +53,8 @@ function renderLayout(initialEntry = '/admin') {
 
 describe('AdminLayout kiosk PIN setup', () => {
   beforeEach(() => {
+    window.localStorage.clear()
+    Object.defineProperty(window, 'innerWidth', { value: 1280, writable: true, configurable: true })
     authMock.value.isClerkEnabled = true
     authMock.value.userRole = 'employee'
     authMock.value.currentUser = {
@@ -62,6 +64,30 @@ describe('AdminLayout kiosk PIN setup', () => {
     authMock.value.refreshCurrentUser.mockReset()
     apiMock.setMyKioskPin.mockReset()
     apiMock.setMyKioskPin.mockResolvedValue({ data: { user: {} } })
+  })
+
+  it('opens labelled mobile navigation after desktop collapse and restores focus with Escape', () => {
+    authMock.value.userRole = 'admin'
+    authMock.value.currentUser.needs_kiosk_pin_setup = false
+    window.localStorage.setItem('aire-admin-sidebar-collapsed', 'true')
+    Object.defineProperty(window, 'innerWidth', { value: 390, writable: true, configurable: true })
+    renderLayout()
+    const trigger = screen.getByRole('button', { name: 'Toggle sidebar' })
+    expect(screen.queryByRole('link', { name: 'Time & Payroll' })).not.toBeInTheDocument()
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Navigation' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(screen.getByRole('link', { name: 'Time & Payroll' })).toHaveTextContent('Time & Payroll')
+    expect(screen.getByRole('button', { name: 'Close navigation' })).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(screen.getByRole('button', { name: 'Close navigation' })).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+    expect(document.body.style.overflow).toBe('')
+    expect(window.localStorage.getItem('aire-admin-sidebar-collapsed')).toBe('true')
   })
 
   it('blocks a personal time-tracking user until they create a PIN', async () => {

@@ -3,6 +3,7 @@ import WhosWorking from '../../components/time-tracking/WhosWorking'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
+import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeEntry } from '../../lib/api'
 import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, withPayrollPeriod } from '../../lib/payrollPeriods'
@@ -50,7 +51,7 @@ function formatDateISO(date: Date): string {
 }
 
 function formatWeekStart(date: Date): string {
-  const d = new Date(date)
+  const d = new Date(`${formatDateInTimeZoneISO(date, 'Pacific/Guam')}T00:00:00`)
   d.setDate(d.getDate() - d.getDay())
   return formatDateISO(d)
 }
@@ -224,6 +225,9 @@ function EmployeeDashboard() {
 
 function AdminDashboard() {
   const payrollPeriod = currentPayrollPeriod()
+  const [snapshotError, setSnapshotError] = useState<string | null>(null)
+  const [snapshotAt, setSnapshotAt] = useState<Date | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
   const [stats, setStats] = useState({
     activeCount: 0,
     pendingApprovals: 0,
@@ -235,6 +239,7 @@ function AdminDashboard() {
   })
 
   const loadStats = useCallback(async () => {
+    setStatsLoading(true)
     try {
       const [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes] = await Promise.all([
         api.getWhosWorking(),
@@ -244,12 +249,17 @@ function AdminDashboard() {
         api.getPayrollBatches(),
       ])
 
+      const failure = [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes].find((result) => result.error || !result.data)
+      if (failure) {
+        setSnapshotError(failure.error || 'Dashboard snapshot unavailable')
+        return
+      }
       const workers = workersRes.data?.workers ?? []
       const active = workers.filter(
         (w) => w.status === 'clocked_in' || w.status === 'on_break',
       ).length
 
-      const todayStr = formatDateISO(new Date())
+      const todayStr = formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')
       const schedules = schedulesRes.data?.schedules ?? []
       const todaySchedules = schedules.filter((s) => s.work_date === todayStr)
       const weeklyHours = schedules.reduce((sum, s) => sum + s.hours, 0)
@@ -263,13 +273,16 @@ function AdminDashboard() {
         pendingApprovalHours: approvalsRes.data?.summary?.total_hours ?? 0,
         payrollFinalizedThrough: greatestPayrollEndDate(payrollRes.data?.payroll_batches ?? []),
       })
+      setSnapshotError(null)
+      setSnapshotAt(new Date())
     } catch {
-      // Dashboard stats are best-effort
+      setSnapshotError('Dashboard snapshot unavailable')
+    } finally {
+      setStatsLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- data-fetch pattern; setState is in async callback
     loadStats()
   }, [loadStats])
 
@@ -315,6 +328,12 @@ function AdminDashboard() {
         </div>
       </div>
 
+      {snapshotError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+        <p>{snapshotError}. {snapshotAt ? `Showing the last successful snapshot from ${snapshotAt.toLocaleTimeString()}. Refresh before making payroll decisions.` : 'Counts and payroll readiness are unavailable.'}</p>
+        <button type="button" disabled={statsLoading} onClick={loadStats} className="mt-2 min-h-11 underline disabled:opacity-50">Retry dashboard snapshot</button>
+      </div>}
+      {!snapshotAt && !snapshotError && <p role="status">Loading dashboard snapshot…</p>}
+      {snapshotAt && <>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Active Right Now" value={stats.activeCount.toString()} sublabel="Staff currently clocked in or on break" accent />
         <StatCard label="Pending Approvals" value={stats.pendingApprovals.toString()} sublabel="Manual entries or overtime waiting on admin review" accent />
@@ -347,6 +366,7 @@ function AdminDashboard() {
         </div>
       </section>
 
+      </>}
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
@@ -355,6 +375,7 @@ function AdminDashboard() {
           </div>
           <button
             onClick={loadStats}
+            disabled={statsLoading}
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
           >
             Refresh snapshot
@@ -389,7 +410,7 @@ function AdminDashboard() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      {snapshotAt && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Current Team Snapshot</p>
         <div className="mt-3 grid grid-cols-2 gap-6 sm:grid-cols-4">
           <div>
@@ -401,7 +422,7 @@ function AdminDashboard() {
             <p className="mt-1 text-2xl font-bold text-slate-900">{stats.pendingApprovals}</p>
           </div>
         </div>
-      </section>
+      </section>}
     </div>
   )
 }

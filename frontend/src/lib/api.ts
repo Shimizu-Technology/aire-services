@@ -1885,6 +1885,9 @@ export const api = {
     return fetchApi<SchedulesResponse>(`/api/v1/schedules${query ? `?${query}` : ''}`);
   },
 
+  getSchedule: (id: number) =>
+    fetchApi<{ schedule: Schedule }>(`/api/v1/schedules/${id}`),
+
   getMySchedule: () =>
     fetchApi<{ schedules: Schedule[] }>('/api/v1/schedules/my_schedule'),
 

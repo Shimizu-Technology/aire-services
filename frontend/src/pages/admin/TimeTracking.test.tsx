@@ -7,6 +7,7 @@ import TimeTracking from './TimeTracking'
 import type { HoursReportResponse } from '../../lib/api'
 
 const apiMock = vi.hoisted(() => ({
+  getSchedule: vi.fn(),
   getTimeEntries: vi.fn(),
   getTimeCategories: vi.fn(),
   getUsers: vi.fn(),
@@ -76,6 +77,48 @@ describe('TimeTracking routed report periods', () => {
     apiMock.getAdminAppSettings.mockResolvedValue({ data: { approval_groups: [] } })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null } })
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
+  })
+
+  it('waits for employee options before opening the exact scheduled employee', async () => {
+    let resolveUsers!: (value: unknown) => void
+    apiMock.getUsers.mockReturnValue(new Promise((resolve) => { resolveUsers = resolve }))
+    apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+    apiMock.getSchedule.mockResolvedValue({ data: { schedule: {
+      id: 9, user_id: 7, work_date: '2026-10-06', start_time: '09:00', end_time: '17:00', formatted_time_range: '9:00 AM - 5:00 PM',
+    } } })
+    render(<MemoryRouter initialEntries={['/admin/time?prefill=true&schedule_id=9&user_id=7&start_date=2026-10-01&end_date=2026-10-15']}><TimeRouteHarness /></MemoryRouter>)
+    expect(screen.getByTestId('location-search')).toHaveTextContent('prefill=true')
+    expect(apiMock.getSchedule).not.toHaveBeenCalled()
+    await act(async () => { resolveUsers({ data: { users: [{ id: 7, email: 'casey@example.test', display_name: 'Casey', time_category_ids: [3] }] } }) })
+    await waitFor(() => expect(screen.getByLabelText('Entry Owner')).toHaveValue('7'))
+    expect(screen.getByLabelText('Work category')).toHaveValue('3')
+    expect(screen.getByDisplayValue('09:00')).toBeInTheDocument()
+    expect(screen.getByTestId('location-search')).not.toHaveTextContent('prefill=true')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-10-01')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('user_id=7')
+  })
+
+  it('retains a failed shift link and retries without substituting the administrator', async () => {
+    apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, email: 'casey@example.test', display_name: 'Casey', time_category_ids: [] }] } })
+    apiMock.getSchedule.mockResolvedValueOnce({ error: 'Shift temporarily unavailable' }).mockResolvedValueOnce({ data: { schedule: {
+      id: 9, user_id: 7, work_date: '2026-10-06', start_time: '09:00', end_time: '17:00', formatted_time_range: '9:00 AM - 5:00 PM',
+    } } })
+    render(<MemoryRouter initialEntries={['/admin/time?prefill=true&schedule_id=9&user_id=7']}><TimeRouteHarness /></MemoryRouter>)
+    await screen.findByText('Shift temporarily unavailable')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('schedule_id=9')
+    expect(screen.queryByRole('heading', { name: 'Log Time' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry scheduled shift' }))
+    await waitFor(() => expect(screen.getByLabelText('Entry Owner')).toHaveValue('7'))
+    expect(apiMock.getSchedule).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses a shift whose owner no longer matches the link', async () => {
+    apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, email: 'casey@example.test', display_name: 'Casey' }] } })
+    apiMock.getSchedule.mockResolvedValue({ data: { schedule: { id: 9, user_id: 8 } } })
+    render(<MemoryRouter initialEntries={['/admin/time?prefill=true&schedule_id=9&user_id=7']}><TimeRouteHarness /></MemoryRouter>)
+    await screen.findByText('The shift employee has changed or is unavailable to your account. Open Schedule again.')
+    expect(screen.queryByRole('heading', { name: 'Log Time' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('location-search')).toHaveTextContent('prefill=true')
   })
 
   it('synchronizes report requests when same-route payroll dates change', async () => {
