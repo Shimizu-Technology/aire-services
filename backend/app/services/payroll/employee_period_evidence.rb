@@ -77,7 +77,8 @@ module Payroll
       raise ArgumentError, "detail_per_page must be between 1 and 100" unless text.match?(/\A[1-9]\d*\z/) && text.to_i.between?(1, 100)
 
       limit = text.to_i
-      context = cursor_context.merge("period_id" => period[:id], "detail_per_page" => limit)
+      period = focused_detail(period)
+      context = cursor_context.merge("period_id" => period[:id], "detail_per_page" => limit, "entry_id" => params[:entry_id].presence&.to_s)
       offset = 0
       if params[:detail_cursor].present?
         cursor = verifier.verified(params[:detail_cursor].to_s)
@@ -92,6 +93,21 @@ module Payroll
       result = period.dup
       collections.each { |key| result[key] = period.fetch(key).slice(offset, limit) || [] }
       result[:detail_pagination] = { per_page: limit, offset: offset, counts: counts, next_cursor: next_cursor }
+      result
+    end
+
+    def focused_detail(period)
+      return period if params[:entry_id].blank?
+      raise ArgumentError, "entry_id must be a positive integer" unless params[:entry_id].to_s.match?(/\A[1-9]\d*\z/)
+
+      id = params[:entry_id].to_s
+      result = period.merge(
+        entries: period[:entries].select { |row| row[:id] == id },
+        coverage_lines: period[:coverage_lines].select { |row| row[:source_time_entry_id] == id },
+        settlement_cases: period[:settlement_cases].select { |row| row["source_time_entry_id"].to_s == id }
+      )
+      raise ActiveRecord::RecordNotFound if %i[entries coverage_lines settlement_cases].all? { |key| result[key].empty? }
+
       result
     end
 

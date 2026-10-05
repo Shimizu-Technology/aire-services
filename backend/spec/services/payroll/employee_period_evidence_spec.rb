@@ -170,6 +170,23 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     expect(detail[:coverage_lines].first).to include(source_kind: "payment_attestation", coverage_state: "evidence_hold", regular_hours: nil, overtime_hours: nil)
   end
 
+  it "pins an entry beyond the first page without changing full period totals or leaking another employee" do
+    template = entry(1)
+    attributes = template.attributes.except("id", "created_at", "updated_at")
+    TimeEntry.insert_all!(250.times.map { attributes.merge("created_at" => Time.current, "updated_at" => Time.current) })
+    target = TimeEntry.where(user: employee).order(:id).last
+    batch = create(:payroll_batch)
+    receipt(batch, line(batch, target, 1), "payment_issued")
+    detail = described_class.new(user: employee, params: { entry_id: target.id }).call(period_id: "2026-09-01")[:period]
+    expect(detail[:summary][:worked_hours]).to eq(251.0)
+    expect(detail[:entries].pluck(:id)).to eq([ target.id.to_s ])
+    expect(detail[:coverage_lines].pluck(:source_time_entry_id)).to eq([ target.id.to_s ])
+    stranger = create(:time_entry, user: create(:user, :employee), work_date: template.work_date)
+    expect { described_class.new(user: employee, params: { entry_id: stranger.id }).call(period_id: "2026-09-01") }.to raise_error(ActiveRecord::RecordNotFound)
+    cursor = described_class.new(user: employee, params: { detail_per_page: 1 }).call(period_id: "2026-09-01")[:period][:detail_pagination][:next_cursor]
+    expect { described_class.new(user: employee, params: { detail_per_page: 1, entry_id: target.id, detail_cursor: cursor }).call(period_id: "2026-09-01") }.to raise_error(ArgumentError, /Detail cursor/)
+  end
+
   it "rejects invalid dates and page sizes" do
     expect { result(start_date: "wrong") }.to raise_error(ArgumentError, /YYYY-MM-DD/)
     expect { result(per_page: 0) }.to raise_error(ArgumentError, /per_page/)

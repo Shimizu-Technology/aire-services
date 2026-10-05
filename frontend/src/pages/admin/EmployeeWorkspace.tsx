@@ -78,6 +78,7 @@ export default function EmployeeWorkspace() {
     if (startDate) filter.set('start_date', startDate)
     if (endDate) filter.set('end_date', endDate)
     if (detailCursor) filter.set('detail_cursor', detailCursor)
+    if (selectedEntry) filter.set('entry_id', selectedEntry)
     await employeeEvidenceApi.period(id, selectedPeriod, filter, controller.signal).then((result) => {
       if (controller.signal.aborted) return
       if (result.employee.id !== id || result.employee.payroll_integration_id !== evidence.employee.payroll_integration_id || result.integration.source_instance_id !== evidence.integration.source_instance_id) throw new Error('Period evidence identity changed. Reload the employee record before continuing.')
@@ -86,7 +87,7 @@ export default function EmployeeWorkspace() {
     }
     void load()
     return () => controller.abort()
-  }, [id, selectedPeriod, evidence, startDate, endDate, detailCursor, retry])
+  }, [id, selectedPeriod, selectedEntry, evidence, startDate, endDate, detailCursor, retry])
 
   const update = (values: Record<string, string | null>) => {
     const next = new URLSearchParams(query)
@@ -128,26 +129,28 @@ export default function EmployeeWorkspace() {
         {tab === 'hours' && <section className="space-y-3" aria-label="Work periods">
           <h2 className="text-lg font-semibold">Work periods <span className="text-sm font-normal text-slate-500">({evidence.pagination.total_count})</span></h2>
           {!evidence.periods.length && <p className={panel}>No recorded work or retained payroll evidence in this date range.</p>}
-          {evidence.periods.map((period) => <article key={period.id} className={panel}>
+          {selectedPeriod && !evidence.periods.some((period) => period.id === selectedPeriod) && !detail && <div className={panel}>{detailError ? <div role="alert"><p>{detailError}</p><button className={`${action} mt-2`} onClick={() => setRetry((value) => value + 1)}>Retry period</button></div> : <p role="status">Loading linked original work period…</p>}</div>}
+          {(detail && !evidence.periods.some((period) => period.id === detail.id) ? [detail, ...evidence.periods] : evidence.periods).map((period) => <article key={period.id} className={panel}>
             <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{period.start_date} – {period.end_date}</h3><p className="mt-1 text-xs text-slate-600">Original work dates · {period.review_required ? 'Needs reconciliation' : 'Review recorded evidence'}</p></div><button aria-expanded={selectedPeriod === period.id} className={action} onClick={() => update({ period: selectedPeriod === period.id ? null : period.id, entry: null, detail_cursor: null })}>{selectedPeriod === period.id ? 'Close details' : 'Review period'}</button></div>
             <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{[['Current REG / OT', `${h(period.summary.current_regular_hours)} / ${h(period.summary.current_overtime_hours)}`], ['Issued source coverage', h(period.summary.issued_hours)], ['Committed, unissued', h(period.summary.committed_hours)], ['Needs reconciliation', h(period.summary.needs_reconciliation_hours)]].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold">{value}</dd></div>)}</dl>
             {selectedPeriod === period.id && <div className="mt-5 border-t border-slate-200 pt-4">
               {detailError ? <div role="alert"><p>{detailError}</p><button className={`${action} mt-2`} onClick={() => setRetry((value) => value + 1)}>Retry period</button></div> : !detail ? <p role="status">Loading exact evidence…</p> : <>
                 {detail.detail_pagination && <p className="mb-3 text-xs text-slate-500">Detail page {Math.floor(detail.detail_pagination.offset / detail.detail_pagination.per_page) + 1} · {detail.detail_pagination.counts.entries} entries, {detail.detail_pagination.counts.coverage_lines} coverage lines. Period totals include every page.</p>}
+                {selectedEntry && <button className={`${action} mb-3`} onClick={() => update({ entry: null, detail_cursor: null })}>Show all period entries</button>}
                 <h4 className="font-semibold">Daily entries</h4>
-                {!detail.entries?.length && <p className="mt-2 text-sm text-slate-600">Current entries are absent; retained payroll evidence remains below.</p>}
+                {!detail.entries?.length && !detail.detail_pagination?.counts.entries && <p className="mt-2 text-sm text-slate-600">Current entries are absent; retained payroll evidence remains below.</p>}
                 <div className="mt-3 space-y-3">{detail.entries?.map((entry) => <div key={entry.id} className={`rounded-xl border p-3 ${selectedEntry === entry.id ? 'border-cyan-600 bg-cyan-50' : 'border-slate-200'}`}>
-                  <button className="text-left font-semibold text-cyan-800 hover:underline" onClick={() => update({ entry: entry.id })}>{entry.work_date} · {entry.start_time || '—'} – {entry.end_time || '—'} · {h(entry.worked_hours)}</button>
+                  <button className="text-left font-semibold text-cyan-800 hover:underline" onClick={() => update({ entry: entry.id, detail_cursor: null })}>{entry.work_date} · {entry.start_time || '—'} – {entry.end_time || '—'} · {h(entry.worked_hours)}</button>
                   <p className="mt-1 text-sm text-slate-600">{entry.category || 'Uncategorized'} · {entry.approval_status || (entry.status === 'completed' ? 'Standard clock entry' : entry.status)} · REG {h(entry.regular_hours)} / OT {h(entry.overtime_hours)}</p>
                   <p className="mt-1 text-xs text-slate-600">Issued coverage {h(entry.issued_hours)} · committed {h(entry.committed_hours)} · needs reconciliation {h(entry.needs_reconciliation_hours)}</p>
                   {selectedEntry === entry.id && <div className="mt-3 space-y-2"><p className="break-words text-sm">{entry.description || 'No description recorded.'}</p>{entry.payment_attestation && <p className="text-sm">Evidence hold: {entry.payment_attestation}</p>}<Link className={action} to={related('/admin/time', { entry_id: entry.id, date: entry.work_date, view: 'day' })}>Open time entry</Link></div>}
                 </div>)}</div>
                 <h4 className="mt-5 font-semibold">Saved source coverage</h4>
                 <p className="mt-1 text-xs leading-5 text-slate-600">Signed correction lines are retained. Source REG/OT describes covered time; actual paycheck components and money are available in payroll.</p>
-                {!detail.coverage_lines?.length && <p className="mt-3 text-sm text-slate-600">No linked payroll coverage. Reconcile payment evidence before deciding whether payment is owed.</p>}
+                {!detail.coverage_lines?.length && !detail.detail_pagination?.counts.coverage_lines && <p className="mt-3 text-sm text-slate-600">No linked payroll coverage. Reconcile payment evidence before deciding whether payment is owed.</p>}
                 <div className="mt-3 space-y-3">{detail.coverage_lines?.filter((line) => !selectedEntry || line.source_time_entry_id === selectedEntry).map((line) => <div key={line.id} className="rounded-xl border border-slate-200 p-3 text-sm"><p className="font-semibold">{line.source_kind} · {line.coverage_state} · REG {line.regular_hours === null ? 'Unknown' : h(line.regular_hours)} / OT {line.overtime_hours === null ? 'Unknown' : h(line.overtime_hours)}</p><p className="mt-1 break-words text-slate-600">Work {line.work_date} · payroll period {line.external_pay_period_id || 'Not linked'} · item {line.external_payroll_item_id || 'Not linked'} · check {line.payment_reference || 'Not recorded'}</p>{line.identity_state && line.identity_state !== 'verified' && <p className="mt-2 text-amber-800">Employee identity needs reconciliation ({line.identity_state.replaceAll('_', ' ')}).</p>}{line.reason && <p className="mt-2 break-words">{line.reason}</p>}{line.batch_id && <Link className="mt-2 inline-block font-semibold text-cyan-800 hover:underline" to={related('/admin/payroll', { batch_id: line.batch_id, entry_id: line.source_time_entry_id })}>Open frozen batch</Link>}</div>)}</div>
                 {!!detail.settlement_cases?.length && <div className="mt-5"><h4 className="font-semibold">Reconciliation notes</h4>{detail.settlement_cases.map((item) => <p key={item.public_id} className="mt-2 break-words text-sm text-slate-600">{item.origin_reason.replaceAll('_', ' ')} · {item.status} · destination {item.target_external_pay_period_id || item.destination_kind} · due {item.action_due_on}</p>)}</div>}
-                {detail.detail_pagination && <div className="mt-4 flex gap-3">{detailCursor && <button className={action} onClick={() => update({ detail_cursor: null, entry: null })}>First detail page</button>}{detail.detail_pagination.next_cursor && <button className={action} onClick={() => update({ detail_cursor: detail.detail_pagination?.next_cursor || null, entry: null })}>Next detail page</button>}</div>}
+                {detail.detail_pagination && <div className="mt-4 flex gap-3">{detailCursor && <button className={action} onClick={() => update({ detail_cursor: null })}>First detail page</button>}{detail.detail_pagination.next_cursor && <button className={action} onClick={() => update({ detail_cursor: detail.detail_pagination?.next_cursor || null })}>Next detail page</button>}</div>}
               </>}
             </div>}
           </article>)}

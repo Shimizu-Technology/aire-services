@@ -25,6 +25,7 @@ describe('employee workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review period' }))
     await screen.findByText('Daily entries')
     fireEvent.click(screen.getByRole('button', { name: /2026-09-08/ }))
+    await screen.findByRole('link', { name: 'Open time entry' })
     expect(screen.getByRole('link', { name: 'Open time entry' })).toHaveAttribute('href', expect.stringContaining('user_id=7'))
     expect(screen.getByRole('link', { name: 'Open time entry' })).toHaveAttribute('href', expect.stringContaining('date=2026-09-08&view=day'))
     expect(screen.getByRole('link', { name: 'Open frozen batch' })).toHaveAttribute('href', expect.stringContaining('batch_id=batch1'))
@@ -36,7 +37,15 @@ describe('employee workspace', () => {
     open('/admin/users/7?tab=hours&period=2026-09-01&entry=19&start_date=2026-09-01')
     await screen.findByText('Saved source work')
     expect(mock.period).toHaveBeenCalledWith('7', '2026-09-01', expect.any(URLSearchParams), expect.any(AbortSignal))
+    expect(mock.period.mock.calls.at(-1)?.[2].get('entry_id')).toBe('19')
     expect(screen.getByLabelText('From work date')).toHaveValue('2026-09-01')
+  })
+  it('opens a linked older period even when it is beyond the list page', async () => {
+    mock.periods.mockResolvedValueOnce({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals, periods: [], evidence_note: 'Evidence', pagination: { total_count: 105, next_cursor: 'next-page' } })
+    open('/admin/users/7?tab=hours&period=2026-09-01&entry=19')
+    await screen.findByText('Saved source work')
+    expect(screen.getByRole('link', { name: 'Open time entry' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show all period entries' })).toBeInTheDocument()
   })
   it('reports failures with retry rather than presenting zero work', async () => {
     mock.periods.mockRejectedValueOnce(new Error('Evidence temporarily unavailable'))
