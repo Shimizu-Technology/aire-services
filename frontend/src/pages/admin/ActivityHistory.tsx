@@ -278,11 +278,14 @@ export default function ActivityHistory() {
   const clearFilters = () => {
     setSearchInput('')
     setFilters({ page: 1, per_page: 50 })
-    setSearchParams({}, { replace: true })
+    setSearchParams(returnTo ? { return_to: returnTo } : {}, { replace: true })
   }
 
   const clearSubjectScope = () => {
-    setSearchParams({}, { replace: true })
+    const next = new URLSearchParams(searchParams)
+    for (const key of ['subject_type', 'subject_id', 'event_id']) next.delete(key)
+    setFilters((current) => ({ ...current, page: 1 }))
+    setSearchParams(next, { replace: true })
   }
 
   const closeSelected = useCallback(() => {

@@ -199,4 +199,12 @@ describe('ActivityHistory', () => {
    await waitFor(() => expect(screen.queryByText('Stale event evidence')).not.toBeInTheDocument())
  })
 
+ it.each(['Show all', 'Clear 1 filter'])('preserves the employee return when using %s', async (button) => {
+   renderPage('/admin/activity?subject_type=User&subject_id=7&return_to=%2Fadmin%2Fusers%2F7%3Ftab%3Dactivity')
+   await screen.findByText(event.summary)
+   fireEvent.click(screen.getByRole('button', { name: button }))
+   expect(screen.getByRole('link', { name: 'Back to employee' })).toHaveAttribute('href', '/admin/users/7?tab=activity')
+   await waitFor(() => expect(screen.queryByText(/Showing history for/)).not.toBeInTheDocument())
+ })
+
 })
