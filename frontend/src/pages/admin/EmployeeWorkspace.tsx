@@ -124,7 +124,7 @@ export default function EmployeeWorkspace() {
           {!!evidence.totals.uncategorized_entry_count && <p className="text-sm text-amber-800">{evidence.totals.uncategorized_entry_count} entries need a work category.</p>}
           {!user.time_tracking_enabled && <p className="text-sm text-slate-600">Time tracking is disabled for this person. No recorded hours is not a missing-pay warning.</p>}
         </section>
-        {tab === 'overview' && <div className={`${panel} flex flex-wrap gap-3`}><Link className={action} to={employeeWorkspaceHref(id, { tab: 'hours', returnTo, startDate, endDate })}>Review hours & payroll</Link><Link className={action} to={related('/admin/time')}>View time entries</Link><Link className={action} to={related('/admin/time', { view: 'reports' })}>Open hours report</Link></div>}
+        {tab === 'overview' && <div className={`${panel} flex flex-wrap gap-3`}><Link className={action} to={employeeWorkspaceHref(id, { tab: 'hours', returnTo, startDate, endDate, sourceUserUuid, sourceInstanceId })}>Review hours & payroll</Link><Link className={action} to={related('/admin/time')}>View time entries</Link><Link className={action} to={related('/admin/time', { tab: 'reports' })}>Open hours report</Link></div>}
         {tab === 'hours' && <section className="space-y-3" aria-label="Work periods">
           <h2 className="text-lg font-semibold">Work periods <span className="text-sm font-normal text-slate-500">({evidence.pagination.total_count})</span></h2>
           {!evidence.periods.length && <p className={panel}>No recorded work or retained payroll evidence in this date range.</p>}
@@ -140,7 +140,7 @@ export default function EmployeeWorkspace() {
                   <button className="text-left font-semibold text-cyan-800 hover:underline" onClick={() => update({ entry: entry.id })}>{entry.work_date} · {entry.start_time || '—'} – {entry.end_time || '—'} · {h(entry.worked_hours)}</button>
                   <p className="mt-1 text-sm text-slate-600">{entry.category || 'Uncategorized'} · {entry.approval_status || (entry.status === 'completed' ? 'Standard clock entry' : entry.status)} · REG {h(entry.regular_hours)} / OT {h(entry.overtime_hours)}</p>
                   <p className="mt-1 text-xs text-slate-600">Issued coverage {h(entry.issued_hours)} · committed {h(entry.committed_hours)} · needs reconciliation {h(entry.needs_reconciliation_hours)}</p>
-                  {selectedEntry === entry.id && <div className="mt-3 space-y-2"><p className="break-words text-sm">{entry.description || 'No description recorded.'}</p>{entry.payment_attestation && <p className="text-sm">Evidence hold: {entry.payment_attestation}</p>}<Link className={action} to={related('/admin/time', { entry_id: entry.id })}>Open time entry</Link></div>}
+                  {selectedEntry === entry.id && <div className="mt-3 space-y-2"><p className="break-words text-sm">{entry.description || 'No description recorded.'}</p>{entry.payment_attestation && <p className="text-sm">Evidence hold: {entry.payment_attestation}</p>}<Link className={action} to={related('/admin/time', { entry_id: entry.id, date: entry.work_date, view: 'day' })}>Open time entry</Link></div>}
                 </div>)}</div>
                 <h4 className="mt-5 font-semibold">Saved source coverage</h4>
                 <p className="mt-1 text-xs leading-5 text-slate-600">Signed correction lines are retained. Source REG/OT describes covered time; actual paycheck components and money are available in payroll.</p>

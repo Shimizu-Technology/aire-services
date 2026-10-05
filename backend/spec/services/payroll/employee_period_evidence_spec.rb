@@ -149,6 +149,27 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     expect { described_class.new(user: employee, params: { start_date: "2026-09-08", detail_cursor: first[:detail_pagination][:next_cursor] }).call(period_id: "2026-09-01") }.to raise_error(ArgumentError, /Detail cursor/)
   end
 
+  it "preserves a saved regular split when current Sunday-week evidence classifies the work as OT" do
+    entry(40, Date.new(2026, 9, 14))
+    row = entry(2, Date.new(2026, 9, 16))
+    batch = create(:payroll_batch, start_date: Date.new(2026, 9, 16), end_date: Date.new(2026, 9, 30))
+    receipt(batch, line(batch, row, 2), "payment_issued")
+    detail = described_class.new(user: employee).call(period_id: "2026-09-16")[:period]
+    expect(detail[:summary]).to include(current_regular_hours: 0.0, current_overtime_hours: 2.0, frozen_regular_hours: 2.0, frozen_overtime_hours: 0.0, issued_hours: 2.0)
+    expect(detail[:actual_check_components]).to be_nil
+  end
+
+  it "retains an evidence hold on the original employee when the current row changes owner" do
+    row = entry(8)
+    PayrollPaymentAttestation.create!(time_entry: row, user: employee, recorded_by: employee,
+      source_user_uuid: employee.payroll_integration_uuid, source_time_entry_version: row.lock_version,
+      work_date: row.work_date, hours: 8, reason: "Exact check still needs review", attested_at: Time.current)
+    row.update_column(:user_id, create(:user, :employee).id)
+    expect(result[:totals]).to include(worked_hours: 0.0, held_hours: 8.0)
+    detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+    expect(detail[:coverage_lines].first).to include(source_kind: "payment_attestation", coverage_state: "evidence_hold", regular_hours: nil, overtime_hours: nil)
+  end
+
   it "rejects invalid dates and page sizes" do
     expect { result(start_date: "wrong") }.to raise_error(ArgumentError, /YYYY-MM-DD/)
     expect { result(per_page: 0) }.to raise_error(ArgumentError, /per_page/)

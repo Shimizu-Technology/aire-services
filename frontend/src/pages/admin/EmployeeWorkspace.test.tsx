@@ -26,6 +26,7 @@ describe('employee workspace', () => {
     await screen.findByText('Daily entries')
     fireEvent.click(screen.getByRole('button', { name: /2026-09-08/ }))
     expect(screen.getByRole('link', { name: 'Open time entry' })).toHaveAttribute('href', expect.stringContaining('user_id=7'))
+    expect(screen.getByRole('link', { name: 'Open time entry' })).toHaveAttribute('href', expect.stringContaining('date=2026-09-08&view=day'))
     expect(screen.getByRole('link', { name: 'Open frozen batch' })).toHaveAttribute('href', expect.stringContaining('batch_id=batch1'))
     expect(screen.getByLabelText('Current address')).toHaveTextContent('period=2026-09-01&entry=19')
     expect(screen.getByRole('link', { name: 'Back to previous view' })).toHaveAttribute('href', '/admin/time?user_id=7')
@@ -55,6 +56,14 @@ describe('employee workspace', () => {
     open('/admin/users/7?tab=hours&source_user_uuid=old-employee&source_instance_id=installation-uuid')
     expect(await screen.findByRole('alert')).toHaveTextContent('saved employee link no longer matches')
     expect(screen.queryByRole('heading', { name: 'Casey Employee' })).not.toBeInTheDocument()
+  })
+  it('keeps verified identities on overview shortcuts and opens the report tab', async () => {
+    open('/admin/users/7?source_user_uuid=employee-uuid&source_instance_id=installation-uuid')
+    await screen.findByRole('heading', { name: 'Casey Employee' })
+    const hours = screen.getByRole('link', { name: 'Review hours & payroll' })
+    expect(hours).toHaveAttribute('href', expect.stringContaining('source_user_uuid=employee-uuid'))
+    expect(hours).toHaveAttribute('href', expect.stringContaining('source_instance_id=installation-uuid'))
+    expect(screen.getByRole('link', { name: 'Open hours report' })).toHaveAttribute('href', expect.stringContaining('tab=reports'))
   })
 
 })
