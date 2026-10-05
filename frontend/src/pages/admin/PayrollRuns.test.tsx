@@ -160,6 +160,22 @@ describe('PayrollRuns', () => {
     )
   })
 
+  it('loads an exact linked frozen batch outside the history list and retains the return path', async () => {
+    renderPayrollRuns(`/admin/payroll?batch_id=${finalized.id}&user_id=7&entry_id=51&return_to=%2Fadmin%2Fusers%2F7%3Ftab%3Dhours`)
+    expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
+    expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(finalized.id)
+    expect(screen.getByLabelText('Linked frozen time entry')).toHaveTextContent('8.00 hrs')
+    expect(screen.getByRole('link', { name: 'Back to employee review' })).toHaveAttribute('href', '/admin/users/7?tab=hours')
+    expect(screen.getByText(/Batch totals above include everyone/)).toBeInTheDocument()
+  })
+
+  it('rejects a different batch returned for an exact link', async () => {
+    apiMock.getPayrollBatch.mockResolvedValue({ data: finalized })
+    renderPayrollRuns('/admin/payroll?batch_id=wrong-batch')
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded')
+    expect(screen.queryByText('Alice Pilot')).not.toBeInTheDocument()
+  })
+
   it('shows late-approved time and Cornerstone processing state in the carryover queue', async () => {
     apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
       items: [{
@@ -717,6 +733,34 @@ describe('PayrollRuns', () => {
     expect(screen.queryByText('No unpaid carryover items need attention.')).not.toBeInTheDocument()
   })
 
+  it('discards a pending preview after opening an immutable batch', async () => {
+    let resolvePreview!: (value: { data: typeof preview }) => void
+    apiMock.previewPayrollBatch.mockReturnValueOnce(new Promise((resolve) => { resolvePreview = resolve }))
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [finalized], total_count: 1, truncated: false } })
+    renderPayrollRuns()
+    const batchButton = await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    fireEvent.click(batchButton)
+    await screen.findByText('Finalized batch')
+    await act(async () => { resolvePreview({ data: preview }) })
+    expect(screen.queryByRole('button', { name: 'Finalize this cutoff' })).not.toBeInTheDocument()
+    expect(screen.getByText('Finalized batch')).toBeInTheDocument()
+  })
+
+  it('discards a pending immutable batch after switching to live preview', async () => {
+    let resolveBatch!: (value: { data: typeof finalized }) => void
+    apiMock.getPayrollBatch.mockReturnValueOnce(new Promise((resolve) => { resolveBatch = resolve }))
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [finalized], total_count: 1, truncated: false } })
+    renderPayrollRuns()
+    fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
+    await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Live preview')
+    await act(async () => { resolveBatch({ data: finalized }) })
+    expect(screen.queryByText('Finalized batch')).not.toBeInTheDocument()
+    expect(screen.getByText('Live preview')).toBeInTheDocument()
+  })
+
   it('opens a finalized batch from history', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({
       data: { payroll_batches: [finalized], total_count: 1, truncated: false },
@@ -767,7 +811,9 @@ describe('PayrollRuns', () => {
     renderPayrollRuns()
 
     fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
+    await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(firstBatch.id))
     fireEvent.click(screen.getByRole('button', { name: /AIRE-PAY-20260731-DEF456/ }))
+    await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(secondBatch.id))
     await act(async () => {
       resolveSecond({ data: secondBatch })
       await secondRequest
@@ -905,4 +951,21 @@ describe('PayrollRuns', () => {
     expect(screen.queryByText('Alice Pilot')).not.toBeInTheDocument()
     expect(screen.queryByText('LIVE PREVIEW')).not.toBeInTheDocument()
   })
+
+ it('links carried work to its original date and entry rather than the receiving cutoff', async () => {
+   const carried = structuredClone(finalized)
+   carried.payload.employees[0].adjustments[0].original_work_date = '2026-05-04'
+   carried.payload.employees[0].adjustments[0].source_kind = 'carryover'
+   apiMock.getPayrollBatch.mockResolvedValue({ data: carried })
+   renderPayrollRuns('/admin/payroll?batch_id=AIRE-PAY-20260831-ABC123')
+   const link = await screen.findByRole('link', { name: 'Review original hours' })
+   const url = new URL(link.getAttribute('href')!, 'http://localhost')
+   expect(url.searchParams.get('start_date')).toBe('2026-05-04')
+   expect(url.searchParams.get('end_date')).toBe('2026-05-04')
+   expect(url.searchParams.get('period')).toBe('2026-05-01')
+   expect(url.searchParams.get('entry')).toBe('51')
+   const employeeUrl = new URL(screen.getByRole('link', { name: 'Alice Pilot' }).getAttribute('href')!, 'http://localhost')
+   expect(employeeUrl.searchParams.get('start_date')).toBe('2026-05-04')
+ })
+
 })

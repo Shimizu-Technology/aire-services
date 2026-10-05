@@ -8,6 +8,7 @@ import type { HoursReportResponse } from '../../lib/api'
 
 const apiMock = vi.hoisted(() => ({
   getSchedule: vi.fn(),
+  getTimeEntry: vi.fn(),
   getTimeEntries: vi.fn(),
   getTimeCategories: vi.fn(),
   getUsers: vi.fn(),
@@ -135,6 +136,33 @@ describe('TimeTracking routed report periods', () => {
     await screen.findByText('The shift employee has changed or is unavailable to your account. Open Schedule again.')
     expect(screen.queryByRole('heading', { name: 'Log Time' })).not.toBeInTheDocument()
     expect(screen.getByTestId('location-search')).toHaveTextContent('prefill=true')
+  })
+
+  it('loads the exact original entry independently of the current page and returns to the same review', async () => {
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2026-08-20', hours: 8, user: { id: 7, full_name: 'Casey' }, description: 'Original evidence', approval_status: 'approved' } } })
+    render(<MemoryRouter initialEntries={['/admin/time?user_id=7&entry_id=90&date=2026-08-20&view=day&return_to=%2Fadmin%2Fusers%2F7%3Ftab%3Dhours%26period%3D2026-08-16']}><TimeRouteHarness /></MemoryRouter>)
+    await screen.findByRole('region', { name: 'Linked time entry' })
+    expect(apiMock.getTimeEntry).toHaveBeenCalledWith(90)
+    expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ date: '2026-08-20', per_page: 100, page: 1 }))
+    expect(screen.getByRole('link', { name: 'Back to employee review' })).toHaveAttribute('href', '/admin/users/7?tab=hours&period=2026-08-16')
+    expect(screen.getByText('Original evidence')).toBeInTheDocument()
+  })
+
+  it('refuses an exact entry owned by a different employee', async () => {
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2026-08-20', hours: 8, user: { id: 99 }, description: 'Foreign evidence' } } })
+    render(<MemoryRouter initialEntries={['/admin/time?user_id=7&entry_id=90&date=2026-08-20&view=day']}><TimeRouteHarness /></MemoryRouter>)
+    await screen.findByText('The linked entry does not match the selected employee. Return to the employee review.')
+    expect(screen.queryByText('Foreign evidence')).not.toBeInTheDocument()
+  })
+
+  it('shows full filtered totals and pages bounded entry rows through the URL', async () => {
+    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [], pagination: { current_page: 1, per_page: 100, total_count: 201, total_pages: 3 }, summary: { entry_count: 201, total_hours: 602.5, total_break_hours: 0 } } })
+    render(<MemoryRouter initialEntries={['/admin/time?user_id=7&date=2026-08-20&view=day']}><TimeRouteHarness /></MemoryRouter>)
+    await screen.findByText(/201 entries · 602.50h/)
+    fireEvent.click(screen.getByRole('button', { name: 'Next entries' }))
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ page: 2, per_page: 100, user_id: 7 })))
+    expect(screen.getByTestId('location-search')).toHaveTextContent('entries_page=2')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('date=2026-08-20')
   })
 
   it('synchronizes report requests when same-route payroll dates change', async () => {

@@ -12,9 +12,11 @@ export default function EmployeeRelatedRecords({ employeeId, kind, returnTo }: {
   const [retry, setRetry] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const today = formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')
-  const todayDate = new Date(`${today}T00:00:00Z`)
-  todayDate.setUTCDate(todayDate.getUTCDate() - todayDate.getUTCDay())
-  const week = query.get('schedule_week') || todayDate.toISOString().slice(0, 10)
+  const requestedWeek = query.get('schedule_week') || query.get('start_date') || today
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedWeek) && !Number.isNaN(Date.parse(`${requestedWeek}T00:00:00Z`)) && new Date(`${requestedWeek}T00:00:00Z`).toISOString().slice(0, 10) === requestedWeek
+  const weekDate = new Date(`${validDate ? requestedWeek : today}T00:00:00Z`)
+  weekDate.setUTCDate(weekDate.getUTCDate() - weekDate.getUTCDay())
+  const week = weekDate.toISOString().slice(0, 10)
   const page = Math.max(1, Number(query.get('activity_page')) || 1)
   useEffect(() => {
     const controller = new AbortController()

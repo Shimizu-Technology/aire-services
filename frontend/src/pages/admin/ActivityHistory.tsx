@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api, type AuditLogEntry, type AuditLogFilters } from '../../lib/api'
 import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
 
@@ -38,8 +40,9 @@ function valueText(value: unknown) {
 
 function subjectScope(searchParams: URLSearchParams) {
   const subjectType = searchParams.get('subject_type')?.trim()
-  const subjectId = Number.parseInt(searchParams.get('subject_id') || '', 10)
-  if (!subjectType || !Number.isFinite(subjectId) || subjectId <= 0) return {}
+  const rawId = searchParams.get('subject_id') || ''
+  const subjectId = Number(rawId)
+  if (!subjectType || !/^[1-9]\d*$/.test(rawId) || !Number.isSafeInteger(subjectId)) return {}
 
   return {
     subject_type: subjectType,
@@ -69,6 +72,10 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
   const detailRows = Object.entries(event.details).filter(([, value]) => value !== null && value !== undefined && value !== '')
   const changeRows = Object.entries(event.changes)
   const panelRef = useRef<HTMLElement>(null)
+  const location = useLocation()
+  const [compact, setCompact] = useState(() => window.innerWidth < 1280)
+  useEffect(() => { const resize = () => setCompact(window.innerWidth < 1280); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize) }, [])
+  useDialogFocus(compact, panelRef, onClose)
 
   useEffect(() => {
     panelRef.current?.focus()
@@ -82,7 +89,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
   return (
     <>
       <button type="button" onClick={onClose} className="fixed inset-0 z-40 bg-slate-950/35 xl:hidden" aria-label="Close event details" />
-      <aside ref={panelRef} tabIndex={-1} role="dialog" aria-label="Activity event details" className="fixed inset-x-3 bottom-3 top-20 z-50 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl outline-none xl:sticky xl:inset-auto xl:top-6 xl:z-auto xl:max-h-[calc(100vh-7rem)] xl:shadow-sm">
+      <aside ref={panelRef} tabIndex={-1} role={compact ? "dialog" : "region"} aria-modal={compact || undefined} aria-label="Activity event details" className="fixed inset-x-3 bottom-3 top-20 z-50 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl outline-none xl:sticky xl:inset-auto xl:top-6 xl:z-auto xl:max-h-[calc(100vh-7rem)] xl:shadow-sm">
       <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Event details</p>
@@ -108,7 +115,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
         <section>
           <h3 className="font-semibold text-slate-900">Subject</h3>
           <dl className="mt-3 grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-slate-600">
-            <dt className="text-slate-400">Record</dt><dd>{event.subject.name || `${formatLabel(event.subject.type)} #${event.subject.id}`}</dd>
+            <dt className="text-slate-400">Record</dt><dd>{event.subject.type === 'User' && event.subject.id > 0 ? <Link className="underline" to={employeeWorkspaceHref(event.subject.id, { tab: 'activity', returnTo: `${location.pathname}${location.search}` })}>{event.subject.name || `Employee #${event.subject.id}`}</Link> : event.subject.name || `${formatLabel(event.subject.type)} #${event.subject.id}`}</dd>
             <dt className="text-slate-400">Type</dt><dd>{formatLabel(event.subject.type)}</dd>
             <dt className="text-slate-400">Event</dt><dd className="font-mono text-xs">{event.action}</dd>
           </dl>
@@ -171,6 +178,11 @@ export default function ActivityHistory() {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestSequence = useRef(0)
+  const [eventError, setEventError] = useState<string | null>(null)
+  const [eventLoading, setEventLoading] = useState(false)
+  const [eventRetry, setEventRetry] = useState(0)
+  const requestedEventId = searchParams.get('event_id')
+  const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
   const searchDebounceMounted = useRef(false)
 
   useEffect(() => {
@@ -221,7 +233,6 @@ export default function ActivityHistory() {
       setPagination(response.data.pagination)
       setAvailableCategories(response.data.filters.event_categories)
       setAvailableSources(response.data.filters.sources)
-      setSelected((current) => current && response.data!.audit_logs.find((event) => event.id === current.id) || null)
     } else {
       setError(response.error || 'Activity history could not be loaded.')
     }
@@ -232,6 +243,31 @@ export default function ActivityHistory() {
     const timer = window.setTimeout(() => { void loadEvents() }, 0)
     return () => window.clearTimeout(timer)
   }, [loadEvents])
+
+  useEffect(() => {
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      setSelected(null)
+      setEventError(null)
+      setEventLoading(false)
+      if (!requestedEventId) return
+      if (!/^[1-9]\d*$/.test(requestedEventId) || !Number.isSafeInteger(Number(requestedEventId))) {
+        setEventError('The linked activity event is invalid.')
+        return
+      }
+      setEventLoading(true)
+      const response = await api.getAuditLog(Number(requestedEventId))
+      if (cancelled) return
+      const event = response.data
+      if (!event || event.id !== Number(requestedEventId) || (routeSubjectType && (event.subject.type !== routeSubjectType || event.subject.id !== routeSubjectId))) {
+        setEventError(response.error || 'The linked event does not match this record.')
+      } else {
+        setSelected(event)
+      }
+      setEventLoading(false)
+    }, 0)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [requestedEventId, routeSubjectType, routeSubjectId, eventRetry])
 
   const activeFilterCount = useMemo(() => [filters.event_category, filters.source, filters.from, filters.to, filters.outcome, filters.search, routeSubjectType && routeSubjectId].filter(Boolean).length, [filters, routeSubjectId, routeSubjectType])
 
@@ -249,7 +285,19 @@ export default function ActivityHistory() {
     setSearchParams({}, { replace: true })
   }
 
-  const closeSelected = useCallback(() => setSelected(null), [])
+  const closeSelected = useCallback(() => {
+    setSelected(null)
+    const next = new URLSearchParams(searchParams)
+    next.delete('event_id')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  const selectEvent = (event: AuditLogEntry) => {
+    setSelected(event)
+    const next = new URLSearchParams(searchParams)
+    next.set('event_id', String(event.id))
+    setSearchParams(next)
+  }
 
   const exportEvents = async () => {
     setExporting(true)
@@ -273,6 +321,9 @@ export default function ActivityHistory() {
 
   return (
     <div className="space-y-6">
+      {returnTo && <Link className="text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>Back to employee</Link>}
+      {eventLoading && <p role="status" className="text-sm text-slate-600">Loading linked event…</p>}
+      {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Accountability</p>
@@ -330,7 +381,7 @@ export default function ActivityHistory() {
           ) : (
             <div className="divide-y divide-slate-100">
               {events.map((event) => (
-                <button key={event.id} type="button" onClick={() => setSelected(event)} className={`grid w-full gap-3 px-4 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[8rem_minmax(0,1fr)_8rem] sm:items-center sm:px-5 ${selected?.id === event.id ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : ''}`}>
+                <button key={event.id} type="button" onClick={() => selectEvent(event)} className={`grid w-full gap-3 px-4 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[8rem_minmax(0,1fr)_8rem] sm:items-center sm:px-5 ${selected?.id === event.id ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : ''}`}>
                   <div><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{formatLabel(event.event_category)}</span><p className="mt-1 text-xs text-slate-400 sm:hidden">{formatTimestamp(event.occurred_at)}</p></div>
                   <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type} · {formatLabel(event.source)}</p></div>
                   <div className="hidden text-right sm:block"><p className="text-xs font-medium text-slate-600">{new Date(event.occurred_at).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric' })}</p><p className="mt-1 text-xs text-slate-400">{new Date(event.occurred_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' })}</p></div>

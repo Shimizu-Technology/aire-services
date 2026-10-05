@@ -1,6 +1,8 @@
-import { useState, useEffect, useEffectEvent, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
+import type { TimeEntriesResponse } from '../../lib/api'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
@@ -381,12 +383,26 @@ function EntryQualityFlags({ flags = [] }: { flags?: TimeEntryItem['quality_flag
 
 export default function TimeTracking() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const currentPath = `${location.pathname}${location.search}`
+  const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
+  const routedDate = searchParams.get('date') || searchParams.get('start_date')
+  const routedView = searchParams.get('view') === 'day' ? 'day' : 'week'
+  const routedEntryId = /^[1-9]\d*$/.test(searchParams.get('entry_id') || '') ? searchParams.get('entry_id') : null
+  const entriesPage = Math.max(1, Math.min(10000, Number.parseInt(searchParams.get('entries_page') || '1', 10) || 1))
+  const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
+  const entryRequest = useRef(0)
+  const [linkedEntry, setLinkedEntry] = useState<TimeEntryItem | null>(null)
+  const [linkedEntryError, setLinkedEntryError] = useState<string | null>(null)
   const routedPrefill = searchParams.get('prefill')
   const routedScheduleId = searchParams.get('schedule_id') || ''
   const routedPrefillOwner = searchParams.get('user_id') || ''
-  const clearShiftPrefill = useEffectEvent(() => {
+  const clearShiftPrefill = useEffectEvent((workDate: string) => {
     const next = new URLSearchParams(searchParams)
     for (const key of ['prefill', 'schedule_id', 'date', 'start_time', 'end_time', 'notes']) next.delete(key)
+    next.set('date', workDate)
+    next.set('view', 'day')
+    next.delete('entries_page')
     setSearchParams(next, { replace: true })
   })
   const { userRole, isClerkEnabled } = useAuthContext()
@@ -425,8 +441,10 @@ export default function TimeTracking() {
   const [activeTab, setActiveTab] = useState<TimeTab>(() => timeTabFromSearchParams(searchParams))
   
   // View mode: 'day' or 'week'
-  const [viewMode, setViewMode] = useState<'day' | 'week'>('week')
-  const [currentDate, setCurrentDate] = useState(new Date())
+  const viewMode = routedView
+  const currentDate = useMemo(() => isIsoDate(routedDate) ? new Date(`${routedDate}T00:00:00`) : new Date(), [routedDate])
+  const setViewMode = (mode: 'day' | 'week') => { const next = new URLSearchParams(searchParams); next.set('view', mode); next.delete('entries_page'); setSearchParams(next) }
+  const setCurrentDate = (date: Date) => { const next = new URLSearchParams(searchParams); next.set('date', formatDateISO(date)); next.delete('entries_page'); next.delete('entry_id'); setSearchParams(next) }
   
   // Entries filters (for Time Entries tab)
   const [entryFilters, setEntryFilters] = useState({
@@ -516,13 +534,30 @@ export default function TimeTracking() {
     return name
   }
 
+  useEffect(() => {
+    if (!routedEntryId) { setLinkedEntry(null); setLinkedEntryError(null); return }
+    let cancelled = false
+    setLinkedEntry(null)
+    setLinkedEntryError(null)
+    void api.getTimeEntry(Number(routedEntryId)).then(response => {
+      if (cancelled) return
+      const entry = response.data?.time_entry as unknown as TimeEntryItem | undefined
+      if (!entry || response.error) { setLinkedEntryError(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.'); return }
+      if (String(entry.id) !== routedEntryId || (routedUserId && String(entry.user.id) !== routedUserId)) { setLinkedEntryError('The linked entry does not match the selected employee. Return to the employee review.'); return }
+      setLinkedEntry(entry)
+    }).catch(() => { if (!cancelled) setLinkedEntryError('The linked entry could not be loaded. Refresh to retry or return to the employee review.') })
+    return () => { cancelled = true }
+  }, [routedEntryId, routedUserId])
+
   // Load time entries
   const loadEntries = useCallback(async () => {
+    const request = ++entryRequest.current
     setLoading(true)
     setError(null)
+    setEntryMeta(null)
 
     try {
-      const params: Record<string, string | number> = { per_page: 500 }
+      const params: Record<string, string | number> = { per_page: 100, page: entriesPage }
       
       if (viewMode === 'day') {
         params.date = formatDateISO(currentDate)
@@ -543,17 +578,19 @@ export default function TimeTracking() {
 
       const response = await api.getTimeEntries(params as unknown as Parameters<typeof api.getTimeEntries>[0])
       
+      if (request !== entryRequest.current) return
       if (response.data) {
+        setEntryMeta(response.data.pagination && response.data.summary ? { pagination: response.data.pagination, summary: response.data.summary } : null)
         setEntries(response.data.time_entries as unknown as TimeEntryItem[])
       } else {
         setError(response.error || 'Failed to load time entries')
       }
     } catch {
-      setError('Failed to load time entries')
+      if (request === entryRequest.current) setError('Failed to load time entries')
     } finally {
-      setLoading(false)
+      if (request === entryRequest.current) setLoading(false)
     }
-  }, [currentDate, viewMode, entryFilters])
+  }, [currentDate, viewMode, entryFilters, entriesPage])
 
   // Load categories and users
   const loadOptions = useCallback(async () => {
@@ -840,7 +877,6 @@ export default function TimeTracking() {
           return
         }
         setEditingEntry(null)
-        setCurrentDate(new Date(`${shift.work_date}T00:00:00`))
         setFormData({
           work_date: shift.work_date,
           start_time: shift.start_time,
@@ -851,7 +887,7 @@ export default function TimeTracking() {
           break_minutes: null,
         })
         setShowModal(true)
-        clearShiftPrefill()
+        clearShiftPrefill(shift.work_date)
       } catch {
         if (!cancelled) setPrefillError('Unable to load the scheduled shift. Please try again.')
       }
@@ -1145,6 +1181,7 @@ export default function TimeTracking() {
 
   return (
     <div className="space-y-6">
+      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
       <TimePayrollWorkspaceHeader
         activeSection={activeTab}
         isAdmin={isAdmin}
@@ -1204,7 +1241,7 @@ export default function TimeTracking() {
               <label className="block text-sm text-text-muted mb-1">Employee</label>
               <select
                 value={entryFilters.user_id}
-                onChange={(e) => { const next = new URLSearchParams(searchParams); if (e.target.value) next.set('user_id', e.target.value); else next.delete('user_id'); setSearchParams(next, { replace: true }) }}
+                onChange={(e) => { const next = new URLSearchParams(searchParams); next.delete('entries_page'); next.delete('entry_id'); if (e.target.value) next.set('user_id', e.target.value); else next.delete('user_id'); setSearchParams(next, { replace: true }) }}
                 className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
               >
                 <option value="">All Employees</option>
@@ -1217,7 +1254,7 @@ export default function TimeTracking() {
               <label className="block text-sm text-text-muted mb-1">Category</label>
               <select
                 value={entryFilters.time_category_id}
-                onChange={(e) => setEntryFilters({ ...entryFilters, time_category_id: e.target.value })}
+                onChange={(e) => { setEntryFilters({ ...entryFilters, time_category_id: e.target.value }); const next = new URLSearchParams(searchParams); next.delete('entries_page'); setSearchParams(next) }}
                 className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
               >
                 <option value="">All Categories</option>
@@ -1414,11 +1451,23 @@ export default function TimeTracking() {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800">
           {error}
+          <button type="button" onClick={() => void loadEntries()} className="ml-3 min-h-11 underline">Retry time entries</button>
         </div>
       )}
 
+      {entryMeta && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+        <p>{entryMeta.summary.entry_count} entries · {Number(entryMeta.summary.total_hours).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
+        {entryMeta.pagination.total_pages > 1 && <div className="flex items-center gap-3"><button type="button" disabled={loading || entriesPage <= 1} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage - 1)); setSearchParams(next) }}>Previous entries</button><span>Page {entriesPage} of {entryMeta.pagination.total_pages}</span><button type="button" disabled={loading || entriesPage >= entryMeta.pagination.total_pages} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage + 1)); setSearchParams(next) }}>Next entries</button></div>}
+      </div>}
+      {linkedEntryError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">{linkedEntryError}</div>}
+      {linkedEntry && <section aria-label="Linked time entry" className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-sm">
+        <p className="font-semibold">Entry #{linkedEntry.id} · {formatDate(linkedEntry.work_date)} · {ownerLabel(linkedEntry)}</p>
+        <p className="mt-1">{Number(linkedEntry.hours).toFixed(2)}h · {linkedEntry.time_category?.name || 'No category'} · {linkedEntry.approval_status || 'Standard approval'}</p>
+        <p className="mt-1 break-words">{linkedEntry.description || 'No description recorded.'}</p>
+        <button type="button" className="mt-2 min-h-11 underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('date', linkedEntry.work_date); next.set('view', 'day'); next.delete('entries_page'); setSearchParams(next) }}>Show this work day</button>
+      </section>}
       {/* Loading Skeleton */}
-      {loading ? (
+      {error ? null : loading ? (
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           {/* Header skeleton */}
           <div className="p-4 border-b border-neutral-warm">
@@ -1587,7 +1636,7 @@ export default function TimeTracking() {
           ) : (
             <div className="divide-y divide-neutral-warm">
               {visibleEntries.map(entry => (
-                <div key={entry.id} className="p-3 sm:p-4">
+                <div key={entry.id} id={`time-entry-${entry.id}`} tabIndex={routedEntryId === String(entry.id) ? -1 : undefined} className={`p-3 sm:p-4 ${routedEntryId === String(entry.id) ? 'bg-cyan-50 ring-2 ring-inset ring-cyan-400' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       {/* Hours + Time + Category Row */}
@@ -1629,7 +1678,7 @@ export default function TimeTracking() {
                       </div>
                       {/* Owner */}
                       <p className="mt-1 text-xs sm:text-sm text-primary-dark/80 truncate">
-                        by {ownerLabel(entry)}
+                        by {isAdmin ? <Link to={employeeWorkspaceHref(entry.user.id, { tab: 'hours', returnTo: currentPath, entry: String(entry.id), period: `${entry.work_date.slice(0, 7)}-${Number(entry.work_date.slice(8)) <= 15 ? '01' : '16'}` })} className="underline decoration-primary/30 underline-offset-4">{ownerLabel(entry)}</Link> : ownerLabel(entry)}
                       </p>
                       {/* Description */}
                       {entry.description && (

@@ -30,6 +30,20 @@ describe('Schedule handoff and failures', () => {
     } })
   })
 
+  it('retains the selected employee and original week when opening their workspace', async () => {
+    mocks.getSchedules.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey', email: 'casey@example.test' }], schedules: [{ id: 9, user_id: 7, work_date: '2026-08-20', start_time: '09:00', end_time: '17:00', formatted_time_range: '9 AM - 5 PM', hours: 8 }] } })
+    render(<MemoryRouter initialEntries={['/admin/schedule?user_id=7&week_start=2026-08-16&team=Casey&return_to=%2Fadmin%2Fusers%2F7%3Ftab%3Dschedule']}><Harness /></MemoryRouter>)
+    const employeeLink = await screen.findByRole('link', { name: 'Casey' })
+    const target = new URL(employeeLink.getAttribute('href')!, 'https://local.invalid')
+    expect(target.pathname).toBe('/admin/users/7')
+    expect(target.searchParams.get('return_to')).toBe('/admin/schedule?user_id=7&week_start=2026-08-16&team=Casey&return_to=%2Fadmin%2Fusers%2F7%3Ftab%3Dschedule')
+    expect(target.searchParams.get('start_date')).toBe('2026-08-16')
+    expect(screen.getByRole('link', { name: 'Back to employee review' })).toHaveAttribute('href', '/admin/users/7?tab=schedule')
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+    expect(screen.getByTestId('route')).toHaveTextContent('week_start=2026-08-23')
+    expect(screen.getByTestId('route')).toHaveTextContent('user_id=7')
+  })
+
   it('links Log Time to the exact saved shift and employee', async () => {
     open()
     fireEvent.click(await screen.findByRole('button', { name: 'Log Time' }))
