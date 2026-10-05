@@ -19,7 +19,7 @@ module Api
 
         def render_evidence(period_id: nil)
           user = User.staff.find(params[:user_id])
-          render json: ::Payroll::EmployeePeriodEvidence.new(user: user, params: params.permit(:start_date, :end_date, :cursor, :per_page, :detail_cursor, :detail_per_page).to_h).call(period_id: period_id)
+          render json: ::Payroll::EmployeePeriodEvidence.new(user: user, params: params.permit(:start_date, :end_date, :cursor, :per_page, :detail_cursor, :detail_per_page, :entry_id).to_h).call(period_id: period_id)
         rescue ArgumentError => error
           render json: { error: error.message }, status: :unprocessable_entity
         end

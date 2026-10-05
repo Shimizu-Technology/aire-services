@@ -22,6 +22,15 @@ RSpec.describe "Employee period evidence", type: :request do
     expect(response).to have_http_status(:unprocessable_entity)
   end
 
+  it "honors exact entry selection through the HTTP boundary while preserving period totals" do
+    first = create(:time_entry, user: employee, work_date: Date.new(2026, 9, 8))
+    selected = create(:time_entry, user: employee, work_date: first.work_date)
+    get "/api/v1/admin/users/#{employee.id}/periods/2026-09-01", params: { entry_id: selected.id }, headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.dig("period", "entries").pluck("id")).to eq([ selected.id.to_s ])
+    expect(response.parsed_body.dig("period", "summary", "worked_hours")).to eq(16.0)
+  end
+
   context "connected payroll" do
     let(:grant) { PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management]) }
     let(:headers) { { "X-Payroll-Shared-Secret" => "employee-evidence-secret", "X-Aire-Delegation-Token" => grant.issued_token,

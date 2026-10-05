@@ -12,7 +12,9 @@ const tabs: { key: EmployeeTab; label: string }[] = [
 ]
 const h = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}h`
 const panel = 'rounded-2xl border border-slate-200 bg-white p-4 sm:p-6'
-const action = 'inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600'
+const actionBase = 'inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600'
+const action = `${actionBase} border-slate-300 bg-white text-slate-800 hover:bg-slate-50`
+const activeAction = `${actionBase} border-slate-900 bg-slate-900 text-white hover:bg-slate-800`
 
 function Totals({ totals }: { totals: EvidenceTotals }) {
   return <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -81,7 +83,7 @@ export default function EmployeeWorkspace() {
     if (selectedEntry) filter.set('entry_id', selectedEntry)
     await employeeEvidenceApi.period(id, selectedPeriod, filter, controller.signal).then((result) => {
       if (controller.signal.aborted) return
-      if (result.employee.id !== id || result.employee.payroll_integration_id !== evidence.employee.payroll_integration_id || result.integration.source_instance_id !== evidence.integration.source_instance_id) throw new Error('Period evidence identity changed. Reload the employee record before continuing.')
+      if (result.period.id !== selectedPeriod || result.employee.id !== id || result.employee.payroll_integration_id !== evidence.employee.payroll_integration_id || result.integration.source_instance_id !== evidence.integration.source_instance_id) throw new Error('Period evidence identity changed. Reload the employee record before continuing.')
       setDetail(result.period)
     }).catch((reason) => { if (!controller.signal.aborted) setDetailError(reason instanceof Error ? reason.message : 'Unable to load this period.') })
     }
@@ -108,7 +110,7 @@ export default function EmployeeWorkspace() {
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Team member</p>
         <h1 className="mt-1 break-words text-2xl font-bold text-slate-950">{user.full_name || user.display_name}</h1>
         <p className="mt-2 text-sm text-slate-600">{user.staff_title || 'Staff'} · {user.employment_status} · {user.personal_access_enabled ? 'Personal sign-in' : user.kiosk_enabled ? 'Kiosk access' : 'No sign-in'}</p>
-        <nav aria-label="Employee sections" className="mt-5 flex flex-wrap gap-2">{tabs.map((item) => <Link key={item.key} aria-current={tab === item.key ? 'page' : undefined} to={employeeWorkspaceHref(id, { tab: item.key, returnTo, startDate, endDate, period: selectedPeriod, entry: selectedEntry, cursor, detailCursor, sourceUserUuid, sourceInstanceId })} className={`${action} ${tab === item.key ? 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800' : ''}`}>{item.label}</Link>)}</nav>
+        <nav aria-label="Employee sections" className="mt-5 flex flex-wrap gap-2">{tabs.map((item) => <Link key={item.key} aria-current={tab === item.key ? 'page' : undefined} to={employeeWorkspaceHref(id, { tab: item.key, returnTo, startDate, endDate, period: selectedPeriod, entry: selectedEntry, cursor, detailCursor, sourceUserUuid, sourceInstanceId })} className={tab === item.key ? activeAction : action}>{item.label}</Link>)}</nav>
       </header>
       {(tab === 'overview' || tab === 'hours') && <>
         <section className={`${panel} space-y-4`} aria-label="Employee hour totals">

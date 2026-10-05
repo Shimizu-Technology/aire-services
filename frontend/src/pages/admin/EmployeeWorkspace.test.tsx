@@ -32,6 +32,8 @@ describe('employee workspace', () => {
     expect(screen.getByLabelText('Current address')).toHaveTextContent('period=2026-09-01&entry=19')
     expect(screen.getByRole('link', { name: 'Back to previous view' })).toHaveAttribute('href', '/admin/time?user_id=7')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Hours & payroll' })).toHaveClass('bg-slate-900', 'text-white')
+    expect(screen.getByRole('link', { name: 'Hours & payroll' })).not.toHaveClass('bg-white', 'text-slate-800')
   })
   it('restores exact selection from a refreshed URL', async () => {
     open('/admin/users/7?tab=hours&period=2026-09-01&entry=19&start_date=2026-09-01')
