@@ -116,7 +116,7 @@ Rails.application.routes.draw do
       end
 
       namespace :admin do
-        resources :audit_logs, only: [ :index ] do
+        resources :audit_logs, only: [ :index, :show ] do
           collection do
             get :export
           end

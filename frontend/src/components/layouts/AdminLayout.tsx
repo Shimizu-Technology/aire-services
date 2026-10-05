@@ -62,7 +62,7 @@ const adminNavigation = [
     icon: CalendarDays,
   },
   {
-    name: 'Users',
+    name: 'Team',
     href: '/admin/users',
     icon: UserRound,
   },

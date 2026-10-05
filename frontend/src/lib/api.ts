@@ -1556,6 +1556,8 @@ export const api = {
     return fetchApi<TimeEntriesResponse>(`/api/v1/time_entries${query ? `?${query}` : ''}`);
   },
 
+  getTimeEntry: (id: number) => fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}`),
+
   createTimeEntry: (data: {
     work_date: string;
     start_time: string;
@@ -1821,6 +1823,8 @@ export const api = {
     }),
 
   // Activity history
+  getAuditLog: (id: number) => fetchApi<AuditLogEntry>(`/api/v1/admin/audit_logs/${id}`),
+
   getAuditLogs: (filters: AuditLogFilters = {}) => {
     const searchParams = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {

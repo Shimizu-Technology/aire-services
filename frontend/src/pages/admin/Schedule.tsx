@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { FadeUp } from '../../components/ui/MotionComponents'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
+import { isIsoDate } from '../../lib/payrollPeriods'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
@@ -62,6 +64,12 @@ export default function Schedule() {
   useEffect(() => { document.title = 'Schedule | AIRE Ops' }, [])
 
   const navigate = useNavigate()
+  const location = useLocation()
+  const [query, setQuery] = useSearchParams()
+  const routedWeek = query.get('week_start') || query.get('start_date')
+  const selectedUser = /^[1-9]\d*$/.test(query.get('user_id') || '') ? query.get('user_id') : null
+  const currentPath = `${location.pathname}${location.search}`
+  const returnTo = query.has('return_to') ? safeAdminReturn(query.get('return_to')) : null
   const { userRole, isClerkEnabled, currentUser } = useAuthContext()
   const canManage = !isClerkEnabled || userRole === 'admin'
   const [schedules, setSchedules] = useState<ScheduleType[]>([])
@@ -70,7 +78,8 @@ export default function Schedule() {
   const [loading, setLoading] = useState(true)
   const scheduleRequest = useRef(0)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [currentWeekStart, setCurrentWeekStart] = useState(() => getWeekStart(businessToday()))
+  const currentWeekStart = useMemo(() => getWeekStart(isIsoDate(routedWeek) ? new Date(`${routedWeek}T00:00:00`) : businessToday()), [routedWeek])
+  const setCurrentWeekStart = (date: Date) => { const next = new URLSearchParams(query); next.set('week_start', formatDateISO(date)); setQuery(next) }
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [compactView, setCompactView] = useState(() => window.innerWidth < 640)
   const effectiveViewMode = compactView ? 'list' : viewMode
@@ -79,7 +88,8 @@ export default function Schedule() {
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
   }, [])
-  const [teamFilter, setTeamFilter] = useState('')
+  const teamFilter = query.get('team') || ''
+  const setTeamFilter = (value: string) => { const next = new URLSearchParams(query); if (value) next.set('team', value); else next.delete('team'); setQuery(next, { replace: true }) }
   
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -101,12 +111,13 @@ export default function Schedule() {
 
   const weekDates = getWeekDates(currentWeekStart)
   const normalizedTeamFilter = teamFilter.trim().toLowerCase()
+  const selectedUsers = selectedUser ? users.filter(user => String(user.id) === selectedUser) : users
   const visibleUsers = normalizedTeamFilter
-    ? users.filter((user) => {
+    ? selectedUsers.filter((user) => {
         const label = `${user.display_name || ''} ${user.full_name || ''} ${user.email}`.toLowerCase()
         return label.includes(normalizedTeamFilter)
       })
-    : users
+    : selectedUsers
   const visibleUserIds = new Set(visibleUsers.map((user) => user.id))
   const visibleSchedules = schedules.filter((schedule) => visibleUserIds.has(schedule.user_id))
 
@@ -325,6 +336,8 @@ export default function Schedule() {
 
   return (
     <div className="space-y-6">
+      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
+      {selectedUser && <div className="flex flex-wrap items-center gap-3 text-sm"><span>Showing one employee’s schedule</span><button type="button" className="min-h-11 underline" onClick={() => { const next = new URLSearchParams(query); next.delete('user_id'); setQuery(next) }}>Show all employees</button></div>}
       {loadError && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
           <p>{loadError}</p>
@@ -504,7 +517,7 @@ export default function Schedule() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="font-medium text-primary-dark truncate">
-                                  {getUserDisplayName(user)}
+                                  {canManage && user ? <Link className="underline decoration-primary/30 underline-offset-4 hover:decoration-primary" to={employeeWorkspaceHref(user.id, { tab: 'schedule', returnTo: currentPath, startDate: formatDateISO(currentWeekStart), endDate: formatDateISO(weekDates[6]) })}>{getUserDisplayName(user)}</Link> : getUserDisplayName(user)}
                                 </p>
                                 <p className="text-sm text-text-muted">
                                   {schedule.formatted_time_range}
@@ -589,7 +602,7 @@ export default function Schedule() {
                     <tr key={user.id} className="hover:bg-secondary/20 transition-colors">
                       <td className="px-4 py-3">
                         <div className="font-medium text-primary-dark text-sm">
-                          {getUserDisplayName(user)}
+                          {canManage && user ? <Link className="underline decoration-primary/30 underline-offset-4 hover:decoration-primary" to={employeeWorkspaceHref(user.id, { tab: 'schedule', returnTo: currentPath, startDate: formatDateISO(currentWeekStart), endDate: formatDateISO(weekDates[6]) })}>{getUserDisplayName(user)}</Link> : getUserDisplayName(user)}
                         </div>
                       </td>
                       {weekDates.map((date, idx) => {

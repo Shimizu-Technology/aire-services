@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   api,
@@ -10,6 +10,7 @@ import {
   type PayrollCarryoverQueue,
 } from '../../lib/api'
 import TimePayrollWorkspaceHeader from '../../components/time-tracking/TimePayrollWorkspaceHeader'
+import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
 import {
   formatPayrollDate,
   isIsoDate,
@@ -266,7 +267,8 @@ function IssueSummary({ issues, period }: { issues: PayrollBatchIssues; period: 
   )
 }
 
-function BatchContents({ payload }: { payload: PayrollBatchPayload }) {
+function BatchContents({ payload, userId, entryId, returnTo }: { payload: PayrollBatchPayload; userId: string | null; entryId: string | null; returnTo: string }) {
+  const employees = userId ? payload.employees.filter((employee) => employee.source_user_id === userId) : payload.employees
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(19rem,0.65fr)]">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -278,21 +280,22 @@ function BatchContents({ payload }: { payload: PayrollBatchPayload }) {
           <p className="text-xs text-slate-500">{payload.summary.adjustment_count} adjustments</p>
         </div>
         <div className="mt-5 space-y-4">
-          {payload.employees.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No approved hours are included in this period.</p>}
-          {payload.employees.map((employee) => (
+          {employees.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No included hours match this employee in this batch.</p>}
+          {employees.map((employee) => (
             <article key={employee.source_user_id} className="rounded-2xl border border-slate-200 p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="font-semibold text-slate-950">{employee.display_name}</h3>
+                  <h3 className="font-semibold text-slate-950"><Link className="hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: employee.adjustments.map((line) => line.original_work_date).sort()[0] || payload.start_date, endDate: employee.adjustments.map((line) => line.original_work_date).sort().at(-1) || payload.end_date, returnTo })}>{employee.display_name}</Link></h3>
                   <p className="text-xs text-slate-500">{employee.email || 'Kiosk-only team member'}</p>
                 </div>
                 <p className="text-sm font-semibold text-slate-800">{formatHours(employee.total_hours)}</p>
               </div>
               <div className="mt-3 space-y-2">
                 {employee.adjustments.map((adjustment) => (
-                  <div key={`${adjustment.source_time_entry_id}-${adjustment.line_key}`} className="grid gap-2 rounded-xl bg-slate-50 px-3 py-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div key={`${adjustment.source_time_entry_id}-${adjustment.line_key}`} aria-label={entryId === adjustment.source_time_entry_id ? 'Linked frozen time entry' : undefined} className={`grid gap-2 rounded-xl px-3 py-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center ${entryId === adjustment.source_time_entry_id ? 'bg-cyan-50 ring-2 ring-cyan-600' : 'bg-slate-50'}`}>
                     <div>
                       <p className="font-medium text-slate-800">{adjustment.category?.name || 'Category missing'} · {formatDate(adjustment.original_work_date)}</p>
+                      <Link className="mt-1 inline-block text-xs font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: adjustment.original_work_date, endDate: adjustment.original_work_date, period: `${adjustment.original_work_date.slice(0, 7)}-${Number(adjustment.original_work_date.slice(8, 10)) <= 15 ? '01' : '16'}`, entry: adjustment.source_time_entry_id, returnTo })}>Review original hours</Link>
                       <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Late approval carried forward' : 'Correction to a prior payroll cutoff'}</p>
                     </div>
                     <div className="text-left text-xs text-slate-600 sm:text-right">
@@ -604,6 +607,11 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
 export default function PayrollRuns() {
   const [searchParams, setSearchParams] = useSearchParams()
   const routedPeriod = payrollPeriodFromSearchParams(searchParams)
+  const routedBatchId = searchParams.get('batch_id')
+  const selectedUserId = searchParams.get('user_id')
+  const selectedEntryId = searchParams.get('entry_id')
+  const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
+  const currentUrl = `/admin/payroll?${searchParams.toString()}`
   const [startDate, setStartDate] = useState(() => routedPeriod.start)
   const [endDate, setEndDate] = useState(() => routedPeriod.end)
   const [preview, setPreview] = useState<PayrollBatchPayload | null>(null)
@@ -631,13 +639,14 @@ export default function PayrollRuns() {
 
   useEffect(() => { document.title = 'Payroll Cutoffs | AIRE Ops' }, [])
 
-  const syncPeriodToUrl = useCallback((period: PayrollPeriod) => {
+  const syncPeriodToUrl = useCallback((period: PayrollPeriod, keepBatch = false) => {
     const periodKey = `${period.start}|${period.end}`
     internalPeriodNavigation.current = periodKey
     displayedPeriodKey.current = periodKey
     const next = new URLSearchParams(searchParams)
     next.set('start_date', period.start)
     next.set('end_date', period.end)
+    if (!keepBatch) { next.delete('batch_id'); next.delete('entry_id') }
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
@@ -696,6 +705,8 @@ export default function PayrollRuns() {
   }, [loadBatches, loadCarryovers])
 
   const runPreview = async () => {
+    batchRequestSequence.current += 1
+    syncPeriodToUrl({ start: startDate, end: endDate })
     const requestSequence = ++previewRequestSequence.current
     setPreviewing(true)
     setError(null)
@@ -716,6 +727,8 @@ export default function PayrollRuns() {
 
   const clearPreviewForDateChange = () => {
     previewRequestSequence.current += 1
+    batchRequestSequence.current += 1
+    setSelectedBatch(null)
     setPreviewing(false)
     setPreview(null)
     setShowConfirm(false)
@@ -760,18 +773,34 @@ export default function PayrollRuns() {
 
   const openBatch = async (id: string) => {
     const requestSequence = ++batchRequestSequence.current
+    previewRequestSequence.current += 1
+    setPreview(null)
+    setPreviewing(false)
+    setShowConfirm(false)
+    setShowManualProcessing(false)
+    setDialogError(null)
     setError(null)
+    setSelectedBatch(null)
     const response = await api.getPayrollBatch(id)
     if (requestSequence !== batchRequestSequence.current) return
-    if (response.data) {
+    if (response.data && response.data.id === id) {
       setSelectedBatch(response.data)
       setStartDate(response.data.start_date)
       setEndDate(response.data.end_date)
-      syncPeriodToUrl({ start: response.data.start_date, end: response.data.end_date })
+      syncPeriodToUrl({ start: response.data.start_date, end: response.data.end_date }, true)
       setPreview(null)
       setShowConfirm(false)
     } else setError(response.error || 'The payroll batch could not be loaded.')
   }
+
+  const loadRoutedBatch = useEffectEvent((id: string) => { void openBatch(id) })
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (routedBatchId) loadRoutedBatch(routedBatchId)
+      else { batchRequestSequence.current += 1; setSelectedBatch(null) }
+    }, 0)
+    return () => { window.clearTimeout(timer); batchRequestSequence.current += 1 }
+  }, [routedBatchId])
 
   const exportBatch = async (id: string) => {
     const response = await api.downloadPayrollBatch(id)
@@ -795,6 +824,7 @@ export default function PayrollRuns() {
       : routedPeriod
   return (
     <div className="space-y-6">
+      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
       <TimePayrollWorkspaceHeader activeSection="payroll" isAdmin period={activePeriod} />
 
       <section className="flex flex-col gap-4 border-l-4 border-primary bg-white/65 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
@@ -850,7 +880,8 @@ export default function PayrollRuns() {
           <IssueSummary issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
           {preview && !preview.can_finalize && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
           <SummaryCards payload={activePayload} />
-          <BatchContents payload={activePayload} />
+          {selectedUserId && <p className="text-sm text-slate-600">Included ledger filtered to the linked employee. Batch totals above include everyone.</p>}
+          <BatchContents payload={activePayload} userId={selectedUserId} entryId={selectedEntryId} returnTo={currentUrl} />
         </>
       )}
 
@@ -863,7 +894,7 @@ export default function PayrollRuns() {
           {loading && <p className="text-sm text-slate-500">Loading payroll history…</p>}
           {!loading && batches.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">No payroll batches have been finalized yet.</p>}
           {batches.map((batch) => (
-            <button key={batch.id} type="button" onClick={() => void openBatch(batch.id)} className="rounded-2xl border border-slate-200 p-4 text-left transition hover:border-primary/30 hover:bg-primary/5">
+            <button key={batch.id} type="button" onClick={() => { const next = new URLSearchParams(searchParams); next.set('batch_id', batch.id); setSearchParams(next) }} className="rounded-2xl border border-slate-200 p-4 text-left transition hover:border-primary/30 hover:bg-primary/5">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-slate-950">{formatDate(batch.start_date)}–{formatDate(batch.end_date)}</p>
