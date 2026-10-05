@@ -4,7 +4,7 @@ import { apiUrl } from './apiBase'
 export interface EvidenceTotals {
   worked_hours: number; eligible_hours: number; pending_hours: number; denied_hours: number
   issued_hours: number; committed_hours: number; exported_hours: number; held_hours: number; needs_reconciliation_hours: number
-  current_regular_hours: number; current_overtime_hours: number; frozen_regular_hours: number; frozen_overtime_hours: number; open_case_count: number; unissued_correction_count?: number; identity_review_count?: number; uncategorized_entry_count?: number
+  current_regular_hours: number; current_overtime_hours: number; frozen_regular_hours: number; frozen_overtime_hours: number; open_case_count: number; unissued_correction_count?: number; identity_review_count?: number; uncategorized_entry_count?: number; retained_uncategorized_line_count?: number
 }
 export interface EvidenceEntry {
   id: string; version: number; work_date: string; start_time: string | null; end_time: string | null; description: string | null; category: string | null
@@ -12,7 +12,7 @@ export interface EvidenceEntry {
   worked_hours: number; eligible_hours: number; pending_hours: number; denied_hours: number; issued_hours: number; committed_hours: number; exported_hours: number; held_hours: number; needs_reconciliation_hours: number; payment_attestation: string | null
 }
 export interface CoverageLine {
-  id: string; batch_id?: string; source_time_entry_id: string; source_kind: string; source_line_key?: string; work_date: string
+  id: string; batch_id?: string; source_time_entry_id: string; source_kind: string; source_line_key?: string; source_category_id?: number | null; work_date: string
   regular_hours: number | null; overtime_hours: number | null; total_hours: number; status: string; coverage_state: string
   external_pay_period_id?: string | null; external_payroll_item_id?: string | null; payment_reference?: string | null; reason?: string | null
   destination_start_date?: string; destination_end_date?: string; payment_effective_on?: string | null

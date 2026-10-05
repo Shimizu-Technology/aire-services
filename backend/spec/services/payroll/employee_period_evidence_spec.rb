@@ -19,7 +19,7 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
   end
 
   def line(batch, row, regular, overtime = 0, kind = "current")
-    batch.payroll_batch_entries.create!(source_time_entry_id: row.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+    batch.payroll_batch_entries.create!(source_time_entry_id: row.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid, source_category_id: row.time_category_id,
       work_date: row.work_date, week_start: row.work_date.beginning_of_week(:sunday), line_key: SecureRandom.uuid, source_kind: kind,
       regular_hours: regular, overtime_hours: overtime, total_hours: regular + overtime, snapshot: {})
   end
@@ -72,6 +72,20 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     row.delete
     expect(result[:totals]).to include(worked_hours: 0.0, issued_hours: 8.0)
     expect(described_class.new(user: employee).call(period_id: "2026-09-01")[:period][:entries]).to be_empty
+  end
+
+  it "keeps a source-only frozen category gap visible without replacing it with a current category" do
+    row = entry(8)
+    batch = create(:payroll_batch)
+    batch.payroll_batch_entries.create!(source_time_entry_id: row.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, source_category_id: nil,
+      work_date: row.work_date, week_start: row.work_date.beginning_of_week(:sunday), line_key: "uncategorized-frozen",
+      source_kind: "current", regular_hours: 8, overtime_hours: 0, total_hours: 8, snapshot: {})
+    expect(result[:totals]).to include(uncategorized_entry_count: 0, retained_uncategorized_line_count: 1)
+    row.delete
+    expect(result[:periods].first).to include(review_required: true)
+    expect(result[:totals]).to include(worked_hours: 0.0, retained_uncategorized_line_count: 1)
+    expect(described_class.new(user: employee).call(period_id: "2026-09-01")[:period][:coverage_lines].first[:source_category_id]).to be_nil
   end
 
   it "includes former and kiosk-only people" do

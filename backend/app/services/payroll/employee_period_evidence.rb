@@ -175,11 +175,12 @@ module Payroll
         summary[:open_case_count] = period_cases.count { |row| row.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) }
         summary[:identity_review_count] = period_lines.count { |line| line[:identity_state] != "verified" } + period_cases.count { |row| row.source_user_uuid != user.payroll_integration_uuid }
         summary[:uncategorized_entry_count] = period_entries.count { |entry| entry.time_category_id.nil? }
+        summary[:retained_uncategorized_line_count] = period_lines.count { |line| line.key?(:source_category_id) && line[:source_category_id].nil? }
         summary[:retained_entry_count] = period_lines.map { |line| line[:source_time_entry_id] }.uniq.size
         { id: starts_on.iso8601, start_date: starts_on.iso8601, end_date: ends_on.iso8601,
           summary: summary, entries: entry_rows, coverage_lines: period_lines,
           actual_check_components: nil, amount_owed: nil,
-          review_required: summary[:needs_reconciliation_hours].positive? || summary[:held_hours].positive? || summary[:open_case_count].positive? || summary[:identity_review_count].positive? || summary[:uncategorized_entry_count].positive? || summary[:unissued_correction_count].positive?,
+          review_required: summary[:needs_reconciliation_hours].positive? || summary[:held_hours].positive? || summary[:open_case_count].positive? || summary[:identity_review_count].positive? || summary[:uncategorized_entry_count].positive? || summary[:retained_uncategorized_line_count].positive? || summary[:unissued_correction_count].positive?,
           settlement_cases: period_cases.map { |row| row.attributes.slice("public_id", "source_time_entry_id", "status", "origin_reason", "destination_kind", "target_external_pay_period_id", "held_total_hours", "action_due_on") } }
       end
     end
@@ -219,7 +220,7 @@ module Payroll
       event = candidates.max_by { |candidate| [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ] }
       status = event&.status || row.payroll_batch.processing_status&.fetch(:status) || "finalized"
       { id: "batch-#{row.id}", batch_id: row.payroll_batch.public_id, source_time_entry_id: row.source_time_entry_id.to_s,
-        source_user_uuid: row.source_user_uuid, source_line_key: row.line_key, source_kind: row.source_kind,
+        source_user_uuid: row.source_user_uuid, source_category_id: row.source_category_id, source_line_key: row.line_key, source_kind: row.source_kind,
         work_date: row.work_date.iso8601, regular_hours: round(row.regular_hours), overtime_hours: round(row.overtime_hours), total_hours: round(row.total_hours),
         status: status, coverage_state: row.source_user_uuid.present? && row.source_user_uuid != user.payroll_integration_uuid ? "identity_review" : coverage_state(status),
         identity_state: row.source_user_uuid.blank? ? "legacy_identity_unknown" : (row.source_user_uuid == user.payroll_integration_uuid ? "verified" : "frozen_owner_mismatch"),
@@ -262,7 +263,7 @@ module Payroll
     def totals(periods)
       keys = BUCKETS + %i[current_regular_hours current_overtime_hours frozen_regular_hours frozen_overtime_hours]
       keys.index_with { |key| round(periods.sum { |period| period[:summary][key].to_d }) }
-        .merge(unissued_correction_count: periods.sum { |period| period[:summary][:unissued_correction_count] }, open_case_count: periods.sum { |period| period[:summary][:open_case_count] }, identity_review_count: periods.sum { |period| period[:summary][:identity_review_count] }, uncategorized_entry_count: periods.sum { |period| period[:summary][:uncategorized_entry_count] })
+        .merge(unissued_correction_count: periods.sum { |period| period[:summary][:unissued_correction_count] }, open_case_count: periods.sum { |period| period[:summary][:open_case_count] }, identity_review_count: periods.sum { |period| period[:summary][:identity_review_count] }, uncategorized_entry_count: periods.sum { |period| period[:summary][:uncategorized_entry_count] }, retained_uncategorized_line_count: periods.sum { |period| period[:summary][:retained_uncategorized_line_count] })
     end
 
     def round(value)
