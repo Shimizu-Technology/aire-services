@@ -320,9 +320,9 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     allocation = commit_hours
     recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
       payment_effective_on: "2026-09-16", occurred_at: "2026-09-17T15:00:00+10:00", reason: "Verified physical check delivery")
-    [{ payment_reference: "another-check" }, { payment_effective_on: "2026-09-17" },
+    [ { payment_reference: "another-check" }, { payment_effective_on: "2026-09-17" },
      { occurred_at: "2026-09-16T15:00:00+10:00" }, { occurred_at: 1.day.from_now.iso8601 },
-     { cancellation_evidence_reference: "" }].each do |options|
+     { cancellation_evidence_reference: "" } ].each do |options|
       expect { cancel_instrument(allocation, **options) }.to raise_error(described_class::Error)
     end
     expect(allocation.reload.status).to eq("issued")
@@ -355,7 +355,7 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     settlement = create(:payroll_settlement_case, source_time_entry_id: entry.id, source_user_id: employee.id,
       source_user_uuid: employee.payroll_integration_uuid, held_total_hours: 6.1,
       destination_kind: "supplemental", status: "in_payroll", target_external_pay_period_id: "68")
-    parts = [["PART-A", 3], ["PART-B", 3.1]].map do |item, hours|
+    parts = [ [ "PART-A", 3 ], [ "PART-B", 3.1 ] ].map do |item, hours|
       recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
         regular_hours: hours, overtime_hours: 0, external_pay_period_id: "68", external_payroll_item_id: item,
         pay_date: "2026-09-17", reason: "Synthetic reviewed partial source allocation")
@@ -374,7 +374,7 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     cancel_instrument(parts.first)
     expect(settlement.reload).to have_attributes(status: "in_payroll", resolved_at: nil, target_external_pay_period_id: "68")
     reopening = settlement.payroll_settlement_case_events.order(:id).last
-    expect(reopening.metadata["retained_manual_allocation_component_ids"]).to eq([parts.last.id.to_s])
+    expect(reopening.metadata["retained_manual_allocation_component_ids"]).to eq([ parts.last.id.to_s ])
     expect(reopening.metadata["cancelled_component_committed_hours"]).to eq("3.0")
     expect(parts.last.reload.status).to eq("issued")
     expect(Payroll::EmployeePeriodEvidence.new(user: employee).call[:totals]).to include(issued_hours: 3.1, committed_hours: 3.0)
@@ -385,7 +385,7 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     settlement = create(:payroll_settlement_case, source_time_entry_id: entry.id, source_user_id: employee.id,
       source_user_uuid: employee.payroll_integration_uuid, held_total_hours: 8,
       destination_kind: "supplemental", status: "in_payroll", target_external_pay_period_id: "69")
-    parts = [["68", "PART-A"], ["69", "PART-B"]].map do |period, item|
+    parts = [ [ "68", "PART-A" ], [ "69", "PART-B" ] ].map do |period, item|
       recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
         regular_hours: 4, overtime_hours: 0, external_pay_period_id: period, external_payroll_item_id: item,
         pay_date: "2026-09-17", reason: "Synthetic reviewed partial source allocation")
@@ -404,10 +404,10 @@ RSpec.describe Payroll::ManualAllocationRecorder do
       payroll_settlement_case_id: legacy.id, event_id: SecureRandom.uuid,
       metadata: closure.metadata.except("manual_allocation_component_ids", "manual_allocation_components")))
     cancel_instrument(parts.first)
-    [settlement, legacy].each do |matched|
+    [ settlement, legacy ].each do |matched|
       expect(matched.reload).to have_attributes(status: "in_payroll", resolved_at: nil, target_external_pay_period_id: "69")
       expect(matched.payroll_settlement_case_events.order(:id).last.metadata["retained_manual_allocation_component_ids"])
-        .to eq([parts.last.id.to_s])
+        .to eq([ parts.last.id.to_s ])
     end
     expect(Payroll::EmployeePeriodEvidence.new(user: employee).call[:totals]).to include(issued_hours: 4.0, committed_hours: 4.0)
   end
@@ -436,5 +436,4 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(settlement.reload.status).to eq("settled")
     expect(settlement.payroll_settlement_case_events.count).to eq(1)
   end
-
 end

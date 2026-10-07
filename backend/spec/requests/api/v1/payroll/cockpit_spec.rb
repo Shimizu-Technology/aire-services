@@ -1483,5 +1483,4 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(response).to have_http_status(:unprocessable_entity)
     expect(allocation.reload.status).to eq("issued")
   end
-
 end

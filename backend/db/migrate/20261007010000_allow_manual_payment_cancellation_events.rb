@@ -15,6 +15,15 @@ class AllowManualPaymentCancellationEvents < ActiveRecord::Migration[8.1]
   end
 
   def down
+    cancellation_history_exists = connection.select_value(<<~SQL)
+      SELECT EXISTS (SELECT 1 FROM payroll_settlement_case_events WHERE event_type = 'payment_cancelled')
+          OR EXISTS (SELECT 1 FROM payroll_manual_allocation_events WHERE event_type = 'payment_cancelled')
+    SQL
+    if cancellation_history_exists
+      raise ActiveRecord::IrreversibleMigration,
+            "Payment cancellation history is append-only; this migration cannot be reversed after a cancellation is recorded"
+    end
+
     replace_settlement_event_constraint(SETTLEMENT_EVENT_TYPES)
     remove_column :payroll_manual_allocations, :payment_cancelled_at
     remove_column :payroll_manual_allocation_events, :cancellation_evidence_reference

@@ -352,7 +352,7 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(response).to have_http_status(:ok)
     expect(Payroll::EmployeePeriodEvidence.new(user: employee).call[:totals][:issued_hours]).to eq(0.0)
     replacement = instrument_receipt(batch, reference: "REPLACEMENT-2")
-    [replacement.merge(payment_method: nil), replacement.merge(payment_reference: nil)].each do |incomplete|
+    [ replacement.merge(payment_method: nil), replacement.merge(payment_reference: nil) ].each do |incomplete|
       expect { post_receipt(batch, incomplete) }.not_to change(PayrollEntryProcessingEvent, :count)
       expect(response).to have_http_status(:conflict)
     end
@@ -387,13 +387,13 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     post_receipt(batch, issued)
     cancelled = issued.merge(event_id: SecureRandom.uuid, status: "payment_cancelled", metadata: issued[:metadata].merge(
       cancelled_payment_event_id: issued[:event_id], cancellation_evidence_reference: "BANK-STOP-1"))
-    [cancelled.except(:source_user_uuid), cancelled.merge(source_user_uuid: SecureRandom.uuid),
+    [ cancelled.except(:source_user_uuid), cancelled.merge(source_user_uuid: SecureRandom.uuid),
      cancelled.merge(payment_reference: "other"), cancelled.merge(external_payroll_item_id: "other"),
      cancelled.merge(total_hours: "7", regular_hours: "7"), cancelled.merge(metadata: {}),
      cancelled.merge(occurred_at: "2026-09-03T10:00:00+10:00"), cancelled.merge(occurred_at: 1.day.from_now.iso8601),
-     cancelled.merge(metadata: cancelled[:metadata].merge(payment_effective_on: "2026-09-03"))].each do |payload|
+     cancelled.merge(metadata: cancelled[:metadata].merge(payment_effective_on: "2026-09-03")) ].each do |payload|
       expect { post_receipt(batch, payload) }.not_to change(PayrollEntryProcessingEvent, :count)
-      expect(response.status).to be_in([409, 422])
+      expect(response.status).to be_in([ 409, 422 ])
     end
     expect(PayrollEntryProcessingEvent.count).to eq(1)
   end
@@ -410,7 +410,7 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
       event_id: SecureRandom.uuid, occurred_at: original.occurred_at + 1.day))
     PayrollEntryProcessingEvent.create!(original.attributes.except("id", "created_at", "updated_at").merge(
       event_id: SecureRandom.uuid, status: "payment_failed", occurred_at: original.occurred_at + 3.days))
-    ["imported", "committed"].each do |status|
+    [ "imported", "committed" ].each do |status|
       PayrollEntryProcessingEvent.create!(original.attributes.except("id", "created_at", "updated_at").merge(
         event_id: SecureRandom.uuid, status: status, occurred_at: original.occurred_at + 2.days,
         payment_method: nil, payment_reference: nil, contract_version: nil, source_line_key: nil, source_kind: nil,
@@ -462,5 +462,4 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(json.fetch(:entry_processing)).to eq(acknowledgement)
     expect(PayrollEntryProcessingEvent.find_by!(event_id: issued[:event_id]).attributes).to eq(original)
   end
-
 end
