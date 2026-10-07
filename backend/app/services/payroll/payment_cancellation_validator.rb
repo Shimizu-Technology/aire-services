@@ -43,10 +43,15 @@ module Payroll
       previous = PayrollEntryProcessingEvent.latest(events)
       unless previous && previous.event_id == previous_id && previous.status.in?(%w[payment_prepared payment_issued]) &&
              previous.line_contract? && previous.payment_method.present? && previous.payment_reference.present? &&
-             previous.payment_method == attributes[:payment_method] && previous.payment_reference == attributes[:payment_reference] &&
-             previous.metadata["payment_effective_on"].to_s == metadata["payment_effective_on"].to_s
+             previous.payment_method == attributes[:payment_method] && previous.payment_reference == attributes[:payment_reference]
         raise EntryProcessingSummary::LineConflictError, "Original payment receipt is stale or does not match this exact instrument"
       end
+      known_date = previous.metadata["payment_effective_on"].presence
+      if known_date && known_date.to_s != metadata["payment_effective_on"].to_s
+        raise EntryProcessingSummary::LineConflictError, "Original payment date does not match its retained receipt"
+      end
+      metadata["original_payment_effective_on_known"] = known_date.present?
+      metadata["original_payment_effective_on"] = known_date
       unless attributes[:occurred_at].to_s.match?(/(?:Z|[+-]\d{2}:\d{2})\z/i)
         raise ArgumentError, "Payment cancellation requires a timestamp with an explicit UTC offset"
       end

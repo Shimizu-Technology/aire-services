@@ -329,7 +329,19 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
       cancelled_payment_event_id: issued[:event_id], cancellation_evidence_reference: "BANK-STOP-1"))
     post_receipt(batch, cancelled)
     expect(response).to have_http_status(:created)
-    expect(json.dig(:entry_processing, :metadata, :cancelled_payment_event_id)).to eq(issued[:event_id])
+    cancellation_ack = json.fetch(:entry_processing)
+    expect(cancellation_ack).to include(event_id: cancelled[:event_id], status: "payment_cancelled",
+      source_time_entry_id: cancelled[:source_time_entry_id].to_s, source_user_uuid: cancelled[:source_user_uuid],
+      contract_version: "2.0", source_line_key: cancelled[:source_line_key], source_kind: cancelled[:source_kind],
+      external_system: cancelled[:external_system], external_pay_period_id: "42", external_payroll_item_id: "99",
+      payment_method: "paper_check", payment_reference: "ORIGINAL-1", payment_effective_on: "2026-09-04",
+      occurred_at: Time.iso8601(cancelled[:occurred_at]).utc.iso8601(6))
+    %i[regular_hours overtime_hours total_hours].each do |field|
+      expect(BigDecimal(cancellation_ack.fetch(field))).to eq(BigDecimal(cancelled.fetch(field)))
+    end
+    expect(cancellation_ack.fetch(:metadata)).to include(cancelled_payment_event_id: issued[:event_id],
+      cancellation_evidence_reference: "BANK-STOP-1", original_payment_effective_on_known: true,
+      original_payment_effective_on: "2026-09-04")
     expect(json.dig(:integration, :capabilities)).to include("payment_cancellation_v1")
     expect(json.dig(:integration, :source_instance_id)).to eq(Payroll::IntegrationProfile.source_instance_id)
     expect(PayrollEntryProcessingEvent.find_by!(event_id: issued[:event_id]).attributes).to eq(original)
@@ -349,6 +361,7 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(Payroll::EmployeePeriodEvidence.new(user: employee).call[:totals]).to include(issued_hours: 8.0, committed_hours: 0.0)
     expect { post_receipt(batch, cancelled) }.not_to change(PayrollEntryProcessingEvent, :count)
     expect(response).to have_http_status(:ok)
+    expect(json.fetch(:entry_processing)).to eq(cancellation_ack)
     expect(Payroll::EmployeePeriodEvidence.new(user: employee).call[:totals][:issued_hours]).to eq(8.0)
     post_receipt(batch, cancelled.merge(event_id: SecureRandom.uuid, occurred_at: "2026-09-05T10:00:00+10:00"))
     expect(response).to have_http_status(:conflict)
@@ -405,6 +418,49 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     end
     expect(Payroll::EmployeePeriodEvidence.new(user: employee).call[:totals]).to include(issued_hours: 0.0, committed_hours: 8.0)
     expect(Payroll::EntryLifecycleResolver.new(entries: employee.time_entries.to_a).call.values.first[:status]).to eq("payment_cancelled")
+  end
+
+  it "transports dates on new issued receipts and rejects cancellation against a different known original date" do
+    batch = finalized_batch
+    issued = instrument_receipt(batch).merge(metadata: {}, payment_effective_on: "2026-09-04")
+    post_receipt(batch, issued)
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:entry_processing, :payment_effective_on)).to eq("2026-09-04")
+    original = PayrollEntryProcessingEvent.find_by!(event_id: issued[:event_id])
+    expect(original.metadata).to eq("payment_effective_on" => "2026-09-04")
+    cancelled = issued.merge(event_id: SecureRandom.uuid, status: "payment_cancelled", payment_effective_on: "2026-09-03",
+      occurred_at: "2026-09-04T10:00:00.123456+10:00",
+      metadata: { cancelled_payment_event_id: issued[:event_id], cancellation_evidence_reference: "DATE-STOP-1" })
+    expect { post_receipt(batch, cancelled) }.not_to change(PayrollEntryProcessingEvent, :count)
+    expect(response).to have_http_status(:conflict)
+    post_receipt(batch, cancelled.merge(payment_effective_on: "2026-09-04"))
+    expect(response).to have_http_status(:created)
+    expect(json.dig(:entry_processing, :payment_effective_on)).to eq("2026-09-04")
+    expect(json.dig(:entry_processing, :metadata, :original_payment_effective_on_known)).to be(true)
+    expect(json.dig(:entry_processing, :occurred_at)).to eq("2026-09-04T00:00:00.123456Z")
+  end
+
+  it "preserves a retained ordinary receipt with an unknown date when its old saved payload is retried after date transport is supported" do
+    batch = finalized_batch
+    issued = instrument_receipt(batch).merge(metadata: {})
+    post_receipt(batch, issued)
+    original = PayrollEntryProcessingEvent.find_by!(event_id: issued[:event_id]).attributes
+    expect { post_receipt(batch, issued.merge(payment_effective_on: "2026-09-04")) }.not_to change(PayrollEntryProcessingEvent, :count)
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:entry_processing, :payment_effective_on)).to be_nil
+    expect(json.dig(:entry_processing, :metadata)).to eq({})
+    expect(PayrollEntryProcessingEvent.find_by!(event_id: issued[:event_id]).attributes).to eq(original)
+    cancelled = issued.merge(event_id: SecureRandom.uuid, status: "payment_cancelled", payment_effective_on: "2026-09-04",
+      metadata: { cancelled_payment_event_id: issued[:event_id], cancellation_evidence_reference: "UNKNOWN-DATE-STOP-1" })
+    post_receipt(batch, cancelled)
+    expect(response).to have_http_status(:created)
+    acknowledgement = json.fetch(:entry_processing)
+    expect(acknowledgement.fetch(:payment_effective_on)).to eq("2026-09-04")
+    expect(acknowledgement.fetch(:metadata)).to include(original_payment_effective_on_known: false, original_payment_effective_on: nil)
+    expect { post_receipt(batch, cancelled) }.not_to change(PayrollEntryProcessingEvent, :count)
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:entry_processing)).to eq(acknowledgement)
+    expect(PayrollEntryProcessingEvent.find_by!(event_id: issued[:event_id]).attributes).to eq(original)
   end
 
 end

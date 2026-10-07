@@ -1433,11 +1433,11 @@ RSpec.describe "Payroll cockpit API", type: :request do
       regular_hours: 8, overtime_hours: 0, external_pay_period_id: "67", external_payroll_item_id: "91",
       pay_date: Date.current.iso8601, reason: "Verified original payroll source allocation")
     recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "OLD-91",
-      payment_effective_on: Date.current.iso8601, occurred_at: Time.current.iso8601, reason: "Verified original check delivery")
+      payment_effective_on: Date.current.iso8601, occurred_at: (Time.current - 2.seconds).iso8601, reason: "Verified original check delivery")
     path = "/api/v1/payroll/cockpit/manual_allocations/#{allocation.id}/cancel_payment"
     payload = { command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
       payment_method: "paper_check", payment_reference: "OLD-91", payment_effective_on: Date.current.iso8601,
-      occurred_at: Time.current.iso8601, cancellation_evidence_reference: "BANK-STOP-91",
+      occurred_at: (Time.current - 1.second).floor.iso8601(6).sub(".000000", ".123456"), cancellation_evidence_reference: "BANK-STOP-91",
       reason: "Bank verified stop payment on this original check" }
     post path, params: payload.to_json, headers: headers
     expect(response).to have_http_status(:forbidden)
@@ -1446,8 +1446,20 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(response).to have_http_status(:ok)
     expect(json.dig(:integration, :capabilities)).to include("payment_cancellation_v1")
     expect(json.dig(:integration, :source_instance_id)).to eq(Payroll::IntegrationProfile.source_instance_id)
-    acknowledgement = json.fetch(:manual_allocation).slice(:id, :version, :status)
-    expect(acknowledgement).to include(status: "committed", version: allocation.lock_version + 1)
+    acknowledgement = json.fetch(:manual_allocation)
+    command_result = json.fetch(:command_result)
+    expect(json.dig(:command, :id)).to eq(payload[:command_id])
+    expect(acknowledgement).to include(status: "committed", version: allocation.lock_version + 1,
+      source_time_entry_id: entry.id.to_s, source_user_uuid: employee.payroll_integration_uuid,
+      regular_hours: 8.0, overtime_hours: 0.0, external_pay_period_id: "67", external_payroll_item_id: "91")
+    expect(acknowledgement.fetch(:cancelled_payment)).to include(event_type: "payment_cancelled",
+      occurred_at: Time.iso8601(payload[:occurred_at]).utc.iso8601(6), payment_method: "paper_check", payment_reference: "OLD-91",
+      payment_effective_on: payload[:payment_effective_on], cancellation_evidence_reference: "BANK-STOP-91", reason: payload[:reason])
+    receipt = PayrollIntegrationCommand.find_by!(command_id: payload[:command_id])
+    retained = acknowledgement.deep_stringify_keys.deep_dup
+    retained.fetch("cancelled_payment").delete("reason")
+    expect(receipt.result_metadata.fetch("manual_allocation")).to eq(retained)
+    expect(JSON.generate(receipt.result_metadata).bytesize).to be < 2.kilobytes
     expect(allocation.reload.status).to eq("committed")
     issue_payload = { command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
       payment_method: "paper_check", payment_reference: "NEW-91", payment_effective_on: Date.current.iso8601,
@@ -1460,6 +1472,8 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect { post path, params: payload.to_json, headers: actor_headers }.not_to change(PayrollManualAllocationEvent, :count)
     expect(response).to have_http_status(:ok)
     expect(json.fetch(:manual_allocation)).to eq(acknowledgement)
+    expect(json.fetch(:command_result)).to eq(command_result)
+    expect(json.dig(:command, :id)).to eq(payload[:command_id])
     expect(json.dig(:command, :replayed)).to be(true)
     post path, params: payload.merge(reason: "Changed cancellation reason violates exact replay").to_json, headers: actor_headers
     expect(response).to have_http_status(:conflict)
