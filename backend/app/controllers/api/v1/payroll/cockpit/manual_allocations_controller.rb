@@ -7,7 +7,7 @@ module Api
         class ManualAllocationsController < BaseController
           PAYROLL_COMMAND_CAPABILITY = "settlement_case_management"
 
-          before_action :authenticate_payroll_actor!, only: %i[index create issue void]
+          before_action :authenticate_payroll_actor!, only: %i[index create issue void cancel_payment]
 
           def index
             period_id = params[:external_pay_period_id].to_s.strip
@@ -58,6 +58,10 @@ module Api
             transition!("issue")
           end
 
+          def cancel_payment
+            transition!("cancel_payment")
+          end
+
           def void
             transition!("void")
           end
@@ -72,7 +76,7 @@ module Api
 
           def transition_params
             params.permit(:command_id, :expected_version, :reason, :occurred_at,
-                          :payment_method, :payment_reference, :payment_effective_on)
+                          :payment_method, :payment_reference, :payment_effective_on, :cancellation_evidence_reference)
           end
 
           def transition!(action)
@@ -83,7 +87,7 @@ module Api
               target: allocation,
               payload: permitted.to_h,
               replay: ->(_current, metadata) { replay_result(metadata) },
-              response: ->(current, _body) { { manual_allocation: serialize(current) } }
+              response: ->(current, body) { action == "cancel_payment" ? body : { manual_allocation: serialize(current) } }
             ) do |locked_allocation, reason|
               if action == "issue"
                 recorder.issue!(
@@ -94,11 +98,36 @@ module Api
                   occurred_at: permitted.fetch(:occurred_at),
                   reason: reason
                 )
+              elsif action == "cancel_payment"
+                recorder.cancel_payment!(
+                  allocation: locked_allocation,
+                  payment_method: permitted.fetch(:payment_method),
+                  payment_reference: permitted.fetch(:payment_reference),
+                  payment_effective_on: permitted[:payment_effective_on],
+                  occurred_at: permitted.fetch(:occurred_at), reason: reason,
+                  cancellation_evidence_reference: permitted.fetch(:cancellation_evidence_reference)
+                )
               else
                 recorder.void!(allocation: locked_allocation,
                                occurred_at: permitted.fetch(:occurred_at), reason: reason)
               end
-              [ {}, { manual_allocation_id: locked_allocation.id, result_version: locked_allocation.lock_version, status: locked_allocation.status } ]
+              metadata = { manual_allocation_id: locked_allocation.id, result_version: locked_allocation.lock_version, status: locked_allocation.status }
+              if action == "cancel_payment"
+                event = locked_allocation.payroll_manual_allocation_events.order(:id).last
+                snapshot = serialize(locked_allocation).slice(:id, :version, :source_time_entry_id,
+                  :source_time_entry_version, :source_user_uuid, :work_date, :regular_hours, :overtime_hours,
+                  :external_pay_period_id, :external_payroll_item_id, :status).merge(
+                  total_hours: locked_allocation.total_hours.to_f, cancelled_payment: {
+                  event_id: event.id.to_s, event_type: event.event_type, occurred_at: event.occurred_at.iso8601(6),
+                  payment_method: event.payment_method, payment_reference: event.payment_reference,
+                  payment_effective_on: event.payment_effective_on&.iso8601,
+                  cancellation_evidence_reference: event.cancellation_evidence_reference
+                }).deep_stringify_keys
+                metadata[:manual_allocation] = snapshot
+                [ replay_result(metadata.deep_stringify_keys), metadata ]
+              else
+                [ {}, metadata ]
+              end
             end
           rescue ::Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
             audit_invalid_command(allocation, e) if allocation
@@ -110,8 +139,17 @@ module Api
           end
 
           def replay_result(metadata)
+            snapshot = metadata["manual_allocation"]&.deep_dup
+            if snapshot
+              proof = snapshot.fetch("cancelled_payment")
+              event = PayrollManualAllocationEvent.find_by!(id: proof.fetch("event_id"),
+                payroll_manual_allocation_id: metadata.fetch("manual_allocation_id"), event_type: "payment_cancelled")
+              # Free text already lives in the append-only event; keep the
+              # bounded command receipt free of duplicated personal content.
+              proof["reason"] = event.reason
+            end
             { command_result: metadata,
-              manual_allocation: { id: metadata.fetch("manual_allocation_id").to_s,
+              manual_allocation: snapshot || { id: metadata.fetch("manual_allocation_id").to_s,
                                    version: metadata.fetch("result_version"), status: metadata.fetch("status") } }
           end
 
@@ -136,10 +174,12 @@ module Api
               payment_effective_on: allocation.payment_effective_on&.iso8601,
               issued_at: allocation.issued_at&.iso8601,
               voided_at: allocation.voided_at&.iso8601,
+              payment_cancelled_at: allocation.payment_cancelled_at&.iso8601,
               events: allocation.payroll_manual_allocation_events.sort_by(&:id).map do |event|
                 { event_type: event.event_type, occurred_at: event.occurred_at.iso8601,
                   payment_effective_on: event.payment_effective_on&.iso8601,
-                  reason: event.reason, payment_reference: event.payment_reference }.compact
+                  reason: event.reason, payment_method: event.payment_method, payment_reference: event.payment_reference,
+                  cancellation_evidence_reference: event.cancellation_evidence_reference }.compact
               end
             }.compact
           end

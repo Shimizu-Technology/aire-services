@@ -61,8 +61,15 @@ module Payroll
 
       method = required_reference!(payment_method, "Payment method")
       reference = required_reference!(payment_reference, "Check or payment reference")
+      cancelled = allocation.payroll_manual_allocation_events.where(event_type: "payment_cancelled").order(:id).last
+      if allocation.payroll_manual_allocation_events.exists?(event_type: "payment_cancelled", payment_method: method, payment_reference: reference)
+        raise Error, "A cancelled instrument cannot be issued again; use the replacement payment reference"
+      end
       explanation = required_reason!(reason)
       issued_at = timestamp!(occurred_at)
+      if cancelled && issued_at < cancelled.occurred_at
+        raise Error, "Replacement issue cannot precede payment cancellation"
+      end
       raise Error, "Payment cannot be recorded at a future time" if issued_at > Time.current
 
       paid_on = date!(payment_effective_on, label: "Payment date")
@@ -78,6 +85,42 @@ module Payroll
                     payment_method: method, payment_reference: reference,
                     payment_effective_on: paid_on)
       close_fully_paid_cases!(allocation)
+      allocation
+    end
+
+    # Cancelling an instrument does not cancel the committed wage obligation.
+    # The immutable issue event keeps the original evidence; only the active
+    # projection returns to committed while the same hours remain reserved.
+    def cancel_payment!(allocation:, payment_method:, payment_reference:, payment_effective_on:, occurred_at:, reason:, cancellation_evidence_reference:)
+      required_reference!(cancellation_evidence_reference, "Cancellation evidence reference")
+      raise Error, "Only active manual payments can be cancelled" unless allocation.status.in?(%w[committed issued])
+
+      method = required_reference!(payment_method, "Original payment method")
+      reference = required_reference!(payment_reference, "Original payment reference")
+      paid_on = payment_effective_on.present? ? date!(payment_effective_on, label: "Original payment date") : nil
+      if allocation.payroll_manual_allocation_events.exists?(event_type: "payment_cancelled", payment_method: method, payment_reference: reference)
+        raise Error, "This payment instrument is already cancelled; refresh its acknowledgement"
+      end
+      if allocation.status == "issued" && !(allocation.payment_method == method && allocation.payment_reference == reference && allocation.payment_effective_on == paid_on)
+        raise Error, "Original payment evidence changed; refresh before cancelling"
+      end
+      explanation = required_reason!(reason)
+      cancelled_at = timestamp!(occurred_at)
+      raise Error, "Payment cancellation cannot be recorded at a future time" if cancelled_at > Time.current
+      if paid_on && paid_on > cancelled_at.in_time_zone("Pacific/Guam").to_date
+        raise Error, "Original payment date cannot be after payment cancellation"
+      end
+      raise Error, "Payment cancellation cannot precede its issue" if allocation.issued_at && cancelled_at < allocation.issued_at
+
+      # Even two committed cancellations at the same instant must fence an
+      # in-flight issue command with a fresh optimistic version.
+      allocation.payment_cancelled_at_will_change!
+      allocation.update!(status: "committed", payment_method: nil, payment_reference: nil,
+                         issued_at: nil, payment_effective_on: nil, payment_cancelled_at: cancelled_at)
+      record_event!(allocation, "payment_cancelled", explanation, occurred_at: cancelled_at,
+                    payment_method: method, payment_reference: reference, payment_effective_on: paid_on,
+                    cancellation_evidence_reference: cancellation_evidence_reference.to_s.strip)
+      reopen_cancelled_payment_cases!(allocation, method, reference, cancelled_at, explanation)
       allocation
     end
 
@@ -191,8 +234,8 @@ module Payroll
     end
 
     def close_fully_paid_cases!(allocation)
-      paid = PayrollManualAllocation.where(time_entry_id: allocation.time_entry_id, status: "issued")
-        .sum("regular_hours + overtime_hours").to_d
+      components = issued_components(allocation)
+      paid = components.sum { |component| component[:regular_hours].to_d + component[:overtime_hours].to_d }
       PayrollSettlementCase.active.where(source_time_entry_id: allocation.time_entry_id).lock.each do |settlement_case|
         next if paid < settlement_case.held_total_hours.to_d
 
@@ -213,18 +256,85 @@ module Payroll
             payment_method: allocation.payment_method,
             payment_reference: allocation.payment_reference,
             physical_issued_at: allocation.issued_at.iso8601,
+            manual_allocation_component_ids: components.map { |component| component[:allocation_id] },
+            manual_allocation_components: components,
             reason: "Matched to an issued Cornerstone payment"
           }
         )
       end
     end
 
+    def issued_components(allocation)
+      PayrollManualAllocation.where(time_entry_id: allocation.time_entry_id,
+        source_user_uuid: allocation.source_user_uuid, status: "issued").includes(:payroll_manual_allocation_events).order(:id).map do |row|
+        issue = row.payroll_manual_allocation_events.select { |event| event.event_type == "issued" }.max_by(&:id)
+        { allocation_id: row.id.to_s, issued_event_id: issue&.id&.to_s,
+          external_pay_period_id: row.external_pay_period_id, external_payroll_item_id: row.external_payroll_item_id,
+          regular_hours: row.regular_hours.to_s("F"), overtime_hours: row.overtime_hours.to_s("F"),
+          payment_method: row.payment_method, payment_reference: row.payment_reference,
+          payment_effective_on: row.payment_effective_on&.iso8601, physical_issued_at: row.issued_at&.iso8601 }
+      end
+    end
+
+    def manual_settlement_evidence?(closing, allocation, method, reference)
+      return false unless closing&.event_type == "settled" &&
+        closing.metadata["reason"] == "Matched to an issued Cornerstone payment"
+
+      # Verify the automatically generated closing footprint against the
+      # final component's immutable issue event, including its recording time.
+      final_component = PayrollManualAllocation.find_by(time_entry_id: allocation.time_entry_id,
+        source_user_uuid: allocation.source_user_uuid, external_pay_period_id: closing.metadata["external_pay_period_id"].to_s,
+        external_payroll_item_id: closing.metadata["external_payroll_item_id"].to_s)
+      return false unless final_component
+      verified_final_issue = final_component.payroll_manual_allocation_events.where(event_type: "issued", actor_id: closing.actor_id,
+        payment_method: closing.metadata["payment_method"], payment_reference: closing.metadata["payment_reference"]).any? do |event|
+        event.occurred_at.iso8601 == closing.metadata["physical_issued_at"] && event.created_at <= closing.created_at
+      end
+      return false unless verified_final_issue
+
+      original_issue = allocation.payroll_manual_allocation_events.where(event_type: "issued", payment_method: method,
+        payment_reference: reference).order(:id).last
+      return false unless original_issue && original_issue.created_at <= closing.created_at && original_issue.occurred_at <= closing.occurred_at
+
+      components = closing.metadata["manual_allocation_components"]
+      return true if components.nil? # Legacy automatic closure, verified above.
+      return false unless components.is_a?(Array)
+
+      expected = { "allocation_id" => allocation.id.to_s, "issued_event_id" => original_issue.id.to_s,
+        "external_pay_period_id" => allocation.external_pay_period_id, "external_payroll_item_id" => allocation.external_payroll_item_id,
+        "regular_hours" => allocation.regular_hours.to_s("F"), "overtime_hours" => allocation.overtime_hours.to_s("F"),
+        "payment_method" => method, "payment_reference" => reference,
+        "payment_effective_on" => original_issue.payment_effective_on&.iso8601, "physical_issued_at" => original_issue.occurred_at.iso8601 }
+      components.any? { |component| component.is_a?(Hash) && component.slice(*expected.keys) == expected }
+    end
+
+    def reopen_cancelled_payment_cases!(allocation, method, reference, cancelled_at, reason)
+      components = issued_components(allocation)
+      remaining_paid = components.sum { |component| component[:regular_hours].to_d + component[:overtime_hours].to_d }
+      PayrollSettlementCase.where(status: "settled", destination_kind: "supplemental",
+                                  source_time_entry_id: allocation.time_entry_id, source_user_uuid: allocation.source_user_uuid).lock.each do |settlement_case|
+        next if remaining_paid >= settlement_case.held_total_hours.to_d
+        closing = settlement_case.payroll_settlement_case_events.order(:id).last
+        next unless manual_settlement_evidence?(closing, allocation, method, reference)
+
+        SettlementCaseCoordinator.transition!(settlement_case, status: "in_payroll", resolved_at: nil,
+          event_type: "payment_cancelled", actor: @actor, occurred_at: Time.current,
+          metadata: { external_pay_period_id: allocation.external_pay_period_id,
+                      external_payroll_item_id: allocation.external_payroll_item_id, payment_method: method,
+                      payment_reference: reference, manual_allocation_id: allocation.id.to_s,
+                      retained_manual_allocation_component_ids: components.map { |component| component[:allocation_id] },
+                      retained_manual_allocation_components: components,
+                      cancelled_component_committed_hours: allocation.total_hours.to_s("F"),
+                      reason: reason, physical_cancelled_at: cancelled_at.iso8601, committed_hours_retained: true })
+      end
+    end
+
     def record_event!(allocation, event_type, reason, occurred_at: Time.current,
-                      payment_method: nil, payment_reference: nil, payment_effective_on: nil)
+                      payment_method: nil, payment_reference: nil, payment_effective_on: nil, cancellation_evidence_reference: nil)
       allocation.payroll_manual_allocation_events.create!(
         actor: @actor, event_type: event_type, occurred_at: occurred_at,
         reason: reason, payment_method: payment_method, payment_reference: payment_reference,
-        payment_effective_on: payment_effective_on
+        payment_effective_on: payment_effective_on, cancellation_evidence_reference: cancellation_evidence_reference
       )
     end
   end

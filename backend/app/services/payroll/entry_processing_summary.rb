@@ -6,6 +6,7 @@ module Payroll
     PARTIAL_STATUSES = {
       "payment_failed" => "payment_failed",
       "payment_voided" => "payment_voided",
+      "payment_cancelled" => "payment_cancelled",
       "payment_issued" => "partially_paid",
       "payment_prepared" => "partially_prepared"
     }.freeze
@@ -18,9 +19,7 @@ module Payroll
 
     def call
       lines = rows.sort_by { |row| [ row.source_time_entry_id, row.line_key ] }.map { |row| line_summary(row) }
-      latest_event = lines.filter_map { |line| line.delete(:event) }.max_by do |event|
-        [ event.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(event.status), event.id ]
-      end
+      latest_event = PayrollEntryProcessingEvent.latest(lines.filter_map { |line| line.delete(:event) })
       statuses = lines.map { |line| line.fetch(:status) }
 
       {
@@ -50,9 +49,7 @@ module Payroll
         event.source_time_entry_id == row.source_time_entry_id &&
           (event.source_line_key.present? ? event.source_line_key == row.line_key : true)
       end
-      event = candidates.max_by do |candidate|
-        [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ]
-      end
+      event = PayrollEntryProcessingEvent.latest(candidates)
       status = event&.status || batch_processing&.fetch(:status, nil) || "finalized"
 
       {

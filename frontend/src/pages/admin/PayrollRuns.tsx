@@ -57,6 +57,7 @@ const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; 
   payment_prepared: { label: 'Payment prepared', detail: 'Cornerstone prepared the payment, but AIRE is waiting for confirmation that it was delivered.', className: 'border-violet-200 bg-violet-50 text-violet-800' },
   payment_issued: { label: 'Paid', detail: 'Cornerstone confirmed that the payment was delivered or settled.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
   payment_failed: { label: 'Payment needs attention', detail: 'Cornerstone reported a payment problem that needs review.', className: 'border-red-200 bg-red-50 text-red-800' },
+  payment_cancelled: { label: 'Payment cancelled', detail: 'The payment was cancelled. Payroll remains committed and these hours stay reserved until the replacement is issued.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   payment_voided: { label: 'Payment voided', detail: 'Cornerstone voided this payment. The time remains traceable while the replacement is prepared.', className: 'border-red-200 bg-red-50 text-red-800' },
   partially_paid: { label: 'Partially paid', detail: 'Cornerstone paid some payable lines. The remaining hours stay visible until their payment is confirmed.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   partially_prepared: { label: 'Partially prepared', detail: 'Cornerstone prepared some payable lines while the remaining hours continue through payroll.', className: 'border-violet-200 bg-violet-50 text-violet-800' },

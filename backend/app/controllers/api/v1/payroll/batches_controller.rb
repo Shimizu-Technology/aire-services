@@ -79,6 +79,7 @@ module Api
             :source_user_uuid,
             :payment_method,
             :payment_reference,
+            :payment_effective_on,
             metadata: {}
           )
           occurred_at = begin
@@ -152,10 +153,27 @@ module Api
           end
 
           event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
+          metadata = entry_processing_metadata(permitted, metadata, existing: event)
           created = false
           unless event
             begin
               PayrollEntryProcessingEvent.transaction do
+                # Every receipt for this exact frozen line shares its lock, so
+                # cancellation cannot race a replacement's issue receipt.
+                batch_entry.lock!
+                event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
+                next if event
+
+                ::Payroll::PaymentCancellationValidator.call!(
+                  batch_entry: batch_entry, attributes: permitted, occurred_at: occurred_at,
+                  metadata: metadata, source_user_uuid: source_user_uuid
+                ) if permitted[:status] == "payment_cancelled"
+                if permitted[:status].in?(%w[payment_prepared payment_issued])
+                  ::Payroll::PaymentCancellationValidator.validate_replacement!(
+                    batch_entry: batch_entry, attributes: permitted, occurred_at: occurred_at,
+                    source_user_uuid: source_user_uuid
+                  )
+                end
                 event = PayrollEntryProcessingEvent.create!(
                   event_id: permitted.fetch(:event_id),
                   payroll_batch: batch,
@@ -197,8 +215,8 @@ module Api
                     payment_reference: event.payment_reference
                   }.compact
                 )
+                created = true
               end
-              created = true
             rescue ActiveRecord::RecordNotUnique
               event = PayrollEntryProcessingEvent.find_by!(event_id: permitted.fetch(:event_id))
             end
@@ -216,7 +234,9 @@ module Api
             return render json: { error: "Event ID already belongs to a different processing event" }, status: :conflict
           end
 
-          render json: { entry_processing: serialize_entry_processing_event(event) }, status: created ? :created : :ok
+          body = { entry_processing: serialize_entry_processing_event(event) }
+          body[:integration] = ::Payroll::IntegrationProfile.call if event.status == "payment_cancelled"
+          render json: body, status: created ? :created : :ok
         rescue ArgumentError => e
           render json: { error: e.message }, status: :unprocessable_entity
         rescue ::Payroll::EntryProcessingSummary::LineConflictError => e
@@ -251,7 +271,32 @@ module Api
             event.payment_method.to_s == permitted[:payment_method].to_s &&
             event.payment_reference.to_s == permitted[:payment_reference].to_s &&
             normalized_entry_processing_time(event.occurred_at) == normalized_entry_processing_time(occurred_at) &&
-            event.metadata == metadata
+            comparable_entry_metadata(event.metadata, event.status) == comparable_entry_metadata(metadata, event.status)
+        end
+
+        def comparable_entry_metadata(metadata, status)
+          status == "payment_cancelled" ? metadata.except("original_payment_effective_on_known", "original_payment_effective_on") : metadata
+        end
+
+        def entry_processing_metadata(permitted, metadata, existing:)
+          metadata = comparable_entry_metadata(metadata, permitted[:status])
+          return metadata unless permitted.key?(:payment_effective_on)
+          # Older ordinary receipts ignored this transport field. Replaying
+          # their saved payload must preserve the unknown immutable date.
+          if existing && existing.status != "payment_cancelled" && existing.metadata["payment_effective_on"].blank? &&
+             metadata["payment_effective_on"].blank?
+            return metadata
+          end
+          value = permitted[:payment_effective_on]
+          if value.present? && (!value.is_a?(String) || Date.iso8601(value).iso8601 != value)
+            raise ArgumentError, "Payment date must use YYYY-MM-DD"
+          end
+          if metadata.key?("payment_effective_on") && metadata["payment_effective_on"].to_s != value.to_s
+            raise ArgumentError, "Payment date transport conflicts with receipt metadata"
+          end
+          metadata.merge("payment_effective_on" => value.presence)
+        rescue Date::Error
+          raise ArgumentError, "Payment date must use YYYY-MM-DD"
         end
 
         def serialize_entry_processing_event(event)
@@ -260,7 +305,7 @@ module Api
             source_time_entry_id: event.source_time_entry_id.to_s,
             source_user_uuid: event.source_user_uuid,
             status: event.status,
-            occurred_at: event.occurred_at.iso8601,
+            occurred_at: event.status == "payment_cancelled" ? event.occurred_at.iso8601(6) : event.occurred_at.iso8601,
             external_system: event.external_system,
             external_pay_period_id: event.external_pay_period_id,
             external_payroll_item_id: event.external_payroll_item_id,
@@ -271,8 +316,9 @@ module Api
             regular_hours: event.regular_hours&.to_s,
             overtime_hours: event.overtime_hours&.to_s,
             payment_method: event.payment_method,
-            payment_reference: event.payment_reference
-          }.compact
+            payment_reference: event.payment_reference,
+            metadata: event.metadata
+          }.compact.merge(payment_effective_on: event.metadata["payment_effective_on"])
         end
 
         def normalized_processing_time(value)

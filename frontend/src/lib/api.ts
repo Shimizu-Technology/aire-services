@@ -833,6 +833,7 @@ export type PayrollEntryLifecycleStatus =
   | 'payment_prepared'
   | 'payment_issued'
   | 'payment_failed'
+  | 'payment_cancelled'
   | 'payment_voided'
   | 'partially_paid'
   | 'partially_prepared'
@@ -1210,7 +1211,7 @@ export interface PayrollBatchProcessingStatus {
 }
 
 export interface PayrollEntryProcessingStatus extends Omit<PayrollBatchProcessingStatus, 'status' | 'external_pay_period_id'> {
-  status: 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed';
+  status: 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_cancelled' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed';
   external_pay_period_id?: string | null;
   paid_hours?: number;
   prepared_hours?: number;
@@ -1242,7 +1243,7 @@ export interface PayrollCarryoverItem {
   held_total_hours: number;
   current_total_hours: number | null;
   payroll_lifecycle?: PayrollEntryLifecycle;
-  status: 'scheduled_supplemental' | 'needs_review' | 'partially_allocated' | 'payment_attested_pending_evidence' | 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
+  status: 'scheduled_supplemental' | 'needs_review' | 'partially_allocated' | 'payment_attested_pending_evidence' | 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_cancelled' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
   included_batch: {
     id: string;
     start_date: string;

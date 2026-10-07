@@ -14,7 +14,7 @@ export interface EvidenceEntry {
 export interface CoverageLine {
   id: string; batch_id?: string; source_time_entry_id: string; source_user_id?: string; source_kind: string; source_line_key?: string; source_category_id?: number | null; work_date: string
   regular_hours: number | null; overtime_hours: number | null; total_hours: number; status: string; coverage_state: string
-  external_pay_period_id?: string | null; external_payroll_item_id?: string | null; payment_reference?: string | null; reason?: string | null
+  external_pay_period_id?: string | null; external_payroll_item_id?: string | null; payment_reference?: string | null; payment_method?: string | null; reason?: string | null
   destination_start_date?: string; destination_end_date?: string; payment_effective_on?: string | null
   identity_state?: string; receipt_scope?: string; actual_check_components: null; provenance: string
 }

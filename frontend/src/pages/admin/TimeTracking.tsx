@@ -310,6 +310,7 @@ const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
   payment_prepared: 'border-violet-200 bg-violet-50 text-violet-800',
   payment_issued: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   payment_failed: 'border-red-200 bg-red-50 text-red-800',
+  payment_cancelled: 'border-amber-200 bg-amber-50 text-amber-800',
   payment_voided: 'border-red-200 bg-red-50 text-red-800',
   partially_paid: 'border-amber-200 bg-amber-50 text-amber-800',
   partially_prepared: 'border-violet-200 bg-violet-50 text-violet-800',
@@ -328,7 +329,7 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
   const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
-  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'payment_attested_pending_evidence', 'partially_allocated', 'partially_paid', 'partially_prepared', 'partially_processed', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_cancelled', 'payment_voided', 'payment_attested_pending_evidence', 'partially_allocated', 'partially_paid', 'partially_prepared', 'partially_processed', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
 
   return priority.map((status) => entries.find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
 }
@@ -2232,7 +2233,7 @@ export default function TimeTracking() {
                 <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
                 <ReportMetric label="Check evidence pending" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
-                <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) > 0 ? 'warning' : 'normal'} />
+                <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
               </div>
             </section>

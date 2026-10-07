@@ -947,7 +947,8 @@ CREATE TABLE public.payroll_manual_allocation_events (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     payment_effective_on date,
-    CONSTRAINT check_payroll_manual_allocation_events_type CHECK (((event_type)::text = ANY ((ARRAY['committed'::character varying, 'issued'::character varying, 'voided'::character varying])::text[])))
+    cancellation_evidence_reference character varying,
+    CONSTRAINT check_payroll_manual_allocation_events_type CHECK (((event_type)::text = ANY (ARRAY[('committed'::character varying)::text, ('issued'::character varying)::text, ('voided'::character varying)::text, ('payment_cancelled'::character varying)::text])))
 );
 
 
@@ -998,6 +999,7 @@ CREATE TABLE public.payroll_manual_allocations (
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
     payment_effective_on date,
+    payment_cancelled_at timestamp(6) without time zone,
     CONSTRAINT manual_allocation_positive_hours CHECK (((regular_hours >= (0)::numeric) AND (overtime_hours >= (0)::numeric) AND ((regular_hours + overtime_hours) > (0)::numeric))),
     CONSTRAINT manual_allocation_status CHECK (((status)::text = ANY ((ARRAY['committed'::character varying, 'issued'::character varying, 'voided'::character varying])::text[])))
 );
@@ -1170,7 +1172,7 @@ CREATE TABLE public.payroll_settlement_case_events (
     CONSTRAINT check_payroll_settlement_case_events_from_status CHECK (((from_status IS NULL) OR ((from_status)::text = ANY (ARRAY[('open'::character varying)::text, ('scheduled'::character varying)::text, ('in_payroll'::character varying)::text, ('settled'::character varying)::text, ('not_payable'::character varying)::text, ('superseded'::character varying)::text])))),
     CONSTRAINT check_payroll_settlement_case_events_metadata CHECK ((jsonb_typeof(metadata) = 'object'::text)),
     CONSTRAINT check_payroll_settlement_case_events_to_status CHECK (((to_status)::text = ANY (ARRAY[('open'::character varying)::text, ('scheduled'::character varying)::text, ('in_payroll'::character varying)::text, ('settled'::character varying)::text, ('not_payable'::character varying)::text, ('superseded'::character varying)::text]))),
-    CONSTRAINT check_payroll_settlement_case_events_type CHECK (((event_type)::text = ANY (ARRAY[('opened'::character varying)::text, ('routed'::character varying)::text, ('rerouted'::character varying)::text, ('corrected'::character varying)::text, ('approval_changed'::character varying)::text, ('included'::character varying)::text, ('imported'::character varying)::text, ('committed'::character varying)::text, ('payment_prepared'::character varying)::text, ('payment_issued'::character varying)::text, ('payment_failed'::character varying)::text, ('payment_voided'::character varying)::text, ('payment_returned'::character varying)::text, ('settled'::character varying)::text, ('marked_not_payable'::character varying)::text, ('superseded'::character varying)::text])))
+    CONSTRAINT check_payroll_settlement_case_events_type CHECK (((event_type)::text = ANY (ARRAY[('opened'::character varying)::text, ('routed'::character varying)::text, ('rerouted'::character varying)::text, ('corrected'::character varying)::text, ('approval_changed'::character varying)::text, ('included'::character varying)::text, ('imported'::character varying)::text, ('committed'::character varying)::text, ('payment_prepared'::character varying)::text, ('payment_issued'::character varying)::text, ('payment_failed'::character varying)::text, ('payment_voided'::character varying)::text, ('payment_returned'::character varying)::text, ('settled'::character varying)::text, ('marked_not_payable'::character varying)::text, ('superseded'::character varying)::text, ('payment_cancelled'::character varying)::text])))
 );
 
 
@@ -4816,6 +4818,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261007010000'),
 ('20261003010600'),
 ('20261003010500'),
 ('20261003010400'),
