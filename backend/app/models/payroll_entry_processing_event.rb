@@ -4,9 +4,42 @@ class PayrollEntryProcessingEvent < ApplicationRecord
   LINE_CONTRACT_VERSION = "2.0"
   SOURCE_KINDS = %w[current carryover correction].freeze
   STATUSES = %w[
-    imported committed payment_prepared payment_issued payment_failed payment_voided
+    imported committed payment_prepared payment_issued payment_failed payment_voided payment_cancelled
   ].freeze
   STATUS_RANK = STATUSES.each_with_index.to_h.freeze
+
+  def self.latest(events)
+    candidates = Array(events)
+    cancellations = candidates.select { |event| event.status == "payment_cancelled" }
+    cancellation_present = cancellations.any?
+    # Cancellation is a tombstone for one physical instrument, not a release
+    # of payroll ownership. Delayed old issuance cannot resurrect that check.
+    candidates = candidates.reject do |event|
+      cancellations.any? do |cancellation|
+        (event.status.in?(%w[payment_prepared payment_issued payment_failed]) && same_cancelled_instrument?(event, cancellation)) ||
+          (event.status.in?(%w[imported committed]) && same_cancelled_obligation?(event, cancellation))
+      end
+    end
+    candidates.max_by do |event|
+      rank = STATUS_RANK.fetch(event.status)
+      if cancellation_present && event.status.in?(%w[payment_prepared payment_issued payment_cancelled])
+        rank = STATUS_RANK.fetch("payment_cancelled")
+      end
+      [ event.occurred_at, rank, event.id ]
+    end
+  end
+
+  def self.same_cancelled_instrument?(event, cancellation)
+    event.payment_method == cancellation.payment_method && event.payment_reference == cancellation.payment_reference &&
+      same_cancelled_obligation?(event, cancellation)
+  end
+
+  def self.same_cancelled_obligation?(event, cancellation)
+    exact = %i[payroll_batch_id source_time_entry_id external_system external_pay_period_id external_payroll_item_id]
+    exact.all? { |field| event.public_send(field) == cancellation.public_send(field) } &&
+      (event.source_line_key.blank? || event.source_line_key == cancellation.source_line_key) &&
+      (event.source_user_uuid.blank? || event.source_user_uuid == cancellation.source_user_uuid)
+  end
 
   belongs_to :payroll_batch
 

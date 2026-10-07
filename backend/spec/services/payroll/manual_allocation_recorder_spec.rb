@@ -269,4 +269,172 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     expect(Payroll::BatchBuilder.new(start_date: "2026-08-01", end_date: "2026-08-15").call.fetch(:payload)
       .fetch(:summary).fetch(:total_hours)).to eq(0.0)
   end
+  def cancel_instrument(allocation, **options)
+    recorder.cancel_payment!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+      payment_effective_on: "2026-09-16", occurred_at: "2026-09-18T15:00:00+10:00",
+      reason: "Bank confirmed stop payment on the original check", cancellation_evidence_reference: "stop-payment-1", **options)
+  end
+
+  it "retains reserved hours and immutable payment evidence while a cancelled payment awaits replacement" do
+    allocation = commit_hours
+    recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+      payment_effective_on: "2026-09-16", occurred_at: "2026-09-17T15:00:00+10:00", reason: "Verified physical check delivery")
+    original = allocation.payroll_manual_allocation_events.find_by!(event_type: "issued").attributes
+    cancel_instrument(allocation)
+    expect(allocation.reload).to have_attributes(status: "committed", payment_reference: nil, payment_method: nil,
+      issued_at: nil, payment_effective_on: nil, payment_cancelled_at: Time.iso8601("2026-09-18T15:00:00+10:00"))
+    expect(allocation.payroll_manual_allocation_events.find_by!(event_type: "issued").attributes).to eq(original)
+    expect(allocation.payroll_manual_allocation_events.find_by!(event_type: "payment_cancelled"))
+      .to have_attributes(payment_reference: "01045", payment_effective_on: Date.new(2026, 9, 16), cancellation_evidence_reference: "stop-payment-1")
+    expect(Payroll::BatchBuilder.new(start_date: "2026-08-01", end_date: "2026-08-15").call.dig(:summary, :total_hours)).to eq(0.0)
+    expect(Payroll::EntryLifecycleResolver.new(entries: [ entry ]).call.fetch(entry.id))
+      .to include(status: "payment_cancelled", manually_committed_hours: 6.1, manually_paid_hours: 0.0)
+    expect(Payroll::EmployeePeriodEvidence.new(user: employee).call.fetch(:totals))
+      .to include(committed_hours: 6.1, issued_hours: 0.0, needs_reconciliation_hours: 0.0)
+    expect { recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+      payment_effective_on: "2026-09-18", occurred_at: "2026-09-18T15:00:00+10:00", reason: "Original check cannot be reused") }
+      .to raise_error(described_class::Error, /cancelled instrument/)
+    recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01046",
+      payment_effective_on: "2026-09-18", occurred_at: "2026-09-18T15:00:00+10:00", reason: "Verified replacement payment delivery")
+    expect(allocation.reload.status).to eq("issued")
+    expect(allocation.payroll_manual_allocation_events.order(:id).pluck(:event_type)).to eq(%w[committed issued payment_cancelled issued])
+    expect { cancel_instrument(allocation) }.to raise_error(described_class::Error, /already cancelled/)
+    expect(allocation.reload.payment_reference).to eq("01046")
+  end
+
+  it "tombstones an unissued committed instrument and increments the optimistic version" do
+    allocation = commit_hours
+    version = allocation.lock_version
+    cancel_instrument(allocation, payment_effective_on: nil)
+    expect(allocation.reload.status).to eq("committed")
+    expect(allocation.lock_version).to eq(version + 1)
+    cancel_instrument(allocation, payment_reference: "01046", payment_effective_on: nil)
+    expect(allocation.reload.lock_version).to eq(version + 2)
+    expect(PayrollManualAllocation.active.sum("regular_hours + overtime_hours")).to eq(6.1)
+    expect { recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+      payment_effective_on: "2026-09-18", occurred_at: "2026-09-18T15:00:00+10:00", reason: "Delayed old issuance must be refused") }
+      .to raise_error(described_class::Error, /cancelled instrument/)
+  end
+
+  it "refuses mismatched, backdated and future cancellation without changing evidence" do
+    allocation = commit_hours
+    recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+      payment_effective_on: "2026-09-16", occurred_at: "2026-09-17T15:00:00+10:00", reason: "Verified physical check delivery")
+    [{ payment_reference: "another-check" }, { payment_effective_on: "2026-09-17" },
+     { occurred_at: "2026-09-16T15:00:00+10:00" }, { occurred_at: 1.day.from_now.iso8601 },
+     { cancellation_evidence_reference: "" }].each do |options|
+      expect { cancel_instrument(allocation, **options) }.to raise_error(described_class::Error)
+    end
+    expect(allocation.reload.status).to eq("issued")
+    expect(allocation.payroll_manual_allocation_events.count).to eq(2)
+  end
+
+  it "reopens only the settled supplemental case with the exact cancelled payment evidence" do
+    allocation = commit_hours
+    matched = create(:payroll_settlement_case, source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, held_total_hours: 6.1,
+      destination_kind: "supplemental", status: "in_payroll", target_external_pay_period_id: "68")
+    recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "01045",
+      payment_effective_on: "2026-09-16", occurred_at: "2026-09-17T15:00:00+10:00", reason: "Verified physical check delivery")
+    expect(matched.reload.status).to eq("settled")
+    unrelated = create(:payroll_settlement_case, origin_payroll_batch: matched.origin_payroll_batch,
+      origin_reason: "created_after_cutoff", source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, destination_kind: "supplemental", status: "settled",
+      target_external_pay_period_id: "68", resolved_at: Time.current)
+    unrelated.payroll_settlement_case_events.create!(event_id: SecureRandom.uuid, event_type: "settled",
+      from_status: "in_payroll", to_status: "settled", occurred_at: Time.current,
+      metadata: { external_payroll_item_id: "other", payment_method: "paper_check", payment_reference: "other" })
+    cancel_instrument(allocation)
+    expect(matched.reload).to have_attributes(status: "in_payroll", resolved_at: nil, target_external_pay_period_id: "68")
+    expect(matched.payroll_settlement_case_events.order(:id).last.event_type).to eq("payment_cancelled")
+    expect(Payroll::SettlementCaseSerializer.new(matched).as_json.dig(:processing, :status)).to eq("payment_cancelled")
+    expect(unrelated.reload.status).to eq("settled")
+  end
+
+  it "reopens an aggregate manual case when an earlier partial payment is cancelled" do
+    settlement = create(:payroll_settlement_case, source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, held_total_hours: 6.1,
+      destination_kind: "supplemental", status: "in_payroll", target_external_pay_period_id: "68")
+    parts = [["PART-A", 3], ["PART-B", 3.1]].map do |item, hours|
+      recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+        regular_hours: hours, overtime_hours: 0, external_pay_period_id: "68", external_payroll_item_id: item,
+        pay_date: "2026-09-17", reason: "Synthetic reviewed partial source allocation")
+    end
+    parts.each_with_index do |part, offset|
+      recorder.issue!(allocation: part, payment_method: "paper_check", payment_reference: "0104#{5 + offset}",
+        payment_effective_on: "2026-09-16", occurred_at: "2026-09-17T15:00:00+10:00", reason: "Synthetic verified partial payment")
+    end
+    expect(settlement.reload.status).to eq("settled")
+    closure = settlement.payroll_settlement_case_events.order(:id).last
+    expect(closure.metadata["external_payroll_item_id"]).to eq("PART-B")
+    expect(closure.metadata["manual_allocation_component_ids"]).to eq(parts.map { |part| part.id.to_s })
+    # Rehearse an older closure retaining only the original manual footprint.
+    settlement.payroll_settlement_case_events.create!(closure.attributes.except("id", "created_at", "updated_at").merge(
+      event_id: SecureRandom.uuid, metadata: closure.metadata.except("manual_allocation_component_ids", "manual_allocation_components")))
+    cancel_instrument(parts.first)
+    expect(settlement.reload).to have_attributes(status: "in_payroll", resolved_at: nil, target_external_pay_period_id: "68")
+    reopening = settlement.payroll_settlement_case_events.order(:id).last
+    expect(reopening.metadata["retained_manual_allocation_component_ids"]).to eq([parts.last.id.to_s])
+    expect(reopening.metadata["cancelled_component_committed_hours"]).to eq("3.0")
+    expect(parts.last.reload.status).to eq("issued")
+    expect(Payroll::EmployeePeriodEvidence.new(user: employee).call[:totals]).to include(issued_hours: 3.1, committed_hours: 3.0)
+  end
+
+  it "reopens a cross-period aggregate closure only for an original component recorded before closure" do
+    entry.update!(end_time: Time.utc(2000, 1, 1, 8, 0))
+    settlement = create(:payroll_settlement_case, source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, held_total_hours: 8,
+      destination_kind: "supplemental", status: "in_payroll", target_external_pay_period_id: "69")
+    parts = [["68", "PART-A"], ["69", "PART-B"]].map do |period, item|
+      recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+        regular_hours: 4, overtime_hours: 0, external_pay_period_id: period, external_payroll_item_id: item,
+        pay_date: "2026-09-17", reason: "Synthetic reviewed partial source allocation")
+    end
+    parts.each_with_index do |part, offset|
+      recorder.issue!(allocation: part, payment_method: "paper_check", payment_reference: "0104#{5 + offset}",
+        payment_effective_on: "2026-09-16", occurred_at: "2026-09-17T15:00:00+10:00", reason: "Synthetic verified partial payment")
+    end
+    closure = settlement.payroll_settlement_case_events.order(:id).last
+    expect(settlement.reload).to have_attributes(status: "settled", target_external_pay_period_id: "69")
+    legacy = create(:payroll_settlement_case, origin_payroll_batch: create(:payroll_batch, start_date: "2026-09-16", end_date: "2026-09-30"),
+      origin_reason: "created_after_cutoff", source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, held_total_hours: 8,
+      destination_kind: "supplemental", status: "settled", target_external_pay_period_id: "69", resolved_at: Time.current)
+    legacy.payroll_settlement_case_events.create!(closure.attributes.except("id", "created_at", "updated_at").merge(
+      payroll_settlement_case_id: legacy.id, event_id: SecureRandom.uuid,
+      metadata: closure.metadata.except("manual_allocation_component_ids", "manual_allocation_components")))
+    cancel_instrument(parts.first)
+    [settlement, legacy].each do |matched|
+      expect(matched.reload).to have_attributes(status: "in_payroll", resolved_at: nil, target_external_pay_period_id: "69")
+      expect(matched.payroll_settlement_case_events.order(:id).last.metadata["retained_manual_allocation_component_ids"])
+        .to eq([parts.last.id.to_s])
+    end
+    expect(Payroll::EmployeePeriodEvidence.new(user: employee).call[:totals]).to include(issued_hours: 4.0, committed_hours: 4.0)
+  end
+
+  it "does not reopen a legacy manual closure for an instrument recorded later with a backdated issue time" do
+    entry.update!(end_time: Time.utc(2000, 1, 1, 8, 0))
+    part_b = recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+      regular_hours: 4, overtime_hours: 0, external_pay_period_id: "69", external_payroll_item_id: "PART-B",
+      pay_date: "2026-09-17", reason: "Synthetic reviewed partial source allocation")
+    recorder.issue!(allocation: part_b, payment_method: "paper_check", payment_reference: "01046",
+      payment_effective_on: "2026-09-16", occurred_at: "2026-09-17T15:00:00+10:00", reason: "Synthetic verified partial payment")
+    settlement = create(:payroll_settlement_case, source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, held_total_hours: 8,
+      destination_kind: "supplemental", status: "settled", target_external_pay_period_id: "69", resolved_at: Time.current)
+    settlement.payroll_settlement_case_events.create!(event_id: SecureRandom.uuid, actor: actor,
+      event_type: "settled", from_status: "in_payroll", to_status: "settled", occurred_at: Time.current,
+      metadata: { external_pay_period_id: "69", external_payroll_item_id: "PART-B", payment_method: "paper_check",
+        payment_reference: "01046", physical_issued_at: part_b.issued_at.iso8601,
+        reason: "Matched to an issued Cornerstone payment" })
+    part_a = recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+      regular_hours: 4, overtime_hours: 0, external_pay_period_id: "68", external_payroll_item_id: "PART-A",
+      pay_date: "2026-09-17", reason: "Synthetic reviewed later source allocation")
+    recorder.issue!(allocation: part_a, payment_method: "paper_check", payment_reference: "01045",
+      payment_effective_on: "2026-09-16", occurred_at: "2026-09-17T15:00:00+10:00", reason: "Synthetic backdated physical payment")
+    cancel_instrument(part_a)
+    expect(settlement.reload.status).to eq("settled")
+    expect(settlement.payroll_settlement_case_events.count).to eq(1)
+  end
+
 end

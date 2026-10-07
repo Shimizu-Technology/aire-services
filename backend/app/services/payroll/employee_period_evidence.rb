@@ -139,7 +139,7 @@ module Payroll
       frozen_owner_scope = PayrollBatchEntry.where(source_user_id: user.id).or(PayrollBatchEntry.where(source_user_uuid: user.payroll_integration_uuid))
       frozen = bounded(date_scope(frozen_owner_scope
         .includes(payroll_batch: :payroll_batch_processing_events), :work_date).order(:id))
-      manual = bounded(date_scope(PayrollManualAllocation.where(user: user), :work_date).order(:id))
+      manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events), :work_date).order(:id))
       cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id), :original_work_date).order(:id))
       holds = bounded(date_scope(PayrollPaymentAttestation.pending_evidence.where(user: user), :work_date).order(:id)).index_by(&:time_entry_id)
       events = bounded(PayrollEntryProcessingEvent.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq)
@@ -220,7 +220,7 @@ module Payroll
 
     def frozen_line(row, events, line_count)
       candidates = events.select { |event| (event.source_line_key.blank? || event.source_line_key == row.line_key) && (event.source_user_uuid.nil? || event.source_user_uuid == user.payroll_integration_uuid) }
-      event = candidates.max_by { |candidate| [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ] }
+      event = PayrollEntryProcessingEvent.latest(candidates)
       batch_status = row.payroll_batch.processing_status
       status = event&.status || batch_status&.fetch(:status) || "finalized"
       receipt_scope = event ? (event.source_line_key.present? ? "exact_line" : (line_count == 1 ? "unambiguous_entry" : "ambiguous_entry")) : (batch_status ? "batch" : "none")
@@ -245,10 +245,12 @@ module Payroll
     end
 
     def manual_line(row)
+      latest_event = row.payroll_manual_allocation_events.max_by(&:id)
+      status = row.status == "committed" && latest_event&.event_type == "payment_cancelled" ? "payment_cancelled" : row.status
       { id: "manual-#{row.id}", source_time_entry_id: row.time_entry_id.to_s,
         source_kind: "manual", work_date: row.work_date.iso8601,
         regular_hours: round(row.regular_hours), overtime_hours: round(row.overtime_hours), total_hours: round(row.total_hours),
-        status: row.status, source_user_uuid: row.source_user_uuid, coverage_state: row.source_user_uuid == user.payroll_integration_uuid ? coverage_state(row.status) : "identity_review", external_pay_period_id: row.external_pay_period_id,
+        status: status, source_user_uuid: row.source_user_uuid, coverage_state: row.source_user_uuid == user.payroll_integration_uuid ? coverage_state(status) : "identity_review", external_pay_period_id: row.external_pay_period_id,
         external_payroll_item_id: row.external_payroll_item_id, payment_reference: row.payment_reference,
         payment_method: row.payment_method, payment_effective_on: row.payment_effective_on&.iso8601,
         identity_state: row.source_user_uuid == user.payroll_integration_uuid ? "verified" : "frozen_owner_mismatch", reason: row.reason, actual_check_components: nil, provenance: "manual_source_allocation" }
@@ -263,7 +265,7 @@ module Payroll
 
     def coverage_state(status)
       return "issued" if status.in?(%w[payment_issued issued])
-      return "committed" if status.in?(%w[committed payment_prepared])
+      return "committed" if status.in?(%w[committed payment_prepared payment_cancelled])
       return "exported" if status.in?(%w[finalized imported])
 
       "inactive"

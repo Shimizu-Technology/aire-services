@@ -92,7 +92,7 @@ module Payroll
         awaiting_approval_count: items.count { |item| item[:status] == "awaiting_approval" },
         ready_for_next_batch_count: items.count { |item| item[:status] == "ready_for_next_batch" },
         needs_review_count: items.count { |item| item[:status] == "needs_review" },
-        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided partially_paid partially_prepared partially_processed partially_allocated payment_attested_pending_evidence scheduled_supplemental]) },
+        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided payment_cancelled partially_paid partially_prepared partially_processed partially_allocated payment_attested_pending_evidence scheduled_supplemental]) },
         not_payable_count: items.count { |item| item[:status] == "not_payable" },
         unassigned_case_count: items.count { |item| item.dig(:settlement_case, :destination_kind) == "unassigned" },
         supplemental_case_count: items.count { |item| item.dig(:settlement_case, :destination_kind) == "supplemental" }
@@ -212,6 +212,7 @@ module Payroll
         "awaiting_approval" => 1,
         "payment_failed" => 2,
         "payment_voided" => 2,
+        "payment_cancelled" => 2,
         "awaiting_cornerstone" => 3,
         "scheduled_supplemental" => 3,
         "imported" => 4,

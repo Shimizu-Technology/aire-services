@@ -7,7 +7,7 @@ module Api
         class ManualAllocationsController < BaseController
           PAYROLL_COMMAND_CAPABILITY = "settlement_case_management"
 
-          before_action :authenticate_payroll_actor!, only: %i[index create issue void]
+          before_action :authenticate_payroll_actor!, only: %i[index create issue void cancel_payment]
 
           def index
             period_id = params[:external_pay_period_id].to_s.strip
@@ -58,6 +58,10 @@ module Api
             transition!("issue")
           end
 
+          def cancel_payment
+            transition!("cancel_payment")
+          end
+
           def void
             transition!("void")
           end
@@ -72,7 +76,7 @@ module Api
 
           def transition_params
             params.permit(:command_id, :expected_version, :reason, :occurred_at,
-                          :payment_method, :payment_reference, :payment_effective_on)
+                          :payment_method, :payment_reference, :payment_effective_on, :cancellation_evidence_reference)
           end
 
           def transition!(action)
@@ -93,6 +97,15 @@ module Api
                   payment_effective_on: permitted.fetch(:payment_effective_on),
                   occurred_at: permitted.fetch(:occurred_at),
                   reason: reason
+                )
+              elsif action == "cancel_payment"
+                recorder.cancel_payment!(
+                  allocation: locked_allocation,
+                  payment_method: permitted.fetch(:payment_method),
+                  payment_reference: permitted.fetch(:payment_reference),
+                  payment_effective_on: permitted[:payment_effective_on],
+                  occurred_at: permitted.fetch(:occurred_at), reason: reason,
+                  cancellation_evidence_reference: permitted.fetch(:cancellation_evidence_reference)
                 )
               else
                 recorder.void!(allocation: locked_allocation,
@@ -136,10 +149,12 @@ module Api
               payment_effective_on: allocation.payment_effective_on&.iso8601,
               issued_at: allocation.issued_at&.iso8601,
               voided_at: allocation.voided_at&.iso8601,
+              payment_cancelled_at: allocation.payment_cancelled_at&.iso8601,
               events: allocation.payroll_manual_allocation_events.sort_by(&:id).map do |event|
                 { event_type: event.event_type, occurred_at: event.occurred_at.iso8601,
                   payment_effective_on: event.payment_effective_on&.iso8601,
-                  reason: event.reason, payment_reference: event.payment_reference }.compact
+                  reason: event.reason, payment_method: event.payment_method, payment_reference: event.payment_reference,
+                  cancellation_evidence_reference: event.cancellation_evidence_reference }.compact
               end
             }.compact
           end

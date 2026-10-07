@@ -76,3 +76,13 @@ The supported event types are `imported`, `committed`, `payment_prepared`, `paym
 ## System boundary
 
 AIRE owns source time, approvals, corrections, cutoff batches, and settlement-case routing history. Cornerstone owns payroll calculation, pay items, physical checks, liabilities, filings, and the final payment record. The case API links those records without allowing either application to edit the other application's authoritative tables.
+
+## Cancel a manually linked payment (`payment_cancellation_v1`)
+
+`POST /api/v1/payroll/cockpit/manual_allocations/:id/cancel_payment`
+
+This command requires the shared secret, an eligible delegated actor with settlement-management access, the usual command ID/version/reason, an offset-bearing `occurred_at`, `cancellation_evidence_reference`, and the original `payment_method`, `payment_reference` and `payment_effective_on`. An issued allocation requires its exact saved payment date; an unissued committed allocation may omit the date.
+
+An issued allocation returns to committed; a committed allocation remains committed with a new version and a cancellation record. Both retain their source-hour claim. The command clears active payment fields and appends the original instrument tuple and cancellation evidence to immutable history. It also reopens only settled supplemental cases for the same source identity when remaining issued coverage falls below the case hours and the previous settlement demonstrably depended on the cancelled manual component. Exact component evidence may span pay periods; the existing case target stays unchanged. Older automatic closures require verified final and cancelled issue events recorded before closure. This includes an earlier partial component even when a later component closed the case; independently settled cases stay unchanged. New manual settlements retain every issued component ID and instrument tuple. Case reopening uses the audit recording time and retains the physical cancellation time in metadata.
+
+An exact command retry returns the original committed acknowledgement/version even after replacement issuance. A stale version or changed command payload returns `409`. An original instrument cannot be issued again after cancellation. The replacement uses a fresh command ID and method/reference tuple. The case-level `payment_cancelled` event is derived from manual allocation evidence; replacement resumes through the allocation’s `issue` command rather than the standalone supplemental acknowledgement API. Existing `void` behavior remains separate: it releases an unissued payroll allocation and continues refusing issued allocations.

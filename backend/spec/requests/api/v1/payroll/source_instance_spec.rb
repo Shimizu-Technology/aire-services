@@ -18,6 +18,7 @@ RSpec.describe "Payroll source installation authorization", type: :request do
     [ :put, "/api/v1/payroll/calendar_periods/other-period" ],
     [ :post, "/api/v1/payroll/cockpit/time_entries/1/approval" ],
     [ :post, "/api/v1/payroll/cockpit/manual_allocations" ],
+    [ :post, "/api/v1/payroll/cockpit/manual_allocations/1/cancel_payment" ],
     [ :post, "/api/v1/payroll/cockpit/payment_attestations" ]
   ].each do |method, path|
     it "rejects a mismatched installation before #{method.upcase} #{path}" do

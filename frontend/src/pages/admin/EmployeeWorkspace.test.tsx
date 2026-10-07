@@ -77,4 +77,11 @@ describe('employee workspace', () => {
     expect(screen.getByRole('link', { name: 'Open hours report' })).toHaveAttribute('href', expect.stringContaining('tab=reports'))
   })
 
+  it('explains cancelled payment coverage as committed hours reserved for replacement', async () => {
+    const cancelled = { ...period, coverage_lines: period.coverage_lines.map((line) => ({ ...line, status: 'payment_cancelled', coverage_state: 'committed' })) }
+    mock.period.mockResolvedValueOnce({ period: cancelled, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+    open('/admin/users/7?tab=hours&period=2026-09-01&entry=19')
+    expect(await screen.findByText('Payment cancelled. Payroll remains committed and these hours stay reserved for the replacement.')).toBeInTheDocument()
+  })
+
 })

@@ -47,6 +47,7 @@ Rails.application.routes.draw do
           resources :manual_allocations, only: [ :index, :create ] do
             member do
               post :issue
+              post :cancel_payment
               post :void
             end
           end

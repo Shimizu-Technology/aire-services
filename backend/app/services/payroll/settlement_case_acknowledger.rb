@@ -4,7 +4,7 @@ module Payroll
   class SettlementCaseAcknowledger
     EVENT_TYPES = %w[
       imported committed payment_prepared payment_issued payment_failed payment_voided
-      payment_returned settled
+      payment_returned payment_cancelled settled
     ].freeze
     TRANSITIONS = {
       nil => %w[imported],

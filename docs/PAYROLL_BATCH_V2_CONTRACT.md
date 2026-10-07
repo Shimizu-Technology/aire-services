@@ -24,7 +24,7 @@ The list endpoint discovers finalized batches by their exact nominal dates. The 
 
 The processing-events endpoint is the append-only acknowledgement channel back from Cornerstone Payroll. A batch event accepts an idempotent `event_id`, a status (`imported`, `committed`, `payment_issued`, or `payment_failed`), `occurred_at`, `external_system`, an optional external pay-period ID, and non-authoritative metadata.
 
-An entry event uses the same endpoint and adds `source_time_entry_id`. It may also include `source_user_uuid`, `external_payroll_item_id`, `payment_method`, and `payment_reference`. Entry statuses are `imported`, `committed`, `payment_prepared`, `payment_issued`, `payment_failed`, and `payment_voided`. Printing a paper check means `payment_prepared`; it is not paid until an operator confirms delivery with `payment_issued`. Voiding a check after it was prepared or issued records `payment_voided`. These events never change the finalized batch payload or checksum.
+An entry event uses the same endpoint and adds `source_time_entry_id`. It may also include `source_user_uuid`, `external_payroll_item_id`, `payment_method`, and `payment_reference`. Entry statuses are `imported`, `committed`, `payment_prepared`, `payment_issued`, `payment_failed`, and `payment_voided`. Printing a paper check means `payment_prepared`; it is not paid until an operator confirms delivery with `payment_issued`. Legacy consumers record `payment_voided` after a prepared or issued payment is voided. Consumers using `payment_cancellation_v1` must use the delivery-only cancellation contract below when committed payroll remains owed. These events never change the finalized batch payload or checksum.
 
 `imported` means the hours were added to a Cornerstone draft. It does not mean payroll was committed or payment was issued.
 
@@ -60,3 +60,11 @@ Cornerstone must treat `export.batch_id` as the idempotency key. Importing the s
 ## Immutability
 
 Finalized batches, entries, and exclusions are append-only at both the Rails model and PostgreSQL trigger layers. Removing a finalizing user may null the relational foreign key, but the actor snapshot remains in the immutable payload. Time entries remain editable; later changes settle as future correction lines and never mutate an earlier batch.
+
+## Delivery-only cancellation (`payment_cancellation_v1`)
+
+A producer advertising `payment_cancellation_v1` accepts `payment_cancelled` on an exact v2 payable line. This cancels one payment instrument while preserving the committed payroll obligation and reserved source hours. It contributes zero issued hours and committed coverage. Existing `payment_voided` receipts keep their legacy meaning.
+
+The receipt must include the frozen line, hours and employee UUID; the same external system, pay period and payroll item; the original payment method/reference; and `metadata.cancelled_payment_event_id` naming the current exact `payment_prepared` or `payment_issued` receipt. `metadata.payment_effective_on` must match that receipt, including absence for an unissued instrument. `metadata.cancellation_evidence_reference` is a nonblank string of at most 200 characters. Cancellation timestamps require an explicit UTC offset, cannot precede the original receipt and cannot be in the future.
+
+An exact event replay returns the original acknowledgement. A new cancellation of a stale instrument fails with `409`. Cancellation records remain append-only and suppress delayed prepared/issued receipts for the original instrument. A replacement uses a different payment method/reference tuple, exact frozen identity and a timestamp at or after cancellation. It becomes issued only after its own exact issuance receipt. Consumers must hold unsupported cancellation operations for review and preserve causal delivery order: original acknowledgement, cancellation acknowledgement, then replacement issuance.

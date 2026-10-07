@@ -119,6 +119,9 @@ module Api
             else
               result.body
             end
+            if action == "payroll_manual_allocation.cancel_payment"
+              response_body = response_body.merge(integration: ::Payroll::IntegrationProfile.call)
+            end
             render json: response_body.merge(
               command: { id: command[:command_id], replayed: result.replayed }
             ), status: result.status

@@ -156,6 +156,22 @@ module Api
           unless event
             begin
               PayrollEntryProcessingEvent.transaction do
+                # Every receipt for this exact frozen line shares its lock, so
+                # cancellation cannot race a replacement's issue receipt.
+                batch_entry.lock!
+                event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
+                next if event
+
+                ::Payroll::PaymentCancellationValidator.call!(
+                  batch_entry: batch_entry, attributes: permitted, occurred_at: occurred_at,
+                  metadata: metadata, source_user_uuid: source_user_uuid
+                ) if permitted[:status] == "payment_cancelled"
+                if permitted[:status].in?(%w[payment_prepared payment_issued])
+                  ::Payroll::PaymentCancellationValidator.validate_replacement!(
+                    batch_entry: batch_entry, attributes: permitted, occurred_at: occurred_at,
+                    source_user_uuid: source_user_uuid
+                  )
+                end
                 event = PayrollEntryProcessingEvent.create!(
                   event_id: permitted.fetch(:event_id),
                   payroll_batch: batch,
@@ -197,8 +213,8 @@ module Api
                     payment_reference: event.payment_reference
                   }.compact
                 )
+                created = true
               end
-              created = true
             rescue ActiveRecord::RecordNotUnique
               event = PayrollEntryProcessingEvent.find_by!(event_id: permitted.fetch(:event_id))
             end
@@ -216,7 +232,9 @@ module Api
             return render json: { error: "Event ID already belongs to a different processing event" }, status: :conflict
           end
 
-          render json: { entry_processing: serialize_entry_processing_event(event) }, status: created ? :created : :ok
+          body = { entry_processing: serialize_entry_processing_event(event) }
+          body[:integration] = ::Payroll::IntegrationProfile.call if event.status == "payment_cancelled"
+          render json: body, status: created ? :created : :ok
         rescue ArgumentError => e
           render json: { error: e.message }, status: :unprocessable_entity
         rescue ::Payroll::EntryProcessingSummary::LineConflictError => e
@@ -271,7 +289,8 @@ module Api
             regular_hours: event.regular_hours&.to_s,
             overtime_hours: event.overtime_hours&.to_s,
             payment_method: event.payment_method,
-            payment_reference: event.payment_reference
+            payment_reference: event.payment_reference,
+            metadata: event.metadata
           }.compact
         end
 

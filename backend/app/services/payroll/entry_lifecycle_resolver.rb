@@ -13,6 +13,7 @@ module Payroll
       "payment_issued" => "Paid",
       "payment_failed" => "Payment needs attention",
       "payment_voided" => "Payment voided",
+      "payment_cancelled" => "Payment cancelled; payroll remains committed",
       "partially_paid" => "Partially paid",
       "partially_prepared" => "Partially prepared",
       "partially_processed" => "Partially processed",
@@ -51,6 +52,7 @@ module Payroll
         .group_by(&:source_time_entry_id)
         .transform_values(&:last)
       manual_by_entry = PayrollManualAllocation
+        .includes(:payroll_manual_allocation_events)
         .where(time_entry_id: entry_ids)
         .order(:id)
         .to_a
@@ -114,9 +116,7 @@ module Payroll
         ).call
         status = processing.fetch(:status)
         occurred_at = processing[:occurred_at] || batch.finalized_at.iso8601
-        latest_event = events.max_by do |candidate|
-          [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ]
-        end
+        latest_event = PayrollEntryProcessingEvent.latest(events)
 
         {
           batch_id: batch.public_id,
@@ -147,14 +147,19 @@ module Payroll
     end
 
     def manual_settlement(allocation)
-      status = { "committed" => "committed", "issued" => "payment_issued", "voided" => "payment_voided" }.fetch(allocation.status)
+      latest_event = allocation.payroll_manual_allocation_events.max_by(&:id)
+      status = if allocation.status == "committed" && latest_event&.event_type == "payment_cancelled"
+        "payment_cancelled"
+      else
+        { "committed" => "committed", "issued" => "payment_issued", "voided" => "payment_voided" }.fetch(allocation.status)
+      end
       {
         batch_id: "manual-#{allocation.id}",
         start_date: allocation.work_date.iso8601,
         end_date: allocation.work_date.iso8601,
         status: status,
         label: "#{LABELS.fetch(status)} in manual Cornerstone payroll",
-        occurred_at: (allocation.voided_at || allocation.issued_at || allocation.created_at).iso8601,
+        occurred_at: (latest_event&.occurred_at || allocation.voided_at || allocation.issued_at || allocation.created_at).iso8601,
         source_kinds: [ "manual" ],
         total_hours: round_hours(allocation.total_hours),
         regular_hours: round_hours(allocation.regular_hours),
@@ -174,12 +179,14 @@ module Payroll
           BigDecimal((settlement[:paid_hours] || (settlement.fetch(:status) == "payment_issued" ? settlement.fetch(:total_hours) : 0)).to_s)
         end
         unpaid_allocated = settlements.select do |settlement|
-          settlement.fetch(:status).in?(%w[finalized imported committed payment_prepared])
+          settlement.fetch(:status).in?(%w[finalized imported committed payment_prepared payment_cancelled])
         end.sum { |settlement| BigDecimal(settlement.fetch(:total_hours).to_s) }
         allocated = paid + unpaid_allocated
         return "partially_paid" if paid.positive? && (paid < entry.hours.to_d || unpaid_allocated.positive?)
         return "payment_issued" if paid.positive?
         return "partially_allocated" if allocated < entry.hours.to_d
+
+        return "payment_cancelled" if settlements.any? { |settlement| settlement[:status] == "payment_cancelled" }
 
         return "committed"
       end
