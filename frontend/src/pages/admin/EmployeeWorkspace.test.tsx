@@ -84,4 +84,12 @@ describe('employee workspace', () => {
     expect(await screen.findByText('Payment cancelled. Payroll remains committed and these hours stay reserved for the replacement.')).toBeInTheDocument()
   })
 
+  it('labels a bank receipt as a transfer instead of a paper check', async () => {
+    const bankPeriod = { ...period, coverage_lines: period.coverage_lines.map(line => ({ ...line, payment_method: 'direct_deposit', payment_reference: 'SYNTHETIC-BANK' })) }
+    mock.period.mockResolvedValueOnce({ period: bankPeriod, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+    open('/admin/users/7?tab=hours&period=2026-09-01&entry=19')
+    expect(await screen.findByText(/bank transfer SYNTHETIC-BANK/)).toBeInTheDocument()
+    expect(screen.queryByText(/check SYNTHETIC-BANK/)).not.toBeInTheDocument()
+  })
+
 })
