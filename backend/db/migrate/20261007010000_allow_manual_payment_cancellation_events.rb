@@ -18,6 +18,7 @@ class AllowManualPaymentCancellationEvents < ActiveRecord::Migration[8.1]
     cancellation_history_exists = connection.select_value(<<~SQL)
       SELECT EXISTS (SELECT 1 FROM payroll_settlement_case_events WHERE event_type = 'payment_cancelled')
           OR EXISTS (SELECT 1 FROM payroll_manual_allocation_events WHERE event_type = 'payment_cancelled')
+          OR EXISTS (SELECT 1 FROM payroll_entry_processing_events WHERE status = 'payment_cancelled')
     SQL
     if cancellation_history_exists
       raise ActiveRecord::IrreversibleMigration,

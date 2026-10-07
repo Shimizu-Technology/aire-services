@@ -58,6 +58,23 @@ RSpec.describe AllowManualPaymentCancellationEvents, type: :model do
     expect_history_preserved(event)
   end
 
+  it "refuses rollback for direct-only cancellation history before changing evidence or constraints" do
+    employee = create(:user, :employee)
+    entry = create(:time_entry, user: employee)
+    event = PayrollEntryProcessingEvent.create!(payroll_batch: create(:payroll_batch), event_id: SecureRandom.uuid,
+      source_time_entry_id: entry.id, source_user_uuid: employee.payroll_integration_uuid,
+      contract_version: "2.0", source_line_key: "synthetic-direct-line", source_kind: "current",
+      regular_hours: 8, overtime_hours: 0, total_hours: 8, status: "payment_cancelled",
+      external_system: "cornerstone_payroll", external_pay_period_id: "synthetic-direct-period",
+      external_payroll_item_id: "synthetic-direct-item", occurred_at: Time.current,
+      payment_method: "paper_check", payment_reference: "SYNTHETIC-DIRECT-1",
+      metadata: { cancelled_payment_event_id: "synthetic-issued-receipt", cancellation_evidence_reference: "SYNTHETIC-STOP-3" })
+    expect(PayrollManualAllocationEvent.count).to eq(0)
+    expect(PayrollSettlementCaseEvent.count).to eq(0)
+
+    expect_history_preserved(event)
+  end
+
   it "retains the original reversible downgrade when no cancellation history exists" do
     migration = described_class.new
     migration.down
