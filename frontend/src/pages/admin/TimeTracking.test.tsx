@@ -81,6 +81,26 @@ describe('TimeTracking routed report periods', () => {
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
   })
 
+  it.each(['day', 'week'])('shows loaded %s entries before animation timers run', async (view) => {
+    vi.useFakeTimers()
+    try {
+      apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [{
+        id: 91, work_date: '2026-10-01', hours: 8.25, user: { id: 7, full_name: 'Casey' },
+        description: 'Recorded operational work', approval_status: 'approved',
+        formatted_start_time: '8:00 AM', formatted_end_time: '4:15 PM',
+        time_category: { id: 3, name: 'Operations' },
+      }] } })
+      // Resolve the data load without advancing entrance-animation timers.
+      await act(async () => {
+        render(<MemoryRouter initialEntries={[`/admin/time?date=2026-10-01&view=${view}`]}><TimeRouteHarness /></MemoryRouter>)
+      })
+      expect(screen.getByText('8.25h')).toBeVisible()
+      expect(screen.getByText('Casey')).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('waits for employee options before opening the exact scheduled employee', async () => {
     let resolveUsers!: (value: unknown) => void
     apiMock.getUsers.mockReturnValue(new Promise((resolve) => { resolveUsers = resolve }))

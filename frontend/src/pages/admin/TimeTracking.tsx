@@ -7,7 +7,6 @@ import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
-import { FadeIn } from '../../components/ui/FadeIn'
 import { formatDateISO } from '../../lib/dateUtils'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
@@ -1495,7 +1494,6 @@ export default function TimeTracking() {
         </div>
       ) : viewMode === 'week' ? (
         /* Week View */
-        <FadeIn>
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           <div className="overflow-x-auto">
             {/* Week Header */}
@@ -1615,10 +1613,8 @@ export default function TimeTracking() {
             </div>
           </div>
         </div>
-        </FadeIn>
       ) : (
         /* Day View */
-        <FadeIn>
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm hover:shadow-md transition-shadow duration-300">
           {visibleEntries.length === 0 ? (
             <div className="p-8 text-center">
@@ -1722,7 +1718,6 @@ export default function TimeTracking() {
             </div>
           )}
         </div>
-        </FadeIn>
       )}
 
       {/* Person Day Modal - shows all entries for one person on one day */}
