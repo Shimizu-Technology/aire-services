@@ -125,67 +125,71 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     end
   end
 
-  it "uses the time ledger at the cutoff when an entry is edited before delayed finalization" do
-    entry = entry_for_revision_cutoff
-    cutoff_revision = PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last
-    frozen_period = revision_cutoff_period(cutoff_revision.recorded_at)
-    entry.update_columns(hours: 12, updated_at: Time.current)
+  context "with a cutoff from the database revision ledger" do
+    let(:entry) { entry_for_revision_cutoff }
+    let(:cutoff_revision) { PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last }
+    # Replace the outer eager calendar fixture instead of creating a second,
+    # potentially overlapping period when the real database date changes.
+    let(:period) { revision_cutoff_period(cutoff_revision.recorded_at) }
 
-    travel_to(cutoff_revision.recorded_at + 2.minutes) do
-      result = described_class.new(period_id: frozen_period.id).call
-      Payroll::SettlementCaseCoordinator.sync_finalized_periods!
-
-      expect(result.fetch(:status)).to eq("finalized")
-      expect(frozen_period.reload.payroll_batch.payroll_batch_entries.sole.total_hours).to eq(8)
-      expect(frozen_period.payroll_batch.payroll_batch_entries.sole.snapshot).to include("hours" => 8.0)
-      expect(PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)).to have_attributes(
-        origin_reason: "changed_after_cutoff",
-        held_total_hours: 4
-      )
+    it "creates only the period for the actual database revision cutoff" do
+      expect(PayrollCalendarPeriod.pluck(:id)).to eq([ period.id ])
+      expect(period.cutoff_at).to eq(cutoff_revision.recorded_at)
     end
-  end
 
-  it "uses the time ledger at the cutoff when an entry is deleted before delayed finalization" do
-    entry = entry_for_revision_cutoff
-    cutoff_revision = PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last
-    frozen_period = revision_cutoff_period(cutoff_revision.recorded_at)
-    entry.destroy!
+    it "uses the time ledger at the cutoff when an entry is edited before delayed finalization" do
+      entry.update_columns(hours: 12, updated_at: Time.current)
 
-    travel_to(cutoff_revision.recorded_at + 2.minutes) do
-      result = described_class.new(period_id: frozen_period.id).call
-      Payroll::SettlementCaseCoordinator.sync_finalized_periods!
+      travel_to(cutoff_revision.recorded_at + 2.minutes) do
+        result = described_class.new(period_id: period.id).call
+        Payroll::SettlementCaseCoordinator.sync_finalized_periods!
 
-      expect(result.fetch(:status)).to eq("finalized")
-      expect(frozen_period.reload.payroll_batch.payroll_batch_entries.sole).to have_attributes(
-        source_time_entry_id: entry.id,
-        total_hours: 8
-      )
-      expect(PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)).to have_attributes(
-        origin_reason: "deleted_after_cutoff",
-        held_total_hours: 8
-      )
+        expect(result.fetch(:status)).to eq("finalized")
+        expect(period.reload.payroll_batch.payroll_batch_entries.sole.total_hours).to eq(8)
+        expect(period.payroll_batch.payroll_batch_entries.sole.snapshot).to include("hours" => 8.0)
+        expect(PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)).to have_attributes(
+          origin_reason: "changed_after_cutoff",
+          held_total_hours: 4
+        )
+      end
     end
-  end
 
-  it "keeps deleted post-cutoff time visible as held for the following payroll" do
-    included = entry_for_revision_cutoff
-    cutoff_revision = PayrollTimeEntryRevision.where(source_time_entry_id: included.id).order(:id).last
-    frozen_period = revision_cutoff_period(cutoff_revision.recorded_at)
-    late = time_entry(
-      entry_method: "clock",
-      approval_status: nil,
-      work_date: frozen_period.start_date + 5.days,
-      created_at: cutoff_revision.recorded_at + 1.minute
-    )
-    late.destroy!
+    it "uses the time ledger at the cutoff when an entry is deleted before delayed finalization" do
+      entry.destroy!
 
-    travel_to(cutoff_revision.recorded_at + 2.minutes) do
-      result = described_class.new(period_id: frozen_period.id).call
+      travel_to(cutoff_revision.recorded_at + 2.minutes) do
+        result = described_class.new(period_id: period.id).call
+        Payroll::SettlementCaseCoordinator.sync_finalized_periods!
 
-      expect(result.fetch(:status)).to eq("finalized")
-      expect(frozen_period.reload.payroll_batch.payroll_batch_entries.pluck(:source_time_entry_id)).to eq([ included.id ])
-      expect(frozen_period.payroll_batch.payroll_batch_exclusions.find_by!(source_time_entry_id: late.id))
-        .to have_attributes(reason: "created_after_cutoff", held_total_hours: 8)
+        expect(result.fetch(:status)).to eq("finalized")
+        expect(period.reload.payroll_batch.payroll_batch_entries.sole).to have_attributes(
+          source_time_entry_id: entry.id,
+          total_hours: 8
+        )
+        expect(PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)).to have_attributes(
+          origin_reason: "deleted_after_cutoff",
+          held_total_hours: 8
+        )
+      end
+    end
+
+    it "keeps deleted post-cutoff time visible as held for the following payroll" do
+      late = time_entry(
+        entry_method: "clock",
+        approval_status: nil,
+        work_date: period.start_date + 5.days,
+        created_at: cutoff_revision.recorded_at + 1.minute
+      )
+      late.destroy!
+
+      travel_to(cutoff_revision.recorded_at + 2.minutes) do
+        result = described_class.new(period_id: period.id).call
+
+        expect(result.fetch(:status)).to eq("finalized")
+        expect(period.reload.payroll_batch.payroll_batch_entries.pluck(:source_time_entry_id)).to eq([ entry.id ])
+        expect(period.payroll_batch.payroll_batch_exclusions.find_by!(source_time_entry_id: late.id))
+          .to have_attributes(reason: "created_after_cutoff", held_total_hours: 8)
+      end
     end
   end
 
