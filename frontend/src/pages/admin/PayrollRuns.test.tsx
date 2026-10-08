@@ -969,3 +969,22 @@ describe('PayrollRuns', () => {
  })
 
 })
+
+
+it('keeps paid positive lines and a committed accounting correction distinct on the batch ledger', async () => {
+  const context = { accounting_only: true, correction_disposition_id: '9', original_pay_period_id: '10', original_payroll_item_id: '11', corrective_pay_period_id: '44', corrective_payroll_item_id: '55' }
+  const accountingBatch = { ...finalized, processing: { status: 'partially_paid' as const, occurred_at: '2026-09-01T08:00:00Z', external_system: 'cornerstone_payroll', external_pay_period_id: null,
+    paid_hours: 8, outstanding_hours: 0, accounting_only: false, accounting_correction_line_count: 1, accounting_correction_hours: -1,
+    lines: [{ source_time_entry_id: '51', source_line_key: 'negative', source_kind: 'correction', total_hours: -1, regular_hours: -1, overtime_hours: 0, status: 'committed', accounting_only: true, accounting_correction: context, external_pay_period_id: '44', external_payroll_item_id: '55' }],
+  } }
+  apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [accountingBatch], total_count: 1, truncated: false } })
+  apiMock.getPayrollBatch.mockResolvedValue({ data: accountingBatch })
+  renderPayrollRuns()
+  const batchButton = await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123.*accounting correction recorded/i })
+  expect(screen.getByText(/8.00 hrs paid · 0.00 hrs cash outstanding · -1.00 hrs accounting correction/)).toBeInTheDocument()
+  fireEvent.click(batchButton)
+  expect(await screen.findByText(/Accounting correction committed · entry 51/)).toBeInTheDocument()
+  expect(screen.getByText(/Corrective payroll period 44 · item 55 · disposition 9/)).toBeInTheDocument()
+  expect(screen.getByText(/No new payment or recovery recorded/)).toBeInTheDocument()
+  expect(screen.queryByText(/^Paid$/)).not.toBeInTheDocument()
+})

@@ -22,7 +22,7 @@ module Payroll
       latest_event = PayrollEntryProcessingEvent.latest(lines.filter_map { |line| line.delete(:event) })
       statuses = lines.map { |line| line.fetch(:status) }
 
-      {
+      result = {
         status: aggregate_status(statuses),
         occurred_at: latest_event&.occurred_at&.iso8601 || batch_processing&.fetch(:occurred_at, nil),
         external_system: common_value(lines, :external_system),
@@ -35,9 +35,16 @@ module Payroll
         prepared_hours: hours_for(lines, "payment_prepared"),
         failed_hours: hours_for(lines, "payment_failed"),
         voided_hours: hours_for(lines, "payment_voided"),
-        outstanding_hours: round_hours(lines.reject { |line| line[:status] == "payment_issued" }.sum { |line| line.fetch(:total_hours) }),
+        outstanding_hours: round_hours(lines.reject { |line| line[:status] == "payment_issued" || line[:accounting_only] }.sum { |line| line.fetch(:total_hours) }),
         lines: lines
       }.compact
+      accounting_lines = lines.select { |line| line[:accounting_only] }
+      if accounting_lines.any?
+        result.merge!(accounting_only: accounting_lines.size == lines.size,
+          accounting_correction_line_count: accounting_lines.size,
+          accounting_correction_hours: round_hours(accounting_lines.sum { |line| line[:total_hours] }))
+      end
+      result
     end
 
     private
@@ -52,6 +59,7 @@ module Payroll
       event = PayrollEntryProcessingEvent.latest(candidates)
       status = event&.status || batch_processing&.fetch(:status, nil) || "finalized"
 
+      accounting = AccountingCorrectionReceipt.context(row: row, event: event)
       {
         source_time_entry_id: row.source_time_entry_id.to_s,
         source_line_key: row.line_key,
@@ -66,7 +74,10 @@ module Payroll
         external_payroll_item_id: event&.external_payroll_item_id,
         payment_method: event&.payment_method,
         payment_reference: event&.payment_reference,
-        event: event
+        event: event,
+        accounting_only: accounting && true,
+        accounting_correction: accounting,
+        label: accounting && AccountingCorrectionReceipt::LABEL
       }.compact
     end
 

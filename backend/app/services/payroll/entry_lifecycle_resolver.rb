@@ -73,9 +73,12 @@ module Payroll
         latest_payment = manual.select { |allocation| allocation.status == "issued" }
           .max_by { |allocation| [ allocation.issued_at, allocation.id ] }
 
+        accounting = current_status == "committed" && settlements.last&.dig(:accounting_only)
         result[entry.id] = {
           status: current_status,
-          label: LABELS.fetch(current_status),
+          label: accounting ? AccountingCorrectionReceipt::LABEL : LABELS.fetch(current_status),
+          accounting_only: accounting ? true : nil,
+          accounting_correction: accounting ? settlements.last&.dig(:accounting_correction) : nil,
           payment_method: latest_payment&.payment_method || latest_event&.payment_method,
           payment_reference: latest_payment&.payment_reference || latest_event&.payment_reference,
           payment_effective_on: latest_payment&.payment_effective_on&.iso8601 || latest_event&.metadata&.dig("payment_effective_on"),
@@ -93,7 +96,7 @@ module Payroll
 
     def self.summary(lifecycles)
       Array(lifecycles).each_with_object(Hash.new(0)) do |lifecycle, counts|
-        counts[lifecycle.fetch(:status)] += 1
+        counts[(lifecycle[:accounting_only] && lifecycle[:status] == "committed" ? "accounting_correction_committed" : lifecycle.fetch(:status))] += 1
       end.sort.to_h
     end
 
@@ -123,7 +126,11 @@ module Payroll
           start_date: batch.start_date.iso8601,
           end_date: batch.end_date.iso8601,
           status: status,
-          label: LABELS.fetch(status, status.humanize),
+          label: processing[:accounting_only] ? AccountingCorrectionReceipt::LABEL : LABELS.fetch(status, status.humanize),
+          accounting_only: processing[:accounting_only],
+          accounting_correction: processing[:accounting_only] && processing[:lines].one? && processing[:lines].first&.dig(:accounting_correction),
+          accounting_correction_line_count: processing[:accounting_correction_line_count],
+          accounting_correction_hours: processing[:accounting_correction_hours],
           occurred_at: occurred_at,
           source_kinds: batch_rows.map(&:source_kind).uniq.sort,
           total_hours: round_hours(batch_rows.sum(&:total_hours)),

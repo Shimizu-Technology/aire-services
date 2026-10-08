@@ -259,4 +259,22 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     expect { result(per_page: 0) }.to raise_error(ArgumentError, /per_page/)
     expect { result(end_date: "2026-01-01", start_date: "2026-02-01") }.to raise_error(ArgumentError, /on or after/)
   end
+
+  it "separates the exact noncash correction from committed-unissued coverage without rewriting the paid source" do
+    source = entry(3)
+    original = create(:payroll_batch)
+    old = line(original, source, 4)
+    paid = receipt(original, old, "payment_issued")
+    correction = create(:payroll_batch, start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15))
+    delta = line(correction, source, -1, 0, "correction")
+    PayrollEntryProcessingEvent.create!(payroll_batch: correction, source_time_entry_id: source.id, source_user_uuid: employee.payroll_integration_uuid,
+      contract_version: "2.0", source_line_key: delta.line_key, source_kind: "correction", total_hours: -1, regular_hours: -1, overtime_hours: 0,
+      event_id: SecureRandom.uuid, external_system: "cornerstone_payroll", external_pay_period_id: "44", external_payroll_item_id: "55", status: "committed", occurred_at: Time.current,
+      metadata: { "accounting_only" => true, "correction_disposition_id" => "9", "original_pay_period_id" => "10", "original_payroll_item_id" => "11", "corrective_pay_period_id" => "44", "corrective_payroll_item_id" => "55" })
+    detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+    expect(detail[:summary]).to include(issued_hours: 4.0, committed_hours: 0.0, accounting_correction_hours: -1.0, accounting_correction_line_count: 1, unissued_correction_count: 0)
+    expect(detail[:coverage_lines]).to include(include(source_line_key: delta.line_key, accounting_only: true, status: "committed", total_hours: -1.0))
+    expect(paid.reload.status).to eq("payment_issued")
+    expect(detail[:amount_owed]).to be_nil
+  end
 end

@@ -1,3 +1,4 @@
+import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -89,6 +90,8 @@ function formatHours(value: unknown) {
 function processingProgress(processing: PayrollBatchListItem['processing']) {
   if (!processing || !('paid_hours' in processing)) return null
 
+  const accountingCount = 'accounting_correction_line_count' in processing ? processing.accounting_correction_line_count || 0 : 0
+  if (accountingCount) return `${formatHours(processing.paid_hours)} paid · ${formatHours(processing.outstanding_hours)} cash outstanding · ${formatHours(processing.accounting_correction_hours)} accounting correction (${accountingCount} line${accountingCount === 1 ? '' : 's'})`
   return `${formatHours(processing.paid_hours)} paid · ${formatHours(processing.outstanding_hours)} outstanding`
 }
 
@@ -117,6 +120,11 @@ function sameInstant(first: string | null | undefined, second: string | null | u
 }
 
 function processingLabel(batch: PayrollBatchListItem) {
+  const processing = batch.processing
+  if (processing && 'accounting_only' in processing && processing.accounting_only && processing.status === 'committed') return ACCOUNTING_CORRECTION_LABEL
+  if (processing && 'accounting_correction_line_count' in processing && processing.accounting_correction_line_count) {
+    return `${CARRYOVER_STATUS[processing.status]?.label || processing.status} · accounting correction recorded`
+  }
   if (batch.processing?.status === 'committed' && batch.processing.external_system === 'cornerstone_payroll_manual') {
     return 'Processed manually'
   }
@@ -190,7 +198,8 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {activeItems.length === 0 && <p className="rounded-xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">No unpaid carryover items need attention.</p>}
             {activeItems.map((item) => {
-              const status = CARRYOVER_STATUS[item.status] || {
+              const accounting = item.payroll_lifecycle?.accounting_only === true && item.payroll_lifecycle.status === 'committed'
+              const status = accounting ? { label: ACCOUNTING_CORRECTION_LABEL, detail: ACCOUNTING_CORRECTION_NOTE, className: 'border-blue-200 bg-blue-50 text-blue-800' } : CARRYOVER_STATUS[item.status] || {
                 label: item.status,
                 detail: 'Payroll reported a status that is not yet recognized by this version of AIRE.',
                 className: 'border-slate-200 bg-slate-100 text-slate-700',
@@ -216,7 +225,7 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
                     <span>Originally excluded: {EXCLUSION_LABELS[item.exclusion_reason] || item.exclusion_reason}</span>
                   </div>
                   <p className="mt-3 text-sm leading-5 text-slate-600">{status.detail}</p>
-                  {paymentProgress && (
+                  {paymentProgress && !accounting && (
                     <p className="mt-2 text-xs font-medium text-slate-700">
                       {formatHours(paymentProgress.paid_hours)} paid · {formatHours(paymentProgress.outstanding_hours)} outstanding
                     </p>
@@ -870,6 +879,7 @@ export default function PayrollRuns() {
               {selectedBatch && <p className="mt-1 text-sm text-slate-500">{selectedBatch.id} · finalized {formatDateTime(selectedBatch.finalized_at)}</p>}
               {selectedBatch?.processing && <p className={`mt-1 text-sm font-medium ${selectedBatch.processing.status === 'payment_failed' ? 'text-red-700' : 'text-emerald-700'}`}>{processingLabel(selectedBatch)} · Cornerstone period {selectedBatch.processing.external_pay_period_id || 'not provided'} · {formatDateTime(selectedBatch.processing.occurred_at)}</p>}
               {processingProgress(selectedBatch?.processing || null) && <p className="mt-1 text-sm text-slate-600">{processingProgress(selectedBatch?.processing || null)}</p>}
+              {selectedBatch?.processing && 'lines' in selectedBatch.processing && selectedBatch.processing.lines?.filter(line => line.accounting_only && line.status === 'committed').map(line => <div key={line.source_line_key} className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm"><p className="font-semibold">{ACCOUNTING_CORRECTION_LABEL} · entry {line.source_time_entry_id} · {formatHours(line.total_hours)}</p><p className="mt-1">{ACCOUNTING_CORRECTION_NOTE}</p><p className="mt-1 text-xs">Corrective payroll period {line.external_pay_period_id} · item {line.external_payroll_item_id} · disposition {line.accounting_correction?.correction_disposition_id}</p></div>)}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
