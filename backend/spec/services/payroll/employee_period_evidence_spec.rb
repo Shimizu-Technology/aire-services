@@ -288,7 +288,7 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     expect(detail).to include(review_required: false)
     expect(detail[:summary][:open_case_count]).to eq(1)
     expect(historical.reload.attributes).to eq(before)
-    expect(detail[:settlement_cases].first).to include("status" => "in_payroll", "accounting_only" => true)
+    expect(detail[:settlement_cases].first).to include("status" => "in_payroll", "accounting_only" => true, "completion" => "accounting_recorded", "target_pay_date" => nil)
   end
 
   context "with retained ordinary carryover case history" do
@@ -316,6 +316,18 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
       expect(evidence[:totals]).to include(issued_hours: 4.0, needs_reconciliation_hours: 0.0, open_case_count: 1)
       expect(historical.reload.attributes).to eq(before)
       expect(evidence).to include(amount_owed: nil)
+      detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+      expect(detail[:settlement_cases].sole).to include("status" => "in_payroll", "completion" => "paid", "target_pay_date" => nil)
+    end
+
+    it "reads the named regular calendar payday separately from the recorded follow-up date" do
+      paid
+      calendar = create(:payroll_calendar_period, external_pay_period_id: "destination", start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15), pay_date: Date.new(2026, 11, 10))
+      historical.update!(destination_kind: "regular", target_payroll_calendar_period: calendar, action_due_on: Date.new(2026, 11, 5))
+      before = historical.attributes.deep_dup
+      detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+      expect(detail[:settlement_cases].sole).to include("completion" => "paid", "target_pay_date" => "2026-11-10", "action_due_on" => Date.new(2026, 11, 5), "target_external_pay_period_id" => "destination")
+      expect(historical.reload.attributes).to eq(before)
     end
 
     it "recognizes an approved version carried from the earlier pending cutoff case" do
@@ -358,6 +370,8 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
         when "instrument" then receipt(included, frozen, "payment_issued")
         end
         expect(result[:periods].first).to include(review_required: true)
+        detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+        expect(detail[:settlement_cases].sole).to include("completion" => nil)
         expect(historical.reload.status).to eq("in_payroll")
         expect(historical.resolved_at).to be_nil
       end
@@ -425,6 +439,8 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
         issued_hours: 42.0, needs_reconciliation_hours: 0.0, open_case_count: 1)
       expect([ source.reload.attributes, historical.reload.attributes, original_line.reload.attributes, delta.reload.attributes ]).to eq(before)
       expect(writes).to be_empty
+      detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+      expect(detail[:settlement_cases].sole).to include("completion" => "paid", "target_pay_date" => nil, "status" => "in_payroll")
     end
 
     it "projects the paid positive correction as retained queue history rather than unfinished payroll" do
@@ -458,6 +474,8 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
             source_time_entry_version: 1, work_date: source.work_date, hours: 2, reason: "Missing original check evidence", attested_at: Time.current)
         end
         expect(result[:periods].sole).to include(review_required: true)
+        detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+        expect(detail[:settlement_cases].sole).to include("completion" => nil)
         expect(historical.reload.status).to eq("in_payroll")
       end
     end

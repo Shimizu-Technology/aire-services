@@ -140,7 +140,7 @@ module Payroll
       frozen = bounded(date_scope(frozen_owner_scope
         .includes(payroll_batch: :payroll_batch_processing_events), :work_date).order(:id))
       manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events), :work_date).order(:id))
-      cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
+      cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(:target_payroll_calendar_period, origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
       holds = bounded(date_scope(PayrollPaymentAttestation.pending_evidence.where(user: user), :work_date).order(:id)).index_by(&:time_entry_id)
       events = bounded(PayrollEntryProcessingEvent.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq)
         .where(source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).order(:id))
@@ -186,9 +186,12 @@ module Payroll
         # confirmation. They require attention only while exact processing
         # evidence is absent; this does not close a case or record recovery.
         entries_by_id = period_entries.index_by(&:id)
-        case_review_required = period_cases.any? do |row|
-          row.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) && !SettlementCaseCompletion.new(settlement_case: row, entry: entries_by_id[row.source_time_entry_id],
+        case_completions = period_cases.index_with do |row|
+          SettlementCaseCompletion.new(settlement_case: row, entry: entries_by_id[row.source_time_entry_id],
             allocation: allocations[row.source_time_entry_id], held: holds.key?(row.source_time_entry_id)).call
+        end
+        case_review_required = period_cases.any? do |row|
+          row.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) && !case_completions[row]
         end
         { id: starts_on.iso8601, start_date: starts_on.iso8601, end_date: ends_on.iso8601,
           summary: summary, entries: entry_rows, coverage_lines: period_lines,
@@ -196,6 +199,7 @@ module Payroll
           review_required: summary[:needs_reconciliation_hours].positive? || summary[:held_hours].positive? || case_review_required || summary[:identity_review_count].positive? || summary[:uncategorized_entry_count].positive? || summary[:retained_uncategorized_line_count].positive? || summary[:receipt_review_count].positive? || summary[:unissued_correction_count].positive?,
           settlement_cases: (include_settlement_cases ? period_cases : []).map do |row|
             original = row.attributes.slice("public_id", "source_time_entry_id", "status", "origin_reason", "destination_kind", "target_external_pay_period_id", "held_total_hours", "action_due_on")
+            original.merge!("completion" => case_completions[row], "target_pay_date" => row.target_payroll_calendar_period&.pay_date&.iso8601)
             processing = SettlementCaseSerializer.new(row).as_json[:processing]
             processing&.dig(:accounting_only) ? original.merge("accounting_only" => true, "accounting_correction" => processing[:accounting_correction]) : original
           end }

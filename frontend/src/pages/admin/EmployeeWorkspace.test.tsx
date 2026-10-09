@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import EmployeeWorkspace from './EmployeeWorkspace'
@@ -116,13 +116,37 @@ it('shows the signed accounting correction separately and preserves the original
 it('keeps late-created paid case history visible without an unresolved-period badge', async () => {
   const carried = { ...period, review_required: false,
     summary: { ...totals, worked_hours: 4, eligible_hours: 4, pending_hours: 0, issued_hours: 4, committed_hours: 0, needs_reconciliation_hours: 0, open_case_count: 1 },
-    settlement_cases: [{ public_id: 'historical-case', source_time_entry_id: '19', origin_reason: 'created_after_cutoff', status: 'in_payroll', destination_kind: 'regular', target_external_pay_period_id: 'next-period', action_due_on: '2026-10-15' }],
+    settlement_cases: [{ public_id: 'historical-case', source_time_entry_id: '19', origin_reason: 'created_after_cutoff', status: 'in_payroll', completion: 'paid', target_pay_date: '2026-10-30', destination_kind: 'regular', target_external_pay_period_id: 'next-period', action_due_on: '2026-10-15' }],
   }
   mock.periods.mockResolvedValue({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals: carried.summary, periods: [carried], pagination: { total_count: 1, next_cursor: null } })
   mock.period.mockResolvedValue({ period: carried, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
   open()
   fireEvent.click(await screen.findByRole('button', { name: 'Review period' }))
-  expect(await screen.findByText(/created after cutoff · in_payroll/)).toBeInTheDocument()
+  expect(await screen.findByText('Historical reason: created after cutoff')).toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Reconciliation notes' })).toHaveTextContent('Paid')
+  expect(screen.getByText('Regular payroll · Pay date Fri, Oct 30, 2026')).toBeInTheDocument()
+  expect(screen.getByText('Recorded follow-up date: Thu, Oct 15, 2026')).toBeInTheDocument()
+  expect(screen.getByText('Stored status: in_payroll · Payroll reference: next-period')).toBeInTheDocument()
   expect(screen.getByText(/Original work dates · Review recorded evidence/)).toBeInTheDocument()
   expect(screen.queryByText(/Original work dates · Needs reconciliation/)).not.toBeInTheDocument()
+})
+
+it.each([
+  { completion: null, status: 'in_payroll', destination_kind: 'supplemental', label: 'Included in payroll · receipt confirmation pending', destination: 'Supplemental payroll · Pay date unavailable' },
+  { completion: undefined, status: 'in_payroll', destination_kind: 'regular', label: 'Included in payroll · receipt confirmation pending', destination: 'Regular payroll · Pay date unavailable' },
+  { completion: 'accounting_recorded', status: 'in_payroll', destination_kind: 'supplemental', label: 'Accounting correction committed', destination: 'Supplemental payroll · Pay date unavailable' },
+  { completion: null, status: 'scheduled', destination_kind: 'regular', label: 'Scheduled', destination: 'Regular payroll · Pay date unavailable' },
+  { completion: null, status: 'open', destination_kind: 'unassigned', label: 'Needs review', destination: 'No destination assigned' },
+])('renders truthful $label history without deriving a payday from the due date', async (item) => {
+  const history = { ...period, settlement_cases: [{ ...item, target_pay_date: null, public_id: 'case', source_time_entry_id: '19', origin_reason: 'pending_overtime', target_external_pay_period_id: 'long-audit-payroll-reference', action_due_on: '2026-12-15' }] }
+  mock.period.mockResolvedValue({ period: history, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  const notes = await screen.findByRole('region', { name: 'Reconciliation notes' })
+  expect(within(notes).getByText(item.label)).toBeInTheDocument()
+  expect(within(notes).getByText(item.destination)).toBeInTheDocument()
+  expect(notes).toHaveTextContent('Historical reason: pending overtime')
+  expect(notes).toHaveTextContent('Recorded follow-up date: Tue, Dec 15, 2026')
+  expect(notes).toHaveTextContent('Payroll reference: long-audit-payroll-reference')
+  expect(within(notes).queryByText('Paid', { exact: true })).not.toBeInTheDocument()
+  expect(within(notes).queryByText(/Pay date.*Dec 15/)).not.toBeInTheDocument()
 })

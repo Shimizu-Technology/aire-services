@@ -301,7 +301,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Included ledger</p>
             <h2 className="mt-1 text-xl font-semibold text-slate-950">What this cutoff sends to payroll</h2>
           </div>
-          <p className="text-xs text-slate-500">{payload.summary.adjustment_count} adjustments</p>
+          <p className="text-xs text-slate-500">{payload.summary.adjustment_count} payroll {payload.summary.adjustment_count === 1 ? 'line' : 'lines'}</p>
         </div>
         <div className="mt-5 space-y-4">
           {employees.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No included hours match this employee in this batch.</p>}
@@ -309,7 +309,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
             <article key={employee.source_user_id} className="rounded-2xl border border-slate-200 p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="font-semibold text-slate-950"><Link className="hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: employee.adjustments.map((line) => line.original_work_date).sort()[0] || payload.start_date, endDate: employee.adjustments.map((line) => line.original_work_date).sort().at(-1) || payload.end_date, returnTo })}>{employee.display_name}</Link></h3>
+                  <h3 className="font-semibold text-slate-950"><Link className="inline-flex min-h-11 min-w-11 items-center hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: employee.adjustments.map((line) => line.original_work_date).sort()[0] || payload.start_date, endDate: employee.adjustments.map((line) => line.original_work_date).sort().at(-1) || payload.end_date, returnTo })}>{employee.display_name}</Link></h3>
                   <p className="text-xs text-slate-500">{employee.email || 'Kiosk-only team member'}</p>
                 </div>
                 <p className="text-sm font-semibold text-slate-800">{formatHours(employee.total_hours)}</p>
@@ -319,7 +319,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
                   <div key={`${adjustment.source_time_entry_id}-${adjustment.line_key}`} aria-label={entryId === adjustment.source_time_entry_id ? 'Linked frozen time entry' : undefined} className={`grid gap-2 rounded-xl px-3 py-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center ${entryId === adjustment.source_time_entry_id ? 'bg-cyan-50 ring-2 ring-cyan-600' : 'bg-slate-50'}`}>
                     <div>
                       <p className="font-medium text-slate-800">{adjustment.category?.name || 'Category missing'} · {formatDate(adjustment.original_work_date)}</p>
-                      <Link className="mt-1 inline-block text-xs font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: adjustment.original_work_date, endDate: adjustment.original_work_date, period: `${adjustment.original_work_date.slice(0, 7)}-${Number(adjustment.original_work_date.slice(8, 10)) <= 15 ? '01' : '16'}`, entry: adjustment.source_time_entry_id, returnTo })}>Review original hours</Link>
+                      <Link className="mt-1 inline-flex min-h-11 min-w-11 items-center text-xs font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: adjustment.original_work_date, endDate: adjustment.original_work_date, period: `${adjustment.original_work_date.slice(0, 7)}-${Number(adjustment.original_work_date.slice(8, 10)) <= 15 ? '01' : '16'}`, entry: adjustment.source_time_entry_id, returnTo })}>Review original hours</Link>
                       <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Carried forward hours' : 'Correction to a prior payroll cutoff'}</p>
                     </div>
                     <div className="text-left text-xs text-slate-600 sm:text-right">

@@ -25,7 +25,7 @@ export interface EvidencePeriod {
   id: string; start_date: string; end_date: string; summary: EvidenceTotals; review_required: boolean
   actual_check_components: null; amount_owed: null; entries?: EvidenceEntry[]; coverage_lines?: CoverageLine[]
   detail_pagination?: { per_page: number; offset: number; counts: { entries: number; coverage_lines: number; settlement_cases: number }; next_cursor: string | null }
-  settlement_cases?: { accounting_only?: boolean; accounting_correction?: AccountingCorrectionContext; public_id: string; source_time_entry_id: number; status: string; origin_reason: string; destination_kind: string; target_external_pay_period_id: string | null; held_total_hours: string; action_due_on: string }[]
+  settlement_cases?: { completion?: 'paid' | 'accounting_recorded' | null; target_pay_date?: string | null; accounting_only?: boolean; accounting_correction?: AccountingCorrectionContext; public_id: string; source_time_entry_id: number; status: string; origin_reason: string; destination_kind: string; target_external_pay_period_id: string | null; held_total_hours: string; action_due_on: string }[]
 }
 export interface EmployeeEvidence {
   integration: { source_instance_id: string }; contract_version: string; as_of: string; evidence_note: string

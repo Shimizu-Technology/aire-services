@@ -1134,6 +1134,7 @@ describe('PayrollRuns', () => {
    apiMock.getPayrollBatch.mockResolvedValue({ data: carried })
    renderPayrollRuns('/admin/payroll?batch_id=AIRE-PAY-20260831-ABC123')
    const link = await screen.findByRole('link', { name: 'Review original hours' })
+   expect(screen.getByText('1 payroll line')).toBeInTheDocument()
    expect(screen.getByText('Carried forward hours')).toBeInTheDocument()
    expect(screen.queryByText('Late approval carried forward')).not.toBeInTheDocument()
    const url = new URL(link.getAttribute('href')!, 'http://localhost')
