@@ -1265,6 +1265,7 @@ export interface ManualPayrollProcessingInput {
 }
 
 export interface PayrollCarryoverItem {
+  completion?: 'paid' | 'accounting_recorded' | null;
   source_time_entry_id: string;
   source_user_id: string;
   source_user_uuid?: string | null;
@@ -1295,6 +1296,9 @@ export interface PayrollCarryoverQueue {
     needs_review_count?: number;
     in_payroll_count: number;
     not_payable_count: number;
+    unresolved_count?: number;
+    paid_count?: number;
+    accounting_recorded_count?: number;
   };
   truncated: boolean;
 }

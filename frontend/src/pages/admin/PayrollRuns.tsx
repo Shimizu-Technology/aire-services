@@ -163,17 +163,58 @@ function SummaryCards({ payload }: { payload: PayrollBatchPayload }) {
   )
 }
 
+function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] }) {
+  const accounting = item.completion === 'accounting_recorded' || (item.payroll_lifecycle?.accounting_only === true && item.payroll_lifecycle.status === 'committed')
+  const unverified = item.completion === null && (item.status === 'payment_issued' || accounting)
+  const status = unverified ? { label: 'Needs payroll review', detail: 'Reported processing still needs exact current source and receipt evidence. Review the saved payroll and retained history.', className: 'border-amber-200 bg-amber-50 text-amber-800' } : accounting ? { label: ACCOUNTING_CORRECTION_LABEL, detail: ACCOUNTING_CORRECTION_NOTE, className: 'border-blue-200 bg-blue-50 text-blue-800' } : CARRYOVER_STATUS[item.status] || {
+    label: item.status,
+    detail: 'Payroll reported a status that is not yet recognized by this version of AIRE.',
+    className: 'border-slate-200 bg-slate-100 text-slate-700',
+  }
+  const processing = item.included_batch?.processing
+  const lifecycle = item.payroll_lifecycle
+  const recordedPaid = lifecycle?.settlements.reduce((sum, row) => sum + (row.paid_hours ?? (row.status === 'payment_issued' ? row.total_hours : 0)), 0) ?? 0
+  const paymentProgress = lifecycle ? {
+    paid_hours: recordedPaid,
+    outstanding_hours: Math.max(0, (item.current_total_hours ?? item.held_total_hours) - recordedPaid),
+  } : processing && 'paid_hours' in processing ? processing : null
+  return (
+    <article key={item.source_time_entry_id} className="rounded-2xl border border-slate-200 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-slate-950">{item.display_name}</h3>
+          <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)} · entry #{item.source_time_entry_id}</p>
+        </div>
+        <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+        <span>{formatHours(item.current_total_hours ?? item.held_total_hours)}</span>
+        <span>Originally excluded: {EXCLUSION_LABELS[item.exclusion_reason] || item.exclusion_reason}</span>
+      </div>
+      <p className="mt-3 text-sm leading-5 text-slate-600">{status.detail}</p>
+      {paymentProgress && !accounting && !unverified && (
+        <p className="mt-2 text-xs font-medium text-slate-700">
+          {formatHours(paymentProgress.paid_hours)} paid · {formatHours(paymentProgress.outstanding_hours)} outstanding
+        </p>
+      )}
+      {item.included_batch && <p className="mt-2 text-xs text-slate-500">Later batch: {formatDate(item.included_batch.start_date)}–{formatDate(item.included_batch.end_date)} · {item.included_batch.id}</p>}
+    </article>
+  )
+}
+
 function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueue | null; loading: boolean; error: string | null }) {
-  const activeItems = queue?.items.filter((item) => item.status !== 'not_payable') || []
+  const activeItems = queue?.items.filter((item) => item.status !== 'not_payable' && !item.completion) || []
+  const recordedItems = queue?.items.filter((item) => item.completion) || []
+  const unresolvedCount = queue?.summary.unresolved_count ?? activeItems.length
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="carryover-queue-title">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">Unpaid time lifecycle</p>
           <h2 id="carryover-queue-title" className="mt-1 text-xl font-semibold text-slate-950">Carryover queue</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Hours excluded from an earlier cutoff stay here until they are approved, included in a later batch, and acknowledged by Cornerstone.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Review unfinished hours here. Verified payments and accounting corrections remain available in recorded history.</p>
         </div>
-        {queue && <p className="text-xs text-slate-500">{activeItems.length} active item{activeItems.length === 1 ? '' : 's'}</p>}
+        {queue && <p className="text-xs text-slate-500">{unresolvedCount} active item{unresolvedCount === 1 ? '' : 's'}</p>}
       </div>
 
       {loading && <p className="mt-5 rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">Loading carryover status…</p>}
@@ -186,6 +227,8 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
               ['Ready for cutoff', queue.summary.ready_for_next_batch_count],
               ['Needs payroll review', queue.summary.needs_review_count ?? 0],
               ['In payroll', queue.summary.in_payroll_count],
+              ['Paid records', queue.summary.paid_count ?? recordedItems.filter((item) => item.completion === 'paid').length],
+              ['Accounting records', queue.summary.accounting_recorded_count ?? recordedItems.filter((item) => item.completion === 'accounting_recorded').length],
               ['Closed unpaid', queue.summary.not_payable_count],
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
@@ -195,46 +238,17 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
             ))}
           </div>
           {queue.truncated && <p className="mt-4 text-xs text-amber-800">Showing the first 250 carryover records. The complete history remains in AIRE.</p>}
-          <div className="mt-5 grid gap-3 lg:grid-cols-2">
-            {activeItems.length === 0 && <p className="rounded-xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">No unpaid carryover items need attention.</p>}
-            {activeItems.map((item) => {
-              const accounting = item.payroll_lifecycle?.accounting_only === true && item.payroll_lifecycle.status === 'committed'
-              const status = accounting ? { label: ACCOUNTING_CORRECTION_LABEL, detail: ACCOUNTING_CORRECTION_NOTE, className: 'border-blue-200 bg-blue-50 text-blue-800' } : CARRYOVER_STATUS[item.status] || {
-                label: item.status,
-                detail: 'Payroll reported a status that is not yet recognized by this version of AIRE.',
-                className: 'border-slate-200 bg-slate-100 text-slate-700',
-              }
-              const processing = item.included_batch?.processing
-              const lifecycle = item.payroll_lifecycle
-              const recordedPaid = lifecycle?.settlements.reduce((sum, row) => sum + (row.paid_hours ?? (row.status === 'payment_issued' ? row.total_hours : 0)), 0) ?? 0
-              const paymentProgress = lifecycle ? {
-                paid_hours: recordedPaid,
-                outstanding_hours: Math.max(0, (item.current_total_hours ?? item.held_total_hours) - recordedPaid),
-              } : processing && 'paid_hours' in processing ? processing : null
-              return (
-                <article key={item.source_time_entry_id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-slate-950">{item.display_name}</h3>
-                      <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)} · entry #{item.source_time_entry_id}</p>
-                    </div>
-                    <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-                    <span>{formatHours(item.current_total_hours ?? item.held_total_hours)}</span>
-                    <span>Originally excluded: {EXCLUSION_LABELS[item.exclusion_reason] || item.exclusion_reason}</span>
-                  </div>
-                  <p className="mt-3 text-sm leading-5 text-slate-600">{status.detail}</p>
-                  {paymentProgress && !accounting && (
-                    <p className="mt-2 text-xs font-medium text-slate-700">
-                      {formatHours(paymentProgress.paid_hours)} paid · {formatHours(paymentProgress.outstanding_hours)} outstanding
-                    </p>
-                  )}
-                  {item.included_batch && <p className="mt-2 text-xs text-slate-500">Later batch: {formatDate(item.included_batch.start_date)}–{formatDate(item.included_batch.end_date)} · {item.included_batch.id}</p>}
-                </article>
-              )
-            })}
-          </div>
+          {unresolvedCount === 0 && <p className="mt-5 rounded-xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">No unpaid carryover items need attention.</p>}
+          {activeItems.length > 0 && <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {activeItems.map((item) => <CarryoverCard key={item.source_time_entry_id} item={item} />)}
+          </div>}
+          {recordedItems.length > 0 && <section aria-label="Recorded history" className="mt-6 border-t border-slate-200 pt-5">
+            <h3 className="text-base font-semibold text-slate-950">Recorded history</h3>
+            <p className="mt-1 text-sm text-slate-600">Completed receipt evidence is retained here. Accounting corrections do not record a new payment.</p>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {recordedItems.map((item) => <CarryoverCard key={item.source_time_entry_id} item={item} />)}
+            </div>
+          </section>}
         </>
       )}
     </section>
