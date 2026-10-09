@@ -18,17 +18,24 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
       payment_effective_on: status == "issued" ? Date.new(2026, 9, 30) : nil)
   end
 
-  def line(batch, row, regular, overtime = 0, kind = "current")
+  def line(batch, row, regular, overtime = 0, kind = "current", snapshot: {})
     batch.payroll_batch_entries.create!(source_time_entry_id: row.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid, source_category_id: row.time_category_id,
       work_date: row.work_date, week_start: row.work_date.beginning_of_week(:sunday), line_key: SecureRandom.uuid, source_kind: kind,
-      regular_hours: regular, overtime_hours: overtime, total_hours: regular + overtime, snapshot: {})
+      regular_hours: regular, overtime_hours: overtime, total_hours: regular + overtime, snapshot: snapshot)
   end
 
-  def receipt(batch, row, status)
+  def receipt(batch, row, status, **attributes)
     PayrollEntryProcessingEvent.create!(payroll_batch: batch, source_time_entry_id: row.source_time_entry_id,
       source_user_uuid: employee.payroll_integration_uuid, contract_version: "2.0", source_line_key: row.line_key, source_kind: row.source_kind,
       regular_hours: row.regular_hours, overtime_hours: row.overtime_hours, total_hours: row.total_hours,
-      event_id: SecureRandom.uuid, external_system: "cornerstone_payroll", external_pay_period_id: "destination", external_payroll_item_id: "item-1", status: status, occurred_at: Time.current)
+      event_id: SecureRandom.uuid, external_system: "cornerstone_payroll", external_pay_period_id: "destination", external_payroll_item_id: "item-1", status: status, occurred_at: Time.current, **attributes)
+  end
+
+  def included_case(source, origin, included, reason, version: source.lock_version)
+    create(:payroll_settlement_case, origin_payroll_batch: origin, included_payroll_batch: included,
+      source_time_entry_id: source.id, source_time_entry_version: version, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, original_work_date: source.work_date,
+      origin_reason: reason, status: "in_payroll", destination_kind: "supplemental", target_external_pay_period_id: "destination")
   end
 
   def result(params = {})
@@ -266,15 +273,121 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     old = line(original, source, 4)
     paid = receipt(original, old, "payment_issued")
     correction = create(:payroll_batch, start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15))
-    delta = line(correction, source, -1, 0, "correction")
+    delta = line(correction, source, -1, 0, "correction", snapshot: { "version" => source.lock_version })
     PayrollEntryProcessingEvent.create!(payroll_batch: correction, source_time_entry_id: source.id, source_user_uuid: employee.payroll_integration_uuid,
       contract_version: "2.0", source_line_key: delta.line_key, source_kind: "correction", total_hours: -1, regular_hours: -1, overtime_hours: 0,
       event_id: SecureRandom.uuid, external_system: "cornerstone_payroll", external_pay_period_id: "44", external_payroll_item_id: "55", status: "committed", occurred_at: Time.current,
       metadata: { "accounting_only" => true, "correction_disposition_id" => "9", "original_pay_period_id" => "10", "original_payroll_item_id" => "11", "corrective_pay_period_id" => "44", "corrective_payroll_item_id" => "55" })
+    historical = included_case(source, original, correction, "changed_after_cutoff")
+    before = historical.attributes.deep_dup
     detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
     expect(detail[:summary]).to include(issued_hours: 4.0, committed_hours: 0.0, accounting_correction_hours: -1.0, accounting_correction_line_count: 1, unissued_correction_count: 0)
     expect(detail[:coverage_lines]).to include(include(source_line_key: delta.line_key, accounting_only: true, status: "committed", total_hours: -1.0))
     expect(paid.reload.status).to eq("payment_issued")
     expect(detail[:amount_owed]).to be_nil
+    expect(detail).to include(review_required: false)
+    expect(detail[:summary][:open_case_count]).to eq(1)
+    expect(historical.reload.attributes).to eq(before)
+    expect(detail[:settlement_cases].first).to include("status" => "in_payroll", "accounting_only" => true)
+  end
+
+  context "with retained ordinary carryover case history" do
+    let(:source) { entry(4) }
+    let(:origin) { create(:payroll_batch) }
+    let(:included) { create(:payroll_batch, start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15)) }
+    let(:frozen) { line(included, source, 4, 0, "carryover", snapshot: { "version" => source.lock_version }) }
+    let(:historical) { included_case(source, origin, included, "created_after_cutoff") }
+    let(:paid) { receipt(included, frozen, "payment_issued", payment_method: "paper_check", payment_reference: "30001") }
+
+    it "shows paid late-created work without an unresolved-period warning and preserves case history" do
+      paid
+      before = historical.attributes.deep_dup
+      evidence = result
+      expect(evidence[:periods].first).to include(review_required: false)
+      expect(evidence[:totals]).to include(issued_hours: 4.0, needs_reconciliation_hours: 0.0, open_case_count: 1)
+      expect(historical.reload.attributes).to eq(before)
+      expect(evidence).to include(amount_owed: nil)
+    end
+
+    it "recognizes an approved version carried from the earlier pending cutoff case" do
+      captured_version = source.lock_version
+      source.update!(end_time: source.start_time + 4.hours, approval_status: "approved", approved_by: employee, approved_at: Time.current)
+      expect(source.lock_version).to be > captured_version
+      paid
+      earlier = included_case(source, origin, included, "pending_approval", version: captured_version)
+      before = earlier.attributes.deep_dup
+      expect(result[:periods].first).to include(review_required: false)
+      expect(earlier.reload.attributes).to eq(before)
+    end
+
+    %w[missing prepared failed cancelled legacy uuid hours source_version case_version missing_snapshot ambiguous instrument].each do |defect|
+      it "keeps #{defect} carryover processing evidence requiring review" do
+        historical
+        case defect
+        when "missing" then frozen
+        when "prepared" then receipt(included, frozen, "payment_prepared", payment_method: "paper_check", payment_reference: "30001")
+        when "failed" then receipt(included, frozen, "payment_failed", payment_method: "paper_check", payment_reference: "30001")
+        when "cancelled" then receipt(included, frozen, "payment_cancelled", payment_method: "paper_check", payment_reference: "30001")
+        when "legacy"
+          PayrollEntryProcessingEvent.create!(payroll_batch: included, source_time_entry_id: frozen.source_time_entry_id,
+            source_user_uuid: employee.payroll_integration_uuid, event_id: SecureRandom.uuid, external_system: "cornerstone_payroll",
+            external_pay_period_id: "destination", external_payroll_item_id: "item-1", status: "payment_issued", occurred_at: Time.current,
+            payment_method: "paper_check", payment_reference: "30001")
+        when "uuid" then receipt(included, frozen, "payment_issued", source_user_uuid: SecureRandom.uuid)
+        when "hours" then receipt(included, frozen, "payment_issued", regular_hours: 3, total_hours: 3)
+        when "source_version"
+          paid
+          source.update!(description: "Later source revision requiring a new review")
+        when "case_version"
+          paid
+          historical.update!(source_time_entry_version: source.lock_version + 1)
+        when "missing_snapshot"
+          receipt(included, line(included, source, 4, 0, "carryover"), "payment_issued", payment_method: "paper_check", payment_reference: "30001")
+        when "ambiguous"
+          paid
+          line(included, source, 1, 0, "carryover", snapshot: { "version" => source.lock_version })
+        when "instrument" then receipt(included, frozen, "payment_issued")
+        end
+        expect(result[:periods].first).to include(review_required: true)
+        expect(historical.reload.status).to eq("in_payroll")
+        expect(historical.resolved_at).to be_nil
+      end
+    end
+  end
+
+  context "with a retained accounting correction case" do
+    let(:source) { entry(3) }
+    let(:origin) { create(:payroll_batch) }
+    let(:included) { create(:payroll_batch, start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15)) }
+    let(:delta) { line(included, source, -1, 0, "correction", snapshot: { "version" => source.lock_version }) }
+    let(:historical) { included_case(source, origin, included, "changed_after_cutoff") }
+    let(:metadata) do
+      { "accounting_only" => true, "correction_disposition_id" => "9", "original_pay_period_id" => "10",
+        "original_payroll_item_id" => "11", "corrective_pay_period_id" => "44", "corrective_payroll_item_id" => "55" }
+    end
+
+    %w[missing prepared failed cancelled stale_source stale_case uuid metadata].each do |defect|
+      it "does not dismiss #{defect} accounting correction evidence as confirmed processing" do
+        receipt(origin, line(origin, source, 4), "payment_issued", payment_method: "paper_check", payment_reference: "30000")
+        historical
+        attributes = { external_pay_period_id: "44", external_payroll_item_id: "55", metadata: metadata }
+        status = { "prepared" => "payment_prepared", "failed" => "payment_failed", "cancelled" => "payment_cancelled" }.fetch(defect, "committed")
+        attributes[:source_user_uuid] = SecureRandom.uuid if defect == "uuid"
+        attributes[:metadata] = metadata.merge("recovered" => true) if defect == "metadata"
+        if defect == "missing"
+          delta
+        else
+          receipt(included, delta, status, **attributes)
+        end
+        source.update!(end_time: source.start_time + 3.hours, description: "Later revision") if defect == "stale_source"
+        historical.update!(source_time_entry_version: source.lock_version + 1) if defect == "stale_case"
+        before = historical.reload.attributes.deep_dup
+        evidence = result
+        expect(evidence[:periods].first).to include(review_required: true)
+        expect(evidence[:totals][:needs_reconciliation_hours]).to eq(0.0)
+        expect(evidence).to include(amount_owed: nil)
+        expect(historical.reload.attributes).to eq(before)
+      end
+    end
   end
 end

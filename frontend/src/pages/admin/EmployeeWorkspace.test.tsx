@@ -97,7 +97,7 @@ describe('employee workspace', () => {
 
 it('shows the signed accounting correction separately and preserves the original issued coverage', async () => {
   const context = { accounting_only: true, correction_disposition_id: '9', original_pay_period_id: '30', original_payroll_item_id: '99', corrective_pay_period_id: '44', corrective_payroll_item_id: '55' }
-  const corrected = { ...period, summary: { ...totals, issued_hours: 4, committed_hours: 0, accounting_correction_hours: -1, accounting_correction_line_count: 1 },
+  const corrected = { ...period, review_required: false, summary: { ...totals, worked_hours: 3, eligible_hours: 3, pending_hours: 0, issued_hours: 4, committed_hours: 0, needs_reconciliation_hours: 0, open_case_count: 1, accounting_correction_hours: -1, accounting_correction_line_count: 1 },
     coverage_lines: [...period.coverage_lines, { ...period.coverage_lines[0], id: 'correction', source_kind: 'correction', status: 'committed', coverage_state: 'committed', accounting_only: true, accounting_correction: context, regular_hours: -1, total_hours: -1, external_pay_period_id: '44', external_payroll_item_id: '55', payment_reference: null, payment_method: null }],
   }
   mock.periods.mockResolvedValue({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals: corrected.summary, periods: [corrected], pagination: { total_count: 1, next_cursor: null } })
@@ -109,4 +109,20 @@ it('shows the signed accounting correction separately and preserves the original
   expect(screen.getByText(/item 55/)).toBeInTheDocument()
   expect(screen.getByText(/item 99/)).toHaveTextContent('1001')
   expect(screen.queryByText(/correction.*payment reference Not recorded/)).not.toBeInTheDocument()
+  expect(screen.getByText(/Original work dates · Review recorded evidence/)).toBeInTheDocument()
+  expect(screen.queryByText(/Original work dates · Needs reconciliation/)).not.toBeInTheDocument()
+})
+
+it('keeps late-created paid case history visible without an unresolved-period badge', async () => {
+  const carried = { ...period, review_required: false,
+    summary: { ...totals, worked_hours: 4, eligible_hours: 4, pending_hours: 0, issued_hours: 4, committed_hours: 0, needs_reconciliation_hours: 0, open_case_count: 1 },
+    settlement_cases: [{ public_id: 'historical-case', source_time_entry_id: '19', origin_reason: 'created_after_cutoff', status: 'in_payroll', destination_kind: 'regular', target_external_pay_period_id: 'next-period', action_due_on: '2026-10-15' }],
+  }
+  mock.periods.mockResolvedValue({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals: carried.summary, periods: [carried], pagination: { total_count: 1, next_cursor: null } })
+  mock.period.mockResolvedValue({ period: carried, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: 'Review period' }))
+  expect(await screen.findByText(/created after cutoff · in_payroll/)).toBeInTheDocument()
+  expect(screen.getByText(/Original work dates · Review recorded evidence/)).toBeInTheDocument()
+  expect(screen.queryByText(/Original work dates · Needs reconciliation/)).not.toBeInTheDocument()
 })

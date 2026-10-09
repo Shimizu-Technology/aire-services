@@ -306,7 +306,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
                     <div>
                       <p className="font-medium text-slate-800">{adjustment.category?.name || 'Category missing'} · {formatDate(adjustment.original_work_date)}</p>
                       <Link className="mt-1 inline-block text-xs font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: adjustment.original_work_date, endDate: adjustment.original_work_date, period: `${adjustment.original_work_date.slice(0, 7)}-${Number(adjustment.original_work_date.slice(8, 10)) <= 15 ? '01' : '16'}`, entry: adjustment.source_time_entry_id, returnTo })}>Review original hours</Link>
-                      <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Late approval carried forward' : 'Correction to a prior payroll cutoff'}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Carried forward hours' : 'Correction to a prior payroll cutoff'}</p>
                     </div>
                     <div className="text-left text-xs text-slate-600 sm:text-right">
                       <p className="font-semibold text-slate-900">{formatHours(adjustment.total_hours)}</p>
