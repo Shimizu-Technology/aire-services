@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
 import type {
   ApprovalGroupFilter,
@@ -612,12 +611,8 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     const missingCategory = entry.time_category === null
 
     return (
-      <motion.div
+      <div
         key={entry.id}
-        layout
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, x: -100 }}
         className={`border rounded-xl p-3.5 transition-colors ${selected ? 'border-primary bg-cyan-50/50' : 'border-neutral-warm bg-secondary/30'}`}
       >
         <div className="flex items-start gap-3">
@@ -692,9 +687,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
             </div>
 
             {noteInput?.id === entry.id && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
+              <div
                 className="mt-3"
               >
                 <input
@@ -704,7 +697,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                   placeholder="Add a note (optional)..."
                   className="w-full px-3 py-2 text-sm border border-neutral-warm rounded-xl bg-white text-primary-dark placeholder:text-text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
-              </motion.div>
+              </div>
             )}
 
             <div className="flex items-center gap-2 mt-3">
@@ -743,7 +736,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
             </div>
           </div>
         </div>
-      </motion.div>
+      </div>
     )
   }
 
@@ -999,14 +992,12 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                         </span>
                         <div>
                           <h4 className="text-sm font-bold text-primary-dark">{formatWorkDate(group.date)}</h4>
-                          <p className="text-xs text-text-muted">{group.entries.length} entr{group.entries.length === 1 ? 'y' : 'ies'} · {group.totalHours.toFixed(2)}h pending</p>
+                          <p className="text-xs text-text-muted">{group.entries.length} entr{group.entries.length === 1 ? 'y' : 'ies'} · {group.totalHours.toFixed(2)}h total entry hours</p>
                         </div>
                       </button>
                     </div>
                     <div className="space-y-3">
-                      <AnimatePresence>
-                        {group.entries.map(renderEntryCard)}
-                      </AnimatePresence>
+                      {group.entries.map(renderEntryCard)}
                     </div>
                   </section>
                 )
@@ -1014,9 +1005,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
             </div>
           ) : (
             <div className="space-y-3">
-              <AnimatePresence>
-                {entries.map(renderEntryCard)}
-              </AnimatePresence>
+              {entries.map(renderEntryCard)}
             </div>
           )}
         </div>

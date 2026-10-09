@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ApprovalQueue from './ApprovalQueue'
@@ -234,6 +234,40 @@ describe('ApprovalQueue review workflow', () => {
     render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
     expect(await screen.findByText('Only the overtime portion needs review.')).toBeInTheDocument()
     expect(screen.getAllByText('Total entry hours')).toHaveLength(2)
+  })
+
+
+  it.each([true, false])('shows essential approval content before animation timers run (grouped=%s)', async (grouped) => {
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+      })
+      if (!grouped) {
+        await act(async () => fireEvent.click(screen.getByRole('checkbox', { name: 'Group by date' })))
+      }
+      expect(screen.getByRole('checkbox', { name: /Select Zion Quintanilla/i })).toBeVisible()
+      expect(screen.getByText('Only the overtime portion needs review.')).toBeVisible()
+      screen.getAllByRole('button', { name: 'Approve' }).forEach(button => expect(button).toBeVisible())
+      screen.getAllByRole('button', { name: 'Deny' }).forEach(button => expect(button).toBeVisible())
+      fireEvent.click(screen.getAllByTitle('Add note')[0])
+      expect(screen.getByPlaceholderText('Add a note (optional)...')).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+
+  it('labels grouped overtime-only hours as total entry hours without inventing a held amount', async () => {
+    apiMock.getPendingApprovals.mockResolvedValue({ data: {
+      pending_entries: [makeEntry({ ...entries[1], work_date: '2026-11-05', hours: 10 })], count: 1,
+      summary: { ...summary, entry_count: 1, total_hours: 10, pending_time_entry_count: 0, pending_overtime_count: 1 },
+    } })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+    expect(await screen.findByText('1 entry · 10.00h total entry hours')).toBeVisible()
+    expect(screen.queryByText('1 entry · 10.00h pending')).not.toBeInTheDocument()
+    expect(screen.getByText('Only the overtime portion needs review.')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
   })
 
 })

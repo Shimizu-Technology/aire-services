@@ -395,6 +395,11 @@ export default function TimeTracking() {
   const entriesPage = Math.max(1, Math.min(10000, Number.parseInt(searchParams.get('entries_page') || '1', 10) || 1))
   const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
   const entryRequest = useRef(0)
+  const linkedEntryRequest = useRef(0)
+  const [entryRefreshRevision, setEntryRefreshRevision] = useState(0)
+  // Mutations request a fresh read in the current route, rather than retaining
+  // a load callback for the employee/date that was open when the write began.
+  const refreshEntryViews = useCallback(() => setEntryRefreshRevision(revision => revision + 1), [])
   const [linkedEntry, setLinkedEntry] = useState<TimeEntryItem | null>(null)
   const [linkedEntryError, setLinkedEntryError] = useState<string | null>(null)
   const routedPrefill = searchParams.get('prefill')
@@ -538,19 +543,19 @@ export default function TimeTracking() {
   }
 
   useEffect(() => {
+    const request = ++linkedEntryRequest.current
     if (!routedEntryId) { setLinkedEntry(null); setLinkedEntryError(null); return }
-    let cancelled = false
     setLinkedEntry(null)
     setLinkedEntryError(null)
     void api.getTimeEntry(Number(routedEntryId)).then(response => {
-      if (cancelled) return
+      if (request !== linkedEntryRequest.current) return
       const entry = response.data?.time_entry as unknown as TimeEntryItem | undefined
       if (!entry || response.error) { setLinkedEntryError(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.'); return }
       if (String(entry.id) !== routedEntryId || (routedUserId && String(entry.user.id) !== routedUserId)) { setLinkedEntryError('The linked entry does not match the selected employee. Return to the employee review.'); return }
       setLinkedEntry(entry)
-    }).catch(() => { if (!cancelled) setLinkedEntryError('The linked entry could not be loaded. Refresh to retry or return to the employee review.') })
-    return () => { cancelled = true }
-  }, [routedEntryId, routedUserId])
+    }).catch(() => { if (request === linkedEntryRequest.current) setLinkedEntryError('The linked entry could not be loaded. Refresh to retry or return to the employee review.') })
+    return () => { linkedEntryRequest.current += 1 }
+  }, [routedEntryId, routedUserId, entryRefreshRevision])
 
   // Load time entries
   const loadEntries = useCallback(async () => {
@@ -572,8 +577,8 @@ export default function TimeTracking() {
       }
 
       // Apply filters
-      if (entryFilters.user_id) {
-        params.user_id = parseInt(entryFilters.user_id)
+      if (routedUserId) {
+        params.user_id = parseInt(routedUserId)
       }
       if (entryFilters.time_category_id) {
         params.time_category_id = parseInt(entryFilters.time_category_id)
@@ -593,7 +598,7 @@ export default function TimeTracking() {
     } finally {
       if (request === entryRequest.current) setLoading(false)
     }
-  }, [currentDate, viewMode, entryFilters, entriesPage])
+  }, [currentDate, viewMode, routedUserId, entryFilters.time_category_id, entriesPage])
 
   // Load categories and users
   const loadOptions = useCallback(async () => {
@@ -814,8 +819,9 @@ export default function TimeTracking() {
   }, [activeTab, reportFilters, searchParams, setSearchParams])
 
   useEffect(() => {
-    loadEntries()
-  }, [loadEntries])
+    void loadEntries()
+    return () => { entryRequest.current += 1 }
+  }, [loadEntries, entryRefreshRevision])
 
   useEffect(() => {
     loadOptions()
@@ -834,13 +840,14 @@ export default function TimeTracking() {
 
     void loadPendingApprovalSummary()
     return startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
-  }, [isAdmin, loadPendingApprovalSummary])
+  }, [isAdmin, loadPendingApprovalSummary, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab === 'reports') {
       loadReport()
     }
-  }, [activeTab, loadReport])
+    return () => { reportRequestSequence.current += 1 }
+  }, [activeTab, loadReport, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab !== 'reports') {
@@ -1024,8 +1031,7 @@ export default function TimeTracking() {
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
       returnToPersonDay.current = null
       setShowModal(false)
-      await loadEntries()
-      await loadPendingApprovalSummary()
+      refreshEntryViews()
     } catch {
       setError('Failed to save time entry')
     } finally {
@@ -1061,21 +1067,18 @@ export default function TimeTracking() {
       returnToPersonDay.current = null
       setShowModal(false)
       setEditingEntry(null)
-      await loadEntries()
-      await loadPendingApprovalSummary()
+      refreshEntryViews()
     } catch {
       setError('Failed to delete time entry')
     }
   }
 
-  const refreshEntriesAfterEdit = async () => {
+  const refreshEntriesAfterEdit = () => {
     reopenPersonDayAfterLoad.current = returnToPersonDay.current
     returnToPersonDay.current = null
     setShowEditModal(false)
     setEditingEntry(null)
-    await loadEntries()
-    if (activeTab === 'reports') await loadReport()
-    await loadPendingApprovalSummary()
+    refreshEntryViews()
   }
 
   // Get week dates for week view
@@ -1207,10 +1210,7 @@ export default function TimeTracking() {
       {activeTab === 'entries' && (
         <>
           {/* Clock In/Out Card - full width, horizontal on desktop */}
-          <ClockInOutCard onStatusChange={() => {
-            void loadEntries()
-            void loadPendingApprovalSummary()
-          }} />
+          <ClockInOutCard onStatusChange={refreshEntryViews} />
 
           {isAdmin && <WhosWorking />}
         </>
@@ -1225,10 +1225,7 @@ export default function TimeTracking() {
             : routedPeriod
               ? { mode: 'range', startDate: routedPeriod.start, endDate: routedPeriod.end }
               : undefined}
-          onUpdate={() => {
-            void loadEntries()
-            void loadPendingApprovalSummary()
-          }}
+          onUpdate={refreshEntryViews}
           canDeleteEntry={canDeleteEntry}
         />
       )}
