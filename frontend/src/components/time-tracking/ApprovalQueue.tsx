@@ -686,7 +686,8 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
 
               <div className="text-right shrink-0">
                 <div className="text-lg font-bold text-primary-dark">{entry.hours}h</div>
-                <div className="text-[10px] text-text-muted uppercase">{entry.entry_method}</div>
+                <div className="text-[10px] text-text-muted uppercase">Total entry hours</div>
+                {isPendingOvertime && !isPendingApproval && <p className="mt-1 max-w-28 text-[10px] text-text-muted">Only the overtime portion needs review.</p>}
               </div>
             </div>
 

@@ -498,6 +498,7 @@ export interface ApprovalReason {
 }
 
 export interface TimeEntry {
+  version?: number;
   id: number;
   work_date: string;
   start_time: string | null;
@@ -1598,6 +1599,9 @@ export const api = {
     }),
 
   updateTimeEntry: (id: number, data: Partial<{
+    review_action: 'end_clock' | 'resubmit_denied';
+    expected_version: number;
+    stop_date: string;
     work_date: string;
     start_time: string;
     end_time: string;

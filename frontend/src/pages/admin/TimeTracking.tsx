@@ -29,6 +29,7 @@ interface TimeCategory {
 }
 
 interface TimeEntryItem {
+  version?: number
   id: number
   work_date: string
   start_time: string | null
@@ -2402,6 +2403,7 @@ export default function TimeTracking() {
         categories={editingEntry && isAdmin
           ? categories.filter((category) => users.find((user) => user.id === editingEntry.user.id)?.time_category_ids?.includes(category.id))
           : categories}
+        isAdmin={isAdmin}
         canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
         onClose={closeEditModal}
         onSaved={refreshEntriesAfterEdit}

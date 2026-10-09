@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditTimeEntryModal from './EditTimeEntryModal'
 
@@ -13,14 +12,8 @@ vi.mock('../../lib/api', () => ({
   api: apiMock,
 }))
 
-vi.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, ...props }: { children: ReactNode }) => <div {...props}>{children}</div>,
-  },
-  AnimatePresence: ({ children }: { children: ReactNode }) => <>{children}</>,
-}))
-
-describe('EditTimeEntryModal break editing', () => {
+describe('EditTimeEntryModal', () => {
+  afterEach(() => vi.restoreAllMocks())
   beforeEach(() => {
     apiMock.updateTimeEntry.mockReset()
     apiMock.deleteTimeEntry.mockReset()
@@ -180,7 +173,7 @@ describe('EditTimeEntryModal break editing', () => {
     expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
   })
 
-  it('automatically selects the only assigned category while repairing a legacy entry', async () => {
+  it('preserves an unselected category until the operator explicitly chooses it', async () => {
     render(
       <EditTimeEntryModal
         isOpen
@@ -205,7 +198,8 @@ describe('EditTimeEntryModal break editing', () => {
       />,
     )
 
-    expect(screen.getByRole('combobox')).toHaveValue('1')
+    expect(screen.getByRole('combobox')).toHaveValue('')
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '1' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
 
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(
@@ -214,4 +208,104 @@ describe('EditTimeEntryModal break editing', () => {
       undefined,
     ))
   })
+
+  const activeEntry = {
+    id: 6, version: 3, work_date: '2026-11-01', start_time: '08:00', end_time: null,
+    break_minutes: null, description: null, entry_method: 'clock' as const, status: 'clocked_in' as const,
+    user: { id: 1, email: 'alice@example.com' }, time_category: null,
+  }
+  const renderReviewEditor = (entry = activeEntry, isAdmin = true) => render(
+    <EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'CFI' }]} canDelete isAdmin={isAdmin}
+      onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />,
+  )
+
+  it('keeps a missing category unselected during a notes-only active edit', async () => {
+    renderReviewEditor()
+    expect(screen.getByRole('combobox')).toHaveValue('')
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Awaiting confirmation' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalled())
+    expect(apiMock.updateTimeEntry.mock.calls[0][1]).toMatchObject({ description: 'Awaiting confirmation' })
+    expect(apiMock.updateTimeEntry.mock.calls[0][1].time_category_id).toBeUndefined()
+    expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('review_action')
+    expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('end_time')
+  })
+
+  it('requires an explicit stop time, category and reason for historical closure', async () => {
+    renderReviewEditor()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'End this clock' }))
+    const endInput = screen.getByLabelText('Clock-out time (Guam) *')
+    expect(endInput).toHaveValue('')
+    fireEvent.change(endInput, { target: { value: '12:00' } })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Correction reason *'), { target: { value: 'Actual stop confirmed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'End clock and submit' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(6, {
+      review_action: 'end_clock', expected_version: 3, stop_date: '2026-11-01', end_time: '12:00',
+      time_category_id: 1, description: '',
+    }, 'Actual stop confirmed'))
+  })
+
+  it('does not expose the admin clock transition to employees', () => {
+    renderReviewEditor(activeEntry, false)
+    expect(screen.queryByRole('checkbox', { name: 'End this clock' })).not.toBeInTheDocument()
+  })
+
+  it('submits denied time for review without changing the saved facts', async () => {
+    render(<EditTimeEntryModal isOpen isAdmin entry={{ ...activeEntry, status: 'completed', entry_method: 'manual',
+      end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
+      categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('End Time *'), { target: { value: '18:00' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Submit denied time for review' }))
+    expect(screen.getByLabelText('End Time *')).toHaveValue('12:00')
+    expect(screen.getByLabelText('End Time *')).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(6,
+      { review_action: 'resubmit_denied', expected_version: 3 }, 'Request separate review'))
+  })
+
+
+  it('renders a visible named dialog immediately outside a hidden transformed ancestor', () => {
+    const host = document.createElement('div')
+    host.style.opacity = '0'
+    host.style.transform = 'translateY(20px)'
+    document.body.append(host)
+    render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete isAdmin
+      onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />, { container: host })
+    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    expect(dialog).toBeVisible()
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(host).not.toContainElement(dialog)
+    expect(dialog.parentElement?.parentElement).toBe(document.body)
+    expect(dialog.style.opacity).not.toBe('0')
+    expect(dialog.parentElement?.style.opacity).not.toBe('0')
+  })
+
+  it('traps keyboard focus, closes with Escape and restores focus and scroll', () => {
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 100, 30)] as unknown as DOMRectList)
+    const trigger = document.createElement('button')
+    document.body.append(trigger)
+    trigger.focus()
+    const previousOverflow = document.body.style.overflow
+    const onClose = vi.fn()
+    const view = render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete isAdmin
+      onClose={onClose} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+    const first = screen.getByRole('link', { name: 'View complete activity history' })
+    const last = screen.getByRole('button', { name: 'Update' })
+    expect(first).toHaveFocus()
+    expect(document.body.style.overflow).toBe('hidden')
+    last.focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(first).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(last).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+    view.unmount()
+    expect(trigger).toHaveFocus()
+    expect(document.body.style.overflow).toBe(previousOverflow)
+    trigger.remove()
+  })
+
 })

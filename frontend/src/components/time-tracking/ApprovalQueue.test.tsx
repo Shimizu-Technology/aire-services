@@ -224,9 +224,16 @@ describe('ApprovalQueue review workflow', () => {
     expect(apiMock.bulkApproveTimeEntries).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByTitle('Edit entry'))
-    const categorySelect = await screen.findByDisplayValue('CFI')
-    expect(categorySelect).toHaveValue('1')
+    const categorySelect = (await screen.findByRole('option', { name: 'Select category...' })).parentElement as HTMLSelectElement
+    expect(categorySelect).toHaveValue('')
     expect(within(categorySelect).getByRole('option', { name: 'CFI' })).toBeInTheDocument()
     expect(within(categorySelect).queryByRole('option', { name: 'Other' })).not.toBeInTheDocument()
   })
+
+  it('identifies card hours as total entry hours rather than the held overtime portion', async () => {
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+    expect(await screen.findByText('Only the overtime portion needs review.')).toBeInTheDocument()
+    expect(screen.getAllByText('Total entry hours')).toHaveLength(2)
+  })
+
 })

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 
 interface TimeCategoryOption {
@@ -9,6 +10,7 @@ interface TimeCategoryOption {
 
 interface EditableTimeEntry {
   id: number
+  version?: number
   work_date: string
   start_time: string | null
   end_time: string | null
@@ -45,6 +47,7 @@ interface EditTimeEntryModalProps {
   entry: EditableTimeEntry | null
   categories: TimeCategoryOption[]
   canDelete: boolean
+  isAdmin?: boolean
   onClose: () => void
   onSaved: () => void | Promise<void>
   onDeleted: () => void | Promise<void>
@@ -90,6 +93,7 @@ export default function EditTimeEntryModal({
   entry,
   categories,
   canDelete,
+  isAdmin = false,
   onClose,
   onSaved,
   onDeleted,
@@ -110,7 +114,11 @@ export default function EditTimeEntryModal({
   const [correctionReasonRequired, setCorrectionReasonRequired] = useState(false)
   const [correctionReason, setCorrectionReason] = useState('')
   const [exportReferences, setExportReferences] = useState<string[]>([])
-  const soleCategoryId = categories.length === 1 ? categories[0].id.toString() : ''
+  const [reviewAction, setReviewAction] = useState<'end_clock' | 'resubmit_denied' | null>(null)
+  const [stopDate, setStopDate] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  useDialogFocus(isOpen && !!entry, dialogRef, () => { if (!saving && !deleting) onClose() })
 
   useEffect(() => {
     if (!isOpen || !entry) return
@@ -120,7 +128,7 @@ export default function EditTimeEntryModal({
       start_time: entry.start_time || '08:00',
       end_time: entry.end_time || '17:00',
       description: entry.description || '',
-      time_category_id: entry.time_category?.id.toString() || soleCategoryId,
+      time_category_id: entry.time_category?.id.toString() || '',
       break_minutes: entry.break_minutes,
     })
     setBreakRows((entry.breaks || [])
@@ -131,11 +139,13 @@ export default function EditTimeEntryModal({
         end_time: timeInputValue(row.end_time),
       }))
       .filter((row) => row.start_time && row.end_time))
+    setReviewAction(null)
+    setStopDate(entry.work_date)
     setError(null)
     setCorrectionReasonRequired(false)
     setCorrectionReason('')
     setExportReferences([])
-  }, [entry, isOpen, soleCategoryId])
+  }, [entry, isOpen])
 
   const calculatedHours = useMemo(() => {
     if (!formData.start_time || !formData.end_time) return 0
@@ -163,8 +173,12 @@ export default function EditTimeEntryModal({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!entry) return
-    if (!formData.time_category_id) {
+    if ((!isActiveClockEntry || reviewAction === 'end_clock') && !formData.time_category_id) {
       setLocalError('Choose a work category before saving this time entry')
+      return
+    }
+    if (reviewAction && !correctionReason.trim()) {
+      setLocalError('Explain why this entry should be submitted for review')
       return
     }
     setSaving(true)
@@ -172,7 +186,16 @@ export default function EditTimeEntryModal({
 
     try {
       const shouldSubmitDetailedBreaks = breakRows.length > 0 || (entry.breaks?.length ?? 0) > 0
-      const payload = {
+      const payload = reviewAction ? {
+        review_action: reviewAction,
+        expected_version: entry.version,
+        ...(reviewAction === 'end_clock' ? {
+          stop_date: stopDate,
+          end_time: formData.end_time,
+          time_category_id: Number(formData.time_category_id),
+          description: formData.description,
+        } : {}),
+      } : {
         work_date: formData.work_date,
         start_time: formData.start_time,
         description: formData.description || undefined,
@@ -229,28 +252,25 @@ export default function EditTimeEntryModal({
     }
   }
 
-  return (
-    <AnimatePresence>
-      {isOpen && entry && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+  if (!isOpen || !entry) return null
+
+  return createPortal(
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           onClick={(event) => {
-            if (event.target === event.currentTarget) onClose()
+            if (event.target === event.currentTarget && !saving && !deleting) onClose()
           }}
         >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ duration: 0.25, delay: 0.1 }}
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            tabIndex={-1}
             className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl"
           >
             <div className="p-6">
-              <h2 className="mb-1 text-xl font-bold text-primary-dark">Edit Time Entry</h2>
+              <h2 id={titleId} className="mb-1 text-xl font-bold text-primary-dark">Edit Time Entry</h2>
               <div className="mb-4">
                 <p className="text-sm text-primary-dark/70">
                   Entry for: <span className="font-medium text-primary-dark">{ownerName}</span>
@@ -272,7 +292,9 @@ export default function EditTimeEntryModal({
                 )}
                 {isActiveClockEntry && (
                   <div className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-800">
-                    This person is still clocked in. Updating the start time corrects their live clock-in time; clock-out and final hours are calculated when they clock out.
+                    {reviewAction === 'end_clock'
+                      ? 'Ending this clock calculates final hours from the saved clock-in and actual stop time, then sends the entry for a separate approval.'
+                      : 'This person is still clocked in. Updating the start time corrects their live clock-in time; clock-out and final hours are calculated when they clock out.'}
                   </div>
                 )}
                 {!isActiveClockEntry && (
@@ -287,10 +309,37 @@ export default function EditTimeEntryModal({
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <fieldset disabled={saving || deleting}>
+                {isAdmin && (isActiveClockEntry || entry.approval_status === 'denied') && (
+                  <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+                    <label className="flex items-start gap-2 text-sm font-semibold text-cyan-900">
+                      <input type="checkbox" checked={!!reviewAction} onChange={(event) => {
+                        setReviewAction(event.target.checked ? (isActiveClockEntry ? 'end_clock' : 'resubmit_denied') : null)
+                        if (event.target.checked) {
+                          setFormData({ ...formData, work_date: entry.work_date, start_time: entry.start_time || '08:00',
+                            end_time: isActiveClockEntry ? '' : entry.end_time || '',
+                            ...(isActiveClockEntry ? {} : { description: entry.description || '', time_category_id: entry.time_category?.id.toString() || '', break_minutes: entry.break_minutes }),
+                          })
+                          setStopDate(entry.work_date)
+                        }
+                      }} className="mt-1" />
+                      {isActiveClockEntry ? 'End this clock' : 'Submit denied time for review'}
+                    </label>
+                    <p className="mt-2 text-xs text-cyan-900">{isActiveClockEntry
+                      ? 'Enter the actual clock-out date and time in Guam. Existing breaks will be preserved; an open break ends at clock-out.'
+                      : 'Keep the saved hours and denial history and send this entry to the approval queue.'} A reason and a separate approval are required.</p>
+                  </div>
+                )}
+                {reviewAction === 'end_clock' && (
+                  <label className="mb-4 block text-sm font-medium text-primary-dark">
+                    Clock-out date (Guam) *
+                    <input type="date" value={stopDate} onChange={(event) => setStopDate(event.target.value)} required className="mt-1 w-full rounded-lg border border-neutral-warm px-3 py-2" />
+                  </label>
+                )}
                 <div>
                   <label className="mb-1 block text-sm font-medium text-primary-dark">Date *</label>
                   <input
                     type="date"
+                    disabled={!!reviewAction}
                     value={formData.work_date}
                     onChange={(event) => setFormData({ ...formData, work_date: event.target.value })}
                     className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
@@ -303,17 +352,20 @@ export default function EditTimeEntryModal({
                     <label className="mb-1 block text-sm font-medium text-primary-dark">{isActiveClockEntry ? 'Clock-in Time *' : 'Start Time *'}</label>
                     <input
                       type="time"
+                      disabled={!!reviewAction}
                       value={formData.start_time}
                       onChange={(event) => setFormData({ ...formData, start_time: event.target.value })}
                       className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                       required
                     />
                   </div>
-                  {!isActiveClockEntry && (
+                  {(!isActiveClockEntry || reviewAction === 'end_clock') && (
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-primary-dark">End Time *</label>
+                      <label htmlFor="edit-time-entry-end" className="mb-1 block text-sm font-medium text-primary-dark">{reviewAction === 'end_clock' ? 'Clock-out time (Guam) *' : 'End Time *'}</label>
                       <input
+                        id="edit-time-entry-end"
                         type="time"
+                        disabled={reviewAction === 'resubmit_denied'}
                         value={formData.end_time}
                         onChange={(event) => setFormData({ ...formData, end_time: event.target.value })}
                         className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
@@ -334,7 +386,7 @@ export default function EditTimeEntryModal({
                   </div>
                 )}
 
-                {!isActiveClockEntry && (
+                {!isActiveClockEntry && !reviewAction && (
                   <div>
                     <div className="mb-3 rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2 text-xs text-cyan-900">
                       If someone forgot to clock out for a break, add the actual break start and end time here. Detailed breaks replace the total break duration and recalculate hours.
@@ -432,10 +484,11 @@ export default function EditTimeEntryModal({
                 <div>
                   <label className="mb-1 block text-sm font-medium text-primary-dark">Work category *</label>
                   <select
+                    disabled={reviewAction === 'resubmit_denied'}
                     value={formData.time_category_id}
                     onChange={(event) => setFormData({ ...formData, time_category_id: event.target.value })}
                     className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
-                    required
+                    required={!isActiveClockEntry || reviewAction === 'end_clock'}
                   >
                     <option value="">Select category...</option>
                     {categories.map((category) => (
@@ -450,6 +503,7 @@ export default function EditTimeEntryModal({
                 <div>
                   <label className="mb-1 block text-sm font-medium text-primary-dark">Description</label>
                   <textarea
+                    disabled={reviewAction === 'resubmit_denied'}
                     value={formData.description}
                     onChange={(event) => setFormData({ ...formData, description: event.target.value })}
                     rows={3}
@@ -458,13 +512,13 @@ export default function EditTimeEntryModal({
                   />
                 </div>
 
-                {correctionReasonRequired && (
+                {(correctionReasonRequired || reviewAction) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                     <label className="mb-1 block text-sm font-semibold text-amber-900" htmlFor="time-entry-correction-reason">
                       Correction reason *
                     </label>
                     <p className="mb-2 text-xs leading-relaxed text-amber-800">
-                      This entry appeared in a payroll export{exportReferences.length > 0 ? ` (${exportReferences.join(', ')})` : ''}. Explain the correction so the prior export can be marked stale and the audit history stays clear.
+                      Explain what changed and why. Prior payroll evidence stays unchanged; affected exports are marked stale{exportReferences.length > 0 ? ` (${exportReferences.join(', ')})` : ''} and this action is recorded in the activity history.
                     </p>
                     <textarea
                       id="time-entry-correction-reason"
@@ -486,7 +540,7 @@ export default function EditTimeEntryModal({
                   </div>
                 )}
 
-                <div className="flex items-center justify-between gap-3 pt-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
                   <div>
                     <button
                       type="button"
@@ -501,7 +555,7 @@ export default function EditTimeEntryModal({
                     </button>
                   </div>
 
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap justify-end gap-3">
                     <button
                       type="button"
                       onClick={onClose}
@@ -514,15 +568,14 @@ export default function EditTimeEntryModal({
                       disabled={saving || deleting}
                       className="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
                     >
-                      {saving ? 'Saving...' : 'Update'}
+                      {saving ? 'Saving...' : reviewAction === 'end_clock' ? 'End clock and submit' : reviewAction === 'resubmit_denied' ? 'Submit for review' : 'Update'}
                     </button>
                   </div>
                 </div>
               </form>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          </div>
+        </div>,
+    document.body,
   )
 }
