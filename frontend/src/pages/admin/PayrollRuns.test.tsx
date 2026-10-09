@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -291,6 +291,75 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/Complete that run and record its payment/)).toBeInTheDocument()
     expect(screen.queryByText('Ready for next cutoff')).not.toBeInTheDocument()
     expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['awaiting_approval', 'Needs approval'],
+    ['needs_review', 'Needs payroll review'],
+    ['ready_for_next_batch', 'Ready for next cutoff'],
+    ['scheduled_supplemental', 'Scheduled for supplemental payroll'],
+    ['payment_issued', 'Paid'],
+    ['committed', 'Payroll committed'],
+    ['partially_allocated', 'Partially assigned to payroll'],
+    ['partially_paid', 'Partially paid'],
+    ['payment_attested_pending_evidence', 'Payment reported; evidence pending'],
+    ['not_payable', null],
+  ])('uses the current %s projection for a historical denied approval card', async (status, label) => {
+    const common = {
+      source_user_id: '7', email: null, category: null, original_work_date: '2026-05-04',
+      first_excluded_batch_id: 'AIRE-PAY-OLD', latest_excluded_batch_id: 'AIRE-PAY-OLD',
+      held_total_hours: 4, current_total_hours: 4, included_batch: null,
+    }
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [
+        { ...common, source_time_entry_id: '3', display_name: 'Formerly denied worker', exclusion_reason: 'denied_approval', status },
+        { ...common, source_time_entry_id: '4', display_name: 'Other carryover worker', exclusion_reason: 'pending_approval', status: 'awaiting_approval' },
+      ],
+      summary: { awaiting_approval_count: status === 'awaiting_approval' ? 2 : 1,
+        ready_for_next_batch_count: status === 'ready_for_next_batch' ? 1 : 0,
+        needs_review_count: status === 'needs_review' ? 1 : 0,
+        in_payroll_count: ['scheduled_supplemental', 'payment_issued', 'committed', 'partially_paid', 'partially_allocated', 'payment_attested_pending_evidence'].includes(status) ? 1 : 0,
+        not_payable_count: status === 'not_payable' ? 1 : 0 },
+      truncated: false,
+    } })
+    renderPayrollRuns()
+    await screen.findByText('Other carryover worker')
+    const queue = screen.getByRole('region', { name: 'Carryover queue' })
+    if (label) {
+      const card = screen.getByText('Formerly denied worker').closest('article')!
+      expect(within(card).getByText(label, { selector: 'span' })).toBeInTheDocument()
+      expect(within(card).getByText('Originally excluded: Denied')).toBeInTheDocument()
+      expect(queue).toHaveTextContent('2 active items')
+      if (status === 'needs_review' || status === 'scheduled_supplemental') {
+        expect(card).toHaveTextContent('will not be included automatically')
+        expect(card).not.toHaveTextContent('AIRE will include it automatically')
+      }
+    } else {
+      expect(screen.queryByText('Formerly denied worker')).not.toBeInTheDocument()
+      expect(queue).toHaveTextContent('1 active item')
+      expect(queue).toHaveTextContent('Closed unpaid')
+    }
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
+  it('keeps all four routed workers visible when one was originally denied approval', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: ['First', 'Second', 'Formerly denied', 'Fourth'].map((name, index) => ({
+        source_time_entry_id: String(index + 1), source_user_id: String(index + 1), display_name: `${name} worker`,
+        email: null, category: null, original_work_date: '2026-05-04',
+        first_excluded_batch_id: 'AIRE-PAY-OLD', latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: index === 2 ? 'denied_approval' : 'pending_approval',
+        held_total_hours: 4, current_total_hours: 4, status: 'ready_for_next_batch', included_batch: null,
+      })),
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 4, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+    renderPayrollRuns()
+    expect(await screen.findByText('Formerly denied worker')).toBeInTheDocument()
+    const queue = screen.getByRole('region', { name: 'Carryover queue' })
+    expect(within(queue).getAllByRole('article')).toHaveLength(4)
+    expect(queue).toHaveTextContent('4 active items')
+    expect(within(queue).getAllByText('Ready for next cutoff', { selector: 'span' })).toHaveLength(4)
   })
 
   it('explains post-cutoff edits and deletions in plain language', async () => {

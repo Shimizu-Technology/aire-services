@@ -3,10 +3,13 @@
 module Payroll
   class CarryoverQueue
     MAX_ITEMS = 250
+    # Denials belong in this read projection so later approval and explicit
+    # routing remain visible. They are not automatic carryover candidates.
+    QUEUE_REASONS = (PayrollBatchExclusion::CARRYOVER_REASONS + %w[denied_approval denied_overtime]).freeze
 
     def call
       carryover_entry_ids = PayrollBatchExclusion
-        .where(reason: PayrollBatchExclusion::CARRYOVER_REASONS + [ "denied_overtime" ])
+        .where(reason: QUEUE_REASONS)
         .select(:source_time_entry_id)
       latest_exclusion_ids = PayrollBatchExclusion
         .where(source_time_entry_id: carryover_entry_ids)
@@ -172,7 +175,7 @@ module Payroll
         return settlement_status if settlement_status
       end
       return processing&.fetch(:status, nil) || "awaiting_cornerstone" if batch
-      return "not_payable" if entry.nil? || exclusion.reason == "denied_approval"
+      return "not_payable" if entry.nil?
       if exclusion.reason == "denied_overtime" && entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false)
         return "not_payable"
       end
@@ -183,9 +186,9 @@ module Payroll
       # regular calendar. Its routing cannot promise automatic batch inclusion.
       return "scheduled_supplemental" if settlement_case&.destination_kind == "supplemental" && settlement_case.status == "scheduled"
       if entry.counts_toward_hours?
-        # Legacy denied OT is not an automatic carryover reason. An operator
+        # Historical denials are not automatic carryover reasons. An operator
         # must reconcile its payment history and explicitly choose a destination.
-        if exclusion.reason == "denied_overtime" && (!settlement_case || settlement_case.destination_kind == "unassigned")
+        if exclusion.reason.in?(%w[denied_approval denied_overtime]) && (!settlement_case || settlement_case.destination_kind == "unassigned")
           return "needs_review"
         end
         return "ready_for_next_batch"

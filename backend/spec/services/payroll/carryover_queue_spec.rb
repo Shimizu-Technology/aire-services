@@ -26,6 +26,159 @@ RSpec.describe Payroll::CarryoverQueue do
     )
   end
 
+  def read_queue
+    writes = []
+    subscriber = ->(*args) { writes << args.last[:sql] if args.last[:sql].match?(/\A\s*(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/i) }
+    result = ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") { described_class.new.call }
+    expect(writes).to be_empty
+    result
+  end
+
+  def case_for(record, exclusion)
+    create(:payroll_settlement_case, origin_payroll_batch: exclusion.payroll_batch,
+           origin_payroll_batch_exclusion: exclusion, source_time_entry_id: record.id,
+           source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+           origin_reason: exclusion.reason, original_work_date: record.work_date)
+  end
+
+  context "with only historical denied approval" do
+    let(:target) { entry(date: Date.new(2026, 5, 4), hours: 4, approval_status: "approved", overtime_status: "none") }
+    let!(:exclusion) { exclude(target, reason: "denied_approval") }
+
+    { "denied" => "not_payable", "pending" => "awaiting_approval", "approved" => "needs_review" }.each do |approval, status|
+      it "uses current #{approval} approval without altering the historical denial" do
+        target.update!(approval_status: approval)
+        before = [ target.reload.attributes, exclusion.reload.attributes ]
+        result = read_queue
+        expect(result.fetch(:items).sole).to include(status: status, exclusion_reason: "denied_approval")
+        expect(result.fetch(:summary)).to include("#{status}_count".to_sym => 1, ready_for_next_batch_count: 0)
+        expect([ target.reload.attributes, exclusion.reload.attributes ]).to eq(before)
+      end
+    end
+
+    it "holds resubmitted manual time that has no current approval" do
+      target.update_columns(entry_method: "manual", approval_status: nil)
+      expect(read_queue.fetch(:items).sole.fetch(:status)).to eq("awaiting_approval")
+    end
+
+    it "keeps a deleted source entry not payable" do
+      target.destroy!
+      expect(read_queue.fetch(:items).sole.fetch(:status)).to eq("not_payable")
+    end
+
+    it "requires review until an operator routes the approved entry to a regular period" do
+      settlement_case = case_for(target, exclusion)
+      future = create(:payroll_calendar_period, start_date: Date.new(2026, 11, 1), end_date: Date.new(2026, 11, 15))
+      Payroll::SettlementCaseCoordinator.prepare_for_period!(future)
+      expect(settlement_case.reload).to have_attributes(status: "open", destination_kind: "unassigned")
+      expect(PayrollBatchExclusion::CARRYOVER_REASONS).not_to include("denied_approval")
+      expect(Payroll::SettlementCaseCoordinator::AUTO_ROUTE_REASONS).not_to include("denied_approval")
+      preview_args = { start_date: future.start_date, end_date: future.end_date, cutoff_at: future.cutoff_at, calendar_period: future }
+      before_preview = Payroll::BatchBuilder.new(**preview_args).call
+      expect(before_preview.fetch(:rows)).to be_empty
+      expect(read_queue.fetch(:items).sole.fetch(:status)).to eq("needs_review")
+      expect(Payroll::BatchBuilder.new(**preview_args).call).to eq(before_preview)
+      Payroll::SettlementCaseRouter.new(
+        settlement_case: settlement_case, destination_kind: "regular",
+        target_external_pay_period_id: future.external_pay_period_id,
+        action_due_on: future.pay_date, assigned_to_id: nil,
+        reason: "Reviewed historical denial and payment history", actor: create(:user, :admin)
+      ).call
+      routed_preview = Payroll::BatchBuilder.new(**preview_args).call
+      expect(routed_preview.fetch(:rows).sole).to include(total_hours: 4.0, regular_hours: 4.0, overtime_hours: 0.0)
+      expect(read_queue.fetch(:items).sole).to include(status: "ready_for_next_batch", included_batch: nil)
+      expect(Payroll::BatchBuilder.new(**preview_args).call).to eq(routed_preview)
+      expect(exclusion.reload.reason).to eq("denied_approval")
+    end
+
+    it "respects an explicit not-payable decision despite current approval" do
+      settlement_case = case_for(target, exclusion)
+      Payroll::SettlementCaseRouter.new(
+        settlement_case: settlement_case, destination_kind: "not_payable", target_external_pay_period_id: nil,
+        action_due_on: nil, assigned_to_id: nil, reason: "Verified these hours are not payable", actor: create(:user, :admin)
+      ).call
+      expect(read_queue.fetch(:items).sole.fetch(:status)).to eq("not_payable")
+    end
+
+    { "denied" => "not_payable", "pending" => "awaiting_approval", "approved" => "scheduled_supplemental" }.each do |approval, status|
+      it "keeps current #{approval} approval authoritative for an unprocessed supplemental destination" do
+        settlement_case = case_for(target, exclusion)
+        Payroll::SettlementCaseRouter.new(
+          settlement_case: settlement_case, destination_kind: "supplemental",
+          target_external_pay_period_id: "reviewed-supplemental", action_due_on: Date.new(2026, 10, 10),
+          assigned_to_id: nil, reason: "Reviewed historical denial", actor: create(:user, :admin)
+        ).call
+        target.update!(approval_status: approval)
+        expect(read_queue.fetch(:items).sole).to include(status: status, included_batch: nil)
+      end
+    end
+
+    it "retains exact supplemental processing through verified issuance" do
+      settlement_case = case_for(target, exclusion)
+      admin = create(:user, :admin)
+      Payroll::SettlementCaseRouter.new(
+        settlement_case: settlement_case, destination_kind: "supplemental",
+        target_external_pay_period_id: "reviewed-supplemental", action_due_on: Date.new(2026, 10, 10),
+        assigned_to_id: nil, reason: "Reviewed historical denial", actor: admin
+      ).call
+      %w[imported committed payment_prepared payment_issued].each do |status|
+        Payroll::SettlementCaseAcknowledger.new(
+          settlement_case: settlement_case, event_type: status, occurred_at: Time.current.iso8601,
+          actor: admin, metadata: { payment_reference: "reviewed-check" }
+        ).call
+        expect(read_queue.fetch(:items).sole).to include(status: status, included_batch: nil)
+      end
+    end
+
+    { "committed" => { 4 => "committed", 3 => "partially_allocated" },
+      "issued" => { 4 => "payment_issued", 3 => "partially_paid" } }.each do |allocation_status, hour_states|
+      hour_states.each do |hours, status|
+        it "preserves #{hours} hours of #{allocation_status} manual coverage" do
+          manual_allocation(target, status: allocation_status, hours: hours)
+          expect(read_queue.fetch(:items).sole).to include(status: status, included_batch: nil)
+        end
+      end
+    end
+
+    it "preserves an owner payment evidence hold" do
+      PayrollPaymentAttestation.create!(
+        time_entry: target, user: employee, recorded_by: create(:user, :admin),
+        source_user_uuid: employee.payroll_integration_uuid, source_time_entry_version: target.lock_version,
+        work_date: target.work_date, hours: 4, reason: "Owner confirmed printed checks", attested_at: Time.current
+      )
+      expect(read_queue.fetch(:items).sole.fetch(:status)).to eq("payment_attested_pending_evidence")
+    end
+
+    [ nil, *PayrollEntryProcessingEvent::STATUSES ].each do |processing_status|
+      it "preserves later batch #{processing_status || 'awaiting Cornerstone'} state" do
+        later_batch = create(:payroll_batch, start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15),
+                            cutoff_at: Time.utc(2026, 10, 18))
+        row = later_batch.payroll_batch_entries.create!(
+          source_time_entry_id: target.id, source_user_id: employee.id,
+          source_user_uuid: employee.payroll_integration_uuid, source_category_id: category.id,
+          work_date: target.work_date, week_start: target.work_date.beginning_of_week(:sunday),
+          source_kind: "carryover", line_key: "category:#{category.id}",
+          total_hours: 4, regular_hours: 4, overtime_hours: 0, snapshot: {}
+        )
+        if processing_status
+          PayrollEntryProcessingEvent.create!(
+            payroll_batch: later_batch, event_id: SecureRandom.uuid,
+            source_time_entry_id: row.source_time_entry_id, source_user_uuid: row.source_user_uuid,
+            contract_version: "2.0", source_line_key: row.line_key, source_kind: row.source_kind,
+            total_hours: 4, regular_hours: 4, overtime_hours: 0,
+            status: processing_status, external_system: "cornerstone_payroll", occurred_at: Time.current
+          )
+        end
+        item = read_queue.fetch(:items).sole
+        expect(item.fetch(:status)).to eq(processing_status || "awaiting_cornerstone")
+        expect(item.fetch(:included_batch)).to include(id: later_batch.public_id)
+        if processing_status == "payment_issued"
+          expect(item.dig(:included_batch, :processing)).to include(paid_hours: 4.0, outstanding_hours: 0.0)
+        end
+      end
+    end
+  end
+
   it "resurfaces a daily-only denied exclusion even without an earlier carryover exclusion" do
     target = entry(date: Date.new(2026, 5, 4))
     exclusion = exclude(target)
