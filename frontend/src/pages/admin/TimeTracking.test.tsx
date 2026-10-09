@@ -4,7 +4,7 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TimeTracking from './TimeTracking'
-import type { HoursReportResponse } from '../../lib/api'
+import type { HoursReportEntry, HoursReportResponse } from '../../lib/api'
 
 const apiMock = vi.hoisted(() => ({
   getSchedule: vi.fn(),
@@ -16,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   getPendingApprovals: vi.fn(),
   getHoursReport: vi.fn(),
+  updateTimeEntry: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({ api: apiMock }))
@@ -183,6 +184,40 @@ describe('TimeTracking routed report periods', () => {
     await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ page: 2, per_page: 100, user_id: 7 })))
     expect(screen.getByTestId('location-search')).toHaveTextContent('entries_page=2')
     expect(screen.getByTestId('location-search')).toHaveTextContent('date=2026-08-20')
+  })
+
+  it.each(['included', 'excluded'])('resubmits an %s report row using its current nonzero version', async (location) => {
+    const report = makeHoursReport('2026-08-01', '2026-08-15', 0)
+    const row: HoursReportEntry = {
+      id: 90, version: 7, work_date: '2026-08-05', start_time: '08:00', end_time: '12:00',
+      formatted_start_time: '8:00 AM', formatted_end_time: '12:00 PM', total_hours: 4, regular_hours: 0,
+      overtime_hours: 0, break_minutes: 0, description: 'Denied source facts', entry_method: 'manual',
+      clock_source: null, approval_status: 'denied', approved_by: null, approved_at: null,
+      overtime_status: 'none', time_category: { id: 3, name: 'Operations' }, breaks: [], quality_flags: [],
+    }
+    report.employees = [{
+      id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
+      full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
+      termination_effective_on: null, total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0,
+      entries_count: 1, days_worked: 1, first_work_date: row.work_date, last_work_date: row.work_date, ready: true,
+      issues: { pending_count: 0, denied_count: 1, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
+      quality: report.quality, categories: [], weeks: [],
+      days: location === 'included' ? [{ work_date: row.work_date, total_hours: 4, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries: [row] }] : [],
+      excluded_entries: location === 'excluded' ? [row] : [],
+    }]
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+    apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+    apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: {} } })
+    render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}><TimeRouteHarness /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Submit denied time for review' }))
+    expect(within(dialog).getByLabelText('End Time *')).toHaveValue('12:00')
+    expect(within(dialog).getByLabelText('End Time *')).toBeDisabled()
+    fireEvent.change(within(dialog).getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Submit for review' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(90,
+      { review_action: 'resubmit_denied', expected_version: 7 }, 'Request separate review'))
   })
 
   it('synchronizes report requests when same-route payroll dates change', async () => {

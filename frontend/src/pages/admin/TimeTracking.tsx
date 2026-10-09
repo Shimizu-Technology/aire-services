@@ -268,6 +268,7 @@ function linkedEmployeeStatus(searchParams: URLSearchParams): ReportEmployeeStat
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
   const serialize = (employee: HoursReportEmployee, entry: HoursReportEntry): TimeEntryItem => ({
     id: entry.id,
+    version: entry.version,
     work_date: entry.work_date,
     start_time: entry.start_time,
     end_time: entry.end_time,
@@ -1218,6 +1219,7 @@ export default function TimeTracking() {
 
       {activeTab === 'approvals' && isAdmin && (
         <ApprovalQueue
+          isAdmin={isAdmin}
           approvalGroups={approvalGroups}
           approvalGroupsLoaded={approvalGroupsLoaded}
           initialDateFilter={routedThroughDate

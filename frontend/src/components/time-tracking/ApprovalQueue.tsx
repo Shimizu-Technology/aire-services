@@ -14,6 +14,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
+  isAdmin?: boolean
   approvalGroups: ApprovalGroupOption[]
   approvalGroupsLoaded: boolean
   initialDateFilter?:
@@ -200,7 +201,7 @@ function summaryCountForApprovalGroup(summary: PendingApprovalsSummary | null, k
   return summary?.counts_by_approval_group?.find((row) => row.key === key)?.count
 }
 
-export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ isAdmin = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -1015,6 +1016,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     <EditTimeEntryModal
       isOpen={!!editingEntry}
       entry={editingEntry}
+      isAdmin={isAdmin}
       categories={editingEntry?.user.time_category_ids
         ? categories.filter((category) => editingEntry.user.time_category_ids?.includes(category.id))
         : categories}

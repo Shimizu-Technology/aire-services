@@ -251,6 +251,17 @@ describe('EditTimeEntryModal', () => {
     expect(screen.queryByRole('checkbox', { name: 'End this clock' })).not.toBeInTheDocument()
   })
 
+  it('requires a reload before submitting a correction with no entry version', async () => {
+    render(<EditTimeEntryModal isOpen isAdmin entry={{ ...activeEntry, version: undefined, status: 'completed', entry_method: 'manual',
+      end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
+      categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Submit denied time for review' }))
+    fireEvent.change(screen.getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
+    expect(await screen.findByText('Reload this entry before submitting the correction')).toBeVisible()
+    expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
+  })
+
   it('submits denied time for review without changing the saved facts', async () => {
     render(<EditTimeEntryModal isOpen isAdmin entry={{ ...activeEntry, status: 'completed', entry_method: 'manual',
       end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}

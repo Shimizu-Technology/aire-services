@@ -97,7 +97,10 @@ class TimeEntryReviewCorrection
     unless entry.status == "completed" && entry.approval_status == "denied"
       raise CorrectionError, "Only completed denied time can be submitted for review"
     end
-    raise CorrectionError, "Choose a work category before submitting denied time" unless entry.time_category&.is_active?
+    category = entry.time_category
+    unless category&.is_active? && entry.user.assigned_time_categories.active.exists?(id: entry.time_category_id)
+      raise CorrectionError, "Choose an active work category assigned to this person"
+    end
   end
 
   def snapshot

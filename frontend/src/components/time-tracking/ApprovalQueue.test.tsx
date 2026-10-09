@@ -125,6 +125,18 @@ describe('ApprovalQueue review workflow', () => {
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
   })
 
+  it.each([true, false])('passes the admin role (%s) to the denied overtime editor', async (isAdmin) => {
+    const denied = makeEntry({ version: 7, approval_status: 'denied', overtime_status: 'pending' })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [denied], count: 1, summary } })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded isAdmin={isAdmin} canDeleteEntry={() => true} />)
+    fireEvent.click(await screen.findByTitle('Edit entry'))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    expect(within(dialog).getByLabelText('End Time *')).toHaveValue('10:00')
+    const resubmit = within(dialog).queryByRole('checkbox', { name: 'Submit denied time for review' })
+    if (isAdmin) expect(resubmit).toBeVisible()
+    else expect(resubmit).not.toBeInTheDocument()
+  })
+
   it('defaults to oldest-first approvals and shows review reason badges', async () => {
     render(<ApprovalQueue approvalGroups={[{ key: 'cfi', label: 'CFI' }]} approvalGroupsLoaded canDeleteEntry={() => true} />)
 

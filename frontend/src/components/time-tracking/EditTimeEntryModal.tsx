@@ -181,6 +181,10 @@ export default function EditTimeEntryModal({
       setLocalError('Explain why this entry should be submitted for review')
       return
     }
+    if (reviewAction && (entry.version == null || !Number.isInteger(entry.version) || entry.version < 0)) {
+      setLocalError('Reload this entry before submitting the correction')
+      return
+    }
     setSaving(true)
     setLocalError(null)
 

@@ -227,6 +227,30 @@ RSpec.describe "Explicit time entry review corrections", type: :request do
       expect([ batch.reload.attributes, batch.payroll_batch_exclusions.reload.map(&:attributes) ]).to eq(original)
     end
 
+    [ "inactive", "unassigned" ].each do |category_state|
+      it "rejects #{category_state} denied categories without changing facts, successful audit or frozen history" do
+        entry
+        batch = Payroll::BatchFinalizer.new(start_date: entry.work_date, end_date: entry.work_date, actor: admin).call
+        frozen = [ batch.attributes.deep_dup, batch.payroll_batch_exclusions.map(&:attributes) ]
+        original = entry.reload.attributes.deep_dup
+        if category_state == "inactive"
+          category.update!(is_active: false)
+        else
+          employee.user_time_categories.find_by!(time_category: category).destroy!
+        end
+        audit_count = AuditLog.where(auditable: entry, outcome: "succeeded").count
+        submit(action: "resubmit_denied")
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(JSON.parse(response.body).fetch("error")).to eq("Choose an active work category assigned to this person")
+        expect(entry.reload.attributes).to eq(original)
+        expect(AuditLog.where(auditable: entry, outcome: "succeeded").count).to eq(audit_count)
+        failed_request = AuditLog.find_by!(auditable: entry, action: "time_entries.update", outcome: "failed")
+        expect(failed_request.metadata["response_status"]).to eq(422)
+        expect(AuditLog.where(action: "time_entry.denied_resubmitted")).to be_empty
+        expect([ batch.reload.attributes, batch.payroll_batch_exclusions.reload.map(&:attributes) ]).to eq(frozen)
+      end
+    end
+
     it "requires a reason for resubmission" do
       submit(action: "resubmit_denied", reason: "")
       expect(response).to have_http_status(:unprocessable_entity)

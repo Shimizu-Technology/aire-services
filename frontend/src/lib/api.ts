@@ -802,6 +802,7 @@ export interface PendingApprovalsResponse {
 
 export interface HoursReportEntry {
   id: number;
+  version?: number;
   work_date: string;
   start_time: string | null;
   end_time: string | null;

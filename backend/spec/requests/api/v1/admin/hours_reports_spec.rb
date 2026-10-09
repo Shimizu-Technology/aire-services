@@ -54,6 +54,28 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(employee_row.fetch(:weeks).first.fetch(:context_note)).to match(/outside this filtered report selection/)
   end
 
+  it "serializes current nonzero versions for included and excluded report entries" do
+    included = create_entry(user: employee, date: Date.new(2026, 5, 15), hours: 4)
+    excluded = create_entry(user: employee, date: Date.new(2026, 5, 16), hours: 2)
+    included.update!(description: "Updated included facts")
+    excluded.update!(approval_status: "denied", description: "Updated excluded facts")
+    expect(included.lock_version).to be_positive
+    expect(excluded.lock_version).to be_positive
+
+    get "/api/v1/admin/hours_report",
+        params: { start_date: "2026-05-15", end_date: "2026-05-31", user_id: employee.id },
+        headers: auth_headers
+
+    expect(response).to have_http_status(:ok)
+    employee_row = json.fetch(:employees).first
+    included_row = employee_row.fetch(:days).flat_map { |day| day.fetch(:entries) }.find { |row| row[:id] == included.id }
+    excluded_row = employee_row.fetch(:excluded_entries).find { |row| row[:id] == excluded.id }
+    expect(included_row.fetch(:version)).to eq(included.reload.lock_version)
+    expect(excluded_row.fetch(:version)).to eq(excluded.reload.lock_version)
+    expect(included_row).not_to have_key(:lock_version)
+    expect(excluded_row).not_to have_key(:lock_version)
+  end
+
   it "supports historical report ranges longer than 62 days" do
     create_entry(user: employee, date: Date.new(2025, 1, 15), hours: 4)
     create_entry(user: employee, date: Date.new(2026, 9, 1), hours: 6)
