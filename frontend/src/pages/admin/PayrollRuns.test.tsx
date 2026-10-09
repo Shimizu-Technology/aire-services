@@ -144,6 +144,47 @@ describe('PayrollRuns', () => {
     apiMock.getPayrollBatch.mockResolvedValue({ data: finalized })
   })
 
+  it.each(['scheduled', 'failed', 'finalized'])('guides a %s published calendar preview without offering competing manual actions', async (status) => {
+    apiMock.previewPayrollBatch.mockResolvedValue({ data: { ...preview, can_finalize: false,
+      finalization_blocked_reason: 'This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll.',
+      published_calendar_periods: [{ external_pay_period_id: 'published-run', start_date: preview.start_date,
+        end_date: preview.end_date, cutoff_at: preview.cutoff_at, status,
+        payroll_batch_id: status === 'finalized' ? finalized.id : null }],
+    } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    expect(await screen.findByRole('region', { name: 'Published payroll calendar' })).toHaveTextContent('published-run')
+    expect(screen.getByRole('region', { name: 'Published payroll calendar' })).toHaveTextContent('Lock')
+    expect(screen.queryByRole('button', { name: 'Finalize this cutoff' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Record already processed' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Finalization is blocked until every included entry has a work category.')).not.toBeInTheDocument()
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+    if (status === 'finalized') {
+      fireEvent.click(screen.getByRole('button', { name: 'View published batch' }))
+      await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(finalized.id))
+    }
+  })
+
+  it('blocks historical recording if a calendar is published after the dialog was opened', async () => {
+    apiMock.previewPayrollBatch.mockResolvedValueOnce({ data: preview }).mockResolvedValueOnce({ data: { ...preview,
+      cutoff_at: '2026-08-31T03:06:00.000Z', can_finalize: false,
+      published_calendar_periods: [{ external_pay_period_id: 'newly-published', start_date: preview.start_date,
+        end_date: preview.end_date, cutoff_at: preview.cutoff_at, status: 'scheduled' }],
+    } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Record already processed' }))
+    fireEvent.change(screen.getByLabelText(/Hours frozen at/), { target: { value: '2026-08-31T13:06' } })
+    fireEvent.change(screen.getByLabelText(/Cornerstone processed at/), { target: { value: '2026-08-31T13:18' } })
+    fireEvent.change(screen.getByLabelText('Cornerstone pay period ID'), { target: { value: 'matching-period' } })
+    fireEvent.change(screen.getByLabelText(/Reconciliation note/), { target: { value: 'Compared historical source facts' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+    expect(await screen.findByRole('region', { name: 'Published payroll calendar' })).toHaveTextContent('newly-published')
+    fireEvent.click(screen.getByRole('checkbox', { name: /I compared this historical AIRE snapshot/ }))
+    expect(screen.getByRole('button', { name: 'Record as processed manually' })).toBeDisabled()
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
   it('previews included hours separately from tracked exclusions', async () => {
     renderPayrollRuns()
     await screen.findByText('No payroll batches have been finalized yet.')

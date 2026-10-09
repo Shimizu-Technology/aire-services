@@ -435,6 +435,29 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
   )
 }
 
+function PublishedCalendarNotice({ payload, onOpenBatch }: {
+  payload: PayrollBatchPayload
+  onOpenBatch?: (id: string) => void
+}) {
+  if (!payload.published_calendar_periods?.length) return null
+  return (
+    <section aria-label="Published payroll calendar" className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-4 text-sm text-cyan-950">
+      <p className="font-semibold">Use the published payroll calendar</p>
+      <p className="mt-1 leading-6">{payload.finalization_blocked_reason || 'This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch.'}</p>
+      <p className="mt-1 leading-6">Open Payroll Calendar in Cornerstone Payroll and select the matching period. Its published cutoff determines which hours are included.</p>
+      <ul className="mt-3 space-y-2">
+        {payload.published_calendar_periods.map(period => (
+          <li key={period.external_pay_period_id}>
+            <p className="font-medium">Period {period.external_pay_period_id} · {formatDate(period.start_date)}–{formatDate(period.end_date)}</p>
+            <p>Published cutoff: {formatDateTime(period.cutoff_at)} · {period.status}</p>
+            {period.payroll_batch_id && onOpenBatch && <button type="button" onClick={() => onOpenBatch(period.payroll_batch_id!)} className="mt-2 min-h-11 rounded-lg border border-cyan-300 bg-white px-3 py-2 font-semibold text-primary hover:bg-cyan-100">View published batch</button>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function ManualProcessingDialog({ period, onClose, onRecorded }: {
   period: PayrollPeriod
   onClose: () => void
@@ -491,14 +514,14 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
   const missingCategories = snapshot?.issues.missing_category_count || 0
   const negativeAdjustments = snapshot?.issues.negative_adjustment_count || 0
   const canRecord = Boolean(
-    snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
+    !snapshot?.published_calendar_periods?.length && snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
     new Date(processedAt || 0).getTime() >= new Date(cutoffAt || 0).getTime() &&
     (!missingCategories || acknowledgeMissingCategories) &&
     (!negativeAdjustments || (acknowledgeNegativeAdjustments && negativeAdjustmentNote.trim().length >= 10)) && !submitting,
   )
 
   const recordProcessed = async () => {
-    if (!snapshot || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
+    if (!snapshot || snapshot.published_calendar_periods?.length || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
     setSubmitting(true)
     setError(null)
     const response = await api.finalizePayrollBatch({
@@ -538,6 +561,7 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
 
         <button type="button" onClick={() => void reviewSnapshot()} disabled={reviewing || !cutoffLocal} className="mt-4 min-h-11 w-full rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">{reviewing ? 'Recreating snapshot…' : snapshot ? 'Refresh historical snapshot' : 'Review historical snapshot'}</button>
 
+        {snapshot && <PublishedCalendarNotice payload={snapshot} />}
         {snapshot && (
           <div className="mt-5 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-cyan-800">Snapshot to be recorded</p>
@@ -761,7 +785,7 @@ export default function PayrollRuns() {
   }
 
   const finalize = async (note?: string) => {
-    if (!preview) return
+    if (!preview || preview.published_calendar_periods?.length) return
     setFinalizing(true)
     setDialogError(null)
     const response = await api.finalizePayrollBatch({
@@ -884,12 +908,13 @@ export default function PayrollRuns() {
             <div className="flex flex-col gap-2 sm:flex-row">
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
               {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download finalized CSV</button>}
-              {preview && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
-              {preview && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
+              {preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
+              {preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
             </div>
           </div>
+          {preview && <PublishedCalendarNotice payload={preview} onOpenBatch={(id) => { const next = new URLSearchParams(searchParams); next.set('batch_id', id); setSearchParams(next) }} />}
           <IssueSummary issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
-          {preview && !preview.can_finalize && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
+          {preview && preview.issues.missing_category_count > 0 && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
           <SummaryCards payload={activePayload} />
           {selectedUserId && <p className="text-sm text-slate-600">Included ledger filtered to the linked employee. Batch totals above include everyone.</p>}
           <BatchContents payload={activePayload} userId={selectedUserId} entryId={selectedEntryId} returnTo={currentUrl} />

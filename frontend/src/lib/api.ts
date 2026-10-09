@@ -1200,6 +1200,15 @@ export interface PayrollBatchPayload {
   preview?: boolean;
   can_finalize?: boolean;
   requires_negative_adjustment_acknowledgement?: boolean;
+  finalization_blocked_reason?: string | null;
+  published_calendar_periods?: Array<{
+    external_pay_period_id: string;
+    start_date: string;
+    end_date: string;
+    cutoff_at: string;
+    status: 'scheduled' | 'failed' | 'finalized';
+    payroll_batch_id?: string | null;
+  }>;
   negative_adjustment_acknowledgement?: string;
   export?: {
     id: string;
