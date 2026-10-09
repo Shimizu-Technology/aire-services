@@ -1,3 +1,4 @@
+import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
 import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
@@ -321,9 +322,10 @@ const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
 
 function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycle }) {
   if (!lifecycle) return <span className="text-xs text-text-muted">Not tracked</span>
-  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
+  const accounting = lifecycle.accounting_only && lifecycle.status === 'committed'
+  const details = accounting ? ACCOUNTING_CORRECTION_NOTE : [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
     lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
-  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{lifecycle.label}</span>
+  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycle.label}</span>
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
@@ -2554,7 +2556,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
             <p className="mt-1 text-xs text-text-muted">Every time entry remains traceable from approval through payment.</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {Object.entries(employee.payroll_statuses || {}).filter(([, count]) => Number(count) > 0).map(([status, count]) => {
-                const lifecycle = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])].find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle
+                const lifecycle = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])].find((entry) => status === 'accounting_correction_committed' ? entry.payroll_lifecycle?.accounting_only && entry.payroll_lifecycle.status === 'committed' : entry.payroll_lifecycle?.status === status && !entry.payroll_lifecycle.accounting_only)?.payroll_lifecycle
                 return lifecycle ? <span key={status} className="inline-flex items-center gap-1.5"><PayrollLifecycleBadge lifecycle={lifecycle} /><span className="text-xs text-text-muted">{count}</span></span> : null
               })}
             </div>
@@ -2643,7 +2645,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                               <p key={`${entry.id}-${settlement.batch_id}`}>
                                 {formatDate(settlement.start_date)}–{formatDate(settlement.end_date)} · {settlement.total_hours.toFixed(2)}h · {settlement.label}
                                 {settlement.status.startsWith('partially_') ? ` · ${settlement.paid_hours.toFixed(2)}h paid · ${settlement.outstanding_hours.toFixed(2)}h outstanding` : ''}
-                                {settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
+                                {settlement.accounting_only ? ` · ${ACCOUNTING_CORRECTION_NOTE} Corrective period ${settlement.external_pay_period_id || 'not linked'} / item ${settlement.external_payroll_item_id || 'not linked'}` : settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
                                 {settlement.status === 'payment_issued' ? ` · ${settlement.payment_effective_on ? `paid ${formatDate(settlement.payment_effective_on)}` : 'payment date not recorded'}` : ''}
                               </p>
                             ))}

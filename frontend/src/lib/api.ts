@@ -841,7 +841,20 @@ export type PayrollEntryLifecycleStatus =
   | 'partially_allocated'
   | 'payment_attested_pending_evidence';
 
+export interface AccountingCorrectionContext {
+  accounting_only: true;
+  correction_disposition_id: string;
+  original_pay_period_id: string;
+  original_payroll_item_id: string;
+  corrective_pay_period_id: string;
+  corrective_payroll_item_id: string;
+}
+
 export interface PayrollPayableLine {
+  accounting_only?: boolean;
+  accounting_correction?: AccountingCorrectionContext;
+  accounting_correction_hours?: number;
+  accounting_correction_line_count?: number;
   source_time_entry_id: string;
   source_line_key: string;
   source_kind: string;
@@ -858,6 +871,10 @@ export interface PayrollPayableLine {
 
 
 export interface PayrollEntrySettlement {
+  accounting_only?: boolean;
+  accounting_correction?: AccountingCorrectionContext;
+  accounting_correction_hours?: number;
+  accounting_correction_line_count?: number;
   batch_id: string;
   start_date: string;
   end_date: string;
@@ -882,6 +899,10 @@ export interface PayrollEntrySettlement {
 }
 
 export interface PayrollEntryLifecycle {
+  accounting_only?: boolean;
+  accounting_correction?: AccountingCorrectionContext;
+  accounting_correction_hours?: number;
+  accounting_correction_line_count?: number;
   status: PayrollEntryLifecycleStatus;
   label: string;
   payment_method?: string | null;
@@ -1211,6 +1232,9 @@ export interface PayrollBatchProcessingStatus {
 }
 
 export interface PayrollEntryProcessingStatus extends Omit<PayrollBatchProcessingStatus, 'status' | 'external_pay_period_id'> {
+  accounting_only?: boolean;
+  accounting_correction_hours?: number;
+  accounting_correction_line_count?: number;
   status: 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_cancelled' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed';
   external_pay_period_id?: string | null;
   paid_hours?: number;

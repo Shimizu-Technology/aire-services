@@ -15,7 +15,7 @@ module Api
               .includes(
                 :assigned_to,
                 :target_payroll_calendar_period,
-                :included_payroll_batch,
+                included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ],
                 origin_payroll_batch: :payroll_calendar_period,
                 payroll_settlement_case_events: :actor
               )

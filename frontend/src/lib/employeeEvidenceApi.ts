@@ -1,17 +1,20 @@
-import { getAuthTokenValue, type AdminUser, type Schedule, type AuditLogEntry } from './api'
+import { getAuthTokenValue, type AdminUser, type Schedule, type AuditLogEntry, type AccountingCorrectionContext } from './api'
 import { apiUrl } from './apiBase'
 
 export interface EvidenceTotals {
+  accounting_correction_hours?: number; accounting_correction_line_count?: number;
   worked_hours: number; eligible_hours: number; pending_hours: number; denied_hours: number
   issued_hours: number; committed_hours: number; exported_hours: number; held_hours: number; needs_reconciliation_hours: number
   current_regular_hours: number; current_overtime_hours: number; frozen_regular_hours: number; frozen_overtime_hours: number; open_case_count: number; unissued_correction_count?: number; identity_review_count?: number; uncategorized_entry_count?: number; retained_uncategorized_line_count?: number; receipt_review_count?: number
 }
 export interface EvidenceEntry {
+  accounting_correction_hours?: number;
   id: string; version: number; work_date: string; start_time: string | null; end_time: string | null; description: string | null; category: string | null
   approval_status: string | null; overtime_status: string; status: string; regular_hours: number; overtime_hours: number
   worked_hours: number; eligible_hours: number; pending_hours: number; denied_hours: number; issued_hours: number; committed_hours: number; exported_hours: number; held_hours: number; needs_reconciliation_hours: number; payment_attestation: string | null
 }
 export interface CoverageLine {
+  accounting_only?: boolean; accounting_correction?: AccountingCorrectionContext;
   id: string; batch_id?: string; source_time_entry_id: string; source_user_id?: string; source_kind: string; source_line_key?: string; source_category_id?: number | null; work_date: string
   regular_hours: number | null; overtime_hours: number | null; total_hours: number; status: string; coverage_state: string
   external_pay_period_id?: string | null; external_payroll_item_id?: string | null; payment_reference?: string | null; payment_method?: string | null; reason?: string | null
@@ -22,7 +25,7 @@ export interface EvidencePeriod {
   id: string; start_date: string; end_date: string; summary: EvidenceTotals; review_required: boolean
   actual_check_components: null; amount_owed: null; entries?: EvidenceEntry[]; coverage_lines?: CoverageLine[]
   detail_pagination?: { per_page: number; offset: number; counts: { entries: number; coverage_lines: number; settlement_cases: number }; next_cursor: string | null }
-  settlement_cases?: { public_id: string; source_time_entry_id: number; status: string; origin_reason: string; destination_kind: string; target_external_pay_period_id: string | null; held_total_hours: string; action_due_on: string }[]
+  settlement_cases?: { accounting_only?: boolean; accounting_correction?: AccountingCorrectionContext; public_id: string; source_time_entry_id: number; status: string; origin_reason: string; destination_kind: string; target_external_pay_period_id: string | null; held_total_hours: string; action_due_on: string }[]
 }
 export interface EmployeeEvidence {
   integration: { source_instance_id: string }; contract_version: string; as_of: string; evidence_note: string

@@ -6,7 +6,7 @@ module Payroll
   # they do not describe the classification or amount on a paycheck.
   class EmployeePeriodEvidence
     CONTRACT_VERSION = "1.0"
-    BUCKETS = %i[worked_hours eligible_hours pending_hours denied_hours issued_hours committed_hours exported_hours held_hours needs_reconciliation_hours].freeze
+    BUCKETS = %i[worked_hours eligible_hours pending_hours denied_hours issued_hours committed_hours exported_hours held_hours needs_reconciliation_hours accounting_correction_hours].freeze
     MAX_ROWS = 50_000
 
     def initialize(user:, params: {})
@@ -18,7 +18,7 @@ module Payroll
     end
 
     def call(period_id: nil)
-      periods = build_periods
+      periods = build_periods(include_settlement_cases: period_id.present?)
       if period_id
         period = periods.find { |row| row[:id] == period_id }
         raise ActiveRecord::RecordNotFound unless period
@@ -134,13 +134,13 @@ module Payroll
       scope
     end
 
-    def build_periods
+    def build_periods(include_settlement_cases:)
       entries = bounded(date_scope(TimeEntry.where(user: user).includes(:time_category), :work_date).order(:work_date, :id))
       frozen_owner_scope = PayrollBatchEntry.where(source_user_id: user.id).or(PayrollBatchEntry.where(source_user_uuid: user.payroll_integration_uuid))
       frozen = bounded(date_scope(frozen_owner_scope
         .includes(payroll_batch: :payroll_batch_processing_events), :work_date).order(:id))
       manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events), :work_date).order(:id))
-      cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id), :original_work_date).order(:id))
+      cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
       holds = bounded(date_scope(PayrollPaymentAttestation.pending_evidence.where(user: user), :work_date).order(:id)).index_by(&:time_entry_id)
       events = bounded(PayrollEntryProcessingEvent.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq)
         .where(source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).order(:id))
@@ -165,7 +165,7 @@ module Payroll
         summary = BUCKETS.index_with { |key| round(entry_rows.sum { |row| row[key].to_d }) }
         # Retained receipts include deleted source rows and signed corrections.
         %i[issued committed exported].each do |bucket|
-          summary[:"#{bucket}_hours"] = round(period_lines.select { |line| line[:coverage_state] == bucket.to_s }.sum { |line| line[:total_hours].to_d })
+          summary[:"#{bucket}_hours"] = round(period_lines.select { |line| line[:coverage_state] == bucket.to_s && !line[:accounting_only] }.sum { |line| line[:total_hours].to_d })
         end
         represented_ids = period_entries.map(&:id)
         summary[:held_hours] = round(summary[:held_hours].to_d + hold_rows.select { |hold| period_start(hold.work_date) == starts_on && !represented_ids.include?(hold.time_entry_id) }.sum(&:hours))
@@ -173,19 +173,90 @@ module Payroll
         summary[:current_overtime_hours] = round(entry_rows.sum { |row| row[:overtime_hours].to_d })
         summary[:frozen_regular_hours] = round(period_lines.select { |line| !line[:source_kind].in?(%w[manual payment_attestation]) && line[:coverage_state].in?(%w[issued committed exported]) }.sum { |line| line[:regular_hours].to_d })
         summary[:frozen_overtime_hours] = round(period_lines.select { |line| !line[:source_kind].in?(%w[manual payment_attestation]) && line[:coverage_state].in?(%w[issued committed exported]) }.sum { |line| line[:overtime_hours].to_d })
-        summary[:unissued_correction_count] = period_lines.count { |line| line[:source_kind] == "correction" && line[:coverage_state].in?(%w[exported committed]) }
+        summary[:accounting_correction_hours] = round(period_lines.select { |line| line[:accounting_only] }.sum { |line| line[:total_hours].to_d })
+        summary[:accounting_correction_line_count] = period_lines.count { |line| line[:accounting_only] }
+        summary[:unissued_correction_count] = period_lines.count { |line| line[:source_kind] == "correction" && !line[:accounting_only] && line[:coverage_state].in?(%w[exported committed]) }
         summary[:open_case_count] = period_cases.count { |row| row.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) }
         summary[:identity_review_count] = period_lines.count { |line| line[:identity_state] != "verified" } + period_cases.count { |row| row.source_user_uuid != user.payroll_integration_uuid }
         summary[:uncategorized_entry_count] = period_entries.count { |entry| entry.time_category_id.nil? }
         summary[:receipt_review_count] = period_lines.count { |line| line[:receipt_scope].in?(%w[batch ambiguous_entry]) && line[:status] != "imported" }
         summary[:retained_uncategorized_line_count] = period_lines.count { |line| line.key?(:source_category_id) && line[:source_category_id].nil? }
         summary[:retained_entry_count] = period_lines.map { |line| line[:source_time_entry_id] }.uniq.size
+        # Stored in_payroll cases remain historical records after receipt
+        # confirmation. They require attention only while exact processing
+        # evidence is absent; this does not close a case or record recovery.
+        entries_by_id = period_entries.index_by(&:id)
+        case_review_required = period_cases.any? do |row|
+          row.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) && !case_processing_confirmed?(row, entries_by_id[row.source_time_entry_id])
+        end
         { id: starts_on.iso8601, start_date: starts_on.iso8601, end_date: ends_on.iso8601,
           summary: summary, entries: entry_rows, coverage_lines: period_lines,
           actual_check_components: nil, amount_owed: nil,
-          review_required: summary[:needs_reconciliation_hours].positive? || summary[:held_hours].positive? || summary[:open_case_count].positive? || summary[:identity_review_count].positive? || summary[:uncategorized_entry_count].positive? || summary[:retained_uncategorized_line_count].positive? || summary[:receipt_review_count].positive? || summary[:unissued_correction_count].positive?,
-          settlement_cases: period_cases.map { |row| row.attributes.slice("public_id", "source_time_entry_id", "status", "origin_reason", "destination_kind", "target_external_pay_period_id", "held_total_hours", "action_due_on") } }
+          review_required: summary[:needs_reconciliation_hours].positive? || summary[:held_hours].positive? || case_review_required || summary[:identity_review_count].positive? || summary[:uncategorized_entry_count].positive? || summary[:retained_uncategorized_line_count].positive? || summary[:receipt_review_count].positive? || summary[:unissued_correction_count].positive?,
+          settlement_cases: (include_settlement_cases ? period_cases : []).map do |row|
+            original = row.attributes.slice("public_id", "source_time_entry_id", "status", "origin_reason", "destination_kind", "target_external_pay_period_id", "held_total_hours", "action_due_on")
+            processing = SettlementCaseSerializer.new(row).as_json[:processing]
+            processing&.dig(:accounting_only) ? original.merge("accounting_only" => true, "accounting_correction" => processing[:accounting_correction]) : original
+          end }
       end
+    end
+
+    def case_processing_confirmed?(settlement_case, entry)
+      batch = settlement_case.included_payroll_batch
+      return false unless settlement_case.status == "in_payroll" && batch && entry && entry.counts_toward_hours? && user.payroll_integration_uuid.present? &&
+        settlement_case.source_user_id == user.id && settlement_case.source_user_uuid == user.payroll_integration_uuid &&
+        entry.work_date == settlement_case.original_work_date
+
+      rows = batch.payroll_batch_entries.select do |row|
+        row.source_time_entry_id == entry.id && row.source_user_id == user.id && row.source_user_uuid == user.payroll_integration_uuid &&
+          row.work_date == settlement_case.original_work_date
+      end
+      return false unless rows.one?
+      row = rows.first
+      return false unless row.snapshot.is_a?(Hash)
+      version = row.snapshot["version"]
+      return false unless version.is_a?(Integer) && version == entry.lock_version && version >= settlement_case.source_time_entry_version
+
+      events = batch.payroll_entry_processing_events.select do |event|
+        event.source_time_entry_id == entry.id && (event.source_line_key.blank? || event.source_line_key == row.line_key)
+      end
+      event = PayrollEntryProcessingEvent.latest(events)
+      return false unless event&.line_contract? && event.source_user_uuid == user.payroll_integration_uuid &&
+        event.source_line_key == row.line_key && event.source_kind == row.source_kind && event.external_system == "cornerstone_payroll" &&
+        event.external_pay_period_id.present? && event.external_payroll_item_id.present? &&
+        %i[total_hours regular_hours overtime_hours].all? { |field| event.public_send(field) == row.public_send(field) }
+
+      if settlement_case.origin_reason.in?(%w[changed_after_cutoff deleted_after_cutoff])
+        accounting = AccountingCorrectionReceipt.context(row: row, event: event)
+        version == settlement_case.source_time_entry_version && accounting.present? && original_payment_confirmed?(settlement_case, accounting)
+      else
+        row.source_kind == "carryover" && row.total_hours.finite? && row.total_hours.positive? && event.status == "payment_issued" &&
+          event.payment_method.in?(%w[paper_check direct_deposit]) && event.payment_reference.present?
+      end
+    end
+
+    def original_payment_confirmed?(settlement_case, accounting)
+      batch = settlement_case.origin_payroll_batch
+      rows = batch.payroll_batch_entries.select do |row|
+        row.source_time_entry_id == settlement_case.source_time_entry_id && row.source_user_id == user.id &&
+          row.source_user_uuid == user.payroll_integration_uuid && row.work_date == settlement_case.original_work_date
+      end
+      return false unless rows.one?
+      row = rows.first
+      return false unless row.source_kind.in?(%w[current carryover]) && row.total_hours.finite? && row.total_hours.positive?
+
+      # A committed noncash correction does not restore a cancelled original
+      # instrument. Only the effective exact original receipt can establish
+      # current payment evidence, including a fresh replacement instrument.
+      candidates = batch.payroll_entry_processing_events.select do |event|
+        event.source_time_entry_id == row.source_time_entry_id && (event.source_line_key.blank? || event.source_line_key == row.line_key)
+      end
+      event = PayrollEntryProcessingEvent.latest(candidates)
+      event&.line_contract? && event.status == "payment_issued" && event.external_system == "cornerstone_payroll" &&
+        event.source_user_uuid == row.source_user_uuid && event.source_line_key == row.line_key && event.source_kind == row.source_kind &&
+        event.external_pay_period_id == accounting["original_pay_period_id"] && event.external_payroll_item_id == accounting["original_payroll_item_id"] &&
+        %i[total_hours regular_hours overtime_hours].all? { |field| event.public_send(field) == row.public_send(field) } &&
+        event.payment_method.in?(%w[paper_check direct_deposit]) && event.payment_reference.present?
     end
 
     def current_allocations(entries)
@@ -198,7 +269,7 @@ module Payroll
     def current_entry(entry, allocation, lines, hold)
       matching = lines
       issued = matching.select { |line| line[:coverage_state] == "issued" }.sum { |line| line[:total_hours].to_d }
-      committed = matching.select { |line| line[:coverage_state] == "committed" }.sum { |line| line[:total_hours].to_d }
+      committed = matching.select { |line| line[:coverage_state] == "committed" && !line[:accounting_only] }.sum { |line| line[:total_hours].to_d }
       exported = matching.select { |line| line[:coverage_state] == "exported" }.sum { |line| line[:total_hours].to_d }
       eligible = entry.counts_toward_hours? ? entry.hours.to_d : 0.to_d
       ot_review = allocation[:overtime_hours].to_f.positive? && entry.overtime_status.in?(%w[pending denied])
@@ -215,7 +286,7 @@ module Payroll
         pending_hours: entry.approval_status == "pending" || entry.active? || (entry.manual_entry? && entry.approval_status.nil?) ? round(entry.hours) : (ot_review && entry.overtime_status == "pending" ? allocation[:overtime_hours] : 0),
         denied_hours: entry.approval_status == "denied" ? round(entry.hours) : (ot_review && entry.overtime_status == "denied" ? allocation[:overtime_hours] : 0),
         issued_hours: round(issued), committed_hours: round(committed), exported_hours: round(exported),
-        held_hours: round(held), needs_reconciliation_hours: round(remaining), payment_attestation: hold&.reason }
+        held_hours: round(held), needs_reconciliation_hours: round(remaining), accounting_correction_hours: round(matching.select { |line| line[:accounting_only] }.sum { |line| line[:total_hours].to_d }), payment_attestation: hold&.reason }
     end
 
     def frozen_line(row, events, line_count)
@@ -232,7 +303,8 @@ module Payroll
       else
         coverage_state(status)
       end
-      { id: "batch-#{row.id}", batch_id: row.payroll_batch.public_id, source_time_entry_id: row.source_time_entry_id.to_s,
+      accounting = verified_owner && receipt_scope == "exact_line" && AccountingCorrectionReceipt.context(row: row, event: event)
+      { accounting_only: accounting ? true : nil, accounting_correction: accounting || nil, id: "batch-#{row.id}", batch_id: row.payroll_batch.public_id, source_time_entry_id: row.source_time_entry_id.to_s,
         source_user_id: row.source_user_id.to_s, source_user_uuid: row.source_user_uuid, source_category_id: row.source_category_id, source_line_key: row.line_key, source_kind: row.source_kind,
         work_date: row.work_date.iso8601, regular_hours: round(row.regular_hours), overtime_hours: round(row.overtime_hours), total_hours: round(row.total_hours),
         status: status, coverage_state: state, receipt_scope: receipt_scope,
@@ -278,7 +350,7 @@ module Payroll
     def totals(periods)
       keys = BUCKETS + %i[current_regular_hours current_overtime_hours frozen_regular_hours frozen_overtime_hours]
       keys.index_with { |key| round(periods.sum { |period| period[:summary][key].to_d }) }
-        .merge(unissued_correction_count: periods.sum { |period| period[:summary][:unissued_correction_count] }, open_case_count: periods.sum { |period| period[:summary][:open_case_count] }, identity_review_count: periods.sum { |period| period[:summary][:identity_review_count] }, uncategorized_entry_count: periods.sum { |period| period[:summary][:uncategorized_entry_count] }, retained_uncategorized_line_count: periods.sum { |period| period[:summary][:retained_uncategorized_line_count] }, receipt_review_count: periods.sum { |period| period[:summary][:receipt_review_count] })
+        .merge(accounting_correction_line_count: periods.sum { |period| period[:summary][:accounting_correction_line_count] }, unissued_correction_count: periods.sum { |period| period[:summary][:unissued_correction_count] }, open_case_count: periods.sum { |period| period[:summary][:open_case_count] }, identity_review_count: periods.sum { |period| period[:summary][:identity_review_count] }, uncategorized_entry_count: periods.sum { |period| period[:summary][:uncategorized_entry_count] }, retained_uncategorized_line_count: periods.sum { |period| period[:summary][:retained_uncategorized_line_count] }, receipt_review_count: periods.sum { |period| period[:summary][:receipt_review_count] })
     end
 
     def round(value)

@@ -235,7 +235,7 @@ module Api
           end
 
           body = { entry_processing: serialize_entry_processing_event(event) }
-          body[:integration] = ::Payroll::IntegrationProfile.call if event.status == "payment_cancelled"
+          body[:integration] = ::Payroll::IntegrationProfile.call if event.line_contract? || event.status == "payment_cancelled"
           render json: body, status: created ? :created : :ok
         rescue ArgumentError => e
           render json: { error: e.message }, status: :unprocessable_entity
@@ -305,7 +305,7 @@ module Api
             source_time_entry_id: event.source_time_entry_id.to_s,
             source_user_uuid: event.source_user_uuid,
             status: event.status,
-            occurred_at: event.status == "payment_cancelled" ? event.occurred_at.iso8601(6) : event.occurred_at.iso8601,
+            occurred_at: event.occurred_at.iso8601(event.line_contract? || event.status == "payment_cancelled" ? 6 : 0),
             external_system: event.external_system,
             external_pay_period_id: event.external_pay_period_id,
             external_payroll_item_id: event.external_payroll_item_id,
