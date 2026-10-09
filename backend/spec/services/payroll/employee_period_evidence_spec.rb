@@ -271,7 +271,7 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     source = entry(3)
     original = create(:payroll_batch)
     old = line(original, source, 4)
-    paid = receipt(original, old, "payment_issued")
+    paid = receipt(original, old, "payment_issued", external_pay_period_id: "10", external_payroll_item_id: "11", payment_method: "paper_check", payment_reference: "30000")
     correction = create(:payroll_batch, start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15))
     delta = line(correction, source, -1, 0, "correction", snapshot: { "version" => source.lock_version })
     PayrollEntryProcessingEvent.create!(payroll_batch: correction, source_time_entry_id: source.id, source_user_uuid: employee.payroll_integration_uuid,
@@ -366,9 +366,79 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
         "original_payroll_item_id" => "11", "corrective_pay_period_id" => "44", "corrective_payroll_item_id" => "55" }
     end
 
+    let(:original_line) { line(origin, source, 4) }
+    let(:original_paid) do
+      receipt(origin, original_line, "payment_issued", external_pay_period_id: "10", external_payroll_item_id: "11", payment_method: "paper_check", payment_reference: "30000")
+    end
+    let(:accounting_receipt) { receipt(included, delta, "committed", external_pay_period_id: "44", external_payroll_item_id: "55", metadata: metadata) }
+
+    it "keeps attention after the original payment is cancelled even with zero remaining source hours" do
+      original_paid
+      accounting_receipt
+      before = historical.attributes.deep_dup
+      cancellation = receipt(origin, original_line, "payment_cancelled", external_pay_period_id: "10", external_payroll_item_id: "11",
+        payment_method: "paper_check", payment_reference: "30000", occurred_at: Time.current + 1.second)
+      # A delayed old issuance cannot undo the cancellation tombstone.
+      receipt(origin, original_line, "payment_issued", external_pay_period_id: "10", external_payroll_item_id: "11",
+        payment_method: "paper_check", payment_reference: "30000", occurred_at: Time.current + 2.seconds)
+      evidence = result
+      expect(evidence[:periods].first).to include(review_required: true)
+      expect(evidence[:totals]).to include(needs_reconciliation_hours: 0.0, accounting_correction_hours: -1.0, issued_hours: 0.0)
+      expect(evidence).to include(amount_owed: nil)
+      expect(historical.reload.attributes).to eq(before)
+      expect(original_paid.reload.status).to eq("payment_issued")
+      expect(cancellation.reload.status).to eq("payment_cancelled")
+      expect(accounting_receipt.reload.status).to eq("committed")
+    end
+
+    it "recognizes a fresh exact original replacement while retaining cancellation history" do
+      original_paid
+      accounting_receipt
+      before = historical.attributes.deep_dup
+      cancellation = receipt(origin, original_line, "payment_cancelled", external_pay_period_id: "10", external_payroll_item_id: "11",
+        payment_method: "paper_check", payment_reference: "30000", occurred_at: Time.current + 1.second)
+      receipt(origin, original_line, "payment_issued", external_pay_period_id: "10", external_payroll_item_id: "11",
+        payment_method: "paper_check", payment_reference: "30002", occurred_at: Time.current + 2.seconds)
+      expect(result[:periods].first).to include(review_required: false)
+      expect(result[:totals]).to include(issued_hours: 4.0, accounting_correction_hours: -1.0)
+      expect(cancellation.reload.status).to eq("payment_cancelled")
+      expect(historical.reload.attributes).to eq(before)
+    end
+
+    %w[missing prepared failed legacy uuid hours destination instrument ambiguous].each do |defect|
+      it "requires exact current original payment evidence when #{defect}" do
+        accounting_receipt
+        before = historical.attributes.deep_dup
+        attributes = { external_pay_period_id: "10", external_payroll_item_id: "11", payment_method: "paper_check", payment_reference: "30000" }
+        attributes[:source_user_uuid] = SecureRandom.uuid if defect == "uuid"
+        attributes.merge!(total_hours: 3, regular_hours: 3) if defect == "hours"
+        attributes[:external_payroll_item_id] = "12" if defect == "destination"
+        attributes[:payment_reference] = nil if defect == "instrument"
+        status = { "prepared" => "payment_prepared", "failed" => "payment_failed" }.fetch(defect, "payment_issued")
+        if defect == "legacy"
+          PayrollEntryProcessingEvent.create!(payroll_batch: origin, source_time_entry_id: original_line.source_time_entry_id,
+            source_user_uuid: employee.payroll_integration_uuid, event_id: SecureRandom.uuid, external_system: "cornerstone_payroll",
+            status: "payment_issued", occurred_at: Time.current, **attributes)
+        elsif defect == "missing"
+          original_line
+          # Non-exact batch evidence cannot prove this original instrument.
+          PayrollBatchProcessingEvent.create!(payroll_batch: origin, event_id: SecureRandom.uuid, external_system: "cornerstone_payroll", status: "payment_issued", occurred_at: Time.current)
+        else
+          receipt(origin, original_line, status, **attributes)
+        end
+        if defect == "ambiguous"
+          extra = line(origin, source, 4)
+          receipt(origin, extra, "payment_issued", **attributes)
+        end
+        expect(result[:periods].first).to include(review_required: true)
+        expect(historical.reload.attributes).to eq(before)
+        expect(accounting_receipt.reload.status).to eq("committed")
+      end
+    end
+
     %w[missing prepared failed cancelled stale_source stale_case uuid metadata].each do |defect|
       it "does not dismiss #{defect} accounting correction evidence as confirmed processing" do
-        receipt(origin, line(origin, source, 4), "payment_issued", payment_method: "paper_check", payment_reference: "30000")
+        receipt(origin, line(origin, source, 4), "payment_issued", external_pay_period_id: "10", external_payroll_item_id: "11", payment_method: "paper_check", payment_reference: "30000")
         historical
         attributes = { external_pay_period_id: "44", external_payroll_item_id: "55", metadata: metadata }
         status = { "prepared" => "payment_prepared", "failed" => "payment_failed", "cancelled" => "payment_cancelled" }.fetch(defect, "committed")

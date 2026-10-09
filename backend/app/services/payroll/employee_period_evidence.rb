@@ -140,7 +140,7 @@ module Payroll
       frozen = bounded(date_scope(frozen_owner_scope
         .includes(payroll_batch: :payroll_batch_processing_events), :work_date).order(:id))
       manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events), :work_date).order(:id))
-      cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
+      cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
       holds = bounded(date_scope(PayrollPaymentAttestation.pending_evidence.where(user: user), :work_date).order(:id)).index_by(&:time_entry_id)
       events = bounded(PayrollEntryProcessingEvent.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq)
         .where(source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).order(:id))
@@ -227,11 +227,36 @@ module Payroll
         %i[total_hours regular_hours overtime_hours].all? { |field| event.public_send(field) == row.public_send(field) }
 
       if settlement_case.origin_reason.in?(%w[changed_after_cutoff deleted_after_cutoff])
-        version == settlement_case.source_time_entry_version && AccountingCorrectionReceipt.context(row: row, event: event).present?
+        accounting = AccountingCorrectionReceipt.context(row: row, event: event)
+        version == settlement_case.source_time_entry_version && accounting.present? && original_payment_confirmed?(settlement_case, accounting)
       else
         row.source_kind == "carryover" && row.total_hours.finite? && row.total_hours.positive? && event.status == "payment_issued" &&
           event.payment_method.in?(%w[paper_check direct_deposit]) && event.payment_reference.present?
       end
+    end
+
+    def original_payment_confirmed?(settlement_case, accounting)
+      batch = settlement_case.origin_payroll_batch
+      rows = batch.payroll_batch_entries.select do |row|
+        row.source_time_entry_id == settlement_case.source_time_entry_id && row.source_user_id == user.id &&
+          row.source_user_uuid == user.payroll_integration_uuid && row.work_date == settlement_case.original_work_date
+      end
+      return false unless rows.one?
+      row = rows.first
+      return false unless row.source_kind.in?(%w[current carryover]) && row.total_hours.finite? && row.total_hours.positive?
+
+      # A committed noncash correction does not restore a cancelled original
+      # instrument. Only the effective exact original receipt can establish
+      # current payment evidence, including a fresh replacement instrument.
+      candidates = batch.payroll_entry_processing_events.select do |event|
+        event.source_time_entry_id == row.source_time_entry_id && (event.source_line_key.blank? || event.source_line_key == row.line_key)
+      end
+      event = PayrollEntryProcessingEvent.latest(candidates)
+      event&.line_contract? && event.status == "payment_issued" && event.external_system == "cornerstone_payroll" &&
+        event.source_user_uuid == row.source_user_uuid && event.source_line_key == row.line_key && event.source_kind == row.source_kind &&
+        event.external_pay_period_id == accounting["original_pay_period_id"] && event.external_payroll_item_id == accounting["original_payroll_item_id"] &&
+        %i[total_hours regular_hours overtime_hours].all? { |field| event.public_send(field) == row.public_send(field) } &&
+        event.payment_method.in?(%w[paper_check direct_deposit]) && event.payment_reference.present?
     end
 
     def current_allocations(entries)
