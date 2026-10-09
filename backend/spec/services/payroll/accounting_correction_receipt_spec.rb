@@ -111,4 +111,26 @@ RSpec.describe Payroll::AccountingCorrectionReceipt do
     expect(lifecycle[:accounting_only]).to be_nil
     expect(lifecycle[:label]).to eq("Payment reported; check evidence pending")
   end
+
+  [ [], "legacy snapshot", 42, false, true ].each do |snapshot|
+    it "retains case-event fallback for a non-object frozen snapshot #{snapshot.inspect}" do
+      malformed = batch.payroll_batch_entries.create!(source_time_entry_id: entry.id, source_user_id: entry.user_id,
+        source_user_uuid: entry.user.payroll_integration_uuid, source_category_id: entry.time_category_id,
+        work_date: entry.work_date, week_start: entry.work_date.beginning_of_week(:sunday), source_kind: "correction",
+        line_key: "legacy-negative", total_hours: -1, regular_hours: -1, overtime_hours: 0, snapshot: snapshot)
+      settlement_case = create(:payroll_settlement_case, origin_reason: "changed_after_cutoff", source_time_entry_id: entry.id,
+        source_time_entry_version: entry.lock_version, source_user_id: entry.user_id, source_user_uuid: entry.user.payroll_integration_uuid,
+        original_work_date: entry.work_date, included_payroll_batch: batch, destination_kind: "supplemental",
+        target_external_pay_period_id: "44", status: "in_payroll")
+      fallback = settlement_case.payroll_settlement_case_events.create!(event_id: SecureRandom.uuid, event_type: "committed",
+        to_status: "in_payroll", occurred_at: Time.current, metadata: { "external_pay_period_id" => "44", "external_payroll_item_id" => "55" })
+      before = malformed.attributes.deep_dup
+      serialized = Payroll::SettlementCaseSerializer.new(settlement_case).as_json
+      expect(serialized[:processing]).to include(status: "committed", external_pay_period_id: "44", external_payroll_item_id: "55")
+      expect(serialized[:processing]).not_to have_key(:accounting_only)
+      expect(serialized[:events]).to include(include(event_type: fallback.event_type))
+      expect(malformed.reload.attributes).to eq(before)
+      expect(settlement_case.reload.status).to eq("in_payroll")
+    end
+  end
 end

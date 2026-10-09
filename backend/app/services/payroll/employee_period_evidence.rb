@@ -18,7 +18,7 @@ module Payroll
     end
 
     def call(period_id: nil)
-      periods = build_periods
+      periods = build_periods(include_settlement_cases: period_id.present?)
       if period_id
         period = periods.find { |row| row[:id] == period_id }
         raise ActiveRecord::RecordNotFound unless period
@@ -134,7 +134,7 @@ module Payroll
       scope
     end
 
-    def build_periods
+    def build_periods(include_settlement_cases:)
       entries = bounded(date_scope(TimeEntry.where(user: user).includes(:time_category), :work_date).order(:work_date, :id))
       frozen_owner_scope = PayrollBatchEntry.where(source_user_id: user.id).or(PayrollBatchEntry.where(source_user_uuid: user.payroll_integration_uuid))
       frozen = bounded(date_scope(frozen_owner_scope
@@ -193,7 +193,7 @@ module Payroll
           summary: summary, entries: entry_rows, coverage_lines: period_lines,
           actual_check_components: nil, amount_owed: nil,
           review_required: summary[:needs_reconciliation_hours].positive? || summary[:held_hours].positive? || case_review_required || summary[:identity_review_count].positive? || summary[:uncategorized_entry_count].positive? || summary[:retained_uncategorized_line_count].positive? || summary[:receipt_review_count].positive? || summary[:unissued_correction_count].positive?,
-          settlement_cases: period_cases.map do |row|
+          settlement_cases: (include_settlement_cases ? period_cases : []).map do |row|
             original = row.attributes.slice("public_id", "source_time_entry_id", "status", "origin_reason", "destination_kind", "target_external_pay_period_id", "held_total_hours", "action_due_on")
             processing = SettlementCaseSerializer.new(row).as_json[:processing]
             processing&.dig(:accounting_only) ? original.merge("accounting_only" => true, "accounting_correction" => processing[:accounting_correction]) : original

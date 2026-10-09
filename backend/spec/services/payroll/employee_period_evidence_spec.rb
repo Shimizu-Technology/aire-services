@@ -299,6 +299,15 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     let(:historical) { included_case(source, origin, included, "created_after_cutoff") }
     let(:paid) { receipt(included, frozen, "payment_issued", payment_method: "paper_check", payment_reference: "30001") }
 
+    it "does not serialize discarded case detail when listing work periods" do
+      historical
+      expect(Payroll::SettlementCaseSerializer).not_to receive(:new)
+      evidence = result
+      expect(evidence[:totals][:open_case_count]).to eq(1)
+      expect(evidence[:periods].first).to include(review_required: true)
+      expect(evidence[:periods].first).not_to have_key(:settlement_cases)
+    end
+
     it "shows paid late-created work without an unresolved-period warning and preserves case history" do
       paid
       before = historical.attributes.deep_dup

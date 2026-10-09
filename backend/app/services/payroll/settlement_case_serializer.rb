@@ -85,7 +85,7 @@ module Payroll
       if batch && settlement_case.origin_reason.in?(%w[changed_after_cutoff deleted_after_cutoff])
         rows = batch.payroll_batch_entries.select do |row|
           row.source_time_entry_id == settlement_case.source_time_entry_id && row.source_user_id == settlement_case.source_user_id && row.source_user_uuid == settlement_case.source_user_uuid &&
-            row.snapshot["version"] == settlement_case.source_time_entry_version
+            row.snapshot.is_a?(Hash) && row.snapshot["version"] == settlement_case.source_time_entry_version
         end
         events = batch.payroll_entry_processing_events.select { |candidate| candidate.source_time_entry_id == settlement_case.source_time_entry_id }
         summary = EntryProcessingSummary.new(rows: rows, events: events).call
