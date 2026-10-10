@@ -843,6 +843,8 @@ export type PayrollEntryLifecycleStatus =
   | 'partially_allocated'
   | 'payment_attested_pending_evidence';
 
+export type HoursReportPayrollStatuses = Partial<Record<PayrollEntryLifecycleStatus | 'accounting_correction_committed', number>>;
+
 export interface AccountingCorrectionContext {
   accounting_only: true;
   correction_disposition_id: string;
@@ -996,7 +998,7 @@ export interface HoursReportEmployee {
     uncategorized_count: number;
   };
   quality: HoursReportQuality;
-  payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
+  payroll_statuses?: HoursReportPayrollStatuses;
   days: HoursReportDay[];
   excluded_entries?: HoursReportEntry[];
   categories: HoursReportCategory[];
@@ -1039,7 +1041,7 @@ export interface HoursReportResponse {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
-    payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
+    payroll_statuses?: HoursReportPayrollStatuses;
   };
   breakdowns: {
     by_category: HoursReportCategory[];

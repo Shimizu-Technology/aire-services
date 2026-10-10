@@ -1231,7 +1231,10 @@ export default function TimeTracking() {
       {activeTab === 'entries' && (
         <>
           {/* Clock In/Out Card - full width, horizontal on desktop */}
-          <ClockInOutCard onStatusChange={refreshEntryViews} />
+          <ClockInOutCard
+            onStatusChange={refreshEntryViews}
+            showDisabledNotice={!isAdmin || (currentUserId !== null && routedUserId === String(currentUserId))}
+          />
 
           {isAdmin && <WhosWorking />}
         </>
@@ -1268,7 +1271,7 @@ export default function TimeTracking() {
               >
                 <option value="">All Employees</option>
                 {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
+                  <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
                 ))}
               </select>
             </div>
@@ -2238,6 +2241,7 @@ export default function TimeTracking() {
                 <div>
                   <h3 id="payroll-lifecycle-summary" className="font-semibold text-primary-dark">Payroll lifecycle</h3>
                   <p className="mt-0.5 text-xs text-text-muted">Entry-level status from AIRE cutoff through Cornerstone payment.</p>
+                  <p className="mt-0.5 text-xs text-text-muted">Accounting corrections are recorded entries, not payments.</p>
                 </div>
                 <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
@@ -2249,6 +2253,7 @@ export default function TimeTracking() {
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
                 <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
+                <ReportMetric label="Accounting corrections" value={String(reportSummary.payroll_statuses?.accounting_correction_committed || 0)} />
                 <ReportMetric label="Check evidence pending" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
