@@ -248,11 +248,36 @@ describe('TimeTracking routed report periods', () => {
     render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
 
     const link = await screen.findByRole('link', { name })
+    await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
     const href = new URL(link.getAttribute('href')!, 'https://local.invalid')
     expect(href.pathname).toBe('/admin/payroll')
     expect(Object.fromEntries(href.searchParams)).toEqual({ start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
     fireEvent.click(link)
     expect(screen.getByTestId('location-search')).toHaveTextContent(href.search)
+  })
+
+  it.each(['employee', 'period'])('drops the old linked entry when the selected report %s changes', async (scope) => {
+    apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey' }, { id: 8, display_name: 'Alex' }] } })
+    apiMock.getHoursReport.mockResolvedValue({ data: makeHoursReport('2028-02-16', '2028-02-29', 0) })
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2028-02-20', hours: 8, user: { id: 7 }, approval_status: 'approved' } } })
+    const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
+    const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
+    const link = await screen.findByRole('link', { name: 'Open payroll cutoffs' })
+    await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
+
+    if (scope === 'employee') {
+      await act(async () => { fireEvent.change(screen.getByRole('option', { name: 'Alex' }).parentElement!, { target: { value: '8' } }) })
+    } else {
+      await act(async () => { fireEvent.change(screen.getByDisplayValue('2028-02-29'), { target: { value: '2028-03-15' } }) })
+      await act(async () => { fireEvent.change(screen.getByDisplayValue('2028-02-16'), { target: { value: '2028-03-01' } }) })
+    }
+    const updated = new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams
+    expect(updated.has('entry_id')).toBe(false)
+    expect(updated.get('return_to')).toBe(returnTo)
+    expect(updated.get('user_id')).toBe(scope === 'employee' ? '8' : '7')
+    expect(updated.get('start_date')).toBe(scope === 'employee' ? '2028-02-16' : '2028-03-01')
+    expect(updated.get('end_date')).toBe(scope === 'employee' ? '2028-02-29' : '2028-03-15')
   })
 
   it('defaults historical reports to every employment status and provides quick periods', async () => {

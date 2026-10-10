@@ -1125,12 +1125,17 @@ export default function TimeTracking() {
   const workspacePeriod = activeTab === 'reports'
     ? { start: reportFilters.start_date, end: reportFilters.end_date }
     : routedPeriod ?? currentPayrollPeriod()
+  const reportLinkedEntryId = linkedEntry && String(linkedEntry.id) === routedEntryId
+    && (!reportFilters.user_id || String(linkedEntry.user.id) === reportFilters.user_id)
+    && isIsoDate(linkedEntry.work_date) && isIsoDate(reportFilters.start_date) && isIsoDate(reportFilters.end_date)
+    && linkedEntry.work_date >= reportFilters.start_date && linkedEntry.work_date <= reportFilters.end_date
+    ? routedEntryId : null
   const reportPayrollHref = withPayrollPeriod('/admin/payroll', {
     start: reportFilters.start_date,
     end: reportFilters.end_date,
   }, {
     ...(/^[1-9]\d*$/.test(reportFilters.user_id) ? { user_id: reportFilters.user_id } : {}),
-    ...(routedEntryId ? { entry_id: routedEntryId } : {}),
+    ...(reportLinkedEntryId ? { entry_id: reportLinkedEntryId } : {}),
     ...(returnTo ? { return_to: returnTo } : {}),
   })
 
