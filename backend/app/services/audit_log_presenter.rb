@@ -36,6 +36,9 @@ class AuditLogPresenter
     "payroll_batch.finalized" => "Finalized",
     "payroll_batch.exported" => "Exported",
     "payroll_batch.retrieved" => "Retrieved",
+    "payroll_settlement_case.routed" => "Routed held time for",
+    "payroll_settlement_case.rerouted" => "Changed the held-time destination for",
+    "payroll_settlement_case.marked_not_payable" => "Closed unpaid time for",
     "legacy_time_period_lock.archived" => "Archived",
     "audit_history.exported" => "Exported activity history"
   }.freeze

@@ -407,6 +407,53 @@ describe('PayrollRuns', () => {
     expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
   })
 
+  it('keeps a retained closed-unpaid decision in history while valid pending time remains active', async () => {
+    const common = { source_user_id: '7', email: null, category: null, original_work_date: '2026-11-01',
+      first_excluded_batch_id: 'AIRE-OLD', latest_excluded_batch_id: 'AIRE-OLD', exclusion_reason: 'pending_approval', included_batch: null }
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [
+        { ...common, source_time_entry_id: '1', display_name: 'Invalid training record', status: 'not_payable', held_total_hours: 1, current_total_hours: 1,
+          payroll_lifecycle: { status: 'awaiting_approval', label: 'Awaiting approval', settlements: [] },
+          settlement_case: { id: 'case-invalid', status: 'not_payable', destination_kind: 'not_payable', resolution_note: 'Duplicate training input; no wages owed',
+            decision: { event_id: 'decision-1', event_type: 'marked_not_payable', occurred_at: '2026-11-02T07:00:00Z',
+              reason: 'Duplicate training input; no wages owed', actor: { name: 'Synthetic Reviewer' } } } },
+        { ...common, source_time_entry_id: '2', display_name: 'Valid pending worker', status: 'awaiting_approval', held_total_hours: 4, current_total_hours: 4 },
+      ], summary: { awaiting_approval_count: 1, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 1,
+        unresolved_count: 1, paid_count: 0, accounting_recorded_count: 0 }, truncated: false,
+    } })
+    renderPayrollRuns()
+    await screen.findByText('Valid pending worker')
+    const history = screen.getByRole('region', { name: 'Recorded history' })
+    expect(history).toHaveTextContent('Invalid training record')
+    expect(history).toHaveTextContent('Closed unpaid')
+    expect(history).toHaveTextContent('1.00 hrs')
+    expect(history).toHaveTextContent('Duplicate training input; no wages owed')
+    expect(history).toHaveTextContent('Synthetic Reviewer')
+    expect(within(history).getByText(/Nov 2, 2026/)).toBeInTheDocument()
+    expect(history).toHaveTextContent('0.00 hrs paid')
+    expect(history).not.toHaveTextContent('outstanding')
+    expect(history).not.toHaveTextContent('Valid pending worker')
+    expect(screen.getByRole('region', { name: 'Carryover queue' })).toHaveTextContent('1 active item')
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
+  it('does not erase prior paid evidence when displaying an unpaid closure', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{ source_time_entry_id: '1', source_user_id: '7', display_name: 'Retained evidence worker', email: null,
+        category: null, original_work_date: '2026-11-01', first_excluded_batch_id: 'AIRE-OLD', latest_excluded_batch_id: 'AIRE-OLD',
+        exclusion_reason: 'pending_approval', included_batch: null, status: 'not_payable', held_total_hours: 1, current_total_hours: 1,
+        settlement_case: { id: 'case-invalid', status: 'not_payable', destination_kind: 'not_payable', resolution_note: 'The held input is invalid' },
+        payroll_lifecycle: { status: 'payment_issued', label: 'Paid', settlements: [{ status: 'payment_issued', total_hours: 2, paid_hours: 2 }] },
+      }], summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0,
+        not_payable_count: 1, unresolved_count: 0, paid_count: 0 }, truncated: false,
+    } })
+    renderPayrollRuns()
+    const history = await screen.findByRole('region', { name: 'Recorded history' })
+    expect(history).toHaveTextContent('2.00 hrs paid in retained payment evidence')
+    expect(history).not.toHaveTextContent('0.00 hrs paid')
+    expect(history).toHaveTextContent('This decision records no payment')
+  })
+
   it('keeps all four routed workers visible when one was originally denied approval', async () => {
     apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
       items: ['First', 'Second', 'Formerly denied', 'Fourth'].map((name, index) => ({

@@ -76,7 +76,7 @@ module Payroll
         .to_a
         .group_by { |event| [ event.payroll_batch_id, event.source_time_entry_id ] }
       settlement_cases = PayrollSettlementCase
-        .includes(:target_payroll_calendar_period, :assigned_to, :payroll_settlement_case_events,
+        .includes(:target_payroll_calendar_period, :assigned_to, { payroll_settlement_case_events: :actor },
           origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ],
           included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ])
         .where(source_time_entry_id: entry_ids)
@@ -176,9 +176,28 @@ module Payroll
           target_pay_date: settlement_case.target_payroll_calendar_period&.pay_date&.iso8601,
           owner_role: settlement_case.owner_role,
           assigned_to: settlement_case.assigned_to&.full_name,
-          action_due_on: settlement_case.action_due_on.iso8601
+          action_due_on: settlement_case.action_due_on.iso8601,
+          resolution_note: settlement_case.resolution_note,
+          decision: closed_decision(settlement_case)
         }.compact
       }
+    end
+
+    def closed_decision(settlement_case)
+      return unless settlement_case.status == "not_payable"
+
+      event = settlement_case.payroll_settlement_case_events
+        .select { |candidate| candidate.event_type == "marked_not_payable" && candidate.to_status == "not_payable" }
+        .max_by { |candidate| [ candidate.occurred_at, candidate.id ] }
+      return unless event
+
+      {
+        event_id: event.event_id,
+        event_type: event.event_type,
+        occurred_at: event.occurred_at.iso8601,
+        reason: event.metadata["reason"],
+        actor: event.actor && { name: event.actor.full_name, payroll_integration_id: event.actor_payroll_integration_uuid }
+      }.compact
     end
 
     def manual_payment_confirmed?(entry)

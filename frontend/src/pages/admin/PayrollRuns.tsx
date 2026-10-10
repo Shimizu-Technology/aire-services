@@ -164,9 +164,11 @@ function SummaryCards({ payload }: { payload: PayrollBatchPayload }) {
 }
 
 function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] }) {
+  const closedUnpaid = item.status === 'not_payable' && item.settlement_case?.status === 'not_payable'
+  const decision = closedUnpaid ? item.settlement_case?.decision : undefined
   const accounting = item.completion === 'accounting_recorded' || (item.payroll_lifecycle?.accounting_only === true && item.payroll_lifecycle.status === 'committed')
   const unverified = item.completion === null && (item.status === 'payment_issued' || accounting)
-  const status = unverified ? { label: 'Needs payroll review', detail: 'Reported processing still needs exact current source and receipt evidence. Review the saved payroll and retained history.', className: 'border-amber-200 bg-amber-50 text-amber-800' } : accounting ? { label: ACCOUNTING_CORRECTION_LABEL, detail: ACCOUNTING_CORRECTION_NOTE, className: 'border-blue-200 bg-blue-50 text-blue-800' } : CARRYOVER_STATUS[item.status] || {
+  const status = closedUnpaid ? { label: 'Closed unpaid', detail: 'This decision records no payment. The retained reason and reviewer evidence are shown below.', className: 'border-slate-200 bg-slate-100 text-slate-700' } : unverified ? { label: 'Needs payroll review', detail: 'Reported processing still needs exact current source and receipt evidence. Review the saved payroll and retained history.', className: 'border-amber-200 bg-amber-50 text-amber-800' } : accounting ? { label: ACCOUNTING_CORRECTION_LABEL, detail: ACCOUNTING_CORRECTION_NOTE, className: 'border-blue-200 bg-blue-50 text-blue-800' } : CARRYOVER_STATUS[item.status] || {
     label: item.status,
     detail: 'Payroll reported a status that is not yet recognized by this version of AIRE.',
     className: 'border-slate-200 bg-slate-100 text-slate-700',
@@ -192,7 +194,12 @@ function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] 
         <span>Originally excluded: {EXCLUSION_LABELS[item.exclusion_reason] || item.exclusion_reason}</span>
       </div>
       <p className="mt-3 text-sm leading-5 text-slate-600">{status.detail}</p>
-      {paymentProgress && !accounting && !unverified && (
+      {closedUnpaid && <div className="mt-3 space-y-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+        <p>{decision?.reason || item.settlement_case?.resolution_note || 'No saved reason is available for this decision.'}</p>
+        {decision && <p className="text-xs text-slate-500">{decision.actor?.name || 'Reviewer unavailable'} · {formatDateTime(decision.occurred_at)}</p>}
+        {paymentProgress && <p className="text-xs font-medium">{formatHours(paymentProgress.paid_hours)} paid in retained payment evidence</p>}
+      </div>}
+      {paymentProgress && !closedUnpaid && !accounting && !unverified && (
         <p className="mt-2 text-xs font-medium text-slate-700">
           {formatHours(paymentProgress.paid_hours)} paid · {formatHours(paymentProgress.outstanding_hours)} outstanding
         </p>
@@ -204,7 +211,7 @@ function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] 
 
 function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueue | null; loading: boolean; error: string | null }) {
   const activeItems = queue?.items.filter((item) => item.status !== 'not_payable' && !item.completion) || []
-  const recordedItems = queue?.items.filter((item) => item.completion) || []
+  const recordedItems = queue?.items.filter((item) => item.completion || (item.status === 'not_payable' && item.settlement_case?.status === 'not_payable')) || []
   const unresolvedCount = queue?.summary.unresolved_count ?? activeItems.length
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="carryover-queue-title">
@@ -212,7 +219,7 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">Unpaid time lifecycle</p>
           <h2 id="carryover-queue-title" className="mt-1 text-xl font-semibold text-slate-950">Carryover queue</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Review unfinished hours here. Verified payments and accounting corrections remain available in recorded history.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Review unfinished hours here. Verified payments, accounting corrections and closed unpaid decisions remain available in recorded history.</p>
         </div>
         {queue && <p className="text-xs text-slate-500">{unresolvedCount} active item{unresolvedCount === 1 ? '' : 's'}</p>}
       </div>
@@ -244,7 +251,7 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
           </div>}
           {recordedItems.length > 0 && <section aria-label="Recorded history" className="mt-6 border-t border-slate-200 pt-5">
             <h3 className="text-base font-semibold text-slate-950">Recorded history</h3>
-            <p className="mt-1 text-sm text-slate-600">Completed receipt evidence is retained here. Accounting corrections do not record a new payment.</p>
+            <p className="mt-1 text-sm text-slate-600">Completed receipt evidence and closed unpaid decisions are retained here. Accounting corrections and unpaid closures do not record a new payment.</p>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
               {recordedItems.map((item) => <CarryoverCard key={item.source_time_entry_id} item={item} />)}
             </div>

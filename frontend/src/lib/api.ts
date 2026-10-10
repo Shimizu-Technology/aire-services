@@ -1267,6 +1267,19 @@ export interface ManualPayrollProcessingInput {
 }
 
 export interface PayrollCarryoverItem {
+  settlement_case?: {
+    id: string;
+    status: string;
+    destination_kind: string;
+    resolution_note?: string | null;
+    decision?: {
+      event_id: string;
+      event_type: string;
+      occurred_at: string;
+      reason?: string;
+      actor?: { name: string; payroll_integration_id?: string };
+    };
+  } | null;
   completion?: 'paid' | 'accounting_recorded' | null;
   source_time_entry_id: string;
   source_user_id: string;

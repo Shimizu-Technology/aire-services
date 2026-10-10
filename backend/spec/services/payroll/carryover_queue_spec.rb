@@ -100,6 +100,25 @@ RSpec.describe Payroll::CarryoverQueue do
       expect(read_queue.fetch(:items).sole.fetch(:status)).to eq("not_payable")
     end
 
+    it "exposes the retained closed decision without creating an Activity History backfill" do
+      settlement_case = case_for(target, exclusion)
+      reviewer = create(:user, :admin)
+      note = "Duplicate training input; no wages owed for this record"
+      settlement_case.update!(status: "not_payable", destination_kind: "not_payable", resolution_note: note, resolved_at: Time.current)
+      event = settlement_case.payroll_settlement_case_events.create!(event_id: SecureRandom.uuid, event_type: "marked_not_payable",
+        from_status: "open", to_status: "not_payable", actor: reviewer, actor_payroll_integration_uuid: reviewer.payroll_integration_uuid,
+        occurred_at: Time.current, metadata: { "reason" => note, "destination_kind" => "not_payable" })
+      before = [ target.reload.attributes, exclusion.reload.attributes, settlement_case.reload.attributes ]
+      item = read_queue.fetch(:items).sole
+      expect(item.fetch(:settlement_case)).to include(resolution_note: note,
+        decision: include(event_id: event.event_id, event_type: "marked_not_payable", occurred_at: event.occurred_at.iso8601,
+          reason: note, actor: include(name: reviewer.full_name)))
+      expect(item[:completion]).to be_nil
+      expect(read_queue.fetch(:summary)).to include(unresolved_count: 0, paid_count: 0, not_payable_count: 1)
+      expect(AuditLog.where(action: "payroll_settlement_case.marked_not_payable")).to be_empty
+      expect([ target.reload.attributes, exclusion.reload.attributes, settlement_case.reload.attributes ]).to eq(before)
+    end
+
     { "denied" => "not_payable", "pending" => "awaiting_approval", "approved" => "scheduled_supplemental" }.each do |approval, status|
       it "keeps current #{approval} approval authoritative for an unprocessed supplemental destination" do
         settlement_case = case_for(target, exclusion)
