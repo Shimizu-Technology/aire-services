@@ -240,6 +240,21 @@ describe('TimeTracking routed report periods', () => {
     })))
   })
 
+  it.each(['Prepare payroll cutoff', 'Open payroll cutoffs'])('keeps the selected report and employee context through %s', async (name) => {
+    apiMock.getHoursReport.mockResolvedValue({ data: makeHoursReport('2028-02-16', '2028-02-29', 0) })
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2028-02-20', hours: 8, user: { id: 7 }, approval_status: 'approved' } } })
+    const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
+    const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
+
+    const link = await screen.findByRole('link', { name })
+    const href = new URL(link.getAttribute('href')!, 'https://local.invalid')
+    expect(href.pathname).toBe('/admin/payroll')
+    expect(Object.fromEntries(href.searchParams)).toEqual({ start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    fireEvent.click(link)
+    expect(screen.getByTestId('location-search')).toHaveTextContent(href.search)
+  })
+
   it('defaults historical reports to every employment status and provides quick periods', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>

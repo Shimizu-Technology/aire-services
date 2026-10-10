@@ -1125,6 +1125,14 @@ export default function TimeTracking() {
   const workspacePeriod = activeTab === 'reports'
     ? { start: reportFilters.start_date, end: reportFilters.end_date }
     : routedPeriod ?? currentPayrollPeriod()
+  const reportPayrollHref = withPayrollPeriod('/admin/payroll', {
+    start: reportFilters.start_date,
+    end: reportFilters.end_date,
+  }, {
+    ...(/^[1-9]\d*$/.test(reportFilters.user_id) ? { user_id: reportFilters.user_id } : {}),
+    ...(routedEntryId ? { entry_id: routedEntryId } : {}),
+    ...(returnTo ? { return_to: returnTo } : {}),
+  })
 
   const selectWorkspaceSection = (section: TimeTab) => {
     setActiveTab(section)
@@ -2006,7 +2014,7 @@ export default function TimeTracking() {
               </p>
             </div>
             <Link
-              to={withPayrollPeriod('/admin/payroll', { start: reportFilters.start_date, end: reportFilters.end_date })}
+              to={reportPayrollHref}
               className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               Prepare payroll cutoff
@@ -2219,7 +2227,7 @@ export default function TimeTracking() {
                   <h3 id="payroll-lifecycle-summary" className="font-semibold text-primary-dark">Payroll lifecycle</h3>
                   <p className="mt-0.5 text-xs text-text-muted">Entry-level status from AIRE cutoff through Cornerstone payment.</p>
                 </div>
-                <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
+                <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
 
