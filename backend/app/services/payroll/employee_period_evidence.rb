@@ -140,7 +140,7 @@ module Payroll
       frozen = bounded(date_scope(frozen_owner_scope
         .includes(payroll_batch: :payroll_batch_processing_events), :work_date).order(:id))
       manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events), :work_date).order(:id))
-      cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
+      cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(:target_payroll_calendar_period, origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
       holds = bounded(date_scope(PayrollPaymentAttestation.pending_evidence.where(user: user), :work_date).order(:id)).index_by(&:time_entry_id)
       events = bounded(PayrollEntryProcessingEvent.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq)
         .where(source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).order(:id))
@@ -186,8 +186,12 @@ module Payroll
         # confirmation. They require attention only while exact processing
         # evidence is absent; this does not close a case or record recovery.
         entries_by_id = period_entries.index_by(&:id)
+        case_completions = period_cases.index_with do |row|
+          SettlementCaseCompletion.new(settlement_case: row, entry: entries_by_id[row.source_time_entry_id],
+            allocation: allocations[row.source_time_entry_id], held: holds.key?(row.source_time_entry_id)).call
+        end
         case_review_required = period_cases.any? do |row|
-          row.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) && !case_processing_confirmed?(row, entries_by_id[row.source_time_entry_id])
+          row.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) && !case_completions[row]
         end
         { id: starts_on.iso8601, start_date: starts_on.iso8601, end_date: ends_on.iso8601,
           summary: summary, entries: entry_rows, coverage_lines: period_lines,
@@ -195,68 +199,11 @@ module Payroll
           review_required: summary[:needs_reconciliation_hours].positive? || summary[:held_hours].positive? || case_review_required || summary[:identity_review_count].positive? || summary[:uncategorized_entry_count].positive? || summary[:retained_uncategorized_line_count].positive? || summary[:receipt_review_count].positive? || summary[:unissued_correction_count].positive?,
           settlement_cases: (include_settlement_cases ? period_cases : []).map do |row|
             original = row.attributes.slice("public_id", "source_time_entry_id", "status", "origin_reason", "destination_kind", "target_external_pay_period_id", "held_total_hours", "action_due_on")
+            original.merge!("completion" => case_completions[row], "target_pay_date" => row.target_payroll_calendar_period&.pay_date&.iso8601)
             processing = SettlementCaseSerializer.new(row).as_json[:processing]
             processing&.dig(:accounting_only) ? original.merge("accounting_only" => true, "accounting_correction" => processing[:accounting_correction]) : original
           end }
       end
-    end
-
-    def case_processing_confirmed?(settlement_case, entry)
-      batch = settlement_case.included_payroll_batch
-      return false unless settlement_case.status == "in_payroll" && batch && entry && entry.counts_toward_hours? && user.payroll_integration_uuid.present? &&
-        settlement_case.source_user_id == user.id && settlement_case.source_user_uuid == user.payroll_integration_uuid &&
-        entry.work_date == settlement_case.original_work_date
-
-      rows = batch.payroll_batch_entries.select do |row|
-        row.source_time_entry_id == entry.id && row.source_user_id == user.id && row.source_user_uuid == user.payroll_integration_uuid &&
-          row.work_date == settlement_case.original_work_date
-      end
-      return false unless rows.one?
-      row = rows.first
-      return false unless row.snapshot.is_a?(Hash)
-      version = row.snapshot["version"]
-      return false unless version.is_a?(Integer) && version == entry.lock_version && version >= settlement_case.source_time_entry_version
-
-      events = batch.payroll_entry_processing_events.select do |event|
-        event.source_time_entry_id == entry.id && (event.source_line_key.blank? || event.source_line_key == row.line_key)
-      end
-      event = PayrollEntryProcessingEvent.latest(events)
-      return false unless event&.line_contract? && event.source_user_uuid == user.payroll_integration_uuid &&
-        event.source_line_key == row.line_key && event.source_kind == row.source_kind && event.external_system == "cornerstone_payroll" &&
-        event.external_pay_period_id.present? && event.external_payroll_item_id.present? &&
-        %i[total_hours regular_hours overtime_hours].all? { |field| event.public_send(field) == row.public_send(field) }
-
-      if settlement_case.origin_reason.in?(%w[changed_after_cutoff deleted_after_cutoff])
-        accounting = AccountingCorrectionReceipt.context(row: row, event: event)
-        version == settlement_case.source_time_entry_version && accounting.present? && original_payment_confirmed?(settlement_case, accounting)
-      else
-        row.source_kind == "carryover" && row.total_hours.finite? && row.total_hours.positive? && event.status == "payment_issued" &&
-          event.payment_method.in?(%w[paper_check direct_deposit]) && event.payment_reference.present?
-      end
-    end
-
-    def original_payment_confirmed?(settlement_case, accounting)
-      batch = settlement_case.origin_payroll_batch
-      rows = batch.payroll_batch_entries.select do |row|
-        row.source_time_entry_id == settlement_case.source_time_entry_id && row.source_user_id == user.id &&
-          row.source_user_uuid == user.payroll_integration_uuid && row.work_date == settlement_case.original_work_date
-      end
-      return false unless rows.one?
-      row = rows.first
-      return false unless row.source_kind.in?(%w[current carryover]) && row.total_hours.finite? && row.total_hours.positive?
-
-      # A committed noncash correction does not restore a cancelled original
-      # instrument. Only the effective exact original receipt can establish
-      # current payment evidence, including a fresh replacement instrument.
-      candidates = batch.payroll_entry_processing_events.select do |event|
-        event.source_time_entry_id == row.source_time_entry_id && (event.source_line_key.blank? || event.source_line_key == row.line_key)
-      end
-      event = PayrollEntryProcessingEvent.latest(candidates)
-      event&.line_contract? && event.status == "payment_issued" && event.external_system == "cornerstone_payroll" &&
-        event.source_user_uuid == row.source_user_uuid && event.source_line_key == row.line_key && event.source_kind == row.source_kind &&
-        event.external_pay_period_id == accounting["original_pay_period_id"] && event.external_payroll_item_id == accounting["original_payroll_item_id"] &&
-        %i[total_hours regular_hours overtime_hours].all? { |field| event.public_send(field) == row.public_send(field) } &&
-        event.payment_method.in?(%w[paper_check direct_deposit]) && event.payment_reference.present?
     end
 
     def current_allocations(entries)

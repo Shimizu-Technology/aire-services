@@ -260,6 +260,7 @@ module Payroll
     def serialize_entry(entry, allocation)
       {
         id: entry.id,
+        version: entry.lock_version,
         work_date: entry.work_date.iso8601,
         start_time: entry.start_time&.in_time_zone(BUSINESS_TIMEZONE)&.strftime("%H:%M"),
         end_time: entry.end_time&.in_time_zone(BUSINESS_TIMEZONE)&.strftime("%H:%M"),

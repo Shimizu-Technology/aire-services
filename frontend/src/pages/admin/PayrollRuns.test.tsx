@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -144,6 +144,47 @@ describe('PayrollRuns', () => {
     apiMock.getPayrollBatch.mockResolvedValue({ data: finalized })
   })
 
+  it.each(['scheduled', 'failed', 'finalized'])('guides a %s published calendar preview without offering competing manual actions', async (status) => {
+    apiMock.previewPayrollBatch.mockResolvedValue({ data: { ...preview, can_finalize: false,
+      finalization_blocked_reason: 'This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll.',
+      published_calendar_periods: [{ external_pay_period_id: 'published-run', start_date: preview.start_date,
+        end_date: preview.end_date, cutoff_at: preview.cutoff_at, status,
+        payroll_batch_id: status === 'finalized' ? finalized.id : null }],
+    } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    expect(await screen.findByRole('region', { name: 'Published payroll calendar' })).toHaveTextContent('published-run')
+    expect(screen.getByRole('region', { name: 'Published payroll calendar' })).toHaveTextContent('Lock')
+    expect(screen.queryByRole('button', { name: 'Finalize this cutoff' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Record already processed' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Finalization is blocked until every included entry has a work category.')).not.toBeInTheDocument()
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+    if (status === 'finalized') {
+      fireEvent.click(screen.getByRole('button', { name: 'View published batch' }))
+      await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(finalized.id))
+    }
+  })
+
+  it('blocks historical recording if a calendar is published after the dialog was opened', async () => {
+    apiMock.previewPayrollBatch.mockResolvedValueOnce({ data: preview }).mockResolvedValueOnce({ data: { ...preview,
+      cutoff_at: '2026-08-31T03:06:00.000Z', can_finalize: false,
+      published_calendar_periods: [{ external_pay_period_id: 'newly-published', start_date: preview.start_date,
+        end_date: preview.end_date, cutoff_at: preview.cutoff_at, status: 'scheduled' }],
+    } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Record already processed' }))
+    fireEvent.change(screen.getByLabelText(/Hours frozen at/), { target: { value: '2026-08-31T13:06' } })
+    fireEvent.change(screen.getByLabelText(/Cornerstone processed at/), { target: { value: '2026-08-31T13:18' } })
+    fireEvent.change(screen.getByLabelText('Cornerstone pay period ID'), { target: { value: 'matching-period' } })
+    fireEvent.change(screen.getByLabelText(/Reconciliation note/), { target: { value: 'Compared historical source facts' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
+    expect(await screen.findByRole('region', { name: 'Published payroll calendar' })).toHaveTextContent('newly-published')
+    fireEvent.click(screen.getByRole('checkbox', { name: /I compared this historical AIRE snapshot/ }))
+    expect(screen.getByRole('button', { name: 'Record as processed manually' })).toBeDisabled()
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
   it('previews included hours separately from tracked exclusions', async () => {
     renderPayrollRuns()
     await screen.findByText('No payroll batches have been finalized yet.')
@@ -233,6 +274,71 @@ describe('PayrollRuns', () => {
     expect(screen.getByText('8.00 hrs paid · 1.00 hrs outstanding')).toBeInTheDocument()
   })
 
+  it('separates validated paid and accounting history from unfinished carryovers without losing cards', async () => {
+    const common = {
+      source_user_id: '7', email: null, category: null, original_work_date: '2026-05-04',
+      first_excluded_batch_id: 'AIRE-PAY-OLD', latest_excluded_batch_id: 'AIRE-PAY-OLD',
+      exclusion_reason: 'pending_overtime', held_total_hours: 2, current_total_hours: 10, included_batch: null,
+    }
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [
+        { ...common, source_time_entry_id: '81', display_name: 'Completed OT worker', status: 'payment_issued', completion: 'paid' },
+        { ...common, source_time_entry_id: '82', display_name: 'Signed accounting worker', status: 'committed', completion: 'accounting_recorded',
+          payroll_lifecycle: { status: 'committed', accounting_only: true, settlements: [] } },
+        { ...common, source_time_entry_id: '83', display_name: 'Unverified receipt worker', status: 'payment_issued', completion: null,
+          payroll_lifecycle: { status: 'payment_issued', settlements: [{ batch_id: 'reported', status: 'payment_issued', total_hours: 10 }] } },
+      ],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 1, not_payable_count: 0,
+        unresolved_count: 1, paid_count: 1, accounting_recorded_count: 1 }, truncated: false,
+    } })
+    renderPayrollRuns()
+    await screen.findByText('Completed OT worker')
+    const queue = screen.getByRole('region', { name: 'Carryover queue' })
+    expect(queue).toHaveTextContent('1 active item')
+    const history = within(queue).getByRole('region', { name: 'Recorded history' })
+    expect(history).toHaveTextContent('Completed OT worker')
+    expect(history).toHaveTextContent('Signed accounting worker')
+    expect(history).not.toHaveTextContent('Unverified receipt worker')
+    expect(within(screen.getByText('Completed OT worker').closest('article')!).getByText('Paid', { selector: 'span' })).toBeInTheDocument()
+    const accounting = screen.getByText('Signed accounting worker').closest('article')!
+    expect(accounting).toHaveTextContent('Accounting correction committed')
+    expect(accounting).not.toHaveTextContent('hrs paid')
+    expect(screen.getByText('Unverified receipt worker').closest('article')).toHaveTextContent('Needs payroll review')
+    expect(screen.getByText('Unverified receipt worker').closest('article')).not.toHaveTextContent('hrs paid')
+    expect(queue).toHaveTextContent('Paid records')
+    expect(queue).toHaveTextContent('Accounting records')
+  })
+
+  it('shows zero active items with completed history still available', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{ source_time_entry_id: '84', source_user_id: '7', display_name: 'Retained paid worker', email: null, category: null,
+        original_work_date: '2026-05-04', first_excluded_batch_id: 'old', latest_excluded_batch_id: 'old',
+        exclusion_reason: 'denied_approval', held_total_hours: 4, current_total_hours: 4, status: 'payment_issued', completion: 'paid', included_batch: null }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0,
+        unresolved_count: 0, paid_count: 1, accounting_recorded_count: 0 }, truncated: false,
+    } })
+    renderPayrollRuns()
+    await screen.findByText('Retained paid worker')
+    expect(screen.getByRole('region', { name: 'Carryover queue' })).toHaveTextContent('0 active items')
+    expect(screen.getByText('No unpaid carryover items need attention.')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Recorded history' })).toHaveTextContent('Retained paid worker')
+  })
+
+  it('does not claim no unfinished work when completed visible history is truncated', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{ source_time_entry_id: '85', source_user_id: '7', display_name: 'Visible paid record', email: null, category: null,
+        original_work_date: '2026-05-04', first_excluded_batch_id: 'old', latest_excluded_batch_id: 'old',
+        exclusion_reason: 'pending_approval', held_total_hours: 4, current_total_hours: 4, status: 'payment_issued', completion: 'paid', included_batch: null }],
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 1, not_payable_count: 0,
+        unresolved_count: 1, paid_count: 250, accounting_recorded_count: 0 }, truncated: true,
+    } })
+    renderPayrollRuns()
+    await screen.findByText('Visible paid record')
+    expect(screen.getByRole('region', { name: 'Carryover queue' })).toHaveTextContent('1 active item')
+    expect(screen.queryByText('No unpaid carryover items need attention.')).not.toBeInTheDocument()
+    expect(screen.getByText(/Showing the first 250 carryover records/)).toBeInTheDocument()
+  })
+
   it('explains a supplemental destination without promising automatic regular inclusion', async () => {
     apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
       items: [{
@@ -250,6 +356,124 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/Complete that run and record its payment/)).toBeInTheDocument()
     expect(screen.queryByText('Ready for next cutoff')).not.toBeInTheDocument()
     expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['awaiting_approval', 'Needs approval'],
+    ['needs_review', 'Needs payroll review'],
+    ['ready_for_next_batch', 'Ready for next cutoff'],
+    ['scheduled_supplemental', 'Scheduled for supplemental payroll'],
+    ['payment_issued', 'Paid'],
+    ['committed', 'Payroll committed'],
+    ['partially_allocated', 'Partially assigned to payroll'],
+    ['partially_paid', 'Partially paid'],
+    ['payment_attested_pending_evidence', 'Payment reported; evidence pending'],
+    ['not_payable', null],
+  ])('uses the current %s projection for a historical denied approval card', async (status, label) => {
+    const common = {
+      source_user_id: '7', email: null, category: null, original_work_date: '2026-05-04',
+      first_excluded_batch_id: 'AIRE-PAY-OLD', latest_excluded_batch_id: 'AIRE-PAY-OLD',
+      held_total_hours: 4, current_total_hours: 4, included_batch: null,
+    }
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [
+        { ...common, source_time_entry_id: '3', display_name: 'Formerly denied worker', exclusion_reason: 'denied_approval', status },
+        { ...common, source_time_entry_id: '4', display_name: 'Other carryover worker', exclusion_reason: 'pending_approval', status: 'awaiting_approval' },
+      ],
+      summary: { awaiting_approval_count: status === 'awaiting_approval' ? 2 : 1,
+        ready_for_next_batch_count: status === 'ready_for_next_batch' ? 1 : 0,
+        needs_review_count: status === 'needs_review' ? 1 : 0,
+        in_payroll_count: ['scheduled_supplemental', 'payment_issued', 'committed', 'partially_paid', 'partially_allocated', 'payment_attested_pending_evidence'].includes(status) ? 1 : 0,
+        not_payable_count: status === 'not_payable' ? 1 : 0 },
+      truncated: false,
+    } })
+    renderPayrollRuns()
+    await screen.findByText('Other carryover worker')
+    const queue = screen.getByRole('region', { name: 'Carryover queue' })
+    if (label) {
+      const card = screen.getByText('Formerly denied worker').closest('article')!
+      expect(within(card).getByText(label, { selector: 'span' })).toBeInTheDocument()
+      expect(within(card).getByText('Originally excluded: Denied')).toBeInTheDocument()
+      expect(queue).toHaveTextContent('2 active items')
+      if (status === 'needs_review' || status === 'scheduled_supplemental') {
+        expect(card).toHaveTextContent('will not be included automatically')
+        expect(card).not.toHaveTextContent('AIRE will include it automatically')
+      }
+    } else {
+      expect(screen.queryByText('Formerly denied worker')).not.toBeInTheDocument()
+      expect(queue).toHaveTextContent('1 active item')
+      expect(queue).toHaveTextContent('Closed unpaid')
+    }
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
+  it('keeps a retained closed-unpaid decision in history while valid pending time remains active', async () => {
+    const common = { source_user_id: '7', email: null, category: null, original_work_date: '2026-11-01',
+      first_excluded_batch_id: 'AIRE-OLD', latest_excluded_batch_id: 'AIRE-OLD', exclusion_reason: 'pending_approval', included_batch: null }
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [
+        { ...common, source_time_entry_id: '1', display_name: 'Invalid training record', status: 'not_payable', held_total_hours: 1, current_total_hours: 1,
+          payroll_lifecycle: { status: 'awaiting_approval', label: 'Awaiting approval', settlements: [] },
+          settlement_case: { id: 'case-invalid', status: 'not_payable', destination_kind: 'not_payable', resolution_note: 'Duplicate training input; no wages owed',
+            decision: { event_id: 'decision-1', event_type: 'marked_not_payable', occurred_at: '2026-11-02T07:00:00Z',
+              reason: 'Duplicate training input; no wages owed', actor: { name: 'Synthetic Reviewer' } } } },
+        { ...common, source_time_entry_id: '2', display_name: 'Valid pending worker', status: 'awaiting_approval', held_total_hours: 4, current_total_hours: 4 },
+      ], summary: { awaiting_approval_count: 1, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 1,
+        unresolved_count: 1, paid_count: 0, accounting_recorded_count: 0 }, truncated: false,
+    } })
+    renderPayrollRuns()
+    await screen.findByText('Valid pending worker')
+    const history = screen.getByRole('region', { name: 'Recorded history' })
+    expect(history).toHaveTextContent('Invalid training record')
+    expect(history).toHaveTextContent('Closed unpaid')
+    expect(history).toHaveTextContent('1.00 hrs')
+    expect(history).toHaveTextContent('Duplicate training input; no wages owed')
+    expect(history).toHaveTextContent('Synthetic Reviewer')
+    expect(within(history).getByText(/Nov 2, 2026/)).toBeInTheDocument()
+    expect(history).toHaveTextContent('No payment is recorded for this entry.')
+    expect(history).not.toHaveTextContent('paid in retained payment evidence')
+    expect(history).not.toHaveTextContent('outstanding')
+    expect(history).not.toHaveTextContent('Valid pending worker')
+    expect(screen.getByRole('region', { name: 'Carryover queue' })).toHaveTextContent('1 active item')
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
+  it('does not erase prior paid evidence when displaying an unpaid closure', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: [{ source_time_entry_id: '1', source_user_id: '7', display_name: 'Retained evidence worker', email: null,
+        category: null, original_work_date: '2026-11-01', first_excluded_batch_id: 'AIRE-OLD', latest_excluded_batch_id: 'AIRE-OLD',
+        exclusion_reason: 'pending_approval', included_batch: null, status: 'not_payable', held_total_hours: 1, current_total_hours: 1,
+        settlement_case: { id: 'case-invalid', status: 'not_payable', destination_kind: 'not_payable', resolution_note: 'The held input is invalid' },
+        payroll_lifecycle: { status: 'payment_issued', label: 'Paid', settlements: [{ status: 'payment_issued', total_hours: 2, paid_hours: 2 }] },
+      }], summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0,
+        not_payable_count: 1, unresolved_count: 0, paid_count: 0 }, truncated: false,
+    } })
+    renderPayrollRuns()
+    const history = await screen.findByRole('region', { name: 'Recorded history' })
+    expect(history).toHaveTextContent('2.00 hrs paid in retained payment evidence')
+    expect(history).not.toHaveTextContent('0.00 hrs paid')
+    expect(history).not.toHaveTextContent('No payment is recorded for this entry.')
+    expect(history).toHaveTextContent('This decision records no payment')
+  })
+
+  it('keeps all four routed workers visible when one was originally denied approval', async () => {
+    apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
+      items: ['First', 'Second', 'Formerly denied', 'Fourth'].map((name, index) => ({
+        source_time_entry_id: String(index + 1), source_user_id: String(index + 1), display_name: `${name} worker`,
+        email: null, category: null, original_work_date: '2026-05-04',
+        first_excluded_batch_id: 'AIRE-PAY-OLD', latest_excluded_batch_id: 'AIRE-PAY-OLD',
+        exclusion_reason: index === 2 ? 'denied_approval' : 'pending_approval',
+        held_total_hours: 4, current_total_hours: 4, status: 'ready_for_next_batch', included_batch: null,
+      })),
+      summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 4, in_payroll_count: 0, not_payable_count: 0 },
+      truncated: false,
+    } })
+    renderPayrollRuns()
+    expect(await screen.findByText('Formerly denied worker')).toBeInTheDocument()
+    const queue = screen.getByRole('region', { name: 'Carryover queue' })
+    expect(within(queue).getAllByRole('article')).toHaveLength(4)
+    expect(queue).toHaveTextContent('4 active items')
+    expect(within(queue).getAllByText('Ready for next cutoff', { selector: 'span' })).toHaveLength(4)
   })
 
   it('explains post-cutoff edits and deletions in plain language', async () => {
@@ -959,6 +1183,7 @@ describe('PayrollRuns', () => {
    apiMock.getPayrollBatch.mockResolvedValue({ data: carried })
    renderPayrollRuns('/admin/payroll?batch_id=AIRE-PAY-20260831-ABC123')
    const link = await screen.findByRole('link', { name: 'Review original hours' })
+   expect(screen.getByText('1 payroll line')).toBeInTheDocument()
    expect(screen.getByText('Carried forward hours')).toBeInTheDocument()
    expect(screen.queryByText('Late approval carried forward')).not.toBeInTheDocument()
    const url = new URL(link.getAttribute('href')!, 'http://localhost')

@@ -6,6 +6,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 
 interface ClockInOutCardProps {
   onStatusChange?: () => void
+  showDisabledNotice?: boolean
 }
 
 const ENABLE_CLOCK_OUT_DESCRIPTION = false
@@ -46,7 +47,7 @@ function requestCurrentLocation(): Promise<ClockLocationPayload> {
   })
 }
 
-export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) {
+export default function ClockInOutCard({ onStatusChange, showDisabledNotice = true }: ClockInOutCardProps) {
   const [status, setStatus] = useState<ClockStatus | null>(null)
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | ''>('')
@@ -295,6 +296,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   }
 
   if (status && !status.time_tracking_enabled) {
+    if (!showDisabledNotice) return null
     return (
       <div className="rounded-2xl border border-neutral-warm bg-white p-5 shadow-sm">
         <div className="flex items-start gap-3">

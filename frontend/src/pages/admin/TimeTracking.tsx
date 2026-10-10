@@ -29,6 +29,7 @@ interface TimeCategory {
 }
 
 interface TimeEntryItem {
+  version?: number
   id: number
   work_date: string
   start_time: string | null
@@ -267,6 +268,7 @@ function linkedEmployeeStatus(searchParams: URLSearchParams): ReportEmployeeStat
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
   const serialize = (employee: HoursReportEmployee, entry: HoursReportEntry): TimeEntryItem => ({
     id: entry.id,
+    version: entry.version,
     work_date: entry.work_date,
     start_time: entry.start_time,
     end_time: entry.end_time,
@@ -394,6 +396,11 @@ export default function TimeTracking() {
   const entriesPage = Math.max(1, Math.min(10000, Number.parseInt(searchParams.get('entries_page') || '1', 10) || 1))
   const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
   const entryRequest = useRef(0)
+  const linkedEntryRequest = useRef(0)
+  const [entryRefreshRevision, setEntryRefreshRevision] = useState(0)
+  // Mutations request a fresh read in the current route, rather than retaining
+  // a load callback for the employee/date that was open when the write began.
+  const refreshEntryViews = useCallback(() => setEntryRefreshRevision(revision => revision + 1), [])
   const [linkedEntry, setLinkedEntry] = useState<TimeEntryItem | null>(null)
   const [linkedEntryError, setLinkedEntryError] = useState<string | null>(null)
   const routedPrefill = searchParams.get('prefill')
@@ -431,6 +438,7 @@ export default function TimeTracking() {
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [pendingApprovalSummary, setPendingApprovalSummary] = useState<PendingApprovalsSummary | null>(null)
+  const pendingSummaryRequestSequence = useRef(0)
   const [isAdmin, setIsAdmin] = useState(authSaysAdmin)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [optionsReady, setOptionsReady] = useState(false)
@@ -537,19 +545,19 @@ export default function TimeTracking() {
   }
 
   useEffect(() => {
+    const request = ++linkedEntryRequest.current
     if (!routedEntryId) { setLinkedEntry(null); setLinkedEntryError(null); return }
-    let cancelled = false
     setLinkedEntry(null)
     setLinkedEntryError(null)
     void api.getTimeEntry(Number(routedEntryId)).then(response => {
-      if (cancelled) return
+      if (request !== linkedEntryRequest.current) return
       const entry = response.data?.time_entry as unknown as TimeEntryItem | undefined
       if (!entry || response.error) { setLinkedEntryError(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.'); return }
       if (String(entry.id) !== routedEntryId || (routedUserId && String(entry.user.id) !== routedUserId)) { setLinkedEntryError('The linked entry does not match the selected employee. Return to the employee review.'); return }
       setLinkedEntry(entry)
-    }).catch(() => { if (!cancelled) setLinkedEntryError('The linked entry could not be loaded. Refresh to retry or return to the employee review.') })
-    return () => { cancelled = true }
-  }, [routedEntryId, routedUserId])
+    }).catch(() => { if (request === linkedEntryRequest.current) setLinkedEntryError('The linked entry could not be loaded. Refresh to retry or return to the employee review.') })
+    return () => { linkedEntryRequest.current += 1 }
+  }, [routedEntryId, routedUserId, entryRefreshRevision])
 
   // Load time entries
   const loadEntries = useCallback(async () => {
@@ -571,8 +579,8 @@ export default function TimeTracking() {
       }
 
       // Apply filters
-      if (entryFilters.user_id) {
-        params.user_id = parseInt(entryFilters.user_id)
+      if (routedUserId) {
+        params.user_id = parseInt(routedUserId)
       }
       if (entryFilters.time_category_id) {
         params.time_category_id = parseInt(entryFilters.time_category_id)
@@ -592,7 +600,7 @@ export default function TimeTracking() {
     } finally {
       if (request === entryRequest.current) setLoading(false)
     }
-  }, [currentDate, viewMode, entryFilters, entriesPage])
+  }, [currentDate, viewMode, routedUserId, entryFilters.time_category_id, entriesPage])
 
   // Load categories and users
   const loadOptions = useCallback(async () => {
@@ -658,6 +666,7 @@ export default function TimeTracking() {
   }, [isAdmin])
 
   const loadPendingApprovalSummary = useCallback(async () => {
+    const requestSequence = ++pendingSummaryRequestSequence.current
     if (!isAdmin) {
       setPendingApprovalSummary(null)
       return
@@ -665,6 +674,7 @@ export default function TimeTracking() {
 
     try {
       const response = await api.getPendingApprovals({ page: 1, per_page: 1 })
+      if (requestSequence !== pendingSummaryRequestSequence.current) return
       if (response.data) {
         setPendingApprovalSummary(response.data.summary ?? null)
       }
@@ -813,8 +823,9 @@ export default function TimeTracking() {
   }, [activeTab, reportFilters, searchParams, setSearchParams])
 
   useEffect(() => {
-    loadEntries()
-  }, [loadEntries])
+    void loadEntries()
+    return () => { entryRequest.current += 1 }
+  }, [loadEntries, entryRefreshRevision])
 
   useEffect(() => {
     loadOptions()
@@ -832,14 +843,19 @@ export default function TimeTracking() {
     }
 
     void loadPendingApprovalSummary()
-    return startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
-  }, [isAdmin, loadPendingApprovalSummary])
+    const stopPolling = startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
+    return () => {
+      stopPolling()
+      pendingSummaryRequestSequence.current += 1
+    }
+  }, [isAdmin, loadPendingApprovalSummary, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab === 'reports') {
       loadReport()
     }
-  }, [activeTab, loadReport])
+    return () => { reportRequestSequence.current += 1 }
+  }, [activeTab, loadReport, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab !== 'reports') {
@@ -1023,8 +1039,7 @@ export default function TimeTracking() {
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
       returnToPersonDay.current = null
       setShowModal(false)
-      await loadEntries()
-      await loadPendingApprovalSummary()
+      refreshEntryViews()
     } catch {
       setError('Failed to save time entry')
     } finally {
@@ -1060,21 +1075,18 @@ export default function TimeTracking() {
       returnToPersonDay.current = null
       setShowModal(false)
       setEditingEntry(null)
-      await loadEntries()
-      await loadPendingApprovalSummary()
+      refreshEntryViews()
     } catch {
       setError('Failed to delete time entry')
     }
   }
 
-  const refreshEntriesAfterEdit = async () => {
+  const refreshEntriesAfterEdit = () => {
     reopenPersonDayAfterLoad.current = returnToPersonDay.current
     returnToPersonDay.current = null
     setShowEditModal(false)
     setEditingEntry(null)
-    await loadEntries()
-    if (activeTab === 'reports') await loadReport()
-    await loadPendingApprovalSummary()
+    refreshEntryViews()
   }
 
   // Get week dates for week view
@@ -1120,6 +1132,19 @@ export default function TimeTracking() {
   const workspacePeriod = activeTab === 'reports'
     ? { start: reportFilters.start_date, end: reportFilters.end_date }
     : routedPeriod ?? currentPayrollPeriod()
+  const reportLinkedEntryId = linkedEntry && String(linkedEntry.id) === routedEntryId
+    && (!reportFilters.user_id || String(linkedEntry.user.id) === reportFilters.user_id)
+    && isIsoDate(linkedEntry.work_date) && isIsoDate(reportFilters.start_date) && isIsoDate(reportFilters.end_date)
+    && linkedEntry.work_date >= reportFilters.start_date && linkedEntry.work_date <= reportFilters.end_date
+    ? routedEntryId : null
+  const reportPayrollHref = withPayrollPeriod('/admin/payroll', {
+    start: reportFilters.start_date,
+    end: reportFilters.end_date,
+  }, {
+    ...(/^[1-9]\d*$/.test(reportFilters.user_id) ? { user_id: reportFilters.user_id } : {}),
+    ...(reportLinkedEntryId ? { entry_id: reportLinkedEntryId } : {}),
+    ...(returnTo ? { return_to: returnTo } : {}),
+  })
 
   const selectWorkspaceSection = (section: TimeTab) => {
     setActiveTab(section)
@@ -1206,10 +1231,10 @@ export default function TimeTracking() {
       {activeTab === 'entries' && (
         <>
           {/* Clock In/Out Card - full width, horizontal on desktop */}
-          <ClockInOutCard onStatusChange={() => {
-            void loadEntries()
-            void loadPendingApprovalSummary()
-          }} />
+          <ClockInOutCard
+            onStatusChange={refreshEntryViews}
+            showDisabledNotice={!isAdmin || (currentUserId !== null && routedUserId === String(currentUserId))}
+          />
 
           {isAdmin && <WhosWorking />}
         </>
@@ -1217,6 +1242,7 @@ export default function TimeTracking() {
 
       {activeTab === 'approvals' && isAdmin && (
         <ApprovalQueue
+          isAdmin={isAdmin}
           approvalGroups={approvalGroups}
           approvalGroupsLoaded={approvalGroupsLoaded}
           initialDateFilter={routedThroughDate
@@ -1224,10 +1250,7 @@ export default function TimeTracking() {
             : routedPeriod
               ? { mode: 'range', startDate: routedPeriod.start, endDate: routedPeriod.end }
               : undefined}
-          onUpdate={() => {
-            void loadEntries()
-            void loadPendingApprovalSummary()
-          }}
+          onUpdate={refreshEntryViews}
           canDeleteEntry={canDeleteEntry}
         />
       )}
@@ -1248,7 +1271,7 @@ export default function TimeTracking() {
               >
                 <option value="">All Employees</option>
                 {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
+                  <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
                 ))}
               </select>
             </div>
@@ -2006,7 +2029,7 @@ export default function TimeTracking() {
               </p>
             </div>
             <Link
-              to={withPayrollPeriod('/admin/payroll', { start: reportFilters.start_date, end: reportFilters.end_date })}
+              to={reportPayrollHref}
               className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               Prepare payroll cutoff
@@ -2218,8 +2241,9 @@ export default function TimeTracking() {
                 <div>
                   <h3 id="payroll-lifecycle-summary" className="font-semibold text-primary-dark">Payroll lifecycle</h3>
                   <p className="mt-0.5 text-xs text-text-muted">Entry-level status from AIRE cutoff through Cornerstone payment.</p>
+                  <p className="mt-0.5 text-xs text-text-muted">Accounting corrections are recorded entries, not payments.</p>
                 </div>
-                <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
+                <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
 
@@ -2229,6 +2253,7 @@ export default function TimeTracking() {
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
                 <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
+                <ReportMetric label="Accounting corrections" value={String(reportSummary.payroll_statuses?.accounting_correction_committed || 0)} />
                 <ReportMetric label="Check evidence pending" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
@@ -2402,6 +2427,7 @@ export default function TimeTracking() {
         categories={editingEntry && isAdmin
           ? categories.filter((category) => users.find((user) => user.id === editingEntry.user.id)?.time_category_ids?.includes(category.id))
           : categories}
+        isAdmin={isAdmin}
         canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
         onClose={closeEditModal}
         onSaved={refreshEntriesAfterEdit}

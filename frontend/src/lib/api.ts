@@ -498,6 +498,7 @@ export interface ApprovalReason {
 }
 
 export interface TimeEntry {
+  version?: number;
   id: number;
   work_date: string;
   start_time: string | null;
@@ -801,6 +802,7 @@ export interface PendingApprovalsResponse {
 
 export interface HoursReportEntry {
   id: number;
+  version?: number;
   work_date: string;
   start_time: string | null;
   end_time: string | null;
@@ -840,6 +842,8 @@ export type PayrollEntryLifecycleStatus =
   | 'partially_processed'
   | 'partially_allocated'
   | 'payment_attested_pending_evidence';
+
+export type HoursReportPayrollStatuses = Partial<Record<PayrollEntryLifecycleStatus | 'accounting_correction_committed', number>>;
 
 export interface AccountingCorrectionContext {
   accounting_only: true;
@@ -994,7 +998,7 @@ export interface HoursReportEmployee {
     uncategorized_count: number;
   };
   quality: HoursReportQuality;
-  payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
+  payroll_statuses?: HoursReportPayrollStatuses;
   days: HoursReportDay[];
   excluded_entries?: HoursReportEntry[];
   categories: HoursReportCategory[];
@@ -1037,7 +1041,7 @@ export interface HoursReportResponse {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
-    payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
+    payroll_statuses?: HoursReportPayrollStatuses;
   };
   breakdowns: {
     by_category: HoursReportCategory[];
@@ -1198,6 +1202,15 @@ export interface PayrollBatchPayload {
   preview?: boolean;
   can_finalize?: boolean;
   requires_negative_adjustment_acknowledgement?: boolean;
+  finalization_blocked_reason?: string | null;
+  published_calendar_periods?: Array<{
+    external_pay_period_id: string;
+    start_date: string;
+    end_date: string;
+    cutoff_at: string;
+    status: 'scheduled' | 'failed' | 'finalized';
+    payroll_batch_id?: string | null;
+  }>;
   negative_adjustment_acknowledgement?: string;
   export?: {
     id: string;
@@ -1254,6 +1267,20 @@ export interface ManualPayrollProcessingInput {
 }
 
 export interface PayrollCarryoverItem {
+  settlement_case?: {
+    id: string;
+    status: string;
+    destination_kind: string;
+    resolution_note?: string | null;
+    decision?: {
+      event_id: string;
+      event_type: string;
+      occurred_at: string;
+      reason?: string;
+      actor?: { name: string; payroll_integration_id?: string };
+    };
+  } | null;
+  completion?: 'paid' | 'accounting_recorded' | null;
   source_time_entry_id: string;
   source_user_id: string;
   source_user_uuid?: string | null;
@@ -1284,6 +1311,9 @@ export interface PayrollCarryoverQueue {
     needs_review_count?: number;
     in_payroll_count: number;
     not_payable_count: number;
+    unresolved_count?: number;
+    paid_count?: number;
+    accounting_recorded_count?: number;
   };
   truncated: boolean;
 }
@@ -1598,6 +1628,9 @@ export const api = {
     }),
 
   updateTimeEntry: (id: number, data: Partial<{
+    review_action: 'end_clock' | 'resubmit_denied';
+    expected_version: number;
+    stop_date: string;
     work_date: string;
     start_time: string;
     end_time: string;

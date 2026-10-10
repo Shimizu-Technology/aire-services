@@ -163,17 +163,67 @@ function SummaryCards({ payload }: { payload: PayrollBatchPayload }) {
   )
 }
 
+function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] }) {
+  const closedUnpaid = item.status === 'not_payable' && item.settlement_case?.status === 'not_payable'
+  const decision = closedUnpaid ? item.settlement_case?.decision : undefined
+  const accounting = item.completion === 'accounting_recorded' || (item.payroll_lifecycle?.accounting_only === true && item.payroll_lifecycle.status === 'committed')
+  const unverified = item.completion === null && (item.status === 'payment_issued' || accounting)
+  const status = closedUnpaid ? { label: 'Closed unpaid', detail: 'This decision records no payment. The retained reason and reviewer evidence are shown below.', className: 'border-slate-200 bg-slate-100 text-slate-700' } : unverified ? { label: 'Needs payroll review', detail: 'Reported processing still needs exact current source and receipt evidence. Review the saved payroll and retained history.', className: 'border-amber-200 bg-amber-50 text-amber-800' } : accounting ? { label: ACCOUNTING_CORRECTION_LABEL, detail: ACCOUNTING_CORRECTION_NOTE, className: 'border-blue-200 bg-blue-50 text-blue-800' } : CARRYOVER_STATUS[item.status] || {
+    label: item.status,
+    detail: 'Payroll reported a status that is not yet recognized by this version of AIRE.',
+    className: 'border-slate-200 bg-slate-100 text-slate-700',
+  }
+  const processing = item.included_batch?.processing
+  const lifecycle = item.payroll_lifecycle
+  const recordedPaid = lifecycle?.settlements.reduce((sum, row) => sum + (row.paid_hours ?? (row.status === 'payment_issued' ? row.total_hours : 0)), 0) ?? 0
+  const paymentProgress = lifecycle ? {
+    paid_hours: recordedPaid,
+    outstanding_hours: Math.max(0, (item.current_total_hours ?? item.held_total_hours) - recordedPaid),
+  } : processing && 'paid_hours' in processing ? processing : null
+  return (
+    <article key={item.source_time_entry_id} className="rounded-2xl border border-slate-200 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-slate-950">{item.display_name}</h3>
+          <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)} · entry #{item.source_time_entry_id}</p>
+        </div>
+        <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+        <span>{formatHours(item.current_total_hours ?? item.held_total_hours)}</span>
+        <span>Originally excluded: {EXCLUSION_LABELS[item.exclusion_reason] || item.exclusion_reason}</span>
+      </div>
+      <p className="mt-3 text-sm leading-5 text-slate-600">{status.detail}</p>
+      {closedUnpaid && <div className="mt-3 space-y-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+        <p>{decision?.reason || item.settlement_case?.resolution_note || 'No saved reason is available for this decision.'}</p>
+        {decision && <p className="text-xs text-slate-500">{decision.actor?.name || 'Reviewer unavailable'} · {formatDateTime(decision.occurred_at)}</p>}
+        <p className="text-xs font-medium">{(paymentProgress?.paid_hours ?? 0) > 0
+          ? `${formatHours(paymentProgress?.paid_hours)} paid in retained payment evidence`
+          : 'No payment is recorded for this entry.'}</p>
+      </div>}
+      {paymentProgress && !closedUnpaid && !accounting && !unverified && (
+        <p className="mt-2 text-xs font-medium text-slate-700">
+          {formatHours(paymentProgress.paid_hours)} paid · {formatHours(paymentProgress.outstanding_hours)} outstanding
+        </p>
+      )}
+      {item.included_batch && <p className="mt-2 text-xs text-slate-500">Later batch: {formatDate(item.included_batch.start_date)}–{formatDate(item.included_batch.end_date)} · {item.included_batch.id}</p>}
+    </article>
+  )
+}
+
 function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueue | null; loading: boolean; error: string | null }) {
-  const activeItems = queue?.items.filter((item) => item.status !== 'not_payable') || []
+  const activeItems = queue?.items.filter((item) => item.status !== 'not_payable' && !item.completion) || []
+  const recordedItems = queue?.items.filter((item) => item.completion || (item.status === 'not_payable' && item.settlement_case?.status === 'not_payable')) || []
+  const unresolvedCount = queue?.summary.unresolved_count ?? activeItems.length
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="carryover-queue-title">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">Unpaid time lifecycle</p>
           <h2 id="carryover-queue-title" className="mt-1 text-xl font-semibold text-slate-950">Carryover queue</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Hours excluded from an earlier cutoff stay here until they are approved, included in a later batch, and acknowledged by Cornerstone.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Review unfinished hours here. Verified payments, accounting corrections and closed unpaid decisions remain available in recorded history.</p>
         </div>
-        {queue && <p className="text-xs text-slate-500">{activeItems.length} active item{activeItems.length === 1 ? '' : 's'}</p>}
+        {queue && <p className="text-xs text-slate-500">{unresolvedCount} active item{unresolvedCount === 1 ? '' : 's'}</p>}
       </div>
 
       {loading && <p className="mt-5 rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">Loading carryover status…</p>}
@@ -186,6 +236,8 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
               ['Ready for cutoff', queue.summary.ready_for_next_batch_count],
               ['Needs payroll review', queue.summary.needs_review_count ?? 0],
               ['In payroll', queue.summary.in_payroll_count],
+              ['Paid records', queue.summary.paid_count ?? recordedItems.filter((item) => item.completion === 'paid').length],
+              ['Accounting records', queue.summary.accounting_recorded_count ?? recordedItems.filter((item) => item.completion === 'accounting_recorded').length],
               ['Closed unpaid', queue.summary.not_payable_count],
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
@@ -195,46 +247,17 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
             ))}
           </div>
           {queue.truncated && <p className="mt-4 text-xs text-amber-800">Showing the first 250 carryover records. The complete history remains in AIRE.</p>}
-          <div className="mt-5 grid gap-3 lg:grid-cols-2">
-            {activeItems.length === 0 && <p className="rounded-xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">No unpaid carryover items need attention.</p>}
-            {activeItems.map((item) => {
-              const accounting = item.payroll_lifecycle?.accounting_only === true && item.payroll_lifecycle.status === 'committed'
-              const status = accounting ? { label: ACCOUNTING_CORRECTION_LABEL, detail: ACCOUNTING_CORRECTION_NOTE, className: 'border-blue-200 bg-blue-50 text-blue-800' } : CARRYOVER_STATUS[item.status] || {
-                label: item.status,
-                detail: 'Payroll reported a status that is not yet recognized by this version of AIRE.',
-                className: 'border-slate-200 bg-slate-100 text-slate-700',
-              }
-              const processing = item.included_batch?.processing
-              const lifecycle = item.payroll_lifecycle
-              const recordedPaid = lifecycle?.settlements.reduce((sum, row) => sum + (row.paid_hours ?? (row.status === 'payment_issued' ? row.total_hours : 0)), 0) ?? 0
-              const paymentProgress = lifecycle ? {
-                paid_hours: recordedPaid,
-                outstanding_hours: Math.max(0, (item.current_total_hours ?? item.held_total_hours) - recordedPaid),
-              } : processing && 'paid_hours' in processing ? processing : null
-              return (
-                <article key={item.source_time_entry_id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-slate-950">{item.display_name}</h3>
-                      <p className="mt-1 text-xs text-slate-600">{item.category?.name || 'Category unavailable'} · {formatDate(item.original_work_date)} · entry #{item.source_time_entry_id}</p>
-                    </div>
-                    <span className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-                    <span>{formatHours(item.current_total_hours ?? item.held_total_hours)}</span>
-                    <span>Originally excluded: {EXCLUSION_LABELS[item.exclusion_reason] || item.exclusion_reason}</span>
-                  </div>
-                  <p className="mt-3 text-sm leading-5 text-slate-600">{status.detail}</p>
-                  {paymentProgress && !accounting && (
-                    <p className="mt-2 text-xs font-medium text-slate-700">
-                      {formatHours(paymentProgress.paid_hours)} paid · {formatHours(paymentProgress.outstanding_hours)} outstanding
-                    </p>
-                  )}
-                  {item.included_batch && <p className="mt-2 text-xs text-slate-500">Later batch: {formatDate(item.included_batch.start_date)}–{formatDate(item.included_batch.end_date)} · {item.included_batch.id}</p>}
-                </article>
-              )
-            })}
-          </div>
+          {unresolvedCount === 0 && <p className="mt-5 rounded-xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">No unpaid carryover items need attention.</p>}
+          {activeItems.length > 0 && <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {activeItems.map((item) => <CarryoverCard key={item.source_time_entry_id} item={item} />)}
+          </div>}
+          {recordedItems.length > 0 && <section aria-label="Recorded history" className="mt-6 border-t border-slate-200 pt-5">
+            <h3 className="text-base font-semibold text-slate-950">Recorded history</h3>
+            <p className="mt-1 text-sm text-slate-600">Completed receipt evidence and closed unpaid decisions are retained here. Accounting corrections and unpaid closures do not record a new payment.</p>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {recordedItems.map((item) => <CarryoverCard key={item.source_time_entry_id} item={item} />)}
+            </div>
+          </section>}
         </>
       )}
     </section>
@@ -287,7 +310,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Included ledger</p>
             <h2 className="mt-1 text-xl font-semibold text-slate-950">What this cutoff sends to payroll</h2>
           </div>
-          <p className="text-xs text-slate-500">{payload.summary.adjustment_count} adjustments</p>
+          <p className="text-xs text-slate-500">{payload.summary.adjustment_count} payroll {payload.summary.adjustment_count === 1 ? 'line' : 'lines'}</p>
         </div>
         <div className="mt-5 space-y-4">
           {employees.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No included hours match this employee in this batch.</p>}
@@ -295,7 +318,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
             <article key={employee.source_user_id} className="rounded-2xl border border-slate-200 p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="font-semibold text-slate-950"><Link className="hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: employee.adjustments.map((line) => line.original_work_date).sort()[0] || payload.start_date, endDate: employee.adjustments.map((line) => line.original_work_date).sort().at(-1) || payload.end_date, returnTo })}>{employee.display_name}</Link></h3>
+                  <h3 className="font-semibold text-slate-950"><Link className="inline-flex min-h-11 min-w-11 items-center hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: employee.adjustments.map((line) => line.original_work_date).sort()[0] || payload.start_date, endDate: employee.adjustments.map((line) => line.original_work_date).sort().at(-1) || payload.end_date, returnTo })}>{employee.display_name}</Link></h3>
                   <p className="text-xs text-slate-500">{employee.email || 'Kiosk-only team member'}</p>
                 </div>
                 <p className="text-sm font-semibold text-slate-800">{formatHours(employee.total_hours)}</p>
@@ -305,7 +328,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
                   <div key={`${adjustment.source_time_entry_id}-${adjustment.line_key}`} aria-label={entryId === adjustment.source_time_entry_id ? 'Linked frozen time entry' : undefined} className={`grid gap-2 rounded-xl px-3 py-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center ${entryId === adjustment.source_time_entry_id ? 'bg-cyan-50 ring-2 ring-cyan-600' : 'bg-slate-50'}`}>
                     <div>
                       <p className="font-medium text-slate-800">{adjustment.category?.name || 'Category missing'} · {formatDate(adjustment.original_work_date)}</p>
-                      <Link className="mt-1 inline-block text-xs font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: adjustment.original_work_date, endDate: adjustment.original_work_date, period: `${adjustment.original_work_date.slice(0, 7)}-${Number(adjustment.original_work_date.slice(8, 10)) <= 15 ? '01' : '16'}`, entry: adjustment.source_time_entry_id, returnTo })}>Review original hours</Link>
+                      <Link className="mt-1 inline-flex min-h-11 min-w-11 items-center text-xs font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(employee.source_user_id, { tab: 'hours', startDate: adjustment.original_work_date, endDate: adjustment.original_work_date, period: `${adjustment.original_work_date.slice(0, 7)}-${Number(adjustment.original_work_date.slice(8, 10)) <= 15 ? '01' : '16'}`, entry: adjustment.source_time_entry_id, returnTo })}>Review original hours</Link>
                       <p className="mt-0.5 text-xs text-slate-500">{adjustment.source_kind === 'current' ? 'Current period' : adjustment.source_kind === 'carryover' ? 'Carried forward hours' : 'Correction to a prior payroll cutoff'}</p>
                     </div>
                     <div className="text-left text-xs text-slate-600 sm:text-right">
@@ -435,6 +458,29 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
   )
 }
 
+function PublishedCalendarNotice({ payload, onOpenBatch }: {
+  payload: PayrollBatchPayload
+  onOpenBatch?: (id: string) => void
+}) {
+  if (!payload.published_calendar_periods?.length) return null
+  return (
+    <section aria-label="Published payroll calendar" className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-4 text-sm text-cyan-950">
+      <p className="font-semibold">Use the published payroll calendar</p>
+      <p className="mt-1 leading-6">{payload.finalization_blocked_reason || 'This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch.'}</p>
+      <p className="mt-1 leading-6">Open Payroll Calendar in Cornerstone Payroll and select the matching period. Its published cutoff determines which hours are included.</p>
+      <ul className="mt-3 space-y-2">
+        {payload.published_calendar_periods.map(period => (
+          <li key={period.external_pay_period_id}>
+            <p className="font-medium">Period {period.external_pay_period_id} · {formatDate(period.start_date)}–{formatDate(period.end_date)}</p>
+            <p>Published cutoff: {formatDateTime(period.cutoff_at)} · {period.status}</p>
+            {period.payroll_batch_id && onOpenBatch && <button type="button" onClick={() => onOpenBatch(period.payroll_batch_id!)} className="mt-2 min-h-11 rounded-lg border border-cyan-300 bg-white px-3 py-2 font-semibold text-primary hover:bg-cyan-100">View published batch</button>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function ManualProcessingDialog({ period, onClose, onRecorded }: {
   period: PayrollPeriod
   onClose: () => void
@@ -491,14 +537,14 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
   const missingCategories = snapshot?.issues.missing_category_count || 0
   const negativeAdjustments = snapshot?.issues.negative_adjustment_count || 0
   const canRecord = Boolean(
-    snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
+    !snapshot?.published_calendar_periods?.length && snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
     new Date(processedAt || 0).getTime() >= new Date(cutoffAt || 0).getTime() &&
     (!missingCategories || acknowledgeMissingCategories) &&
     (!negativeAdjustments || (acknowledgeNegativeAdjustments && negativeAdjustmentNote.trim().length >= 10)) && !submitting,
   )
 
   const recordProcessed = async () => {
-    if (!snapshot || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
+    if (!snapshot || snapshot.published_calendar_periods?.length || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
     setSubmitting(true)
     setError(null)
     const response = await api.finalizePayrollBatch({
@@ -538,6 +584,7 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
 
         <button type="button" onClick={() => void reviewSnapshot()} disabled={reviewing || !cutoffLocal} className="mt-4 min-h-11 w-full rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">{reviewing ? 'Recreating snapshot…' : snapshot ? 'Refresh historical snapshot' : 'Review historical snapshot'}</button>
 
+        {snapshot && <PublishedCalendarNotice payload={snapshot} />}
         {snapshot && (
           <div className="mt-5 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-cyan-800">Snapshot to be recorded</p>
@@ -761,7 +808,7 @@ export default function PayrollRuns() {
   }
 
   const finalize = async (note?: string) => {
-    if (!preview) return
+    if (!preview || preview.published_calendar_periods?.length) return
     setFinalizing(true)
     setDialogError(null)
     const response = await api.finalizePayrollBatch({
@@ -884,12 +931,13 @@ export default function PayrollRuns() {
             <div className="flex flex-col gap-2 sm:flex-row">
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
               {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download finalized CSV</button>}
-              {preview && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
-              {preview && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
+              {preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
+              {preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
             </div>
           </div>
+          {preview && <PublishedCalendarNotice payload={preview} onOpenBatch={(id) => { const next = new URLSearchParams(searchParams); next.set('batch_id', id); setSearchParams(next) }} />}
           <IssueSummary issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
-          {preview && !preview.can_finalize && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
+          {preview && preview.issues.missing_category_count > 0 && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
           <SummaryCards payload={activePayload} />
           {selectedUserId && <p className="text-sm text-slate-600">Included ledger filtered to the linked employee. Batch totals above include everyone.</p>}
           <BatchContents payload={activePayload} userId={selectedUserId} entryId={selectedEntryId} returnTo={currentUrl} />

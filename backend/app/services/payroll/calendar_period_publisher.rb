@@ -140,6 +140,7 @@ module Payroll
       raise ConflictError, "The first schedule version must be 1" unless attributes.fetch(:schedule_version) == 1
 
       reject_overlap!
+      reject_frozen_batch_overlap!
       PayrollCalendarPeriod.create!(period_attributes.merge(
         status: "scheduled",
         next_finalization_attempt_at: attributes.fetch(:cutoff_at)
@@ -159,6 +160,7 @@ module Payroll
 
       reject_overlap!(excluding: period)
       reject_invalid_settlement_routes!(period)
+      reject_frozen_batch_overlap!
       if attributes.key?(:overtime_policy) && period.overtime_policy != attributes.fetch(:overtime_policy)
         @previous_overtime_policy = period.overtime_policy.deep_dup
         period.allow_weekly_overtime_policy_upgrade = true
@@ -192,6 +194,16 @@ module Payroll
       )
       scope = scope.where.not(id: excluding.id) if excluding
       raise ConflictError, "Payroll calendar periods cannot overlap" if scope.exists?
+    end
+
+    # Manual finalizers hold this publisher's advisory lock until their batch
+    # commits. No batch lock is needed here: taking it after a period row would
+    # invert the evidence-command lock order.
+    def reject_frozen_batch_overlap!
+      batch = PayrollBatch.where("start_date <= ? AND end_date >= ?", attributes.fetch(:end_date), attributes.fetch(:start_date)).first
+      return unless batch
+
+      raise ConflictError, "Payroll batch #{batch.public_id} already covers part of this period; a published calendar cannot replace its frozen snapshot"
     end
 
     def period_attributes

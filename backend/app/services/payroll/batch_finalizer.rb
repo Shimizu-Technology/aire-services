@@ -7,6 +7,7 @@ module Payroll
 
     class FinalizationError < StandardError; end
     class ExistingBatchError < FinalizationError; end
+    class PublishedCalendarError < FinalizationError; end
     class OutOfOrderFinalizationError < FinalizationError; end
 
     attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note,
@@ -47,7 +48,9 @@ module Payroll
       outcome = "failed"
       batch = PayrollBatch.transaction do
         configure_lock_timeout!
+        lock_publication_for_manual_finalization!
         lock_finalization!
+        reject_published_calendar! unless automated_cutoff
         lock_source_ledger!
         source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         cutoff = cutoff_at || Time.current
@@ -156,6 +159,24 @@ module Payroll
     def configure_lock_timeout!
       quoted_timeout = ActiveRecord::Base.connection.quote(LOCK_TIMEOUT)
       ActiveRecord::Base.connection.execute("SET LOCAL lock_timeout = #{quoted_timeout}")
+    end
+
+    # Publication owns its advisory lock before taking period rows. Scheduled
+    # finalization already owns a period row before the batch lock, so it must
+    # never request this publication lock. Unlinked manual batches take both
+    # advisories in publication -> batch order and do not lock calendar rows.
+    def lock_publication_for_manual_finalization!
+      return if automated_cutoff
+
+      ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
+    end
+
+    def reject_published_calendar!
+      period = PayrollCalendarPeriod.overlapping(start_date, end_date).order(:start_date, :id).first
+      return unless period
+
+      raise PublishedCalendarError,
+            "This range overlaps published payroll calendar #{period.external_pay_period_id}. Use its Lock action in Cornerstone Payroll or view its finalized batch."
     end
 
     def lock_finalization!

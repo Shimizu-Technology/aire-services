@@ -4,7 +4,7 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TimeTracking from './TimeTracking'
-import type { HoursReportResponse } from '../../lib/api'
+import type { HoursReportEntry, HoursReportResponse } from '../../lib/api'
 
 const apiMock = vi.hoisted(() => ({
   getSchedule: vi.fn(),
@@ -16,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   getPendingApprovals: vi.fn(),
   getHoursReport: vi.fn(),
+  updateTimeEntry: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({ api: apiMock }))
@@ -185,6 +186,40 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.getByTestId('location-search')).toHaveTextContent('date=2026-08-20')
   })
 
+  it.each(['included', 'excluded'])('resubmits an %s report row using its current nonzero version', async (location) => {
+    const report = makeHoursReport('2026-08-01', '2026-08-15', 0)
+    const row: HoursReportEntry = {
+      id: 90, version: 7, work_date: '2026-08-05', start_time: '08:00', end_time: '12:00',
+      formatted_start_time: '8:00 AM', formatted_end_time: '12:00 PM', total_hours: 4, regular_hours: 0,
+      overtime_hours: 0, break_minutes: 0, description: 'Denied source facts', entry_method: 'manual',
+      clock_source: null, approval_status: 'denied', approved_by: null, approved_at: null,
+      overtime_status: 'none', time_category: { id: 3, name: 'Operations' }, breaks: [], quality_flags: [],
+    }
+    report.employees = [{
+      id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
+      full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
+      termination_effective_on: null, total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0,
+      entries_count: 1, days_worked: 1, first_work_date: row.work_date, last_work_date: row.work_date, ready: true,
+      issues: { pending_count: 0, denied_count: 1, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
+      quality: report.quality, categories: [], weeks: [],
+      days: location === 'included' ? [{ work_date: row.work_date, total_hours: 4, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries: [row] }] : [],
+      excluded_entries: location === 'excluded' ? [row] : [],
+    }]
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+    apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+    apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: {} } })
+    render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}><TimeRouteHarness /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Submit denied time for review' }))
+    expect(within(dialog).getByLabelText('End Time *')).toHaveValue('12:00')
+    expect(within(dialog).getByLabelText('End Time *')).toBeDisabled()
+    fireEvent.change(within(dialog).getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Submit for review' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(90,
+      { review_action: 'resubmit_denied', expected_version: 7 }, 'Request separate review'))
+  })
+
   it('synchronizes report requests when same-route payroll dates change', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
@@ -203,6 +238,46 @@ describe('TimeTracking routed report periods', () => {
       start_date: '2026-07-01',
       end_date: '2026-07-15',
     })))
+  })
+
+  it.each(['Prepare payroll cutoff', 'Open payroll cutoffs'])('keeps the selected report and employee context through %s', async (name) => {
+    apiMock.getHoursReport.mockResolvedValue({ data: makeHoursReport('2028-02-16', '2028-02-29', 0) })
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2028-02-20', hours: 8, user: { id: 7 }, approval_status: 'approved' } } })
+    const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
+    const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
+
+    const link = await screen.findByRole('link', { name })
+    await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
+    const href = new URL(link.getAttribute('href')!, 'https://local.invalid')
+    expect(href.pathname).toBe('/admin/payroll')
+    expect(Object.fromEntries(href.searchParams)).toEqual({ start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    fireEvent.click(link)
+    expect(screen.getByTestId('location-search')).toHaveTextContent(href.search)
+  })
+
+  it.each(['employee', 'period'])('drops the old linked entry when the selected report %s changes', async (scope) => {
+    apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey' }, { id: 8, display_name: 'Alex' }] } })
+    apiMock.getHoursReport.mockResolvedValue({ data: makeHoursReport('2028-02-16', '2028-02-29', 0) })
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2028-02-20', hours: 8, user: { id: 7 }, approval_status: 'approved' } } })
+    const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
+    const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
+    const link = await screen.findByRole('link', { name: 'Open payroll cutoffs' })
+    await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
+
+    if (scope === 'employee') {
+      await act(async () => { fireEvent.change(screen.getByRole('option', { name: 'Alex' }).parentElement!, { target: { value: '8' } }) })
+    } else {
+      await act(async () => { fireEvent.change(screen.getByDisplayValue('2028-02-29'), { target: { value: '2028-03-15' } }) })
+      await act(async () => { fireEvent.change(screen.getByDisplayValue('2028-02-16'), { target: { value: '2028-03-01' } }) })
+    }
+    const updated = new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams
+    expect(updated.has('entry_id')).toBe(false)
+    expect(updated.get('return_to')).toBe(returnTo)
+    expect(updated.get('user_id')).toBe(scope === 'employee' ? '8' : '7')
+    expect(updated.get('start_date')).toBe(scope === 'employee' ? '2028-02-16' : '2028-03-01')
+    expect(updated.get('end_date')).toBe(scope === 'employee' ? '2028-02-29' : '2028-03-15')
   })
 
   it('defaults historical reports to every employment status and provides quick periods', async () => {

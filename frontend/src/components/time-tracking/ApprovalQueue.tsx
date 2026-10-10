@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
 import type {
   ApprovalGroupFilter,
@@ -15,6 +14,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
+  isAdmin?: boolean
   approvalGroups: ApprovalGroupOption[]
   approvalGroupsLoaded: boolean
   initialDateFilter?:
@@ -201,7 +201,7 @@ function summaryCountForApprovalGroup(summary: PendingApprovalsSummary | null, k
   return summary?.counts_by_approval_group?.find((row) => row.key === key)?.count
 }
 
-export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ isAdmin = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -612,12 +612,8 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     const missingCategory = entry.time_category === null
 
     return (
-      <motion.div
+      <div
         key={entry.id}
-        layout
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, x: -100 }}
         className={`border rounded-xl p-3.5 transition-colors ${selected ? 'border-primary bg-cyan-50/50' : 'border-neutral-warm bg-secondary/30'}`}
       >
         <div className="flex items-start gap-3">
@@ -686,14 +682,13 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
 
               <div className="text-right shrink-0">
                 <div className="text-lg font-bold text-primary-dark">{entry.hours}h</div>
-                <div className="text-[10px] text-text-muted uppercase">{entry.entry_method}</div>
+                <div className="text-[10px] text-text-muted uppercase">Total entry hours</div>
+                {isPendingOvertime && !isPendingApproval && <p className="mt-1 max-w-28 text-[10px] text-text-muted">Only the overtime portion needs review.</p>}
               </div>
             </div>
 
             {noteInput?.id === entry.id && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
+              <div
                 className="mt-3"
               >
                 <input
@@ -703,7 +698,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                   placeholder="Add a note (optional)..."
                   className="w-full px-3 py-2 text-sm border border-neutral-warm rounded-xl bg-white text-primary-dark placeholder:text-text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
-              </motion.div>
+              </div>
             )}
 
             <div className="flex items-center gap-2 mt-3">
@@ -742,7 +737,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
             </div>
           </div>
         </div>
-      </motion.div>
+      </div>
     )
   }
 
@@ -998,14 +993,12 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                         </span>
                         <div>
                           <h4 className="text-sm font-bold text-primary-dark">{formatWorkDate(group.date)}</h4>
-                          <p className="text-xs text-text-muted">{group.entries.length} entr{group.entries.length === 1 ? 'y' : 'ies'} · {group.totalHours.toFixed(2)}h pending</p>
+                          <p className="text-xs text-text-muted">{group.entries.length} entr{group.entries.length === 1 ? 'y' : 'ies'} · {group.totalHours.toFixed(2)}h total entry hours</p>
                         </div>
                       </button>
                     </div>
                     <div className="space-y-3">
-                      <AnimatePresence>
-                        {group.entries.map(renderEntryCard)}
-                      </AnimatePresence>
+                      {group.entries.map(renderEntryCard)}
                     </div>
                   </section>
                 )
@@ -1013,9 +1006,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
             </div>
           ) : (
             <div className="space-y-3">
-              <AnimatePresence>
-                {entries.map(renderEntryCard)}
-              </AnimatePresence>
+              {entries.map(renderEntryCard)}
             </div>
           )}
         </div>
@@ -1025,6 +1016,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     <EditTimeEntryModal
       isOpen={!!editingEntry}
       entry={editingEntry}
+      isAdmin={isAdmin}
       categories={editingEntry?.user.time_category_ids
         ? categories.filter((category) => editingEntry.user.time_category_ids?.includes(category.id))
         : categories}

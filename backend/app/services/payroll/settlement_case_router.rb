@@ -16,6 +16,12 @@ module Payroll
     end
 
     def call
+      settlement_case.with_lock { route! }
+    end
+
+    private
+
+    def route!
       raise RoutingError, "This settlement case is already closed" unless settlement_case.status.in?(PayrollSettlementCase::ACTIVE_STATUSES)
       raise RoutingError, "destination_kind must be regular, supplemental, or not_payable" unless destination_kind.in?(%w[regular supplemental not_payable])
       raise RoutingError, "A routing reason is required" if reason.blank?
@@ -23,12 +29,13 @@ module Payroll
       attributes, target_period = destination_attributes
       assignee = assigned_to
       previous_destination = settlement_case.destination_kind
+      event_type = destination_kind == "not_payable" ? "marked_not_payable" : (previous_destination == "unassigned" ? "routed" : "rerouted")
       Payroll::SettlementCaseCoordinator.transition!(
         settlement_case,
         **attributes,
         assigned_to: assignee,
         resolution_note: reason,
-        event_type: destination_kind == "not_payable" ? "marked_not_payable" : (previous_destination == "unassigned" ? "routed" : "rerouted"),
+        event_type: event_type,
         actor: actor,
         metadata: {
           previous_destination_kind: previous_destination,
@@ -39,9 +46,17 @@ module Payroll
           reason: reason
         }.compact
       )
+      event = settlement_case.payroll_settlement_case_events.order(:id).last
+      employee_name = User.find_by(id: settlement_case.source_user_id)&.full_name || settlement_case.source_snapshot["employee_name"]
+      AuditLog.record!(
+        action: "payroll_settlement_case.#{event_type}", actor: actor, auditable: settlement_case,
+        subject_name: employee_name, event_category: "payroll", source: "integration", occurred_at: event.occurred_at,
+        metadata: event.metadata.merge("event_id" => event.event_id, "event_type" => event_type,
+          "settlement_case_id" => settlement_case.public_id, "source_time_entry_id" => settlement_case.source_time_entry_id.to_s,
+          "source_user_uuid" => settlement_case.source_user_uuid, "employee_name" => employee_name)
+      )
+      settlement_case
     end
-
-    private
 
     attr_reader :settlement_case, :destination_kind, :target_external_pay_period_id,
                 :action_due_on, :assigned_to_id, :reason, :actor

@@ -27,6 +27,30 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     travel_to(now) { example.run }
   end
 
+  it "refuses to publish over an existing unlinked frozen batch without adopting it" do
+    batch = Payroll::BatchFinalizer.new(start_date: attributes[:start_date], end_date: attributes[:end_date], actor: nil).call
+    original = batch.attributes.deep_dup
+    expect { described_class.new(attributes, now: now).call }
+      .to raise_error(described_class::ConflictError, /already covers/)
+    expect(PayrollCalendarPeriod.count).to eq(0)
+    expect(PayrollCalendarPeriodRevision.count).to eq(0)
+    expect(PayrollOutboxEvent.count).to eq(0)
+    expect(batch.reload.attributes).to eq(original)
+  end
+
+  it "refuses a revision into a frozen manual batch and preserves the prior schedule" do
+    period = described_class.new(attributes, now: now).call.period
+    batch = Payroll::BatchFinalizer.new(start_date: "2026-10-16", end_date: "2026-10-31", actor: nil).call
+    original = [ period.attributes.deep_dup, batch.attributes.deep_dup ]
+    revision = attributes.merge(schedule_version: 2, publication_id: SecureRandom.uuid,
+      start_date: "2026-10-16", end_date: "2026-10-31", pay_date: "2026-11-10", cutoff_at: "2026-11-03T17:00:00+10:00")
+    expect { described_class.new(revision, now: now).call }
+      .to raise_error(described_class::ConflictError, /already covers/)
+    expect([ period.reload.attributes, batch.reload.attributes ]).to eq(original)
+    expect(period.payroll_calendar_period_revisions.count).to eq(1)
+    expect(PayrollOutboxEvent.count).to eq(0)
+  end
+
   it "publishes an auditable first version and replays it idempotently" do
     first = described_class.new(attributes, now: now).call
     replay = described_class.new(attributes, now: Time.iso8601(attributes.fetch(:cutoff_at)) + 1.hour).call
