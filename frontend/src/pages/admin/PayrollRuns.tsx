@@ -197,7 +197,9 @@ function CarryoverCard({ item }: { item: PayrollCarryoverQueue['items'][number] 
       {closedUnpaid && <div className="mt-3 space-y-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
         <p>{decision?.reason || item.settlement_case?.resolution_note || 'No saved reason is available for this decision.'}</p>
         {decision && <p className="text-xs text-slate-500">{decision.actor?.name || 'Reviewer unavailable'} · {formatDateTime(decision.occurred_at)}</p>}
-        {paymentProgress && <p className="text-xs font-medium">{formatHours(paymentProgress.paid_hours)} paid in retained payment evidence</p>}
+        <p className="text-xs font-medium">{(paymentProgress?.paid_hours ?? 0) > 0
+          ? `${formatHours(paymentProgress?.paid_hours)} paid in retained payment evidence`
+          : 'No payment is recorded for this entry.'}</p>
       </div>}
       {paymentProgress && !closedUnpaid && !accounting && !unverified && (
         <p className="mt-2 text-xs font-medium text-slate-700">

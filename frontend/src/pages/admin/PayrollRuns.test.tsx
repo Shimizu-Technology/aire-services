@@ -430,7 +430,8 @@ describe('PayrollRuns', () => {
     expect(history).toHaveTextContent('Duplicate training input; no wages owed')
     expect(history).toHaveTextContent('Synthetic Reviewer')
     expect(within(history).getByText(/Nov 2, 2026/)).toBeInTheDocument()
-    expect(history).toHaveTextContent('0.00 hrs paid')
+    expect(history).toHaveTextContent('No payment is recorded for this entry.')
+    expect(history).not.toHaveTextContent('paid in retained payment evidence')
     expect(history).not.toHaveTextContent('outstanding')
     expect(history).not.toHaveTextContent('Valid pending worker')
     expect(screen.getByRole('region', { name: 'Carryover queue' })).toHaveTextContent('1 active item')
@@ -451,6 +452,7 @@ describe('PayrollRuns', () => {
     const history = await screen.findByRole('region', { name: 'Recorded history' })
     expect(history).toHaveTextContent('2.00 hrs paid in retained payment evidence')
     expect(history).not.toHaveTextContent('0.00 hrs paid')
+    expect(history).not.toHaveTextContent('No payment is recorded for this entry.')
     expect(history).toHaveTextContent('This decision records no payment')
   })
 
