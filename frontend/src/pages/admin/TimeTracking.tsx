@@ -438,6 +438,7 @@ export default function TimeTracking() {
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [pendingApprovalSummary, setPendingApprovalSummary] = useState<PendingApprovalsSummary | null>(null)
+  const pendingSummaryRequestSequence = useRef(0)
   const [isAdmin, setIsAdmin] = useState(authSaysAdmin)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [optionsReady, setOptionsReady] = useState(false)
@@ -665,6 +666,7 @@ export default function TimeTracking() {
   }, [isAdmin])
 
   const loadPendingApprovalSummary = useCallback(async () => {
+    const requestSequence = ++pendingSummaryRequestSequence.current
     if (!isAdmin) {
       setPendingApprovalSummary(null)
       return
@@ -672,6 +674,7 @@ export default function TimeTracking() {
 
     try {
       const response = await api.getPendingApprovals({ page: 1, per_page: 1 })
+      if (requestSequence !== pendingSummaryRequestSequence.current) return
       if (response.data) {
         setPendingApprovalSummary(response.data.summary ?? null)
       }
@@ -840,7 +843,11 @@ export default function TimeTracking() {
     }
 
     void loadPendingApprovalSummary()
-    return startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
+    const stopPolling = startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
+    return () => {
+      stopPolling()
+      pendingSummaryRequestSequence.current += 1
+    }
   }, [isAdmin, loadPendingApprovalSummary, entryRefreshRevision])
 
   useEffect(() => {
