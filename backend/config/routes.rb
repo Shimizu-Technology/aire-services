@@ -36,6 +36,7 @@ Rails.application.routes.draw do
         resources :batches, only: [ :index, :show ] do
           member do
             post :processing_events
+            post :obligation_events
           end
         end
 

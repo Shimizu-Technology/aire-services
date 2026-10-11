@@ -68,6 +68,7 @@ module Payroll
         regular_hours: round_hours(row.regular_hours),
         overtime_hours: round_hours(row.overtime_hours),
         status: status,
+        obligation_correction: event&.payroll_obligation_correction&.receipt,
         occurred_at: event&.occurred_at&.iso8601 || batch_processing&.fetch(:occurred_at, nil),
         external_system: event&.external_system || batch_processing&.fetch(:external_system, nil),
         external_pay_period_id: event&.external_pay_period_id || batch_processing&.fetch(:external_pay_period_id, nil),

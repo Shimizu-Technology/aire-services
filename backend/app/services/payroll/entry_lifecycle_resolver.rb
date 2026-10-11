@@ -39,7 +39,7 @@ module Payroll
         .where(source_time_entry_id: entry_ids)
         .to_a
         .group_by(&:source_time_entry_id)
-      entry_events = PayrollEntryProcessingEvent
+      entry_events = PayrollEntryProcessingEvent.includes(:payroll_obligation_correction)
         .where(source_time_entry_id: entry_ids)
         .order(:occurred_at, :id)
         .to_a

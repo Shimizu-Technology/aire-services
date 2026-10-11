@@ -142,7 +142,7 @@ module Payroll
       manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events), :work_date).order(:id))
       cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(:target_payroll_calendar_period, origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
       holds = bounded(date_scope(PayrollPaymentAttestation.pending_evidence.where(user: user), :work_date).order(:id)).index_by(&:time_entry_id)
-      events = bounded(PayrollEntryProcessingEvent.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq)
+      events = bounded(PayrollEntryProcessingEvent.includes(:payroll_obligation_correction).where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq)
         .where(source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).order(:id))
       events_by_line = events.group_by { |event| [ event.payroll_batch_id, event.source_time_entry_id ] }
       allocations = current_allocations(entries)
@@ -254,6 +254,7 @@ module Payroll
       { accounting_only: accounting ? true : nil, accounting_correction: accounting || nil, id: "batch-#{row.id}", batch_id: row.payroll_batch.public_id, source_time_entry_id: row.source_time_entry_id.to_s,
         source_user_id: row.source_user_id.to_s, source_user_uuid: row.source_user_uuid, source_category_id: row.source_category_id, source_line_key: row.line_key, source_kind: row.source_kind,
         work_date: row.work_date.iso8601, regular_hours: round(row.regular_hours), overtime_hours: round(row.overtime_hours), total_hours: round(row.total_hours),
+        obligation_correction: event&.payroll_obligation_correction&.receipt,
         status: status, coverage_state: state, receipt_scope: receipt_scope,
         identity_state: row.source_user_uuid.blank? ? "legacy_identity_unknown" : (row.source_user_uuid == user.payroll_integration_uuid ? "verified" : "frozen_owner_mismatch"),
         destination_start_date: row.payroll_batch.start_date.iso8601, destination_end_date: row.payroll_batch.end_date.iso8601,

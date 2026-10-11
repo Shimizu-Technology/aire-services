@@ -12,6 +12,7 @@ module Payroll
       finalized_batch_v2
       payroll_calendar_v2
       exact_line_receipts_v2
+      payroll_obligation_correction_v1
       payment_cancellation_v1
       employee_period_evidence_v1
       employee_directory

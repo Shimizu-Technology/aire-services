@@ -7,7 +7,7 @@ class PayrollBatch < ApplicationRecord
   has_many :payroll_batch_entries, dependent: :restrict_with_error
   has_many :payroll_batch_exclusions, dependent: :restrict_with_error
   has_many :payroll_batch_processing_events, dependent: :restrict_with_error
-  has_many :payroll_entry_processing_events, dependent: :restrict_with_error
+  has_many :payroll_entry_processing_events, -> { includes(:payroll_obligation_correction) }, dependent: :restrict_with_error
   has_many :origin_payroll_settlement_cases,
            class_name: "PayrollSettlementCase",
            foreign_key: :origin_payroll_batch_id,

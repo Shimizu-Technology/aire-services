@@ -60,6 +60,10 @@ module Api
           render json: batch.export_payload
         end
 
+        def obligation_events
+          processing_events
+        end
+
         def processing_events
           batch = PayrollBatch.find_by!(public_id: params[:id])
           permitted = params.permit(
@@ -80,7 +84,8 @@ module Api
             :payment_method,
             :payment_reference,
             :payment_effective_on,
-            metadata: {}
+            metadata: {},
+            obligation_correction: {}
           )
           occurred_at = begin
             Time.iso8601(permitted.fetch(:occurred_at))
@@ -88,6 +93,9 @@ module Api
             return render json: { error: e.message }, status: :unprocessable_entity
           end
           metadata = permitted[:metadata]&.to_h || {}
+          if action_name == "obligation_events" && permitted[:source_time_entry_id].blank?
+            return render json: { error: "Obligation receipts require an exact frozen line" }, status: :unprocessable_entity
+          end
 
           if permitted[:source_time_entry_id].present?
             return record_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata)
@@ -164,6 +172,10 @@ module Api
                 event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
                 next if event
 
+                correction = ::Payroll::ObligationCorrectionRecorder.call!(row: batch_entry, attributes: permitted, occurred_at: occurred_at)
+                if (action_name == "obligation_events") != correction.present?
+                  raise ::Payroll::EntryProcessingSummary::LineConflictError, "Validated obligation receipts require the dedicated obligation endpoint"
+                end
                 ::Payroll::PaymentCancellationValidator.call!(
                   batch_entry: batch_entry, attributes: permitted, occurred_at: occurred_at,
                   metadata: metadata, source_user_uuid: source_user_uuid
@@ -185,6 +197,7 @@ module Api
                   external_pay_period_id: permitted[:external_pay_period_id],
                   external_payroll_item_id: permitted[:external_payroll_item_id],
                   **line_attributes,
+                  payroll_obligation_correction: correction,
                   payment_method: permitted[:payment_method],
                   payment_reference: permitted[:payment_reference],
                   metadata: metadata
@@ -205,6 +218,7 @@ module Api
                     external_system: event.external_system,
                     external_pay_period_id: event.external_pay_period_id,
                     external_payroll_item_id: event.external_payroll_item_id,
+                    obligation_correction_binding_id: event.payroll_obligation_correction_id,
                     contract_version: event.contract_version,
                     source_line_key: event.source_line_key,
                     source_kind: event.source_kind,
@@ -222,6 +236,21 @@ module Api
             end
           end
 
+          binding = event.payroll_obligation_correction
+          if (action_name == "obligation_events") != binding.present?
+            raise ::Payroll::EntryProcessingSummary::LineConflictError, "Receipt endpoint does not match its immutable binding"
+          end
+          if binding && event.status == "committed" && permitted[:obligation_correction].blank?
+            raise ::Payroll::EntryProcessingSummary::LineConflictError, "Correction commit replay requires its original typed command"
+          end
+          if permitted[:obligation_correction].present?
+            command = permitted[:obligation_correction].to_h.deep_stringify_keys
+            digest = ::Payroll::ObligationCorrectionRecorder.digest_for(attributes: permitted, occurred_at: occurred_at)
+            unless binding && binding.command == command && binding.request_digest == digest
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Correction replay differs from its immutable binding"
+            end
+          end
+
           unless same_entry_processing_event?(
             event,
             batch,
@@ -235,6 +264,7 @@ module Api
           end
 
           body = { entry_processing: serialize_entry_processing_event(event) }
+          body[:obligation_correction] = event.payroll_obligation_correction.receipt if event.payroll_obligation_correction
           body[:integration] = ::Payroll::IntegrationProfile.call if event.line_contract? || event.status == "payment_cancelled"
           render json: body, status: created ? :created : :ok
         rescue ArgumentError => e
