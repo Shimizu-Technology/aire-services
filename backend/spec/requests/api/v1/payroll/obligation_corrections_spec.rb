@@ -28,14 +28,14 @@ RSpec.describe "Frozen payroll obligation corrections", type: :request do
     JSON.parse(response.body)
   end
 
-  def receipt(status: "committed", period: "2", item: "1", at: "2026-08-16T00:00:00.000000Z")
+  def receipt(status: "committed", period: "2", item: "1", at: "2026-08-16T00:00:00.000000Z", source_entry: entry, source_row: row)
     { "event_id" => SecureRandom.uuid, "status" => status, "occurred_at" => at,
       "external_system" => "cornerstone_payroll", "external_pay_period_id" => period,
       "external_payroll_item_id" => item, "contract_version" => "2.0",
-      "source_time_entry_id" => entry.id.to_s, "source_user_uuid" => row.source_user_uuid,
-      "source_line_key" => row.line_key, "source_kind" => row.source_kind,
-      "total_hours" => row.total_hours.to_s("F"), "regular_hours" => row.regular_hours.to_s("F"),
-      "overtime_hours" => row.overtime_hours.to_s("F"), "metadata" => {} }
+      "source_time_entry_id" => source_entry.id.to_s, "source_user_uuid" => source_row.source_user_uuid,
+      "source_line_key" => source_row.line_key, "source_kind" => source_row.source_kind,
+      "total_hours" => source_row.total_hours.to_s("F"), "regular_hours" => source_row.regular_hours.to_s("F"),
+      "overtime_hours" => source_row.overtime_hours.to_s("F"), "metadata" => {} }
   end
 
   def post_receipt(payload, obligation: payload.key?("obligation_correction"))
@@ -43,22 +43,22 @@ RSpec.describe "Frozen payroll obligation corrections", type: :request do
     post "/api/v1/payroll/batches/#{batch.public_id}/#{endpoint}", params: payload, headers: headers, as: :json
   end
 
-  def predecessor
-    original = receipt
+  def predecessor(source_entry: entry, source_row: row)
+    original = receipt(source_entry: source_entry, source_row: source_row)
     post_receipt(original)
     expect(response).to have_http_status(:created)
-    voided = receipt(status: "payment_voided", at: "2026-08-17T00:00:00.000000Z")
+    voided = receipt(status: "payment_voided", at: "2026-08-17T00:00:00.000000Z", source_entry: source_entry, source_row: source_row)
     post_receipt(voided)
     expect(response).to have_http_status(:created)
     voided
   end
 
-  def successor(voided)
-    payload = receipt(period: "3", item: "2", at: "2026-08-18T00:00:00.000000Z")
+  def successor(voided, source_entry: entry, source_row: row)
+    payload = receipt(period: "3", item: "2", at: "2026-08-18T00:00:00.000000Z", source_entry: source_entry, source_row: source_row)
     payload["obligation_correction"] = {
       "contract" => "payroll_obligation_correction_v1", "command_id" => SecureRandom.uuid,
       "source_instance_id" => Payroll::IntegrationProfile.source_instance_id, "batch_checksum" => batch.checksum,
-      "source_work_date" => row.work_date.iso8601, "source_time_entry_version" => row.snapshot["version"],
+      "source_work_date" => source_row.work_date.iso8601, "source_time_entry_version" => source_row.snapshot["version"],
       "predecessor" => { "external_pay_period_id" => "2", "external_payroll_item_id" => "1", "payment_voided_event_id" => voided.fetch("event_id") },
       "successor" => { "external_pay_period_id" => "3", "external_payroll_item_id" => "2" },
       "financial_assertion" => { "version" => 1, "kind" => "whole_payroll_void_and_corrective_commit",
@@ -79,17 +79,6 @@ RSpec.describe "Frozen payroll obligation corrections", type: :request do
 
   it "rejects a financial command on the ordinary endpoint instead of silently ignoring its binding" do
     payload = successor(predecessor)
-    unless Rails.application.routes.routes.any? { |route| route.defaults[:action] == "obligation_events" }
-      old_setting = Rails.application.env_config["action_dispatch.show_exceptions"]
-      begin
-        Rails.application.env_config["action_dispatch.show_exceptions"] = :all
-        expect { post_receipt(payload, obligation: true) }.not_to change(PayrollEntryProcessingEvent, :count)
-        expect(response).to have_http_status(:not_found)
-        puts "OLD711_DEDICATED_ROUTE_404_NO_EFFECT"
-      ensure
-        Rails.application.env_config["action_dispatch.show_exceptions"] = old_setting
-      end
-    end
     expect { post_receipt(payload, obligation: false) }.not_to change(PayrollEntryProcessingEvent, :count)
     expect(response).to have_http_status(:conflict)
   end
@@ -265,6 +254,53 @@ RSpec.describe "Frozen payroll obligation corrections", type: :request do
     payload["event_id"] = "x" * 201
     expect { post_receipt(payload) }.not_to change(PayrollObligationCorrection, :count)
     expect(response).to have_http_status(:unprocessable_entity)
+  end
+
+  context "when different frozen rows compete for a global correction command" do
+    let!(:other_entry) do
+      create(:time_entry, user: employee, time_category: category, work_date: "2026-08-14",
+        start_time: Time.zone.parse("2026-08-14 08:00"), end_time: Time.zone.parse("2026-08-14 12:00"),
+        hours: 4, status: "completed", entry_method: "clock", approval_status: nil, overtime_status: "none")
+    end
+    let!(:batch) { other_entry; super() }
+    let(:row) { batch.payroll_batch_entries.find_by!(source_time_entry_id: entry.id) }
+    let(:other_row) { batch.payroll_batch_entries.find_by!(source_time_entry_id: other_entry.id) }
+
+    it "returns a conflict for the database uniqueness race without changing either row or its accepted replay" do
+      winner = successor(predecessor)
+      post_receipt(winner)
+      expect(response).to have_http_status(:created)
+      accepted = json
+      contender = successor(predecessor(source_entry: other_entry, source_row: other_row), source_entry: other_entry, source_row: other_row)
+      contender["obligation_correction"]["command_id"] = winner.dig("obligation_correction", "command_id")
+      retained = [ PayrollObligationCorrection, PayrollEntryProcessingEvent, PayrollBatchEntry, AuditLog ].to_h do |model|
+        [ model, model.order(:id).map(&:attributes) ]
+      end
+
+      # Two independently locked rows can both observe an absent command before
+      # either insert commits. Skip only that stale application-level uniqueness
+      # observation, so PostgreSQL's actual unique index decides the collision.
+      allow(PayrollObligationCorrection).to receive(:find_by).with(command_id: winner.dig("obligation_correction", "command_id")).and_return(nil)
+      collision = false
+      allow(PayrollObligationCorrection).to receive(:create!).and_wrap_original do |method, **attributes|
+        next method.call(**attributes) unless attributes[:payroll_batch_entry] == other_row
+
+        collision = true
+        correction = PayrollObligationCorrection.new(attributes)
+        correction.save!(validate: false)
+        correction
+      end
+      post_receipt(contender)
+      expect(collision).to be(true)
+      expect(response).to have_http_status(:conflict)
+      expect(json.fetch("error")).to include("Correction command or predecessor already has a successor")
+      retained.each { |model, attributes| expect(model.order(:id).map(&:attributes)).to eq(attributes) }
+      expect(PayrollEntryProcessingEvent.exists?(event_id: contender.fetch("event_id"))).to be(false)
+
+      post_receipt(winner)
+      expect(response).to have_http_status(:ok)
+      expect(json).to eq(accepted)
+    end
   end
 
   it "makes both the lineage and frozen work immutable in PostgreSQL" do

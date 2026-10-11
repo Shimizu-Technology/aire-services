@@ -61,9 +61,13 @@ module Payroll
       current = PayrollEntryProcessingEvent.latest(events)
       require!(current&.id == event.id && occurred_at >= event.occurred_at, "Predecessor is no longer the current voided owner")
       require!(!PayrollObligationCorrection.exists?(predecessor_event_id: event.id), "Voided owner already has a successor")
-      PayrollObligationCorrection.create!(payroll_batch_entry: row, predecessor_event: event,
-        command_id: command["command_id"], request_digest: digest, external_system: attributes.fetch("external_system"),
-        successor_pay_period_id: successor["external_pay_period_id"], successor_payroll_item_id: successor["external_payroll_item_id"], command: command)
+      begin
+        PayrollObligationCorrection.create!(payroll_batch_entry: row, predecessor_event: event,
+          command_id: command["command_id"], request_digest: digest, external_system: attributes.fetch("external_system"),
+          successor_pay_period_id: successor["external_pay_period_id"], successor_payroll_item_id: successor["external_payroll_item_id"], command: command)
+      rescue ActiveRecord::RecordNotUnique
+        raise EntryProcessingSummary::LineConflictError, "Correction command or predecessor already has a successor"
+      end
     end
 
     private
