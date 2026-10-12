@@ -14,11 +14,25 @@ module Api
               .order(:work_date, :id)
             scope = scope.where(status: params[:status]) if params[:status].present?
             scope = scope.where(source_user_uuid: params[:source_user_uuid]) if params[:source_user_uuid].present?
+            if params.key?(:start_date) || params.key?(:end_date)
+              start_value = params.require(:start_date).to_s
+              end_value = params.require(:end_date).to_s
+              unless [ start_value, end_value ].all? { |date| date.match?(/\A\d{4}-\d{2}-\d{2}\z/) }
+                raise ArgumentError, "Report dates must use YYYY-MM-DD"
+              end
+              start_date = Date.iso8601(start_value)
+              end_date = Date.iso8601(end_value)
+              raise ArgumentError, "start_date must be on or before end_date" if start_date > end_date
+
+              scope = scope.where(work_date: start_date..end_date)
+            end
             page = pagination_for(scope, maximum: 250)
             render json: {
               payment_attestations: page.fetch(:records).map { |attestation| serialize(attestation) },
               pagination: page.fetch(:metadata)
             }
+          rescue Date::Error, ArgumentError, ActionController::ParameterMissing
+            render json: { error: "Provide both start_date and end_date as valid YYYY-MM-DD dates in chronological order" }, status: :unprocessable_entity
           end
 
           def create

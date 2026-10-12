@@ -63,6 +63,45 @@ RSpec.describe "Reported payment resolution", type: :request do
     expect(Payroll::IntegrationProfile::CAPABILITIES).to include("payment_attestation_resolution_v1")
   end
 
+  it "scopes original report work dates before pagination without losing boundary reports or employee isolation" do
+    report
+    dated_reports = [ Date.new(2026, 7, 31), Date.new(2026, 8, 1), Date.new(2026, 8, 16) ].map do |date|
+      dated_entry = create(:time_entry, user: employee, time_category: category, work_date: date,
+        entry_method: "manual", status: "completed", approval_status: "approved", overtime_status: "none")
+      Payroll::PaymentAttestationRecorder.new(actor: actor).attest!(entry: dated_entry,
+        source_user_uuid: employee.payroll_integration_uuid, reason: "Original owner report retained for exact payment evidence review")
+    end
+    other_employee = create(:user, :employee)
+    other_entry = create(:time_entry, user: other_employee, time_category: category, work_date: entry.work_date,
+      entry_method: "manual", status: "completed", approval_status: "approved", overtime_status: "none")
+    Payroll::PaymentAttestationRecorder.new(actor: actor).attest!(entry: other_entry,
+      source_user_uuid: other_employee.payroll_integration_uuid, reason: "Different employee report must remain outside this scoped review")
+    parameters = { source_user_uuid: employee.payroll_integration_uuid, start_date: "2026-08-01", end_date: "2026-08-15", per_page: 1 }
+    get "/api/v1/payroll/cockpit/payment_attestations", params: parameters, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(body.fetch("payment_attestations").pluck("id")).to eq([ dated_reports[1].id.to_s ])
+    expect(body.fetch("pagination")).to include("total_count" => 2, "total_pages" => 2, "current_page" => 1, "truncated" => true)
+    get "/api/v1/payroll/cockpit/payment_attestations", params: parameters.merge(page: 2), headers: headers
+    expect(body.fetch("payment_attestations").pluck("id")).to eq([ report.id.to_s ])
+    expect(body.fetch("pagination")).to include("total_count" => 2, "current_page" => 2, "truncated" => false)
+    get "/api/v1/payroll/cockpit/payment_attestations", params: { source_user_uuid: employee.payroll_integration_uuid }, headers: headers
+    expect(body.fetch("payment_attestations").pluck("id")).to contain_exactly(report.id.to_s, *dated_reports.map { |row| row.id.to_s })
+  end
+
+  it "rejects incomplete, malformed, or reversed report date filters without changing history" do
+    report
+    [ { start_date: "2026-08-01" }, { end_date: "2026-08-15" },
+      { start_date: "", end_date: "2026-08-15" }, { start_date: "2026-02-30", end_date: "2026-08-15" },
+      { start_date: "20260801", end_date: "2026-08-15" }, { start_date: [ "2026-08-01" ], end_date: "2026-08-15" },
+      { start_date: "2026-08-16", end_date: "2026-08-15" } ].each do |filter|
+      expect do
+        get "/api/v1/payroll/cockpit/payment_attestations", params: filter, headers: headers
+      end.not_to change(PayrollPaymentAttestation, :count)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(body.fetch("error")).to include("Provide both start_date and end_date")
+    end
+  end
+
   it "retains the correct report and atomically records full issued coverage across payroll periods" do
     original = report.reload.attributes.slice("reason", "attested_at", "source_time_entry_version", "hours", "work_date")
     expect(context.fetch(:available)).to be(true)

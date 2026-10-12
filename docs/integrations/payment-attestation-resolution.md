@@ -8,6 +8,8 @@ Payroll must first verify its native issued evidence: a delivered check for the 
 
 The authorized attestation read returns `resolution_context` with `available`, `reason`, decimal-string `regular_hours`, `overtime_hours`, `total_hours` and a SHA256 `weekly_context_fingerprint`. An unavailable context returns a review reason and null hours/fingerprint. It contains no sibling-entry personal data.
 
+With this capability, `GET /api/v1/payroll/cockpit/payment_attestations` accepts an optional pair of `start_date` and `end_date` in YYYY-MM-DD format. They filter the original immutable report work date inclusively before pagination and its counts, together with the existing employee/status filters. Both dates are required when either is supplied, and reversed or malformed ranges return 422. Omitting both retains the existing history read. Payroll period review uses this filter so unrelated years of report history cannot exhaust its page budget.
+
 `POST /api/v1/payroll/cockpit/payment_attestations/:id/resolve` takes:
 
 ```text
