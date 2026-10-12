@@ -185,3 +185,27 @@ it.each([
   expect(screen.queryByText('Paid', { exact: true })).not.toBeInTheDocument()
   expect(screen.queryByText(/Original period hours · Issued payment coverage/)).not.toBeInTheDocument()
 })
+
+it.each([
+  { identity_state: 'future_verified', receipt_scope: 'exact_line' },
+  { identity_state: 'frozen_owner_mismatch', receipt_scope: 'exact_line' },
+  { identity_state: 'verified', receipt_scope: 'batch' },
+  { identity_state: 'verified', receipt_scope: 'ambiguous_entry' },
+  { identity_state: 'verified', receipt_scope: 'future_exact_line' },
+])('does not confirm issued coverage with contradictory $identity_state/$receipt_scope', async (context) => {
+  const conflicting = { ...period, coverage_lines: [{ ...period.coverage_lines[0], coverage_state: 'issued', ...context }] }
+  mock.period.mockResolvedValue({ period: conflicting, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  expect(await screen.findByText(/Original period hours · .*needs review.*coverage unconfirmed · REG 6h/)).toBeInTheDocument()
+  expect(screen.queryByText(/Original period hours · Issued payment coverage/)).not.toBeInTheDocument()
+  expect(screen.getByText(/payroll period 30 · item 99/)).toHaveTextContent('1001')
+})
+
+it('retains issued manual evidence without inventing a line receipt scope', async () => {
+  const manual = { ...period, coverage_lines: [{ ...period.coverage_lines[0], source_kind: 'manual', identity_state: 'verified', receipt_scope: null }] }
+  mock.period.mockResolvedValue({ period: manual, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  expect(await screen.findByText('Manually linked hours · Issued payment coverage · REG 6h / OT 0h')).toBeInTheDocument()
+  expect(screen.getByText(/receipt Manually linked evidence/)).toBeInTheDocument()
+  expect(screen.queryByText(/Receipt for this saved line/)).not.toBeInTheDocument()
+})
