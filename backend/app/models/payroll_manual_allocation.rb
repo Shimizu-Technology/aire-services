@@ -9,6 +9,8 @@ class PayrollManualAllocation < ApplicationRecord
   belongs_to :time_category, optional: true
   belongs_to :recorded_by, class_name: "User"
   has_many :payroll_manual_allocation_events, dependent: :restrict_with_error
+  has_one :resolved_payment_attestation, class_name: "PayrollPaymentAttestation",
+          foreign_key: :resolved_manual_allocation_id, dependent: :restrict_with_error
 
   scope :active, -> { where(status: ACTIVE_STATUSES) }
 

@@ -77,6 +77,11 @@ module Payroll
       connection = ActiveRecord::Base.connection
       connection.execute("SET LOCAL lock_timeout = '5s'")
       connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
+      if action == "payroll_payment_attestation.resolve"
+        # Match BatchFinalizer's lock order: finish in-flight source writes and
+        # fence sibling changes before taking the target/entry row locks.
+        connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions IN SHARE MODE")
+      end
     end
 
     def replay(receipt)

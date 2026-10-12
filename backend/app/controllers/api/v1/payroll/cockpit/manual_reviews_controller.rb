@@ -66,6 +66,7 @@ module Api
                 status: attestation.status,
                 attested_at: attestation.attested_at.iso8601,
                 source_changed: attestation.source_changed?,
+                resolution_context: ::Payroll::PaymentAttestationResolutionContext.new(attestation: attestation).call,
                 evidence_needed: "Match the actual Cornerstone payroll item, check number, amount, and delivery date before marking paid"
               }
             end

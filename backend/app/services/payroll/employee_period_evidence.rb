@@ -139,7 +139,7 @@ module Payroll
       frozen_owner_scope = PayrollBatchEntry.where(source_user_id: user.id).or(PayrollBatchEntry.where(source_user_uuid: user.payroll_integration_uuid))
       frozen = bounded(date_scope(frozen_owner_scope
         .includes(payroll_batch: :payroll_batch_processing_events), :work_date).order(:id))
-      manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events), :work_date).order(:id))
+      manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events, :resolved_payment_attestation), :work_date).order(:id))
       cases = bounded(date_scope(PayrollSettlementCase.where(source_user_id: user.id).includes(:target_payroll_calendar_period, origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ], payroll_settlement_case_events: :actor), :original_work_date).order(:id))
       holds = bounded(date_scope(PayrollPaymentAttestation.pending_evidence.where(user: user), :work_date).order(:id)).index_by(&:time_entry_id)
       events = bounded(PayrollEntryProcessingEvent.includes(:payroll_obligation_correction).where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq)
@@ -266,6 +266,7 @@ module Payroll
 
     def manual_line(row)
       latest_event = row.payroll_manual_allocation_events.max_by(&:id)
+      report = row.resolved_payment_attestation
       status = row.status == "committed" && latest_event&.event_type == "payment_cancelled" ? "payment_cancelled" : row.status
       { id: "manual-#{row.id}", source_time_entry_id: row.time_entry_id.to_s,
         source_kind: "manual", work_date: row.work_date.iso8601,
@@ -273,7 +274,11 @@ module Payroll
         status: status, source_user_uuid: row.source_user_uuid, coverage_state: row.source_user_uuid == user.payroll_integration_uuid ? coverage_state(status) : "identity_review", external_pay_period_id: row.external_pay_period_id,
         external_payroll_item_id: row.external_payroll_item_id, payment_reference: row.payment_reference,
         payment_method: row.payment_method, payment_effective_on: row.payment_effective_on&.iso8601,
-        identity_state: row.source_user_uuid == user.payroll_integration_uuid ? "verified" : "frozen_owner_mismatch", reason: row.reason, actual_check_components: nil, provenance: "manual_source_allocation" }
+        identity_state: row.source_user_uuid == user.payroll_integration_uuid ? "verified" : "frozen_owner_mismatch", reason: row.reason, actual_check_components: nil, provenance: "manual_source_allocation",
+        reported_payment_history: report && { id: report.id.to_s, status: report.status,
+          reason: report.reason, attested_at: report.attested_at.iso8601,
+          resolved_at: report.resolved_at.iso8601, resolution_reason: report.resolution_reason,
+          issued_event_id: report.resolved_issued_event_id.to_s, resolution_evidence: report.resolution_evidence } }
     end
 
     def hold_line(hold)

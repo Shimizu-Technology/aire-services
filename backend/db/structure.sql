@@ -226,6 +226,27 @@ END;
 $$;
 
 
+--
+-- Name: protect_payroll_payment_attestation_history(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_payroll_payment_attestation_history() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
+    RAISE EXCEPTION 'Payment report history is append-only';
+  END IF;
+  IF (to_jsonb(NEW) - ARRAY['status', 'retracted_at', 'retracted_by_id', 'retraction_reason', 'resolved_at', 'resolved_by_id', 'resolution_reason', 'resolved_manual_allocation_id', 'resolved_issued_event_id', 'resolution_evidence', 'lock_version', 'updated_at'])
+      IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['status', 'retracted_at', 'retracted_by_id', 'retraction_reason', 'resolved_at', 'resolved_by_id', 'resolution_reason', 'resolved_manual_allocation_id', 'resolved_issued_event_id', 'resolution_evidence', 'lock_version', 'updated_at'])
+      OR OLD.status <> 'pending_evidence' THEN
+    RAISE EXCEPTION 'Payment report history and resolution anchors are immutable';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -1123,7 +1144,7 @@ CREATE TABLE public.payroll_payment_attestation_events (
     reason text NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    CONSTRAINT payment_attestation_event_type CHECK (((event_type)::text = ANY (ARRAY[('attested'::character varying)::text, ('retracted'::character varying)::text])))
+    CONSTRAINT payment_attestation_event_type CHECK (((event_type)::text = ANY (ARRAY[('attested'::character varying)::text, ('retracted'::character varying)::text, ('resolved'::character varying)::text])))
 );
 
 
@@ -1168,8 +1189,14 @@ CREATE TABLE public.payroll_payment_attestations (
     lock_version integer DEFAULT 0 NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    CONSTRAINT payment_attestation_retraction_complete CHECK (((((status)::text = 'pending_evidence'::text) AND (retracted_at IS NULL) AND (retracted_by_id IS NULL) AND (retraction_reason IS NULL)) OR (((status)::text = 'retracted'::text) AND (retracted_at IS NOT NULL) AND (retracted_by_id IS NOT NULL) AND (retraction_reason IS NOT NULL)))),
-    CONSTRAINT payment_attestation_valid_state CHECK (((hours > (0)::numeric) AND ((status)::text = ANY (ARRAY[('pending_evidence'::character varying)::text, ('retracted'::character varying)::text]))))
+    resolved_at timestamp(6) without time zone,
+    resolved_by_id bigint,
+    resolution_reason text,
+    resolved_manual_allocation_id bigint,
+    resolved_issued_event_id bigint,
+    resolution_evidence jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT payment_attestation_retraction_complete CHECK (((((status)::text = 'pending_evidence'::text) AND (retracted_at IS NULL) AND (retracted_by_id IS NULL) AND (retraction_reason IS NULL) AND (resolved_at IS NULL) AND (resolved_by_id IS NULL) AND (resolution_reason IS NULL) AND (resolved_manual_allocation_id IS NULL) AND (resolved_issued_event_id IS NULL) AND (resolution_evidence = '{}'::jsonb)) OR (((status)::text = 'retracted'::text) AND (retracted_at IS NOT NULL) AND (retracted_by_id IS NOT NULL) AND (retraction_reason IS NOT NULL) AND (resolved_at IS NULL) AND (resolved_by_id IS NULL) AND (resolution_reason IS NULL) AND (resolved_manual_allocation_id IS NULL) AND (resolved_issued_event_id IS NULL) AND (resolution_evidence = '{}'::jsonb)) OR (((status)::text = 'resolved'::text) AND (retracted_at IS NULL) AND (retracted_by_id IS NULL) AND (retraction_reason IS NULL) AND (resolved_at IS NOT NULL) AND (resolved_by_id IS NOT NULL) AND (resolution_reason IS NOT NULL) AND (resolved_manual_allocation_id IS NOT NULL) AND (resolved_issued_event_id IS NOT NULL) AND (jsonb_typeof(resolution_evidence) = 'object'::text) AND (COALESCE((resolution_evidence ->> 'expected_weekly_context_fingerprint'::text), ''::text) ~ '^[0-9a-f]{64}$'::text) AND (COALESCE((resolution_evidence ->> 'payroll_payment_event_type'::text), ''::text) = ANY (ARRAY['delivered_check'::text, 'direct_deposit_confirmation'::text])) AND ((length(COALESCE((resolution_evidence ->> 'payroll_payment_event_id'::text), ''::text)) >= 1) AND (length(COALESCE((resolution_evidence ->> 'payroll_payment_event_id'::text), ''::text)) <= 200))))),
+    CONSTRAINT payment_attestation_valid_state CHECK (((hours > (0)::numeric) AND ((status)::text = ANY (ARRAY[('pending_evidence'::character varying)::text, ('retracted'::character varying)::text, ('resolved'::character varying)::text]))))
 );
 
 
@@ -2952,6 +2979,20 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: idx_attestation_resolved_allocation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attestation_resolved_allocation ON public.payroll_payment_attestations USING btree (resolved_manual_allocation_id);
+
+
+--
+-- Name: idx_attestation_resolved_issue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attestation_resolved_issue ON public.payroll_payment_attestations USING btree (resolved_issued_event_id);
+
+
+--
 -- Name: idx_employee_pay_rates_user_category; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3649,6 +3690,13 @@ CREATE INDEX index_payroll_payment_attestation_events_on_actor_id ON public.payr
 --
 
 CREATE INDEX index_payroll_payment_attestations_on_recorded_by_id ON public.payroll_payment_attestations USING btree (recorded_by_id);
+
+
+--
+-- Name: index_payroll_payment_attestations_on_resolved_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_payment_attestations_on_resolved_by_id ON public.payroll_payment_attestations USING btree (resolved_by_id);
 
 
 --
@@ -4401,6 +4449,20 @@ CREATE TRIGGER payroll_payment_attestation_events_prevent_truncate BEFORE TRUNCA
 
 
 --
+-- Name: payroll_payment_attestations payroll_payment_attestation_history_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_payment_attestation_history_immutable BEFORE DELETE OR UPDATE ON public.payroll_payment_attestations FOR EACH ROW EXECUTE FUNCTION public.protect_payroll_payment_attestation_history();
+
+
+--
+-- Name: payroll_payment_attestations payroll_payment_attestation_history_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_payment_attestation_history_prevent_truncate BEFORE TRUNCATE ON public.payroll_payment_attestations FOR EACH STATEMENT EXECUTE FUNCTION public.protect_payroll_payment_attestation_history();
+
+
+--
 -- Name: payroll_settlement_case_events payroll_settlement_case_events_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4724,6 +4786,14 @@ ALTER TABLE ONLY public.solid_queue_ready_executions
 
 
 --
+-- Name: payroll_payment_attestations fk_rails_8cb89e210c; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations
+    ADD CONSTRAINT fk_rails_8cb89e210c FOREIGN KEY (resolved_manual_allocation_id) REFERENCES public.payroll_manual_allocations(id);
+
+
+--
 -- Name: payroll_settlement_cases fk_rails_8fd3fba472; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4820,6 +4890,14 @@ ALTER TABLE ONLY public.payroll_payment_attestations
 
 
 --
+-- Name: payroll_payment_attestations fk_rails_b38fb86eba; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations
+    ADD CONSTRAINT fk_rails_b38fb86eba FOREIGN KEY (resolved_issued_event_id) REFERENCES public.payroll_manual_allocation_events(id);
+
+
+--
 -- Name: time_entries fk_rails_b471d1824b; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4873,6 +4951,14 @@ ALTER TABLE ONLY public.solid_queue_scheduled_executions
 
 ALTER TABLE ONLY public.report_exports
     ADD CONSTRAINT fk_rails_c507e69606 FOREIGN KEY (generated_by_id) REFERENCES public.users(id);
+
+
+--
+-- Name: payroll_payment_attestations fk_rails_ca41af86bb; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_payment_attestations
+    ADD CONSTRAINT fk_rails_ca41af86bb FOREIGN KEY (resolved_by_id) REFERENCES public.users(id);
 
 
 --
@@ -4946,6 +5032,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261013010000'),
 ('20261011010000'),
 ('20261007010000'),
 ('20261003010600'),

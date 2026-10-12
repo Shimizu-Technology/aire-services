@@ -16,44 +16,26 @@ module Payroll
       if PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: entry.id)
         raise Error, "This entry is held by an owner payment attestation; resolve its evidence before linking another paycheck"
       end
-      regular = hours!(regular_hours)
-      overtime = hours!(overtime_hours)
-      raise Error, "Choose at least some hours to reconcile" unless (regular + overtime).positive?
+      create_allocation!(entry: entry, regular_hours: regular_hours, overtime_hours: overtime_hours,
+        external_pay_period_id: external_pay_period_id, external_payroll_item_id: external_payroll_item_id,
+        pay_date: pay_date, reason: reason)
+    end
 
-      period_id = required_reference!(external_pay_period_id, "Cornerstone pay period")
-      item_id = required_reference!(external_payroll_item_id, "Cornerstone payroll item")
-      payment_date = date!(pay_date)
-      explanation = required_reason!(reason)
-      if PayrollManualAllocation.exists?(time_entry_id: entry.id, external_payroll_item_id: item_id)
-        raise Error, "This Cornerstone payroll item is already linked to the AIRE time entry"
+    # Only the dedicated resolution transaction may replace this specific hold
+    # with full issued coverage. Ordinary commit continues to reject holds.
+    def commit_reported_payment!(attestation:, entry:, source_user_uuid:, regular_hours:, overtime_hours:,
+                                 external_pay_period_id:, external_payroll_item_id:, pay_date:, reason:)
+      validate_entry!(entry, source_user_uuid)
+      unless attestation.status == "pending_evidence" && attestation.time_entry_id == entry.id &&
+          !attestation.source_changed? && hours!(regular_hours) + hours!(overtime_hours) == attestation.hours.to_d
+        raise Error, "Resolve the unchanged complete payment report before linking its issued evidence"
       end
-
-      expected = weekly_split(entry)
-      existing = PayrollManualAllocation.active.where(time_entry_id: entry.id)
-      batch_rows = PayrollBatchEntry.where(source_time_entry_id: entry.id)
-      if batch_rows.sum(:regular_hours).to_d + existing.sum(:regular_hours).to_d + regular > expected.fetch(:regular_hours) ||
-         batch_rows.sum(:overtime_hours).to_d + existing.sum(:overtime_hours).to_d + overtime > expected.fetch(:overtime_hours)
-        raise Error, "These hours exceed the AIRE regular or overtime hours still owed for this time entry"
+      if PayrollBatchEntry.exists?(source_time_entry_id: entry.id) || PayrollManualAllocation.active.exists?(time_entry_id: entry.id)
+        raise Error, "Reported source hours already have payroll coverage; review before resolving"
       end
-
-      allocation = PayrollManualAllocation.create!(
-        time_entry: entry,
-        user: entry.user,
-        recorded_by: @actor,
-        source_user_uuid: entry.user.payroll_integration_uuid,
-        source_time_entry_version: entry.lock_version,
-        work_date: entry.work_date,
-        pay_date: payment_date,
-        time_category_id: resolved_category_id(entry),
-        regular_hours: regular,
-        overtime_hours: overtime,
-        external_pay_period_id: period_id,
-        external_payroll_item_id: item_id,
-        reason: explanation
-      )
-      record_event!(allocation, "committed", explanation)
-      route_fully_allocated_cases!(entry, allocation)
-      allocation
+      create_allocation!(entry: entry, regular_hours: regular_hours, overtime_hours: overtime_hours,
+        external_pay_period_id: external_pay_period_id, external_payroll_item_id: external_payroll_item_id,
+        pay_date: pay_date, reason: reason)
     end
 
     def issue!(allocation:, payment_method:, payment_reference:, payment_effective_on:, occurred_at:, reason:)
@@ -129,6 +111,13 @@ module Payroll
       if allocation.status == "issued"
         raise Error, "Issued hours cannot be returned to payroll without verified nonpayment or a replacement-payment correction"
       end
+      original_issue = allocation.payroll_manual_allocation_events.where(event_type: "issued").order(:id).last
+      if original_issue && !allocation.payroll_manual_allocation_events.where(event_type: "payment_cancelled",
+          payment_method: original_issue.payment_method, payment_reference: original_issue.payment_reference,
+          payment_effective_on: original_issue.payment_effective_on).where("id > ?", original_issue.id)
+          .where.not(cancellation_evidence_reference: [ nil, "" ]).exists?
+        raise Error, "Previously issued hours need their exact verified cancellation before payroll can be voided"
+      end
 
       explanation = required_reason!(reason)
       voided_at = timestamp!(occurred_at)
@@ -140,7 +129,87 @@ module Payroll
       allocation
     end
 
+    # A delayed cutoff may capture its original hold after payment resolution.
+    # Preserve that exclusion while applying the verified current obligation.
+    def settle_reported_payment_case!(attestation:, settlement_case:)
+      allocation = attestation.resolved_manual_allocation
+      original_issue = attestation.resolved_issued_event
+      unless attestation.status == "resolved" && allocation && original_issue &&
+          settlement_case.source_time_entry_id == allocation.time_entry_id &&
+          settlement_case.source_user_uuid == allocation.source_user_uuid &&
+          settlement_case.held_total_hours.to_d <= allocation.total_hours
+        raise Error, "Settlement case does not match the resolved payment report"
+      end
+      issue = allocation.payroll_manual_allocation_events.where(event_type: "issued").order(:id).last!
+      component = { allocation_id: allocation.id.to_s, issued_event_id: issue.id.to_s,
+        external_pay_period_id: allocation.external_pay_period_id, external_payroll_item_id: allocation.external_payroll_item_id,
+        regular_hours: allocation.regular_hours.to_s("F"), overtime_hours: allocation.overtime_hours.to_s("F"),
+        payment_method: issue.payment_method, payment_reference: issue.payment_reference,
+        payment_effective_on: issue.payment_effective_on.iso8601, physical_issued_at: issue.occurred_at.iso8601 }
+      settle_manual_case!(settlement_case, allocation, [ component ], issue)
+      unless allocation.status == "issued"
+        cancellation = allocation.payroll_manual_allocation_events.where(event_type: "payment_cancelled",
+          payment_method: issue.payment_method, payment_reference: issue.payment_reference,
+          payment_effective_on: issue.payment_effective_on).where("id > ? AND occurred_at >= ?", issue.id, issue.occurred_at)
+          .where.not(cancellation_evidence_reference: [ nil, "" ]).order(:id).last
+        raise Error, "Resolved coverage needs verified cancellation before returning to review" unless allocation.status.in?(%w[committed voided]) && cancellation
+
+        if allocation.status == "committed"
+          reopen_cancelled_payment_cases!(allocation, cancellation.payment_method, cancellation.payment_reference,
+            cancellation.occurred_at, cancellation.reason)
+        else
+          SettlementCaseCoordinator.transition!(settlement_case, status: "open", destination_kind: "unassigned",
+            target_external_pay_period_id: nil, included_payroll_batch: nil, resolved_at: nil,
+            event_type: "rerouted", actor: @actor, occurred_at: Time.current,
+            metadata: { reason: "resolved_payment_cancelled_and_payroll_voided", requires_explicit_routing: true,
+              payment_attestation_id: attestation.id.to_s, manual_allocation_id: allocation.id.to_s,
+              issued_event_id: issue.id.to_s, cancellation_event_id: cancellation.id.to_s })
+        end
+      end
+    end
+
     private
+
+    def create_allocation!(entry:, regular_hours:, overtime_hours:, external_pay_period_id:, external_payroll_item_id:, pay_date:, reason:)
+      regular = hours!(regular_hours)
+      overtime = hours!(overtime_hours)
+      raise Error, "Choose at least some hours to reconcile" unless (regular + overtime).positive?
+
+      period_id = required_reference!(external_pay_period_id, "Cornerstone pay period")
+      item_id = required_reference!(external_payroll_item_id, "Cornerstone payroll item")
+      payment_date = date!(pay_date)
+      explanation = required_reason!(reason)
+      if PayrollManualAllocation.exists?(time_entry_id: entry.id, external_payroll_item_id: item_id)
+        raise Error, "This Cornerstone payroll item is already linked to the AIRE time entry"
+      end
+
+      expected = weekly_split(entry)
+      existing = PayrollManualAllocation.active.where(time_entry_id: entry.id)
+      batch_rows = PayrollBatchEntry.where(source_time_entry_id: entry.id)
+      if batch_rows.sum(:regular_hours).to_d + existing.sum(:regular_hours).to_d + regular > expected.fetch(:regular_hours) ||
+         batch_rows.sum(:overtime_hours).to_d + existing.sum(:overtime_hours).to_d + overtime > expected.fetch(:overtime_hours)
+        raise Error, "These hours exceed the AIRE regular or overtime hours still owed for this time entry"
+      end
+
+      allocation = PayrollManualAllocation.create!(
+        time_entry: entry,
+        user: entry.user,
+        recorded_by: @actor,
+        source_user_uuid: entry.user.payroll_integration_uuid,
+        source_time_entry_version: entry.lock_version,
+        work_date: entry.work_date,
+        pay_date: payment_date,
+        time_category_id: resolved_category_id(entry),
+        regular_hours: regular,
+        overtime_hours: overtime,
+        external_pay_period_id: period_id,
+        external_payroll_item_id: item_id,
+        reason: explanation
+      )
+      record_event!(allocation, "committed", explanation)
+      route_fully_allocated_cases!(entry, allocation)
+      allocation
+    end
 
     def validate_entry!(entry, source_user_uuid)
       unless entry.user&.staff? && entry.user.payroll_integration_uuid == source_user_uuid.to_s.downcase
@@ -239,29 +308,22 @@ module Payroll
       PayrollSettlementCase.active.where(source_time_entry_id: allocation.time_entry_id).lock.each do |settlement_case|
         next if paid < settlement_case.held_total_hours.to_d
 
-        SettlementCaseCoordinator.transition!(
-          settlement_case,
-          status: "settled",
-          destination_kind: "supplemental",
-          target_payroll_calendar_period: nil,
-          target_external_pay_period_id: allocation.external_pay_period_id,
-          included_payroll_batch: nil,
-          resolved_at: allocation.issued_at,
-          event_type: "settled",
-          actor: @actor,
-          occurred_at: Time.current,
-          metadata: {
-            external_pay_period_id: allocation.external_pay_period_id,
-            external_payroll_item_id: allocation.external_payroll_item_id,
-            payment_method: allocation.payment_method,
-            payment_reference: allocation.payment_reference,
-            physical_issued_at: allocation.issued_at.iso8601,
-            manual_allocation_component_ids: components.map { |component| component[:allocation_id] },
-            manual_allocation_components: components,
-            reason: "Matched to an issued Cornerstone payment"
-          }
-        )
+        issue = allocation.payroll_manual_allocation_events.where(event_type: "issued").order(:id).last!
+        settle_manual_case!(settlement_case, allocation, components, issue)
       end
+    end
+
+    def settle_manual_case!(settlement_case, allocation, components, issue)
+      SettlementCaseCoordinator.transition!(settlement_case,
+        status: "settled", destination_kind: "supplemental", target_payroll_calendar_period: nil,
+        target_external_pay_period_id: allocation.external_pay_period_id, included_payroll_batch: nil,
+        resolved_at: issue.occurred_at, event_type: "settled", actor: issue.actor, occurred_at: Time.current,
+        metadata: { external_pay_period_id: allocation.external_pay_period_id,
+          external_payroll_item_id: allocation.external_payroll_item_id,
+          payment_method: issue.payment_method, payment_reference: issue.payment_reference,
+          physical_issued_at: issue.occurred_at.iso8601,
+          manual_allocation_component_ids: components.map { |component| component[:allocation_id] },
+          manual_allocation_components: components, reason: "Matched to an issued Cornerstone payment" })
     end
 
     def issued_components(allocation)

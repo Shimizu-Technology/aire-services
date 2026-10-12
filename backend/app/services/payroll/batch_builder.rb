@@ -437,6 +437,11 @@ module Payroll
     end
 
     def manually_allocated_hours(entry_id)
+      # A delayed cutoff keeps its original report exclusion even when the
+      # report was resolved later. Do not subtract the later issued allocation
+      # from that zero-hour held target and invent a negative wage correction.
+      return zero_hours if @payment_attestations_by_entry&.key?(entry_id)
+
       allocations = @manual_allocations_by_entry.fetch(entry_id, [])
       {
         total_hours: round_hours(allocations.sum(&:total_hours)),
@@ -600,6 +605,8 @@ module Payroll
     end
 
     def manual_prior_rows_for(entry)
+      return [] if @payment_attestations_by_entry&.key?(entry.id)
+
       allocations = (@manual_allocations_by_entry || {}).fetch(entry.id, [])
       allocations.map do |allocation|
         PayrollBatchEntry.new(

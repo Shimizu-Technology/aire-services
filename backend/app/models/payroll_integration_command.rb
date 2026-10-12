@@ -25,7 +25,10 @@ class PayrollIntegrationCommand < ApplicationRecord
     metadata = result_metadata.to_h.deep_stringify_keys
     forbidden = nested_keys(metadata) & %w[employee email name reason note time_entry payroll_period]
     errors.add(:result_metadata, "contains payroll or personal data") if forbidden.any?
-    errors.add(:result_metadata, "is too large") if JSON.generate(metadata).bytesize > 2.kilobytes
+    # Resolution binds two immutable records plus their shared installation;
+    # keep the ordinary command ceiling and privacy rules unchanged.
+    maximum_bytes = action == "payroll_payment_attestation.resolve" ? 6.kilobytes : 2.kilobytes
+    errors.add(:result_metadata, "is too large") if JSON.generate(metadata).bytesize > maximum_bytes
   end
 
   def nested_keys(value)

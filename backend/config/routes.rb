@@ -54,6 +54,7 @@ Rails.application.routes.draw do
           end
           resources :payment_attestations, only: [ :index, :create ] do
             post :retract, on: :member
+            post :resolve, on: :member
           end
 
           resources :exceptions, only: [ :index ]
