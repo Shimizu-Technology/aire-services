@@ -148,6 +148,15 @@ function formatDate(dateString: string): string {
   })
 }
 
+function formatRecordedDate(timestamp: string): string {
+  return new Date(timestamp).toLocaleDateString('en-US', {
+    timeZone: 'Pacific/Guam',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 function getWeekDates(date: Date): Date[] {
   const start = new Date(date)
   const day = start.getDay()
@@ -2656,7 +2665,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                         {entry.payroll_lifecycle?.resolved_payment_report && (
                           <details className="mt-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-text-muted">
                             <summary className="cursor-pointer font-medium text-primary-dark">Matched payment report</summary>
-                            <p className="mt-2">Reported {formatDate(entry.payroll_lifecycle.resolved_payment_report.attested_at)} · matched to issued evidence {formatDate(entry.payroll_lifecycle.resolved_payment_report.resolved_at)}</p>
+                            <p className="mt-2">Reported {formatRecordedDate(entry.payroll_lifecycle.resolved_payment_report.attested_at)} · matched to issued evidence {formatRecordedDate(entry.payroll_lifecycle.resolved_payment_report.resolved_at)}</p>
                             <p className="mt-1 whitespace-pre-wrap">{entry.payroll_lifecycle.resolved_payment_report.reason}</p>
                             <p className="mt-1 whitespace-pre-wrap">{entry.payroll_lifecycle.resolved_payment_report.resolution_reason}</p>
                             <p className="mt-1">Original report retained. Current payment status is shown above.</p>

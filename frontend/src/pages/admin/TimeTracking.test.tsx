@@ -557,9 +557,9 @@ describe('TimeTracking routed report periods', () => {
           total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_minutes: 0, description: null, entry_method: 'clock', clock_source: 'kiosk',
           approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 1, key: 'other', name: 'Other' }, breaks: [],
           payroll_lifecycle: { status: 'partially_paid', label: 'Partially paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [],
-            resolved_payment_report: { id: 'report-52', attested_at: '2026-09-18T09:00:00+10:00',
+            resolved_payment_report: { id: 'report-52', attested_at: '2026-09-18T18:00:00Z',
               reason: 'Owner reported the original work paid; exact check evidence was pending.',
-              resolved_at: '2026-09-20T10:00:00+10:00', resolution_reason: 'Matched the original exact issued payment evidence.',
+              resolved_at: '2026-09-20T14:30:00Z', resolution_reason: 'Matched the original exact issued payment evidence.',
               manual_allocation_id: 'allocation-52', issued_event_id: 'issue-52' } },
           quality_flags: [],
         }],
@@ -579,6 +579,8 @@ describe('TimeTracking routed report periods', () => {
     fireEvent.click(employeeCard)
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('6.10h total')
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Matched payment report')
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Reported Sat, Sep 19 · matched to issued evidence Mon, Sep 21')
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).not.toHaveTextContent('Invalid Date')
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Original report retained. Current payment status is shown above.')
     let finishReload!: (value: { data: HoursReportResponse }) => void
     apiMock.getHoursReport.mockImplementationOnce(() => new Promise((resolve) => { finishReload = resolve }))
