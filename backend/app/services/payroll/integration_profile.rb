@@ -20,6 +20,7 @@ module Payroll
       account_linking
       manual_allocations
       payment_attestations
+      payment_attestation_resolution_v1
     ].freeze
 
     def self.call

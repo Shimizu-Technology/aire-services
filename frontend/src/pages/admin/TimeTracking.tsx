@@ -148,6 +148,15 @@ function formatDate(dateString: string): string {
   })
 }
 
+function formatRecordedDate(timestamp: string): string {
+  return new Date(timestamp).toLocaleDateString('en-US', {
+    timeZone: 'Pacific/Guam',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 function getWeekDates(date: Date): Date[] {
   const start = new Date(date)
   const day = start.getDay()
@@ -2653,11 +2662,20 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                             {entry.payroll_lifecycle.payment_attestation_source_changed && ' The AIRE entry changed after the statement and needs review.'}
                           </p>
                         )}
+                        {entry.payroll_lifecycle?.resolved_payment_report && (
+                          <details className="mt-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-text-muted">
+                            <summary className="cursor-pointer font-medium text-primary-dark">Matched payment report</summary>
+                            <p className="mt-2">Reported {formatRecordedDate(entry.payroll_lifecycle.resolved_payment_report.attested_at)} · matched to issued evidence {formatRecordedDate(entry.payroll_lifecycle.resolved_payment_report.resolved_at)}</p>
+                            <p className="mt-1 whitespace-pre-wrap">{entry.payroll_lifecycle.resolved_payment_report.reason}</p>
+                            <p className="mt-1 whitespace-pre-wrap">{entry.payroll_lifecycle.resolved_payment_report.resolution_reason}</p>
+                            <p className="mt-1">Original report retained. Current payment status is shown above.</p>
+                          </details>
+                        )}
                         {entry.payroll_lifecycle && (entry.payroll_lifecycle.manually_paid_hours || entry.payroll_lifecycle.manually_committed_hours) ? (
                           <p className="mt-2 text-xs text-text-muted">
                             {[
                               entry.payroll_lifecycle.manually_paid_hours
-                                ? `${Number(entry.payroll_lifecycle.manually_paid_hours).toFixed(2)}h paid by issued Cornerstone check`
+                                ? `${Number(entry.payroll_lifecycle.manually_paid_hours).toFixed(2)}h paid by recorded Cornerstone payment`
                                 : null,
                               entry.payroll_lifecycle.manually_committed_hours
                                 ? `${Number(entry.payroll_lifecycle.manually_committed_hours).toFixed(2)}h committed, not yet paid`

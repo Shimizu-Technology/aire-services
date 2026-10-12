@@ -919,6 +919,15 @@ export interface PayrollEntryLifecycle {
   payment_attested_hours?: number;
   payment_attested_at?: string;
   payment_attestation_source_changed?: boolean;
+  resolved_payment_report?: {
+    id: string;
+    attested_at: string;
+    reason: string;
+    resolved_at: string;
+    resolution_reason: string;
+    manual_allocation_id: string;
+    issued_event_id: string;
+  };
   settlements: PayrollEntrySettlement[];
 }
 

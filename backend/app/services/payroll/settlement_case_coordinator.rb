@@ -118,6 +118,17 @@ module Payroll
         end
       end
 
+      def resolve_attestation_cases!(attestation:, actor:)
+        recorder = ManualAllocationRecorder.new(actor: actor)
+        PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id).lock.each do |settlement_case|
+          closing = settlement_case.payroll_settlement_case_events.order(:id).last
+          next unless closing&.event_type == "superseded" &&
+            closing.metadata["payment_attestation_id"].to_s == attestation.id.to_s
+
+          recorder.settle_reported_payment_case!(attestation: attestation, settlement_case: settlement_case)
+        end
+      end
+
       def record_entry!(entry, previous_work_date: nil, actor: nil, actor_id: nil)
         return if PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: entry.id)
 
@@ -345,6 +356,9 @@ module Payroll
           supersede_attestation_case!(settlement_case, attestation, actor)
         elsif attestation&.status == "retracted"
           require_explicit_attestation_review!(settlement_case, attestation, attestation.retracted_by, attestation.retraction_reason)
+        elsif attestation&.status == "resolved"
+          ManualAllocationRecorder.new(actor: attestation.resolved_by).settle_reported_payment_case!(
+            attestation: attestation, settlement_case: settlement_case)
         end
         settlement_case
       rescue ActiveRecord::RecordNotUnique

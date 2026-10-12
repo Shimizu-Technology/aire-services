@@ -19,7 +19,8 @@ RSpec.describe "Payroll source installation authorization", type: :request do
     [ :post, "/api/v1/payroll/cockpit/time_entries/1/approval" ],
     [ :post, "/api/v1/payroll/cockpit/manual_allocations" ],
     [ :post, "/api/v1/payroll/cockpit/manual_allocations/1/cancel_payment" ],
-    [ :post, "/api/v1/payroll/cockpit/payment_attestations" ]
+    [ :post, "/api/v1/payroll/cockpit/payment_attestations" ],
+    [ :post, "/api/v1/payroll/cockpit/payment_attestations/1/resolve" ]
   ].each do |method, path|
     it "rejects a mismatched installation before #{method.upcase} #{path}" do
       pinned = headers.merge("X-Payroll-Source-Instance-Id" => SecureRandom.uuid)
