@@ -165,7 +165,7 @@ it('keeps unknown coverage and identity unresolved without hiding signed hours',
   const unknown = { ...period, coverage_lines: [{ ...period.coverage_lines[0], source_kind: 'future_source', coverage_state: 'future_paid', identity_state: 'future_verified', receipt_scope: 'constructor', regular_hours: -1, overtime_hours: null }] }
   mock.period.mockResolvedValue({ period: unknown, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
   open('/admin/users/7?tab=hours&period=2026-09-01')
-  expect(await screen.findByText('Source hours · Coverage status needs review · REG -1h / OT Unknown')).toBeInTheDocument()
+  expect(await screen.findByText('Source hours · source needs review · Coverage status needs review · REG -1h / OT Unknown')).toBeInTheDocument()
   expect(screen.getByText('Employee identity needs review')).toBeInTheDocument()
   expect(screen.getByText(/Receipt scope not recognized · line confirmation unavailable/)).toBeInTheDocument()
   expect(screen.queryByText(/future_paid|future_verified/)).not.toBeInTheDocument()
@@ -208,4 +208,14 @@ it('retains issued manual evidence without inventing a line receipt scope', asyn
   expect(await screen.findByText('Manually linked hours · Issued payment coverage · REG 6h / OT 0h')).toBeInTheDocument()
   expect(screen.getByText(/receipt Manually linked evidence/)).toBeInTheDocument()
   expect(screen.queryByText(/Receipt for this saved line/)).not.toBeInTheDocument()
+})
+
+it('requires review of issued original-period hours without a receipt scope', async () => {
+  const missingScope = { ...period, coverage_lines: [{ ...period.coverage_lines[0], identity_state: 'verified', receipt_scope: null }] }
+  mock.period.mockResolvedValue({ period: missingScope, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  expect(await screen.findByText('Original period hours · Receipt needs review · line coverage unconfirmed · REG 6h / OT 0h')).toBeInTheDocument()
+  expect(screen.getByText(/receipt Receipt scope not recorded/)).toBeInTheDocument()
+  expect(screen.queryByText(/Original period hours · Issued payment coverage/)).not.toBeInTheDocument()
+  expect(screen.getByText(/payroll period 30 · item 99/)).toHaveTextContent('1001')
 })
