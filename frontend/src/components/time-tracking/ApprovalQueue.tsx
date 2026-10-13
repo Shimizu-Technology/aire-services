@@ -226,6 +226,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
     }
     return { ...defaultReviewFilters }
   })
+  const [selectedEmployeeOption, setSelectedEmployeeOption] = useState<{ id: number; label: string } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(false)
@@ -359,8 +360,11 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
     allEntries.forEach((entry) => {
       usersById.set(entry.user.id, { id: entry.user.id, label: entryDisplayName(entry) })
     })
+    if (selectedEmployeeOption && String(selectedEmployeeOption.id) === reviewFilters.userId && !usersById.has(selectedEmployeeOption.id)) {
+      usersById.set(selectedEmployeeOption.id, selectedEmployeeOption)
+    }
     return Array.from(usersById.values()).sort((a, b) => a.label.localeCompare(b.label))
-  }, [allEntries])
+  }, [allEntries, reviewFilters.userId, selectedEmployeeOption])
 
   const approvableEntries = useMemo(() => entries.filter((entry) => entry.time_category !== null), [entries])
   const selectedEntries = useMemo(() => approvableEntries.filter((entry) => selectedIds.has(entry.id)), [approvableEntries, selectedIds])
@@ -514,6 +518,9 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
   }
 
   const updateReviewFilters = (updates: Partial<ReviewFilters>) => {
+    if (updates.userId !== undefined) {
+      setSelectedEmployeeOption(userOptions.find((user) => String(user.id) === updates.userId) ?? null)
+    }
     setReviewFilters((previous) => ({ ...previous, ...updates }))
     setRefreshingFilter(true)
   }
