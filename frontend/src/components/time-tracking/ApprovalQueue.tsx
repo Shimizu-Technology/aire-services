@@ -766,7 +766,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
                 disabled={queueUnavailable || approvableEntries.length === 0}
                 className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-primary-dark transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {allVisibleSelected ? 'Clear selection' : `Select approvable (${approvableEntries.length})`}
+                {queueUnavailable ? 'Select approvable' : allVisibleSelected ? 'Clear selection' : `Select approvable (${approvableEntries.length})`}
               </button>
               <button
                 type="button"
@@ -774,7 +774,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
                 disabled={queueUnavailable || bulkActionLoading || selectedEntries.length === 0 || selectedEntries.length > 100}
                 className="min-h-[44px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {bulkActionLoading ? 'Approving…' : `Approve Selected (${selectedEntries.length})`}
+                {bulkActionLoading ? 'Approving…' : queueUnavailable ? 'Approve Selected' : `Approve Selected (${selectedEntries.length})`}
               </button>
             </div>
           )}

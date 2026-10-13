@@ -205,6 +205,8 @@ describe('ApprovalQueue review workflow', () => {
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
     const bulkApprove = screen.getByRole('button', { name: /Approve Selected/ })
     expect(bulkApprove).toBeDisabled()
+    expect(bulkApprove).toHaveTextContent(/^Approve Selected$/)
+    expect(screen.getByRole('button', { name: 'Select approvable' })).toBeDisabled()
     fireEvent.click(bulkApprove)
     expect(apiMock.approveTimeEntry).not.toHaveBeenCalled()
     expect(apiMock.bulkApproveTimeEntries).not.toHaveBeenCalled()
