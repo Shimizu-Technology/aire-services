@@ -102,6 +102,43 @@ RSpec.describe "Reported payment resolution", type: :request do
     end
   end
 
+  it "preserves non-date policy errors from report serialization with or without valid date filters" do
+    original = report.attributes
+    allow_any_instance_of(Payroll::PaymentAttestationResolutionContext).to receive(:snapshot!)
+      .and_raise(Payroll::BatchBuilder::PolicyUnavailableError, "Published overtime policy requires review")
+
+    [ {}, { start_date: "2026-08-01", end_date: "2026-08-15" } ].each do |filter|
+      get "/api/v1/payroll/cockpit/payment_attestations", params: filter, headers: headers
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(body).to include("error" => "Published overtime policy requires review", "review_required" => true)
+      expect(report.reload.attributes).to eq(original)
+    end
+  end
+
+  it "audits missing revision coverage while rejecting a reported-payment match without changing its history" do
+    payload
+    # A retained legacy entry can predate the append-only revision capture.
+    TimeEntry.insert_all!([ entry.attributes.except("id").merge("description" => "Legacy work without captured revision history") ])
+    original_report = report.reload.attributes
+    original_entry = entry.reload.attributes
+    original_history = [ PayrollPaymentAttestationEvent.count, PayrollManualAllocation.count,
+      PayrollManualAllocationEvent.count, PayrollIntegrationCommand.count ]
+
+    expect do
+      resolve
+    end.to change { AuditLog.where(action: "payroll_cockpit.command_rejected", outcome: "failed").count }.by(1)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(body.fetch("error")).to include("Revision history does not cover this cutoff")
+    expect(report.reload.attributes).to eq(original_report)
+    expect(entry.reload.attributes).to eq(original_entry)
+    expect([ PayrollPaymentAttestationEvent.count, PayrollManualAllocation.count,
+      PayrollManualAllocationEvent.count, PayrollIntegrationCommand.count ]).to eq(original_history)
+    audit = AuditLog.find_by!(action: "payroll_cockpit.command_rejected", auditable: report)
+    expect(audit).to have_attributes(user_id: actor.id, correlation_id: payload.fetch(:command_id), outcome: "failed")
+    expect(audit.metadata).to include("command_action" => "resolve", "error" => body.fetch("error"))
+  end
+
   it "retains the correct report and atomically records full issued coverage across payroll periods" do
     original = report.reload.attributes.slice("reason", "attested_at", "source_time_entry_version", "hours", "work_date")
     expect(context.fetch(:available)).to be(true)
