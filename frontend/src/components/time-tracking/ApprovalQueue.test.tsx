@@ -173,6 +173,77 @@ describe('ApprovalQueue review workflow', () => {
     expect(apiMock.approveTimeEntry).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps reversed-range inputs correctable without stale approvals and resumes the selected scope', async () => {
+    const target = makeEntry({ id: 48, work_date: '2026-09-23' })
+    let approved = false
+    apiMock.getPendingApprovals.mockImplementation(async (params) => {
+      if (params.start_date && params.end_date && params.end_date < params.start_date) {
+        return { error: 'end_date must be on or after start_date' }
+      }
+      return { data: { pending_entries: approved ? [] : [target], count: approved ? 0 : 1 } }
+    })
+    apiMock.approveTimeEntry.mockImplementation(async () => {
+      approved = true
+      return { data: {} }
+    })
+    const { container } = render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded
+      initialDateFilter={{ mode: 'range', startDate: '2026-09-23', endDate: '2026-09-23' }} />)
+    await screen.findByRole('option', { name: 'Aika Kanekatsu' })
+    fireEvent.change(screen.getByDisplayValue('All employees'), { target: { value: '10' } })
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 10 })))
+    const [start, end] = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]'))
+    const callsBeforeInvalid = apiMock.getPendingApprovals.mock.calls.length
+    fireEvent.change(end, { target: { value: '2026-09-14' } })
+
+    expect(await screen.findByText('End date must be on or after start date.')).toBeVisible()
+    expect(start).toBeVisible()
+    expect(start).toHaveValue('2026-09-23')
+    expect(end).toBeVisible()
+    expect(end).toHaveValue('2026-09-14')
+    expect(screen.getByDisplayValue('Aika Kanekatsu')).toHaveValue('10')
+    expect(apiMock.getPendingApprovals).toHaveBeenCalledTimes(callsBeforeInvalid)
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
+    const bulkApprove = screen.getByRole('button', { name: /Approve Selected/ })
+    expect(bulkApprove).toBeDisabled()
+    expect(bulkApprove).toHaveTextContent(/^Approve Selected$/)
+    expect(screen.getByRole('button', { name: 'Select approvable' })).toBeDisabled()
+    fireEvent.click(bulkApprove)
+    expect(apiMock.approveTimeEntry).not.toHaveBeenCalled()
+    expect(apiMock.bulkApproveTimeEntries).not.toHaveBeenCalled()
+
+    fireEvent.change(end, { target: { value: '2026-09-23' } })
+    const approve = await screen.findByRole('button', { name: 'Approve' })
+    expect(approve).toBeEnabled()
+    expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining({
+      user_id: 10, start_date: '2026-09-23', end_date: '2026-09-23',
+    }))
+    fireEvent.click(approve)
+    await screen.findByText(/No pending entries match these filters/)
+    expect(apiMock.approveTimeEntry).toHaveBeenCalledExactlyOnceWith(48, undefined)
+    expect(screen.getByDisplayValue('Aika Kanekatsu')).toHaveValue('10')
+    expect(start).toHaveValue('2026-09-23')
+    expect(end).toHaveValue('2026-09-23')
+  })
+
+  it('retains filter controls and hides stale rows on fetch failure until a scoped retry succeeds', async () => {
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded />)
+    await screen.findByRole('option', { name: 'Aika Kanekatsu' })
+    apiMock.getPendingApprovals.mockResolvedValueOnce({ error: 'Connection lost' })
+    fireEvent.change(screen.getByDisplayValue('All employees'), { target: { value: '10' } })
+
+    expect(await screen.findByText('Connection lost')).toBeVisible()
+    expect(screen.getByDisplayValue('Aika Kanekatsu')).toHaveValue('10')
+    expect(screen.getByDisplayValue('All dates')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Approve Selected/ })).toBeDisabled()
+    expect(screen.getByText('Clear filters')).toBeVisible()
+    apiMock.getPendingApprovals.mockResolvedValueOnce({ data: { pending_entries: [entries[0]], count: 1 } })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 10 }))
+    expect(screen.queryByText('Connection lost')).not.toBeInTheDocument()
+  })
+
   it('defaults to oldest-first approvals and shows review reason badges', async () => {
     render(<ApprovalQueue approvalGroups={[{ key: 'cfi', label: 'CFI' }]} approvalGroupsLoaded canDeleteEntry={() => true} />)
 
