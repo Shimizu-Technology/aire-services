@@ -104,7 +104,7 @@ it('shows the signed accounting correction separately and preserves the original
   mock.period.mockResolvedValue({ period: corrected, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
   open()
   fireEvent.click(await screen.findByRole('button', { name: 'Review period' }))
-  expect(await screen.findByText(/correction · Accounting correction committed · REG -1h/)).toBeInTheDocument()
+  expect(await screen.findByText(/Correction hours · Accounting correction committed · REG -1h/)).toBeInTheDocument()
   expect(screen.getByText(/No new payment or recovery recorded/)).toBeInTheDocument()
   expect(screen.getByText(/item 55/)).toBeInTheDocument()
   expect(screen.getByText(/item 99/)).toHaveTextContent('1001')
@@ -122,11 +122,11 @@ it('keeps late-created paid case history visible without an unresolved-period ba
   mock.period.mockResolvedValue({ period: carried, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
   open()
   fireEvent.click(await screen.findByRole('button', { name: 'Review period' }))
-  expect(await screen.findByText('Historical reason: created after cutoff')).toBeInTheDocument()
+  expect(await screen.findByText('Historical reason: Entry was added after cutoff')).toBeInTheDocument()
   expect(screen.getByRole('region', { name: 'Reconciliation notes' })).toHaveTextContent('Paid')
   expect(screen.getByText('Regular payroll · Pay date Fri, Oct 30, 2026')).toBeInTheDocument()
   expect(screen.getByText('Recorded follow-up date: Thu, Oct 15, 2026')).toBeInTheDocument()
-  expect(screen.getByText('Stored status: in_payroll · Payroll reference: next-period')).toBeInTheDocument()
+  expect(screen.getByText('Recorded case status: Included in payroll · receipt confirmation pending · Payroll reference: next-period')).toBeInTheDocument()
   expect(screen.getByText(/Original work dates · Review recorded evidence/)).toBeInTheDocument()
   expect(screen.queryByText(/Original work dates · Needs reconciliation/)).not.toBeInTheDocument()
 })
@@ -144,9 +144,78 @@ it.each([
   const notes = await screen.findByRole('region', { name: 'Reconciliation notes' })
   expect(within(notes).getByText(item.label)).toBeInTheDocument()
   expect(within(notes).getByText(item.destination)).toBeInTheDocument()
-  expect(notes).toHaveTextContent('Historical reason: pending overtime')
+  expect(notes).toHaveTextContent('Historical reason: Overtime approval was pending at cutoff')
   expect(notes).toHaveTextContent('Recorded follow-up date: Tue, Dec 15, 2026')
   expect(notes).toHaveTextContent('Payroll reference: long-audit-payroll-reference')
   expect(within(notes).queryByText('Paid', { exact: true })).not.toBeInTheDocument()
   expect(within(notes).queryByText(/Pay date.*Dec 15/)).not.toBeInTheDocument()
+})
+
+it('describes receipt scope independently from commitment and keeps the operator note', async () => {
+  const prepared = { ...period, coverage_lines: [{ ...period.coverage_lines[0], coverage_state: 'committed', receipt_scope: 'exact_line', identity_state: 'verified', reason: 'Chels kept this original note.' }] }
+  mock.period.mockResolvedValue({ period: prepared, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  expect(await screen.findByText(/Original period hours · Payroll committed · no active issued coverage · REG 6h/)).toBeInTheDocument()
+  expect(screen.getByText(/receipt Receipt for this saved line/)).toBeInTheDocument()
+  expect(screen.getByText('Chels kept this original note.')).toBeInTheDocument()
+  expect(screen.queryByText('Paid', { exact: true })).not.toBeInTheDocument()
+})
+
+it('keeps unknown coverage and identity unresolved without hiding signed hours', async () => {
+  const unknown = { ...period, coverage_lines: [{ ...period.coverage_lines[0], source_kind: 'future_source', coverage_state: 'future_paid', identity_state: 'future_verified', receipt_scope: 'constructor', regular_hours: -1, overtime_hours: null }] }
+  mock.period.mockResolvedValue({ period: unknown, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  expect(await screen.findByText('Source hours · source needs review · Coverage status needs review · REG -1h / OT Unknown')).toBeInTheDocument()
+  expect(screen.getByText('Employee identity needs review')).toBeInTheDocument()
+  expect(screen.getByText(/Receipt scope not recognized · line confirmation unavailable/)).toBeInTheDocument()
+  expect(screen.queryByText(/future_paid|future_verified/)).not.toBeInTheDocument()
+  expect(screen.queryByText('Paid', { exact: true })).not.toBeInTheDocument()
+})
+
+it.each([
+  { receipt_scope: 'batch', coverage_state: 'receipt_review', scope: 'Batch receipt only · no line confirmation' },
+  { receipt_scope: 'ambiguous_entry', coverage_state: 'receipt_review', scope: 'Entry receipt · saved line needs review' },
+  { receipt_scope: 'none', coverage_state: 'exported', scope: 'No receipt recorded' },
+])('keeps $receipt_scope coverage separate from paid case completion', async (line) => {
+  const unconfirmed = { ...period, coverage_lines: [{ ...period.coverage_lines[0], ...line }] }
+  mock.period.mockResolvedValue({ period: unconfirmed, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  const scope = await screen.findByText((content) => content.includes(`receipt ${line.scope} ·`))
+  expect(scope).toBeInTheDocument()
+  expect(screen.queryByText('Paid', { exact: true })).not.toBeInTheDocument()
+  expect(screen.queryByText(/Original period hours · Issued payment coverage/)).not.toBeInTheDocument()
+})
+
+it.each([
+  { identity_state: 'future_verified', receipt_scope: 'exact_line' },
+  { identity_state: 'frozen_owner_mismatch', receipt_scope: 'exact_line' },
+  { identity_state: 'verified', receipt_scope: 'batch' },
+  { identity_state: 'verified', receipt_scope: 'ambiguous_entry' },
+  { identity_state: 'verified', receipt_scope: 'future_exact_line' },
+])('does not confirm issued coverage with contradictory $identity_state/$receipt_scope', async (context) => {
+  const conflicting = { ...period, coverage_lines: [{ ...period.coverage_lines[0], coverage_state: 'issued', ...context }] }
+  mock.period.mockResolvedValue({ period: conflicting, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  expect(await screen.findByText(/Original period hours · .*needs review.*coverage unconfirmed · REG 6h/)).toBeInTheDocument()
+  expect(screen.queryByText(/Original period hours · Issued payment coverage/)).not.toBeInTheDocument()
+  expect(screen.getByText(/payroll period 30 · item 99/)).toHaveTextContent('1001')
+})
+
+it('retains issued manual evidence without inventing a line receipt scope', async () => {
+  const manual = { ...period, coverage_lines: [{ ...period.coverage_lines[0], source_kind: 'manual', identity_state: 'verified', receipt_scope: null }] }
+  mock.period.mockResolvedValue({ period: manual, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  expect(await screen.findByText('Manually linked hours · Issued payment coverage · REG 6h / OT 0h')).toBeInTheDocument()
+  expect(screen.getByText(/receipt Manually linked evidence/)).toBeInTheDocument()
+  expect(screen.queryByText(/Receipt for this saved line/)).not.toBeInTheDocument()
+})
+
+it('requires review of issued original-period hours without a receipt scope', async () => {
+  const missingScope = { ...period, coverage_lines: [{ ...period.coverage_lines[0], identity_state: 'verified', receipt_scope: null }] }
+  mock.period.mockResolvedValue({ period: missingScope, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+  open('/admin/users/7?tab=hours&period=2026-09-01')
+  expect(await screen.findByText('Original period hours · Receipt needs review · line coverage unconfirmed · REG 6h / OT 0h')).toBeInTheDocument()
+  expect(screen.getByText(/receipt Receipt scope not recorded/)).toBeInTheDocument()
+  expect(screen.queryByText(/Original period hours · Issued payment coverage/)).not.toBeInTheDocument()
+  expect(screen.getByText(/payroll period 30 · item 99/)).toHaveTextContent('1001')
 })
