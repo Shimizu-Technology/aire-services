@@ -137,6 +137,42 @@ describe('ApprovalQueue review workflow', () => {
     else expect(resubmit).not.toBeInTheDocument()
   })
 
+  it('retains the employee filter label and scope after approving their last pending entry', async () => {
+    let approved = false
+    apiMock.getPendingApprovals.mockImplementation(async (params) => {
+      const pending = approved ? [entries[1]] : entries
+      const filtered = params.user_id ? pending.filter((entry) => entry.user.id === params.user_id) : pending
+      return { data: { pending_entries: filtered, count: filtered.length } }
+    })
+    apiMock.approveTimeEntry.mockImplementation(async () => {
+      approved = true
+      return { data: {} }
+    })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    await screen.findByRole('option', { name: 'Aika Kanekatsu' })
+    fireEvent.change(screen.getByDisplayValue('All employees'), { target: { value: '10' } })
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 10 })))
+    await waitFor(() => expect(screen.queryByText('Zion Quintanilla')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+
+    await screen.findByText(/No pending entries match these filters/)
+    const employeeSelect = screen.getByDisplayValue('Aika Kanekatsu') as HTMLSelectElement
+    expect(employeeSelect).toHaveValue('10')
+    expect(employeeSelect.selectedOptions[0]).toHaveTextContent('Aika Kanekatsu')
+    expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining({ user_id: 10 }))
+    expect(apiMock.approveTimeEntry).toHaveBeenCalledTimes(1)
+    expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(1, undefined)
+    expect(screen.queryByText('Zion Quintanilla')).not.toBeInTheDocument()
+    expect(screen.getByText('Clear filters')).toBeVisible()
+
+    fireEvent.click(screen.getByText('Clear filters'))
+    await screen.findByRole('option', { name: 'Zion Quintanilla' })
+    expect(screen.getByDisplayValue('All employees')).toBeVisible()
+    expect(apiMock.getPendingApprovals.mock.lastCall?.[0]).not.toHaveProperty('user_id')
+    expect(apiMock.approveTimeEntry).toHaveBeenCalledTimes(1)
+  })
+
   it('defaults to oldest-first approvals and shows review reason badges', async () => {
     render(<ApprovalQueue approvalGroups={[{ key: 'cfi', label: 'CFI' }]} approvalGroupsLoaded canDeleteEntry={() => true} />)
 
