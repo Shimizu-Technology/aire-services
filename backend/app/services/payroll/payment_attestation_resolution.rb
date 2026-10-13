@@ -63,7 +63,7 @@ module Payroll
         SettlementCaseCoordinator.resolve_attestation_cases!(attestation: attestation, actor: @actor)
         { allocation: allocation, issued_event: issued_event, expected_allocation_version: expected_allocation_version }
       end
-    rescue PaymentAttestationResolutionContext::Error => e
+    rescue PaymentAttestationResolutionContext::Error, TimeEntryRevisionLedger::CoverageError => e
       raise Error, e.message
     end
 
