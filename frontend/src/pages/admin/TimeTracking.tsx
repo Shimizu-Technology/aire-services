@@ -149,7 +149,10 @@ function formatDate(dateString: string): string {
 }
 
 function formatRecordedDate(timestamp: string): string {
-  return new Date(timestamp).toLocaleDateString('en-US', {
+  if (typeof timestamp !== 'string' || !isIsoDate(timestamp.slice(0, 10))) return 'Date unknown'
+  const recorded = new Date(timestamp)
+  if (!Number.isFinite(recorded.getTime())) return 'Date unknown'
+  return recorded.toLocaleDateString('en-US', {
     timeZone: 'Pacific/Guam',
     weekday: 'short',
     month: 'short',
@@ -406,12 +409,13 @@ export default function TimeTracking() {
   const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
   const entryRequest = useRef(0)
   const linkedEntryRequest = useRef(0)
+  const deletedLinkedEntryIds = useRef(new Set<string>())
   const [entryRefreshRevision, setEntryRefreshRevision] = useState(0)
   // Mutations request a fresh read in the current route, rather than retaining
   // a load callback for the employee/date that was open when the write began.
   const refreshEntryViews = useCallback(() => setEntryRefreshRevision(revision => revision + 1), [])
-  const [linkedEntry, setLinkedEntry] = useState<TimeEntryItem | null>(null)
-  const [linkedEntryError, setLinkedEntryError] = useState<string | null>(null)
+  const [linkedEntryState, setLinkedEntryState] = useState<{ scope: string; entry: TimeEntryItem | null; loading: boolean; error: string | null } | null>(null)
+  const [linkedEntryRetry, setLinkedEntryRetry] = useState(0)
   const routedPrefill = searchParams.get('prefill')
   const routedScheduleId = searchParams.get('schedule_id') || ''
   const routedPrefillOwner = searchParams.get('user_id') || ''
@@ -423,7 +427,7 @@ export default function TimeTracking() {
     next.delete('entries_page')
     setSearchParams(next, { replace: true })
   })
-  const { userRole, isClerkEnabled } = useAuthContext()
+  const { userRole, isClerkEnabled, currentUser: authenticatedUser, isSignedIn } = useAuthContext()
   const authSaysAdmin = !isClerkEnabled || userRole === 'admin'
   const routedPeriod = linkedPayrollPeriod(searchParams)
   const routedPeriodStart = routedPeriod?.start
@@ -486,6 +490,16 @@ export default function TimeTracking() {
     approval_status: routedApprovalStatus,
     overtime_status: routedOvertimeStatus,
   }))
+  // A refresh may retain a previously authorized read only within this exact
+  // record, employee, report-period and authenticated-account scope. Keyed
+  // rendering hides the old snapshot immediately when any scope changes.
+  const linkedScopeUserId = activeTab === 'reports' ? reportFilters.user_id : routedUserId
+  const linkedScopeStart = activeTab === 'reports' ? reportFilters.start_date : routedPeriodStart
+  const linkedScopeEnd = activeTab === 'reports' ? reportFilters.end_date : routedPeriodEnd
+  const linkedEntryScope = JSON.stringify([routedEntryId, routedUserId, linkedScopeUserId, routedPeriodStart, routedPeriodEnd, linkedScopeStart, linkedScopeEnd, authenticatedUser?.id, userRole, isClerkEnabled, isSignedIn])
+  const linkedEntry = linkedEntryState?.scope === linkedEntryScope ? linkedEntryState.entry : null
+  const linkedEntryError = linkedEntryState?.scope === linkedEntryScope ? linkedEntryState.error : null
+  const linkedEntryLoading = !!routedEntryId && (linkedEntryState?.scope !== linkedEntryScope || linkedEntryState.loading)
   const lastUrlSyncedReportFilters = useRef(reportFilters)
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
@@ -555,18 +569,35 @@ export default function TimeTracking() {
 
   useEffect(() => {
     const request = ++linkedEntryRequest.current
-    if (!routedEntryId) { setLinkedEntry(null); setLinkedEntryError(null); return }
-    setLinkedEntry(null)
-    setLinkedEntryError(null)
+    if (!routedEntryId) { setLinkedEntryState(null); return }
+    setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: current?.scope === linkedEntryScope ? current.entry : null, loading: true, error: null }))
+    const fail = (message: string, clearEntry = false) => {
+      if (request !== linkedEntryRequest.current) return
+      setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: !clearEntry && !deletedLinkedEntryIds.current.has(routedEntryId) && current?.scope === linkedEntryScope ? current.entry : null, loading: false, error: message }))
+    }
     void api.getTimeEntry(Number(routedEntryId)).then(response => {
       if (request !== linkedEntryRequest.current) return
       const entry = response.data?.time_entry as unknown as TimeEntryItem | undefined
-      if (!entry || response.error) { setLinkedEntryError(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.'); return }
-      if (String(entry.id) !== routedEntryId || (routedUserId && String(entry.user.id) !== routedUserId)) { setLinkedEntryError('The linked entry does not match the selected employee. Return to the employee review.'); return }
-      setLinkedEntry(entry)
-    }).catch(() => { if (request === linkedEntryRequest.current) setLinkedEntryError('The linked entry could not be loaded. Refresh to retry or return to the employee review.') })
+      if (!entry || response.error) {
+        fail(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.', [401, 403, 404].includes(response.status || 0))
+        return
+      }
+      if (deletedLinkedEntryIds.current.has(routedEntryId)) {
+        fail('The linked entry was deleted. Its retained payroll evidence remains in the employee review.', true)
+        return
+      }
+      if (!entry.user || !Number.isSafeInteger(entry.user.id) || entry.user.id <= 0 || String(entry.id) !== routedEntryId || (routedUserId && String(entry.user?.id) !== routedUserId) || (linkedScopeUserId && String(entry.user?.id) !== linkedScopeUserId)) {
+        fail('The linked entry does not match the selected employee. Return to the employee review.', true)
+        return
+      }
+      if (isIsoDate(linkedScopeStart) && isIsoDate(linkedScopeEnd) && (!isIsoDate(entry.work_date) || entry.work_date < linkedScopeStart || entry.work_date > linkedScopeEnd)) {
+        fail('The linked entry is outside the selected review period. Return to the employee review.', true)
+        return
+      }
+      setLinkedEntryState({ scope: linkedEntryScope, entry, loading: false, error: null })
+    }).catch(() => fail('The linked entry could not be loaded. Retry or return to the employee review.'))
     return () => { linkedEntryRequest.current += 1 }
-  }, [routedEntryId, routedUserId, entryRefreshRevision])
+  }, [routedEntryId, routedUserId, linkedScopeUserId, linkedScopeStart, linkedScopeEnd, linkedEntryScope, entryRefreshRevision, linkedEntryRetry])
 
   // Load time entries
   const loadEntries = useCallback(async () => {
@@ -1061,6 +1092,13 @@ export default function TimeTracking() {
     return currentUserId === entry.user.id
   }
 
+  const clearDeletedLinkedEntry = (id: number | undefined) => {
+    if (id === undefined) return
+    deletedLinkedEntryIds.current.add(String(id))
+    linkedEntryRequest.current += 1
+    setLinkedEntryState(current => current?.entry && current.entry.id === id ? { ...current, entry: null } : current)
+  }
+
   const handleDelete = async (entry: TimeEntryItem) => {
     if (!canDeleteEntry(entry)) {
       setError('You do not have permission to delete this time entry')
@@ -1080,6 +1118,7 @@ export default function TimeTracking() {
         setError(response.error)
         return
       }
+      clearDeletedLinkedEntry(entry.id)
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
       returnToPersonDay.current = null
       setShowModal(false)
@@ -1236,6 +1275,13 @@ export default function TimeTracking() {
           </button>
         ) : undefined}
       />
+
+      {linkedEntryLoading && <p role="status" className="text-sm text-text-muted">{linkedEntry ? 'Refreshing linked time entry… Keeping the last loaded review context.' : 'Loading linked time entry…'}</p>}
+      {linkedEntryError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+        <p>{linkedEntryError}</p>
+        {linkedEntry && <p className="mt-1">The last loaded review context is retained. Details may have changed; retry to load the current record.</p>}
+        <button type="button" disabled={linkedEntryLoading} className="mt-2 min-h-11 underline disabled:opacity-40" onClick={() => setLinkedEntryRetry(revision => revision + 1)}>Retry linked entry</button>
+      </div>}
 
       {activeTab === 'entries' && (
         <>
@@ -1493,12 +1539,11 @@ export default function TimeTracking() {
         <p>{entryMeta.summary.entry_count} entries · {Number(entryMeta.summary.total_hours).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
         {entryMeta.pagination.total_pages > 1 && <div className="flex items-center gap-3"><button type="button" disabled={loading || entriesPage <= 1} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage - 1)); setSearchParams(next) }}>Previous entries</button><span>Page {entriesPage} of {entryMeta.pagination.total_pages}</span><button type="button" disabled={loading || entriesPage >= entryMeta.pagination.total_pages} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage + 1)); setSearchParams(next) }}>Next entries</button></div>}
       </div>}
-      {linkedEntryError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">{linkedEntryError}</div>}
       {linkedEntry && <section aria-label="Linked time entry" className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-sm">
         <p className="font-semibold">Entry #{linkedEntry.id} · {formatDate(linkedEntry.work_date)} · {ownerLabel(linkedEntry)}</p>
         <p className="mt-1">{Number(linkedEntry.hours).toFixed(2)}h · {linkedEntry.time_category?.name || 'No category'} · {linkedEntry.approval_status || 'Standard approval'}</p>
         <p className="mt-1 break-words">{linkedEntry.description || 'No description recorded.'}</p>
-        <button type="button" className="mt-2 min-h-11 underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('date', linkedEntry.work_date); next.set('view', 'day'); next.delete('entries_page'); setSearchParams(next) }}>Show this work day</button>
+        <button type="button" disabled={linkedEntryLoading || !!linkedEntryError} className="mt-2 min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('date', linkedEntry.work_date); next.set('view', 'day'); next.delete('entries_page'); setSearchParams(next) }}>Show this work day</button>
       </section>}
       {/* Loading Skeleton */}
       {error ? null : loading ? (
@@ -2454,7 +2499,7 @@ export default function TimeTracking() {
         canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
         onClose={closeEditModal}
         onSaved={refreshEntriesAfterEdit}
-        onDeleted={refreshEntriesAfterEdit}
+        onDeleted={() => { clearDeletedLinkedEntry(editingEntry?.id); refreshEntriesAfterEdit() }}
         onError={setError}
       />
     </div>

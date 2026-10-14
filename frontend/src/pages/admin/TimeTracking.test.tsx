@@ -36,6 +36,9 @@ function TimeRouteHarness() {
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&status=terminated')}>Open terminated report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=7&approval_group=maintenance&role=employee&clock_source=kiosk&entry_method=clock')}>Open filtered report</button>
       <button type="button" onClick={() => navigate(location.pathname + location.search + '&context=changed')}>Change unrelated context</button>
+      <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.set('entry_id', '91'); navigate(location.pathname + '?' + next) }}>Open next linked entry</button>
+      <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.set('user_id', '8'); navigate(location.pathname + '?' + next) }}>Change linked employee</button>
+      <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.delete('tab'); navigate(location.pathname + '?' + next) }}>Open linked entry view</button>
       <output data-testid="location-search">{location.search}</output>
       <TimeTracking />
     </>
@@ -71,9 +74,53 @@ function makeHoursReport(startDate: string, endDate: string, totalHours: number)
   }
 }
 
+function linkedFixture(id = 90) {
+  return {
+    id, version: 7, work_date: '2026-08-20', start_time: '08:00', end_time: '12:00',
+    formatted_start_time: '8:00 AM', formatted_end_time: '12:00 PM', hours: 4, total_hours: 4,
+    regular_hours: 4, overtime_hours: 0, break_minutes: 0, description: `Loaded entry ${id}`,
+    entry_method: 'clock', clock_source: 'kiosk', status: 'completed', approval_status: 'approved',
+    approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 3, name: 'Operations' },
+    user: { id: 7, full_name: 'Casey Employee' }, breaks: [], quality_flags: [],
+  }
+}
+
+function prepareLinkedReport() {
+  const entry = linkedFixture()
+  const report = makeHoursReport('2026-08-16', '2026-08-31', 4)
+  report.employees = [{
+    id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee', full_name: 'Casey Employee',
+    role: 'employee', is_intern: false, status: 'active', terminated_at: null, termination_effective_on: null,
+    total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries_count: 1, days_worked: 1,
+    first_work_date: entry.work_date, last_work_date: entry.work_date, ready: true,
+    quality: report.quality, issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
+    categories: [], weeks: [], days: [{ work_date: entry.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries: [{ ...entry, quality_flags: [] }] }],
+  }]
+  apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: entry } })
+  apiMock.getHoursReport.mockResolvedValue({ data: report })
+  apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+  apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey Employee', time_category_ids: [3] }] } })
+  apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: { ...entry, description: 'Saved change' } } })
+  const query = new URLSearchParams({ tab: 'reports', start_date: report.start_date, end_date: report.end_date, user_id: '7', entry_id: '90', return_to: '/admin/users/7?tab=hours&period=2026-08-16' })
+  render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
+}
+
+async function saveLinkedReportEdit() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+  const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+  fireEvent.change(within(dialog).getByLabelText('Description'), { target: { value: 'Saved change' } })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Update' }))
+  await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledTimes(1))
+}
+
+function cutoffEntryId() {
+  return new URL(screen.getByRole('link', { name: 'Open payroll cutoffs' }).getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')
+}
+
 describe('TimeTracking routed report periods', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiMock.getTimeEntry.mockReset().mockResolvedValue({ error: 'No linked fixture', status: 404 })
     apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [] } })
     apiMock.getUsers.mockResolvedValue({ data: { users: [] } })
@@ -168,6 +215,80 @@ describe('TimeTracking routed report periods', () => {
     expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ date: '2026-08-20', per_page: 100, page: 1 }))
     expect(screen.getByRole('link', { name: 'Back to employee review' })).toHaveAttribute('href', '/admin/users/7?tab=hours&period=2026-08-16')
     expect(screen.getByText('Original evidence')).toBeInTheDocument()
+  })
+
+  it.each(['network', 'server'])('retains the same linked context after an edit refresh %s failure and retries only the read', async (failure) => {
+    prepareLinkedReport()
+    await waitFor(() => expect(cutoffEntryId()).toBe('90'))
+    let finish!: (value: unknown) => void
+    let reject!: (reason: Error) => void
+    apiMock.getTimeEntry.mockImplementationOnce(() => new Promise((resolve, rejectPromise) => { finish = resolve; reject = rejectPromise }))
+    await saveLinkedReportEdit()
+    expect(await screen.findByText(/Refreshing linked time entry/)).toBeInTheDocument()
+    expect(cutoffEntryId()).toBe('90')
+    await act(async () => { if (failure === 'network') reject(new Error('Network unavailable')); else finish({ error: 'Read temporarily unavailable', status: 500 }) })
+    expect(screen.getByRole('alert')).toHaveTextContent('The last loaded review context is retained')
+    expect(cutoffEntryId()).toBe('90')
+    expect(screen.getByRole('link', { name: 'Back to employee review' })).toHaveAttribute('href', '/admin/users/7?tab=hours&period=2026-08-16')
+    fireEvent.click(screen.getByRole('button', { name: 'Open linked entry view' }))
+    const retained = await screen.findByRole('region', { name: 'Linked time entry' })
+    expect(retained).toHaveTextContent('Loaded entry 90')
+    expect(within(retained).getByRole('button', { name: 'Show this work day' })).toBeDisabled()
+    const restored = { ...linkedFixture(), description: 'Current saved record', hours: 5 }
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: restored } })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry linked entry' }))
+    await waitFor(() => expect(retained).toHaveTextContent('Current saved record'))
+    expect(retained).toHaveTextContent('5.00h')
+    expect(within(retained).getByRole('button', { name: 'Show this work day' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(apiMock.getTimeEntry).toHaveBeenCalledTimes(3)
+    expect(apiMock.updateTimeEntry).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('location-search')).toHaveTextContent('entry_id=90')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('return_to=')
+  })
+
+  it('drops prior context on an entry change and ignores its later refresh response', async () => {
+    prepareLinkedReport()
+    await waitFor(() => expect(cutoffEntryId()).toBe('90'))
+    let finishOld!: (value: unknown) => void
+    apiMock.getTimeEntry.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }))
+    await saveLinkedReportEdit()
+    await screen.findByText(/Refreshing linked time entry/)
+    let finishNew!: (value: unknown) => void
+    apiMock.getTimeEntry.mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open next linked entry' }))
+    expect(cutoffEntryId()).toBeNull()
+    await screen.findByText('Loading linked time entry…')
+    await act(async () => { finishNew({ data: { time_entry: linkedFixture(91) } }) })
+    await waitFor(() => expect(cutoffEntryId()).toBe('91'))
+    await act(async () => { finishOld({ data: { time_entry: { ...linkedFixture(), description: 'Stale response' } } }) })
+    expect(cutoffEntryId()).toBe('91')
+    fireEvent.click(screen.getByRole('button', { name: 'Open linked entry view' }))
+    expect(await screen.findByRole('region', { name: 'Linked time entry' })).toHaveTextContent('Loaded entry 91')
+    expect(screen.queryByText('Stale response')).not.toBeInTheDocument()
+  })
+
+  it('clears prior entry content when the employee scope changes even before its read completes', async () => {
+    prepareLinkedReport()
+    await waitFor(() => expect(cutoffEntryId()).toBe('90'))
+    apiMock.getTimeEntry.mockReturnValue(new Promise(() => {}))
+    fireEvent.click(screen.getByRole('button', { name: 'Change linked employee' }))
+    expect(cutoffEntryId()).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open linked entry view' }))
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show this work day' })).not.toBeInTheDocument()
+  })
+
+  it.each([401, 403, 404])('clears previously loaded linked data on an authoritative %s refresh denial', async (status) => {
+    prepareLinkedReport()
+    await waitFor(() => expect(cutoffEntryId()).toBe('90'))
+    apiMock.getTimeEntry.mockResolvedValue({ error: 'Linked entry unavailable to this account', status })
+    await saveLinkedReportEdit()
+    await screen.findByText('Linked entry unavailable to this account')
+    expect(cutoffEntryId()).toBeNull()
+    expect(screen.queryByText(/last loaded review context is retained/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open linked entry view' }))
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
   })
 
   it('refuses an exact entry owned by a different employee', async () => {
@@ -610,7 +731,12 @@ describe('TimeTracking routed report periods', () => {
     expect(reviewButton).toHaveFocus()
   })
 
-  it('keeps payroll status and exact hours visible in the mobile employee summary', async () => {
+  it.each([
+    { label: 'valid timestamps', attestedAt: '2026-09-18T18:00:00Z', resolvedAt: '2026-09-20T14:30:00Z', malformed: false },
+    { label: 'unparseable timestamps', attestedAt: 'not-a-timestamp', resolvedAt: '', malformed: true },
+    { label: 'null and missing timestamps', attestedAt: null, resolvedAt: undefined, malformed: true },
+    { label: 'impossible calendar dates', attestedAt: '2026-02-30T00:00:00Z', resolvedAt: '2026-04-31T00:00:00Z', malformed: true },
+  ])('keeps payroll status and exact hours visible with $label', async ({ attestedAt, resolvedAt, malformed }) => {
     const report = makeHoursReport('2026-05-01', '2026-05-15', 6.1)
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
     report.employees = [{
@@ -648,9 +774,9 @@ describe('TimeTracking routed report periods', () => {
           total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_minutes: 0, description: null, entry_method: 'clock', clock_source: 'kiosk',
           approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 1, key: 'other', name: 'Other' }, breaks: [],
           payroll_lifecycle: { status: 'partially_paid', label: 'Partially paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [],
-            resolved_payment_report: { id: 'report-52', attested_at: '2026-09-18T18:00:00Z',
+            resolved_payment_report: { id: 'report-52', attested_at: attestedAt as string,
               reason: 'Owner reported the original work paid; exact check evidence was pending.',
-              resolved_at: '2026-09-20T14:30:00Z', resolution_reason: 'Matched the original exact issued payment evidence.',
+              resolved_at: resolvedAt as string, resolution_reason: 'Matched the original exact issued payment evidence.',
               manual_allocation_id: 'allocation-52', issued_event_id: 'issue-52' } },
           quality_flags: [],
         }],
@@ -670,7 +796,7 @@ describe('TimeTracking routed report periods', () => {
     fireEvent.click(employeeCard)
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('6.10h total')
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Matched payment report')
-    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Reported Sat, Sep 19 · matched to issued evidence Mon, Sep 21')
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent(malformed ? 'Reported Date unknown · matched to issued evidence Date unknown' : 'Reported Sat, Sep 19 · matched to issued evidence Mon, Sep 21')
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).not.toHaveTextContent('Invalid Date')
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Original report retained. Current payment status is shown above.')
     let finishReload!: (value: { data: HoursReportResponse }) => void
