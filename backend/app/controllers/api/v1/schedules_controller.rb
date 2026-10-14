@@ -245,6 +245,9 @@ module Api
         end
       end
 
+      # One bounded user/date-range query avoids a query per response row. Bulk
+      # batches may span gaps; leave within those gaps is intentionally over-fetched
+      # and filtered by the exact user/date in approved_leave_conflict?.
       def preload_approved_availability(schedules)
         dates = schedules.map(&:work_date)
         @approved_availability = if dates.empty?

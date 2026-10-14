@@ -2817,7 +2817,7 @@ function DetailedEntriesTable({
               </dl>
               <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700">{status === 'standard' ? 'Standard approval' : `${status} approval`}</span>)}</div>
               <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter(entry => entry.payroll_lifecycle).map(entry => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map(lifecycle => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
-              {(!multiple || expanded) && <div id={detailId} className="space-y-3">
+              <div id={detailId} hidden={multiple && !expanded} className="space-y-3">
                 {group.entries.map(entry => <div key={entry.id} className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
                   <div className="flex flex-wrap items-start justify-between gap-2"><p className="font-semibold text-primary-dark">{entry.hours.toFixed(2)}h</p><p className="text-xs text-text-muted">{entry.formatted_start_time && entry.formatted_end_time ? `${entry.formatted_start_time} – ${entry.formatted_end_time}` : 'Time not recorded'}</p></div>
                   <dl className="grid min-w-0 grid-cols-2 gap-3 text-xs">
@@ -2833,7 +2833,7 @@ function DetailedEntriesTable({
                   {(entry.breaks || []).map((item, index) => <p key={index} className="break-words text-xs text-text-muted">Break {item.start_time || '—'}–{item.end_time || '—'} · {item.duration_minutes ?? '—'}m</p>)}
                   {isAdmin && <button type="button" aria-label={`Edit time entry ${entry.id} for ${group.name}`} onClick={() => onEdit(entry)} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">Edit</button>}
                 </div>)}
-              </div>}
+              </div>
             </article>
           })}
       </div>

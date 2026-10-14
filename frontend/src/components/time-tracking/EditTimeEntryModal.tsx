@@ -353,9 +353,9 @@ export default function EditTimeEntryModal({
 
                 <div className={`grid gap-4 ${isActiveClockEntry ? 'grid-cols-1' : 'grid-cols-2'}`}>
                   <div>
-                    <label htmlFor="edit-time-entry-start" className="mb-1 block text-sm font-medium text-primary-dark">{isActiveClockEntry ? 'Clock-in Time *' : 'Start Time *'}</label>
+                    <label htmlFor={`${titleId}-start`} className="mb-1 block text-sm font-medium text-primary-dark">{isActiveClockEntry ? 'Clock-in Time *' : 'Start Time *'}</label>
                     <input
-                      id="edit-time-entry-start"
+                      id={`${titleId}-start`}
                       type="time"
                       disabled={!!reviewAction}
                       value={formData.start_time}
@@ -506,9 +506,9 @@ export default function EditTimeEntryModal({
                 </div>
 
                 <div>
-                  <label htmlFor="edit-time-entry-description" className="mb-1 block text-sm font-medium text-primary-dark">Description</label>
+                  <label htmlFor={`${titleId}-description`} className="mb-1 block text-sm font-medium text-primary-dark">Description</label>
                   <textarea
-                    id="edit-time-entry-description"
+                    id={`${titleId}-description`}
                     disabled={reviewAction === 'resubmit_denied'}
                     value={formData.description}
                     onChange={(event) => setFormData({ ...formData, description: event.target.value })}
