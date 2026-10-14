@@ -23,6 +23,7 @@ module Api
             end
             page = pagination_for(scope, maximum: 250)
             render json: {
+              integration: ::Payroll::IntegrationProfile.call,
               payment_attestations: page.fetch(:records).map { |attestation| serialize(attestation) },
               pagination: page.fetch(:metadata)
             }
