@@ -2279,7 +2279,7 @@ export default function TimeTracking() {
           <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
             <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              <p className="mt-0.5 text-xs text-text-muted">Operational review view. Click an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
+              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
             </div>
             <div className="divide-y divide-neutral-warm sm:hidden">
               {reportLoading ? (
@@ -2354,7 +2354,21 @@ export default function TimeTracking() {
                   ) : hoursSummaryRows.map((employee) => (
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
                       <td className="px-4 py-3 text-sm font-semibold text-primary-dark">
-                        <div className="flex flex-wrap items-center gap-2"><span>{employee.full_name}</span><EmploymentStatusBadge employee={employee} /></div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            aria-label={`Review hours for ${employee.full_name}`}
+                            aria-haspopup="dialog"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedReportEmployee(employee)
+                            }}
+                            className="min-h-11 rounded-lg px-2 py-1 text-left font-semibold text-primary transition hover:bg-cyan-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                          >
+                            {employee.full_name}
+                          </button>
+                          <EmploymentStatusBadge employee={employee} />
+                        </div>
                         <div className="mt-1 text-xs font-normal text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)}–${formatDate(employee.last_work_date)}` : ''}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
@@ -2779,7 +2793,51 @@ function DetailedEntriesTable({
         <h3 className="font-semibold text-primary-dark">Detailed Entries</h3>
         <p className="text-xs text-text-muted mt-0.5">Grouped by employee per day — click to expand</p>
       </div>
-      <div className="overflow-x-auto">
+      <div className="divide-y divide-neutral-warm sm:hidden" role="region" aria-label="Detailed entries on mobile">
+        {loading ? <p className="px-4 py-8 text-center text-text-muted">Loading...</p>
+          : groupList.length === 0 ? <p className="px-4 py-8 text-center text-text-muted">No entries found</p>
+          : groupList.slice(0, visibleGroupCount).map(([key, group]) => {
+            const expanded = expandedKeys.has(key)
+            const multiple = group.entries.length > 1
+            const detailId = `mobile-entry-group-${key}`
+            const totalHours = group.entries.reduce((total, entry) => total + entry.hours, 0)
+            const totalBreaks = group.entries.reduce((total, entry) => total + (entry.break_minutes || 0), 0)
+            const categories = [...new Set(group.entries.map(entry => entry.time_category?.name || 'Uncategorized'))]
+            const sources = [...new Set(group.entries.map(entry => entry.clock_source || 'legacy'))]
+            return <article key={key} aria-label={`Entries for ${group.name} on ${formatDate(group.date)}`} className="min-w-0 space-y-3 p-4">
+              {multiple ? <button type="button" aria-expanded={expanded} aria-controls={detailId} aria-label={`Review ${group.entries.length} entries for ${group.name} on ${formatDate(group.date)}`} onClick={() => toggle(key)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                <span className="min-w-0"><span className="block break-words font-semibold text-primary-dark">{group.name}</span><span className="text-xs text-text-muted">{formatDate(group.date)} · {group.entries.length} entries</span></span>
+                <span className="shrink-0 text-xs font-semibold text-primary">{expanded ? 'Collapse' : 'Review'}</span>
+              </button> : <div><h4 className="break-words font-semibold text-primary-dark">{group.name}</h4><p className="text-xs text-text-muted">{formatDate(group.date)}</p></div>}
+              <dl className="grid min-w-0 grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-sm">
+                <div><dt className="text-xs text-text-muted">Recorded hours</dt><dd className="font-semibold text-primary">{totalHours.toFixed(2)}h</dd></div>
+                <div><dt className="text-xs text-text-muted">Recorded breaks</dt><dd>{totalBreaks}m</dd></div>
+                <div className="min-w-0"><dt className="text-xs text-text-muted">Categories</dt><dd className="break-words">{categories.join(', ')}</dd></div>
+                <div className="min-w-0"><dt className="text-xs text-text-muted">Sources</dt><dd className="break-words uppercase">{sources.join(', ')}</dd></div>
+              </dl>
+              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700">{status === 'standard' ? 'Standard approval' : `${status} approval`}</span>)}</div>
+              <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter(entry => entry.payroll_lifecycle).map(entry => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map(lifecycle => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
+              {(!multiple || expanded) && <div id={detailId} className="space-y-3">
+                {group.entries.map(entry => <div key={entry.id} className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2"><p className="font-semibold text-primary-dark">{entry.hours.toFixed(2)}h</p><p className="text-xs text-text-muted">{entry.formatted_start_time && entry.formatted_end_time ? `${entry.formatted_start_time} – ${entry.formatted_end_time}` : 'Time not recorded'}</p></div>
+                  <dl className="grid min-w-0 grid-cols-2 gap-3 text-xs">
+                    <div className="min-w-0"><dt className="text-text-muted">Category</dt><dd className="break-words font-medium">{entry.time_category?.name || 'Uncategorized'}</dd></div>
+                    <div className="min-w-0"><dt className="text-text-muted">Source / method</dt><dd className="break-words uppercase">{entry.clock_source || 'legacy'}{entry.entry_method ? ` · ${entry.entry_method}` : ''}</dd></div>
+                    <div><dt className="text-text-muted">Approval</dt><dd className="capitalize">{entry.approval_status || 'Standard approval'}{entry.overtime_status && entry.overtime_status !== 'none' ? ` · OT ${entry.overtime_status}` : ''}</dd></div>
+                    <div><dt className="text-text-muted">Breaks</dt><dd>{entry.break_minutes || 0}m</dd></div>
+                  </dl>
+                  {entry.description && <p className="whitespace-pre-wrap break-words text-sm text-text-muted">{entry.description}</p>}
+                  <EntryQualityFlags flags={entry.quality_flags} />
+                  <PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} />
+                  {entry.payroll_lifecycle && (entry.payroll_lifecycle.payment_reference || entry.payroll_lifecycle.payment_effective_on || entry.payroll_lifecycle.accounting_only) && <p className="break-words text-xs text-text-muted">{entry.payroll_lifecycle.accounting_only ? ACCOUNTING_CORRECTION_NOTE : [entry.payroll_lifecycle.payment_method?.replaceAll('_', ' '), entry.payroll_lifecycle.payment_reference ? `Reference ${entry.payroll_lifecycle.payment_reference}` : null, entry.payroll_lifecycle.payment_effective_on ? `Paid ${formatDate(entry.payroll_lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')}</p>}
+                  {(entry.breaks || []).map((item, index) => <p key={index} className="break-words text-xs text-text-muted">Break {item.start_time || '—'}–{item.end_time || '—'} · {item.duration_minutes ?? '—'}m</p>)}
+                  {isAdmin && <button type="button" aria-label={`Edit time entry ${entry.id} for ${group.name}`} onClick={() => onEdit(entry)} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">Edit</button>}
+                </div>)}
+              </div>}
+            </article>
+          })}
+      </div>
+      <div className="hidden overflow-x-auto sm:block">
         <table className="w-full">
           <thead className="bg-neutral-warm/50">
             <tr>
@@ -2888,6 +2946,7 @@ function DetailedEntriesTable({
             )}
           </tbody>
         </table>
+      </div>
         {groupList.length > visibleGroupCount && (
           <div className="border-t border-neutral-warm px-4 py-4 text-center">
             <button type="button" onClick={() => setVisibleGroupCount((count) => Math.min(count + 100, groupList.length))} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-cyan-50">
@@ -2896,7 +2955,6 @@ function DetailedEntriesTable({
             <div className="mt-2 text-xs text-text-muted">Showing {visibleGroupCount} of {groupList.length}</div>
           </div>
         )}
-      </div>
     </div>
   )
 }
