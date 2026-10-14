@@ -153,7 +153,7 @@ function EmployeeDashboard() {
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-4">
           <h2 className="text-lg font-semibold text-slate-900">My Upcoming Schedule</h2>
-          <p className="mt-0.5 text-sm text-slate-500">Your shifts for the next two weeks.</p>
+          <p className="mt-0.5 text-sm text-slate-500">Your upcoming shifts.</p>
         </div>
         <div className="divide-y divide-slate-100">
           {mySchedule.length === 0 ? (
