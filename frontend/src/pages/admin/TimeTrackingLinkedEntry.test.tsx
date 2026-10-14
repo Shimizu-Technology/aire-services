@@ -151,6 +151,45 @@ describe('TimeTracking current linked entry refresh', () => {
     expect(screen.getByTestId('search').textContent).toBe(searchBefore)
   })
 
+  it('does not restore a known-deleted entry when its earlier read completes before refresh cleanup', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    setSavedEntry(completed())
+    let finishRead!: (response: unknown) => void
+    apiMock.getTimeEntry.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve }))
+    apiMock.getTimeEntry.mockResolvedValue({ error: 'Refresh unavailable', status: 500 })
+    apiMock.deleteTimeEntry.mockImplementation(async () => {
+      apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
+      // The pre-delete GET settles in the same microtask turn as DELETE,
+      // before React commits the mutation refresh's effect cleanup.
+      queueMicrotask(() => finishRead({ data: { time_entry: completed() } }))
+      return {}
+    })
+    openPage()
+    const deleteButton = await screen.findByTitle('Delete entry')
+    await waitFor(() => expect(finishRead).toBeDefined())
+    const searchBefore = screen.getByTestId('search').textContent
+    fireEvent.click(deleteButton)
+
+    expect(await screen.findByText('Refresh unavailable')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show this work day' })).not.toBeInTheDocument()
+    expect(await screen.findByText('No time entries for this day')).toBeInTheDocument()
+    expect(screen.getByTestId('search').textContent).toBe(searchBefore)
+    expect(apiMock.deleteTimeEntry).toHaveBeenCalledTimes(1)
+
+    // Even a later stale success must not undo known successful deletion.
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: completed() } })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry linked entry' }))
+    expect(await screen.findByText('The linked entry was deleted. Its retained payroll evidence remains in the employee review.')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
+    expect(apiMock.deleteTimeEntry).toHaveBeenCalledTimes(1)
+
+    setSavedEntry(otherEntry())
+    fireEvent.click(screen.getByRole('button', { name: 'Open other employee' }))
+    expect(await screen.findByRole('region', { name: 'Linked time entry' })).toHaveTextContent('Entry #91')
+    expect(screen.getByRole('region', { name: 'Linked time entry' })).toHaveTextContent('6.00h')
+  })
+
   it('does not let late old employee requests replace the new linked context or cards', async () => {
     let finishOldEntry!: (response: unknown) => void
     let finishOldCards!: (response: unknown) => void

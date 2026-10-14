@@ -409,6 +409,7 @@ export default function TimeTracking() {
   const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
   const entryRequest = useRef(0)
   const linkedEntryRequest = useRef(0)
+  const deletedLinkedEntryIds = useRef(new Set<string>())
   const [entryRefreshRevision, setEntryRefreshRevision] = useState(0)
   // Mutations request a fresh read in the current route, rather than retaining
   // a load callback for the employee/date that was open when the write began.
@@ -572,13 +573,17 @@ export default function TimeTracking() {
     setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: current?.scope === linkedEntryScope ? current.entry : null, loading: true, error: null }))
     const fail = (message: string, clearEntry = false) => {
       if (request !== linkedEntryRequest.current) return
-      setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: !clearEntry && current?.scope === linkedEntryScope ? current.entry : null, loading: false, error: message }))
+      setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: !clearEntry && !deletedLinkedEntryIds.current.has(routedEntryId) && current?.scope === linkedEntryScope ? current.entry : null, loading: false, error: message }))
     }
     void api.getTimeEntry(Number(routedEntryId)).then(response => {
       if (request !== linkedEntryRequest.current) return
       const entry = response.data?.time_entry as unknown as TimeEntryItem | undefined
       if (!entry || response.error) {
         fail(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.', [401, 403, 404].includes(response.status || 0))
+        return
+      }
+      if (deletedLinkedEntryIds.current.has(routedEntryId)) {
+        fail('The linked entry was deleted. Its retained payroll evidence remains in the employee review.', true)
         return
       }
       if (!entry.user || !Number.isSafeInteger(entry.user.id) || entry.user.id <= 0 || String(entry.id) !== routedEntryId || (routedUserId && String(entry.user?.id) !== routedUserId) || (linkedScopeUserId && String(entry.user?.id) !== linkedScopeUserId)) {
@@ -1088,6 +1093,9 @@ export default function TimeTracking() {
   }
 
   const clearDeletedLinkedEntry = (id: number | undefined) => {
+    if (id === undefined) return
+    deletedLinkedEntryIds.current.add(String(id))
+    linkedEntryRequest.current += 1
     setLinkedEntryState(current => current?.entry && current.entry.id === id ? { ...current, entry: null } : current)
   }
 
