@@ -33,6 +33,7 @@ export default function EmployeeRelatedRecords({ employeeId, kind, returnTo }: {
   const change = (key: string, value: string) => { const next = new URLSearchParams(query); next.set(key, value); setQuery(next) }
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
     <h2 className="text-lg font-semibold">{kind === 'schedule' ? 'Employee schedule' : 'Employee activity'}</h2>
+    {kind === 'schedule' && <Link className="mt-2 inline-block text-sm font-semibold text-cyan-800 underline" to={`/admin/schedule?${new URLSearchParams({ user_id: employeeId, week_start: week, return_to: returnTo })}`}>Review shifts and approved leave</Link>}
     {kind === 'schedule' && <label className="mt-3 block text-sm">Week starting<input aria-label="Employee schedule week" type="date" value={week} onChange={(event) => change('schedule_week', event.target.value)} className="ml-3 rounded-lg border border-slate-300 p-2" /></label>}
     {loading ? <p role="status" className="mt-4 text-sm">Loading records…</p> : error ? <div role="alert" className="mt-4"><p className="text-sm">{error}</p><button onClick={() => setRetry((value) => value + 1)} className="mt-2 rounded-lg border px-3 py-2 text-sm font-semibold">Retry</button></div> : <>
       {!records.length && <p className="mt-4 text-sm text-slate-600">{kind === 'schedule' ? 'No shifts recorded for this week.' : 'No changes recorded for this employee profile.'}</p>}

@@ -2,6 +2,7 @@
 
 require "rails_helper"
 require "csv"
+require "pdf/reader"
 
 RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
   let(:admin) { create(:user, :admin) }
@@ -12,6 +13,10 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
 
   def json
     JSON.parse(response.body, symbolize_names: true)
+  end
+
+  def pdf_text
+    PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
   end
 
   def create_entry(user:, date:, hours:, start_hour: 9)
@@ -240,6 +245,50 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(json.dig(:employees, 0, :ready)).to be(true)
   end
 
+  it "captures excluded work separately from ready included hours, without double-counting overlapping issues" do
+    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+    pending = create_entry(user: employee, date: Date.new(2026, 6, 17), hours: 4)
+    pending.update!(approval_status: "pending", overtime_status: "pending")
+    create_entry(user: employee, date: Date.new(2026, 6, 18), hours: 2).update!(approval_status: "denied")
+    create_entry(user: employee, date: Date.new(2026, 6, 19), hours: 1).update!(status: "clocked_in", end_time: nil)
+    other_category = create(:time_category)
+    create_entry(user: employee, date: Date.new(2026, 6, 20), hours: 3).update!(time_category: other_category)
+
+    filters = { start_date: "2026-06-16", end_date: "2026-06-30", time_category_id: category.id, approval_status: "approved_or_standard" }
+    get "/api/v1/admin/hours_report", params: filters, headers: auth_headers
+    expect(response).to have_http_status(:ok)
+    expect(json[:ready]).to be(true)
+    expect(json[:summary]).to include(total_hours: 6.0, entries_count: 1, period_entries_count: 5, excluded_entries_count: 4)
+    expect(json.dig(:summary, :excluded_issues)).to include(pending_count: 1, pending_overtime_count: 1, denied_count: 1, open_clock_count: 1)
+
+    get "/api/v1/admin/hours_report/pdf", params: filters, headers: auth_headers
+    expect(response).to have_http_status(:ok)
+    expect(pdf_text).to include(
+      "Included hours ready - period review remains", "1 included entries; 4 excluded entries",
+      "Period review: 1 pending approval, 1 denied, 1 pending overtime review, 1 open clock",
+      "Excluded work: 1 pending approval, 1 denied, 1 pending overtime review, 1 open clock",
+      "Category ID: #{category.id}", "Approval status: Approved or standard",
+      "Counts refer to the selected staff/date scope", "excluded entries are counted once"
+    )
+    expect(pdf_text).not_to include("not all staff", "category review needed")
+    captured = ReportExport.last
+    expect(captured.summary).to include("total_hours" => 6.0, "excluded_entries_count" => 4, "pending_count" => 1)
+    expect(captured.filters).to include("time_category_id" => category.id.to_s, "approval_status" => "approved_or_standard")
+    before_snapshot = captured.attributes.slice("summary", "filters", "entry_snapshot", "checksum")
+
+    get "/api/v1/admin/hours_report/pdf", params: filters.merge(user_id: employee.id), headers: auth_headers
+    expect(response).to have_http_status(:ok)
+    expect(pdf_text).to include(
+      "Included hours ready - period review remains", "2 included entries; 3 excluded entries",
+      "1 pending approval", "1 denied", "1 pending overtime review", "1 open clock",
+      "Employee ID: #{employee.id}", "Counts refer to the selected staff/date scope"
+    )
+    expect(pdf_text).not_to include("Category ID:", "not all staff")
+    expect(ReportExport.last.summary).to include("total_hours" => 9.0, "entries_count" => 2, "excluded_entries_count" => 3)
+    expect(ReportExport.last.filters).not_to have_key("time_category_id")
+    expect(captured.reload.attributes.slice("summary", "filters", "entry_snapshot", "checksum")).to eq(before_snapshot)
+  end
+
   it "shows entry-level payment status and unresolved prior-period time for one employee" do
     paid_entry = create_entry(user: employee, date: Date.new(2026, 8, 14), hours: 4)
     pending_entry = create_entry(user: employee, date: Date.new(2026, 8, 15), hours: 1.5)
@@ -358,6 +407,8 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(response.body).to start_with("%PDF")
     expect(response.headers.fetch("Content-Disposition")).to include("AIRE_Payroll_Hours_2026-06-16_to_2026-06-30.pdf")
     expect(ReportExport.last).to have_attributes(export_type: "payroll_hours_pdf", readiness_status: "complete", protects_entries: true)
+    expect(pdf_text).to include("2 included entries; 0 excluded entries", "Counts refer to the selected staff/date scope")
+    expect(pdf_text).not_to include("not all staff")
     expect(ReportExport.last.employee_ids).to contain_exactly(employee.id, other_employee.id)
     expect(ReportExport.last.entry_ids).to contain_exactly(alice_entry.id, bob_entry.id)
   end

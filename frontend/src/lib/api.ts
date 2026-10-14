@@ -9,6 +9,7 @@ interface ApiResponse<T> {
   status?: number;
   code?: string;
   export_references?: string[];
+  approved_leave?: ApprovedLeaveAvailability[];
 }
 
 let getAuthToken: (() => Promise<string | null>) | null = null;
@@ -93,6 +94,7 @@ async function fetchApi<T>(
         status: response.status,
         code: data.code,
         export_references: data.export_references,
+        approved_leave: data.approved_leave,
       };
     }
 
@@ -1351,6 +1353,7 @@ export interface PayrollAccountLink {
 // Schedule Types
 
 export interface Schedule {
+  approved_leave_conflict?: boolean;
   id: number;
   user_id: number;
   user: {
@@ -1375,7 +1378,15 @@ export interface Schedule {
   updated_at: string;
 }
 
+export interface ApprovedLeaveAvailability {
+  id: number;
+  user_id: number;
+  start_date: string;
+  end_date: string;
+}
+
 export interface SchedulesResponse {
+  approved_leave: ApprovedLeaveAvailability[];
   schedules: Schedule[];
   users: Array<{
     id: number;
@@ -1968,6 +1979,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes?: string;
+    acknowledge_leave_conflict?: boolean;
+    leave_conflict_reason?: string;
+    acknowledged_leave_ids?: number[];
   }) =>
     fetchApi<{ schedule: Schedule }>('/api/v1/schedules', {
       method: 'POST',
@@ -1980,6 +1994,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes?: string;
+    acknowledge_leave_conflict?: boolean;
+    leave_conflict_reason?: string;
+    acknowledged_leave_ids?: number[];
   }>) =>
     fetchApi<{ schedules: Schedule[] }>('/api/v1/schedules/bulk_create', {
       method: 'POST',
@@ -1992,6 +2009,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes: string;
+    acknowledge_leave_conflict: boolean;
+    leave_conflict_reason: string;
+    acknowledged_leave_ids: number[];
   }>) =>
     fetchApi<{ schedule: Schedule }>(`/api/v1/schedules/${id}`, {
       method: 'PATCH',

@@ -75,4 +75,9 @@ group :development, :test do
   gem "faker"
 end
 
+group :test do
+  # Verify the content people receive, including embedded-font PDF text.
+  gem "pdf-reader", "~> 2.15", require: false
+end
+
 gem "roo", "~> 3.0"
