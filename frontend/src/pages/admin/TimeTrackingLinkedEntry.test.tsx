@@ -10,7 +10,8 @@ const apiMock = vi.hoisted(() => ({
   updateTimeEntry: vi.fn(), deleteTimeEntry: vi.fn(), approveTimeEntry: vi.fn(),
 }))
 vi.mock('../../lib/api', () => ({ api: apiMock }))
-vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ isClerkEnabled: true, userRole: 'admin' }) }))
+const authMock = vi.hoisted(() => ({ isClerkEnabled: true, isSignedIn: true, userRole: 'admin', currentUser: { id: 1 } }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => authMock }))
 vi.mock('../../components/time-tracking/ClockInOutCard', () => ({ default: () => null }))
 vi.mock('../../components/time-tracking/WhosWorking', () => ({ default: () => null }))
 
@@ -19,6 +20,7 @@ function Harness() {
   const navigate = useNavigate()
   return <>
     <button onClick={() => navigate('/admin/time?entry_id=91&user_id=8&date=2026-11-02&view=day')}>Open other employee</button>
+    <button onClick={() => { const next = new URLSearchParams(location.search); next.set('start_date', '2026-11-16'); next.set('end_date', '2026-11-30'); navigate(location.pathname + '?' + next) }}>Change review period</button>
     <output data-testid="search">{location.search}</output>
     <TimeTracking />
   </>
@@ -68,6 +70,7 @@ function dayCard(id = 90) {
 describe('TimeTracking current linked entry refresh', () => {
   beforeEach(() => {
     Object.values(apiMock).forEach(mock => mock.mockReset())
+    authMock.currentUser = { id: 1 }; authMock.userRole = 'admin'; authMock.isSignedIn = true
     setSavedEntry(makeEntry())
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
     apiMock.getUsers.mockResolvedValue({ data: { users: [makeEntry().user, otherEntry().user].map(user => ({ ...user, role: 'employee', is_active: true, employment_status: 'active' })) } })
@@ -129,11 +132,11 @@ describe('TimeTracking current linked entry refresh', () => {
     expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(90, undefined)
   })
 
-  it('removes the current linked snapshot and card after deletion while retaining the route context', async () => {
+  it.each([404, 500])('removes a successfully deleted linked entry even when its following read returns%s', async (status) => {
     vi.stubGlobal('confirm', vi.fn(() => true))
     setSavedEntry(completed())
     apiMock.deleteTimeEntry.mockImplementation(async () => {
-      apiMock.getTimeEntry.mockResolvedValue({ error: 'Time entry not found' })
+      apiMock.getTimeEntry.mockResolvedValue({ error: 'Time entry not found', status })
       apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
       return {}
     })
@@ -165,6 +168,33 @@ describe('TimeTracking current linked entry refresh', () => {
     expect(screen.getByRole('region', { name: 'Linked time entry' })).toHaveTextContent('6.00h')
     expect(document.getElementById('time-entry-90')).toBeNull()
     expect(dayCard(91).getByText('6h')).toBeInTheDocument()
+  })
+
+  it('clears the last loaded entry immediately on a semantic period change and refuses an outside-period response', async () => {
+    setSavedEntry(completed())
+    openPage(initialRoute + '&start_date=2026-11-01&end_date=2026-11-15')
+    await screen.findByRole('region', { name: 'Linked time entry' })
+    let finish!: (response: unknown) => void
+    apiMock.getTimeEntry.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change review period' }))
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show this work day' })).not.toBeInTheDocument()
+    await waitFor(() => expect(finish).toBeDefined())
+    await act(async () => finish({ data: { time_entry: completed() } }))
+    expect(await screen.findByText('The linked entry is outside the selected review period. Return to the employee review.')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
+  })
+
+  it('clears the last loaded entry immediately when authenticated account context changes', async () => {
+    setSavedEntry(completed())
+    const view = openPage()
+    await screen.findByRole('region', { name: 'Linked time entry' })
+    apiMock.getTimeEntry.mockReturnValue(new Promise(() => {}))
+    authMock.currentUser = { id: 2 }
+    view.rerender(<MemoryRouter initialEntries={[initialRoute]}><Harness /></MemoryRouter>)
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show this work day' })).not.toBeInTheDocument()
+    expect(screen.getByText('Loading linked time entry…')).toBeInTheDocument()
   })
 
   it('uses the new employee scope when an old employee mutation finishes after navigation', async () => {
