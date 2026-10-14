@@ -240,6 +240,36 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(json.dig(:employees, 0, :ready)).to be(true)
   end
 
+  it "captures excluded work separately from ready included hours, without double-counting overlapping issues" do
+    create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
+    pending = create_entry(user: employee, date: Date.new(2026, 6, 17), hours: 4)
+    pending.update!(approval_status: "pending", overtime_status: "pending")
+    create_entry(user: employee, date: Date.new(2026, 6, 18), hours: 2).update!(approval_status: "denied")
+    create_entry(user: employee, date: Date.new(2026, 6, 19), hours: 1).update!(status: "clocked_in", end_time: nil)
+    other_category = create(:time_category)
+    create_entry(user: employee, date: Date.new(2026, 6, 20), hours: 3).update!(time_category: other_category)
+
+    filters = { start_date: "2026-06-16", end_date: "2026-06-30", time_category_id: category.id, approval_status: "approved_or_standard" }
+    get "/api/v1/admin/hours_report", params: filters, headers: auth_headers
+    expect(response).to have_http_status(:ok)
+    expect(json[:ready]).to be(true)
+    expect(json[:summary]).to include(total_hours: 6.0, entries_count: 1, period_entries_count: 5, excluded_entries_count: 4)
+    expect(json.dig(:summary, :excluded_issues)).to include(pending_count: 1, pending_overtime_count: 1, denied_count: 1, open_clock_count: 1)
+
+    get "/api/v1/admin/hours_report/pdf", params: filters, headers: auth_headers
+    expect(response).to have_http_status(:ok)
+    captured = ReportExport.last
+    expect(captured.summary).to include("total_hours" => 6.0, "excluded_entries_count" => 4, "pending_count" => 1)
+    expect(captured.filters).to include("time_category_id" => category.id.to_s, "approval_status" => "approved_or_standard")
+    before_snapshot = captured.attributes.slice("summary", "filters", "entry_snapshot", "checksum")
+
+    get "/api/v1/admin/hours_report/pdf", params: filters.merge(user_id: employee.id), headers: auth_headers
+    expect(response).to have_http_status(:ok)
+    expect(ReportExport.last.summary).to include("total_hours" => 9.0, "entries_count" => 2, "excluded_entries_count" => 3)
+    expect(ReportExport.last.filters).not_to have_key("time_category_id")
+    expect(captured.reload.attributes.slice("summary", "filters", "entry_snapshot", "checksum")).to eq(before_snapshot)
+  end
+
   it "shows entry-level payment status and unresolved prior-period time for one employee" do
     paid_entry = create_entry(user: employee, date: Date.new(2026, 8, 14), hours: 4)
     pending_entry = create_entry(user: employee, date: Date.new(2026, 8, 15), hours: 1.5)

@@ -67,7 +67,7 @@ export default function Dashboard() {
 }
 
 function EmployeeDashboard() {
-  const [mySchedule, setMySchedule] = useState<{ work_date: string; formatted_start_time: string; formatted_end_time: string; hours: number; notes?: string | null }[]>([])
+  const [mySchedule, setMySchedule] = useState<{ work_date: string; formatted_start_time: string; formatted_end_time: string; hours: number; notes?: string | null; approved_leave_conflict?: boolean }[]>([])
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([])
   const [loadingTodayEntries, setLoadingTodayEntries] = useState(true)
 
@@ -168,6 +168,7 @@ function EmployeeDashboard() {
                       {new Date(s.work_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                       {isToday && <span className="ml-2 rounded-full bg-cyan-100 px-2 py-0.5 text-xs font-medium text-cyan-700">Today</span>}
                     </p>
+                    {s.approved_leave_conflict && <p className="mt-1 text-sm font-medium text-amber-800">Approved leave overlaps this shift. Check with your scheduler.</p>}
                     {s.notes && <p className="mt-0.5 text-xs text-slate-500">{s.notes}</p>}
                   </div>
                   <div className="text-right">

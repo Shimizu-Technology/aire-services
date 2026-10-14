@@ -8,7 +8,7 @@ import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { formatDateISO, formatDateInTimeZoneISO } from '../../lib/dateUtils'
-import type { Schedule as ScheduleType, ScheduleTimePreset } from '../../lib/api'
+import type { Schedule as ScheduleType, ScheduleTimePreset, ApprovedLeaveAvailability } from '../../lib/api'
 
 interface UserOption {
   id: number
@@ -73,6 +73,7 @@ export default function Schedule() {
   const { userRole, isClerkEnabled, currentUser } = useAuthContext()
   const canManage = !isClerkEnabled || userRole === 'admin'
   const [schedules, setSchedules] = useState<ScheduleType[]>([])
+  const [approvedLeave, setApprovedLeave] = useState<ApprovedLeaveAvailability[]>([])
   const [users, setUsers] = useState<UserOption[]>([])
   const [timePresets, setTimePresets] = useState<Array<{ label: string; start_time: string; end_time: string }>>(DEFAULT_PRESETS)
   const [loading, setLoading] = useState(true)
@@ -102,6 +103,12 @@ export default function Schedule() {
     end_time: '17:00',
     notes: '',
   })
+  const [shiftLeave, setShiftLeave] = useState<ApprovedLeaveAvailability[]>([])
+  const [leaveLoading, setLeaveLoading] = useState(false)
+  const [leaveError, setLeaveError] = useState<string | null>(null)
+  const [leaveConfirmed, setLeaveConfirmed] = useState(false)
+  const [leaveReason, setLeaveReason] = useState('')
+  const [leaveRetry, setLeaveRetry] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -135,6 +142,7 @@ export default function Schedule() {
         return
       }
       if (response.data) {
+        setApprovedLeave(response.data.approved_leave || [])
         setSchedules(response.data.schedules)
         setUsers(response.data.users)
       }
@@ -168,6 +176,35 @@ export default function Schedule() {
   useEffect(() => {
     loadPresets()
   }, [loadPresets])
+
+  // Check the actual form date, including dates outside the displayed week.
+  // Discard late responses when an operator changes employee or date.
+  useEffect(() => {
+    if (!showModal || !formData.user_id || !isIsoDate(formData.work_date)) return
+    let active = true
+    setLeaveLoading(true)
+    setLeaveError(null)
+    setShiftLeave([])
+    api.getSchedules({ user_id: formData.user_id, start_date: formData.work_date, end_date: formData.work_date })
+      .then(response => {
+        if (!active) return
+        if (response.error || !response.data) {
+          setLeaveError('Approved leave could not be checked. Retry before saving this shift.')
+        } else {
+          setShiftLeave(response.data.approved_leave || [])
+        }
+      })
+      .catch(() => { if (active) setLeaveError('Approved leave could not be checked. Retry before saving this shift.') })
+      .finally(() => { if (active) setLeaveLoading(false) })
+    return () => { active = false }
+  }, [showModal, formData.user_id, formData.work_date, leaveRetry])
+
+  useEffect(() => {
+    setLeaveConfirmed(false)
+  }, [showModal, formData.user_id, formData.work_date, formData.start_time, formData.end_time])
+
+  const leaveOn = (userId: number, date: string) => approvedLeave.some(leave => leave.user_id === userId && leave.start_date <= date && leave.end_date >= date)
+  const visibleLeave = approvedLeave.filter(leave => visibleUserIds.has(leave.user_id))
 
   // Navigation
   const goToPrevWeek = () => {
@@ -217,6 +254,8 @@ export default function Schedule() {
       end_time: '17:00',
       notes: '',
     })
+    setLeaveReason('')
+    setLeaveConfirmed(false)
     setShowModal(true)
     setError(null)
   }
@@ -233,6 +272,8 @@ export default function Schedule() {
       end_time: schedule.end_time,
       notes: schedule.notes || '',
     })
+    setLeaveReason('')
+    setLeaveConfirmed(false)
     setShowModal(true)
     setError(null)
   }
@@ -248,7 +289,8 @@ export default function Schedule() {
 
   // Save schedule
   const handleSave = async () => {
-    if (!canManage) return
+    if (!canManage || leaveLoading || leaveError) return
+    if (shiftLeave.length > 0 && (!leaveConfirmed || !leaveReason.trim())) return
     if (!formData.user_id || !formData.work_date) {
       setError('Choose an employee and work date.')
       return
@@ -257,18 +299,17 @@ export default function Schedule() {
     setError(null)
 
     try {
-      if (editingSchedule) {
-        const response = await api.updateSchedule(editingSchedule.id, formData)
-        if (response.error) {
-          setError(response.error)
-          return
+      const payload = { ...formData, acknowledge_leave_conflict: leaveConfirmed, leave_conflict_reason: leaveReason.trim(), acknowledged_leave_ids: shiftLeave.map(leave => leave.id) }
+      const response = editingSchedule
+        ? await api.updateSchedule(editingSchedule.id, payload)
+        : await api.createSchedule(payload)
+      if (response.error) {
+        setError(response.error)
+        if (response.code === 'leave_conflict_acknowledgement_required') {
+          setShiftLeave(response.approved_leave || [])
+          setLeaveConfirmed(false)
         }
-      } else {
-        const response = await api.createSchedule(formData)
-        if (response.error) {
-          setError(response.error)
-          return
-        }
+        return
       }
       setShowModal(false)
       loadSchedules()
@@ -465,6 +506,14 @@ export default function Schedule() {
         </div>
       </div>
 
+      {!loading && !loadError && visibleLeave.length > 0 && <section aria-label="Approved leave this week" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
+        <h2 className="font-semibold">Approved leave this week</h2>
+        <p className="mt-1 text-sm">Check availability before assigning shifts. Conflicting shifts need a deliberate confirmation and scheduling reason.</p>
+        <ul className="mt-2 space-y-1 text-sm">
+          {visibleLeave.map(leave => <li key={leave.id}>{getUserDisplayName(getUserById(leave.user_id))}: {formatDayHeader(new Date(`${leave.start_date}T00:00:00`))} – {formatDayHeader(new Date(`${leave.end_date}T00:00:00`))}</li>)}
+        </ul>
+      </section>}
+
       {/* Content based on view mode */}
       {loadError ? null : loading ? (
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-12 text-center">
@@ -524,6 +573,7 @@ export default function Schedule() {
                                   <span className="font-semibold text-primary-dark ml-2">({schedule.hours.toFixed(1)}h)</span>
                                   {schedule.notes && <span className="ml-2 text-primary hidden sm:inline">• {schedule.notes}</span>}
                                 </p>
+                                {leaveOn(schedule.user_id, schedule.work_date) && <p className="mt-1 text-sm font-medium text-amber-800">Approved leave overlaps this shift</p>}
                                 {schedule.notes && (
                                   <p className="text-sm text-primary sm:hidden mt-0.5">{schedule.notes}</p>
                                 )}
@@ -619,6 +669,7 @@ export default function Schedule() {
                             }`}
                           >
                             <div className="space-y-1">
+                              {leaveOn(user.id, dateStr) && <p className="text-xs font-medium text-amber-800">Approved leave</p>}
                               {/* Existing shifts */}
                               {cellSchedules.map(schedule => (
                                 <button
@@ -710,16 +761,33 @@ export default function Schedule() {
 
                 {/* Date */}
                 <div>
-                  <label className="block text-sm font-medium text-primary-dark mb-1">
+                  <label htmlFor="shift-date" className="block text-sm font-medium text-primary-dark mb-1">
                     Date
                   </label>
                   <input
-                    type="date"
+                    id="shift-date" type="date"
                     value={formData.work_date}
                     onChange={(e) => setFormData({ ...formData, work_date: e.target.value })}
                     className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
+
+                {formData.user_id > 0 && <div>
+                  {leaveLoading && <p role="status" className="text-sm text-text-muted">Checking approved leave…</p>}
+                  {leaveError && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                    <p>{leaveError}</p>
+                    <button type="button" onClick={() => setLeaveRetry(value => value + 1)} className="mt-2 min-h-11 font-semibold underline">Retry leave check</button>
+                  </div>}
+                  {!leaveLoading && !leaveError && shiftLeave.length > 0 && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                    <p className="font-semibold">Approved leave overlaps this shift</p>
+                    <p className="mt-1">This employee has approved leave on the selected date. Confirm the scheduling decision before saving. Their leave stays approved.</p>
+                    <ul className="mt-2 space-y-1">{shiftLeave.map(leave => <li key={leave.id}>{formatDayHeader(new Date(`${leave.start_date}T00:00:00`))} – {formatDayHeader(new Date(`${leave.end_date}T00:00:00`))}</li>)}</ul>
+                    <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={leaveConfirmed} onChange={event => setLeaveConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" /> <span>I have checked this conflict and want to save this shift.</span></label>
+                    <label htmlFor="shift-leave-reason" className="mt-3 block font-medium">Scheduling reason</label>
+                    <textarea id="shift-leave-reason" value={leaveReason} onChange={event => setLeaveReason(event.target.value)} maxLength={1000} rows={2} className="mt-1 w-full rounded-lg border border-amber-300 bg-white p-2 text-primary-dark focus:ring-2 focus:ring-primary" aria-describedby="shift-leave-reason-help" />
+                    <p id="shift-leave-reason-help" className="mt-1">Record the scheduling decision, without medical or personal leave details. This does not cancel leave or override protected leave rights.</p>
+                  </div>}
+                </div>}
 
                 {/* Quick Presets */}
                 <div>
@@ -747,22 +815,22 @@ export default function Schedule() {
                 {/* Custom Times */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-primary-dark mb-1">
+                    <label htmlFor="shift-start" className="block text-sm font-medium text-primary-dark mb-1">
                       Start Time
                     </label>
                     <input
-                      type="time"
+                      id="shift-start" type="time"
                       value={formData.start_time}
                       onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
                       className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-primary-dark mb-1">
+                    <label htmlFor="shift-end" className="block text-sm font-medium text-primary-dark mb-1">
                       End Time
                     </label>
                     <input
-                      type="time"
+                      id="shift-end" type="time"
                       value={formData.end_time}
                       onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                       className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -772,11 +840,11 @@ export default function Schedule() {
 
                 {/* Notes */}
                 <div>
-                  <label className="block text-sm font-medium text-primary-dark mb-1">
+                  <label htmlFor="shift-notes" className="block text-sm font-medium text-primary-dark mb-1">
                     Notes (optional)
                   </label>
                   <input
-                    type="text"
+                    id="shift-notes" type="text"
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     placeholder="e.g., Remote, Training, etc."
@@ -810,7 +878,7 @@ export default function Schedule() {
                   <button
                     type="button"
                     onClick={handleSave}
-                    disabled={saving}
+                    disabled={saving || leaveLoading || !!leaveError || (shiftLeave.length > 0 && (!leaveConfirmed || !leaveReason.trim()))}
                     className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50 font-medium"
                   >
                     {saving ? 'Saving...' : 'Save'}

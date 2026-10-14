@@ -75,19 +75,7 @@ module Reports
     end
 
     def render_status(pdf)
-      complete = export.readiness_status == "complete"
-      fill = complete ? LIGHT_GREEN : LIGHT_AMBER
-      color = complete ? GREEN : AMBER
-      title = complete ? "Complete as of #{generated_time}" : "Draft - needs review"
-      detail = complete ? "No pending, denied, or open time entries were found in this period." : issue_summary
-
-      pdf.fill_color fill
-      pdf.fill_rounded_rectangle [ 0, pdf.cursor ], pdf.bounds.width, 42, 6
-      pdf.fill_color color
-      pdf.text_box title, at: [ 12, pdf.cursor - 10 ], width: pdf.bounds.width - 24, height: 15, size: 10, style: :bold
-      pdf.fill_color MUTED
-      pdf.text_box detail, at: [ 12, pdf.cursor - 24 ], width: pdf.bounds.width - 24, height: 14, size: 7.5
-      pdf.move_down 52
+      HoursReportDisclosure.new(report: report, export: export).render(pdf)
     end
 
     def render_summary(pdf)
@@ -249,17 +237,6 @@ module Reports
       report[:summary] || {}
     end
 
-    def issue_summary
-      labels = {
-        pending_count: "pending approval",
-        denied_count: "denied",
-        pending_overtime_count: "pending overtime review",
-        denied_overtime_count: "denied overtime",
-        open_clock_count: "open clock"
-      }
-      details = labels.filter_map { |key, text| "#{summary[key]} #{text}" if summary[key].to_i.positive? }
-      details.presence&.join(", ") || "Review the selected entries before using this report."
-    end
 
     def department(employee)
       Array(employee[:approval_group_labels]).presence&.join(", ") || employee[:approval_group_label].presence || "Unassigned"
