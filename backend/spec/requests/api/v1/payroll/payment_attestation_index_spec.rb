@@ -49,11 +49,11 @@ RSpec.describe "Reported payment index integration contract", type: :request do
     expect(response).to have_http_status(:ok)
     expect_integration
     expect(response.parsed_body.fetch("payment_attestations")).to eq([])
-    expect(response.parsed_body.fetch("pagination")).to include("total_count" => 0, "total_pages" => 1,
-      "current_page" => 1, "truncated" => false)
+    expect(response.parsed_body.fetch("pagination")).to eq("total_count" => 0, "total_pages" => 1,
+      "current_page" => 1, "per_page" => 50, "truncated" => false)
   end
 
-  it "returns the same canonical identity on every period-only page across workers and date boundaries" do
+  it "retains canonical identity across worker pages and beyond the last period-only page" do
     expected = [ attest(user: employee, date: "2026-08-01"), attest(user: other_employee, date: "2026-08-15") ]
     attest(user: employee, date: "2026-07-31")
     attest(user: other_employee, date: "2026-08-16")
@@ -68,6 +68,13 @@ RSpec.describe "Reported payment index integration contract", type: :request do
       expect(response.parsed_body.fetch("pagination")).to include("total_count" => 2, "total_pages" => 2,
         "current_page" => index + 1, "per_page" => 1, "truncated" => index.zero?)
     end
+
+    get path, params: period.merge(page: 3, per_page: 1), headers: headers
+    expect(response).to have_http_status(:ok)
+    expect_integration
+    expect(response.parsed_body.fetch("payment_attestations")).to eq([])
+    expect(response.parsed_body.fetch("pagination")).to eq("total_count" => 2, "total_pages" => 2,
+      "current_page" => 3, "per_page" => 1, "truncated" => false)
 
     expect(expected.map { |report| report.reload.attributes }).to eq(original)
     expect(PayrollPaymentAttestationEvent.count).to eq(history_count)

@@ -37,6 +37,12 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     )
   end
 
+  def create_review_exclusions
+    create_entry(user: employee, date: Date.new(2026, 6, 17), hours: 2).update!(approval_status: "pending")
+    create_entry(user: employee, date: Date.new(2026, 6, 18), hours: 1).update!(approval_status: "denied")
+    create_entry(user: employee, date: Date.new(2026, 6, 19), hours: 1).update!(status: "clocked_in", end_time: nil)
+  end
+
   it "calculates weekly overtime using context outside the selected semi-monthly period" do
     # Week of Sunday May 10 through Saturday May 16. The report starts Friday,
     # but OT still depends on Sun-Thu hours from the prior pay period.
@@ -431,6 +437,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
   it "requires explicit acknowledgement before exporting approved hours without a category" do
     entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
     entry.update_columns(time_category_id: nil)
+    create_review_exclusions
 
     get "/api/v1/admin/hours_report/timesheet_pdf",
         params: { start_date: "2026-06-16", end_date: "2026-06-30", user_id: employee.id },
@@ -438,6 +445,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
 
     expect(response).to have_http_status(:unprocessable_entity)
     expect(json.fetch(:code)).to eq("draft_acknowledgement_required")
+    expect(ReportExport.where(export_type: "employee_timesheet_pdf")).to be_empty
 
     get "/api/v1/admin/hours_report/timesheet_pdf",
         params: { start_date: "2026-06-16", end_date: "2026-06-30", user_id: employee.id, acknowledge_draft: true },
@@ -445,14 +453,26 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(ReportExport.last.readiness_status).to eq("draft")
+    expect(pdf_text).to include(
+      "Draft - category review needed", "1 included entries; 3 excluded entries",
+      "Period review: 1 pending approval, 1 denied, 1 open clock",
+      "Excluded work: 1 pending approval, 1 denied, 1 open clock",
+      "Employee ID: #{employee.id}", "Counts refer to the selected staff/date scope"
+    )
+    expect(pdf_text).not_to include("Included hours ready")
+    expect(ReportExport.last.summary).to include(
+      "total_hours" => 6.0, "entries_count" => 1, "excluded_entries_count" => 3,
+      "pending_count" => 1, "denied_count" => 1, "open_clock_count" => 1
+    )
   end
 
   it "requires explicit acknowledgement for a consolidated PDF with missing categories" do
     entry = create_entry(user: employee, date: Date.new(2026, 6, 16), hours: 6)
     entry.update_columns(time_category_id: nil)
+    create_review_exclusions
 
     get "/api/v1/admin/hours_report/pdf",
-        params: { start_date: "2026-06-16", end_date: "2026-06-30" },
+        params: { start_date: "2026-06-16", end_date: "2026-06-30", approval_status: "approved_or_standard" },
         headers: auth_headers
 
     expect(response).to have_http_status(:unprocessable_entity)
@@ -460,10 +480,21 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(ReportExport.where(export_type: "payroll_hours_pdf")).to be_empty
 
     get "/api/v1/admin/hours_report/pdf",
-        params: { start_date: "2026-06-16", end_date: "2026-06-30", acknowledge_draft: true },
+        params: { start_date: "2026-06-16", end_date: "2026-06-30", approval_status: "approved_or_standard", acknowledge_draft: true },
         headers: auth_headers
 
     expect(response).to have_http_status(:ok)
     expect(ReportExport.last).to have_attributes(export_type: "payroll_hours_pdf", readiness_status: "draft")
+    expect(pdf_text).to include(
+      "Draft - category review needed", "1 included entries; 3 excluded entries",
+      "Period review: 1 pending approval, 1 denied, 1 open clock",
+      "Excluded work: 1 pending approval, 1 denied, 1 open clock",
+      "Approval status: Approved or standard", "Counts refer to the selected staff/date scope"
+    )
+    expect(pdf_text).not_to include("Included hours ready", "Employee ID:")
+    expect(ReportExport.last.summary).to include(
+      "total_hours" => 6.0, "entries_count" => 1, "excluded_entries_count" => 3,
+      "pending_count" => 1, "denied_count" => 1, "open_clock_count" => 1
+    )
   end
 end
