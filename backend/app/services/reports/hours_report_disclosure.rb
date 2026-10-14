@@ -35,7 +35,7 @@ module Reports
       end
       pdf.move_down 7
       pdf.fill_color "5F6F78"
-      pdf.text "Scope and filters: #{filter_description}. Counts refer to this staff/date scope, not all staff. Review counts can overlap; excluded entries are counted once.", size: 7.5, leading: 2
+      pdf.text "Scope and filters: #{filter_description}. Counts refer to the selected staff/date scope. Review counts can overlap; excluded entries are counted once.", size: 7.5, leading: 2
       pdf.move_down 12
     end
 

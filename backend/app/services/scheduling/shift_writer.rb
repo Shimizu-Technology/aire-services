@@ -16,7 +16,11 @@ module Scheduling
         schedule.assign_attributes(attributes)
         # Leave creation/editing/approval use the same employee lock so the
         # availability check and saved scheduling decision agree at write time.
-        user = User.find(schedule.user_id)
+        user = User.find_by(id: schedule.user_id)
+        unless user
+          schedule.errors.add(:user_id, "must reference an existing user")
+          raise ActiveRecord::RecordInvalid, schedule
+        end
         user.with_lock do
           leave = LeaveRequest.where(user_id: user.id, status: "approved")
             .where("start_date <= ? AND end_date >= ?", schedule.work_date, schedule.work_date).order(:id).to_a

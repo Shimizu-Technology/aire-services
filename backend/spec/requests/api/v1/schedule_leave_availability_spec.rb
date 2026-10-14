@@ -3,6 +3,8 @@
 require "rails_helper"
 
 RSpec.describe "Schedule leave availability", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:admin) { create(:user, :admin) }
   let(:employee) { create(:user, :employee) }
   let(:headers) { { "Authorization" => "Bearer test_token_#{admin.id}" } }
@@ -57,6 +59,68 @@ RSpec.describe "Schedule leave availability", type: :request do
     get "/api/v1/schedules", params: { user_id: employee.id, start_date: "2026-11-10", end_date: "2026-11-10" }, headers: headers
     expect(JSON.parse(response.body).fetch("approved_leave")).to be_empty
   end
+  it "returns validation messages without leave conflicts and preserves rejected updates" do
+    invalid_attributes = { user_id: employee.id, work_date: "2026-11-09", start_time: "08:00", end_time: "07:00" }
+    expect do
+      post "/api/v1/schedules", params: { schedule: invalid_attributes }, headers: headers
+    end.not_to change(Schedule, :count)
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(JSON.parse(response.body).fetch("errors")).to include("End time must be after start time")
+
+    schedule = Schedule.create!(user: employee, work_date: "2026-11-08", start_time: Time.utc(2000, 1, 1, 8), end_time: Time.utc(2000, 1, 1, 17), created_by: admin)
+    expect do
+      patch "/api/v1/schedules/#{schedule.id}", params: { schedule: { end_time: "07:00" } }, headers: headers
+    end.not_to change { schedule.reload.end_time }
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(JSON.parse(response.body).fetch("errors")).to include("End time must be after start time")
+    expect(AuditLog.where(action: "schedule.leave_conflict_acknowledged")).to be_empty
+  end
+
+  [ nil, 0 ].each do |invalid_user_id|
+    it "rejects create/update/bulk for invalid employee #{invalid_user_id.inspect} with structured validation" do
+      attributes = { user_id: invalid_user_id, work_date: "2026-11-09", start_time: "08:00", end_time: "17:00" }
+      expect do
+        post "/api/v1/schedules", params: { schedule: attributes }, headers: headers
+      end.not_to change(Schedule, :count)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body).fetch("errors")).to include("User must reference an existing user")
+
+      schedule = Schedule.create!(user: employee, work_date: "2026-11-08", start_time: Time.utc(2000, 1, 1, 8), end_time: Time.utc(2000, 1, 1, 17), created_by: admin)
+      expect do
+        patch "/api/v1/schedules/#{schedule.id}", params: { schedule: { user_id: invalid_user_id } }, headers: headers
+      end.not_to change { schedule.reload.user_id }
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body).fetch("errors")).to include("User must reference an existing user")
+
+      expect do
+        post "/api/v1/schedules/bulk_create", params: { schedules: [ attributes.merge(user_id: employee.id), attributes ] }, headers: headers
+      end.not_to change(Schedule, :count)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(JSON.parse(response.body).fetch("details").first.fetch("errors")).to include("User must reference an existing user")
+    end
+  end
+
+  it "preloads approved leave once for upcoming schedules while retaining exact conflict flags" do
+    travel_to Time.zone.local(2026, 11, 1, 12) do
+      (1..14).each do |day|
+        Schedule.create!(user: employee, work_date: Date.new(2026, 11, day), start_time: Time.utc(2000, 1, 1, 8), end_time: Time.utc(2000, 1, 1, 17), created_by: admin)
+      end
+      create(:leave_request, user: employee, status: "approved", start_date: "2026-11-07", end_date: "2026-11-09", reason: "Private health detail")
+      create(:leave_request, user: create(:user, :employee), status: "approved", start_date: "2026-11-01", end_date: "2026-11-14")
+      queries = []
+      subscriber = ->(_name, _started, _finished, _id, payload) { queries << payload[:sql] if payload[:sql].match?(/SELECT.*FROM "leave_requests"/i) && !payload[:cached] }
+      ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+        get "/api/v1/schedules/my_schedule", headers: { "Authorization" => "Bearer test_token_#{employee.id}" }
+      end
+      expect(response).to have_http_status(:ok)
+      schedules = JSON.parse(response.body).fetch("schedules")
+      expect(schedules.length).to eq(14)
+      expect(schedules.select { |row| row.fetch("approved_leave_conflict") }.map { |row| row.fetch("work_date") }).to eq(%w[2026-11-07 2026-11-08 2026-11-09])
+      expect(queries.length).to eq(1)
+      expect(response.body).not_to include("Private health detail")
+    end
+  end
+
   it "rechecks edits after leave approval and rejects a stale acknowledged leave identity" do
     schedule = Schedule.create!(user: employee, work_date: "2026-11-08", start_time: Time.utc(2000, 1, 1, 8), end_time: Time.utc(2000, 1, 1, 17), created_by: admin)
     leave = create(:leave_request, user: employee, status: "approved", start_date: "2026-11-08", end_date: "2026-11-08")

@@ -48,8 +48,10 @@ module Api
       def my_schedule
         @schedules = current_user.schedules
                                  .upcoming
-                                 .includes(:created_by)
+                                 .includes(:user, :created_by)
                                  .limit(14) # Next 2 weeks worth
+        @schedules = @schedules.to_a
+        preload_approved_availability(@schedules)
 
         render json: {
           schedules: @schedules.map { |schedule| serialize_schedule(schedule) }
@@ -58,6 +60,7 @@ module Api
 
       # GET /api/v1/schedules/:id
       def show
+        preload_approved_availability([ @schedule ])
         render json: { schedule: serialize_schedule(@schedule) }
       end
 
@@ -118,6 +121,7 @@ module Api
           Current.domain_audit_recorded = false
           render json: { error: "Some schedules failed to create", details: errors }, status: :unprocessable_entity
         else
+          preload_approved_availability(created_schedules)
           render json: { schedules: created_schedules.map { |s| serialize_schedule(s) } }, status: :created
         end
       end
@@ -238,6 +242,16 @@ module Api
           @approved_availability.any? { |leave| leave.user_id == schedule.user_id && schedule.work_date.between?(leave.start_date, leave.end_date) }
         else
           LeaveRequest.where(user_id: schedule.user_id, status: "approved").where("start_date <= ? AND end_date >= ?", schedule.work_date, schedule.work_date).exists?
+        end
+      end
+
+      def preload_approved_availability(schedules)
+        dates = schedules.map(&:work_date)
+        @approved_availability = if dates.empty?
+          []
+        else
+          LeaveRequest.where(user_id: schedules.map(&:user_id).uniq, status: "approved")
+            .where("start_date <= ? AND end_date >= ?", dates.max, dates.min).to_a
         end
       end
 
