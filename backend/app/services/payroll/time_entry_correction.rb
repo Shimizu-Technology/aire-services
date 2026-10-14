@@ -22,7 +22,7 @@ module Payroll
         before = audit_snapshot(entry)
         corrected, break_rows = normalized_attributes
         entry.assign_attributes(corrected)
-        if corrected.key?(:end_time) && entry.active?
+        if corrected[:end_time].present? && entry.active?
           entry.status = "completed"
           entry.clock_out_at = corrected.fetch(:end_time)
         end
@@ -84,16 +84,20 @@ module Payroll
       raw_breaks = corrected.delete(:breaks)
       corrected[:work_date] = parse_date(corrected[:work_date]) if corrected.key?(:work_date)
       work_date = corrected[:work_date] || entry.work_date
-      if corrected.key?(:work_date)
-        corrected[:start_time] = relocate_time(entry.start_time, work_date) unless corrected.key?(:start_time)
-        corrected[:end_time] = relocate_time(entry.end_time, work_date, after: corrected[:start_time]) unless corrected.key?(:end_time)
-        raw_breaks ||= entry.time_entry_breaks.order(:start_time, :id).map do |entry_break|
-          { start_time: entry_break.start_time.iso8601, end_time: entry_break.end_time&.iso8601 }
-        end
+      if corrected.key?(:start_time)
+        corrected[:start_time] = parse_time(corrected[:start_time], work_date)
+      elsif corrected.key?(:work_date)
+        corrected[:start_time] = relocate_time(entry.start_time, work_date)
       end
-      corrected[:start_time] = parse_time(corrected[:start_time], work_date) if corrected.key?(:start_time)
       if corrected.key?(:end_time)
         corrected[:end_time] = parse_time(corrected[:end_time], work_date, after: corrected[:start_time] || entry.start_time)
+      elsif corrected.key?(:work_date)
+        corrected[:end_time] = relocate_time(entry.end_time, work_date, after: corrected[:start_time])
+      end
+      if corrected.key?(:work_date) && raw_breaks.nil? && entry.time_entry_breaks.any?
+        raw_breaks = entry.time_entry_breaks.order(:start_time, :id).map do |entry_break|
+          { start_time: entry_break.start_time.iso8601, end_time: entry_break.end_time&.iso8601 }
+        end
       end
       if corrected.key?(:time_category_id)
         category = entry.user.assigned_time_categories.active.find_by(id: corrected[:time_category_id])
@@ -147,6 +151,7 @@ module Payroll
         raise CorrectionError, "Each break needs a start and end time" if value[:start_time].blank? || value[:end_time].blank?
 
         break_start = parse_time(value[:start_time], work_date)
+        break_start += 1.day if break_start < start_time
         break_end = parse_time(value[:end_time], work_date, after: break_start)
         if break_start < start_time || break_end > end_time
           raise CorrectionError, "Breaks must fall within the corrected shift"
