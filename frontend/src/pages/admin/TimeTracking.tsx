@@ -149,6 +149,7 @@ function formatDate(dateString: string): string {
 }
 
 function formatRecordedDate(timestamp: string): string {
+  if (typeof timestamp !== 'string' || !isIsoDate(timestamp.slice(0, 10))) return 'Date unknown'
   const recorded = new Date(timestamp)
   if (!Number.isFinite(recorded.getTime())) return 'Date unknown'
   return recorded.toLocaleDateString('en-US', {

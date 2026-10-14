@@ -731,7 +731,12 @@ describe('TimeTracking routed report periods', () => {
     expect(reviewButton).toHaveFocus()
   })
 
-  it.each([false, true])('keeps payroll status and exact hours visible with malformed payment timestamps=%s', async (malformedDates) => {
+  it.each([
+    { label: 'valid timestamps', attestedAt: '2026-09-18T18:00:00Z', resolvedAt: '2026-09-20T14:30:00Z', malformed: false },
+    { label: 'unparseable timestamps', attestedAt: 'not-a-timestamp', resolvedAt: '', malformed: true },
+    { label: 'null and missing timestamps', attestedAt: null, resolvedAt: undefined, malformed: true },
+    { label: 'impossible calendar dates', attestedAt: '2026-02-30T00:00:00Z', resolvedAt: '2026-04-31T00:00:00Z', malformed: true },
+  ])('keeps payroll status and exact hours visible with $label', async ({ attestedAt, resolvedAt, malformed }) => {
     const report = makeHoursReport('2026-05-01', '2026-05-15', 6.1)
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
     report.employees = [{
@@ -769,9 +774,9 @@ describe('TimeTracking routed report periods', () => {
           total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_minutes: 0, description: null, entry_method: 'clock', clock_source: 'kiosk',
           approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 1, key: 'other', name: 'Other' }, breaks: [],
           payroll_lifecycle: { status: 'partially_paid', label: 'Partially paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [],
-            resolved_payment_report: { id: 'report-52', attested_at: malformedDates ? 'not-a-timestamp' : '2026-09-18T18:00:00Z',
+            resolved_payment_report: { id: 'report-52', attested_at: attestedAt as string,
               reason: 'Owner reported the original work paid; exact check evidence was pending.',
-              resolved_at: malformedDates ? '' : '2026-09-20T14:30:00Z', resolution_reason: 'Matched the original exact issued payment evidence.',
+              resolved_at: resolvedAt as string, resolution_reason: 'Matched the original exact issued payment evidence.',
               manual_allocation_id: 'allocation-52', issued_event_id: 'issue-52' } },
           quality_flags: [],
         }],
@@ -791,7 +796,7 @@ describe('TimeTracking routed report periods', () => {
     fireEvent.click(employeeCard)
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('6.10h total')
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Matched payment report')
-    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent(malformedDates ? 'Reported Date unknown · matched to issued evidence Date unknown' : 'Reported Sat, Sep 19 · matched to issued evidence Mon, Sep 21')
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent(malformed ? 'Reported Date unknown · matched to issued evidence Date unknown' : 'Reported Sat, Sep 19 · matched to issued evidence Mon, Sep 21')
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).not.toHaveTextContent('Invalid Date')
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Original report retained. Current payment status is shown above.')
     let finishReload!: (value: { data: HoursReportResponse }) => void
