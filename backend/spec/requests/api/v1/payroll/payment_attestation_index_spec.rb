@@ -110,4 +110,86 @@ RSpec.describe "Reported payment index integration contract", type: :request do
     expect(response.parsed_body).not_to have_key("payment_attestations")
     expect(installation.reload.value).to eq(installation_id)
   end
+
+  it "keeps canonical authorized unpinned first-use bootstrap durable across index reads" do
+    request_headers = headers.except("X-Payroll-Source-Instance-Id")
+    installation.destroy!
+
+    expect { get path, params: period, headers: request_headers }
+      .to change { Setting.where(key: Payroll::IntegrationProfile::SOURCE_INSTANCE_SETTING_KEY).count }.from(0).to(1)
+    expect(response).to have_http_status(:ok)
+    first = response.parsed_body.fetch("integration")
+    saved = Setting.find_by!(key: Payroll::IntegrationProfile::SOURCE_INSTANCE_SETTING_KEY)
+    expect(first.fetch("source_instance_id")).to eq(saved.value)
+    expect(saved.value).to match(Payroll::IntegrationProfile::UUID_PATTERN)
+    expect(first.fetch("capabilities")).to include("payment_attestation_resolution_v1")
+    saved_attributes = saved.attributes
+
+    get path, params: period, headers: request_headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.fetch("integration")).to eq(first)
+    expect(saved.reload.attributes).to eq(saved_attributes)
+    expect(PayrollManualAllocation.count).to eq(0)
+    expect(PayrollIntegrationCommand.count).to eq(0)
+  end
+
+  it "does not initialize the installation when the shared secret is invalid" do
+    request_headers = headers.except("X-Payroll-Source-Instance-Id").merge("X-Payroll-Shared-Secret" => "wrong-secret")
+    installation.destroy!
+
+    expect { get path, params: period, headers: request_headers }
+      .not_to change { Setting.where(key: Payroll::IntegrationProfile::SOURCE_INSTANCE_SETTING_KEY).count }
+    expect(response).to have_http_status(:unauthorized)
+    expect(response.parsed_body).not_to have_key("integration")
+  end
+
+  [ true, false ].each do |pinned|
+    it "returns a fail-closed configuration error for an invalid saved identity on a #{pinned ? 'pinned' : 'legacy unpinned'} read" do
+      report = attest(user: employee, date: "2026-08-01")
+      original_report = report.reload.attributes
+      request_headers = pinned ? headers : headers.except("X-Payroll-Source-Instance-Id")
+      installation.update!(value: "invalid-saved-identity")
+      original_installation = installation.reload.attributes
+      original_counts = [ PayrollPaymentAttestationEvent.count, PayrollManualAllocation.count, PayrollIntegrationCommand.count ]
+
+      get path, params: period, headers: request_headers
+
+      expect(response).to have_http_status(:service_unavailable)
+      expect(response.parsed_body.keys).to contain_exactly("error", "error_code", "review_required")
+      expect(response.parsed_body).to include("error_code" => "payroll_source_identity_invalid", "review_required" => true)
+      expect(response.parsed_body.fetch("error")).to include("identity is invalid", "restore or deliberately rotate")
+      expect(installation.reload.attributes).to eq(original_installation)
+      expect(report.reload.attributes).to eq(original_report)
+      expect([ PayrollPaymentAttestationEvent.count, PayrollManualAllocation.count, PayrollIntegrationCommand.count ]).to eq(original_counts)
+    end
+  end
+
+  it "preserves service and delegated authorization denial ahead of unpinned invalid-identity disclosure" do
+    restricted = PayrollIntegrationGrant.issue!(user: actor, capabilities: %w[time_approval])
+    request_headers = headers.except("X-Payroll-Source-Instance-Id")
+    installation.update!(value: "invalid-saved-identity")
+    original = installation.reload.attributes
+
+    get path, params: period, headers: request_headers.merge("X-Payroll-Shared-Secret" => "wrong-secret")
+    expect(response).to have_http_status(:unauthorized)
+    expect(response.parsed_body).not_to have_key("error_code")
+
+    get path, params: period, headers: request_headers.merge("X-Aire-Delegation-Token" => restricted.issued_token)
+    expect(response).to have_http_status(:forbidden)
+    expect(response.parsed_body).not_to have_key("error_code")
+    expect(response.parsed_body).not_to have_key("integration")
+    expect(installation.reload.attributes).to eq(original)
+  end
+
+  it "does not expand the new index error contract to mutation endpoints" do
+    request_headers = headers
+    installation.update!(value: "invalid-saved-identity")
+
+    expect { post path, params: { source_time_entry_id: "missing" }, headers: request_headers }
+      .not_to change(PayrollIntegrationCommand, :count)
+    expect(response).to have_http_status(:internal_server_error)
+    expect(response.parsed_body.fetch("error")).to eq("Internal server error")
+    expect(response.parsed_body).not_to have_key("error_code")
+    expect(installation.reload.value).to eq("invalid-saved-identity")
+  end
 end

@@ -8,6 +8,7 @@ module Api
           PAYROLL_COMMAND_CAPABILITY = "settlement_case_management"
 
           before_action :authenticate_payroll_actor!, only: %i[index create retract resolve]
+          rescue_from ::Payroll::IntegrationProfile::InvalidIdentityError, with: :installation_identity_unavailable
 
           def index
             scope = PayrollPaymentAttestation.includes(:user, :time_entry, :recorded_by, :payroll_payment_attestation_events)
@@ -114,6 +115,17 @@ module Api
           end
 
           private
+
+          def installation_identity_unavailable(error)
+            # Keep this read contract scoped to index, including errors raised
+            # by its installation-pin authentication callback.
+            return internal_server_error(error) unless action_name == "index"
+
+            Rails.logger.error("Payroll source identity validation failed: #{error.message}")
+            render json: { error: error.message, error_code: "payroll_source_identity_invalid", review_required: true },
+              status: :service_unavailable
+            write_default_audit_event
+          end
 
           def report_date_range
             start_value = params.require(:start_date).to_s

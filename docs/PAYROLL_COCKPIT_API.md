@@ -31,6 +31,14 @@ Approval and denial commands return `200 OK` when first accepted and on an exact
 - `GET /api/v1/payroll/cockpit/settlement_cases?external_pay_period_id=...`
 - `GET /api/v1/payroll/cockpit/manual_review?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
 
+### Reported payment evidence index
+
+`GET /api/v1/payroll/cockpit/payment_attestations` returns the canonical `integration` descriptor on every successful page, including an empty period. Existing date, employee, status and pagination filters remain in force. This read also requires the connected administrator identity; legacy grants require `settlement_case_management`.
+
+The canonical integration profile deliberately initializes one durable installation UUID on first use using a unique-key insert. A legacy unpinned, authorized first read may perform that setup; subsequent reads retain the saved UUID. This is installation bootstrap, not financial reconciliation or identity replacement. An invalid saved UUID is never silently replaced.
+
+For this index, an invalid saved identity returns HTTP 503 with `error_code: payroll_source_identity_invalid` and `review_required: true`, without a descriptor or reported-payment data. Service-secret rejection remains 401; an unpinned request denied by its delegated capability remains 403. A valid saved identity that differs from the supplied source pin remains 409. Restore or deliberately coordinate installation-identity rotation through the existing operational process; this endpoint does neither. Other endpoints retain their existing error contracts.
+
 Employee and time-entry results are paginated with `page` and `per_page`. The employee limit is 100 rows per page; the time-entry limit is 250. The payload intentionally omits phone numbers, kiosk credentials, location data, public-site fields, and unrelated operational records.
 
 The exceptions endpoint paginates time exceptions with `page` and `per_page`, and leave exceptions independently with `leave_page` and `leave_per_page`, so advancing one queue never hides rows in the other.

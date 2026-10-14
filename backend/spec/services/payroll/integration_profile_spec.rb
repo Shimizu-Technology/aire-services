@@ -27,7 +27,7 @@ RSpec.describe Payroll::IntegrationProfile do
   it "fails closed instead of silently replacing an invalid saved identity" do
     Setting.create!(key: "payroll_source_instance_id", value: "not-a-uuid")
 
-    expect { described_class.call }.to raise_error(/source instance identity is invalid/i)
+    expect { described_class.call }.to raise_error(described_class::InvalidIdentityError, /source instance identity is invalid/i)
     expect(Setting.find_by!(key: "payroll_source_instance_id").value).to eq("not-a-uuid")
   end
 
