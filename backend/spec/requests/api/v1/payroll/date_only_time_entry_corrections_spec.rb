@@ -3,6 +3,8 @@
 require "rails_helper"
 
 RSpec.describe "Payroll date-only time corrections", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:zone) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:admin) { create(:user, :admin, is_active: true, personal_access_enabled: true) }
   let(:employee) { create(:user, :employee) }
@@ -88,11 +90,92 @@ RSpec.describe "Payroll date-only time corrections", type: :request do
     expect(response).to have_http_status(:ok)
     expect(entry.reload).to have_attributes(hours: 7.25, break_minutes: 45, approval_status: "pending")
     expect([ entry.formatted_start_time, entry.formatted_end_time ]).to eq([ "10:00 PM", "6:00 AM" ])
+    expect(entry).to have_attributes(clock_in_at: zone.local(2026, 11, 3, 22), clock_out_at: zone.local(2026, 11, 4, 6))
     breaks = entry.time_entry_breaks.reload.order(:start_time)
     expect(breaks.map { |row| [ row.start_time, row.end_time, row.duration_minutes ] }).to eq([
       [ zone.local(2026, 11, 3, 23, 45), zone.local(2026, 11, 4, 0, 15), 30 ],
       [ zone.local(2026, 11, 4, 2), zone.local(2026, 11, 4, 2, 15), 15 ]
     ])
+  end
+
+  it "preserves stored sub-minute shift and break precision and aligns completed clock timestamps" do
+    original_start = zone.local(2026, 11, 14, 8, 0, 17.123456r)
+    original_end = zone.local(2026, 11, 14, 17, 0, 43.654321r)
+    entry.update!(entry_method: "clock", start_time: original_start, end_time: original_end,
+                  clock_in_at: original_start, clock_out_at: original_end, break_minutes: 29)
+    entry.time_entry_breaks.create!(start_time: zone.local(2026, 11, 14, 12, 0, 59.123456r),
+                                  end_time: zone.local(2026, 11, 14, 12, 30, 0.654321r))
+    original_hours = entry.reload.hours
+    expect(original_hours).to eq(8.52)
+
+    correct
+
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(hours: original_hours, break_minutes: 29,
+                                           clock_in_at: zone.local(2026, 11, 3, 8, 0, 17.123456r),
+                                           clock_out_at: zone.local(2026, 11, 3, 17, 0, 43.654321r))
+    expect([ entry.start_time.sec, entry.start_time.usec, entry.end_time.sec, entry.end_time.usec ]).to eq([ 17, 123456, 43, 654321 ])
+    expect(entry.time_entry_breaks.reload.sole).to have_attributes(
+      start_time: zone.local(2026, 11, 3, 12, 0, 59.123456r),
+      end_time: zone.local(2026, 11, 3, 12, 30, 0.654321r), duration_minutes: 29
+    )
+    audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
+    expect(audit.metadata.fetch("before")).to include("clock_in_at" => original_start.iso8601(6), "clock_out_at" => original_end.iso8601(6))
+    expect(audit.metadata.fetch("after")).to include("clock_in_at" => entry.clock_in_at.iso8601(6), "clock_out_at" => entry.clock_out_at.iso8601(6))
+    expect(audit.metadata.fetch("before").fetch("breaks").sole).to include("start_time" => "2026-11-14T12:00:59.123456+10:00", "duration_minutes" => 29)
+    expect(audit.metadata.fetch("after").fetch("breaks").sole).to include("start_time" => "2026-11-03T12:00:59.123456+10:00", "duration_minutes" => 29)
+
+    create(:time_entry, user: employee, time_category: category, entry_method: "clock", status: "clocked_in",
+           work_date: "2026-11-03", start_time: entry.clock_out_at, clock_in_at: entry.clock_out_at, end_time: nil, hours: 0)
+    travel_to(zone.local(2026, 11, 3, 17, 30)) do
+      session = TimeClockService.current_status(user: employee).fetch(:session)
+      expect(session).to include(original_clock_in_at: entry.clock_in_at, completed_work_seconds: 30_686, total_break_minutes: 29)
+      expect(session.fetch(:segments).first).to include(clock_in_at: entry.clock_in_at, clock_out_at: entry.clock_out_at, active: false)
+      expect(session.fetch(:segments).size).to eq(2)
+    end
+  end
+
+  it "retains live clock and completed or active break chronology when only the nominal date changes" do
+    punch = zone.local(2026, 11, 14, 8, 0, 17)
+    entry.update!(entry_method: "clock", status: "on_break", end_time: nil, hours: 0,
+                  clock_in_at: punch, clock_out_at: nil, break_minutes: 15)
+    entry.time_entry_breaks.create!(start_time: zone.local(2026, 11, 14, 9), end_time: zone.local(2026, 11, 14, 9, 15))
+    entry.time_entry_breaks.create!(start_time: zone.local(2026, 11, 14, 10), end_time: nil)
+    original_breaks = entry.time_entry_breaks.reload.order(:start_time).map(&:attributes)
+
+    correct
+
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(work_date: Date.new(2026, 11, 3), status: "on_break", hours: 0,
+                                           clock_in_at: punch, clock_out_at: nil, end_time: nil,
+                                           break_minutes: 15, approval_status: "pending")
+    expect(entry.time_entry_breaks.reload.order(:start_time).map(&:attributes)).to eq(original_breaks)
+    expect(entry.total_break_minutes).to eq(15)
+    expect(entry.active_break.id).to eq(original_breaks.last.fetch("id"))
+    audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
+    expect(audit.metadata.fetch("after").fetch("breaks")).to eq(audit.metadata.fetch("before").fetch("breaks"))
+    expect(audit.metadata.fetch("after")).to include("work_date" => "2026-11-03", "clock_in_at" => punch.iso8601(6), "clock_out_at" => nil)
+    travel_to(zone.local(2026, 11, 14, 10, 30)) do
+      current = TimeClockService.current_status(user: employee)
+      expect(current).to include(status: "on_break", clock_in_at: punch, elapsed_minutes: 150, break_minutes: 15,
+                                active_break_started_at: zone.local(2026, 11, 14, 10))
+    end
+  end
+
+  it "continues rejecting explicit break replacement without clock-out and retains the live session atomically" do
+    entry.update!(entry_method: "clock", status: "on_break", end_time: nil, hours: 0,
+                  clock_in_at: zone.local(2026, 11, 14, 8), clock_out_at: nil)
+    entry.time_entry_breaks.create!(start_time: zone.local(2026, 11, 14, 9), end_time: nil)
+    original_entry = entry.reload.attributes
+    original_breaks = entry.time_entry_breaks.reload.map(&:attributes)
+
+    expect { correct(breaks: [ { start_time: "09:00", end_time: "09:30" } ]) }.not_to change(PayrollIntegrationCommand, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.parsed_body.fetch("error")).to eq("Complete the missing clock-out before correcting breaks")
+    expect(entry.reload.attributes).to eq(original_entry)
+    expect(entry.time_entry_breaks.reload.map(&:attributes)).to eq(original_breaks)
+    expect(AuditLog.where(action: "payroll_cockpit.time_entry_corrected", auditable: entry)).to be_empty
   end
 
   it "keeps a missing clock-out open when only its date changes" do
