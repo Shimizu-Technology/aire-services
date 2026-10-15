@@ -178,6 +178,33 @@ RSpec.describe "Payroll date-only time corrections", type: :request do
     expect(AuditLog.where(action: "payroll_cockpit.time_entry_corrected", auditable: entry)).to be_empty
   end
 
+  [ "2026-11-03", "2026-11-16" ].each do |corrected_date|
+    it "aligns the actual punch when a dated correction explicitly completes an active clock on #{corrected_date}" do
+      original_punch = zone.local(2026, 11, 14, 8)
+      entry.update!(entry_method: "clock", status: "clocked_in", end_time: nil, hours: 0,
+                    clock_in_at: original_punch, clock_out_at: nil, break_minutes: 29)
+      entry.time_entry_breaks.create!(start_time: zone.local(2026, 11, 14, 12, 0, 59.123456r),
+                                    end_time: zone.local(2026, 11, 14, 12, 30))
+
+      correct(work_date: corrected_date, end_time: "17:00")
+
+      date = Date.iso8601(corrected_date)
+      expect(response).to have_http_status(:ok)
+      expect(entry.reload).to have_attributes(work_date: date, status: "completed", hours: 8.52,
+                                             approval_status: "pending", break_minutes: 29,
+                                             clock_in_at: zone.local(date.year, date.month, date.day, 8),
+                                             clock_out_at: zone.local(date.year, date.month, date.day, 17))
+      expect(entry.clock_out_at - entry.clock_in_at).to eq(9.hours)
+      expect(entry.time_entry_breaks.reload.sole).to have_attributes(
+        start_time: zone.local(date.year, date.month, date.day, 12, 0, 59.123456r),
+        end_time: zone.local(date.year, date.month, date.day, 12, 30), duration_minutes: 29
+      )
+      audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
+      expect(audit.metadata.fetch("before")).to include("clock_in_at" => original_punch.iso8601(6), "clock_out_at" => nil)
+      expect(audit.metadata.fetch("after")).to include("clock_in_at" => entry.clock_in_at.iso8601(6), "clock_out_at" => entry.clock_out_at.iso8601(6), "hours" => 8.52)
+    end
+  end
+
   it "keeps a missing clock-out open when only its date changes" do
     entry.update!(entry_method: "clock", status: "clocked_in", end_time: nil, hours: 0,
                   clock_in_at: zone.local(2026, 11, 14, 8), clock_out_at: nil)

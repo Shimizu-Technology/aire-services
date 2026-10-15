@@ -94,9 +94,13 @@ module Payroll
       elsif corrected.key?(:work_date)
         corrected[:end_time] = relocate_time(entry.end_time, work_date, after: corrected[:start_time])
       end
-      if corrected.key?(:work_date) && entry.clock_entry? && !entry.active?
+      if corrected.key?(:work_date) && entry.clock_entry? && (!entry.active? || corrected[:end_time].present?)
         if entry.clock_in_at
-          corrected[:clock_in_at] = attributes.key?(:start_time) ? corrected[:start_time] : relocate_time(entry.clock_in_at, work_date)
+          corrected[:clock_in_at] = if entry.active? || attributes.key?(:start_time)
+            corrected[:start_time]
+          else
+            relocate_time(entry.clock_in_at, work_date)
+          end
         end
         if entry.clock_out_at
           corrected[:clock_out_at] = if attributes.key?(:end_time)
