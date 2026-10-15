@@ -35,7 +35,7 @@ RSpec.describe "Payroll date-only time corrections", type: :request do
   def correct(attributes = {})
     post "/api/v1/payroll/cockpit/time_entries/#{entry.id}/correction",
          params: { command_id: SecureRandom.uuid, expected_version: entry.reload.lock_version,
-                   work_date: "2026-11-03", reason: "Verified date against the employee time record" }.merge(attributes).to_json,
+                   work_date: "2026-11-03", reason: "Verified date against the employee time record" }.merge(attributes).compact.to_json,
          headers: headers
   end
 
@@ -213,6 +213,84 @@ RSpec.describe "Payroll date-only time corrections", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(entry.reload).to have_attributes(work_date: Date.new(2026, 11, 3), status: "clocked_in", end_time: nil, clock_out_at: nil, hours: 0)
+  end
+
+  it "aligns both punches when an explicit start and end complete an active clock without a work date" do
+    original_punch = zone.local(2026, 11, 14, 8)
+    entry.update!(entry_method: "clock", status: "clocked_in", start_time: original_punch,
+                  end_time: nil, hours: 0, clock_in_at: original_punch, clock_out_at: nil)
+
+    correct(work_date: nil, start_time: "09:00", end_time: "17:00")
+
+    expected_start = zone.local(2026, 11, 14, 9)
+    expected_end = zone.local(2026, 11, 14, 17)
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(work_date: Date.new(2026, 11, 14), status: "completed",
+                                           clock_in_at: expected_start, clock_out_at: expected_end,
+                                           hours: 8.0, approval_status: "pending")
+    expect([ entry.start_time, entry.end_time ].map { |time| time.in_time_zone(zone).strftime("%H:%M:%S.%6N") }).to eq(
+      [ "09:00:00.000000", "17:00:00.000000" ]
+    )
+    audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
+    expect(audit.metadata.fetch("before")).to include("clock_in_at" => original_punch.utc.iso8601(6), "clock_out_at" => nil)
+    expect(audit.metadata.fetch("after")).to include("clock_in_at" => expected_start.utc.iso8601(6),
+                                                   "clock_out_at" => expected_end.utc.iso8601(6), "hours" => 8.0)
+  end
+
+  it "retains the original punch when only an end completes an active clock without a work date" do
+    original_punch = zone.local(2026, 11, 14, 8, 0, 17.123456r)
+    entry.update!(entry_method: "clock", status: "clocked_in", start_time: original_punch,
+                  end_time: nil, hours: 0, clock_in_at: original_punch, clock_out_at: nil)
+
+    correct(work_date: nil, end_time: "2026-11-14T07:00:43.654321Z")
+
+    expected_end = zone.local(2026, 11, 14, 17, 0, 43.654321r)
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(work_date: Date.new(2026, 11, 14), status: "completed",
+                                           clock_in_at: original_punch, clock_out_at: expected_end,
+                                           hours: 9.01, approval_status: "pending")
+    expect([ entry.start_time, entry.end_time ].map { |time| time.in_time_zone(zone).strftime("%H:%M:%S.%6N") }).to eq(
+      [ "08:00:17.123456", "17:00:43.654321" ]
+    )
+    audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
+    expect(audit.metadata.fetch("after")).to include("clock_in_at" => original_punch.utc.iso8601(6),
+                                                   "clock_out_at" => expected_end.utc.iso8601(6))
+  end
+
+  it "preserves explicit ISO shift and break seconds and fractions after timezone conversion and date relocation" do
+    entry.update!(entry_method: "clock", clock_in_at: zone.local(2026, 11, 14, 8), clock_out_at: zone.local(2026, 11, 14, 10))
+    original_start = entry.reload.start_time.iso8601(6)
+    original_end = entry.end_time.iso8601(6)
+
+    correct(start_time: "2026-11-14T08:00:17.123456+10:00", end_time: "2026-11-14T07:00:43.654321Z",
+            breaks: [ { start_time: "2026-11-14T02:00:59.123456Z", end_time: "2026-11-14T12:30:00.654321+10:00" } ])
+
+    expected_start = zone.local(2026, 11, 3, 8, 0, 17.123456r)
+    expected_end = zone.local(2026, 11, 3, 17, 0, 43.654321r)
+    expected_break_start = zone.local(2026, 11, 3, 12, 0, 59.123456r)
+    expected_break_end = zone.local(2026, 11, 3, 12, 30, 0.654321r)
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(work_date: Date.new(2026, 11, 3),
+                                           clock_in_at: expected_start, clock_out_at: expected_end,
+                                           hours: 8.52, break_minutes: 29, approval_status: "pending")
+    expect([ entry.start_time, entry.end_time ].map { |time| time.in_time_zone(zone).strftime("%H:%M:%S.%6N") }).to eq(
+      [ "08:00:17.123456", "17:00:43.654321" ]
+    )
+    expect(entry.time_entry_breaks.reload.sole).to have_attributes(
+      start_time: expected_break_start, end_time: expected_break_end, duration_minutes: 29
+    )
+    audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
+    expect(audit.metadata.fetch("before")).to include("work_date" => "2026-11-14",
+                                                    "start_time" => original_start, "end_time" => original_end)
+    expect(audit.metadata.fetch("after")).to include("work_date" => "2026-11-03",
+                                                   "clock_in_at" => expected_start.utc.iso8601(6),
+                                                   "clock_out_at" => expected_end.utc.iso8601(6))
+    expect(audit.metadata.fetch("after").values_at("start_time", "end_time").map do |time|
+      Time.iso8601(time).in_time_zone(zone).strftime("%H:%M:%S.%6N")
+    end).to eq([ "08:00:17.123456", "17:00:43.654321" ])
+    expect(audit.metadata.fetch("after").fetch("breaks").sole).to include(
+      "start_time" => expected_break_start.utc.iso8601(6), "end_time" => expected_break_end.utc.iso8601(6), "duration_minutes" => 29
+    )
   end
 
   [ "25:00", "08:70", "not-a-time" ].each do |invalid_time|

@@ -94,7 +94,9 @@ module Payroll
       elsif corrected.key?(:work_date)
         corrected[:end_time] = relocate_time(entry.end_time, work_date, after: corrected[:start_time])
       end
-      if corrected.key?(:work_date) && entry.clock_entry? && (!entry.active? || corrected[:end_time].present?)
+      # Completing a live clock can correct its punch without changing its date.
+      align_clock = corrected.key?(:work_date) || (entry.active? && attributes.key?(:start_time))
+      if align_clock && entry.clock_entry? && (!entry.active? || corrected[:end_time].present?)
         if entry.clock_in_at
           corrected[:clock_in_at] = if entry.active? || attributes.key?(:start_time)
             corrected[:start_time]
@@ -140,13 +142,13 @@ module Payroll
       local = if value.to_s.match?(/\A\d{1,2}:\d{2}\z/)
         hour, minute = value.to_s.split(":").map(&:to_i)
         raise CorrectionError, "Corrected times must use HH:MM or ISO 8601" unless hour.between?(0, 23) && minute.between?(0, 59)
-        [ hour, minute ]
+        [ hour, minute, 0 ]
       else
         parsed = Time.iso8601(value.to_s).in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
-        [ parsed.hour, parsed.min ]
+        [ parsed.hour, parsed.min, parsed.sec + parsed.subsec ]
       end
       zone = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
-      result = zone.local(work_date.year, work_date.month, work_date.day, local.first, local.last)
+      result = zone.local(work_date.year, work_date.month, work_date.day, *local)
       result += 1.day if after && result <= after
       result
     rescue ArgumentError
