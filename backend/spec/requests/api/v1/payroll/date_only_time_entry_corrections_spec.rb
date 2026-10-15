@@ -120,10 +120,10 @@ RSpec.describe "Payroll date-only time corrections", type: :request do
       end_time: zone.local(2026, 11, 3, 12, 30, 0.654321r), duration_minutes: 29
     )
     audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
-    expect(audit.metadata.fetch("before")).to include("clock_in_at" => original_start.iso8601(6), "clock_out_at" => original_end.iso8601(6))
+    expect(audit.metadata.fetch("before")).to include("clock_in_at" => original_start.utc.iso8601(6), "clock_out_at" => original_end.utc.iso8601(6))
     expect(audit.metadata.fetch("after")).to include("clock_in_at" => entry.clock_in_at.iso8601(6), "clock_out_at" => entry.clock_out_at.iso8601(6))
-    expect(audit.metadata.fetch("before").fetch("breaks").sole).to include("start_time" => "2026-11-14T12:00:59.123456+10:00", "duration_minutes" => 29)
-    expect(audit.metadata.fetch("after").fetch("breaks").sole).to include("start_time" => "2026-11-03T12:00:59.123456+10:00", "duration_minutes" => 29)
+    expect(audit.metadata.fetch("before").fetch("breaks").sole).to include("start_time" => zone.local(2026, 11, 14, 12, 0, 59.123456r).utc.iso8601(6), "duration_minutes" => 29)
+    expect(audit.metadata.fetch("after").fetch("breaks").sole).to include("start_time" => zone.local(2026, 11, 3, 12, 0, 59.123456r).utc.iso8601(6), "duration_minutes" => 29)
 
     create(:time_entry, user: employee, time_category: category, entry_method: "clock", status: "clocked_in",
            work_date: "2026-11-03", start_time: entry.clock_out_at, clock_in_at: entry.clock_out_at, end_time: nil, hours: 0)
@@ -154,7 +154,7 @@ RSpec.describe "Payroll date-only time corrections", type: :request do
     expect(entry.active_break.id).to eq(original_breaks.last.fetch("id"))
     audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
     expect(audit.metadata.fetch("after").fetch("breaks")).to eq(audit.metadata.fetch("before").fetch("breaks"))
-    expect(audit.metadata.fetch("after")).to include("work_date" => "2026-11-03", "clock_in_at" => punch.iso8601(6), "clock_out_at" => nil)
+    expect(audit.metadata.fetch("after")).to include("work_date" => "2026-11-03", "clock_in_at" => punch.utc.iso8601(6), "clock_out_at" => nil)
     travel_to(zone.local(2026, 11, 14, 10, 30)) do
       current = TimeClockService.current_status(user: employee)
       expect(current).to include(status: "on_break", clock_in_at: punch, elapsed_minutes: 150, break_minutes: 15,
@@ -200,7 +200,7 @@ RSpec.describe "Payroll date-only time corrections", type: :request do
         end_time: zone.local(date.year, date.month, date.day, 12, 30), duration_minutes: 29
       )
       audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
-      expect(audit.metadata.fetch("before")).to include("clock_in_at" => original_punch.iso8601(6), "clock_out_at" => nil)
+      expect(audit.metadata.fetch("before")).to include("clock_in_at" => original_punch.utc.iso8601(6), "clock_out_at" => nil)
       expect(audit.metadata.fetch("after")).to include("clock_in_at" => entry.clock_in_at.iso8601(6), "clock_out_at" => entry.clock_out_at.iso8601(6), "hours" => 8.52)
     end
   end
