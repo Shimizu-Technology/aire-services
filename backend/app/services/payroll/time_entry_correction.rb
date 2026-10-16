@@ -137,11 +137,10 @@ module Payroll
       end_time = corrected[:end_time] || relocate_time(entry.end_time, work_date, after: start_time)
       if entry.clock_entry? && !entry.active? && attributes.key?(:start_time) && !attributes.key?(:end_time) &&
           corrected[:clock_in_at] && corrected[:clock_out_at]
-        # TIME fields calculate a span under 24 hours. A retained next-day punch
-        # must not silently become a different shift after changing only its start.
-        nominal_span = (end_time.to_r - start_time.to_r) % 1.day.to_i
+        # TIME fields wrap at 24 hours. Preserve an employee-corrected nominal
+        # end distinct from the actual punch, but reject a full-day punch alias.
         punch_span = corrected[:clock_out_at].to_r - corrected[:clock_in_at].to_r
-        unless punch_span == nominal_span
+        if punch_span >= 1.day.to_i
           raise CorrectionError, "Corrected start conflicts with the retained clock-out; review and correct both times"
         end
       end

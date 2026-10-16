@@ -162,6 +162,24 @@ RSpec.describe "Payroll partial time corrections", type: :request do
     expect(entry.formatted_end_time).to eq("7:00 AM")
   end
 
+  it "preserves an employee-corrected nominal end distinct from their actual clock-out on a later start edit" do
+    entry.update!(status: "clocked_in", end_time: nil, clock_out_at: nil, hours: 0)
+    travel_to(zone.local(2026, 11, 14, 18)) do
+      TimeClockService.clock_out(user: employee, corrected_end_time: "2026-11-14T17:00:43.654321+10:00")
+    end
+    original_time_end = entry.reload.end_time
+    original_punch_end = entry.clock_out_at
+    expect(original_time_end.in_time_zone(zone).strftime("%H:%M:%S.%6N")).to eq("17:00:43.654321")
+    expect(original_punch_end).to eq(zone.local(2026, 11, 14, 18))
+
+    correct(start_time: "09:00")
+
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(clock_in_at: zone.local(2026, 11, 14, 9),
+                                           end_time: original_time_end, clock_out_at: original_punch_end,
+                                           hours: 8.01, approval_status: "pending")
+  end
+
   context "with an overnight completed clock entry" do
     let(:original_start) { zone.local(2026, 11, 14, 22, 0, 17.123456r) }
     let(:original_end) { zone.local(2026, 11, 15, 6, 0, 43.654321r) }
