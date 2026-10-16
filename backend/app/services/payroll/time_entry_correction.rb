@@ -146,6 +146,7 @@ module Payroll
         unless nominal_span >= 0 && nominal_span < 1.day.to_i
           raise CorrectionError, "Corrected start conflicts with the retained end time. Review the work date or correct the end time"
         end
+        end_time = retained_end
       end
       if raw_breaks.nil? && !corrected.key?(:work_date) &&
           (attributes.key?(:start_time) || attributes.key?(:end_time)) &&

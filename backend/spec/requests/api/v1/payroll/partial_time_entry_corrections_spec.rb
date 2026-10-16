@@ -3,6 +3,8 @@
 require "rails_helper"
 
 RSpec.describe "Payroll partial time corrections", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:zone) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:admin) { create(:user, :admin, is_active: true, personal_access_enabled: true) }
   let(:employee) { create(:user, :employee) }
@@ -208,6 +210,22 @@ RSpec.describe "Payroll partial time corrections", type: :request do
     expect(response).to have_http_status(:ok)
     expect(entry.reload).to have_attributes(end_time: original_time_end, clock_out_at: actual_end,
                                            hours: 0, approval_status: "pending")
+  end
+
+  it "rejects a zero nominal shift that would exclude an omitted existing break" do
+    record_employee_corrected_clock_out(at: zone.local(2026, 11, 14, 19))
+    add_break
+    entry.update!(break_minutes: 29)
+    original_entry = entry.reload.attributes
+    original_breaks = entry.time_entry_breaks.reload.map(&:attributes)
+
+    expect { correct(start_time: "2026-11-14T17:00:43.654321+10:00") }.not_to change(PayrollIntegrationCommand, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.parsed_body.fetch("error")).to eq("Breaks must fall within the corrected shift")
+    expect(entry.reload.attributes).to eq(original_entry)
+    expect(entry.time_entry_breaks.reload.map(&:attributes)).to eq(original_breaks)
+    expect(AuditLog.where(action: "payroll_cockpit.time_entry_corrected", auditable: entry)).to be_empty
   end
 
   context "with an overnight completed clock entry" do
