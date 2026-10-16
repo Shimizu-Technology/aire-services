@@ -48,6 +48,7 @@ RSpec.describe "Payroll partial time corrections", type: :request do
     travel_to(at) do
       TimeClockService.clock_out(user: employee, corrected_end_time: "2026-11-14T17:00:43.654321+10:00")
     end
+    entry.reload
   end
 
   it "changes only a completed start and retains the untouched real clock-out down to microseconds" do
