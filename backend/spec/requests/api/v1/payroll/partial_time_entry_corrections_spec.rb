@@ -41,6 +41,13 @@ RSpec.describe "Payroll partial time corrections", type: :request do
                                   end_time: zone.local(2026, 11, 14, 12, 30, 0.654321r))
   end
 
+  def record_employee_corrected_clock_out(at:)
+    entry.update!(status: "clocked_in", end_time: nil, clock_out_at: nil, hours: 0)
+    travel_to(at) do
+      TimeClockService.clock_out(user: employee, corrected_end_time: "2026-11-14T17:00:43.654321+10:00")
+    end
+  end
+
   it "changes only a completed start and retains the untouched real clock-out down to microseconds" do
     entry.update!(description: "Retain the original work note",
                   start_time: zone.local(2026, 11, 14, 13, 59, 19.427187r),
@@ -162,22 +169,45 @@ RSpec.describe "Payroll partial time corrections", type: :request do
     expect(entry.formatted_end_time).to eq("7:00 AM")
   end
 
-  it "preserves an employee-corrected nominal end distinct from their actual clock-out on a later start edit" do
-    entry.update!(status: "clocked_in", end_time: nil, clock_out_at: nil, hours: 0)
-    travel_to(zone.local(2026, 11, 14, 18)) do
-      TimeClockService.clock_out(user: employee, corrected_end_time: "2026-11-14T17:00:43.654321+10:00")
-    end
-    original_time_end = entry.reload.end_time
-    original_punch_end = entry.clock_out_at
-    expect(original_time_end.in_time_zone(zone).strftime("%H:%M:%S.%6N")).to eq("17:00:43.654321")
-    expect(original_punch_end).to eq(zone.local(2026, 11, 14, 18))
+  [ [ 14, 18 ], [ 15, 19 ] ].each do |day, hour|
+    it "preserves an employee-corrected nominal end distinct from their actual November #{day} clock-out on a later start edit" do
+      actual_end = zone.local(2026, 11, day, hour)
+      record_employee_corrected_clock_out(at: actual_end)
+      original_time_end = entry.reload.end_time
+      expect(original_time_end.in_time_zone(zone).strftime("%H:%M:%S.%6N")).to eq("17:00:43.654321")
+      expect(entry.clock_out_at).to eq(actual_end)
 
-    correct(start_time: "09:00")
+      correct(start_time: "09:00")
+
+      expect(response).to have_http_status(:ok)
+      expect(entry.reload).to have_attributes(clock_in_at: zone.local(2026, 11, 14, 9),
+                                             end_time: original_time_end, clock_out_at: actual_end,
+                                             hours: 8.01, approval_status: "pending")
+    end
+  end
+
+  it "rejects a start later than the retained same-day nominal end even when the actual clock-out is later" do
+    record_employee_corrected_clock_out(at: zone.local(2026, 11, 14, 19))
+    original_entry = entry.reload.attributes
+
+    expect { correct(start_time: "18:00") }.not_to change(PayrollIntegrationCommand, :count)
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.parsed_body.fetch("error")).to eq("Corrected start conflicts with the retained end time. Review the work date or correct the end time")
+    expect(entry.reload.attributes).to eq(original_entry)
+    expect(AuditLog.where(action: "payroll_cockpit.time_entry_corrected", auditable: entry)).to be_empty
+  end
+
+  it "retains an intentional zero nominal span without treating a later captured clock-out as worked time" do
+    actual_end = zone.local(2026, 11, 14, 19)
+    record_employee_corrected_clock_out(at: actual_end)
+    original_time_end = entry.reload.end_time
+
+    correct(start_time: "2026-11-14T17:00:43.654321+10:00")
 
     expect(response).to have_http_status(:ok)
-    expect(entry.reload).to have_attributes(clock_in_at: zone.local(2026, 11, 14, 9),
-                                           end_time: original_time_end, clock_out_at: original_punch_end,
-                                           hours: 8.01, approval_status: "pending")
+    expect(entry.reload).to have_attributes(end_time: original_time_end, clock_out_at: actual_end,
+                                           hours: 0, approval_status: "pending")
   end
 
   context "with an overnight completed clock entry" do
@@ -195,7 +225,7 @@ RSpec.describe "Payroll partial time corrections", type: :request do
         expect { correct(start_time: conflicting_start) }.not_to change(PayrollIntegrationCommand, :count)
 
         expect(response).to have_http_status(:unprocessable_entity)
-        expect(response.parsed_body.fetch("error")).to eq("Corrected start conflicts with the retained clock-out; review and correct both times")
+        expect(response.parsed_body.fetch("error")).to eq("Corrected start conflicts with the retained end time. Review the work date or correct the end time")
         expect(entry.reload.attributes).to eq(original_entry)
         expect(entry.time_entry_breaks.reload.map(&:attributes)).to eq(original_breaks)
         expect(AuditLog.where(action: "payroll_cockpit.time_entry_corrected", auditable: entry)).to be_empty
@@ -219,6 +249,21 @@ RSpec.describe "Payroll partial time corrections", type: :request do
       audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
       expect(audit.metadata.fetch("before")).to include("clock_out_at" => "2026-11-14T20:00:43.654321Z")
       expect(audit.metadata.fetch("after")).to include("clock_out_at" => "2026-11-14T20:00:43.654321Z", "hours" => 7.01)
+    end
+
+    it "allows an explicit work-date and start edit to reanchor the shift without resending its precise end" do
+      original_time_end = entry.reload.end_time
+
+      correct(work_date: "2026-11-15", start_time: "05:00")
+
+      expect(response).to have_http_status(:ok)
+      expect(entry.reload).to have_attributes(work_date: Date.new(2026, 11, 15),
+                                             clock_in_at: zone.local(2026, 11, 15, 5),
+                                             clock_out_at: zone.local(2026, 11, 15, 6, 0, 43.654321r),
+                                             end_time: original_time_end, hours: 1.01, approval_status: "pending")
+      expect(response.parsed_body.fetch("time_entry")).to include(
+        "clock_in_at" => "2026-11-14T19:00:00.000000Z", "clock_out_at" => "2026-11-14T20:00:43.654321Z"
+      )
     end
   end
 

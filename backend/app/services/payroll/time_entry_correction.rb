@@ -136,12 +136,15 @@ module Payroll
       start_time = corrected[:start_time] || relocate_time(entry.start_time, work_date)
       end_time = corrected[:end_time] || relocate_time(entry.end_time, work_date, after: start_time)
       if entry.clock_entry? && !entry.active? && attributes.key?(:start_time) && !attributes.key?(:end_time) &&
-          corrected[:clock_in_at] && corrected[:clock_out_at]
-        # TIME fields wrap at 24 hours. Preserve an employee-corrected nominal
-        # end distinct from the actual punch, but reject a full-day punch alias.
-        punch_span = corrected[:clock_out_at].to_r - corrected[:clock_in_at].to_r
-        if punch_span >= 1.day.to_i
-          raise CorrectionError, "Corrected start conflicts with the retained clock-out; review and correct both times"
+          !attributes.key?(:work_date) && entry.start_time && entry.end_time
+        # Preserve the original nominal end's Guam day offset, independently of
+        # a later actual clock-out. A sparse start edit must not wrap that end.
+        retained_start = relocate_time(entry.start_time, work_date)
+        retained_end = relocate_time(entry.end_time, work_date)
+        retained_end += 1.day if retained_end < retained_start
+        nominal_span = retained_end.to_r - corrected.fetch(:start_time).to_r
+        unless nominal_span >= 0 && nominal_span < 1.day.to_i
+          raise CorrectionError, "Corrected start conflicts with the retained end time. Review the work date or correct the end time"
         end
       end
       if raw_breaks.nil? && !corrected.key?(:work_date) &&
