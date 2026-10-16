@@ -42,7 +42,8 @@ RSpec.describe "Payroll partial time corrections", type: :request do
   end
 
   it "changes only a completed start and retains the untouched real clock-out down to microseconds" do
-    entry.update!(start_time: zone.local(2026, 11, 14, 13, 59, 19.427187r),
+    entry.update!(description: "Retain the original work note",
+                  start_time: zone.local(2026, 11, 14, 13, 59, 19.427187r),
                   end_time: zone.local(2026, 11, 14, 14, 0, 32.935086r),
                   clock_in_at: zone.local(2026, 11, 14, 13, 59, 19.427187r),
                   clock_out_at: zone.local(2026, 11, 14, 14, 0, 32.935086r))
@@ -55,7 +56,8 @@ RSpec.describe "Payroll partial time corrections", type: :request do
     expect(response).to have_http_status(:ok)
     expect(entry.reload).to have_attributes(clock_in_at: zone.local(2026, 11, 14, 13, 45),
                                            clock_out_at: original_punch_end, end_time: original_time_end,
-                                           hours: 0.26, approval_status: "pending", approved_by_id: nil,
+                                           hours: 0.26, description: "Retain the original work note",
+                                           approval_status: "pending", approved_by_id: nil,
                                            approved_at: nil, lock_version: version + 1)
     expect(response.parsed_body.fetch("time_entry")).to include(
       "clock_in_at" => "2026-11-14T03:45:00.000000Z", "clock_out_at" => "2026-11-14T04:00:32.935086Z"
@@ -172,5 +174,30 @@ RSpec.describe "Payroll partial time corrections", type: :request do
                                            clock_out_at: nil, end_time: nil, hours: 0, approval_status: "pending")
     expect(entry.start_time.in_time_zone(zone).strftime("%H:%M")).to eq("09:00")
     expect(entry.time_entry_breaks.reload.map(&:attributes)).to eq(original_breaks)
+  end
+
+  [ "", nil ].each do |cleared_description|
+    it "clears an explicit #{cleared_description.inspect} description without resending captured time" do
+      entry.update!(description: "An obsolete work description")
+      original_times = entry.reload.attributes.slice("start_time", "end_time", "clock_in_at", "clock_out_at", "hours")
+
+      expect { correct(description: cleared_description) }.to change(PayrollIntegrationCommand, :count).by(1)
+
+      expect(response).to have_http_status(:ok)
+      expect(entry.reload).to have_attributes(description: cleared_description, approval_status: "pending")
+      expect(entry.attributes.slice(*original_times.keys)).to eq(original_times)
+      expect(response.parsed_body.fetch("time_entry").fetch("description")).to eq(cleared_description)
+    end
+  end
+
+  it "clears the description alongside an explicit time correction instead of silently retaining it" do
+    entry.update!(description: "An obsolete work description")
+
+    correct(start_time: "09:00", description: "")
+
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(description: "", clock_in_at: zone.local(2026, 11, 14, 9),
+                                           clock_out_at: original_end, hours: 8.01, approval_status: "pending")
+    expect(response.parsed_body.fetch("time_entry").fetch("description")).to eq("")
   end
 end

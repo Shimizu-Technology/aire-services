@@ -9,7 +9,7 @@ module Payroll
     def initialize(entry:, attributes:, actor:, reason:)
       @entry = entry
       @attributes = attributes.to_h.symbolize_keys.slice(*CORRECTABLE_FIELDS)
-      @attributes = @attributes.reject { |key, value| key != :breaks && value.blank? }
+      @attributes = @attributes.reject { |key, value| !%i[breaks description].include?(key) && value.blank? }
       @actor = actor
       @reason = reason.to_s.strip
     end
