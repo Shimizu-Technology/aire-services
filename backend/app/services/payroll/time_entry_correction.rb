@@ -9,7 +9,7 @@ module Payroll
     def initialize(entry:, attributes:, actor:, reason:)
       @entry = entry
       @attributes = attributes.to_h.symbolize_keys.slice(*CORRECTABLE_FIELDS)
-      @attributes = @attributes.reject { |key, value| key != :breaks && value.blank? }
+      @attributes = @attributes.reject { |key, value| !%i[breaks description].include?(key) && value.blank? }
       @actor = actor
       @reason = reason.to_s.strip
     end
@@ -90,25 +90,30 @@ module Payroll
         corrected[:start_time] = relocate_time(entry.start_time, work_date)
       end
       if corrected.key?(:end_time)
-        corrected[:end_time] = parse_time(corrected[:end_time], work_date, after: corrected[:start_time] || entry.start_time)
+        corrected[:end_time] = parse_time(corrected[:end_time], work_date, after: corrected[:start_time] || relocate_time(entry.start_time, work_date))
       elsif corrected.key?(:work_date)
         corrected[:end_time] = relocate_time(entry.end_time, work_date, after: corrected[:start_time])
       end
-      # Completing a live clock can correct its punch without changing its date.
-      align_clock = corrected.key?(:work_date) || (entry.active? && attributes.key?(:start_time))
+      # Explicit partial corrections align completed punches without requiring a
+      # date resend. A live session still keeps its chronology until completed.
+      align_clock = corrected.key?(:work_date) || attributes.key?(:start_time) || attributes.key?(:end_time)
       if align_clock && entry.clock_entry? && (!entry.active? || corrected[:end_time].present?)
         if entry.clock_in_at
-          corrected[:clock_in_at] = if entry.active? || attributes.key?(:start_time)
+          corrected[:clock_in_at] = if attributes.key?(:start_time) || (entry.active? && corrected.key?(:work_date))
             corrected[:start_time]
-          else
+          elsif corrected.key?(:work_date)
             relocate_time(entry.clock_in_at, work_date)
+          else
+            entry.clock_in_at
           end
         end
         if entry.clock_out_at
           corrected[:clock_out_at] = if attributes.key?(:end_time)
             corrected[:end_time]
-          else
+          elsif corrected.key?(:work_date)
             relocate_time(entry.clock_out_at, work_date, after: corrected[:clock_in_at] || corrected[:start_time])
+          else
+            entry.clock_out_at
           end
         end
       end
@@ -126,8 +131,33 @@ module Payroll
         raise CorrectionError, "Choose an active work category assigned to this person" unless category
         corrected[:time_category_id] = category.id
       end
-      start_time = corrected[:start_time] || entry.start_time
-      end_time = corrected[:end_time] || entry.end_time
+      # PostgreSQL TIME values reload on 2000-01-01. Compare parsed breaks and
+      # overnight endpoints on the nominal shift date, without rewriting omitted fields.
+      start_time = corrected[:start_time] || relocate_time(entry.start_time, work_date)
+      end_time = corrected[:end_time] || relocate_time(entry.end_time, work_date, after: start_time)
+      if entry.clock_entry? && !entry.active? && attributes.key?(:start_time) && !attributes.key?(:end_time) &&
+          !attributes.key?(:work_date) && entry.start_time && entry.end_time
+        # Preserve the original nominal end's Guam day offset, independently of
+        # a later actual clock-out. A sparse start edit must not wrap that end.
+        retained_start = relocate_time(entry.start_time, work_date)
+        retained_end = relocate_time(entry.end_time, work_date)
+        retained_end += 1.day if retained_end < retained_start
+        nominal_span = retained_end.to_r - corrected.fetch(:start_time).to_r
+        unless nominal_span >= 0 && nominal_span < 1.day.to_i
+          raise CorrectionError, "Corrected start conflicts with the retained end time. Review the work date or correct the end time"
+        end
+        end_time = retained_end
+      end
+      if raw_breaks.nil? && !corrected.key?(:work_date) &&
+          (attributes.key?(:start_time) || attributes.key?(:end_time)) &&
+          entry.time_entry_breaks.any? && !(entry.active? && corrected[:end_time].nil?)
+        # Omission preserves the rows, but must not let an edited shift exclude
+        # an existing break. Validate retained chronology without replacing it.
+        existing_breaks = entry.time_entry_breaks.order(:start_time, :id).map do |entry_break|
+          { start_time: entry_break.start_time, end_time: entry_break.end_time }
+        end
+        normalize_breaks(existing_breaks, work_date: work_date, start_time: start_time, end_time: end_time, retained: true)
+      end
       break_rows = normalize_breaks(raw_breaks, work_date: work_date, start_time: start_time, end_time: end_time, retained: retained_breaks) if raw_breaks
       [ corrected, break_rows ]
     end
