@@ -135,6 +135,16 @@ module Payroll
       # overnight endpoints on the nominal shift date, without rewriting omitted fields.
       start_time = corrected[:start_time] || relocate_time(entry.start_time, work_date)
       end_time = corrected[:end_time] || relocate_time(entry.end_time, work_date, after: start_time)
+      if entry.clock_entry? && !entry.active? && attributes.key?(:start_time) && !attributes.key?(:end_time) &&
+          corrected[:clock_in_at] && corrected[:clock_out_at]
+        # TIME fields calculate a span under 24 hours. A retained next-day punch
+        # must not silently become a different shift after changing only its start.
+        nominal_span = (end_time.to_r - start_time.to_r) % 1.day.to_i
+        punch_span = corrected[:clock_out_at].to_r - corrected[:clock_in_at].to_r
+        unless punch_span == nominal_span
+          raise CorrectionError, "Corrected start conflicts with the retained clock-out; review and correct both times"
+        end
+      end
       if raw_breaks.nil? && !corrected.key?(:work_date) &&
           (attributes.key?(:start_time) || attributes.key?(:end_time)) &&
           entry.time_entry_breaks.any? && !(entry.active? && corrected[:end_time].nil?)

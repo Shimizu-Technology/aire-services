@@ -162,6 +162,48 @@ RSpec.describe "Payroll partial time corrections", type: :request do
     expect(entry.formatted_end_time).to eq("7:00 AM")
   end
 
+  context "with an overnight completed clock entry" do
+    let(:original_start) { zone.local(2026, 11, 14, 22, 0, 17.123456r) }
+    let(:original_end) { zone.local(2026, 11, 15, 6, 0, 43.654321r) }
+
+    [ "05:00", "2026-11-14T06:00:43.654321+10:00" ].each do |conflicting_start|
+      it "rejects start-only #{conflicting_start} when retained punches disagree with nominal hours" do
+        entry.time_entry_breaks.create!(start_time: zone.local(2026, 11, 15, 2, 0, 7.123456r),
+                                      end_time: zone.local(2026, 11, 15, 2, 15, 9.654321r))
+        entry.update!(break_minutes: 15)
+        original_entry = entry.reload.attributes
+        original_breaks = entry.time_entry_breaks.reload.map(&:attributes)
+
+        expect { correct(start_time: conflicting_start) }.not_to change(PayrollIntegrationCommand, :count)
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body.fetch("error")).to eq("Corrected start conflicts with the retained clock-out; review and correct both times")
+        expect(entry.reload.attributes).to eq(original_entry)
+        expect(entry.time_entry_breaks.reload.map(&:attributes)).to eq(original_breaks)
+        expect(AuditLog.where(action: "payroll_cockpit.time_entry_corrected", auditable: entry)).to be_empty
+      end
+    end
+
+    it "accepts a later overnight start while retaining the precise next-day clock-out" do
+      original_time_end = entry.reload.end_time
+      version = entry.lock_version
+
+      expect { correct(start_time: "23:00") }.to change(PayrollIntegrationCommand, :count).by(1)
+
+      expect(response).to have_http_status(:ok)
+      expect(entry.reload).to have_attributes(clock_in_at: zone.local(2026, 11, 14, 23),
+                                             end_time: original_time_end, clock_out_at: original_end,
+                                             hours: 7.01, approval_status: "pending", lock_version: version + 1)
+      expect(entry.start_time.in_time_zone(zone).strftime("%H:%M:%S.%6N")).to eq("23:00:00.000000")
+      expect(response.parsed_body.fetch("time_entry")).to include(
+        "clock_in_at" => "2026-11-14T13:00:00.000000Z", "clock_out_at" => "2026-11-14T20:00:43.654321Z"
+      )
+      audit = AuditLog.find_by!(action: "payroll_cockpit.time_entry_corrected", auditable: entry)
+      expect(audit.metadata.fetch("before")).to include("clock_out_at" => "2026-11-14T20:00:43.654321Z")
+      expect(audit.metadata.fetch("after")).to include("clock_out_at" => "2026-11-14T20:00:43.654321Z", "hours" => 7.01)
+    end
+  end
+
   it "keeps an incomplete live session's actual punch and break rows when only its nominal start changes" do
     entry.update!(status: "clocked_in", end_time: nil, clock_out_at: nil, hours: 0)
     entry.time_entry_breaks.create!(start_time: zone.local(2026, 11, 14, 9), end_time: zone.local(2026, 11, 14, 9, 15))
