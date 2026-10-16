@@ -15,8 +15,8 @@ module Payroll
         work_date: entry.work_date.iso8601,
         start_time: entry.formatted_start_time,
         end_time: entry.formatted_end_time,
-        clock_in_at: entry.clock_in_at&.iso8601,
-        clock_out_at: entry.clock_out_at&.iso8601,
+        clock_in_at: entry.clock_in_at&.iso8601(6),
+        clock_out_at: entry.clock_out_at&.iso8601(6),
         hours: entry.hours.to_f,
         break_minutes: entry.break_minutes.to_i,
         breaks: entry.time_entry_breaks.sort_by(&:start_time).map { |record| serialize_break(record) },
@@ -67,8 +67,8 @@ module Payroll
     def serialize_break(record)
       {
         id: record.id.to_s,
-        start_time: record.start_time.iso8601,
-        end_time: record.end_time&.iso8601,
+        start_time: record.start_time.iso8601(6),
+        end_time: record.end_time&.iso8601(6),
         duration_minutes: record.duration_minutes,
         active: record.active?
       }
