@@ -127,6 +127,8 @@ module Api
           return render json: { error: "You can only edit your own time entries" }, status: :forbidden
         end
 
+        return perform_review_correction if params.dig(:time_entry, :review_action).present?
+
         return unless require_correction_reason_for_payroll_entry!
 
         old_values = {
@@ -142,7 +144,8 @@ module Api
         }
 
         update_params = time_entry_params.except(:user_id, :breaks).to_h.symbolize_keys
-        if update_params.key?(:time_category_id) || @time_entry.time_category_id.nil?
+        update_params.delete(:time_category_id) if @time_entry.active? && update_params[:time_category_id].blank?
+        if update_params.key?(:time_category_id) || (!@time_entry.active? && @time_entry.time_category_id.nil?)
           selected_category = resolve_required_category(@time_entry.user, update_params[:time_category_id])
           return if performed?
           update_params[:time_category_id] = selected_category.id
@@ -527,6 +530,20 @@ module Api
         note.present? ? "#{action}; note: #{note.to_s.strip}" : action
       end
 
+      def perform_review_correction
+        return render json: { error: "Only admins can submit this correction" }, status: :forbidden unless current_user.admin?
+
+        attributes = params.require(:time_entry).permit(:review_action, :expected_version, :stop_date, :end_time, :time_category_id, :description).to_h
+        TimeEntryReviewCorrection.call(entry: @time_entry, actor: current_user,
+                                       action: attributes.delete("review_action"), attributes: attributes,
+                                       reason: correction_reason)
+        render json: { time_entry: serialize_time_entry(@time_entry) }
+      rescue TimeEntryReviewCorrection::StaleEntryError => e
+        render json: { error: e.message, code: "stale_entry" }, status: :conflict
+      rescue TimeEntryReviewCorrection::CorrectionError => e
+        render json: { error: e.message }, status: :unprocessable_entity
+      end
+
       def require_correction_reason_for_payroll_entry!
         return true if active_payroll_exports.empty? && finalized_payroll_batches.empty?
         return true if correction_reason.present?
@@ -828,6 +845,7 @@ module Api
         tz = TimeClockService::BUSINESS_TIMEZONE
         {
           id: entry.id,
+          version: entry.lock_version,
           work_date: entry.work_date.iso8601,
           start_time: entry.start_time&.in_time_zone(tz)&.strftime("%H:%M"),
           end_time: entry.end_time&.in_time_zone(tz)&.strftime("%H:%M"),

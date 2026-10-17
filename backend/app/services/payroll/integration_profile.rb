@@ -2,6 +2,8 @@
 
 module Payroll
   class IntegrationProfile
+    class InvalidIdentityError < RuntimeError; end
+
     PROTOCOL = "shimizu_time_payroll"
     PROTOCOL_VERSION = "1.0"
     SOURCE_TYPE = "aire_services"
@@ -12,6 +14,7 @@ module Payroll
       finalized_batch_v2
       payroll_calendar_v2
       exact_line_receipts_v2
+      payroll_obligation_correction_v1
       payment_cancellation_v1
       employee_period_evidence_v1
       employee_directory
@@ -19,6 +22,7 @@ module Payroll
       account_linking
       manual_allocations
       payment_attestations
+      payment_attestation_resolution_v1
     ].freeze
 
     def self.call
@@ -55,7 +59,7 @@ module Payroll
     def self.validate_instance_id!(value)
       normalized = value.to_s.strip
       unless normalized.match?(UUID_PATTERN)
-        raise "The payroll source instance identity is invalid; restore or deliberately rotate the saved installation identity"
+        raise InvalidIdentityError, "The payroll source instance identity is invalid; restore or deliberately rotate the saved installation identity"
       end
 
       normalized

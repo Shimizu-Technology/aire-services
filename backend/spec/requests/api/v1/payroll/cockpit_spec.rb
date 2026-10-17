@@ -1483,4 +1483,120 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(response).to have_http_status(:unprocessable_entity)
     expect(allocation.reload.status).to eq("issued")
   end
+  describe "immutable manual issuance receipt" do
+    let(:entry) { create_entry(approval_status: "approved", approved_at: Time.current, hours: 8) }
+    let(:recorder) { Payroll::ManualAllocationRecorder.new(actor: admin) }
+    let(:allocation) do
+      recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+        regular_hours: 8, overtime_hours: 0, external_pay_period_id: "67", external_payroll_item_id: "91",
+        pay_date: Date.current.iso8601, reason: "Verified original payroll source allocation")
+    end
+    let(:path) { "/api/v1/payroll/cockpit/manual_allocations/#{allocation.id}/issue" }
+    let(:payload) do
+      { command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
+        payment_method: "paper_check", payment_reference: "ISSUE-91", payment_effective_on: Date.current.iso8601,
+        occurred_at: (Time.current - 2.seconds).floor.iso8601(6).sub(".000000", ".123456"),
+        reason: "Verified physical original check delivery" }
+    end
+
+    def cancel_issued_allocation
+      recorder.cancel_payment!(allocation: allocation.reload, payment_method: "paper_check", payment_reference: "ISSUE-91",
+        payment_effective_on: payload[:payment_effective_on], occurred_at: (Time.current - 1.second).iso8601(6),
+        cancellation_evidence_reference: "BANK-STOP-91", reason: "Bank verified cancellation of original check")
+    end
+
+    it "returns the locked issue receipt when payment is cancelled before the fresh response reload" do
+      expected_version = payload[:expected_version] + 1
+      allow_any_instance_of(Payroll::CockpitCommand).to receive(:call).and_wrap_original do |original, &block|
+        result = original.call(&block)
+        cancel_issued_allocation
+        result
+      end
+      post path, params: payload.to_json, headers: settlement_headers
+      expect(response).to have_http_status(:ok)
+      expect(allocation.reload.status).to eq("committed")
+      expect(json.fetch(:manual_allocation)).to include(status: "issued", version: expected_version,
+        payment_reference: "ISSUE-91", issued_at: Time.iso8601(payload[:occurred_at]).utc.iso8601(6))
+      expect(json.dig(:manual_allocation, :issued_payment, :event_type)).to eq("issued")
+    end
+
+    it "returns the immutable issue tuple on replay after cancellation" do
+      actor_headers = settlement_headers
+      issued_version = payload[:expected_version] + 1
+      post path, params: payload.to_json, headers: actor_headers
+      expect(response).to have_http_status(:ok)
+      cancel_issued_allocation
+      expect { post path, params: payload.to_json, headers: actor_headers }.not_to change(PayrollManualAllocationEvent, :count)
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:command, :replayed)).to be(true)
+      expect(json.fetch(:manual_allocation)).to include(id: allocation.id.to_s, version: issued_version, status: "issued",
+        source_time_entry_id: entry.id.to_s, source_user_uuid: employee.payroll_integration_uuid,
+        regular_hours: 8.0, overtime_hours: 0.0, external_pay_period_id: "67", external_payroll_item_id: "91",
+        payment_method: "paper_check", payment_reference: "ISSUE-91", payment_effective_on: payload[:payment_effective_on])
+    end
+
+    it "replays the exact issued tuple after cancellation and replacement without another event" do
+      actor_headers = settlement_headers
+      post path, params: payload.to_json, headers: actor_headers
+      expect(response).to have_http_status(:ok)
+      acknowledgement = json.fetch(:manual_allocation)
+      integration = json.fetch(:integration)
+      expect(integration).to eq(Payroll::IntegrationProfile.call.deep_symbolize_keys)
+      expect(acknowledgement).to include(id: allocation.id.to_s, version: payload[:expected_version] + 1,
+        source_time_entry_id: entry.id.to_s, source_time_entry_version: entry.lock_version,
+        source_user_uuid: employee.payroll_integration_uuid, work_date: entry.work_date.iso8601,
+        pay_date: allocation.pay_date.iso8601, regular_hours: 8.0, overtime_hours: 0.0, total_hours: 8.0,
+        external_pay_period_id: "67", external_payroll_item_id: "91", status: "issued",
+        payment_method: "paper_check", payment_reference: "ISSUE-91", payment_effective_on: payload[:payment_effective_on])
+      event = allocation.payroll_manual_allocation_events.find_by!(event_type: "issued")
+      expect(acknowledgement.fetch(:issued_payment)).to eq(event_id: event.id.to_s, event_type: "issued",
+        occurred_at: event.occurred_at.iso8601(6), payment_method: "paper_check", payment_reference: "ISSUE-91",
+        payment_effective_on: payload[:payment_effective_on], reason: payload[:reason])
+      receipt = PayrollIntegrationCommand.find_by!(command_id: payload[:command_id])
+      expect(json.fetch(:command_result)).to include(expected_version: payload[:expected_version],
+        result_version: acknowledgement.fetch(:version), status: "issued", manual_allocation_id: allocation.id)
+      expect(acknowledgement.fetch(:version)).to be > json.dig(:command_result, :expected_version)
+      retained = acknowledgement.deep_stringify_keys.deep_dup
+      retained.fetch("issued_payment").delete("reason")
+      expect(receipt.result_metadata.fetch("manual_allocation")).to eq(retained)
+      expect(JSON.generate(receipt.result_metadata)).not_to include(employee.full_name, payload[:reason])
+      expect(JSON.generate(receipt.result_metadata).bytesize).to be < 3.kilobytes
+      cancel_issued_allocation
+      recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "REPLACEMENT-91",
+        payment_effective_on: Date.current.iso8601, occurred_at: Time.current.iso8601(6), reason: "Verified replacement check delivery")
+      expect { post path, params: payload.to_json, headers: actor_headers }.not_to change(PayrollManualAllocationEvent, :count)
+      expect(response).to have_http_status(:ok)
+      expect(json.fetch(:manual_allocation)).to eq(acknowledgement)
+      expect(json.fetch(:integration)).to eq(integration)
+      expect(json.dig(:command, :id)).to eq(payload[:command_id])
+      expect(json.dig(:command, :replayed)).to be(true)
+      expect(allocation.reload.payment_reference).to eq("REPLACEMENT-91")
+      post path, params: payload.merge(payment_reference: "OTHER-91").to_json, headers: actor_headers
+      expect(response).to have_http_status(:conflict)
+    end
+
+    it "rejects insufficient delegation and stale issuance before recording proof" do
+      post path, params: payload.to_json, headers: headers
+      expect(response).to have_http_status(:forbidden)
+      expect(allocation.reload.status).to eq("committed")
+      post path, params: payload.merge(expected_version: payload[:expected_version] + 1).to_json, headers: settlement_headers
+      expect(response).to have_http_status(:conflict)
+      expect(allocation.reload.payroll_manual_allocation_events.where(event_type: "issued")).to be_empty
+      expect(PayrollIntegrationCommand.exists?(command_id: payload[:command_id])).to be(false)
+    end
+
+    it "retains legacy minimal replay without fabricating historical issue proof" do
+      command = Payroll::CockpitCommand.new(command_id: payload[:command_id], action: "payroll_manual_allocation.issue",
+        actor: admin, target: allocation, expected_version: payload[:expected_version], payload: payload)
+      command.call do |locked|
+        recorder.issue!(allocation: locked, **payload.slice(:payment_method, :payment_reference, :payment_effective_on, :occurred_at, :reason))
+        [ {}, :ok, { manual_allocation_id: locked.id, result_version: locked.lock_version, status: locked.status } ]
+      end
+      cancel_issued_allocation
+      post path, params: payload.to_json, headers: settlement_headers
+      expect(response).to have_http_status(:ok)
+      expect(json.fetch(:manual_allocation)).to eq(id: allocation.id.to_s, version: payload[:expected_version] + 1, status: "issued")
+      expect(json.dig(:command, :replayed)).to be(true)
+    end
+  end
 end

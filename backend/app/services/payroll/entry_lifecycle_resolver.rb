@@ -39,7 +39,7 @@ module Payroll
         .where(source_time_entry_id: entry_ids)
         .to_a
         .group_by(&:source_time_entry_id)
-      entry_events = PayrollEntryProcessingEvent
+      entry_events = PayrollEntryProcessingEvent.includes(:payroll_obligation_correction)
         .where(source_time_entry_id: entry_ids)
         .order(:occurred_at, :id)
         .to_a
@@ -60,6 +60,7 @@ module Payroll
       attestations_by_entry = PayrollPaymentAttestation.pending_evidence
         .where(time_entry_id: entry_ids)
         .index_by(&:time_entry_id)
+      resolved_reports_by_entry = PayrollPaymentAttestation.where(status: "resolved").where(time_entry_id: entry_ids).index_by(&:time_entry_id)
 
       entries.each_with_object({}) do |entry, result|
         manual = manual_by_entry.fetch(entry.id, [])
@@ -89,6 +90,12 @@ module Payroll
           payment_attested_hours: attestation && round_hours(attestation.hours),
           payment_attested_at: attestation&.attested_at&.iso8601,
           payment_attestation_source_changed: attestation&.source_changed?,
+          resolved_payment_report: resolved_reports_by_entry[entry.id]&.then do |report|
+            { id: report.id.to_s, attested_at: report.attested_at.iso8601, reason: report.reason,
+              resolved_at: report.resolved_at.iso8601, resolution_reason: report.resolution_reason,
+              manual_allocation_id: report.resolved_manual_allocation_id.to_s,
+              issued_event_id: report.resolved_issued_event_id.to_s }
+          end,
           settlements: settlements.map { |settlement| settlement.except(:event) }
         }.compact
       end

@@ -43,6 +43,7 @@ class LeaveRequest < ApplicationRecord
     return false unless status.in?(%w[pending approved])
 
     return true if new_record?
+    return true if will_save_change_to_status? && status == "approved"
     return true if will_save_change_to_user_id? || will_save_change_to_start_date? || will_save_change_to_end_date?
 
     !status_in_database.in?(%w[pending approved])

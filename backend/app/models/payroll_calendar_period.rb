@@ -7,6 +7,8 @@ class PayrollCalendarPeriod < ApplicationRecord
   SCHEMA_VERSIONS = %w[1.0 2.0].freeze
   STATUSES = %w[scheduled failed finalized].freeze
 
+  scope :overlapping, ->(start_date, end_date) { where("start_date <= ? AND end_date >= ?", end_date, start_date) }
+
   belongs_to :payroll_batch, optional: true
   has_many :payroll_calendar_period_revisions, dependent: :restrict_with_error
   has_many :payroll_outbox_events, dependent: :restrict_with_error

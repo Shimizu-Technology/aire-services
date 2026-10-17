@@ -288,7 +288,7 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
     expect(detail).to include(review_required: false)
     expect(detail[:summary][:open_case_count]).to eq(1)
     expect(historical.reload.attributes).to eq(before)
-    expect(detail[:settlement_cases].first).to include("status" => "in_payroll", "accounting_only" => true)
+    expect(detail[:settlement_cases].first).to include("status" => "in_payroll", "accounting_only" => true, "completion" => "accounting_recorded", "target_pay_date" => nil)
   end
 
   context "with retained ordinary carryover case history" do
@@ -316,6 +316,18 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
       expect(evidence[:totals]).to include(issued_hours: 4.0, needs_reconciliation_hours: 0.0, open_case_count: 1)
       expect(historical.reload.attributes).to eq(before)
       expect(evidence).to include(amount_owed: nil)
+      detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+      expect(detail[:settlement_cases].sole).to include("status" => "in_payroll", "completion" => "paid", "target_pay_date" => nil)
+    end
+
+    it "reads the named regular calendar payday separately from the recorded follow-up date" do
+      paid
+      calendar = create(:payroll_calendar_period, external_pay_period_id: "destination", start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15), pay_date: Date.new(2026, 11, 10))
+      historical.update!(destination_kind: "regular", target_payroll_calendar_period: calendar, action_due_on: Date.new(2026, 11, 5))
+      before = historical.attributes.deep_dup
+      detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+      expect(detail[:settlement_cases].sole).to include("completion" => "paid", "target_pay_date" => "2026-11-10", "action_due_on" => Date.new(2026, 11, 5), "target_external_pay_period_id" => "destination")
+      expect(historical.reload.attributes).to eq(before)
     end
 
     it "recognizes an approved version carried from the earlier pending cutoff case" do
@@ -358,8 +370,113 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
         when "instrument" then receipt(included, frozen, "payment_issued")
         end
         expect(result[:periods].first).to include(review_required: true)
+        detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+        expect(detail[:settlement_cases].sole).to include("completion" => nil)
         expect(historical.reload.status).to eq("in_payroll")
         expect(historical.resolved_at).to be_nil
+      end
+    end
+  end
+
+  context "with an issued positive OT correction from an earlier pending overtime case" do
+    let(:defect) { RSpec.current_example.metadata[:defect] }
+    let(:source) { entry(10, Date.new(2026, 9, 12)) }
+    let(:origin) { create(:payroll_batch) }
+    let(:included) { create(:payroll_batch, start_date: Date.new(2026, 10, 1), end_date: Date.new(2026, 10, 15), cutoff_at: Time.utc(2026, 10, 18)) }
+    let(:original_line) do
+      version = { "original_version_negative" => -1, "original_version_string" => "0", "original_version_missing" => nil }.fetch(defect, 0)
+      line(origin, source, 8, 0, "current", snapshot: { "version" => version })
+    end
+    let(:delta) do
+      regular, overtime = defect == "wrong_split" ? [ 2, 0 ] : [ 0, defect == "partial_delta" ? 1 : 2 ]
+      frozen_source = defect == "wrong_date" ? entry(10, source.work_date + 1) : source
+      row = line(included, frozen_source, regular, overtime, "correction", snapshot: defect == "missing_version" ? {} : { "version" => source.lock_version })
+      row
+    end
+    let(:historical) { included_case(source, origin, included, "pending_overtime", version: 0) }
+
+    before do
+      source.update_columns(lock_version: 1, overtime_status: "approved")
+      source.reload
+      original_line
+      source.update_columns(time_category_id: create(:time_category).id) if defect == "wrong_category"
+      4.times do |offset|
+        previous = entry(8, Date.new(2026, 9, 8) + offset)
+        receipt(origin, line(origin, previous, 8, 0, "current", snapshot: { "version" => previous.lock_version }),
+          "payment_issued", payment_method: "paper_check", payment_reference: "30000")
+      end
+      original_line
+      unless defect == "original_missing"
+        if defect == "original_legacy"
+          legacy_positive_receipt(origin)
+        else
+          receipt(origin, original_line, "payment_issued", payment_method: "paper_check", payment_reference: "30000")
+        end
+      end
+      if defect == "delta_legacy"
+        delta
+        legacy_positive_receipt(included)
+      else
+        receipt(included, delta, "payment_issued", payment_method: "paper_check", payment_reference: "30004")
+      end
+      historical
+    end
+
+    def legacy_positive_receipt(batch)
+      PayrollEntryProcessingEvent.create!(payroll_batch: batch, source_time_entry_id: source.id, source_user_uuid: employee.payroll_integration_uuid,
+        event_id: SecureRandom.uuid, external_system: "cornerstone_payroll", external_pay_period_id: "destination", external_payroll_item_id: "item-1",
+        status: "payment_issued", occurred_at: Time.current, payment_method: "paper_check", payment_reference: "30004")
+    end
+
+    it "recognizes original 40 REG plus issued 2 OT without closing or rewriting the retained case" do
+      before = [ source.attributes.deep_dup, historical.attributes.deep_dup, original_line.attributes.deep_dup, delta.attributes.deep_dup ]
+      Payroll::IntegrationProfile.call # Initialize installation identity before the read-only assertion.
+      writes = []
+      subscriber = ->(*args) { writes << args.last[:sql] if args.last[:sql].match?(/\A\s*(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/i) }
+      evidence = ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") { result }
+      expect(evidence[:periods].sole).to include(review_required: false)
+      expect(evidence[:totals]).to include(worked_hours: 42.0, current_regular_hours: 40.0, current_overtime_hours: 2.0,
+        issued_hours: 42.0, needs_reconciliation_hours: 0.0, open_case_count: 1)
+      expect([ source.reload.attributes, historical.reload.attributes, original_line.reload.attributes, delta.reload.attributes ]).to eq(before)
+      expect(writes).to be_empty
+      detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+      expect(detail[:settlement_cases].sole).to include("completion" => "paid", "target_pay_date" => nil, "status" => "in_payroll")
+    end
+
+    it "projects the paid positive correction as retained queue history rather than unfinished payroll" do
+      origin.payroll_batch_exclusions.create!(source_time_entry_id: source.id, source_user_id: employee.id,
+        reason: "pending_overtime", held_total_hours: 2, held_regular_hours: 0, held_overtime_hours: 2, snapshot: { "version" => 0 })
+      evidence = Payroll::CarryoverQueue.new.call
+      expect(evidence[:items].sole).to include(status: "payment_issued", completion: "paid", exclusion_reason: "pending_overtime")
+      expect(evidence[:summary]).to include(in_payroll_count: 0, unresolved_count: 0, paid_count: 1)
+      expect(historical.reload.status).to eq("in_payroll")
+    end
+
+    it "also requires exact positive coverage when the retained case originated from a post-cutoff change" do
+      historical.update!(origin_reason: "changed_after_cutoff", source_time_entry_version: 1)
+      expect(result[:periods].sole).to include(review_required: false)
+    end
+
+    %w[original_version_negative original_version_string original_version_missing original_cancelled delta_cancelled original_missing original_legacy delta_legacy foreign_system foreign_uuid stale_version future_case_version missing_version ambiguous_original ambiguous_delta wrong_category wrong_date wrong_split partial_delta pending_ot evidence_hold].each do |defect|
+      it "retains attention for #{defect} despite a nominal issued positive correction", defect: defect do
+        case defect
+        when "original_cancelled" then receipt(origin, original_line, "payment_cancelled", payment_method: "paper_check", payment_reference: "30000")
+        when "delta_cancelled" then receipt(included, delta, "payment_cancelled", payment_method: "paper_check", payment_reference: "30004")
+        when "foreign_system" then receipt(included, delta, "payment_issued", external_system: "foreign_payroll", payment_method: "paper_check", payment_reference: "30004")
+        when "foreign_uuid" then receipt(included, delta, "payment_issued", source_user_uuid: SecureRandom.uuid, payment_method: "paper_check", payment_reference: "30004")
+        when "stale_version" then source.update!(description: "Changed after issuance")
+        when "future_case_version" then historical.update!(source_time_entry_version: 2)
+        when "ambiguous_original" then line(origin, source, 1)
+        when "ambiguous_delta" then line(included, source, 1, 0, "correction", snapshot: { "version" => 1 })
+        when "pending_ot" then source.update_columns(overtime_status: "pending")
+        when "evidence_hold"
+          PayrollPaymentAttestation.create!(time_entry: source, user: employee, recorded_by: employee, source_user_uuid: employee.payroll_integration_uuid,
+            source_time_entry_version: 1, work_date: source.work_date, hours: 2, reason: "Missing original check evidence", attested_at: Time.current)
+        end
+        expect(result[:periods].sole).to include(review_required: true)
+        detail = described_class.new(user: employee).call(period_id: "2026-09-01")[:period]
+        expect(detail[:settlement_cases].sole).to include("completion" => nil)
+        expect(historical.reload.status).to eq("in_payroll")
       end
     end
   end

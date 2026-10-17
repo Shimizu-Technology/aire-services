@@ -113,7 +113,7 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     [
       "UPDATE payroll_manual_allocation_events SET reason = 'rewritten' WHERE id = #{event.id}",
       "DELETE FROM payroll_manual_allocation_events WHERE id = #{event.id}",
-      "TRUNCATE payroll_manual_allocation_events"
+      "TRUNCATE payroll_manual_allocation_events CASCADE"
     ].each do |sql|
       expect do
         ActiveRecord::Base.transaction(requires_new: true) { ActiveRecord::Base.connection.execute(sql) }

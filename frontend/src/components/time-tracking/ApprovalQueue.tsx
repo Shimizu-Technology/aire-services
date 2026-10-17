@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '../../lib/api'
 import type {
   ApprovalGroupFilter,
@@ -15,6 +14,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
+  isAdmin?: boolean
   approvalGroups: ApprovalGroupOption[]
   approvalGroupsLoaded: boolean
   initialDateFilter?:
@@ -201,7 +201,7 @@ function summaryCountForApprovalGroup(summary: PendingApprovalsSummary | null, k
   return summary?.counts_by_approval_group?.find((row) => row.key === key)?.count
 }
 
-export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ isAdmin = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -226,9 +226,10 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     }
     return { ...defaultReviewFilters }
   })
+  const [selectedEmployeeOption, setSelectedEmployeeOption] = useState<{ id: number; label: string } | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
-  const [fetchError, setFetchError] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [refreshingFilter, setRefreshingFilter] = useState(false)
@@ -258,6 +259,9 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     })
   }, [routedDateMode, routedEndDate, routedStartDate, routedThroughDate])
 
+  const rangeError = reviewFilters.dateMode === 'range' && reviewFilters.startDate && reviewFilters.endDate
+    && reviewFilters.endDate < reviewFilters.startDate ? 'End date must be on or after start date.' : null
+  const queueUnavailable = Boolean(rangeError || fetchError || refreshingFilter)
   const activeReviewFilters = hasActiveReviewFilters(reviewFilters)
 
   const syncExpandedDescriptions = useCallback((visibleEntries: TimeEntry[]) => {
@@ -273,6 +277,12 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
 
   const fetchPending = useCallback(async (filter: 'all' | ApprovalGroupFilter) => {
     const requestId = ++fetchGenerationRef.current
+    if (rangeError) {
+      setFetchError(null)
+      setLoading(false)
+      setRefreshingFilter(false)
+      return
+    }
 
     try {
       const baseParams = buildPendingApprovalParams(reviewFilters)
@@ -294,13 +304,13 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
         setAllSummary(allData.summary ?? null)
         setSummary(visibleData.summary ?? null)
         syncExpandedDescriptions(visibleEntries)
-        setFetchError(false)
+        setFetchError(null)
       } else {
-        setFetchError(true)
+        setFetchError(allResult.error || filteredResult?.error || 'Could not load pending approvals')
       }
     } catch {
       if (requestId === fetchGenerationRef.current) {
-        setFetchError(true)
+        setFetchError('Could not load pending approvals')
       }
     } finally {
       if (requestId === fetchGenerationRef.current) {
@@ -308,7 +318,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
         setRefreshingFilter(false)
       }
     }
-  }, [reviewFilters, syncExpandedDescriptions])
+  }, [reviewFilters, rangeError, syncExpandedDescriptions])
 
   useEffect(() => {
     void fetchPending(approvalGroupFilter)
@@ -359,8 +369,11 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     allEntries.forEach((entry) => {
       usersById.set(entry.user.id, { id: entry.user.id, label: entryDisplayName(entry) })
     })
+    if (selectedEmployeeOption && String(selectedEmployeeOption.id) === reviewFilters.userId && !usersById.has(selectedEmployeeOption.id)) {
+      usersById.set(selectedEmployeeOption.id, selectedEmployeeOption)
+    }
     return Array.from(usersById.values()).sort((a, b) => a.label.localeCompare(b.label))
-  }, [allEntries])
+  }, [allEntries, reviewFilters.userId, selectedEmployeeOption])
 
   const approvableEntries = useMemo(() => entries.filter((entry) => entry.time_category !== null), [entries])
   const selectedEntries = useMemo(() => approvableEntries.filter((entry) => selectedIds.has(entry.id)), [approvableEntries, selectedIds])
@@ -415,6 +428,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
   }
 
   const handleApprove = async (entry: TimeEntry, note?: string) => {
+    if (queueUnavailable) return
     setActionLoading(entry.id)
     setActionError(null)
     try {
@@ -438,6 +452,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
   }
 
   const handleDeny = async (entry: TimeEntry, note?: string) => {
+    if (queueUnavailable) return
     setActionLoading(entry.id)
     setActionError(null)
     try {
@@ -461,6 +476,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
   }
 
   const handleBulkApproveSelected = async () => {
+    if (queueUnavailable) return
     if (selectedEntries.length === 0) return
     if (selectedEntries.length > 100) {
       setActionError('Approve at most 100 entries at a time. Narrow the filters or select fewer entries.')
@@ -514,6 +530,9 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
   }
 
   const updateReviewFilters = (updates: Partial<ReviewFilters>) => {
+    if (updates.userId !== undefined) {
+      setSelectedEmployeeOption(userOptions.find((user) => String(user.id) === updates.userId) ?? null)
+    }
     setReviewFilters((previous) => ({ ...previous, ...updates }))
     setRefreshingFilter(true)
   }
@@ -558,7 +577,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     updateReviewFilters({ dateMode: 'through', throughDate: formatDateISO(today) })
   }
 
-  if (loading) {
+  if (loading && !fetchError) {
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-5 animate-pulse">
         <div className="h-5 bg-neutral-warm rounded w-36 mb-4" />
@@ -566,26 +585,6 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
           <div className="h-16 bg-neutral-warm/60 rounded-xl" />
           <div className="h-16 bg-neutral-warm/60 rounded-xl" />
         </div>
-      </div>
-    )
-  }
-
-  if (fetchError) {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-red-200 p-5">
-        <div className="flex items-center gap-2.5 mb-2">
-          <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-          </svg>
-          <h3 className="font-semibold text-red-700 text-sm">Could not load pending approvals</h3>
-        </div>
-        <p className="text-xs text-text-muted mb-3">There may be entries awaiting your review.</p>
-        <button
-          onClick={() => { setLoading(true); void fetchPending(approvalGroupFilter); }}
-          className="min-h-[44px] px-4 py-2 bg-white hover:bg-secondary border border-neutral-warm text-primary-dark text-sm font-medium rounded-xl transition-colors"
-        >
-          Retry
-        </button>
       </div>
     )
   }
@@ -612,12 +611,8 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     const missingCategory = entry.time_category === null
 
     return (
-      <motion.div
+      <div
         key={entry.id}
-        layout
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, x: -100 }}
         className={`border rounded-xl p-3.5 transition-colors ${selected ? 'border-primary bg-cyan-50/50' : 'border-neutral-warm bg-secondary/30'}`}
       >
         <div className="flex items-start gap-3">
@@ -686,14 +681,13 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
 
               <div className="text-right shrink-0">
                 <div className="text-lg font-bold text-primary-dark">{entry.hours}h</div>
-                <div className="text-[10px] text-text-muted uppercase">{entry.entry_method}</div>
+                <div className="text-[10px] text-text-muted uppercase">Total entry hours</div>
+                {isPendingOvertime && !isPendingApproval && <p className="mt-1 max-w-28 text-[10px] text-text-muted">Only the overtime portion needs review.</p>}
               </div>
             </div>
 
             {noteInput?.id === entry.id && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
+              <div
                 className="mt-3"
               >
                 <input
@@ -703,7 +697,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                   placeholder="Add a note (optional)..."
                   className="w-full px-3 py-2 text-sm border border-neutral-warm rounded-xl bg-white text-primary-dark placeholder:text-text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
-              </motion.div>
+              </div>
             )}
 
             <div className="flex items-center gap-2 mt-3">
@@ -742,7 +736,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
             </div>
           </div>
         </div>
-      </motion.div>
+      </div>
     )
   }
 
@@ -754,7 +748,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
         <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <button type="button" onClick={toggleCollapsed} className="flex min-h-[44px] items-center gap-2.5 text-left">
             <div className="w-8 h-8 bg-amber-50 border border-amber-200 rounded-full flex items-center justify-center">
-              <span className="text-amber-600 text-xs font-bold">{allSummary?.entry_count ?? allEntries.length}</span>
+              <span className="text-amber-600 text-xs font-bold">{queueUnavailable ? '—' : allSummary?.entry_count ?? allEntries.length}</span>
             </div>
             <div>
               <h3 className="font-semibold text-primary-dark text-base">Pending Approvals</h3>
@@ -769,18 +763,18 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
               <button
                 type="button"
                 onClick={toggleSelectAllVisible}
-                disabled={approvableEntries.length === 0}
+                disabled={queueUnavailable || approvableEntries.length === 0}
                 className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-primary-dark transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {allVisibleSelected ? 'Clear selection' : `Select approvable (${approvableEntries.length})`}
+                {queueUnavailable ? 'Select approvable' : allVisibleSelected ? 'Clear selection' : `Select approvable (${approvableEntries.length})`}
               </button>
               <button
                 type="button"
                 onClick={handleBulkApproveSelected}
-                disabled={bulkActionLoading || selectedEntries.length === 0 || selectedEntries.length > 100}
+                disabled={queueUnavailable || bulkActionLoading || selectedEntries.length === 0 || selectedEntries.length > 100}
                 className="min-h-[44px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {bulkActionLoading ? 'Approving…' : `Approve Selected (${selectedEntries.length})`}
+                {bulkActionLoading ? 'Approving…' : queueUnavailable ? 'Approve Selected' : `Approve Selected (${selectedEntries.length})`}
               </button>
             </div>
           )}
@@ -788,17 +782,17 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
 
         {collapsed ? (
           <div className="flex flex-wrap gap-2 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-xs text-amber-900">
-            {filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold">{option.label}: {option.count}</span>)}
+            {queueUnavailable ? <span>Pending approvals unavailable.</span> : filterOptions.map((option) => <span key={option.value} className="rounded-full bg-white px-2.5 py-1 font-semibold">{option.label}: {option.count}</span>)}
           </div>
         ) : <>
-        <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {!queueUnavailable && <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryMetric label="Filtered pending" value={`${displaySummary.entry_count}`} sublabel={`${displaySummary.total_hours.toFixed(2)}h awaiting review`} tone={displaySummary.entry_count > 0 ? 'warning' : 'success'} />
           <SummaryMetric label="Oldest" value={formatCompactDate(displaySummary.oldest_work_date)} sublabel="Default queue starts here" />
           <SummaryMetric label="Newest" value={formatCompactDate(displaySummary.newest_work_date)} sublabel="Latest pending work date" />
           <SummaryMetric label="Review types" value={`${displaySummary.pending_time_entry_count}/${displaySummary.pending_overtime_count}`} sublabel="Time entries / overtime" />
-        </div>
+        </div>}
 
-        {throughDate && (
+        {!queueUnavailable && throughDate && (
           <div className={`mb-4 rounded-2xl border px-4 py-3 text-sm ${entries.length === 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
             {entries.length === 0
               ? `No pending approvals through ${formatWorkDate(throughDate)} in this view.`
@@ -941,9 +935,17 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
           </div>
         </div>
 
+        {(rangeError || fetchError) && (
+          <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <p className="font-semibold">{rangeError || fetchError}</p>
+            <p className="mt-1">Your filters are retained. Change the dates or filters to continue.</p>
+            {!rangeError && <button type="button" disabled={refreshingFilter} onClick={() => { setRefreshingFilter(true); void fetchPending(approvalGroupFilter); }} className="mt-2 min-h-11 rounded-lg border border-red-200 px-4 py-2 disabled:opacity-50">Retry</button>}
+          </div>
+        )}
+
         <div className="-mx-1 mb-4 overflow-x-auto pb-1">
           <div className="flex min-w-max flex-nowrap gap-2 px-1">
-          {approvalGroupsLoaded ? filterOptions.map((option) => (
+        {approvalGroupsLoaded ? filterOptions.map((option) => (
             <button
               key={option.value}
               type="button"
@@ -954,7 +956,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                   : 'border-neutral-warm bg-white text-text-muted hover:border-slate-300 hover:text-primary-dark'
               }`}
             >
-              {option.label} ({option.count})
+              {queueUnavailable ? option.label : `${option.label} (${option.count})`}
             </button>
           )) : Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="h-8 w-24 animate-pulse rounded-full border border-neutral-warm bg-secondary/40" />
@@ -980,7 +982,9 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
         )}
 
         <div className={`transition-opacity ${refreshingFilter ? 'opacity-70' : 'opacity-100'}`}>
-          {entries.length === 0 ? (
+          {queueUnavailable ? (
+            <p className="py-4 text-sm text-text-muted">Pending entries are unavailable until this view loads successfully.</p>
+          ) : entries.length === 0 ? (
             <div className="rounded-xl border border-dashed border-neutral-warm bg-secondary/20 px-4 py-8 text-center text-sm text-text-muted">
               {activeReviewFilters ? 'No pending entries match these filters. If this was a date cutoff check, that range has been reviewed.' : 'No pending approvals right now.'}
             </div>
@@ -998,14 +1002,12 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
                         </span>
                         <div>
                           <h4 className="text-sm font-bold text-primary-dark">{formatWorkDate(group.date)}</h4>
-                          <p className="text-xs text-text-muted">{group.entries.length} entr{group.entries.length === 1 ? 'y' : 'ies'} · {group.totalHours.toFixed(2)}h pending</p>
+                          <p className="text-xs text-text-muted">{group.entries.length} entr{group.entries.length === 1 ? 'y' : 'ies'} · {group.totalHours.toFixed(2)}h total entry hours</p>
                         </div>
                       </button>
                     </div>
                     <div className="space-y-3">
-                      <AnimatePresence>
-                        {group.entries.map(renderEntryCard)}
-                      </AnimatePresence>
+                      {group.entries.map(renderEntryCard)}
                     </div>
                   </section>
                 )
@@ -1013,9 +1015,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
             </div>
           ) : (
             <div className="space-y-3">
-              <AnimatePresence>
-                {entries.map(renderEntryCard)}
-              </AnimatePresence>
+              {entries.map(renderEntryCard)}
             </div>
           )}
         </div>
@@ -1025,6 +1025,7 @@ export default function ApprovalQueue({ approvalGroups, approvalGroupsLoaded, in
     <EditTimeEntryModal
       isOpen={!!editingEntry}
       entry={editingEntry}
+      isAdmin={isAdmin}
       categories={editingEntry?.user.time_category_ids
         ? categories.filter((category) => editingEntry.user.time_category_ids?.includes(category.id))
         : categories}

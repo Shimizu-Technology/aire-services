@@ -29,6 +29,7 @@ interface TimeCategory {
 }
 
 interface TimeEntryItem {
+  version?: number
   id: number
   work_date: string
   start_time: string | null
@@ -144,6 +145,18 @@ function formatDate(dateString: string): string {
     weekday: 'short',
     month: 'short',
     day: 'numeric'
+  })
+}
+
+function formatRecordedDate(timestamp: string): string {
+  if (typeof timestamp !== 'string' || !isIsoDate(timestamp.slice(0, 10))) return 'Date unknown'
+  const recorded = new Date(timestamp)
+  if (!Number.isFinite(recorded.getTime())) return 'Date unknown'
+  return recorded.toLocaleDateString('en-US', {
+    timeZone: 'Pacific/Guam',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
   })
 }
 
@@ -267,6 +280,7 @@ function linkedEmployeeStatus(searchParams: URLSearchParams): ReportEmployeeStat
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
   const serialize = (employee: HoursReportEmployee, entry: HoursReportEntry): TimeEntryItem => ({
     id: entry.id,
+    version: entry.version,
     work_date: entry.work_date,
     start_time: entry.start_time,
     end_time: entry.end_time,
@@ -394,8 +408,14 @@ export default function TimeTracking() {
   const entriesPage = Math.max(1, Math.min(10000, Number.parseInt(searchParams.get('entries_page') || '1', 10) || 1))
   const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
   const entryRequest = useRef(0)
-  const [linkedEntry, setLinkedEntry] = useState<TimeEntryItem | null>(null)
-  const [linkedEntryError, setLinkedEntryError] = useState<string | null>(null)
+  const linkedEntryRequest = useRef(0)
+  const deletedLinkedEntryIds = useRef(new Set<string>())
+  const [entryRefreshRevision, setEntryRefreshRevision] = useState(0)
+  // Mutations request a fresh read in the current route, rather than retaining
+  // a load callback for the employee/date that was open when the write began.
+  const refreshEntryViews = useCallback(() => setEntryRefreshRevision(revision => revision + 1), [])
+  const [linkedEntryState, setLinkedEntryState] = useState<{ scope: string; entry: TimeEntryItem | null; loading: boolean; error: string | null } | null>(null)
+  const [linkedEntryRetry, setLinkedEntryRetry] = useState(0)
   const routedPrefill = searchParams.get('prefill')
   const routedScheduleId = searchParams.get('schedule_id') || ''
   const routedPrefillOwner = searchParams.get('user_id') || ''
@@ -407,7 +427,7 @@ export default function TimeTracking() {
     next.delete('entries_page')
     setSearchParams(next, { replace: true })
   })
-  const { userRole, isClerkEnabled } = useAuthContext()
+  const { userRole, isClerkEnabled, currentUser: authenticatedUser, isSignedIn } = useAuthContext()
   const authSaysAdmin = !isClerkEnabled || userRole === 'admin'
   const routedPeriod = linkedPayrollPeriod(searchParams)
   const routedPeriodStart = routedPeriod?.start
@@ -431,6 +451,7 @@ export default function TimeTracking() {
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [pendingApprovalSummary, setPendingApprovalSummary] = useState<PendingApprovalsSummary | null>(null)
+  const pendingSummaryRequestSequence = useRef(0)
   const [isAdmin, setIsAdmin] = useState(authSaysAdmin)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [optionsReady, setOptionsReady] = useState(false)
@@ -469,6 +490,16 @@ export default function TimeTracking() {
     approval_status: routedApprovalStatus,
     overtime_status: routedOvertimeStatus,
   }))
+  // A refresh may retain a previously authorized read only within this exact
+  // record, employee, report-period and authenticated-account scope. Keyed
+  // rendering hides the old snapshot immediately when any scope changes.
+  const linkedScopeUserId = activeTab === 'reports' ? reportFilters.user_id : routedUserId
+  const linkedScopeStart = activeTab === 'reports' ? reportFilters.start_date : routedPeriodStart
+  const linkedScopeEnd = activeTab === 'reports' ? reportFilters.end_date : routedPeriodEnd
+  const linkedEntryScope = JSON.stringify([routedEntryId, routedUserId, linkedScopeUserId, routedPeriodStart, routedPeriodEnd, linkedScopeStart, linkedScopeEnd, authenticatedUser?.id, userRole, isClerkEnabled, isSignedIn])
+  const linkedEntry = linkedEntryState?.scope === linkedEntryScope ? linkedEntryState.entry : null
+  const linkedEntryError = linkedEntryState?.scope === linkedEntryScope ? linkedEntryState.error : null
+  const linkedEntryLoading = !!routedEntryId && (linkedEntryState?.scope !== linkedEntryScope || linkedEntryState.loading)
   const lastUrlSyncedReportFilters = useRef(reportFilters)
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
@@ -537,19 +568,36 @@ export default function TimeTracking() {
   }
 
   useEffect(() => {
-    if (!routedEntryId) { setLinkedEntry(null); setLinkedEntryError(null); return }
-    let cancelled = false
-    setLinkedEntry(null)
-    setLinkedEntryError(null)
+    const request = ++linkedEntryRequest.current
+    if (!routedEntryId) { setLinkedEntryState(null); return }
+    setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: current?.scope === linkedEntryScope ? current.entry : null, loading: true, error: null }))
+    const fail = (message: string, clearEntry = false) => {
+      if (request !== linkedEntryRequest.current) return
+      setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: !clearEntry && !deletedLinkedEntryIds.current.has(routedEntryId) && current?.scope === linkedEntryScope ? current.entry : null, loading: false, error: message }))
+    }
     void api.getTimeEntry(Number(routedEntryId)).then(response => {
-      if (cancelled) return
+      if (request !== linkedEntryRequest.current) return
       const entry = response.data?.time_entry as unknown as TimeEntryItem | undefined
-      if (!entry || response.error) { setLinkedEntryError(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.'); return }
-      if (String(entry.id) !== routedEntryId || (routedUserId && String(entry.user.id) !== routedUserId)) { setLinkedEntryError('The linked entry does not match the selected employee. Return to the employee review.'); return }
-      setLinkedEntry(entry)
-    }).catch(() => { if (!cancelled) setLinkedEntryError('The linked entry could not be loaded. Refresh to retry or return to the employee review.') })
-    return () => { cancelled = true }
-  }, [routedEntryId, routedUserId])
+      if (!entry || response.error) {
+        fail(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.', [401, 403, 404].includes(response.status || 0))
+        return
+      }
+      if (deletedLinkedEntryIds.current.has(routedEntryId)) {
+        fail('The linked entry was deleted. Its retained payroll evidence remains in the employee review.', true)
+        return
+      }
+      if (!entry.user || !Number.isSafeInteger(entry.user.id) || entry.user.id <= 0 || String(entry.id) !== routedEntryId || (routedUserId && String(entry.user?.id) !== routedUserId) || (linkedScopeUserId && String(entry.user?.id) !== linkedScopeUserId)) {
+        fail('The linked entry does not match the selected employee. Return to the employee review.', true)
+        return
+      }
+      if (isIsoDate(linkedScopeStart) && isIsoDate(linkedScopeEnd) && (!isIsoDate(entry.work_date) || entry.work_date < linkedScopeStart || entry.work_date > linkedScopeEnd)) {
+        fail('The linked entry is outside the selected review period. Return to the employee review.', true)
+        return
+      }
+      setLinkedEntryState({ scope: linkedEntryScope, entry, loading: false, error: null })
+    }).catch(() => fail('The linked entry could not be loaded. Retry or return to the employee review.'))
+    return () => { linkedEntryRequest.current += 1 }
+  }, [routedEntryId, routedUserId, linkedScopeUserId, linkedScopeStart, linkedScopeEnd, linkedEntryScope, entryRefreshRevision, linkedEntryRetry])
 
   // Load time entries
   const loadEntries = useCallback(async () => {
@@ -571,8 +619,8 @@ export default function TimeTracking() {
       }
 
       // Apply filters
-      if (entryFilters.user_id) {
-        params.user_id = parseInt(entryFilters.user_id)
+      if (routedUserId) {
+        params.user_id = parseInt(routedUserId)
       }
       if (entryFilters.time_category_id) {
         params.time_category_id = parseInt(entryFilters.time_category_id)
@@ -592,7 +640,7 @@ export default function TimeTracking() {
     } finally {
       if (request === entryRequest.current) setLoading(false)
     }
-  }, [currentDate, viewMode, entryFilters, entriesPage])
+  }, [currentDate, viewMode, routedUserId, entryFilters.time_category_id, entriesPage])
 
   // Load categories and users
   const loadOptions = useCallback(async () => {
@@ -658,6 +706,7 @@ export default function TimeTracking() {
   }, [isAdmin])
 
   const loadPendingApprovalSummary = useCallback(async () => {
+    const requestSequence = ++pendingSummaryRequestSequence.current
     if (!isAdmin) {
       setPendingApprovalSummary(null)
       return
@@ -665,6 +714,7 @@ export default function TimeTracking() {
 
     try {
       const response = await api.getPendingApprovals({ page: 1, per_page: 1 })
+      if (requestSequence !== pendingSummaryRequestSequence.current) return
       if (response.data) {
         setPendingApprovalSummary(response.data.summary ?? null)
       }
@@ -813,8 +863,9 @@ export default function TimeTracking() {
   }, [activeTab, reportFilters, searchParams, setSearchParams])
 
   useEffect(() => {
-    loadEntries()
-  }, [loadEntries])
+    void loadEntries()
+    return () => { entryRequest.current += 1 }
+  }, [loadEntries, entryRefreshRevision])
 
   useEffect(() => {
     loadOptions()
@@ -832,14 +883,19 @@ export default function TimeTracking() {
     }
 
     void loadPendingApprovalSummary()
-    return startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
-  }, [isAdmin, loadPendingApprovalSummary])
+    const stopPolling = startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
+    return () => {
+      stopPolling()
+      pendingSummaryRequestSequence.current += 1
+    }
+  }, [isAdmin, loadPendingApprovalSummary, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab === 'reports') {
       loadReport()
     }
-  }, [activeTab, loadReport])
+    return () => { reportRequestSequence.current += 1 }
+  }, [activeTab, loadReport, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab !== 'reports') {
@@ -1023,8 +1079,7 @@ export default function TimeTracking() {
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
       returnToPersonDay.current = null
       setShowModal(false)
-      await loadEntries()
-      await loadPendingApprovalSummary()
+      refreshEntryViews()
     } catch {
       setError('Failed to save time entry')
     } finally {
@@ -1035,6 +1090,13 @@ export default function TimeTracking() {
   const canDeleteEntry = (entry: TimeEntryItem): boolean => {
     if (isAdmin) return true
     return currentUserId === entry.user.id
+  }
+
+  const clearDeletedLinkedEntry = (id: number | undefined) => {
+    if (id === undefined) return
+    deletedLinkedEntryIds.current.add(String(id))
+    linkedEntryRequest.current += 1
+    setLinkedEntryState(current => current?.entry && current.entry.id === id ? { ...current, entry: null } : current)
   }
 
   const handleDelete = async (entry: TimeEntryItem) => {
@@ -1056,25 +1118,23 @@ export default function TimeTracking() {
         setError(response.error)
         return
       }
+      clearDeletedLinkedEntry(entry.id)
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
       returnToPersonDay.current = null
       setShowModal(false)
       setEditingEntry(null)
-      await loadEntries()
-      await loadPendingApprovalSummary()
+      refreshEntryViews()
     } catch {
       setError('Failed to delete time entry')
     }
   }
 
-  const refreshEntriesAfterEdit = async () => {
+  const refreshEntriesAfterEdit = () => {
     reopenPersonDayAfterLoad.current = returnToPersonDay.current
     returnToPersonDay.current = null
     setShowEditModal(false)
     setEditingEntry(null)
-    await loadEntries()
-    if (activeTab === 'reports') await loadReport()
-    await loadPendingApprovalSummary()
+    refreshEntryViews()
   }
 
   // Get week dates for week view
@@ -1120,6 +1180,19 @@ export default function TimeTracking() {
   const workspacePeriod = activeTab === 'reports'
     ? { start: reportFilters.start_date, end: reportFilters.end_date }
     : routedPeriod ?? currentPayrollPeriod()
+  const reportLinkedEntryId = linkedEntry && String(linkedEntry.id) === routedEntryId
+    && (!reportFilters.user_id || String(linkedEntry.user.id) === reportFilters.user_id)
+    && isIsoDate(linkedEntry.work_date) && isIsoDate(reportFilters.start_date) && isIsoDate(reportFilters.end_date)
+    && linkedEntry.work_date >= reportFilters.start_date && linkedEntry.work_date <= reportFilters.end_date
+    ? routedEntryId : null
+  const reportPayrollHref = withPayrollPeriod('/admin/payroll', {
+    start: reportFilters.start_date,
+    end: reportFilters.end_date,
+  }, {
+    ...(/^[1-9]\d*$/.test(reportFilters.user_id) ? { user_id: reportFilters.user_id } : {}),
+    ...(reportLinkedEntryId ? { entry_id: reportLinkedEntryId } : {}),
+    ...(returnTo ? { return_to: returnTo } : {}),
+  })
 
   const selectWorkspaceSection = (section: TimeTab) => {
     setActiveTab(section)
@@ -1203,13 +1276,20 @@ export default function TimeTracking() {
         ) : undefined}
       />
 
+      {linkedEntryLoading && <p role="status" className="text-sm text-text-muted">{linkedEntry ? 'Refreshing linked time entry… Keeping the last loaded review context.' : 'Loading linked time entry…'}</p>}
+      {linkedEntryError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+        <p>{linkedEntryError}</p>
+        {linkedEntry && <p className="mt-1">The last loaded review context is retained. Details may have changed; retry to load the current record.</p>}
+        <button type="button" disabled={linkedEntryLoading} className="mt-2 min-h-11 underline disabled:opacity-40" onClick={() => setLinkedEntryRetry(revision => revision + 1)}>Retry linked entry</button>
+      </div>}
+
       {activeTab === 'entries' && (
         <>
           {/* Clock In/Out Card - full width, horizontal on desktop */}
-          <ClockInOutCard onStatusChange={() => {
-            void loadEntries()
-            void loadPendingApprovalSummary()
-          }} />
+          <ClockInOutCard
+            onStatusChange={refreshEntryViews}
+            showDisabledNotice={!isAdmin || (currentUserId !== null && routedUserId === String(currentUserId))}
+          />
 
           {isAdmin && <WhosWorking />}
         </>
@@ -1217,6 +1297,7 @@ export default function TimeTracking() {
 
       {activeTab === 'approvals' && isAdmin && (
         <ApprovalQueue
+          isAdmin={isAdmin}
           approvalGroups={approvalGroups}
           approvalGroupsLoaded={approvalGroupsLoaded}
           initialDateFilter={routedThroughDate
@@ -1224,10 +1305,7 @@ export default function TimeTracking() {
             : routedPeriod
               ? { mode: 'range', startDate: routedPeriod.start, endDate: routedPeriod.end }
               : undefined}
-          onUpdate={() => {
-            void loadEntries()
-            void loadPendingApprovalSummary()
-          }}
+          onUpdate={refreshEntryViews}
           canDeleteEntry={canDeleteEntry}
         />
       )}
@@ -1248,7 +1326,7 @@ export default function TimeTracking() {
               >
                 <option value="">All Employees</option>
                 {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
+                  <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
                 ))}
               </select>
             </div>
@@ -1461,12 +1539,11 @@ export default function TimeTracking() {
         <p>{entryMeta.summary.entry_count} entries · {Number(entryMeta.summary.total_hours).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
         {entryMeta.pagination.total_pages > 1 && <div className="flex items-center gap-3"><button type="button" disabled={loading || entriesPage <= 1} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage - 1)); setSearchParams(next) }}>Previous entries</button><span>Page {entriesPage} of {entryMeta.pagination.total_pages}</span><button type="button" disabled={loading || entriesPage >= entryMeta.pagination.total_pages} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage + 1)); setSearchParams(next) }}>Next entries</button></div>}
       </div>}
-      {linkedEntryError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">{linkedEntryError}</div>}
       {linkedEntry && <section aria-label="Linked time entry" className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-sm">
         <p className="font-semibold">Entry #{linkedEntry.id} · {formatDate(linkedEntry.work_date)} · {ownerLabel(linkedEntry)}</p>
         <p className="mt-1">{Number(linkedEntry.hours).toFixed(2)}h · {linkedEntry.time_category?.name || 'No category'} · {linkedEntry.approval_status || 'Standard approval'}</p>
         <p className="mt-1 break-words">{linkedEntry.description || 'No description recorded.'}</p>
-        <button type="button" className="mt-2 min-h-11 underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('date', linkedEntry.work_date); next.set('view', 'day'); next.delete('entries_page'); setSearchParams(next) }}>Show this work day</button>
+        <button type="button" disabled={linkedEntryLoading || !!linkedEntryError} className="mt-2 min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('date', linkedEntry.work_date); next.set('view', 'day'); next.delete('entries_page'); setSearchParams(next) }}>Show this work day</button>
       </section>}
       {/* Loading Skeleton */}
       {error ? null : loading ? (
@@ -2006,7 +2083,7 @@ export default function TimeTracking() {
               </p>
             </div>
             <Link
-              to={withPayrollPeriod('/admin/payroll', { start: reportFilters.start_date, end: reportFilters.end_date })}
+              to={reportPayrollHref}
               className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               Prepare payroll cutoff
@@ -2218,8 +2295,9 @@ export default function TimeTracking() {
                 <div>
                   <h3 id="payroll-lifecycle-summary" className="font-semibold text-primary-dark">Payroll lifecycle</h3>
                   <p className="mt-0.5 text-xs text-text-muted">Entry-level status from AIRE cutoff through Cornerstone payment.</p>
+                  <p className="mt-0.5 text-xs text-text-muted">Accounting corrections are recorded entries, not payments.</p>
                 </div>
-                <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
+                <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
 
@@ -2229,6 +2307,7 @@ export default function TimeTracking() {
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
                 <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
+                <ReportMetric label="Accounting corrections" value={String(reportSummary.payroll_statuses?.accounting_correction_committed || 0)} />
                 <ReportMetric label="Check evidence pending" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
@@ -2245,7 +2324,7 @@ export default function TimeTracking() {
           <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
             <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              <p className="mt-0.5 text-xs text-text-muted">Operational review view. Click an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
+              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
             </div>
             <div className="divide-y divide-neutral-warm sm:hidden">
               {reportLoading ? (
@@ -2320,7 +2399,21 @@ export default function TimeTracking() {
                   ) : hoursSummaryRows.map((employee) => (
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
                       <td className="px-4 py-3 text-sm font-semibold text-primary-dark">
-                        <div className="flex flex-wrap items-center gap-2"><span>{employee.full_name}</span><EmploymentStatusBadge employee={employee} /></div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            aria-label={`Review hours for ${employee.full_name}`}
+                            aria-haspopup="dialog"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedReportEmployee(employee)
+                            }}
+                            className="min-h-11 rounded-lg px-2 py-1 text-left font-semibold text-primary transition hover:bg-cyan-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                          >
+                            {employee.full_name}
+                          </button>
+                          <EmploymentStatusBadge employee={employee} />
+                        </div>
                         <div className="mt-1 text-xs font-normal text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)}–${formatDate(employee.last_work_date)}` : ''}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
@@ -2402,10 +2495,11 @@ export default function TimeTracking() {
         categories={editingEntry && isAdmin
           ? categories.filter((category) => users.find((user) => user.id === editingEntry.user.id)?.time_category_ids?.includes(category.id))
           : categories}
+        isAdmin={isAdmin}
         canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
         onClose={closeEditModal}
         onSaved={refreshEntriesAfterEdit}
-        onDeleted={refreshEntriesAfterEdit}
+        onDeleted={() => { clearDeletedLinkedEntry(editingEntry?.id); refreshEntriesAfterEdit() }}
         onError={setError}
       />
     </div>
@@ -2627,11 +2721,20 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                             {entry.payroll_lifecycle.payment_attestation_source_changed && ' The AIRE entry changed after the statement and needs review.'}
                           </p>
                         )}
+                        {entry.payroll_lifecycle?.resolved_payment_report && (
+                          <details className="mt-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-text-muted">
+                            <summary className="cursor-pointer font-medium text-primary-dark">Matched payment report</summary>
+                            <p className="mt-2">Reported {formatRecordedDate(entry.payroll_lifecycle.resolved_payment_report.attested_at)} · matched to issued evidence {formatRecordedDate(entry.payroll_lifecycle.resolved_payment_report.resolved_at)}</p>
+                            <p className="mt-1 whitespace-pre-wrap">{entry.payroll_lifecycle.resolved_payment_report.reason}</p>
+                            <p className="mt-1 whitespace-pre-wrap">{entry.payroll_lifecycle.resolved_payment_report.resolution_reason}</p>
+                            <p className="mt-1">Original report retained. Current payment status is shown above.</p>
+                          </details>
+                        )}
                         {entry.payroll_lifecycle && (entry.payroll_lifecycle.manually_paid_hours || entry.payroll_lifecycle.manually_committed_hours) ? (
                           <p className="mt-2 text-xs text-text-muted">
                             {[
                               entry.payroll_lifecycle.manually_paid_hours
-                                ? `${Number(entry.payroll_lifecycle.manually_paid_hours).toFixed(2)}h paid by issued Cornerstone check`
+                                ? `${Number(entry.payroll_lifecycle.manually_paid_hours).toFixed(2)}h paid by recorded Cornerstone payment`
                                 : null,
                               entry.payroll_lifecycle.manually_committed_hours
                                 ? `${Number(entry.payroll_lifecycle.manually_committed_hours).toFixed(2)}h committed, not yet paid`
@@ -2735,7 +2838,51 @@ function DetailedEntriesTable({
         <h3 className="font-semibold text-primary-dark">Detailed Entries</h3>
         <p className="text-xs text-text-muted mt-0.5">Grouped by employee per day — click to expand</p>
       </div>
-      <div className="overflow-x-auto">
+      <div className="divide-y divide-neutral-warm sm:hidden" role="region" aria-label="Detailed entries on mobile">
+        {loading ? <p className="px-4 py-8 text-center text-text-muted">Loading...</p>
+          : groupList.length === 0 ? <p className="px-4 py-8 text-center text-text-muted">No entries found</p>
+          : groupList.slice(0, visibleGroupCount).map(([key, group]) => {
+            const expanded = expandedKeys.has(key)
+            const multiple = group.entries.length > 1
+            const detailId = `mobile-entry-group-${key}`
+            const totalHours = group.entries.reduce((total, entry) => total + entry.hours, 0)
+            const totalBreaks = group.entries.reduce((total, entry) => total + (entry.break_minutes || 0), 0)
+            const categories = [...new Set(group.entries.map(entry => entry.time_category?.name || 'Uncategorized'))]
+            const sources = [...new Set(group.entries.map(entry => entry.clock_source || 'legacy'))]
+            return <article key={key} aria-label={`Entries for ${group.name} on ${formatDate(group.date)}`} className="min-w-0 space-y-3 p-4">
+              {multiple ? <button type="button" aria-expanded={expanded} aria-controls={detailId} aria-label={`Review ${group.entries.length} entries for ${group.name} on ${formatDate(group.date)}`} onClick={() => toggle(key)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                <span className="min-w-0"><span className="block break-words font-semibold text-primary-dark">{group.name}</span><span className="text-xs text-text-muted">{formatDate(group.date)} · {group.entries.length} entries</span></span>
+                <span className="shrink-0 text-xs font-semibold text-primary">{expanded ? 'Collapse' : 'Review'}</span>
+              </button> : <div><h4 className="break-words font-semibold text-primary-dark">{group.name}</h4><p className="text-xs text-text-muted">{formatDate(group.date)}</p></div>}
+              <dl className="grid min-w-0 grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-sm">
+                <div><dt className="text-xs text-text-muted">Recorded hours</dt><dd className="font-semibold text-primary">{totalHours.toFixed(2)}h</dd></div>
+                <div><dt className="text-xs text-text-muted">Recorded breaks</dt><dd>{totalBreaks}m</dd></div>
+                <div className="min-w-0"><dt className="text-xs text-text-muted">Categories</dt><dd className="break-words">{categories.join(', ')}</dd></div>
+                <div className="min-w-0"><dt className="text-xs text-text-muted">Sources</dt><dd className="break-words uppercase">{sources.join(', ')}</dd></div>
+              </dl>
+              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700">{status === 'standard' ? 'Standard approval' : `${status} approval`}</span>)}</div>
+              <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter(entry => entry.payroll_lifecycle).map(entry => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map(lifecycle => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
+              <div id={detailId} hidden={multiple && !expanded} className="space-y-3">
+                {group.entries.map(entry => <div key={entry.id} className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2"><p className="font-semibold text-primary-dark">{entry.hours.toFixed(2)}h</p><p className="text-xs text-text-muted">{entry.formatted_start_time && entry.formatted_end_time ? `${entry.formatted_start_time} – ${entry.formatted_end_time}` : 'Time not recorded'}</p></div>
+                  <dl className="grid min-w-0 grid-cols-2 gap-3 text-xs">
+                    <div className="min-w-0"><dt className="text-text-muted">Category</dt><dd className="break-words font-medium">{entry.time_category?.name || 'Uncategorized'}</dd></div>
+                    <div className="min-w-0"><dt className="text-text-muted">Source / method</dt><dd className="break-words uppercase">{entry.clock_source || 'legacy'}{entry.entry_method ? ` · ${entry.entry_method}` : ''}</dd></div>
+                    <div><dt className="text-text-muted">Approval</dt><dd className="capitalize">{entry.approval_status || 'Standard approval'}{entry.overtime_status && entry.overtime_status !== 'none' ? ` · OT ${entry.overtime_status}` : ''}</dd></div>
+                    <div><dt className="text-text-muted">Breaks</dt><dd>{entry.break_minutes || 0}m</dd></div>
+                  </dl>
+                  {entry.description && <p className="whitespace-pre-wrap break-words text-sm text-text-muted">{entry.description}</p>}
+                  <EntryQualityFlags flags={entry.quality_flags} />
+                  <PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} />
+                  {entry.payroll_lifecycle && (entry.payroll_lifecycle.payment_reference || entry.payroll_lifecycle.payment_effective_on || entry.payroll_lifecycle.accounting_only) && <p className="break-words text-xs text-text-muted">{entry.payroll_lifecycle.accounting_only ? ACCOUNTING_CORRECTION_NOTE : [entry.payroll_lifecycle.payment_method?.replaceAll('_', ' '), entry.payroll_lifecycle.payment_reference ? `Reference ${entry.payroll_lifecycle.payment_reference}` : null, entry.payroll_lifecycle.payment_effective_on ? `Paid ${formatDate(entry.payroll_lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')}</p>}
+                  {(entry.breaks || []).map((item, index) => <p key={index} className="break-words text-xs text-text-muted">Break {item.start_time || '—'}–{item.end_time || '—'} · {item.duration_minutes ?? '—'}m</p>)}
+                  {isAdmin && <button type="button" aria-label={`Edit time entry ${entry.id} for ${group.name}`} onClick={() => onEdit(entry)} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">Edit</button>}
+                </div>)}
+              </div>
+            </article>
+          })}
+      </div>
+      <div className="hidden overflow-x-auto sm:block">
         <table className="w-full">
           <thead className="bg-neutral-warm/50">
             <tr>
@@ -2844,6 +2991,7 @@ function DetailedEntriesTable({
             )}
           </tbody>
         </table>
+      </div>
         {groupList.length > visibleGroupCount && (
           <div className="border-t border-neutral-warm px-4 py-4 text-center">
             <button type="button" onClick={() => setVisibleGroupCount((count) => Math.min(count + 100, groupList.length))} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-cyan-50">
@@ -2852,7 +3000,6 @@ function DetailedEntriesTable({
             <div className="mt-2 text-xs text-text-muted">Showing {visibleGroupCount} of {groupList.length}</div>
           </div>
         )}
-      </div>
     </div>
   )
 }

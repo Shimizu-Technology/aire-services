@@ -45,7 +45,7 @@ module Payroll
         filters: serialized_filters,
         ready: report_ready?(period_issues),
         quality: report_quality(employees),
-        summary: summary(employees, control_period_entries),
+        summary: summary(employees, control_period_entries).merge(exclusion_summary(control_period_entries, report_entries)),
         breakdowns: breakdowns,
         employees: employees
       }
@@ -260,6 +260,7 @@ module Payroll
     def serialize_entry(entry, allocation)
       {
         id: entry.id,
+        version: entry.lock_version,
         work_date: entry.work_date.iso8601,
         start_time: entry.start_time&.in_time_zone(BUSINESS_TIMEZONE)&.strftime("%H:%M"),
         end_time: entry.end_time&.in_time_zone(BUSINESS_TIMEZONE)&.strftime("%H:%M"),
@@ -377,6 +378,16 @@ module Payroll
       end_seconds += 1.day.to_i if end_seconds <= start_seconds
       day_seconds = entry.work_date.jd * 1.day.to_i
       [ day_seconds + start_seconds, day_seconds + end_seconds ]
+    end
+
+    def exclusion_summary(period_entries, report_entries)
+      included_ids = report_entries.select { |entry| countable?(entry) }.map(&:id).to_set
+      excluded = period_entries.reject { |entry| included_ids.include?(entry.id) }
+      {
+        period_entries_count: period_entries.size,
+        excluded_entries_count: excluded.size,
+        excluded_issues: issues_for(excluded)
+      }
     end
 
     def summary(employees, period_entries)

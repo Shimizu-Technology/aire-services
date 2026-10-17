@@ -9,6 +9,7 @@ interface ApiResponse<T> {
   status?: number;
   code?: string;
   export_references?: string[];
+  approved_leave?: ApprovedLeaveAvailability[];
 }
 
 let getAuthToken: (() => Promise<string | null>) | null = null;
@@ -93,6 +94,7 @@ async function fetchApi<T>(
         status: response.status,
         code: data.code,
         export_references: data.export_references,
+        approved_leave: data.approved_leave,
       };
     }
 
@@ -498,6 +500,7 @@ export interface ApprovalReason {
 }
 
 export interface TimeEntry {
+  version?: number;
   id: number;
   work_date: string;
   start_time: string | null;
@@ -801,6 +804,7 @@ export interface PendingApprovalsResponse {
 
 export interface HoursReportEntry {
   id: number;
+  version?: number;
   work_date: string;
   start_time: string | null;
   end_time: string | null;
@@ -840,6 +844,8 @@ export type PayrollEntryLifecycleStatus =
   | 'partially_processed'
   | 'partially_allocated'
   | 'payment_attested_pending_evidence';
+
+export type HoursReportPayrollStatuses = Partial<Record<PayrollEntryLifecycleStatus | 'accounting_correction_committed', number>>;
 
 export interface AccountingCorrectionContext {
   accounting_only: true;
@@ -915,6 +921,15 @@ export interface PayrollEntryLifecycle {
   payment_attested_hours?: number;
   payment_attested_at?: string;
   payment_attestation_source_changed?: boolean;
+  resolved_payment_report?: {
+    id: string;
+    attested_at: string;
+    reason: string;
+    resolved_at: string;
+    resolution_reason: string;
+    manual_allocation_id: string;
+    issued_event_id: string;
+  };
   settlements: PayrollEntrySettlement[];
 }
 
@@ -994,7 +1009,7 @@ export interface HoursReportEmployee {
     uncategorized_count: number;
   };
   quality: HoursReportQuality;
-  payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
+  payroll_statuses?: HoursReportPayrollStatuses;
   days: HoursReportDay[];
   excluded_entries?: HoursReportEntry[];
   categories: HoursReportCategory[];
@@ -1037,7 +1052,7 @@ export interface HoursReportResponse {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
-    payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
+    payroll_statuses?: HoursReportPayrollStatuses;
   };
   breakdowns: {
     by_category: HoursReportCategory[];
@@ -1198,6 +1213,15 @@ export interface PayrollBatchPayload {
   preview?: boolean;
   can_finalize?: boolean;
   requires_negative_adjustment_acknowledgement?: boolean;
+  finalization_blocked_reason?: string | null;
+  published_calendar_periods?: Array<{
+    external_pay_period_id: string;
+    start_date: string;
+    end_date: string;
+    cutoff_at: string;
+    status: 'scheduled' | 'failed' | 'finalized';
+    payroll_batch_id?: string | null;
+  }>;
   negative_adjustment_acknowledgement?: string;
   export?: {
     id: string;
@@ -1254,6 +1278,20 @@ export interface ManualPayrollProcessingInput {
 }
 
 export interface PayrollCarryoverItem {
+  settlement_case?: {
+    id: string;
+    status: string;
+    destination_kind: string;
+    resolution_note?: string | null;
+    decision?: {
+      event_id: string;
+      event_type: string;
+      occurred_at: string;
+      reason?: string;
+      actor?: { name: string; payroll_integration_id?: string };
+    };
+  } | null;
+  completion?: 'paid' | 'accounting_recorded' | null;
   source_time_entry_id: string;
   source_user_id: string;
   source_user_uuid?: string | null;
@@ -1284,6 +1322,9 @@ export interface PayrollCarryoverQueue {
     needs_review_count?: number;
     in_payroll_count: number;
     not_payable_count: number;
+    unresolved_count?: number;
+    paid_count?: number;
+    accounting_recorded_count?: number;
   };
   truncated: boolean;
 }
@@ -1312,6 +1353,7 @@ export interface PayrollAccountLink {
 // Schedule Types
 
 export interface Schedule {
+  approved_leave_conflict?: boolean;
   id: number;
   user_id: number;
   user: {
@@ -1336,7 +1378,15 @@ export interface Schedule {
   updated_at: string;
 }
 
+export interface ApprovedLeaveAvailability {
+  id: number;
+  user_id: number;
+  start_date: string;
+  end_date: string;
+}
+
 export interface SchedulesResponse {
+  approved_leave: ApprovedLeaveAvailability[];
   schedules: Schedule[];
   users: Array<{
     id: number;
@@ -1598,6 +1648,9 @@ export const api = {
     }),
 
   updateTimeEntry: (id: number, data: Partial<{
+    review_action: 'end_clock' | 'resubmit_denied';
+    expected_version: number;
+    stop_date: string;
     work_date: string;
     start_time: string;
     end_time: string;
@@ -1926,6 +1979,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes?: string;
+    acknowledge_leave_conflict?: boolean;
+    leave_conflict_reason?: string;
+    acknowledged_leave_ids?: number[];
   }) =>
     fetchApi<{ schedule: Schedule }>('/api/v1/schedules', {
       method: 'POST',
@@ -1938,6 +1994,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes?: string;
+    acknowledge_leave_conflict?: boolean;
+    leave_conflict_reason?: string;
+    acknowledged_leave_ids?: number[];
   }>) =>
     fetchApi<{ schedules: Schedule[] }>('/api/v1/schedules/bulk_create', {
       method: 'POST',
@@ -1950,6 +2009,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes: string;
+    acknowledge_leave_conflict: boolean;
+    leave_conflict_reason: string;
+    acknowledged_leave_ids: number[];
   }>) =>
     fetchApi<{ schedule: Schedule }>(`/api/v1/schedules/${id}`, {
       method: 'PATCH',

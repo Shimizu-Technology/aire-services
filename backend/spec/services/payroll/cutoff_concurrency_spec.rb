@@ -12,6 +12,7 @@ RSpec.describe "Payroll cutoff concurrency" do
     connection = ActiveRecord::Base.connection
     connection.execute("ALTER TABLE payroll_settlement_case_events DISABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
     begin
+      connection.execute("ALTER TABLE payroll_obligation_corrections DISABLE TRIGGER payroll_obligation_corrections_prevent_truncate")
       connection.execute(<<~SQL)
         TRUNCATE TABLE
           payroll_settlement_case_events,
@@ -28,8 +29,145 @@ RSpec.describe "Payroll cutoff concurrency" do
         RESTART IDENTITY CASCADE
       SQL
     ensure
-      connection.execute("ALTER TABLE payroll_settlement_case_events ENABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
+      begin
+        connection.execute("ALTER TABLE payroll_obligation_corrections ENABLE TRIGGER payroll_obligation_corrections_prevent_truncate")
+      ensure
+        connection.execute("ALTER TABLE payroll_settlement_case_events ENABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
+      end
     end
+  end
+
+  def publication_attributes(cutoff: 1.day.from_now)
+    {
+      external_pay_period_id: "publication-finalization-race", start_date: "2026-10-01", end_date: "2026-10-15",
+      pay_date: cutoff.in_time_zone("Pacific/Guam").to_date + 7.days, cutoff_at: cutoff.iso8601(6),
+      time_zone: "Pacific/Guam", cutoff_days_before: 7, schedule_version: 1, publication_id: SecureRandom.uuid
+    }
+  end
+
+  def queue_pop(queue)
+    Timeout.timeout(10) { queue.pop }
+  end
+
+  def database_worker(pids, &work)
+    Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do |connection|
+        pids << connection.select_value("SELECT pg_backend_pid()").to_i
+        work.call
+      rescue StandardError => e
+        e
+      end
+    end
+  end
+
+  def wait_for_blocker(waiter_pid, blocker_pid)
+    Timeout.timeout(5) do
+      loop do
+        blocked = ActiveRecord::Base.connection.select_value(
+          "SELECT #{blocker_pid} = ANY(pg_blocking_pids(#{waiter_pid}))"
+        )
+        break if blocked
+        Thread.pass
+      end
+    end
+  end
+
+  it "makes a manual finalizer wait for publication, then rejects the competing batch" do
+    attributes = publication_attributes
+    entered = Queue.new
+    release = Queue.new
+    publisher_pids = Queue.new
+    finalizer_pids = Queue.new
+    publisher_service = Payroll::CalendarPeriodPublisher.new(attributes)
+    allow(publisher_service).to receive(:record_revision!).and_wrap_original do |original, period|
+      entered << true
+      queue_pop(release)
+      original.call(period)
+    end
+    publisher = database_worker(publisher_pids) { publisher_service.call }
+    publisher_pid = queue_pop(publisher_pids)
+    queue_pop(entered)
+    finalizer = database_worker(finalizer_pids) do
+      Payroll::BatchFinalizer.new(start_date: attributes[:start_date], end_date: attributes[:end_date], actor: nil).call
+    end
+    wait_for_blocker(queue_pop(finalizer_pids), publisher_pid)
+    release << true
+    expect(publisher.value).to be_a(Payroll::CalendarPeriodPublisher::Result)
+    expect(finalizer.value).to be_a(Payroll::BatchFinalizer::FinalizationError)
+    expect(PayrollCalendarPeriod.count).to eq(1)
+    expect(PayrollBatch.count).to eq(0)
+    expect(PayrollOutboxEvent.count).to eq(0)
+  ensure
+    release << true if defined?(release)
+    publisher&.join
+    finalizer&.join
+  end
+
+  it "makes publication wait for a manual finalizer, then rejects the frozen conflict" do
+    attributes = publication_attributes
+    entered = Queue.new
+    release = Queue.new
+    publisher_pids = Queue.new
+    finalizer_pids = Queue.new
+    service = Payroll::BatchFinalizer.new(start_date: attributes[:start_date], end_date: attributes[:end_date], actor: nil)
+    allow(service).to receive(:lock_source_ledger!).and_wrap_original do |original|
+      original.call
+      entered << true
+      queue_pop(release)
+    end
+    finalizer = database_worker(finalizer_pids) { service.call }
+    finalizer_pid = queue_pop(finalizer_pids)
+    queue_pop(entered)
+    publisher = database_worker(publisher_pids) { Payroll::CalendarPeriodPublisher.new(attributes).call }
+    wait_for_blocker(queue_pop(publisher_pids), finalizer_pid)
+    release << true
+    expect(finalizer.value).to be_a(PayrollBatch)
+    expect(publisher.value).to be_a(Payroll::CalendarPeriodPublisher::ConflictError)
+    expect(PayrollCalendarPeriod.count).to eq(0)
+    expect(PayrollCalendarPeriodRevision.count).to eq(0)
+    expect(PayrollBatch.count).to eq(1)
+    expect(PayrollOutboxEvent.count).to eq(0)
+  ensure
+    release << true if defined?(release)
+    publisher&.join
+    finalizer&.join
+  end
+
+  it "does not invert publisher and scheduled-finalizer locks while a period row is held" do
+    cutoff = 1.minute.ago
+    attributes = publication_attributes(cutoff: cutoff)
+    period = create(:payroll_calendar_period, attributes.except(:schema_version).merge(
+      cutoff_at: cutoff, next_finalization_attempt_at: cutoff, request_checksum: "a" * 64))
+    release = Queue.new
+    locker_pids = Queue.new
+    cutoff_pids = Queue.new
+    publisher_pids = Queue.new
+    locker = database_worker(locker_pids) do
+      ActiveRecord::Base.transaction do
+        ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{Payroll::BatchFinalizer::ADVISORY_LOCK_KEY})")
+        queue_pop(release)
+      end
+    end
+    locker_pid = queue_pop(locker_pids)
+    finalizer = database_worker(cutoff_pids) { Payroll::ScheduledCutoffFinalizer.new(period_id: period.id).call }
+    finalizer_pid = queue_pop(cutoff_pids)
+    wait_for_blocker(finalizer_pid, locker_pid)
+    revised = attributes.merge(schedule_version: 2, publication_id: SecureRandom.uuid)
+    publisher = database_worker(publisher_pids) do
+      Payroll::CalendarPeriodPublisher.new(revised, now: cutoff - 1.hour).call
+    end
+    wait_for_blocker(queue_pop(publisher_pids), finalizer_pid)
+    release << true
+    expect(finalizer.value).to include(status: "finalized")
+    expect(publisher.value).to be_a(Payroll::CalendarPeriodPublisher::ConflictError)
+    expect(period.reload.status).to eq("finalized")
+    expect(PayrollBatch.count).to eq(1)
+    expect(PayrollOutboxEvent.count).to eq(1)
+  ensure
+    release << true if defined?(release)
+    locker&.join
+    finalizer&.join
+    publisher&.join
   end
 
   it "turns concurrent publication retries into one retained revision" do
@@ -51,13 +189,13 @@ RSpec.describe "Payroll cutoff concurrency" do
       Thread.new do
         ActiveRecord::Base.connection_pool.with_connection do
           ready << true
-          start.pop
+          queue_pop(start)
           Payroll::CalendarPeriodPublisher.new(attributes, now: now).call
         end
       end
     end
 
-    2.times { ready.pop }
+    2.times { queue_pop(ready) }
     2.times { start << true }
     results = workers.map(&:value)
 
@@ -88,12 +226,12 @@ RSpec.describe "Payroll cutoff concurrency" do
       ActiveRecord::Base.connection_pool.with_connection do |connection|
         connection.execute("SELECT pg_advisory_lock(#{Payroll::CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
         lock_ready << true
-        release_lock.pop
+        queue_pop(release_lock)
         connection.execute("SELECT pg_advisory_unlock(#{Payroll::CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
       end
     end
 
-    lock_ready.pop
+    queue_pop(lock_ready)
     travel_to(cutoff - 1.second)
     publisher = Thread.new do
       ActiveRecord::Base.connection_pool.with_connection do
@@ -120,7 +258,7 @@ RSpec.describe "Payroll cutoff concurrency" do
     travel_to(cutoff)
     release_lock << true
     lock_released = true
-    result = outcome.pop
+    result = queue_pop(outcome)
 
     expect(result).to be_a(ArgumentError)
     expect(result.message).to include("cutoff_at must be in the future when published")
@@ -143,11 +281,11 @@ RSpec.describe "Payroll cutoff concurrency" do
         connection.transaction do
           connection.execute("SELECT pg_advisory_xact_lock(#{Payroll::BatchFinalizer::ADVISORY_LOCK_KEY})")
           lock_ready << true
-          release_lock.pop
+          queue_pop(release_lock)
         end
       end
     end
-    lock_ready.pop
+    queue_pop(lock_ready)
     worker = Thread.new do
       ActiveRecord::Base.connection_pool.with_connection do
         Payroll::CockpitCommand.new(command_id: SecureRandom.uuid, action: "payroll_manual_allocation.commit",
@@ -172,7 +310,7 @@ RSpec.describe "Payroll cutoff concurrency" do
     release_lock << true
     locker.join
     expect(worker.value.status).to eq(201)
-    expect(entered.pop).to eq(true)
+    expect(queue_pop(entered)).to eq(true)
   ensure
     release_lock << true if defined?(release_lock)
     worker&.join
@@ -209,13 +347,13 @@ RSpec.describe "Payroll cutoff concurrency" do
       Thread.new do
         ActiveRecord::Base.connection_pool.with_connection do
           ready << true
-          start.pop
+          queue_pop(start)
           Payroll::ScheduledCutoffFinalizer.new(period_id: period.id).call
         end
       end
     end
 
-    2.times { ready.pop }
+    2.times { queue_pop(ready) }
     2.times { start << true }
     results = workers.map(&:value)
 

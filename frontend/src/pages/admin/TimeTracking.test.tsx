@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TimeTracking from './TimeTracking'
-import type { HoursReportResponse } from '../../lib/api'
+import type { HoursReportEntry, HoursReportResponse } from '../../lib/api'
 
 const apiMock = vi.hoisted(() => ({
   getSchedule: vi.fn(),
@@ -16,6 +17,7 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   getPendingApprovals: vi.fn(),
   getHoursReport: vi.fn(),
+  updateTimeEntry: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({ api: apiMock }))
@@ -34,6 +36,9 @@ function TimeRouteHarness() {
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&status=terminated')}>Open terminated report</button>
       <button type="button" onClick={() => navigate('/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=7&approval_group=maintenance&role=employee&clock_source=kiosk&entry_method=clock')}>Open filtered report</button>
       <button type="button" onClick={() => navigate(location.pathname + location.search + '&context=changed')}>Change unrelated context</button>
+      <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.set('entry_id', '91'); navigate(location.pathname + '?' + next) }}>Open next linked entry</button>
+      <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.set('user_id', '8'); navigate(location.pathname + '?' + next) }}>Change linked employee</button>
+      <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.delete('tab'); navigate(location.pathname + '?' + next) }}>Open linked entry view</button>
       <output data-testid="location-search">{location.search}</output>
       <TimeTracking />
     </>
@@ -69,9 +74,53 @@ function makeHoursReport(startDate: string, endDate: string, totalHours: number)
   }
 }
 
+function linkedFixture(id = 90) {
+  return {
+    id, version: 7, work_date: '2026-08-20', start_time: '08:00', end_time: '12:00',
+    formatted_start_time: '8:00 AM', formatted_end_time: '12:00 PM', hours: 4, total_hours: 4,
+    regular_hours: 4, overtime_hours: 0, break_minutes: 0, description: `Loaded entry ${id}`,
+    entry_method: 'clock', clock_source: 'kiosk', status: 'completed', approval_status: 'approved',
+    approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 3, name: 'Operations' },
+    user: { id: 7, full_name: 'Casey Employee' }, breaks: [], quality_flags: [],
+  }
+}
+
+function prepareLinkedReport() {
+  const entry = linkedFixture()
+  const report = makeHoursReport('2026-08-16', '2026-08-31', 4)
+  report.employees = [{
+    id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee', full_name: 'Casey Employee',
+    role: 'employee', is_intern: false, status: 'active', terminated_at: null, termination_effective_on: null,
+    total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries_count: 1, days_worked: 1,
+    first_work_date: entry.work_date, last_work_date: entry.work_date, ready: true,
+    quality: report.quality, issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
+    categories: [], weeks: [], days: [{ work_date: entry.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries: [{ ...entry, quality_flags: [] }] }],
+  }]
+  apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: entry } })
+  apiMock.getHoursReport.mockResolvedValue({ data: report })
+  apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+  apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey Employee', time_category_ids: [3] }] } })
+  apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: { ...entry, description: 'Saved change' } } })
+  const query = new URLSearchParams({ tab: 'reports', start_date: report.start_date, end_date: report.end_date, user_id: '7', entry_id: '90', return_to: '/admin/users/7?tab=hours&period=2026-08-16' })
+  render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
+}
+
+async function saveLinkedReportEdit() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+  const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+  fireEvent.change(within(dialog).getByLabelText('Description'), { target: { value: 'Saved change' } })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Update' }))
+  await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledTimes(1))
+}
+
+function cutoffEntryId() {
+  return new URL(screen.getByRole('link', { name: 'Open payroll cutoffs' }).getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')
+}
+
 describe('TimeTracking routed report periods', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiMock.getTimeEntry.mockReset().mockResolvedValue({ error: 'No linked fixture', status: 404 })
     apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [] } })
     apiMock.getUsers.mockResolvedValue({ data: { users: [] } })
@@ -168,6 +217,80 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.getByText('Original evidence')).toBeInTheDocument()
   })
 
+  it.each(['network', 'server'])('retains the same linked context after an edit refresh %s failure and retries only the read', async (failure) => {
+    prepareLinkedReport()
+    await waitFor(() => expect(cutoffEntryId()).toBe('90'))
+    let finish!: (value: unknown) => void
+    let reject!: (reason: Error) => void
+    apiMock.getTimeEntry.mockImplementationOnce(() => new Promise((resolve, rejectPromise) => { finish = resolve; reject = rejectPromise }))
+    await saveLinkedReportEdit()
+    expect(await screen.findByText(/Refreshing linked time entry/)).toBeInTheDocument()
+    expect(cutoffEntryId()).toBe('90')
+    await act(async () => { if (failure === 'network') reject(new Error('Network unavailable')); else finish({ error: 'Read temporarily unavailable', status: 500 }) })
+    expect(screen.getByRole('alert')).toHaveTextContent('The last loaded review context is retained')
+    expect(cutoffEntryId()).toBe('90')
+    expect(screen.getByRole('link', { name: 'Back to employee review' })).toHaveAttribute('href', '/admin/users/7?tab=hours&period=2026-08-16')
+    fireEvent.click(screen.getByRole('button', { name: 'Open linked entry view' }))
+    const retained = await screen.findByRole('region', { name: 'Linked time entry' })
+    expect(retained).toHaveTextContent('Loaded entry 90')
+    expect(within(retained).getByRole('button', { name: 'Show this work day' })).toBeDisabled()
+    const restored = { ...linkedFixture(), description: 'Current saved record', hours: 5 }
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: restored } })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry linked entry' }))
+    await waitFor(() => expect(retained).toHaveTextContent('Current saved record'))
+    expect(retained).toHaveTextContent('5.00h')
+    expect(within(retained).getByRole('button', { name: 'Show this work day' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(apiMock.getTimeEntry).toHaveBeenCalledTimes(3)
+    expect(apiMock.updateTimeEntry).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('location-search')).toHaveTextContent('entry_id=90')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('return_to=')
+  })
+
+  it('drops prior context on an entry change and ignores its later refresh response', async () => {
+    prepareLinkedReport()
+    await waitFor(() => expect(cutoffEntryId()).toBe('90'))
+    let finishOld!: (value: unknown) => void
+    apiMock.getTimeEntry.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }))
+    await saveLinkedReportEdit()
+    await screen.findByText(/Refreshing linked time entry/)
+    let finishNew!: (value: unknown) => void
+    apiMock.getTimeEntry.mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open next linked entry' }))
+    expect(cutoffEntryId()).toBeNull()
+    await screen.findByText('Loading linked time entry…')
+    await act(async () => { finishNew({ data: { time_entry: linkedFixture(91) } }) })
+    await waitFor(() => expect(cutoffEntryId()).toBe('91'))
+    await act(async () => { finishOld({ data: { time_entry: { ...linkedFixture(), description: 'Stale response' } } }) })
+    expect(cutoffEntryId()).toBe('91')
+    fireEvent.click(screen.getByRole('button', { name: 'Open linked entry view' }))
+    expect(await screen.findByRole('region', { name: 'Linked time entry' })).toHaveTextContent('Loaded entry 91')
+    expect(screen.queryByText('Stale response')).not.toBeInTheDocument()
+  })
+
+  it('clears prior entry content when the employee scope changes even before its read completes', async () => {
+    prepareLinkedReport()
+    await waitFor(() => expect(cutoffEntryId()).toBe('90'))
+    apiMock.getTimeEntry.mockReturnValue(new Promise(() => {}))
+    fireEvent.click(screen.getByRole('button', { name: 'Change linked employee' }))
+    expect(cutoffEntryId()).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open linked entry view' }))
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show this work day' })).not.toBeInTheDocument()
+  })
+
+  it.each([401, 403, 404])('clears previously loaded linked data on an authoritative %s refresh denial', async (status) => {
+    prepareLinkedReport()
+    await waitFor(() => expect(cutoffEntryId()).toBe('90'))
+    apiMock.getTimeEntry.mockResolvedValue({ error: 'Linked entry unavailable to this account', status })
+    await saveLinkedReportEdit()
+    await screen.findByText('Linked entry unavailable to this account')
+    expect(cutoffEntryId()).toBeNull()
+    expect(screen.queryByText(/last loaded review context is retained/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open linked entry view' }))
+    expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
+  })
+
   it('refuses an exact entry owned by a different employee', async () => {
     apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2026-08-20', hours: 8, user: { id: 99 }, description: 'Foreign evidence' } } })
     render(<MemoryRouter initialEntries={['/admin/time?user_id=7&entry_id=90&date=2026-08-20&view=day']}><TimeRouteHarness /></MemoryRouter>)
@@ -183,6 +306,40 @@ describe('TimeTracking routed report periods', () => {
     await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ page: 2, per_page: 100, user_id: 7 })))
     expect(screen.getByTestId('location-search')).toHaveTextContent('entries_page=2')
     expect(screen.getByTestId('location-search')).toHaveTextContent('date=2026-08-20')
+  })
+
+  it.each(['included', 'excluded'])('resubmits an %s report row using its current nonzero version', async (location) => {
+    const report = makeHoursReport('2026-08-01', '2026-08-15', 0)
+    const row: HoursReportEntry = {
+      id: 90, version: 7, work_date: '2026-08-05', start_time: '08:00', end_time: '12:00',
+      formatted_start_time: '8:00 AM', formatted_end_time: '12:00 PM', total_hours: 4, regular_hours: 0,
+      overtime_hours: 0, break_minutes: 0, description: 'Denied source facts', entry_method: 'manual',
+      clock_source: null, approval_status: 'denied', approved_by: null, approved_at: null,
+      overtime_status: 'none', time_category: { id: 3, name: 'Operations' }, breaks: [], quality_flags: [],
+    }
+    report.employees = [{
+      id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
+      full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
+      termination_effective_on: null, total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0,
+      entries_count: 1, days_worked: 1, first_work_date: row.work_date, last_work_date: row.work_date, ready: true,
+      issues: { pending_count: 0, denied_count: 1, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
+      quality: report.quality, categories: [], weeks: [],
+      days: location === 'included' ? [{ work_date: row.work_date, total_hours: 4, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries: [row] }] : [],
+      excluded_entries: location === 'excluded' ? [row] : [],
+    }]
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+    apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+    apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: {} } })
+    render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}><TimeRouteHarness /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Submit denied time for review' }))
+    expect(within(dialog).getByLabelText('End Time *')).toHaveValue('12:00')
+    expect(within(dialog).getByLabelText('End Time *')).toBeDisabled()
+    fireEvent.change(within(dialog).getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Submit for review' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(90,
+      { review_action: 'resubmit_denied', expected_version: 7 }, 'Request separate review'))
   })
 
   it('synchronizes report requests when same-route payroll dates change', async () => {
@@ -203,6 +360,46 @@ describe('TimeTracking routed report periods', () => {
       start_date: '2026-07-01',
       end_date: '2026-07-15',
     })))
+  })
+
+  it.each(['Prepare payroll cutoff', 'Open payroll cutoffs'])('keeps the selected report and employee context through %s', async (name) => {
+    apiMock.getHoursReport.mockResolvedValue({ data: makeHoursReport('2028-02-16', '2028-02-29', 0) })
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2028-02-20', hours: 8, user: { id: 7 }, approval_status: 'approved' } } })
+    const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
+    const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
+
+    const link = await screen.findByRole('link', { name })
+    await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
+    const href = new URL(link.getAttribute('href')!, 'https://local.invalid')
+    expect(href.pathname).toBe('/admin/payroll')
+    expect(Object.fromEntries(href.searchParams)).toEqual({ start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    fireEvent.click(link)
+    expect(screen.getByTestId('location-search')).toHaveTextContent(href.search)
+  })
+
+  it.each(['employee', 'period'])('drops the old linked entry when the selected report %s changes', async (scope) => {
+    apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey' }, { id: 8, display_name: 'Alex' }] } })
+    apiMock.getHoursReport.mockResolvedValue({ data: makeHoursReport('2028-02-16', '2028-02-29', 0) })
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: { id: 90, work_date: '2028-02-20', hours: 8, user: { id: 7 }, approval_status: 'approved' } } })
+    const returnTo = '/admin/users/7?tab=hours&period=2028-02-16'
+    const query = new URLSearchParams({ tab: 'reports', start_date: '2028-02-16', end_date: '2028-02-29', user_id: '7', entry_id: '90', return_to: returnTo })
+    render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
+    const link = await screen.findByRole('link', { name: 'Open payroll cutoffs' })
+    await waitFor(() => expect(new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams.get('entry_id')).toBe('90'))
+
+    if (scope === 'employee') {
+      await act(async () => { fireEvent.change(screen.getByRole('option', { name: 'Alex' }).parentElement!, { target: { value: '8' } }) })
+    } else {
+      await act(async () => { fireEvent.change(screen.getByDisplayValue('2028-02-29'), { target: { value: '2028-03-15' } }) })
+      await act(async () => { fireEvent.change(screen.getByDisplayValue('2028-02-16'), { target: { value: '2028-03-01' } }) })
+    }
+    const updated = new URL(link.getAttribute('href')!, 'https://local.invalid').searchParams
+    expect(updated.has('entry_id')).toBe(false)
+    expect(updated.get('return_to')).toBe(returnTo)
+    expect(updated.get('user_id')).toBe(scope === 'employee' ? '8' : '7')
+    expect(updated.get('start_date')).toBe(scope === 'employee' ? '2028-02-16' : '2028-03-01')
+    expect(updated.get('end_date')).toBe(scope === 'employee' ? '2028-02-29' : '2028-03-15')
   })
 
   it('defaults historical reports to every employment status and provides quick periods', async () => {
@@ -444,7 +641,102 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.getByText('Paid').parentElement).toHaveTextContent('0')
   })
 
-  it('keeps payroll status and exact hours visible in the mobile employee summary', async () => {
+  it('expands mobile entry cards and returns from Edit without losing the report context', async () => {
+    const report = makeHoursReport('2026-08-01', '2026-08-15', 4)
+    const first: HoursReportEntry = {
+      id: 90, version: 7, work_date: '2026-08-05', start_time: '08:00', end_time: '12:00',
+      formatted_start_time: '8:00 AM', formatted_end_time: '12:00 PM', total_hours: 4, regular_hours: 4,
+      overtime_hours: 0, break_minutes: 15, description: 'Recorded work shift', entry_method: 'clock', clock_source: 'kiosk',
+      approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none',
+      time_category: { id: 3, name: 'Operations' }, breaks: [{ id: 1, start_time: '10:00', end_time: '10:15', duration_minutes: 15 }], quality_flags: [],
+      payroll_lifecycle: { status: 'ready_for_cutoff', label: 'Ready for cutoff', payment_method: null, payment_reference: null, settlements: [] },
+    }
+    const pending: HoursReportEntry = { ...first, id: 91, start_time: '14:00', end_time: '16:00', formatted_start_time: '2:00 PM', formatted_end_time: '4:00 PM', total_hours: 2, regular_hours: 0, break_minutes: 0, description: 'Pending additional work', entry_method: 'manual', clock_source: 'admin', approval_status: 'pending', overtime_status: 'pending', breaks: [], payroll_lifecycle: { status: 'awaiting_approval', label: 'Awaiting approval', payment_method: null, payment_reference: null, settlements: [] } }
+    report.summary = { ...report.summary, employee_count: 1, entries_count: 1, pending_count: 1 }
+    report.employees = [{
+      id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
+      full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
+      termination_effective_on: null, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0.25,
+      entries_count: 1, days_worked: 1, first_work_date: first.work_date, last_work_date: first.work_date, ready: true,
+      issues: { pending_count: 1, denied_count: 0, pending_overtime_count: 1, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
+      quality: report.quality, categories: [], weeks: [],
+      days: [{ work_date: first.work_date, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0.25, entries: [first] }], excluded_entries: [pending],
+    }]
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+    apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, email: 'casey@example.test', display_name: 'Casey Employee', role: 'employee', time_category_ids: [3] }] } })
+    apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
+    const interaction = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15&user_id=7']}><TimeRouteHarness /></MemoryRouter>)
+    const group = await screen.findByRole('article', { name: /Entries for Casey Employee/ })
+    const mobile = screen.getByRole('region', { name: 'Detailed entries on mobile' })
+    expect(within(mobile).queryByRole('table')).not.toBeInTheDocument()
+    const expand = within(group).getByRole('button', { name: /Review 2 entries for Casey Employee/ })
+    expect(expand).toHaveAttribute('aria-expanded', 'false')
+    const controlledDetails = document.getElementById(expand.getAttribute('aria-controls')!)
+    expect(controlledDetails).toHaveAttribute('hidden')
+    expect(within(group).queryByRole('button', { name: 'Edit time entry 90 for Casey Employee' })).not.toBeInTheDocument()
+    expect(group).toHaveTextContent('6.00h')
+    expect(group).toHaveTextContent('15m')
+    await interaction.click(expand)
+    expect(expand).toHaveAttribute('aria-expanded', 'true')
+    expect(group).toHaveTextContent('8:00 AM – 12:00 PM')
+    expect(group).toHaveTextContent('Operations')
+    expect(group).toHaveTextContent('kiosk · clock')
+    expect(group).toHaveTextContent('admin · manual')
+    expect(group).toHaveTextContent('Pending additional work')
+    expect(group).toHaveTextContent('OT pending')
+    expect(group).toHaveTextContent('Awaiting approval')
+    expect(group).toHaveTextContent('Break 10:00–10:15 · 15m')
+    const edit = within(group).getByRole('button', { name: 'Edit time entry 90 for Casey Employee' })
+    await interaction.click(edit)
+    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    expect(within(dialog).getByLabelText('Start Time *')).toHaveValue('08:00')
+    const description = within(dialog).getByLabelText('Description')
+    await interaction.clear(description)
+    await interaction.type(description, 'Unsaved review note')
+    await interaction.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Edit Time Entry' })).not.toBeInTheDocument()
+    expect(edit).toHaveFocus()
+    expect(expand).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-08-01')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('end_date=2026-08-15')
+    expect(screen.getByTestId('location-search')).toHaveTextContent('user_id=7')
+    expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
+  })
+
+  it.each(['{Enter}', ' '])('opens the desktop employee review by keyboard %s and restores focus on Escape', async (key) => {
+    const report = makeHoursReport('2026-08-01', '2026-08-15', 9)
+    report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
+    report.employees = [{
+      id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
+      full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
+      termination_effective_on: null, total_hours: 9, regular_hours: 9, overtime_hours: 0, break_hours: 0,
+      entries_count: 1, days_worked: 1, first_work_date: '2026-08-05', last_work_date: '2026-08-05', ready: true,
+      issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 },
+      quality: report.quality, categories: [], weeks: [], days: [], excluded_entries: [],
+    }]
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+    const keyboard = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}><TimeRouteHarness /></MemoryRouter>)
+    const reviewButton = await screen.findByRole('button', { name: 'Review hours for Casey Employee' })
+    expect(reviewButton).toHaveAttribute('type', 'button')
+    expect(reviewButton.tabIndex).toBe(0)
+    reviewButton.focus()
+    await keyboard.keyboard(key)
+    const drawer = screen.getByRole('dialog', { name: 'Casey Employee' })
+    expect(drawer).toHaveTextContent('9.00h total')
+    await waitFor(() => expect(within(drawer).getByRole('button', { name: 'Close' })).toHaveFocus())
+    await keyboard.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Casey Employee' })).not.toBeInTheDocument()
+    expect(reviewButton).toHaveFocus()
+  })
+
+  it.each([
+    { label: 'valid timestamps', attestedAt: '2026-09-18T18:00:00Z', resolvedAt: '2026-09-20T14:30:00Z', malformed: false },
+    { label: 'unparseable timestamps', attestedAt: 'not-a-timestamp', resolvedAt: '', malformed: true },
+    { label: 'null and missing timestamps', attestedAt: null, resolvedAt: undefined, malformed: true },
+    { label: 'impossible calendar dates', attestedAt: '2026-02-30T00:00:00Z', resolvedAt: '2026-04-31T00:00:00Z', malformed: true },
+  ])('keeps payroll status and exact hours visible with $label', async ({ attestedAt, resolvedAt, malformed }) => {
     const report = makeHoursReport('2026-05-01', '2026-05-15', 6.1)
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
     report.employees = [{
@@ -481,7 +773,11 @@ describe('TimeTracking routed report periods', () => {
           id: 52, work_date: '2026-05-01', start_time: '09:00', end_time: '15:06', formatted_start_time: '9:00 AM', formatted_end_time: '3:06 PM',
           total_hours: 6.1, regular_hours: 6.1, overtime_hours: 0, break_minutes: 0, description: null, entry_method: 'clock', clock_source: 'kiosk',
           approval_status: 'approved', approved_by: null, approved_at: null, overtime_status: 'none', time_category: { id: 1, key: 'other', name: 'Other' }, breaks: [],
-          payroll_lifecycle: { status: 'partially_paid', label: 'Partially paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [] },
+          payroll_lifecycle: { status: 'partially_paid', label: 'Partially paid', payment_method: 'paper_check', payment_reference: '990610', settlements: [],
+            resolved_payment_report: { id: 'report-52', attested_at: attestedAt as string,
+              reason: 'Owner reported the original work paid; exact check evidence was pending.',
+              resolved_at: resolvedAt as string, resolution_reason: 'Matched the original exact issued payment evidence.',
+              manual_allocation_id: 'allocation-52', issued_event_id: 'issue-52' } },
           quality_flags: [],
         }],
       }],
@@ -499,6 +795,10 @@ describe('TimeTracking routed report periods', () => {
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
     fireEvent.click(employeeCard)
     expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('6.10h total')
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Matched payment report')
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent(malformed ? 'Reported Date unknown · matched to issued evidence Date unknown' : 'Reported Sat, Sep 19 · matched to issued evidence Mon, Sep 21')
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).not.toHaveTextContent('Invalid Date')
+    expect(screen.getByRole('dialog', { name: 'Kami Lifecycle' })).toHaveTextContent('Original report retained. Current payment status is shown above.')
     let finishReload!: (value: { data: HoursReportResponse }) => void
     apiMock.getHoursReport.mockImplementationOnce(() => new Promise((resolve) => { finishReload = resolve }))
     fireEvent.click(screen.getByRole('button', { name: 'Open July report' }))

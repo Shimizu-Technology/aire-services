@@ -9,7 +9,7 @@ class PayrollEntryProcessingEvent < ApplicationRecord
   STATUS_RANK = STATUSES.each_with_index.to_h.freeze
 
   def self.latest(events)
-    candidates = Array(events)
+    candidates = Payroll::ObligationOwnerResolver.current_events(events)
     cancellations = candidates.select { |event| event.status == "payment_cancelled" }
     cancellation_present = cancellations.any?
     # Cancellation is a tombstone for one physical instrument, not a release
@@ -42,6 +42,7 @@ class PayrollEntryProcessingEvent < ApplicationRecord
   end
 
   belongs_to :payroll_batch
+  belongs_to :payroll_obligation_correction, optional: true
 
   validates :event_id, :source_time_entry_id, :status, :external_system, :occurred_at, presence: true
   validates :event_id, uniqueness: true, length: { maximum: 200 }

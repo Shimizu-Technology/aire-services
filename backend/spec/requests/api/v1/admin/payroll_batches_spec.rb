@@ -51,6 +51,33 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(PayrollBatch.count).to eq(0)
   end
 
+  it "guides previews to the published calendar and rejects both direct manual paths without side effects" do
+    create_entry
+    period = create(:payroll_calendar_period, start_date: Date.new(2026, 8, 1), end_date: Date.new(2026, 8, 15),
+                    pay_date: Date.new(2026, 8, 25), cutoff_at: Time.iso8601("2026-08-18T17:00:00+10:00"))
+    original = period.attributes.deep_dup
+    dates = { start_date: "2026-08-10", end_date: "2026-08-20" }
+    post "/api/v1/admin/payroll_batches/preview", params: dates, headers: admin_headers
+    expect(response).to have_http_status(:ok)
+    expect(json[:can_finalize]).to be(false)
+    expect(json[:finalization_blocked_reason]).to include("published payroll calendar", "Lock")
+    expect(json.fetch(:published_calendar_periods).first).to include(
+      external_pay_period_id: period.external_pay_period_id, start_date: "2026-08-01", end_date: "2026-08-15", status: "scheduled")
+
+    [ {}, { manual_processing: true, cutoff_at: "2026-08-18T17:00:00+10:00", processed_at: "2026-08-18T17:01:00+10:00",
+            external_pay_period_id: "historical-run", processing_note: "Historical processing confirmation" } ].each do |options|
+      post "/api/v1/admin/payroll_batches", params: dates.merge(options), headers: admin_headers
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to include("published payroll calendar", "Lock")
+      expect(PayrollBatch.count).to eq(0)
+      expect(PayrollBatchEntry.count).to eq(0)
+      expect(PayrollBatchProcessingEvent.count).to eq(0)
+      expect(PayrollOutboxEvent.count).to eq(0)
+      expect(AuditLog.where(action: "payroll_batch.finalized")).to be_empty
+      expect(period.reload.attributes).to eq(original)
+    end
+  end
+
   it "keeps non-blocking exclusions finalizable in both preview and create" do
     included = create_entry
     pending = create_entry(approval_status: "pending")
