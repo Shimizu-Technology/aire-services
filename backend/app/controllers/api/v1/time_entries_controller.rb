@@ -466,7 +466,10 @@ module Api
         updated_entries = []
         error_message = nil
         ActiveRecord::Base.transaction do
-          entries_by_id = TimeEntry.where(id: entry_ids).lock.index_by(&:id)
+          # Bulk review uses the same employee-before-entry lock order as
+          # individual approval and clock writes, across every selected owner.
+          User.where(id: TimeEntry.where(id: entry_ids).select(:user_id)).order(:id).lock.load
+          entries_by_id = TimeEntry.where(id: entry_ids).order(:id).lock.index_by(&:id)
           missing_ids = entry_ids - entries_by_id.keys
           if missing_ids.any?
             error_message = "One or more selected entries could not be found"

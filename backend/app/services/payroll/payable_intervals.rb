@@ -17,6 +17,13 @@ module Payroll
       [ from, to ]
     end
 
+    def self.overlaps?(entry, range)
+      interval = bounds(entry)
+      return range.cover?(entry.work_date) unless interval
+
+      interval.first.to_date <= range.end && (interval.last - 0.000001).to_date >= range.begin
+    end
+
     def self.segments(entry)
       interval = bounds(entry)
       return [ scalar(entry) ] unless interval

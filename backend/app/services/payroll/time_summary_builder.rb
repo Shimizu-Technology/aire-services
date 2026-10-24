@@ -18,7 +18,7 @@ module Payroll
       entries = entries_in_range.where.not(user_id: nil).includes(:time_category).to_a
       users = User.staff.includes(:user_approval_groups).where(id: entries.map(&:user_id).uniq).order(:last_name, :first_name, :email).to_a
       staff_user_ids = users.map(&:id)
-      entries = entries.select { |entry| staff_user_ids.include?(entry.user_id) }
+      entries = entries.select { |entry| staff_user_ids.include?(entry.user_id) && PayableIntervals.overlaps?(entry, start_date..end_date) }
       entries_by_user_id = entries.group_by(&:user_id)
       overtime_entries_by_user_id = overtime_context_entries_for(staff_user_ids).group_by(&:user_id)
 
@@ -95,6 +95,7 @@ module Payroll
       end
 
       issues = issues_for(user_entries)
+      issues[:allocation_hold_count] = overtime_allocations.count { |id, allocation| user_entries.any? { |entry| entry.id == id } && allocation[:hold_reason] }
 
       {
         source_user_id: user.id.to_s,
@@ -116,7 +117,7 @@ module Payroll
         # Pending, denied, overtime-review, and open entries remain tracked but
         # are excluded from the included-hour ledger. Only an included entry
         # without a category makes the hours summary unsafe to consume.
-        ready: issues.fetch(:uncategorized_count).zero?
+        ready: issues.fetch(:uncategorized_count).zero? && issues.fetch(:allocation_hold_count).zero?
       }
     end
 

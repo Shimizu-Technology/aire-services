@@ -132,7 +132,7 @@ module Payroll
         late_entries = revision_ledger.entries_created_after_cutoff_in_range(start_date..end_date)
         frozen_entries + late_entries
       else
-        staff_entries.where(work_date: (start_date - 1)..end_date).includes(:time_entry_breaks).to_a.select { |entry| PayableIntervals.segments(entry).any? { |segment| segment[:work_date].between?(start_date, end_date) } }
+        staff_entries.where(work_date: (start_date - 1)..end_date).includes(:time_entry_breaks).to_a.select { |entry| PayableIntervals.overlaps?(entry, start_date..end_date) }
       end
       # Published calendars admit historical work through named settlement
       # cases. Live manual-review seeds must not bypass that routing or replace

@@ -35,7 +35,7 @@ module Payroll
       @allocation_holds.each { |id| (@entry_quality_flags[id] ||= []) << "overnight_allocation_review" }
       control_entries = PayableSegmentView.expand(control_entries, allocations)
       report_entries = filter_report_entries(control_entries)
-      control_period_entries = control_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
+      control_period_entries = control_entries.select { |entry| in_report_period?(entry) }
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
       breakdowns = build_breakdowns(employees)
       period_issues = issues_for(control_period_entries)
@@ -134,13 +134,18 @@ module Payroll
       users.filter_map do |user|
         user_context_entries = context_entries_by_user.fetch(user.id, [])
         user_report_entries = report_entries_by_user.fetch(user.id, [])
-        period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
-        control_period_entries = user_context_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
+        period_entries = user_report_entries.select { |entry| in_report_period?(entry) }
+        control_period_entries = user_context_entries.select { |entry| in_report_period?(entry) }
         next if period_entries.empty? && control_period_entries.empty? && (!include_empty_employees? || !user.time_tracking_enabled?)
         next if period_entries.empty? && control_period_entries.any? && params[:user_id].blank? && (!include_empty_employees? || !user.time_tracking_enabled?)
 
         build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
       end
+    end
+
+    def in_report_period?(entry)
+      entry.work_date.between?(start_date, end_date) ||
+        (@allocation_holds&.include?(entry.id) && PayableIntervals.overlaps?(entry, start_date..end_date))
     end
 
     def include_empty_employees?
@@ -149,7 +154,7 @@ module Payroll
 
     def build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
       overtime_allocations = @overtime_allocations_by_user.fetch(user.id, {})
-      period_entries = user_report_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
+      period_entries = user_report_entries.select { |entry| in_report_period?(entry) }
       countable_period_entries = period_entries.select { |entry| countable?(entry) }
       lifecycle_period_entries = params[:user_id].present? ? control_period_entries : period_entries
       excluded_period_entries = lifecycle_period_entries.reject { |entry| countable?(entry) }

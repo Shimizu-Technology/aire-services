@@ -76,7 +76,7 @@ module Payroll
     private
 
     def overlaps?(entry, range)
-      PayableIntervals.segments(entry).any? { |s| range.cover?(s[:work_date]) }
+      PayableIntervals.overlaps?(entry, range)
     end
 
     def latest_scope_for(filters = {})

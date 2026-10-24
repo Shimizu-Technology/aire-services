@@ -218,4 +218,15 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
     expect(overnight.reload.lock_version).to be > 1
     expect(allocation(overnight)).to include(hold_reason: "unplaced_overnight_break")
   end
+  it "surfaces an unknown Saturday break in a Sunday-only cutoff and report" do
+    overnight = shift(sunday - 1, 22, 4, break_minutes: 60)
+    result = Payroll::BatchBuilder.new(start_date: sunday.to_s, end_date: sunday.to_s).call
+    expect(result[:rows]).to be_empty
+    expect(result[:exclusions]).to include(include(source_time_entry_id: overnight.id,
+      snapshot: include("allocation_hold" => "unplaced_overnight_break")))
+    report = Payroll::HoursReportBuilder.new(start_date: sunday.to_s, end_date: sunday.to_s, user_id: user.id).call
+    expect(report[:ready]).to be(false)
+    expect(report[:summary][:allocation_hold_count]).to eq(1)
+    expect(Payroll::TimeSummaryBuilder.new(start_date: sunday.to_s, end_date: sunday.to_s).call[:employees].sole[:ready]).to be(false)
+  end
 end
