@@ -11,6 +11,8 @@ interface TimeCategoryOption {
 interface EditableTimeEntry {
   id: number
   version?: number
+  hours?: number
+  needs_administrator_correction?: boolean
   work_date: string
   start_time: string | null
   end_time: string | null
@@ -148,6 +150,8 @@ export default function EditTimeEntryModal({
   }, [entry, isOpen])
 
   const calculatedHours = useMemo(() => {
+    if (entry?.hours != null && formData.start_time === (entry.start_time || '08:00') &&
+        formData.end_time === (entry.end_time || '17:00') && formData.break_minutes === entry.break_minutes) return entry.hours
     if (!formData.start_time || !formData.end_time) return 0
 
     const [startH, startM] = formData.start_time.split(':').map(Number)
@@ -160,7 +164,7 @@ export default function EditTimeEntryModal({
     if (formData.break_minutes) durationMinutes -= formData.break_minutes
 
     return Math.max(0, durationMinutes / 60)
-  }, [formData.break_minutes, formData.end_time, formData.start_time])
+  }, [entry, formData.break_minutes, formData.end_time, formData.start_time])
 
   const ownerName = entry?.user.full_name || entry?.user.display_name || entry?.user.email?.split('@')[0] || 'Team member'
   const isActiveClockEntry = entry?.entry_method === 'clock' && (entry.status === 'clocked_in' || entry.status === 'on_break')
@@ -189,7 +193,19 @@ export default function EditTimeEntryModal({
     setLocalError(null)
 
     try {
-      const shouldSubmitDetailedBreaks = breakRows.length > 0 || (entry.breaks?.length ?? 0) > 0
+      const loadedBreakRows = (entry.breaks || [])
+        .filter((row) => row.start_time && row.end_time)
+        .map((row) => ({ id: row.id, start_time: timeInputValue(row.start_time), end_time: timeInputValue(row.end_time) }))
+        .filter((row) => row.start_time && row.end_time)
+      const breaksChanged = JSON.stringify(breakRows) !== JSON.stringify(loadedBreakRows)
+      const changedBreakRows = breakRows.map((row) => {
+        const loaded = entry.breaks?.find((item) => item.id != null && item.id === row.id)
+        return {
+          ...row,
+          start_time: loaded?.start_time && row.start_time === timeInputValue(loaded.start_time) ? loaded.start_time : row.start_time,
+          end_time: loaded?.end_time && row.end_time === timeInputValue(loaded.end_time) ? loaded.end_time : row.end_time,
+        }
+      })
       const payload = reviewAction ? {
         review_action: reviewAction,
         expected_version: entry.version,
@@ -200,15 +216,23 @@ export default function EditTimeEntryModal({
           description: formData.description,
         } : {}),
       } : {
-        work_date: formData.work_date,
-        start_time: formData.start_time,
-        description: formData.description || undefined,
-        time_category_id: formData.time_category_id ? parseInt(formData.time_category_id, 10) : undefined,
+        ...(formData.work_date !== entry.work_date ? { work_date: formData.work_date } : {}),
+        ...(formData.start_time !== (entry.start_time || '08:00') ? { start_time: formData.start_time } : {}),
+        ...(formData.description !== (entry.description || '') ? { description: formData.description } : {}),
+        ...(formData.time_category_id !== (entry.time_category?.id.toString() || '') ? {
+          time_category_id: formData.time_category_id ? Number(formData.time_category_id) : undefined,
+        } : {}),
         ...(isActiveClockEntry ? {} : {
-          end_time: formData.end_time,
-          break_minutes: formData.break_minutes,
-          ...(shouldSubmitDetailedBreaks ? { breaks: breakRows } : {}),
+          ...(formData.end_time !== (entry.end_time || '17:00') ? { end_time: formData.end_time } : {}),
+          ...(breaksChanged ? { breaks: changedBreakRows } : formData.break_minutes !== entry.break_minutes ? {
+            break_minutes: formData.break_minutes,
+          } : {}),
         }),
+      }
+
+      if (!reviewAction && Object.keys(payload).length === 0) {
+        await onSaved()
+        return
       }
 
       const response = await api.updateTimeEntry(entry.id, payload, correctionReason || undefined)
@@ -279,6 +303,11 @@ export default function EditTimeEntryModal({
                 <p className="text-sm text-primary-dark/70">
                   Entry for: <span className="font-medium text-primary-dark">{ownerName}</span>
                 </p>
+                {entry.needs_administrator_correction && (
+                  <p role="alert" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    Needs administrator correction: this clock spans 24 hours or more. No payable hours are saved. Correct the punches and breaks before approval.
+                  </p>
+                )}
                 {entry.approved_by && (
                   <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${
                     entry.approval_status === 'approved'
@@ -303,7 +332,9 @@ export default function EditTimeEntryModal({
                 )}
                 {!isActiveClockEntry && (
                   <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    Changes to dates, times, breaks, hours, or work category return this entry to the approval queue. Notes can be updated without another approval.
+                    {isAdmin
+                      ? 'Changes to dates, times, breaks, hours, or work category return this entry to the approval queue. Notes can be updated without another approval.'
+                      : 'Every change, including notes, returns this entry to the approval queue.'}
                   </div>
                 )}
                 <a href={`/admin/activity?subject_type=TimeEntry&subject_id=${entry.id}`} className="mt-3 inline-flex text-xs font-semibold text-cyan-700 transition hover:text-cyan-900">
@@ -402,6 +433,7 @@ export default function EditTimeEntryModal({
                         <button
                           key={preset.label}
                           type="button"
+                          disabled={breakRows.length > 0}
                           onClick={() => {
                             if (preset.minutes === -1) {
                               setFormData({ ...formData, break_minutes: formData.break_minutes || 0 })
@@ -409,7 +441,7 @@ export default function EditTimeEntryModal({
                               setFormData({ ...formData, break_minutes: preset.minutes })
                             }
                           }}
-                          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                             (preset.minutes === null && formData.break_minutes === null) ||
                             (preset.minutes === formData.break_minutes) ||
                             (preset.minutes === -1 &&
@@ -427,6 +459,7 @@ export default function EditTimeEntryModal({
                       !BREAK_PRESETS.slice(0, -1).some((preset) => preset.minutes === formData.break_minutes) && (
                         <input
                           type="number"
+                          disabled={breakRows.length > 0}
                           min="0"
                           max="480"
                           value={formData.break_minutes || ''}
@@ -438,7 +471,9 @@ export default function EditTimeEntryModal({
                           className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                       )}
-                    <p className="mt-1 text-xs text-text-muted">Break time is not counted toward work hours</p>
+                    <p className="mt-1 text-xs text-text-muted">{breakRows.length > 0
+                      ? 'Edit or remove the detailed breaks below to change the total break duration.'
+                      : 'Break time is not counted toward work hours'}</p>
 
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center justify-between gap-3">

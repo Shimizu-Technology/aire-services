@@ -323,6 +323,7 @@ class TimeClockService
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
       entry.with_lock do
+        raise ClockError, TimeEntry::ADMINISTRATOR_CORRECTION_NOTE if entry.needs_administrator_correction?
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
 
         attrs = {
@@ -371,6 +372,7 @@ class TimeClockService
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
       entry.with_lock do
+        raise ClockError, TimeEntry::ADMINISTRATOR_CORRECTION_NOTE if entry.needs_administrator_correction?
         raise ClockError, "Entry does not have pending overtime" unless entry.overtime_status == "pending"
 
         entry.update!(
@@ -458,7 +460,7 @@ class TimeClockService
               break_minutes: entry.total_break_minutes,
               admin_override: true,
               approval_status: "pending",
-              approval_note: "Auto-closed: clocked in for over #{threshold_hours} hours without clocking out"
+              approval_note: build_approval_note(entry.approval_note, "Auto-closed: clocked in for over #{threshold_hours} hours without clocking out")
             )
 
             if auto_assigned_category
