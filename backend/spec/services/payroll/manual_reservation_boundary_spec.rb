@@ -155,7 +155,7 @@ RSpec.describe "Manual reservation review boundaries" do
     expect(PayrollSettlementReconciliation.exists?(payroll_calendar_period: old)).to be(false)
   end
 
-  [ :retained, :replacement ].each do |component|
+  [ :retained, :replacement, :moved_replacement, :moved_replacement_sync ].each do |component|
     it "F3 reopens full coverage when the #{component} component is cancelled, reissued and then released" do
       first = reserve(3)
       retained = reserve(5)
@@ -163,6 +163,7 @@ RSpec.describe "Manual reservation review boundaries" do
       batch = finalize(period)
       checksum = batch.checksum
       release(first)
+      entry.update!(work_date: period.end_date + 2.days) if component.in?([ :moved_replacement, :moved_replacement_sync ])
       replacement = reserve(3)
       settlement = PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)
       issue(retained, "retain-five")
@@ -178,7 +179,12 @@ RSpec.describe "Manual reservation review boundaries" do
       issue(cancelled, "reissued-#{reference}")
       expect(settlement.reload.status).to eq("settled")
       cancel(cancelled, "reissued-#{reference}")
-      release(cancelled)
+      if component == :moved_replacement_sync
+        cancelled.update_columns(status: "voided", voided_at: database_clock)
+        2.times { Payroll::SettlementCaseCoordinator.sync_finalized_periods! }
+      else
+        release(cancelled)
+      end
       expect(settlement.reload).to have_attributes(status: "open", destination_kind: "unassigned", held_total_hours: cancelled.total_hours)
       expect(PayrollManualAllocation.active.where(time_entry_id: entry.id).sum("regular_hours + overtime_hours"))
         .to eq(8 - cancelled.total_hours)
