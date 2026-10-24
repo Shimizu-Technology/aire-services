@@ -33,7 +33,7 @@ CREATE FUNCTION public.capture_payroll_manual_allocation_revision() RETURNS trig
 BEGIN
   INSERT INTO payroll_manual_allocation_revisions
     (payroll_manual_allocation_id, source_time_entry_id, recorded_at, snapshot)
-  VALUES (NEW.id, NEW.time_entry_id, clock_timestamp(), to_jsonb(NEW));
+  VALUES (NEW.id, NEW.time_entry_id, (clock_timestamp() AT TIME ZONE 'UTC'), to_jsonb(NEW));
   RETURN NEW;
 END;
 $$;
@@ -73,7 +73,7 @@ BEGIN
     source_row.user_id,
     source_row.work_date,
     source_deleted,
-    clock_timestamp(),
+    (clock_timestamp() AT TIME ZONE 'UTC'),
     jsonb_build_object(
       'time_entry', to_jsonb(source_row),
       'user', jsonb_build_object(
@@ -5144,6 +5144,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261024030000'),
 ('20261024020000'),
 ('20261024010000'),
 ('20261013010000'),

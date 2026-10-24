@@ -75,17 +75,17 @@ RSpec.describe "Manual reservation review boundaries" do
     period = create(:payroll_calendar_period, **attributes)
     checked = 0
     recorded_at = nil
-    allow(recorder).to receive(:reject_pending_cutoff_claim!).and_wrap_original do |method, *args|
+    allow(recorder).to receive(:reject_pending_cutoff_claim!).and_wrap_original do |method, *args, **kwargs|
       checked += 1
       if checked == 2
         recorded_at = PayrollManualAllocationRevision.order(:id).last!.recorded_at
         expect(recorded_at).to be > period.cutoff_at
       end
-      method.call(*args)
+      method.call(*args, **kwargs)
     end
-    allow(recorder).to receive(:weekly_split).and_wrap_original do |method, *args|
+    allow(recorder).to receive(:weekly_split).and_wrap_original do |method, *args, **kwargs|
       wait_for_database_cutoff(period.cutoff_at)
-      method.call(*args)
+      method.call(*args, **kwargs)
     end
 
     expect { reserve }.to raise_error(Payroll::ManualAllocationRecorder::ClaimConflictError, /cutoff.*reconcile/)
@@ -103,13 +103,13 @@ RSpec.describe "Manual reservation review boundaries" do
     actor
     period = create(:payroll_calendar_period, **payroll_calendar_at(database_clock + 1.second))
     checked = 0
-    allow(recorder).to receive(:reject_pending_cutoff_claim!).and_wrap_original do |method, *args|
+    allow(recorder).to receive(:reject_pending_cutoff_claim!).and_wrap_original do |method, *args, **kwargs|
       checked += 1
       if checked == 2
         expect(args.last).to be < period.cutoff_at
         wait_for_database_cutoff(period.cutoff_at)
       end
-      method.call(*args)
+      method.call(*args, **kwargs)
     end
     allocation = reserve(3)
     expect(checked).to eq(2)

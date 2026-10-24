@@ -22,7 +22,7 @@ class CreatePayrollManualAllocationRevisions < ActiveRecord::Migration[8.1]
       BEGIN
         INSERT INTO payroll_manual_allocation_revisions
           (payroll_manual_allocation_id, source_time_entry_id, recorded_at, snapshot)
-        VALUES (NEW.id, NEW.time_entry_id, clock_timestamp(), to_jsonb(NEW));
+        VALUES (NEW.id, NEW.time_entry_id, (clock_timestamp() AT TIME ZONE 'UTC'), to_jsonb(NEW));
         RETURN NEW;
       END;
       $$ LANGUAGE plpgsql;
@@ -33,7 +33,7 @@ class CreatePayrollManualAllocationRevisions < ActiveRecord::Migration[8.1]
 
       INSERT INTO payroll_manual_allocation_revisions
         (payroll_manual_allocation_id, source_time_entry_id, recorded_at, snapshot)
-      SELECT id, time_entry_id, clock_timestamp(), to_jsonb(payroll_manual_allocations)
+      SELECT id, time_entry_id, (clock_timestamp() AT TIME ZONE 'UTC'), to_jsonb(payroll_manual_allocations)
       FROM payroll_manual_allocations;
 
       CREATE TRIGGER payroll_manual_allocation_revisions_append_only

@@ -406,10 +406,14 @@ RSpec.describe "Payroll cutoff concurrency" do
           reason: "Synthetic competing manual claim on due cutoff")
       end
       if order == :manual_first
-        allow(recorder).to receive(:reject_pending_cutoff_claim!).and_wrap_original do |original, source|
-          entered << true
-          queue_pop(release)
-          original.call(source)
+        barrier_entered = false
+        allow(recorder).to receive(:reject_pending_cutoff_claim!).and_wrap_original do |original, *args, **kwargs|
+          unless barrier_entered
+            barrier_entered = true
+            entered << true
+            queue_pop(release)
+          end
+          original.call(*args, **kwargs)
         end
         first = database_worker(first_pids, &manual_work)
         first_pid = queue_pop(first_pids)
