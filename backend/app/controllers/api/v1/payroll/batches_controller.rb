@@ -10,7 +10,7 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :batch_not_found
 
         def index
-          scope = PayrollBatch.regular.order(finalized_at: :desc)
+          scope = PayrollBatch.regular.includes(:payroll_calendar_period).order(finalized_at: :desc)
           scope = scope.where(start_date: Date.iso8601(params[:start_date])) if params[:start_date].present?
           scope = scope.where(end_date: Date.iso8601(params[:end_date])) if params[:end_date].present?
           batches = scope.limit(100).to_a

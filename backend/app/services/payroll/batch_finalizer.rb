@@ -188,6 +188,9 @@ module Payroll
     end
 
     def validate_calendar_authority!
+      if manual_calendar_lock && !calendar_period
+        raise PublishedCalendarError, "Manual calendar lock requires an authorized published calendar"
+      end
       if calendar_period && !authorized_calendar?
         raise PublishedCalendarError, "Published calendars must use their cockpit Lock or scheduled finalizer"
       end

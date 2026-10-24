@@ -2,13 +2,15 @@
 
 # One audited, configure-once decision for this AIRE installation, not a company.
 class PayrollLockRollout < ApplicationRecord
+  class NotConfiguredError < StandardError; end
+
   validates :configured_by, presence: true
   validates :reason, length: { minimum: 10 }
   validates :cutoff_enforcement_starts_on, presence: true
   validate :semimonthly_activation
 
   def self.installation
-    find_by(id: 1) || raise(ArgumentError, "Configure the installation lock rollout first")
+    find_by(id: 1) || raise(NotConfiguredError, "Configure the installation lock rollout first")
   end
 
   def self.configure!(starts_on:, actor:, reason:)

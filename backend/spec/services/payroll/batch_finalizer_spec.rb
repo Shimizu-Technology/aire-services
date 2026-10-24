@@ -37,6 +37,13 @@ RSpec.describe Payroll::BatchFinalizer do
     ).call
   end
 
+  it "refuses the manual calendar flag without an authorized published calendar" do
+    expect do
+      finalize(start_date: "2026-08-01", end_date: "2026-08-15", manual_calendar_lock: true)
+    end.to raise_error(described_class::PublishedCalendarError, /requires.*published calendar/i)
+    expect(PayrollBatch.count).to eq(0)
+  end
+
   it "finalizes only approved work while preserving pending, denied, and open records as exclusions" do
     travel_to(guam.local(2026, 5, 16, 9)) do
       included = create_entry(date: Date.new(2026, 5, 5))
@@ -215,6 +222,11 @@ RSpec.describe Payroll::BatchFinalizer do
           finalize(start_date: "2026-05-16", end_date: "2026-05-31", **options)
         end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /Negative payroll corrections/)
       end
+
+      expect do
+        finalize(start_date: "2026-05-16", end_date: "2026-05-31", manual_calendar_lock: true)
+      end.to raise_error(described_class::PublishedCalendarError, /requires.*published calendar/i)
+      expect(PayrollBatch.count).to eq(1)
 
       batch = finalize(
         start_date: "2026-05-16",

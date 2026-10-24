@@ -25,7 +25,17 @@ RSpec.describe "Payroll rollout calendar contract", type: :request do
   end
 
   before do
-    PayrollLockRollout.configure!(starts_on: "2026-10-16", actor: "test operator", reason: "Approved rollout decision")
+    PayrollLockRollout.configure!(starts_on: "2026-10-16", actor: "test operator", reason: "Approved rollout decision") unless RSpec.current_example.metadata[:unconfigured]
+  end
+
+  it "returns retryable service unavailable when the installation has no configuration", :unconfigured do
+    expect(PayrollLockRollout.count).to eq(0)
+    put "/api/v1/payroll/calendar_periods/oct-a", params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:service_unavailable)
+    expect(response.parsed_body["error"]).to include("Configure")
+    expect(PayrollCalendarPeriod.count).to eq(0)
+    expect(PayrollCalendarPeriodRevision.count).to eq(0)
+    expect(PayrollOutboxEvent.count).to eq(0)
   end
 
   it "accepts and validates rollout fields, retains nominal cutoff, and reports one installation next cutoff" do

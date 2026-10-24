@@ -79,8 +79,8 @@ class PayrollCalendarPeriod < ApplicationRecord
 
   def cutoff_state(now: Time.current)
     return "finalized" if status == "finalized"
-    return "manual" if manual_lock?
     return "attention_required" if status == "failed"
+    return "manual" if manual_lock?
     return "due" if cutoff_at <= now
 
     "upcoming"

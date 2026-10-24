@@ -59,6 +59,23 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(json.dig(:payroll_batches, 0)).to include(id: batch.public_id, checksum: batch.checksum)
   end
 
+  it "loads calendar associations once when listing multiple batches" do
+    batches = 3.times.map do |index|
+      create(:payroll_batch, start_date: Date.new(2026, 9, 1) + index.months,
+        end_date: Date.new(2026, 9, 15) + index.months)
+    end
+    queries = []
+    subscriber = lambda do |_name, _start, _finish, _id, payload|
+      queries << payload[:sql] if payload[:sql].to_s.match?(/SELECT.*FROM "payroll_calendar_periods"/i)
+    end
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      get "/api/v1/payroll/batches", headers: { "X-Payroll-Shared-Secret" => secret }
+    end
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:payroll_batches).map { |batch| batch.fetch(:id) }).to match_array(batches.map(&:public_id))
+    expect(queries.size).to be <= 1
+  end
+
   it "returns the stable payload and audits integration retrieval" do
     batch = finalized_batch
 

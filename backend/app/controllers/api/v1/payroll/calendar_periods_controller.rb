@@ -41,6 +41,8 @@ module Api
             payroll_calendar_period: result.period.as_contract_json,
             idempotent: result.idempotent
           }, status: result.created ? :created : :ok
+        rescue PayrollLockRollout::NotConfiguredError => e
+          render json: { error: e.message }, status: :service_unavailable
         rescue ArgumentError, ActiveRecord::RecordInvalid => e
           message = e.respond_to?(:record) ? e.record.errors.full_messages.join(", ") : e.message
           render json: { error: message }, status: :unprocessable_entity

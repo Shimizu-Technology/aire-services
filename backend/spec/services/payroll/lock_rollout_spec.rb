@@ -42,8 +42,11 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
   end
 
   it "requires a configured installation before any new publication" do
-    allow(PayrollLockRollout).to receive(:installation).and_raise(ArgumentError, "Configure the installation lock rollout first")
-    expect { publish }.to raise_error(ArgumentError, /Configure/)
+    expect(PayrollLockRollout.count).to eq(0)
+    expect { publish }.to raise_error(PayrollLockRollout::NotConfiguredError, /Configure/)
+    expect(PayrollCalendarPeriod.count).to eq(0)
+    expect(PayrollCalendarPeriodRevision.count).to eq(0)
+    expect(PayrollOutboxEvent.count).to eq(0)
   end
 
   it "validates, audits and permanently freezes the singleton boundary" do
@@ -312,6 +315,8 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
     result = Payroll::ManualCalendarFinalizer.new(period_id: period.id, actor: actor, reason: reason).call
     expect(result[:status]).to eq("failed")
     expect(period.reload.payroll_batch).to be_nil
+    expect(period.cutoff_state).to eq("attention_required")
+    expect(period.as_contract_json[:cutoff_state]).to eq("attention_required")
     expect(period.payroll_outbox_events.count).to eq(0)
     expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id).call[:status]).to eq("skipped")
   end
