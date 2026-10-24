@@ -49,20 +49,38 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
 
   context "with a manual period" do
     let(:period_attributes) do
-      super().merge(lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+      { start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-29",
+        cutoff_at: guam.local(2026, 10, 22, 17), lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16" }
     end
 
-    it "never warns inside activation, including after a failed manual lock" do
+    it "never warns employees, including after a failed manual lock" do
       { "scheduled" => "manual", "failed" => "attention_required" }.each do |status, state|
         period.update!(status: status)
-        [period.cutoff_at - 4.hours, period.cutoff_at, period.cutoff_at + 1.minute].each do |now|
+        [ period.cutoff_at - 4.hours, period.cutoff_at, period.cutoff_at + 1.minute ].each do |now|
           travel_to(now)
           expect(period.cutoff_state(now: now)).to eq(state)
+          expect(period.as_contract_json(now: now).fetch(:cutoff_state)).to eq(state)
+          expect(::Payroll::CutoffPresenter.call(now: now, period: period).fetch(:stage)).to eq("none")
           expect(PayrollCalendarPeriod.next_scheduled_cutoff_at).to be_nil
           expect(read_cutoff.fetch("stage")).to eq("none")
           expect(read_cutoff.fetch("period")).to be_nil
         end
       end
+    end
+
+    it "reports failed manual locks only to authenticated admins" do
+      period.update!(status: "failed")
+      get "/api/v1/payroll_cutoff", headers: headers
+      expect(response.parsed_body).not_to have_key("attention")
+      expect(response.parsed_body.dig("cutoff", "stage")).to eq("none")
+      post "/api/v1/aire/kiosk/cutoff", params: { kiosk_access_token: AireKioskAccessToken.issue_for(admin) }
+      expect(response.parsed_body).not_to have_key("attention")
+      get "/api/v1/payroll_cutoff", headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
+      expect(response.parsed_body.fetch("attention")).to eq(
+        "period" => { "id" => period.id, "start_date" => "2026-10-01", "end_date" => "2026-10-15" },
+        "lock_mode" => "manual", "cutoff_state" => "attention_required"
+      )
+      expect(response.parsed_body.dig("cutoff", "stage")).to eq("none")
     end
   end
 

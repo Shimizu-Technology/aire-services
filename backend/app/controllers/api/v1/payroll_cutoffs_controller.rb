@@ -8,7 +8,7 @@ module Api
       before_action :prevent_caching
 
       def show
-        render_cutoff(current_user)
+        render_cutoff(current_user, include_attention: current_user.admin?)
       end
 
       def kiosk
@@ -43,10 +43,11 @@ module Api
         end
       end
 
-      def render_cutoff(user)
+      def render_cutoff(user, include_attention: false)
         cutoff = ::Payroll::CutoffPresenter.call
         payload = { cutoff: cutoff }
         payload[:acknowledged] = PayrollCutoffAcknowledgement.exists?(PayrollCutoffAcknowledgement.identity(user, cutoff)) if user
+        payload[:attention] = ::Payroll::CutoffPresenter.attention if include_attention
         render json: payload
       end
 

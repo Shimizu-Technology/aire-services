@@ -24,12 +24,14 @@ function identity(cutoff: PayrollCutoff) {
   return `${cutoff.period?.id}:${cutoff.publication_id}:${cutoff.version}:${cutoff.stage}`
 }
 
+const format = (value: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', ...options }).format(new Date(value))
+function periodLabel(period: NonNullable<PayrollCutoff['period']>) {
+  return `${format(`${period.start_date}T12:00:00+10:00`, { month: 'long', day: 'numeric' })}–${format(`${period.end_date}T12:00:00+10:00`, { day: 'numeric' })}`
+}
+
 function copy(cutoff: PayrollCutoff, stale: boolean) {
-  const format = (value: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', ...options }).format(new Date(value))
   const dateKey = (value: string) => format(value, { year: 'numeric', month: '2-digit', day: '2-digit' })
-  const period = cutoff.period
-    ? `${format(`${cutoff.period.start_date}T12:00:00+10:00`, { month: 'long', day: 'numeric' })}–${format(`${cutoff.period.end_date}T12:00:00+10:00`, { day: 'numeric' })}`
-    : ''
+  const period = cutoff.period ? periodLabel(cutoff.period) : ''
   let when = ''
   if (!stale && cutoff.cutoff_at) {
     if (dateKey(cutoff.now) === dateKey(cutoff.cutoff_at)) when = ' today'
@@ -111,13 +113,21 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
       if (document.activeElement === document.body || (document.activeElement instanceof HTMLButtonElement && document.activeElement.disabled)) banner?.focus()
     }
   }, [open])
-  if (!cutoff) return null
-  if (!cutoff.period) return isAdmin ? <section aria-label="Payroll cutoff setup" className="cutoff-notice">No scheduled payroll cutoff is published. <Link to="/admin/payroll">Set up the payroll calendar</Link>.</section> : null
-  if (cutoff.stage === 'none') return null
+  const attention = isAdmin && validated ? response?.attention : null
+  const attentionNotice = attention ? <section aria-label="Payroll attention" className="cutoff-notice mb-4">
+    <h2 className="font-semibold">Payroll needs attention</h2>
+    <p className="mt-1">The {periodLabel(attention.period)} {attention.lock_mode === 'manual' ? 'manual payroll lock' : 'scheduled payroll finalization'} did not complete. Review its status with your accountant before retrying.</p>
+    <Link to="/admin/payroll" className="mt-2 inline-flex min-h-11 items-center">Review payroll status</Link>
+    {stale && <p className="mt-2">Last known payroll status · unable to refresh.</p>}
+  </section> : null
+  if (!cutoff) return attentionNotice
+  if (!cutoff.period) return attentionNotice || (isAdmin ? <section aria-label="Payroll cutoff setup" className="cutoff-notice">No scheduled payroll cutoff is published. <Link to="/admin/payroll">Set up the payroll calendar</Link>.</section> : null)
+  if (cutoff.stage === 'none') return attentionNotice
   const banner = copy(cutoff, stale || (!validated && !kiosk?.notice))
   const modal = noticeCutoff ? copy(noticeCutoff, stale) : banner
   const passed = cutoff.stage === 'passed' || cutoff.stage === 'finalizing'
   return <>
+    {attentionNotice}
     <section ref={bannerRef} tabIndex={-1} aria-label="Payroll cutoff" className="cutoff-notice">
       <h2 className="font-semibold">{kiosk ? banner.title.replace(/^Your /, '') : banner.title}</h2>
       <p className="mt-1">{banner.period} hours · {banner.absolute}</p>

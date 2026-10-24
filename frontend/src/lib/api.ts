@@ -1429,7 +1429,12 @@ export interface PayrollCutoff {
   time_zone: string;
   stage: 'none' | '24h' | '4h' | 'passed' | 'finalizing';
 }
-export interface PayrollCutoffResponse { cutoff: PayrollCutoff; acknowledged?: boolean }
+export interface PayrollCutoffAttention {
+  period: NonNullable<PayrollCutoff['period']>;
+  lock_mode: 'manual' | 'scheduled';
+  cutoff_state: 'attention_required';
+}
+export interface PayrollCutoffResponse { cutoff: PayrollCutoff; acknowledged?: boolean; attention?: PayrollCutoffAttention | null }
 export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
 
 export const api = {

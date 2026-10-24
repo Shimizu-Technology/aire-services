@@ -150,4 +150,19 @@ describe('Payroll cutoff notice', () => {
     expect(within(dialog).getByRole('button', { name: 'Close payroll cutoff notice' })).toBeVisible()
   })
 
+  it('shows admins a failed manual lock attention notice without an employee countdown', async () => {
+    auth.role = 'admin'
+    vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 0 } })
+    const data = { cutoff: { ...cutoff, period: null, stage: 'none' as const }, attention: { period: { id: 8, start_date: '2026-10-01', end_date: '2026-10-15' }, lock_mode: 'manual' as const, cutoff_state: 'attention_required' as const } }
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data })
+    mount()
+    const notice = await screen.findByRole('region', { name: 'Payroll attention' })
+    expect(notice).toHaveTextContent('October 1–15')
+    expect(notice).toHaveTextContent('manual payroll lock did not complete')
+    expect(within(notice).getByRole('link', { name: 'Review payroll status' })).toHaveAttribute('href', '/admin/payroll')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByText(/hours lock/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Payroll cutoff setup' })).not.toBeInTheDocument()
+  })
+
 })
