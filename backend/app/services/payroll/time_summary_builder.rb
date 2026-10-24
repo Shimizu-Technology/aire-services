@@ -79,7 +79,7 @@ module Payroll
             total_hours: round_hours(category_entries.sum { |entry| entry.hours.to_f }),
             regular_hours: round_hours(regular_hours),
             overtime_hours: round_hours(overtime_hours),
-            entry_ids: category_entries.map(&:id)
+            entry_ids: category_entries.map(&:id).uniq
           }
         end
 
@@ -89,7 +89,7 @@ module Payroll
           total_hours: round_hours(entries.sum { |entry| entry.hours.to_f }),
           regular_hours: round_hours(entries.sum { |entry| PayableSegmentView.allocation(entry, overtime_allocations)[:regular_hours].to_f }),
           overtime_hours: round_hours(entries.sum { |entry| PayableSegmentView.allocation(entry, overtime_allocations)[:overtime_hours].to_f }),
-          entry_ids: entries.map(&:id),
+          entry_ids: entries.map(&:id).uniq,
           categories: categories
         }
       end
@@ -112,7 +112,7 @@ module Payroll
         total_hours: round_hours(days.sum { |day| day[:total_hours].to_f }),
         regular_hours: round_hours(days.sum { |day| day[:regular_hours].to_f }),
         overtime_hours: round_hours(days.sum { |day| day[:overtime_hours].to_f }),
-        entries_count: countable.size,
+        entries_count: countable.map(&:id).uniq.size,
         issues: issues,
         # Pending, denied, overtime-review, and open entries remain tracked but
         # are excluded from the included-hour ledger. Only an included entry

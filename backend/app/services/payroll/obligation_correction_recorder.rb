@@ -51,7 +51,8 @@ module Payroll
         require!(existing.payroll_batch_entry_id == row.id && existing.request_digest == digest && existing.command == command, "Correction command already belongs to different work")
         return existing
       end
-      entry = TimeEntry.lock.find_by(id: row.source_time_entry_id)
+      entry = TimeEntry.find_by(id: row.source_time_entry_id)
+      entry&.lock!
       require!(entry && entry.user_id == row.source_user_id && entry.user.staff? && entry.user.payroll_integration_uuid == row.source_user_uuid && entry.work_date == row.work_date && entry.lock_version == command["source_time_entry_version"] && entry.counts_toward_hours?, "Current source work changed; review its correction separately")
       require!(occurred_at <= Time.current, "Successor receipt cannot be in the future")
       event = events.find { |candidate| candidate.event_id == predecessor["payment_voided_event_id"] }

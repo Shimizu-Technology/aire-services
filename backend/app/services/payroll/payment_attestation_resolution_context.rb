@@ -50,7 +50,9 @@ module Payroll
       end
       regular = BigDecimal(split.fetch(:regular_hours).to_s).round(2)
       overtime = BigDecimal(split.fetch(:overtime_hours).to_s).round(2)
-      if held_entry.overtime_status != "approved" && overtime.positive?
+      legacy = WeeklyOvertimeAllocator.legacy_call(current)[held_entry.id]
+      reviewed = AffectedOvertimeReview.approval_valid?(held_entry, split, legacy_allocation: legacy)
+      if !reviewed && overtime.positive?
         raise Error, "Approve the complete reported overtime before matching payment"
       end
       unless regular + overtime == attestation.hours.to_d

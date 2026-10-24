@@ -216,7 +216,13 @@ module Payroll
       return {} if entries.empty?
 
       context = bounded(TimeEntry.where(user: user, work_date: (entries.first.work_date.beginning_of_week(:sunday) - 1)..(entries.last.work_date.end_of_week(:sunday) + 7)).order(:work_date, :id))
-      WeeklyOvertimeAllocator.call(context.select(&:counts_toward_hours?))
+      eligible = context.select(&:counts_toward_hours?)
+      allocations = WeeklyOvertimeAllocator.call(eligible)
+      legacy = WeeklyOvertimeAllocator.legacy_call(eligible)
+      @reviewed_allocation_ids = eligible.select do |entry|
+        AffectedOvertimeReview.approval_valid?(entry, allocations[entry.id], legacy_allocation: legacy[entry.id])
+      end.map(&:id).to_set
+      allocations
     end
 
     def current_entry(entry, allocation, lines, hold)
@@ -226,7 +232,7 @@ module Payroll
       exported = matching.select { |line| line[:coverage_state] == "exported" }.sum { |line| line[:total_hours].to_d }
       eligible = entry.counts_toward_hours? ? entry.hours.to_d : 0.to_d
       eligible = 0.to_d if allocation[:hold_reason]
-      ot_review = allocation[:overtime_hours].to_f.positive? && entry.overtime_status != "approved"
+      ot_review = allocation[:overtime_hours].to_f.positive? && !@reviewed_allocation_ids.include?(entry.id)
       eligible -= allocation[:overtime_hours].to_d if ot_review && !allocation[:hold_reason]
       held = [ hold&.hours.to_d || 0.to_d, [ eligible - issued - committed - exported, 0.to_d ].max ].min
       remaining = [ eligible - issued - committed - exported - held, 0.to_d ].max
@@ -238,7 +244,7 @@ module Payroll
         allocation_review_reason: allocation[:hold_reason],
         regular_hours: allocation[:regular_hours].to_f, overtime_hours: allocation[:overtime_hours].to_f,
         worked_hours: round(entry.hours), eligible_hours: round(eligible),
-        pending_hours: allocation[:hold_reason] || entry.approval_status == "pending" || entry.active? || (entry.manual_entry? && entry.approval_status.nil?) ? round(entry.hours) : (ot_review && entry.overtime_status == "pending" ? allocation[:overtime_hours] : 0),
+        pending_hours: allocation[:hold_reason] || entry.approval_status == "pending" || entry.active? || (entry.manual_entry? && entry.approval_status.nil?) ? round(entry.hours) : (ot_review && entry.overtime_status != "denied" ? allocation[:overtime_hours] : 0),
         denied_hours: entry.approval_status == "denied" ? round(entry.hours) : (ot_review && entry.overtime_status == "denied" ? allocation[:overtime_hours] : 0),
         issued_hours: round(issued), committed_hours: round(committed), exported_hours: round(exported),
         held_hours: round(held), needs_reconciliation_hours: round(remaining), accounting_correction_hours: round(matching.select { |line| line[:accounting_only] }.sum { |line| line[:total_hours].to_d }), payment_attestation: hold&.reason }

@@ -878,6 +878,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
     it "approves all selected pending entries for an admin" do
       manual_export = create_protecting_export(pending_manual_entry)
       overtime_export = create_protecting_export(pending_overtime_entry)
+      expect(Payroll::AffectedOvertimeReview).to receive(:reconcile).once.and_call_original
 
       post "/api/v1/time_entries/bulk_approve",
            params: { entry_ids: [ pending_manual_entry.id, pending_overtime_entry.id ] },

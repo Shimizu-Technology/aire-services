@@ -373,9 +373,18 @@ class TimeClockService
 
       entry.with_lock do
         raise ClockError, TimeEntry::ADMINISTRATOR_CORRECTION_NOTE if entry.needs_administrator_correction?
+        if entry.allocation_contract_version.nil?
+          Payroll::AffectedOvertimeReview.around(entry, force: true) { nil }
+        end
         raise ClockError, "Entry does not have pending overtime" unless entry.overtime_status == "pending"
 
+        allocation = Payroll::AffectedOvertimeReview.allocation_for(entry)
+        if allocation.nil? || allocation[:hold_reason]
+          raise ClockError, "Confirm worked time and overnight break placement before approving overtime"
+        end
         entry.update!(
+          allocation_contract_version: Payroll::WeeklyOvertimeAllocator::CONTRACT_VERSION,
+          overtime_allocation_signature: Payroll::AffectedOvertimeReview.signature(entry, allocation),
           overtime_status: "approved",
           overtime_approved_by: approved_by,
           overtime_approved_at: Time.current,

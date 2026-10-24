@@ -17,8 +17,9 @@ module Payroll
                  payment_method:, payment_reference:, payment_effective_on:, occurred_at:,
                  payroll_payment_event_type:, payroll_payment_event_id:, expected_weekly_context_fingerprint:, reason:)
       ApplicationRecord.transaction do
-        entry = TimeEntry.lock.find(attestation.time_entry_id)
-        entry.association(:user).target = User.lock.find(entry.user_id)
+        entry = TimeEntry.find(attestation.time_entry_id)
+        entry.lock!
+        entry.association(:user).target = User.find(entry.user_id)
         attestation.association(:time_entry).target = entry
         attestation.association(:user).target = entry.user
         unless attestation.status == "pending_evidence" && entry.id.to_s == source_time_entry_id.to_s &&

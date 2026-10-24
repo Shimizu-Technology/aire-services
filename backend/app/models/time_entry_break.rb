@@ -25,7 +25,7 @@ class TimeEntryBreak < ApplicationRecord
 
   def recompute_affected_overtime(&block)
     source = time_entry
-    Payroll::AffectedOvertimeReview.around(source) do
+    Payroll::AffectedOvertimeReview.around(source, force: true) do
       result = block.call
       # The DB break trigger advances the source version even when no scalar
       # minutes changed. Keep the owning in-memory record usable in its outer

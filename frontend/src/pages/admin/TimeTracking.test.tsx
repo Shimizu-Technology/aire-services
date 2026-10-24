@@ -888,4 +888,20 @@ describe('TimeTracking routed report periods', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     expect(await screen.findByRole('heading', { name: 'Edit Time Entry' })).toBeInTheDocument()
   })
+  it.each([0, 2])('shows every readiness cause with %i missing categories and an interval hold', async (missing) => {
+    const report = makeHoursReport('2026-08-01', '2026-08-15', 4)
+    report.ready = false
+    report.summary = { ...report.summary, allocation_hold_count: 1, uncategorized_count: missing }
+    apiMock.getHoursReport.mockResolvedValue({ data: report })
+    render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}><TimeRouteHarness /></MemoryRouter>)
+    await screen.findByText('Action required before cutoff')
+    expect(screen.getByText(/Overnight time or break placement needs administrator review/)).toBeInTheDocument()
+    if (missing > 0) {
+      expect(screen.getByText(/2 approved entries are missing a work category/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Show entries missing categories' })).toBeInTheDocument()
+    } else {
+      expect(screen.queryByRole('button', { name: 'Show entries missing categories' })).not.toBeInTheDocument()
+    }
+  })
+
 })

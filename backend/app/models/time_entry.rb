@@ -3,13 +3,13 @@
 class TimeEntry < ApplicationRecord
   attr_accessor :payroll_break_chronology, :skip_overtime_recomputation
   around_save :recompute_affected_overtime
-  around_destroy :recompute_affected_overtime, prepend: true
+  around_destroy :recompute_destroyed_overtime, prepend: true
 
   # Services which already require a row lock must acquire the employee lock
   # first, just like direct saves, so concurrent approvals cannot deadlock.
-  def with_lock(*args, **options, &block)
+  def lock!(lock = true)
     self.class.transaction do
-      Payroll::AffectedOvertimeReview.lock([ user_id ]) { super(*args, **options, &block) }
+      Payroll::AffectedOvertimeReview.lock([ user_id, attribute_in_database("user_id") ]) { super(lock) }
     end
   end
 
@@ -206,6 +206,10 @@ class TimeEntry < ApplicationRecord
 
   def recompute_affected_overtime(&block)
     Payroll::AffectedOvertimeReview.around(self, &block)
+  end
+
+  def recompute_destroyed_overtime(&block)
+    Payroll::AffectedOvertimeReview.around(self, force: true, &block)
   end
 
   def time_calculation_required?

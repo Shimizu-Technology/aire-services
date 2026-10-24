@@ -168,6 +168,10 @@ module Api
               PayrollEntryProcessingEvent.transaction do
                 # Every receipt for this exact frozen line shares its lock, so
                 # cancellation cannot race a replacement's issue receipt.
+                ::Payroll::AffectedOvertimeReview.lock_users!([
+                  batch_entry.source_user_id,
+                  TimeEntry.where(id: source_time_entry_id).pick(:user_id)
+                ])
                 batch_entry.lock!
                 event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
                 next if event

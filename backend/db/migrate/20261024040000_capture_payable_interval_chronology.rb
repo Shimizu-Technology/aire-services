@@ -2,11 +2,13 @@
 
 class CapturePayableIntervalChronology < ActiveRecord::Migration[8.1]
   def up
+    # Bound acquisition before the first ALTER, and cap the observation write.
+    execute "SET LOCAL lock_timeout = '5s'"
+    execute "SET LOCAL statement_timeout = '60s'"
     add_column :payroll_batches, :allocation_contract_version, :string
     add_column :time_entries, :overtime_allocation_signature, :jsonb
     add_column :time_entries, :allocation_contract_version, :string
     execute <<~SQL
-      SET LOCAL lock_timeout = '5s';
       LOCK TABLE time_entries, time_entry_breaks IN SHARE ROW EXCLUSIVE MODE;
       CREATE OR REPLACE FUNCTION capture_payroll_time_entry_revision()
       RETURNS trigger AS $$

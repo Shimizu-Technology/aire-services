@@ -2204,9 +2204,10 @@ export default function TimeTracking() {
               </div>
               <p className="mt-1 text-sm leading-relaxed">
                 {!hoursReport.ready
-                  ? reportSummary.allocation_hold_count
-                    ? 'Overnight time or break placement needs administrator review. These hours and their affected workweeks are held from payroll until the intervals can be confirmed.'
-                    : `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before finalizing the cutoff.`
+                  ? [
+                    reportSummary.allocation_hold_count ? 'Overnight time or break placement needs administrator review. These hours and their affected workweeks are held from payroll until the intervals can be confirmed.' : null,
+                    reportSummary.uncategorized_count > 0 ? `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before finalizing the cutoff.` : null,
+                  ].filter(Boolean).join(' ')
                   : excludedEntryCount > 0
                     ? [
                       reportSummary.pending_count > 0 ? `${reportSummary.pending_count} pending` : null,
@@ -2217,7 +2218,7 @@ export default function TimeTracking() {
                     ].filter(Boolean).join(', ') + '. These entries remain tracked but are not included in this cutoff; later approvals carry into the next cutoff.'
                     : 'All included hours have work categories. No pending, denied, or open entries were found for this period.'}
               </p>
-              {!hoursReport.ready && (
+              {!hoursReport.ready && reportSummary.uncategorized_count > 0 && (
                 <button type="button" onClick={() => setReportFilters({ ...reportFilters, time_category_id: 'uncategorized' })} className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-800 transition hover:bg-red-100">
                   Show entries missing categories
                 </button>

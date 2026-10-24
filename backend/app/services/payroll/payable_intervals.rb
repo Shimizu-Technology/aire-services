@@ -30,10 +30,7 @@ module Payroll
 
       from, to = interval
       if from.to_date == (to - 0.000001).to_date
-        seconds = (to.to_r - from.to_r).to_d - entry.break_minutes.to_i * 60
-        segment = scalar(entry)
-        segment[:seconds] = seconds if (seconds / 3600).round(2) == entry.hours.to_d.round(2)
-        return [ segment ]
+        return [ scalar(entry) ]
       end
 
       # Revision states explicitly mark missing historical break chronology.
@@ -66,6 +63,21 @@ module Payroll
         # minute. Reconcile only that documented rounding envelope.
         difference = (result.sum { |s| s[:seconds] } / 3600 - entry.hours.to_d).abs
         return [ scalar(entry).merge(hold_reason: "interval_total_requires_review") ] if difference > (breaks.size + 1).to_d / 120
+      end
+      # Weekly capacity uses the paid-hours unit. Preserve exact interval
+      # proportions, scaling their seconds before applying the weekly cap.
+      exact_total = result.sum { |segment| segment[:seconds] }
+      paid_seconds = entry.hours.to_d.round(2) * 3600
+      normalized = 0.to_d
+      result.each_with_index do |segment, index|
+        segment[:seconds] = if index == result.size - 1
+          paid_seconds - normalized
+        elsif exact_total.zero?
+          0.to_d
+        else
+          paid_seconds * segment[:seconds] / exact_total
+        end
+        normalized += segment[:seconds]
       end
       result
     end

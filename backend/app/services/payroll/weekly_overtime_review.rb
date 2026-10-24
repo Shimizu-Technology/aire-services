@@ -40,7 +40,7 @@ module Payroll
           records.to_json
         ])
         TimeEntry.countable.joins(join_sql).includes(:time_entry_breaks).distinct.to_a
-      end
+      end.uniq(&:id)
     end
     private_class_method :context_for
   end

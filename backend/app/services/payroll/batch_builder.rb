@@ -34,6 +34,7 @@ module Payroll
       prior_rows, prior_by_entry, deleted_prior_rows, affected_pairs = expand_prior_rows(seed_entries, prior_rows)
       context_entries = context_entries_for(affected_pairs)
       allocations = overtime_allocations(context_entries)
+      @legacy_allocations = AffectedOvertimeReview.allocations(context_entries, legacy: true)
       settlement_ids = settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
       preload_first_exclusion_references(settlement_ids)
       preload_manual_allocations(settlement_ids)
@@ -50,7 +51,9 @@ module Payroll
 
         if entry
           allocation = allocations.fetch(entry.id, {})
-          legacy_history = allocation_contract_version && entry.allocation_contract_version.nil? &&
+          reviewed_current = entry.allocation_contract_version == allocation_contract_version &&
+            entry.overtime_allocation_signature == AffectedOvertimeReview.signature(entry, allocation)
+          legacy_history = allocation_contract_version && !reviewed_current &&
             entry_prior_rows.any? { |row| row.payroll_batch.allocation_contract_version.nil? } &&
             allocation_differs_from_history?(entry, allocation, entry_prior_rows)
           if allocation[:hold_reason] || legacy_history
@@ -146,12 +149,13 @@ module Payroll
       # unchanged paid entries under today's overtime/category rules. Seed only
       # new or changed entries; related old entries are pulled in below when a
       # real source change affects their employee/week.
-      represented_ids = PayrollBatchEntry.where(source_time_entry_id: nominal.map(&:id))
-        .distinct.pluck(:source_time_entry_id).to_set
+      represented_dates = PayrollBatchEntry.where(source_time_entry_id: nominal.map(&:id))
+        .distinct.pluck(:source_time_entry_id, :work_date).to_set
+      represented_ids = represented_dates.map(&:first).to_set
       nominal.reject! do |entry|
         represented_ids.include?(entry.id) && entry.updated_at <= latest_batch.cutoff_at &&
           PayableIntervals.segments(entry).select { |s| s[:work_date].between?(start_date, end_date) }.all? do |segment|
-            PayrollBatchEntry.where(source_time_entry_id: entry.id, work_date: segment[:work_date]).exists?
+            represented_dates.include?([ entry.id, segment[:work_date] ])
           end
       end
       if calendar_period
@@ -413,7 +417,8 @@ module Payroll
       end
       return [ zero_hours, [] ] unless base_approved?(entry)
 
-      overtime_reason = if entry.overtime_status.in?([ nil, "none", "pending" ])
+      review_matches = AffectedOvertimeReview.approval_valid?(entry, allocation, legacy_allocation: @legacy_allocations[entry.id])
+      overtime_reason = if !review_matches && entry.overtime_status != "denied"
         "pending_overtime"
       elsif entry.overtime_status == "denied"
         "denied_overtime"
