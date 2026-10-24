@@ -54,6 +54,29 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
       .entries_for_ids([ overnight.id ]).sole.time_entry_breaks).to be_empty
   end
 
+  it "records UTC break chronology and cutoff states in a non-UTC SQL session" do
+    connection = ApplicationRecord.connection
+    connection.execute("SET LOCAL TimeZone = 'America/New_York'")
+    before_insert = connection.select_value("SELECT clock_timestamp()")
+    overnight = shift(sunday - 1, 22, 4, break_minutes: 60)
+    brk = overnight.time_entry_breaks.create!(start_time: zone.parse("2026-10-17 23:30"), end_time: zone.parse("2026-10-18 00:30"))
+    inserted_at = connection.select_value("SELECT clock_timestamp()")
+    connection.execute("UPDATE time_entry_breaks SET start_time = '2026-10-17 14:30:00', end_time = '2026-10-17 15:30:00' WHERE id = #{brk.id}")
+    updated_at = connection.select_value("SELECT clock_timestamp()")
+    expect(overnight.reload.updated_at).to be_between(inserted_at, updated_at)
+    connection.execute("DELETE FROM time_entry_breaks WHERE id = #{brk.id}")
+    deleted_at = connection.select_value("SELECT clock_timestamp()")
+    expect(overnight.reload.updated_at).to be_between(updated_at, deleted_at)
+    expect(PayrollTimeEntryRevision.where(source_time_entry_id: overnight.id).pluck(:recorded_at))
+      .to all(be_between(before_insert, deleted_at))
+    inserted = Payroll::TimeEntryRevisionLedger.new(cutoff_at: inserted_at).entries_for_ids([ overnight.id ]).sole
+    updated = Payroll::TimeEntryRevisionLedger.new(cutoff_at: updated_at).entries_for_ids([ overnight.id ]).sole
+    deleted = Payroll::TimeEntryRevisionLedger.new(cutoff_at: deleted_at).entries_for_ids([ overnight.id ]).sole
+    expect(inserted.time_entry_breaks.sole.start_time).to eq(zone.parse("2026-10-17 23:30"))
+    expect(updated.time_entry_breaks.sole.start_time).to eq(zone.parse("2026-10-18 00:30"))
+    expect(deleted.time_entry_breaks).to be_empty
+  end
+
   it "moves Friday into the queue after Sunday approval and preserves unchanged review evidence" do
     earlier = shift(sunday, 8, 8, approval_status: "pending")
     weekdays = 5.times.map { |i| shift(sunday + 1 + i, 8, 8) }

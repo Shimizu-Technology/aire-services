@@ -37,7 +37,7 @@ class CapturePayableIntervalChronology < ActiveRecord::Migration[8.1]
           source_row.user_id,
           source_row.work_date,
           source_deleted,
-          clock_timestamp(),
+          (clock_timestamp() AT TIME ZONE 'UTC'),
           jsonb_build_object(
             'time_entry', to_jsonb(source_row),
             'breaks', COALESCE((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.start_time, b.id) FROM time_entry_breaks b WHERE b.time_entry_id = source_row.id), '[]'::jsonb),
@@ -74,11 +74,13 @@ class CapturePayableIntervalChronology < ActiveRecord::Migration[8.1]
       BEGIN
         -- Touching the source creates a new immutable entry+break snapshot at
         -- the database clock, including break-only inserts/updates/deletes.
+        -- Rails timestamp-without-time-zone columns store UTC instants even
+        -- when a direct SQL writer changes the session TimeZone.
         IF TG_OP <> 'INSERT' THEN
-          UPDATE time_entries SET updated_at = clock_timestamp(), lock_version = lock_version + 1 WHERE id = OLD.time_entry_id;
+          UPDATE time_entries SET updated_at = (clock_timestamp() AT TIME ZONE 'UTC'), lock_version = lock_version + 1 WHERE id = OLD.time_entry_id;
         END IF;
         IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND NEW.time_entry_id <> OLD.time_entry_id) THEN
-          UPDATE time_entries SET updated_at = clock_timestamp(), lock_version = lock_version + 1 WHERE id = NEW.time_entry_id;
+          UPDATE time_entries SET updated_at = (clock_timestamp() AT TIME ZONE 'UTC'), lock_version = lock_version + 1 WHERE id = NEW.time_entry_id;
         END IF;
         RETURN NULL;
       END;

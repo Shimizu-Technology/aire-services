@@ -92,7 +92,7 @@ RSpec.describe "Interval batch history and receipts", type: :request do
     connection.remove_column(:time_entries, :allocation_contract_version)
     connection.execute("UPDATE time_entries SET updated_at = updated_at WHERE id = #{overnight.id}")
     pre_upgrade_cutoff = connection.select_value("SELECT clock_timestamp()")
-    load Rails.root.join("db/migrate/20261024010000_capture_payable_interval_chronology.rb")
+    load Rails.root.join("db/migrate/20261024040000_capture_payable_interval_chronology.rb")
     ActiveRecord::Migration.suppress_messages { CapturePayableIntervalChronology.new.up }
     [ TimeEntry, PayrollBatch, PayrollCalendarPeriod ].each(&:reset_column_information)
     expect(frozen_bytes(batch)).to eq(original)

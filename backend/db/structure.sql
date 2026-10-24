@@ -33,11 +33,13 @@ CREATE FUNCTION public.capture_payroll_break_revision() RETURNS trigger
 BEGIN
   -- Touching the source creates a new immutable entry+break snapshot at
   -- the database clock, including break-only inserts/updates/deletes.
+  -- Rails timestamp-without-time-zone columns store UTC instants even
+  -- when a direct SQL writer changes the session TimeZone.
   IF TG_OP <> 'INSERT' THEN
-    UPDATE time_entries SET updated_at = clock_timestamp(), lock_version = lock_version + 1 WHERE id = OLD.time_entry_id;
+    UPDATE time_entries SET updated_at = (clock_timestamp() AT TIME ZONE 'UTC'), lock_version = lock_version + 1 WHERE id = OLD.time_entry_id;
   END IF;
   IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND NEW.time_entry_id <> OLD.time_entry_id) THEN
-    UPDATE time_entries SET updated_at = clock_timestamp(), lock_version = lock_version + 1 WHERE id = NEW.time_entry_id;
+    UPDATE time_entries SET updated_at = (clock_timestamp() AT TIME ZONE 'UTC'), lock_version = lock_version + 1 WHERE id = NEW.time_entry_id;
   END IF;
   RETURN NULL;
 END;
@@ -78,7 +80,7 @@ BEGIN
     source_row.user_id,
     source_row.work_date,
     source_deleted,
-    clock_timestamp(),
+    (clock_timestamp() AT TIME ZONE 'UTC'),
     jsonb_build_object(
       'time_entry', to_jsonb(source_row),
       'breaks', COALESCE((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.start_time, b.id) FROM time_entry_breaks b WHERE b.time_entry_id = source_row.id), '[]'::jsonb),
@@ -5064,7 +5066,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
-('20261024010000'),
+('20261024040000'),
 ('20261013010000'),
 ('20261011010000'),
 ('20261007010000'),
