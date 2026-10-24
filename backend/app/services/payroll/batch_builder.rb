@@ -11,12 +11,17 @@ module Payroll
 
     attr_reader :start_date, :end_date, :cutoff_at, :batch_reference, :calendar_period
 
-    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil)
+    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil, source_entry_ids: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @cutoff_at = cutoff_at
       @batch_reference = batch_reference
       @calendar_period = calendar_period
+      # Supplemental claims use live source state and the whole affected week,
+      # but export only the explicitly selected entries. Scheduled cutoffs keep
+      # their revision-ledger and named-destination semantics.
+      @source_entry_ids = source_entry_ids&.map(&:to_i)&.to_set
+      raise ArgumentError, "selected source entries require live context" if @source_entry_ids && calendar_period
       if calendar_period && !WeeklyOvertimeAllocator.supported_policy?(calendar_period.overtime_policy)
         raise PolicyUnavailableError, "This calendar has no supported frozen overtime policy; weekly-only policy review is required; republish it before cutoff or arrange an operator-reviewed correction"
       end
@@ -27,7 +32,7 @@ module Payroll
     end
 
     def call
-      latest_batch = PayrollBatch.order(cutoff_at: :desc, id: :desc).first
+      latest_batch = PayrollBatch.regular.order(cutoff_at: :desc, id: :desc).first
       seed_entries, deleted_entry_ids = settlement_seed_entries(latest_batch)
       candidate_entry_ids = seed_entries.map(&:id) + deleted_entry_ids
       prior_rows = prior_rows_for_entry_ids(candidate_entry_ids)
@@ -36,6 +41,7 @@ module Payroll
       allocations = overtime_allocations(context_entries)
       @legacy_allocations = AffectedOvertimeReview.allocations(context_entries, legacy: true)
       settlement_ids = settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
+      settlement_ids &= @source_entry_ids if @source_entry_ids
       preload_first_exclusion_references(settlement_ids)
       preload_manual_allocations(settlement_ids)
       preload_payment_attestations(settlement_ids)
@@ -74,7 +80,7 @@ module Payroll
             blocking[:missing_category_count] += 1 if resolved_time_category(entry).nil?
           end
           if allocation[:segments] && base_approved?(entry) && payable_at_cutoff?(entry) && !@payment_attestations_by_entry.key?(entry.id)
-            segments = allocation[:segments].select { |segment| segment[:work_date] <= end_date }
+            segments = allocation[:segments].select { |segment| @source_entry_ids || segment[:work_date] <= end_date }
             targets = segments.to_h do |segment|
               ot = target[:overtime_hours].positive? ? segment[:overtime_hours].to_d : 0.to_d
               hours = { regular_hours: segment[:regular_hours].to_d, overtime_hours: ot,
@@ -131,6 +137,8 @@ module Payroll
     end
 
     def settlement_seed_entries(latest_batch)
+      return [ staff_entries.where(id: @source_entry_ids.to_a).includes(:time_entry_breaks).to_a, [] ] if @source_entry_ids
+
       nominal = if revision_ledger?
         frozen_entries = revision_ledger.entries_in_range(start_date..end_date)
         late_entries = revision_ledger.entries_created_after_cutoff_in_range(start_date..end_date)
@@ -149,7 +157,7 @@ module Payroll
       # unchanged paid entries under today's overtime/category rules. Seed only
       # new or changed entries; related old entries are pulled in below when a
       # real source change affects their employee/week.
-      represented_dates = PayrollBatchEntry.where(source_time_entry_id: nominal.map(&:id))
+      represented_dates = PayrollBatchEntry.effective.where(source_time_entry_id: nominal.map(&:id))
         .distinct.pluck(:source_time_entry_id, :work_date).to_set
       represented_ids = represented_dates.map(&:first).to_set
       nominal.reject! do |entry|
@@ -180,7 +188,7 @@ module Payroll
         .where("time_entries.work_date < ? AND time_entries.updated_at > ?", start_date, latest_cutoff)
         .to_a
       changed_prior = staff_entries
-        .where(id: PayrollBatchEntry.select(:source_time_entry_id))
+        .where(id: PayrollBatchEntry.effective.select(:source_time_entry_id))
         .where("time_entries.updated_at > ?", latest_cutoff)
         .to_a
       deleted_entry_ids = AuditLog
@@ -248,12 +256,12 @@ module Payroll
       ids = entry_ids.compact.uniq
       return [] if ids.empty?
 
-      PayrollBatchEntry.includes(:payroll_batch).where(source_time_entry_id: ids).to_a
+      PayrollBatchEntry.effective.includes(:payroll_batch).where(source_time_entry_id: ids).to_a
     end
 
     def prior_rows_for_pairs(pairs)
       pair_batches(pairs).flat_map do |pair_batch|
-        PayrollBatchEntry
+        PayrollBatchEntry.effective
           .joins(pair_join_sql(pair_batch, user_column: "source_user_id") do
             <<~SQL
               ON affected_pairs.source_user_id = payroll_batch_entries.source_user_id
@@ -641,6 +649,7 @@ module Payroll
 
     def source_kind(entry, has_prior)
       return "correction" if has_prior
+      return "carryover" if @source_entry_ids
       return "carryover" if entry.work_date < start_date
 
       "current"

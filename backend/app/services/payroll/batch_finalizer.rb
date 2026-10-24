@@ -218,7 +218,7 @@ module Payroll
     end
 
     def reject_overlapping_batch!
-      overlap = PayrollBatch.where("start_date <= ? AND end_date >= ?", end_date, start_date).first
+      overlap = PayrollBatch.regular.where("start_date <= ? AND end_date >= ?", end_date, start_date).first
       return unless overlap
 
       raise ExistingBatchError, "Payroll batch #{overlap.public_id} already covers part of this period"
@@ -227,7 +227,7 @@ module Payroll
     def reject_out_of_order_automated_batch!(cutoff)
       return unless automated_cutoff
 
-      later_batch = PayrollBatch.where("cutoff_at > ?", cutoff).order(:cutoff_at, :id).first
+      later_batch = PayrollBatch.regular.where("cutoff_at > ?", cutoff).order(:cutoff_at, :id).first
       return unless later_batch
 
       raise OutOfOrderFinalizationError,

@@ -481,7 +481,7 @@ module Payroll
             .where("start_date <= ? AND end_date >= ?", date, date)
             .pluck(:id)
         end
-        represented_batch_ids = PayrollBatchEntry.where(source_time_entry_id: entry.id).pluck(:payroll_batch_id)
+        represented_batch_ids = PayrollBatchEntry.effective.where(source_time_entry_id: entry.id).pluck(:payroll_batch_id)
         represented_batch_ids.concat(PayrollBatchExclusion.where(source_time_entry_id: entry.id).pluck(:payroll_batch_id))
         period_ids.concat(PayrollCalendarPeriod.where(status: "finalized", payroll_batch_id: represented_batch_ids).pluck(:id))
         PayrollCalendarPeriod

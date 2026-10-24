@@ -36,7 +36,7 @@ module Payroll
             !attestation.source_changed? && hours!(regular_hours) + hours!(overtime_hours) == attestation.hours.to_d
           raise Error, "Resolve the unchanged complete payment report before linking its issued evidence"
         end
-        if PayrollBatchEntry.exists?(source_time_entry_id: entry.id) || PayrollManualAllocation.active.exists?(time_entry_id: entry.id)
+        if PayrollBatchEntry.effective.exists?(source_time_entry_id: entry.id) || PayrollManualAllocation.active.exists?(time_entry_id: entry.id)
           raise Error, "Reported source hours already have payroll coverage; review before resolving"
         end
         create_allocation!(entry: entry, regular_hours: regular_hours, overtime_hours: overtime_hours,
@@ -191,25 +191,9 @@ module Payroll
     end
 
     def reject_pending_cutoff_claim!(entry, reservation_recorded_at = nil)
-      now = ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()")
-      PayrollCalendarPeriod.where.not(status: "finalized").where("cutoff_at <= ?", now).order(:cutoff_at, :id).each do |period|
-        next if reservation_recorded_at && period.cutoff_at >= reservation_recorded_at
-
-        frozen_entry = TimeEntryRevisionLedger.new(cutoff_at: period.cutoff_at).entries_for_ids([ entry.id ]).first
-        range = period.start_date..period.end_date
-        relevant = PayableIntervals.overlaps?(entry, range) ||
-          (frozen_entry && PayableIntervals.overlaps?(frozen_entry, range)) ||
-          PayrollSettlementCase.active.exists?(target_payroll_calendar_period: period, source_time_entry_id: entry.id)
-        next unless relevant
-
-        result = BatchBuilder.new(start_date: period.start_date, end_date: period.end_date,
-          cutoff_at: period.cutoff_at, calendar_period: period).call
-        next unless result.fetch(:rows).any? { |row| row[:source_time_entry_id] == entry.id && row[:total_hours].positive? }
-
-        raise ClaimConflictError, "Payroll cutoff #{period.external_pay_period_id} is due. Lock that cutoff and reconcile its frozen hours before committing this manual claim"
-      end
-    rescue TimeEntryRevisionLedger::CoverageError, ManualAllocationLedger::CoverageError, BatchBuilder::PolicyUnavailableError => e
-      raise ClaimConflictError, "Payroll cutoff requires reconciliation before a manual claim: #{e.message}"
+      PendingCutoffClaimGuard.call!(entry: entry, reservation_recorded_at: reservation_recorded_at)
+    rescue PendingCutoffClaimGuard::ConflictError => e
+      raise ClaimConflictError, e.message
     end
 
     def create_allocation!(entry:, regular_hours:, overtime_hours:, external_pay_period_id:, external_payroll_item_id:, pay_date:, reason:)
@@ -228,7 +212,7 @@ module Payroll
       reject_pending_cutoff_claim!(entry)
       expected = weekly_split(entry)
       existing = PayrollManualAllocation.active.where(time_entry_id: entry.id)
-      batch_rows = PayrollBatchEntry.where(source_time_entry_id: entry.id)
+      batch_rows = PayrollBatchEntry.effective.where(source_time_entry_id: entry.id)
       if batch_rows.sum(:regular_hours).to_d + existing.sum(:regular_hours).to_d + regular > expected.fetch(:regular_hours) ||
          batch_rows.sum(:overtime_hours).to_d + existing.sum(:overtime_hours).to_d + overtime > expected.fetch(:overtime_hours)
         raise Error, "These hours exceed the AIRE regular or overtime hours still owed for this time entry"
@@ -372,7 +356,7 @@ module Payroll
       return settlement_case.held_total_hours.to_d unless released
 
       entry = TimeEntry.find(settlement_case.source_time_entry_id)
-      represented = PayrollBatchEntry.where(source_time_entry_id: entry.id).sum(:total_hours).to_d
+      represented = PayrollBatchEntry.effective.where(source_time_entry_id: entry.id).sum(:total_hours).to_d
       # Retained payments belong to the whole unexported source obligation;
       # they cannot on their own close a smaller newly released component.
       [ entry.hours.to_d - represented, 0.to_d ].max

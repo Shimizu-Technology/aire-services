@@ -10,7 +10,7 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :batch_not_found
 
         def index
-          scope = PayrollBatch.order(finalized_at: :desc)
+          scope = PayrollBatch.regular.order(finalized_at: :desc)
           scope = scope.where(start_date: Date.iso8601(params[:start_date])) if params[:start_date].present?
           scope = scope.where(end_date: Date.iso8601(params[:end_date])) if params[:end_date].present?
           batches = scope.limit(100).to_a
@@ -48,6 +48,8 @@ module Api
 
         def show
           batch = PayrollBatch.find_by!(public_id: params[:id])
+          return render json: { error: "This supplemental claim was canceled before application", status: "canceled" }, status: :gone if batch.late_hours_canceled?
+
           AuditLog.record!(
             action: "payroll_batch.retrieved",
             actor: nil,
@@ -100,6 +102,9 @@ module Api
           if permitted[:source_time_entry_id].present?
             return record_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata)
           end
+          if batch.payload["purpose"] == "supplemental"
+            return render json: { error: "Supplemental payroll requires exact frozen line receipts" }, status: :unprocessable_entity
+          end
 
           event = PayrollBatchProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
           created = false
@@ -151,6 +156,33 @@ module Api
         private
 
         def record_entry_processing_event(batch, permitted, occurred_at:, metadata:)
+          return record_frozen_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata) unless batch.payload["purpose"] == "supplemental"
+
+          PayrollBatch.transaction do
+            connection = ActiveRecord::Base.connection
+            connection.execute("SET LOCAL lock_timeout = '5s'")
+            connection.execute("SELECT pg_advisory_xact_lock(#{::Payroll::BatchFinalizer::ADVISORY_LOCK_KEY})")
+            if batch.late_hours_canceled?
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "This supplemental claim was canceled before application"
+            end
+            record_frozen_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata)
+          end
+        rescue ::Payroll::EntryProcessingSummary::LineConflictError, ActiveRecord::LockWaitTimeout => e
+          render json: { error: e.message }, status: :conflict
+        end
+
+        def record_frozen_entry_processing_event(batch, permitted, occurred_at:, metadata:)
+          if batch.payload["purpose"] == "supplemental"
+            unless permitted[:external_system] == "cornerstone_payroll" &&
+                permitted[:contract_version] == PayrollEntryProcessingEvent::LINE_CONTRACT_VERSION &&
+                permitted[:source_user_uuid].present? && permitted[:external_payroll_item_id].present?
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Supplemental receipts require the named payroll and exact frozen line contract"
+            end
+            if permitted[:status] == "payment_issued" &&
+                (!permitted[:payment_method].in?(%w[paper_check direct_deposit]) || permitted[:payment_reference].blank?)
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Supplemental issuance requires exact payment evidence"
+            end
+          end
           source_time_entry_id = parse_source_time_entry_id(permitted.fetch(:source_time_entry_id))
           line_attributes = payable_line_attributes!(batch, source_time_entry_id, permitted)
           batch_entry = line_attributes.delete(:batch_entry) || batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)
@@ -165,7 +197,7 @@ module Api
           created = false
           unless event
             begin
-              PayrollEntryProcessingEvent.transaction do
+              PayrollEntryProcessingEvent.transaction(requires_new: true) do
                 # Every receipt for this exact frozen line shares its lock, so
                 # cancellation cannot race a replacement's issue receipt.
                 ::Payroll::AffectedOvertimeReview.lock_users!([
@@ -176,8 +208,9 @@ module Api
                 event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
                 next if event
 
+                validate_supplemental_owner!(batch, batch_entry, permitted) if batch.payload["purpose"] == "supplemental"
                 correction = ::Payroll::ObligationCorrectionRecorder.call!(row: batch_entry, attributes: permitted, occurred_at: occurred_at)
-                if (action_name == "obligation_events") != correction.present?
+                if receipt_endpoint_mismatch?(correction)
                   raise ::Payroll::EntryProcessingSummary::LineConflictError, "Validated obligation receipts require the dedicated obligation endpoint"
                 end
                 ::Payroll::PaymentCancellationValidator.call!(
@@ -241,7 +274,7 @@ module Api
           end
 
           binding = event.payroll_obligation_correction
-          if (action_name == "obligation_events") != binding.present?
+          if receipt_endpoint_mismatch?(binding)
             raise ::Payroll::EntryProcessingSummary::LineConflictError, "Receipt endpoint does not match its immutable binding"
           end
           if binding && event.status == "committed" && permitted[:obligation_correction].blank?
@@ -268,6 +301,7 @@ module Api
           end
 
           body = { entry_processing: serialize_entry_processing_event(event) }
+          body[:replayed] = !created if batch.payload["purpose"] == "supplemental"
           body[:obligation_correction] = event.payroll_obligation_correction.receipt if event.payroll_obligation_correction
           body[:integration] = ::Payroll::IntegrationProfile.call if event.line_contract? || event.status == "payment_cancelled"
           render json: body, status: created ? :created : :ok
@@ -286,6 +320,26 @@ module Api
             event.external_pay_period_id.to_s == permitted[:external_pay_period_id].to_s &&
             normalized_processing_time(event.occurred_at) == normalized_processing_time(occurred_at) &&
             event.metadata == metadata
+        end
+
+        def receipt_endpoint_mismatch?(binding)
+          (action_name == "obligation_events") != binding.present?
+        end
+
+        def validate_supplemental_owner!(batch, row, permitted)
+          if permitted[:obligation_correction].present?
+            command = permitted[:obligation_correction]
+            assertion = command[:financial_assertion] if command.respond_to?(:key?)
+            unless assertion.respond_to?(:key?) && assertion[:root_pay_period_id] == batch.payload["target_external_pay_period_id"]
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Correction root does not match the original supplemental payroll"
+            end
+            return # The typed recorder validates the immutable predecessor/successor chain under the row lock.
+          end
+          owner = PayrollObligationCorrection.where(payroll_batch_entry: row).order(:id).last
+          expected_period = owner&.successor_pay_period_id || batch.payload["target_external_pay_period_id"]
+          unless permitted[:external_pay_period_id] == expected_period && (!owner || permitted[:external_payroll_item_id] == owner.successor_payroll_item_id)
+            raise ::Payroll::EntryProcessingSummary::LineConflictError, "Supplemental receipts require the named payroll or its validated current corrective owner"
+          end
         end
 
         def same_entry_processing_event?(event, batch, permitted, occurred_at:, metadata:, source_time_entry_id:, source_user_uuid:)

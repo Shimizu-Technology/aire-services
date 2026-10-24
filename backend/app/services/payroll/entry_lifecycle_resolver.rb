@@ -34,7 +34,7 @@ module Payroll
 
       @weekly_overtime_reviews = @provided_weekly_overtime_reviews || WeeklyOvertimeReview.call(entries, context_entries: @overtime_context_entries, allocations: @overtime_allocations)
 
-      rows_by_entry = PayrollBatchEntry
+      rows_by_entry = PayrollBatchEntry.effective
         .includes(payroll_batch: :payroll_batch_processing_events)
         .where(source_time_entry_id: entry_ids)
         .to_a

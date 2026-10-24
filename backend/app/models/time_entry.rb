@@ -50,6 +50,7 @@ class TimeEntry < ApplicationRecord
   validate :held_clock_cannot_be_approved
   before_validation :set_zero_hours_if_clocked_in, if: -> { status.in?(%w[clocked_in on_break]) }
   after_commit :capture_post_cutoff_payroll_case, on: [ :create, :update ], if: :payroll_case_relevant_change?
+  after_update :invalidate_unassigned_payroll_selection
 
   scope :for_date, ->(date) { where(work_date: date) }
   scope :for_week, ->(date) { where(work_date: date.beginning_of_week(:sunday)..date.end_of_week(:sunday)) }
@@ -265,6 +266,13 @@ class TimeEntry < ApplicationRecord
     if end_local <= start_local
       errors.add(:end_time, "must be after start time")
     end
+  end
+
+  # Case versions presented by late-hours discovery must also become stale
+  # after a source edit/approval. Keep the immutable origin version unchanged.
+  def invalidate_unassigned_payroll_selection
+    PayrollSettlementCase.where(source_time_entry_id: id, status: "open", destination_kind: "unassigned")
+      .update_all("lock_version = lock_version + 1")
   end
 
   def completed_manual_entry_has_positive_hours

@@ -22,6 +22,7 @@ module Payroll
       canonical_payload = payload.deep_stringify_keys.except("command_id", "expected_version")
       canonical_payload["reason"] = canonical_payload["reason"].to_s.strip if canonical_payload.key?("reason")
       canonical_payload["decision"] = canonical_payload["decision"].to_s.strip.downcase if canonical_payload.key?("decision")
+      @canonical_payload = canonical_payload
       @request_checksum = CanonicalPayload.checksum(canonical_payload)
     end
 
@@ -29,14 +30,16 @@ module Payroll
       raise InvalidCommandError, "command_id must be a UUID" unless command_id.match?(PayrollIntegrationCommand::UUID_FORMAT)
       raise InvalidCommandError, "expected_version must be a non-negative integer" if expected_version.negative?
 
+      reject_retired_claim!
       existing = PayrollIntegrationCommand.find_by(command_id: command_id)
-      return replay(existing) if existing
+      return replay(existing) if existing && !action.start_with?("payroll_period.late_hours")
 
       receipt = nil
       body = nil
       concurrent_replay = nil
       ActiveRecord::Base.transaction do
         lock_payroll_evidence!
+        reject_retired_claim!
         owner_id = if target.respond_to?(:user_id)
           target.user_id
         elsif target.respond_to?(:source_user_id)
@@ -81,11 +84,25 @@ module Payroll
     # Claim checks and evidence writes must serialize with finalization before
     # either side takes row locks or reads the other side's representation.
     def lock_payroll_evidence!
-      return unless action.start_with?("payroll_manual_allocation.", "payroll_payment_attestation.")
+      return unless action.start_with?("payroll_manual_allocation.", "payroll_payment_attestation.") ||
+        action.start_with?("payroll_period.late_hours") || action == "payroll_settlement_case.route"
 
       connection = ActiveRecord::Base.connection
       connection.execute("SET LOCAL lock_timeout = '5s'")
       connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
+      if action.start_with?("payroll_period.late_hours")
+        connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions IN SHARE MODE")
+      end
+    end
+
+    def reject_retired_claim!
+      return unless action == LateHours::ACTION
+
+      target_id = @canonical_payload["target_external_pay_period_id"]
+      target_id = nil unless target_id.is_a?(String)
+      retired = PayrollLateHoursRetirement.where(original_command_id: command_id)
+        .or(PayrollLateHoursRetirement.where(target_external_pay_period_id: target_id))
+      raise ConflictError, "This late-hours command or destination was retired. Select again with a new command and adjustment." if retired.exists?
     end
 
     def replay(receipt)

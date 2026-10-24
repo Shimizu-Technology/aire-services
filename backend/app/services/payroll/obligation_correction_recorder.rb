@@ -53,7 +53,7 @@ module Payroll
       end
       entry = TimeEntry.find_by(id: row.source_time_entry_id)
       entry&.lock!
-      require!(entry && entry.user_id == row.source_user_id && entry.user.staff? && entry.user.payroll_integration_uuid == row.source_user_uuid && entry.work_date == row.work_date && entry.lock_version == command["source_time_entry_version"] && entry.counts_toward_hours?, "Current source work changed; review its correction separately")
+      require!(entry && entry.user_id == row.source_user_id && entry.user.staff? && entry.user.payroll_integration_uuid == row.source_user_uuid && source_date_matches?(entry) && entry.lock_version == command["source_time_entry_version"] && entry.counts_toward_hours?, "Current source work changed; review its correction separately")
       require!(occurred_at <= Time.current, "Successor receipt cannot be in the future")
       event = events.find { |candidate| candidate.event_id == predecessor["payment_voided_event_id"] }
       require!(event && event.line_contract? && event.source_line_key == row.line_key && event.source_kind == row.source_kind && event.status == "payment_voided" && event.source_user_uuid == row.source_user_uuid && event.external_system == attributes["external_system"] && event.external_pay_period_id == predecessor["external_pay_period_id"] && event.external_payroll_item_id == predecessor["external_payroll_item_id"] && %i[total_hours regular_hours overtime_hours].all? { |key| event.public_send(key) == row.public_send(key) }, "Retained exact financial predecessor void receipt required")
@@ -74,6 +74,13 @@ module Payroll
     private
 
     attr_reader :row, :attributes, :occurred_at
+
+    def source_date_matches?(entry)
+      return entry.work_date == row.work_date unless row.payroll_batch.payload["purpose"] == "supplemental"
+
+      entry.work_date.iso8601 == row.snapshot["work_date"] &&
+        PayableIntervals.segments(entry).any? { |segment| segment[:work_date] == row.work_date && segment[:seconds].positive? && !segment[:hold_reason] }
+    end
 
     def events
       @events ||= row.payroll_batch.payroll_entry_processing_events.where(source_time_entry_id: row.source_time_entry_id, source_line_key: [ row.line_key, nil ]).includes(:payroll_obligation_correction).to_a

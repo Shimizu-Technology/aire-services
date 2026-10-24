@@ -200,7 +200,7 @@ module Payroll
     # commits. No batch lock is needed here: taking it after a period row would
     # invert the evidence-command lock order.
     def reject_frozen_batch_overlap!
-      batch = PayrollBatch.where("start_date <= ? AND end_date >= ?", attributes.fetch(:end_date), attributes.fetch(:start_date)).first
+      batch = PayrollBatch.regular.where("start_date <= ? AND end_date >= ?", attributes.fetch(:end_date), attributes.fetch(:start_date)).first
       return unless batch
 
       raise ConflictError, "Payroll batch #{batch.public_id} already covers part of this period; a published calendar cannot replace its frozen snapshot"

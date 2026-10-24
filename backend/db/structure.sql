@@ -995,6 +995,45 @@ ALTER SEQUENCE public.payroll_integration_grants_id_seq OWNED BY public.payroll_
 
 
 --
+-- Name: payroll_late_hours_retirements; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_late_hours_retirements (
+    id bigint NOT NULL,
+    original_command_id uuid NOT NULL,
+    target_external_pay_period_id character varying NOT NULL,
+    origin_payroll_calendar_period_id bigint NOT NULL,
+    payroll_batch_id bigint,
+    actor_id bigint NOT NULL,
+    status character varying NOT NULL,
+    reason text NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT check_late_hours_retirement_intent CHECK ((((target_external_pay_period_id)::text ~ '^[1-9][0-9]*$'::text) AND (length(TRIM(BOTH FROM reason)) > 0))),
+    CONSTRAINT check_late_hours_retirement_shape CHECK (((((status)::text = 'no_claim'::text) AND (payroll_batch_id IS NULL)) OR (((status)::text = 'canceled'::text) AND (payroll_batch_id IS NOT NULL))))
+);
+
+
+--
+-- Name: payroll_late_hours_retirements_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_late_hours_retirements_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_late_hours_retirements_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_late_hours_retirements_id_seq OWNED BY public.payroll_late_hours_retirements.id;
+
+
+--
 -- Name: payroll_manual_allocation_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2414,6 +2453,13 @@ ALTER TABLE ONLY public.payroll_integration_grants ALTER COLUMN id SET DEFAULT n
 
 
 --
+-- Name: payroll_late_hours_retirements id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_late_hours_retirements ALTER COLUMN id SET DEFAULT nextval('public.payroll_late_hours_retirements_id_seq'::regclass);
+
+
+--
 -- Name: payroll_manual_allocation_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2794,6 +2840,14 @@ ALTER TABLE ONLY public.payroll_integration_commands
 
 ALTER TABLE ONLY public.payroll_integration_grants
     ADD CONSTRAINT payroll_integration_grants_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_late_hours_retirements payroll_late_hours_retirements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_late_hours_retirements
+    ADD CONSTRAINT payroll_late_hours_retirements_pkey PRIMARY KEY (id);
 
 
 --
@@ -3461,6 +3515,20 @@ CREATE INDEX index_employee_pay_rates_on_user_id ON public.employee_pay_rates US
 
 
 --
+-- Name: index_late_hours_retirements_origin; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_late_hours_retirements_origin ON public.payroll_late_hours_retirements USING btree (origin_payroll_calendar_period_id);
+
+
+--
+-- Name: index_late_hours_retirements_target; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_late_hours_retirements_target ON public.payroll_late_hours_retirements USING btree (target_external_pay_period_id);
+
+
+--
 -- Name: index_leave_requests_on_cancelled_by_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3667,7 +3735,14 @@ CREATE UNIQUE INDEX index_payroll_batches_on_public_id ON public.payroll_batches
 -- Name: index_payroll_batches_on_start_date_and_end_date; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX index_payroll_batches_on_start_date_and_end_date ON public.payroll_batches USING btree (start_date, end_date);
+CREATE UNIQUE INDEX index_payroll_batches_on_start_date_and_end_date ON public.payroll_batches USING btree (start_date, end_date) WHERE (COALESCE((payload ->> 'purpose'::text), 'regular'::text) = 'regular'::text);
+
+
+--
+-- Name: index_payroll_batches_supplemental_target; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_batches_supplemental_target ON public.payroll_batches USING btree (((payload ->> 'target_external_pay_period_id'::text))) WHERE ((payload ->> 'purpose'::text) = 'supplemental'::text);
 
 
 --
@@ -3717,6 +3792,27 @@ CREATE UNIQUE INDEX index_payroll_integration_grants_on_token_digest ON public.p
 --
 
 CREATE INDEX index_payroll_integration_grants_on_user_id ON public.payroll_integration_grants USING btree (user_id);
+
+
+--
+-- Name: index_payroll_late_hours_retirements_on_actor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_late_hours_retirements_on_actor_id ON public.payroll_late_hours_retirements USING btree (actor_id);
+
+
+--
+-- Name: index_payroll_late_hours_retirements_on_original_command_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_late_hours_retirements_on_original_command_id ON public.payroll_late_hours_retirements USING btree (original_command_id);
+
+
+--
+-- Name: index_payroll_late_hours_retirements_on_payroll_batch_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_late_hours_retirements_on_payroll_batch_id ON public.payroll_late_hours_retirements USING btree (payroll_batch_id);
 
 
 --
@@ -4511,6 +4607,20 @@ CREATE TRIGGER payroll_integration_commands_prevent_truncate BEFORE TRUNCATE ON 
 
 
 --
+-- Name: payroll_late_hours_retirements payroll_late_hours_retirements_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_late_hours_retirements_append_only BEFORE DELETE OR UPDATE ON public.payroll_late_hours_retirements FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_late_hours_retirements payroll_late_hours_retirements_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_late_hours_retirements_prevent_truncate BEFORE TRUNCATE ON public.payroll_late_hours_retirements FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
 -- Name: payroll_manual_allocation_events payroll_manual_allocation_events_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4649,6 +4759,14 @@ CREATE TRIGGER time_entry_breaks_capture_payroll_revision AFTER INSERT OR DELETE
 
 ALTER TABLE ONLY public.payroll_manual_allocations
     ADD CONSTRAINT fk_manual_allocations_time_category FOREIGN KEY (time_category_id) REFERENCES public.time_categories(id);
+
+
+--
+-- Name: payroll_late_hours_retirements fk_rails_047a230159; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_late_hours_retirements
+    ADD CONSTRAINT fk_rails_047a230159 FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id);
 
 
 --
@@ -4801,6 +4919,14 @@ ALTER TABLE ONLY public.payroll_outbox_events
 
 ALTER TABLE ONLY public.employee_pay_rates
     ADD CONSTRAINT fk_rails_3f5ac92d21 FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: payroll_late_hours_retirements fk_rails_40be8aba10; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_late_hours_retirements
+    ADD CONSTRAINT fk_rails_40be8aba10 FOREIGN KEY (origin_payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id);
 
 
 --
@@ -5052,6 +5178,14 @@ ALTER TABLE ONLY public.time_entries
 
 
 --
+-- Name: payroll_late_hours_retirements fk_rails_b755b58b05; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_late_hours_retirements
+    ADD CONSTRAINT fk_rails_b755b58b05 FOREIGN KEY (actor_id) REFERENCES public.users(id);
+
+
+--
 -- Name: users fk_rails_bb6c1cdd53; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5178,6 +5312,8 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261024070000'),
+('20261024050000'),
 ('20261024040000'),
 ('20261024030000'),
 ('20261024020000'),
