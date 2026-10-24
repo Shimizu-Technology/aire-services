@@ -43,12 +43,12 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
-    "happy-dom": "^20.9.0",
+    "happy-dom": "^21.0.4",
     "jsdom": "^27.4.0",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4",
-    "vitest": "^4.0.17"
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
   }
 }
