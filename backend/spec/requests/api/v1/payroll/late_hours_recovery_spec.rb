@@ -188,10 +188,10 @@ RSpec.describe "Payroll late-hours recovery and conservation", type: :request do
       expect(response).to have_http_status(:created)
       submit_receipt(batch, body, obligation: true)
       expect(response).to have_http_status(:ok)
-      submit_receipt(batch, exact_body(row, status: "payment_prepared", target: "902", item: "1002"))
+      submit_receipt(batch, exact_body(row, status: "payment_prepared", target: "902", item: "1002"), obligation: true)
       expect(response).to have_http_status(:created)
       expect(Payroll::SettlementCaseCompletion.new(settlement_case: held.reload, entry: source.reload).call).to be_nil
-      submit_receipt(batch, exact_body(row, status: "payment_issued", target: "902", item: "1002"))
+      submit_receipt(batch, exact_body(row, status: "payment_issued", target: "902", item: "1002"), obligation: true)
       expect(response).to have_http_status(:created)
     end
     expect(Payroll::SettlementCaseCompletion.new(settlement_case: held.reload, entry: source.reload).call).to eq("paid")
@@ -203,6 +203,51 @@ RSpec.describe "Payroll late-hours recovery and conservation", type: :request do
       submit_receipt(batch, exact_body(row, status: "payment_issued", target: "903", item: "1003"))
       expect(response).to have_http_status(:conflict)
     end
+  end
+
+  it "accepts bound financial callbacks with empty metadata and no repeated typed command on every split date" do
+    overnight!
+    approve!
+    claim!
+    batch = held.reload.included_payroll_batch
+    immutable = batch.attributes
+    rows = batch.payroll_batch_entries.order(:work_date).to_a
+    expect(rows.size).to eq(2)
+    rows.each do |row|
+      receipt!(batch, row, status: "committed")
+      receipt!(batch, row, status: "payment_voided")
+      void_event = batch.payroll_entry_processing_events.where(source_line_key: row.line_key, status: "payment_voided").sole
+      submit_receipt(batch, correction_body(batch, row, void_event), obligation: true)
+      expect(response).to have_http_status(:created)
+      binding = PayrollObligationCorrection.find_by!(payroll_batch_entry: row)
+      %w[payment_prepared payment_issued].each do |status|
+        callback = exact_body(row, status: status, target: "902", item: "1002")
+          .merge(payment_effective_on: database_clock.to_date.iso8601)
+        expect(callback[:metadata]).to eq({})
+        expect(callback).not_to have_key(:obligation_correction)
+        submit_receipt(batch, callback, obligation: true)
+        expect(response).to have_http_status(:created)
+        expect(json.fetch("obligation_correction")).to eq(binding.receipt.deep_stringify_keys)
+        stored = json.fetch("entry_processing")
+        event = PayrollEntryProcessingEvent.find_by!(event_id: callback[:event_id])
+        expect(event.payroll_obligation_correction_id).to eq(binding.id)
+        expect { submit_receipt(batch, callback, obligation: true) }.not_to change(PayrollEntryProcessingEvent, :count)
+        expect(response).to have_http_status(:ok)
+        expect(json).to include("replayed" => true, "entry_processing" => stored)
+        [ callback, callback.merge(event_id: SecureRandom.uuid) ].each do |wrong_endpoint|
+          expect { submit_receipt(batch, wrong_endpoint) }.not_to change(PayrollEntryProcessingEvent, :count)
+          expect(response).to have_http_status(:conflict)
+        end
+        submit_receipt(batch, callback.merge(event_id: SecureRandom.uuid, external_pay_period_id: "901"), obligation: true)
+        expect(response).to have_http_status(:conflict)
+        if status == "payment_prepared"
+          expect(Payroll::SettlementCaseCompletion.new(settlement_case: held.reload, entry: source.reload).call).to be_nil
+        end
+      end
+    end
+    expect(Payroll::SettlementCaseCompletion.new(settlement_case: held.reload, entry: source.reload).call).to eq("paid")
+    expect(PayrollObligationCorrection.count).to eq(2)
+    expect(batch.reload.attributes).to eq(immutable)
   end
 
   it "replays retained original-owner receipts after split-line financial succession without accepting new stale-owner evidence" do

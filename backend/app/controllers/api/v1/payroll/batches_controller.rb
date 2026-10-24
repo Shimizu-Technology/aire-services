@@ -210,7 +210,7 @@ module Api
 
                 validate_supplemental_owner!(batch, batch_entry, permitted) if batch.payload["purpose"] == "supplemental"
                 correction = ::Payroll::ObligationCorrectionRecorder.call!(row: batch_entry, attributes: permitted, occurred_at: occurred_at)
-                if receipt_endpoint_mismatch?(permitted, correction, batch)
+                if receipt_endpoint_mismatch?(correction)
                   raise ::Payroll::EntryProcessingSummary::LineConflictError, "Validated obligation receipts require the dedicated obligation endpoint"
                 end
                 ::Payroll::PaymentCancellationValidator.call!(
@@ -274,7 +274,7 @@ module Api
           end
 
           binding = event.payroll_obligation_correction
-          if receipt_endpoint_mismatch?(permitted, binding, batch)
+          if receipt_endpoint_mismatch?(binding)
             raise ::Payroll::EntryProcessingSummary::LineConflictError, "Receipt endpoint does not match its immutable binding"
           end
           if binding && event.status == "committed" && permitted[:obligation_correction].blank?
@@ -322,10 +322,8 @@ module Api
             event.metadata == metadata
         end
 
-        def receipt_endpoint_mismatch?(permitted, binding, batch)
-          return (action_name == "obligation_events") != binding.present? unless batch.payload["purpose"] == "supplemental"
-
-          (action_name == "obligation_events") != permitted[:obligation_correction].present?
+        def receipt_endpoint_mismatch?(binding)
+          (action_name == "obligation_events") != binding.present?
         end
 
         def validate_supplemental_owner!(batch, row, permitted)
