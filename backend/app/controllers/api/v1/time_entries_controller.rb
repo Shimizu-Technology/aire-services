@@ -667,7 +667,7 @@ module Api
           end_value = raw_params[:end_time].presence || params_hash[:end_time]
           return unless end_value.present?
 
-          start_reference = corrected_start || entry.start_time
+          start_reference = corrected_start || clock_time_on_work_date(entry.start_time, target_work_date)
           corrected_end = clock_time_on_work_date(end_value, target_work_date, after: start_reference)
 
           if corrected_end > Time.current
@@ -699,7 +699,17 @@ module Api
 
       def build_break_update(entry, update_params)
         raw_breaks = params.require(:time_entry)[:breaks]
-        return nil if raw_breaks.nil?
+        if raw_breaks.nil?
+          if entry.time_entry_breaks.exists?
+            submitted_minutes = update_params[:break_minutes].nil? ? nil : update_params[:break_minutes].to_i
+            if update_params.key?(:break_minutes) && submitted_minutes != entry.break_minutes
+              render json: { error: "Edit or remove the detailed breaks to change their total duration" }, status: :unprocessable_entity
+              return nil
+            end
+            validate_retained_breaks(entry, update_params)
+          end
+          return nil
+        end
 
         raw_break_rows = Array(raw_breaks).filter { |raw_break| raw_break.respond_to?(:to_h) || raw_break.respond_to?(:to_unsafe_h) }
         return nil if raw_break_rows.empty? && !entry.time_entry_breaks.exists?
@@ -749,6 +759,22 @@ module Api
       rescue Date::Error, ArgumentError
         render json: { error: "Break times are invalid" }, status: :unprocessable_entity
         nil
+      end
+
+      def validate_retained_breaks(entry, update_params)
+        return if entry.active? || (update_params.keys & %i[work_date start_time end_time]).empty?
+
+        work_date = Date.parse((update_params[:work_date].presence || entry.work_date).to_s)
+        starts_at = time_on_work_date(update_params[:start_time].presence || entry.start_time, work_date)
+        ends_at = time_on_work_date(update_params[:end_time].presence || entry.end_time, work_date, after: starts_at)
+        invalid_break = entry.time_entry_breaks.any? do |row|
+          row.end_time.nil? || row.start_time < starts_at || row.end_time > ends_at
+        end
+        if invalid_break
+          render json: { error: "Breaks must fall within the entry start and end time" }, status: :unprocessable_entity
+        end
+      rescue Date::Error, ArgumentError
+        render json: { error: "Break times are invalid" }, status: :unprocessable_entity
       end
 
       def time_on_work_date(value, work_date, after: nil)

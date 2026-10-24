@@ -351,6 +351,11 @@ describe('precise clock editor payloads', () => {
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description: 'Live note' }, undefined))
   })
+  it('requires detailed breaks to be edited rather than overriding their aggregate', () => {
+    show()
+    expect(screen.getByRole('button', { name: 'None', exact: true })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '1h', exact: true })).toBeDisabled()
+  })
   it('closes an unchanged save without sending an empty patch', async () => {
     show()
     fireEvent.click(screen.getByRole('button', { name: /update/i }))

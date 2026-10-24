@@ -433,6 +433,7 @@ export default function EditTimeEntryModal({
                         <button
                           key={preset.label}
                           type="button"
+                          disabled={breakRows.length > 0}
                           onClick={() => {
                             if (preset.minutes === -1) {
                               setFormData({ ...formData, break_minutes: formData.break_minutes || 0 })
@@ -440,7 +441,7 @@ export default function EditTimeEntryModal({
                               setFormData({ ...formData, break_minutes: preset.minutes })
                             }
                           }}
-                          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                             (preset.minutes === null && formData.break_minutes === null) ||
                             (preset.minutes === formData.break_minutes) ||
                             (preset.minutes === -1 &&
@@ -458,6 +459,7 @@ export default function EditTimeEntryModal({
                       !BREAK_PRESETS.slice(0, -1).some((preset) => preset.minutes === formData.break_minutes) && (
                         <input
                           type="number"
+                          disabled={breakRows.length > 0}
                           min="0"
                           max="480"
                           value={formData.break_minutes || ''}
@@ -469,7 +471,9 @@ export default function EditTimeEntryModal({
                           className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                       )}
-                    <p className="mt-1 text-xs text-text-muted">Break time is not counted toward work hours</p>
+                    <p className="mt-1 text-xs text-text-muted">{breakRows.length > 0
+                      ? 'Edit or remove the detailed breaks below to change the total break duration.'
+                      : 'Break time is not counted toward work hours'}</p>
 
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center justify-between gap-3">
