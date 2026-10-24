@@ -333,20 +333,29 @@ module Payroll
     end
 
     def route_fully_allocated_cases!(entry, allocation)
-      total = PayrollManualAllocation.active.where(time_entry_id: entry.id).sum("regular_hours + overtime_hours").to_d
+      components = PayrollManualAllocation.active.where(time_entry_id: entry.id).order(:id)
+      total = components.sum("regular_hours + overtime_hours").to_d
       PayrollSettlementCase.active.where(source_time_entry_id: entry.id).lock.each do |settlement_case|
         next if total < required_manual_coverage(settlement_case)
-        next if settlement_case.destination_kind == "supplemental" && settlement_case.target_external_pay_period_id == allocation.external_pay_period_id
 
-        SettlementCaseRouter.new(
-          settlement_case: settlement_case,
-          destination_kind: "supplemental",
-          target_external_pay_period_id: allocation.external_pay_period_id,
-          action_due_on: allocation.pay_date.iso8601,
-          assigned_to_id: @actor.id,
-          reason: "Allocated to committed Cornerstone payroll item #{allocation.external_payroll_item_id}",
-          actor: @actor
-        ).call
+        unless settlement_case.destination_kind == "supplemental" && settlement_case.target_external_pay_period_id == allocation.external_pay_period_id
+          SettlementCaseRouter.new(
+            settlement_case: settlement_case,
+            destination_kind: "supplemental",
+            target_external_pay_period_id: allocation.external_pay_period_id,
+            action_due_on: allocation.pay_date.iso8601,
+            assigned_to_id: @actor.id,
+            reason: "Allocated to committed Cornerstone payroll item #{allocation.external_payroll_item_id}",
+            actor: @actor
+          ).call
+        end
+        # Bind the source case before issuance too: a later destination change
+        # or a different component issued last cannot erase this membership.
+        SettlementCaseCoordinator.transition!(settlement_case, status: settlement_case.status,
+          event_type: "committed", actor: @actor,
+          metadata: { manual_allocation_id: allocation.id.to_s,
+            manual_allocation_component_ids: components.pluck(:id).map(&:to_s),
+            reason: "Matched to committed Cornerstone manual components" })
       end
     end
 

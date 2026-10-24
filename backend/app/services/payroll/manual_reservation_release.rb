@@ -9,7 +9,7 @@ module Payroll
         return unless allocation.status == "voided"
 
         finalized = PayrollCalendarPeriod.where(status: "finalized")
-        linked = finalized.where(payroll_batch_id: routed_manual_cases_for(allocation).select(:origin_payroll_batch_id))
+        linked = finalized.where(payroll_batch_id: component_cases_for(allocation).select(:origin_payroll_batch_id))
         finalized.overlapping(allocation.work_date, allocation.work_date).or(linked).order(:cutoff_at, :id).each do |period|
           record_for_period!(period: period, batch: period.payroll_batch, allocations: [ allocation ], actor: actor)
         end
@@ -17,11 +17,11 @@ module Payroll
 
       def record_for_period!(period:, batch:, actor: nil, allocations: nil)
         voided = PayrollManualAllocation.where(status: "voided")
-        linked_entries = routed_manual_cases.where(origin_payroll_batch: batch).select(:source_time_entry_id)
+        linked_entries = component_cases.where(origin_payroll_batch: batch).select(:source_time_entry_id)
         allocations ||= voided.where(work_date: period.start_date..period.end_date)
           .or(voided.where(time_entry_id: linked_entries)).to_a
         dated = allocations.select { |allocation| allocation.work_date.in?(period.start_date..period.end_date) }
-        linked_ids = allocations.select { |allocation| routed_manual_cases_for(allocation).exists?(origin_payroll_batch: batch) }.map(&:id)
+        linked_ids = allocations.select { |allocation| component_cases_for(allocation).exists?(origin_payroll_batch: batch) }.map(&:id)
         return if dated.empty? && linked_ids.empty?
 
         PayrollSettlementCase.transaction do
@@ -43,15 +43,23 @@ module Payroll
 
       private
 
-      def routed_manual_cases
-        PayrollSettlementCase.where(destination_kind: "supplemental", status: %w[scheduled in_payroll settled])
+      def component_events
+        PayrollSettlementCaseEvent.where(event_type: %w[committed settled])
+          .where("metadata ? 'manual_allocation_component_ids'")
       end
 
-      def routed_manual_cases_for(allocation)
-        # A replacement can settle an older source case even after its work
-        # date moves. Voiding it must reopen that original obligation.
-        routed_manual_cases.where(source_time_entry_id: allocation.time_entry_id,
-          source_user_uuid: allocation.source_user_uuid, target_external_pay_period_id: allocation.external_pay_period_id)
+      def component_cases
+        PayrollSettlementCase.where(id: component_events.select(:payroll_settlement_case_id))
+      end
+
+      def component_cases_for(allocation)
+        # The current destination can name another component's payroll or a
+        # later operator route. Immutable component membership identifies the
+        # source case regardless of issue order, destination, or work date.
+        evidence = component_events.where("metadata @> ?::jsonb",
+          { manual_allocation_component_ids: [ allocation.id.to_s ] }.to_json)
+        PayrollSettlementCase.where(source_time_entry_id: allocation.time_entry_id,
+          source_user_uuid: allocation.source_user_uuid, id: evidence.select(:payroll_settlement_case_id))
       end
 
       def release_recorded?(allocation)
