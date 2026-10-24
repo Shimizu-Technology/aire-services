@@ -49,25 +49,40 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
 
   context "with a manual period" do
     let(:period_attributes) do
-      { start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-29",
-        cutoff_at: guam.local(2026, 10, 22, 17), lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16" }
+      super().merge(lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
     end
 
-    it "never warns, including after a failed manual lock" do
-      period.update!(status: "failed")
-      expect(PayrollCalendarPeriod.next_scheduled_cutoff_at).to be_nil
-      expect(read_cutoff.fetch("stage")).to eq("none")
-      expect(read_cutoff.fetch("period")).to be_nil
+    it "never warns inside activation, including after a failed manual lock" do
+      { "scheduled" => "manual", "failed" => "attention_required" }.each do |status, state|
+        period.update!(status: status)
+        [period.cutoff_at - 4.hours, period.cutoff_at, period.cutoff_at + 1.minute].each do |now|
+          travel_to(now)
+          expect(period.cutoff_state(now: now)).to eq(state)
+          expect(PayrollCalendarPeriod.next_scheduled_cutoff_at).to be_nil
+          expect(read_cutoff.fetch("stage")).to eq("none")
+          expect(read_cutoff.fetch("period")).to be_nil
+        end
+      end
     end
   end
 
-  it "keeps failed scheduled cutoffs relevant through delayed finalization" do
-    period.update!(status: "failed", next_finalization_attempt_at: cutoff + 2.hours)
-    travel_to(cutoff - 4.hours)
-    expect(read_cutoff.fetch("stage")).to eq("4h")
-    travel_to(cutoff + 1.minute)
-    expect(read_cutoff.fetch("stage")).to eq("finalizing")
-    expect(PayrollCalendarPeriod.next_scheduled_cutoff_at).to eq(cutoff.iso8601)
+  { -86400 => "none", -14400 => "none", -1 => "none", 0 => "passed", 1 => "passed" }.each do |offset, stage|
+    it "does not count down a failed scheduled period at cutoff #{offset} seconds" do
+      period.update!(status: "failed", next_finalization_attempt_at: cutoff + 2.hours)
+      travel_to(cutoff + offset)
+      expect(period.cutoff_state(now: Time.current)).to eq("attention_required")
+      # Discovery still points at the unresolved publication; state decides whether it warns.
+      expect(PayrollCalendarPeriod.next_scheduled_cutoff_at).to eq(cutoff.iso8601)
+      expect(read_cutoff.fetch("stage")).to eq(stage)
+    end
+  end
+
+  it "rejects a pending acknowledgement after its period fails" do
+    payload = read_cutoff.slice("publication_id", "version", "stage").merge("period_id" => period.id)
+    period.update!(status: "failed")
+    post "/api/v1/payroll_cutoff/acknowledge", params: payload, headers: headers
+    expect(response).to have_http_status(:conflict)
+    expect(read_cutoff.fetch("stage")).to eq("none")
   end
 
   it "returns only the safe contract and requires staff authentication" do

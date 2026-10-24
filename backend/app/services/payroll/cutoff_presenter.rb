@@ -13,14 +13,21 @@ module Payroll
 
     def self.call(now: Time.current, period: self.period(now: now))
       seconds = period && (period.cutoff_at - now).ceil
-      stage = if period.nil?
-        "none"
-      elsif seconds <= 0
-        period.status == "finalized" ? "passed" : "finalizing"
-      elsif seconds <= 4.hours
-        "4h"
-      elsif seconds <= 24.hours
-        "24h"
+      stage = case period&.cutoff_state(now: now)
+      when "finalized", "attention_required"
+        # An unresolved failed publication can still be the next cutoff, but it
+        # is not pending. Never present it as a countdown or active finalization.
+        seconds <= 0 ? "passed" : "none"
+      when "due"
+        "finalizing"
+      when "upcoming"
+        if seconds <= 4.hours
+          "4h"
+        elsif seconds <= 24.hours
+          "24h"
+        else
+          "none"
+        end
       else
         "none"
       end
