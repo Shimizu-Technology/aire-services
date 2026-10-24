@@ -317,6 +317,37 @@ END;
 $$;
 
 
+--
+-- Name: require_audited_manual_calendar_lock(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.require_audited_manual_calendar_lock() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.lock_mode = 'manual' AND NEW.status = 'finalized' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM payroll_batches batch
+      JOIN users actor ON actor.id = batch.finalized_by_id
+      JOIN audit_logs audit ON audit.auditable_type = 'PayrollBatch'
+        AND audit.auditable_id = batch.id
+        AND audit.action = 'payroll_batch.finalized'
+        AND audit.user_id = actor.id
+      WHERE batch.id = NEW.payroll_batch_id
+        AND batch.start_date = NEW.start_date AND batch.end_date = NEW.end_date
+        AND batch.finalized_at = batch.cutoff_at
+        AND audit.metadata->>'manual_calendar_lock' = 'true'
+        AND audit.metadata->>'automated_cutoff' = 'false'
+        AND length(trim(audit.metadata->>'calendar_lock_reason')) > 0
+    ) THEN
+      RAISE EXCEPTION 'manual calendar finalization requires an explicit audited manual lock with a persisted actor and reason';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -873,7 +904,7 @@ CREATE TABLE public.payroll_calendar_periods (
     CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY (ARRAY[('scheduled'::character varying)::text, ('failed'::character varying)::text, ('finalized'::character varying)::text]))),
     CONSTRAINT check_payroll_calendar_period_time_zone CHECK (((time_zone)::text = 'Pacific/Guam'::text)),
     CONSTRAINT check_payroll_calendar_period_version CHECK ((schedule_version > 0)),
-    CONSTRAINT payroll_calendar_lock_mode_valid CHECK ((((lock_mode)::text = ANY ((ARRAY['manual'::character varying, 'scheduled'::character varying])::text[])) AND (((cutoff_enforcement_starts_on IS NULL) AND ((lock_mode)::text = 'scheduled'::text)) OR ((cutoff_enforcement_starts_on IS NOT NULL) AND (EXTRACT(day FROM cutoff_enforcement_starts_on) = ANY (ARRAY[(1)::numeric, (16)::numeric])) AND ((lock_mode)::text =
+    CONSTRAINT payroll_calendar_lock_mode_valid CHECK ((((lock_mode)::text = ANY (ARRAY[('manual'::character varying)::text, ('scheduled'::character varying)::text])) AND (((cutoff_enforcement_starts_on IS NULL) AND ((lock_mode)::text = 'scheduled'::text)) OR ((cutoff_enforcement_starts_on IS NOT NULL) AND (EXTRACT(day FROM cutoff_enforcement_starts_on) = ANY (ARRAY[(1)::numeric, (16)::numeric])) AND ((lock_mode)::text =
 CASE
     WHEN (start_date < cutoff_enforcement_starts_on) THEN 'manual'::text
     ELSE 'scheduled'::text
@@ -4666,6 +4697,13 @@ CREATE TRIGGER payroll_calendar_lock_mode_immutable BEFORE UPDATE ON public.payr
 
 
 --
+-- Name: payroll_calendar_periods payroll_calendar_manual_finalization_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_calendar_manual_finalization_guard BEFORE INSERT OR UPDATE ON public.payroll_calendar_periods FOR EACH ROW EXECUTE FUNCTION public.require_audited_manual_calendar_lock();
+
+
+--
 -- Name: payroll_calendar_period_revisions payroll_calendar_period_revisions_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5420,6 +5458,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261024090000'),
 ('20261024080000'),
 ('20261024070000'),
 ('20261024050000'),

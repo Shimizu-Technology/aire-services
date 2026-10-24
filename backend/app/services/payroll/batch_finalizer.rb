@@ -17,7 +17,7 @@ module Payroll
     def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil,
                    manual_processing: false, cutoff_at: nil, processed_at: nil, external_pay_period_id: nil,
                    processing_note: nil, acknowledge_missing_categories: false, automated_cutoff: false,
-                   calendar_period: nil, manual_calendar_lock: false, calendar_authorization: nil)
+                   calendar_period: nil, manual_calendar_lock: false, calendar_authorization: nil, calendar_lock_reason: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @actor = actor
@@ -27,6 +27,7 @@ module Payroll
       @automated_cutoff = ActiveModel::Type::Boolean.new.cast(automated_cutoff)
       @calendar_period = calendar_period
       @manual_calendar_lock = manual_calendar_lock
+      @calendar_lock_reason = calendar_lock_reason.to_s.strip
       @calendar_authorization = calendar_authorization
       @cutoff_at = if @manual_processing
         parse_manual_time!(cutoff_at, "cutoff_at")
@@ -56,7 +57,11 @@ module Payroll
         reject_published_calendar! unless authorized_calendar?
         lock_source_ledger!
         source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        cutoff = manual_calendar_lock ? Time.current.round(6) : (cutoff_at || Time.current)
+        cutoff = if manual_calendar_lock
+          ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()").utc
+        else
+          cutoff_at || Time.current
+        end
         reference = build_reference(cutoff)
         reject_out_of_order_automated_batch!(cutoff)
         reject_overlapping_batch!
@@ -108,6 +113,8 @@ module Payroll
             negative_adjustment_note: negative_adjustment_note.presence,
             manual_processing: manual_processing,
             automated_cutoff: automated_cutoff,
+            manual_calendar_lock: manual_calendar_lock,
+            calendar_lock_reason: @calendar_lock_reason.presence,
             processing_note: processing_note.presence,
             external_pay_period_id: external_pay_period_id.presence,
             processed_at: processed_at&.iso8601
@@ -189,7 +196,8 @@ module Payroll
       valid = calendar_period.persisted? && calendar_period.status != "finalized" &&
         calendar_period.start_date == start_date && calendar_period.end_date == end_date && !manual_processing
       valid &&= if calendar_period.manual_lock?
-        manual_calendar_lock && !automated_cutoff && actor.present? && cutoff_at.nil?
+        manual_calendar_lock && !automated_cutoff && actor.is_a?(User) && actor.persisted? &&
+          @calendar_lock_reason.present? && cutoff_at.nil?
       else
         automated_cutoff && !manual_calendar_lock && cutoff_at == calendar_period.cutoff_at && cutoff_at <= Time.current
       end
