@@ -677,13 +677,18 @@ module Api
           params_hash[:end_time] = corrected_end
           params_hash[:clock_out_at] = corrected_end
         end
+      rescue ArgumentError
+        render json: { error: "Clock times are invalid" }, status: :unprocessable_entity
       end
 
       def clock_time_on_work_date(value, work_date, after: nil)
+        # An explicit instant is already a precise correction, including its date.
+        return Time.iso8601(value) if value.is_a?(String) && value.match?(/\A\d{4}-\d{2}-\d{2}T/)
+
         local_time = value.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
         date = Date.parse(work_date.to_s)
         tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
-        corrected = tz.local(date.year, date.month, date.day, local_time.hour, local_time.min, 0)
+        corrected = tz.local(date.year, date.month, date.day, local_time.hour, local_time.min, local_time.sec + local_time.subsec)
         corrected += 1.day if after.present? && corrected <= after
         corrected
       end
@@ -747,10 +752,14 @@ module Api
       end
 
       def time_on_work_date(value, work_date, after: nil)
+        return Time.iso8601(value) if value.is_a?(String) && value.match?(/\A\d{4}-\d{2}-\d{2}T/)
+
+        seconds = 0
         if value.respond_to?(:in_time_zone)
           local = value.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
           hour = local.hour
           minute = local.min
+          seconds = local.sec + local.subsec
         else
           match = value.to_s.match(/\A(\d{1,2}):(\d{2})\z/)
           raise ArgumentError, "Invalid time" unless match
@@ -761,7 +770,7 @@ module Api
         end
 
         tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
-        resolved = tz.local(work_date.year, work_date.month, work_date.day, hour, minute, 0)
+        resolved = tz.local(work_date.year, work_date.month, work_date.day, hour, minute, seconds)
         resolved += 1.day if after.present? && resolved <= after
         resolved
       end
@@ -852,6 +861,7 @@ module Api
           formatted_start_time: entry.formatted_start_time,
           formatted_end_time: entry.formatted_end_time,
           hours: entry.hours.to_f,
+          needs_administrator_correction: entry.needs_administrator_correction?,
           break_minutes: entry.break_minutes,
           description: entry.description,
           entry_method: entry.entry_method,
@@ -862,8 +872,8 @@ module Api
           approval_status: entry.approval_status,
           overtime_status: entry.overtime_status,
           approval_reasons: approval_reasons_for(entry),
-          clock_in_at: entry.clock_in_at&.iso8601,
-          clock_out_at: entry.clock_out_at&.iso8601,
+          clock_in_at: entry.clock_in_at&.iso8601(6),
+          clock_out_at: entry.clock_out_at&.iso8601(6),
           approved_by: entry.approved_by ? {
             id: entry.approved_by.id,
             full_name: entry.approved_by.full_name
@@ -884,8 +894,8 @@ module Api
           breaks: entry.time_entry_breaks.sort_by(&:start_time).map { |b|
             {
               id: b.id,
-              start_time: b.start_time.iso8601,
-              end_time: b.end_time&.iso8601,
+              start_time: b.start_time.iso8601(6),
+              end_time: b.end_time&.iso8601(6),
               duration_minutes: b.duration_minutes,
               active: b.active?
             }
@@ -1196,6 +1206,9 @@ module Api
 
       def approval_reasons_for(entry)
         reasons = []
+        if entry.needs_administrator_correction?
+          reasons << { key: "administrator_correction", label: "Needs administrator correction: clock spans 24 hours or more" }
+        end
         note = entry.approval_note.to_s.downcase
 
         if entry.approval_status == "pending"

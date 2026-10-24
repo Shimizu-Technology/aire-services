@@ -56,10 +56,10 @@ describe('EditTimeEntryModal', () => {
     expect(timeInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
       expect.arrayContaining(['12:00', '12:30']),
     )
-    expect(screen.getByText(/return this entry to the approval queue/i)).toBeInTheDocument()
+    expect(screen.getByText(/Every change, including notes, returns this entry to the approval queue/i)).toBeInTheDocument()
   })
 
-  it('does not submit an empty detailed breaks array for entries with only aggregate break minutes', async () => {
+  it('does not submit untouched detailed or aggregate breaks when editing notes', async () => {
     const onSaved = vi.fn()
 
     render(
@@ -86,11 +86,12 @@ describe('EditTimeEntryModal', () => {
       />,
     )
 
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'New note' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
 
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalled())
     expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('breaks')
-    expect(apiMock.updateTimeEntry.mock.calls[0][1]).toMatchObject({ break_minutes: 30 })
+    expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('break_minutes')
   })
 
   it('collects and resubmits a correction reason for an entry already exported to payroll', async () => {
@@ -127,6 +128,7 @@ describe('EditTimeEntryModal', () => {
       />,
     )
 
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Exported note changed' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
 
     const reason = await screen.findByLabelText(/correction reason/i)
@@ -319,4 +321,53 @@ describe('EditTimeEntryModal', () => {
     trigger.remove()
   })
 
+})
+
+
+describe('precise clock editor payloads', () => {
+  const precise = {
+    id: 99, version: 1, work_date: '2026-10-20', start_time: '08:00', end_time: '16:00',
+    hours: 7.48, break_minutes: 30, description: 'Original', approval_status: 'approved' as const,
+    entry_method: 'clock' as const, status: 'completed' as const,
+    clock_in_at: '2026-10-19T22:00:59.123456Z', clock_out_at: '2026-10-20T07:00:45.987654Z',
+    user: { id: 2, email: 'precision@example.test' }, time_category: { id: 1, name: 'Ground' },
+    breaks: [{ id: 55, start_time: '2026-10-20T02:00:23.123456Z', end_time: '2026-10-20T02:30:29.654321Z', duration_minutes: 30 }],
+  }
+  beforeEach(() => { apiMock.updateTimeEntry.mockReset(); apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: {} } }) })
+  function show(entry = precise) {
+    render(<EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'Ground' }]} canDelete={false} isAdmin
+      onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+  }
+  it.each(['Added note', ''])('sends only the changed note, including explicit blank %j', async (description) => {
+    show()
+    expect(screen.getByText('7.48h')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: description } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description }, undefined))
+  })
+  it('omits precise punches and live breaks for active saves', async () => {
+    show({ ...precise, status: 'on_break', end_time: null, clock_out_at: null } as unknown as typeof precise)
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Live note' } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description: 'Live note' }, undefined))
+  })
+  it('closes an unchanged save without sending an empty patch', async () => {
+    show()
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
+  })
+  it('sends an intentional endpoint change without the nominal end or breaks', async () => {
+    show()
+    fireEvent.change(screen.getByLabelText(/Start Time/), { target: { value: '08:05' } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { start_time: '08:05' }, undefined))
+  })
+  it('keeps unedited break endpoint precision when editing another break endpoint', async () => {
+    show()
+    fireEvent.change(screen.getByLabelText('End', { exact: true }), { target: { value: '12:40' } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { breaks: [{
+      id: 55, start_time: precise.breaks[0].start_time, end_time: '12:40',
+    }] }, undefined))
+  })
 })

@@ -345,7 +345,7 @@ module Payroll
       completed_entries.each do |entry|
         flags[entry.id] << "missing_category" if entry.time_category_id.nil?
         flags[entry.id] << "missing_description" if entry.description.blank?
-        flags[entry.id] << "long_shift" if entry.hours.to_f >= LONG_SHIFT_HOURS
+        flags[entry.id] << "long_shift" if [ entry.hours.to_f, entry.actual_elapsed_hours.to_f ].max >= LONG_SHIFT_HOURS
       end
 
       completed_entries.group_by(&:user_id).each_value do |user_entries|
