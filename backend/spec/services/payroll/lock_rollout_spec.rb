@@ -24,7 +24,8 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
       previous_regular_pay_date: second_half ? "2026-10-31" : "2026-10-15",
       cutoff_at: second_half ? "2026-11-07T17:00:00+10:00" : "2026-10-22T17:00:00+10:00",
       cutoff_rule: "after_previous_regular_payday", cutoff_days: 7, schedule_version: 1,
-      publication_id: SecureRandom.uuid
+      publication_id: SecureRandom.uuid, lock_mode: second_half ? "scheduled" : "manual",
+      cutoff_enforcement_starts_on: "2026-10-16"
     }.merge(extra)
   end
 
@@ -61,7 +62,7 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
     end
   end
 
-  it "derives manual for a legacy publication after nominal cutoff without rewriting policy" do
+  it "accepts an explicit manual publication after nominal cutoff without rewriting policy" do
     configure
     period = publish
     expect(period.lock_mode).to eq("manual")
@@ -152,7 +153,7 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
   it "refuses installation configuration with unfinalized legacy preactivation calendars, preserving all evidence" do
     legacy = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
     original = legacy.attributes.deep_dup
-    expect { configure }.to raise_error(ArgumentError, /unfinalized legacy.*reviewed repair/i)
+    expect { configure }.to raise_error(ArgumentError, /legacy.*explicit rollout/i)
     expect(PayrollLockRollout.count).to eq(0)
     expect(legacy.reload.attributes).to eq(original)
     expect(AuditLog.where(action: "payroll_lock_rollout.configured")).to be_empty
@@ -162,18 +163,62 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
     config = configure
     legacy = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
     original = legacy.attributes.deep_dup
-    expect { configure }.to raise_error(ArgumentError, /unfinalized legacy.*reviewed repair/i)
+    expect { configure }.to raise_error(ArgumentError, /legacy.*explicit rollout/i)
     expect(PayrollLockRollout.installation).to eq(config)
     expect(legacy.reload.attributes).to eq(original)
   end
 
-  it "allows configuration over frozen legacy history without altering calendar, batch or payload" do
+  it "refuses configuration over frozen legacy calendars without altering calendar, batch or payload" do
     legacy = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
     expect(Payroll::ScheduledCutoffFinalizer.new(period_id: legacy.id).call[:status]).to eq("finalized")
     legacy.reload
     original = [ legacy.attributes.deep_dup, legacy.payroll_batch.attributes.deep_dup ]
-    configure
+    expect { configure }.to raise_error(ArgumentError, /legacy.*explicit rollout/i)
+    expect(PayrollLockRollout.count).to eq(0)
     expect([ legacy.reload.attributes, legacy.payroll_batch.reload.attributes ]).to eq(original)
+  end
+
+  it "refuses new legacy-wire manual publications even after nominal cutoff" do
+    configure
+    [ [ :lock_mode ], [ :cutoff_enforcement_starts_on ], [ :lock_mode, :cutoff_enforcement_starts_on ] ].each do |missing|
+      payload = publication.except(*missing)
+      expect { Payroll::CalendarPeriodPublisher.new(payload, now: guam.local(2026, 11, 8, 12)).call }
+        .to raise_error(ArgumentError, /explicit.*lock_mode.*cutoff_enforcement_starts_on/i)
+    end
+    expect(PayrollCalendarPeriod.count).to eq(0)
+    expect(PayrollCalendarPeriodRevision.count).to eq(0)
+  end
+
+  it "rechecks a frozen legacy calendar on an idempotent configuration call" do
+    config = configure
+    legacy = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
+    # Model an old worker that froze the calendar before the new process starts.
+    allow_any_instance_of(PayrollCalendarPeriod).to receive(:scheduled_lock_enforced?).and_return(true)
+    expect(Payroll::ScheduledCutoffFinalizer.new(period_id: legacy.id).call[:status]).to eq("finalized")
+    original = [ legacy.reload.attributes.deep_dup, legacy.payroll_batch.attributes.deep_dup ]
+    expect { configure }.to raise_error(ArgumentError, /legacy.*explicit rollout/i)
+    expect(PayrollLockRollout.installation).to eq(config)
+    expect([ legacy.reload.attributes, legacy.payroll_batch.reload.attributes ]).to eq(original)
+  end
+
+  it "allows historical standalone batches with no calendar and preserves their evidence" do
+    batch = Payroll::BatchFinalizer.new(start_date: "2026-08-01", end_date: "2026-08-15", actor: actor).call
+    original = batch.attributes.deep_dup
+    configure
+    expect(configure).to eq(PayrollLockRollout.installation)
+    expect(batch.reload.attributes).to eq(original)
+    expect(PayrollCalendarPeriod.count).to eq(0)
+  end
+
+  it "permits an explicit frozen preactivation calendar on initial and repeated configuration" do
+    period = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15",
+      pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00",
+      lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+    expect(Payroll::ManualCalendarFinalizer.new(period_id: period.id, actor: actor, reason: reason).call[:status]).to eq("finalized")
+    original = [ period.reload.attributes.deep_dup, period.payroll_batch.attributes.deep_dup ]
+    config = configure
+    expect(configure).to eq(config)
+    expect([ period.reload.attributes, period.payroll_batch.reload.attributes ]).to eq(original)
   end
 
   it "protects mode and nominal policy from direct DB drift while preserving legacy rows appearing after configuration" do

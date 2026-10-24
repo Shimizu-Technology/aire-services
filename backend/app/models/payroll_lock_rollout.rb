@@ -20,10 +20,10 @@ class PayrollLockRollout < ApplicationRecord
       if existing && existing.cutoff_enforcement_starts_on != boundary
         raise ArgumentError, "Installation payroll lock rollout is immutable"
       end
-      legacy = PayrollCalendarPeriod.where(lock_mode: "scheduled").where.not(status: "finalized")
-        .where("start_date < ?", boundary)
+      legacy = PayrollCalendarPeriod.where("start_date < ?", boundary)
+        .where("lock_mode != 'manual' OR cutoff_enforcement_starts_on IS DISTINCT FROM ?", boundary)
       if legacy.exists?
-        raise ArgumentError, "Unfinalized legacy payroll calendars before #{boundary.iso8601} require reviewed repair before configuring this rollout"
+        raise ArgumentError, "Legacy payroll calendars before #{boundary.iso8601} require explicit rollout fields (manual lock_mode and matching cutoff_enforcement_starts_on); stop deployment for reviewed resolution without rewriting history"
       end
       return existing if existing
 

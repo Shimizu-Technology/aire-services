@@ -63,7 +63,7 @@ module Payroll
           cutoff_at || Time.current
         end
         reference = build_reference(cutoff)
-        reject_out_of_order_automated_batch!(cutoff)
+        reject_out_of_order_automated_batch!
         reject_overlapping_batch!
         SettlementCaseCoordinator.prepare_for_period!(calendar_period) if calendar_period
         result = BatchBuilder.new(
@@ -256,10 +256,12 @@ module Payroll
       raise ExistingBatchError, "Payroll batch #{overlap.public_id} already covers part of this period"
     end
 
-    def reject_out_of_order_automated_batch!(cutoff)
+    def reject_out_of_order_automated_batch!
       return unless automated_cutoff
 
-      later_batch = PayrollBatch.regular.where("cutoff_at > ?", cutoff).order(:cutoff_at, :id).first
+      # Payroll order is the work period, not the snapshot instant: an earlier
+      # manual calendar may legitimately be locked after this scheduled cutoff.
+      later_batch = PayrollBatch.regular.where("start_date > ?", end_date).order(:start_date, :id).first
       return unless later_batch
 
       raise OutOfOrderFinalizationError,

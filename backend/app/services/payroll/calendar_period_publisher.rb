@@ -25,6 +25,7 @@ module Payroll
         replay = PayrollCalendarPeriodRevision.find_by(publication_id: attributes.fetch(:publication_id))
         return replay_result(replay) if replay
 
+        validate_explicit_manual_rollout!
         validate_publishable_time!
 
         period = PayrollCalendarPeriod.find_by(external_pay_period_id: attributes.fetch(:external_pay_period_id))
@@ -117,6 +118,15 @@ module Payroll
       raise e unless e.message.match?(/invalid value for Integer|base specified for non string value/)
 
       raise ArgumentError, "schedule_version and cutoff days must be integers"
+    end
+
+    def validate_explicit_manual_rollout!
+      return unless @derived_lock_mode == "manual"
+      return if attributes.key?(:lock_mode) && attributes.key?(:cutoff_enforcement_starts_on)
+
+      # Never accept a new legacy-wire manual publication that old Payroll
+      # cannot verify at callback time. Existing immutable replays return above.
+      raise ArgumentError, "Manual calendars require explicit lock_mode and cutoff_enforcement_starts_on"
     end
 
     def validate_publishable_time!

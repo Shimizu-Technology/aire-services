@@ -34,7 +34,8 @@ RSpec.describe "Manual calendar Lock with negative corrections", type: :request 
       previous_regular_pay_date: second_half ? "2026-10-31" : "2026-10-15",
       cutoff_at: second_half ? "2026-11-07T17:00:00+10:00" : "2026-10-22T17:00:00+10:00",
       cutoff_rule: "after_previous_regular_payday", cutoff_days: 7, schedule_version: 1,
-      publication_id: SecureRandom.uuid
+      publication_id: SecureRandom.uuid, lock_mode: second_half ? "scheduled" : "manual",
+      cutoff_enforcement_starts_on: "2026-10-16"
     }, now: guam.local(2026, 10, 24, 12)).call.period
   end
 
@@ -45,8 +46,9 @@ RSpec.describe "Manual calendar Lock with negative corrections", type: :request 
         entry_method: "manual", approval_status: "approved", approved_at: Time.current, overtime_status: "none")
       # The database revision clock must place the eight-hour snapshot before the correction.
       origin = create(:payroll_calendar_period, start_date: "2026-09-16", end_date: "2026-09-30",
-        pay_date: database_clock.to_date + 7.days, cutoff_at: capture_payroll_cutoff)
-      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call[:status]).to eq("finalized")
+        pay_date: database_clock.to_date + 7.days, cutoff_at: capture_payroll_cutoff,
+        lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+      expect(Payroll::ManualCalendarFinalizer.new(period_id: origin.id, actor: actor, reason: reason).call[:status]).to eq("finalized")
       origin_batch = origin.reload.payroll_batch
       expect(origin_batch.payroll_batch_entries.sole.total_hours).to eq(8)
       frozen_origin = [ origin.attributes.deep_dup, origin_batch.attributes.deep_dup,
