@@ -100,10 +100,37 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
     end
   end
 
-  it "protects mode and nominal policy from direct DB drift while preserving preexisting calendars" do
+  it "refuses installation configuration with unfinalized legacy preactivation calendars, preserving all evidence" do
+    legacy = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
+    original = legacy.attributes.deep_dup
+    expect { configure }.to raise_error(ArgumentError, /unfinalized legacy.*reviewed repair/i)
+    expect(PayrollLockRollout.count).to eq(0)
+    expect(legacy.reload.attributes).to eq(original)
+    expect(AuditLog.where(action: "payroll_lock_rollout.configured")).to be_empty
+  end
+
+  it "refuses an idempotent configuration claim when a legacy preactivation row appeared later" do
+    config = configure
+    legacy = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
+    original = legacy.attributes.deep_dup
+    expect { configure }.to raise_error(ArgumentError, /unfinalized legacy.*reviewed repair/i)
+    expect(PayrollLockRollout.installation).to eq(config)
+    expect(legacy.reload.attributes).to eq(original)
+  end
+
+  it "allows configuration over frozen legacy history without altering calendar, batch or payload" do
+    legacy = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
+    expect(Payroll::ScheduledCutoffFinalizer.new(period_id: legacy.id).call[:status]).to eq("finalized")
+    legacy.reload
+    original = [ legacy.attributes.deep_dup, legacy.payroll_batch.attributes.deep_dup ]
+    configure
+    expect([ legacy.reload.attributes, legacy.payroll_batch.reload.attributes ]).to eq(original)
+  end
+
+  it "protects mode and nominal policy from direct DB drift while preserving legacy rows appearing after configuration" do
+    configure
     legacy = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
     before = legacy.attributes.deep_dup
-    configure
     expect(legacy.reload.attributes).to eq(before)
     expect(legacy.lock_mode).to eq("scheduled")
     expect(PayrollCalendarPeriod.due_at(Time.current + 1.year)).not_to include(legacy)

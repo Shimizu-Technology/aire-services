@@ -17,11 +17,16 @@ class PayrollLockRollout < ApplicationRecord
       # Serialize with calendar publication so it cannot observe a partial setup.
       connection.execute("SELECT pg_advisory_xact_lock(#{Payroll::CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
       existing = find_by(id: 1)
-      if existing
-        raise ArgumentError, "Installation payroll lock rollout is immutable" unless existing.cutoff_enforcement_starts_on == boundary
-
-        return existing
+      if existing && existing.cutoff_enforcement_starts_on != boundary
+        raise ArgumentError, "Installation payroll lock rollout is immutable"
       end
+      legacy = PayrollCalendarPeriod.where(lock_mode: "scheduled").where.not(status: "finalized")
+        .where("start_date < ?", boundary)
+      if legacy.exists?
+        raise ArgumentError, "Unfinalized legacy payroll calendars before #{boundary.iso8601} require reviewed repair before configuring this rollout"
+      end
+      return existing if existing
+
       config = create!(id: 1, cutoff_enforcement_starts_on: boundary, configured_by: actor.to_s.strip, reason: reason.to_s.strip)
       AuditLog.record!(action: "payroll_lock_rollout.configured", actor: nil, source: "system", event_category: "payroll",
         auditable: config, metadata: { cutoff_enforcement_starts_on: boundary.iso8601, configured_by: config.configured_by, reason: config.reason })
