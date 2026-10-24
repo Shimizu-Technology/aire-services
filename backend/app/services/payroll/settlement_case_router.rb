@@ -23,6 +23,9 @@ module Payroll
 
     def route!
       raise RoutingError, "This settlement case is already closed" unless settlement_case.status.in?(PayrollSettlementCase::ACTIVE_STATUSES)
+      if settlement_case.included_payroll_batch_id.present? || settlement_case.status == "in_payroll"
+        raise RoutingError, "This source is already reserved in payroll; reconcile its existing obligation before routing"
+      end
       raise RoutingError, "destination_kind must be regular, supplemental, or not_payable" unless destination_kind.in?(%w[regular supplemental not_payable])
       raise RoutingError, "A routing reason is required" if reason.blank?
 

@@ -81,11 +81,15 @@ module Payroll
     # Claim checks and evidence writes must serialize with finalization before
     # either side takes row locks or reads the other side's representation.
     def lock_payroll_evidence!
-      return unless action.start_with?("payroll_manual_allocation.", "payroll_payment_attestation.")
+      return unless action.start_with?("payroll_manual_allocation.", "payroll_payment_attestation.") ||
+        action.in?(%w[payroll_period.late_hours payroll_settlement_case.route])
 
       connection = ActiveRecord::Base.connection
       connection.execute("SET LOCAL lock_timeout = '5s'")
       connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
+      if action == "payroll_period.late_hours"
+        connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions IN SHARE MODE")
+      end
     end
 
     def replay(receipt)

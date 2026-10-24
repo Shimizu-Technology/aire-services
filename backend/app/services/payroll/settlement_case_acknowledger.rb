@@ -29,6 +29,9 @@ module Payroll
     end
 
     def call
+      if settlement_case.included_payroll_batch_id.present?
+        raise AcknowledgementError, "Acknowledge this supplemental payroll on its exact frozen batch lines"
+      end
       raise AcknowledgementError, "event_type is not supported" unless event_type.in?(EVENT_TYPES)
       if settlement_case.destination_kind == "unassigned" || settlement_case.status.in?(%w[not_payable superseded])
         raise AcknowledgementError, "Route this case to a payroll before acknowledging processing"

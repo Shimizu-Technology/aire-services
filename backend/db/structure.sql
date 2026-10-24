@@ -3667,7 +3667,14 @@ CREATE UNIQUE INDEX index_payroll_batches_on_public_id ON public.payroll_batches
 -- Name: index_payroll_batches_on_start_date_and_end_date; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX index_payroll_batches_on_start_date_and_end_date ON public.payroll_batches USING btree (start_date, end_date);
+CREATE UNIQUE INDEX index_payroll_batches_on_start_date_and_end_date ON public.payroll_batches USING btree (start_date, end_date) WHERE (COALESCE((payload ->> 'purpose'::text), 'regular'::text) = 'regular'::text);
+
+
+--
+-- Name: index_payroll_batches_supplemental_target; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_batches_supplemental_target ON public.payroll_batches USING btree (((payload ->> 'target_external_pay_period_id'::text))) WHERE ((payload ->> 'purpose'::text) = 'supplemental'::text);
 
 
 --
@@ -5178,6 +5185,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261024050000'),
 ('20261024040000'),
 ('20261024030000'),
 ('20261024020000'),

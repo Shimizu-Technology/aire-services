@@ -151,7 +151,7 @@ module Payroll
     end
 
     def latest_batch
-      @latest_batch ||= PayrollBatch.order(cutoff_at: :desc, id: :desc).first
+      @latest_batch ||= PayrollBatch.regular.order(cutoff_at: :desc, id: :desc).first
     end
 
     def relevant_deletion_version

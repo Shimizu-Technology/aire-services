@@ -10,7 +10,7 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :batch_not_found
 
         def index
-          scope = PayrollBatch.order(finalized_at: :desc)
+          scope = PayrollBatch.regular.order(finalized_at: :desc)
           scope = scope.where(start_date: Date.iso8601(params[:start_date])) if params[:start_date].present?
           scope = scope.where(end_date: Date.iso8601(params[:end_date])) if params[:end_date].present?
           batches = scope.limit(100).to_a
@@ -100,6 +100,9 @@ module Api
           if permitted[:source_time_entry_id].present?
             return record_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata)
           end
+          if batch.payload["purpose"] == "supplemental"
+            return render json: { error: "Supplemental payroll requires exact frozen line receipts" }, status: :unprocessable_entity
+          end
 
           event = PayrollBatchProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
           created = false
@@ -151,6 +154,18 @@ module Api
         private
 
         def record_entry_processing_event(batch, permitted, occurred_at:, metadata:)
+          if batch.payload["purpose"] == "supplemental"
+            unless permitted[:external_pay_period_id] == batch.payload["target_external_pay_period_id"] &&
+                permitted[:external_system] == "cornerstone_payroll" &&
+                permitted[:contract_version] == PayrollEntryProcessingEvent::LINE_CONTRACT_VERSION &&
+                permitted[:source_user_uuid].present? && permitted[:external_payroll_item_id].present?
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Supplemental receipts require the named payroll and exact frozen line contract"
+            end
+            if permitted[:status] == "payment_issued" &&
+                (!permitted[:payment_method].in?(%w[paper_check direct_deposit]) || permitted[:payment_reference].blank?)
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Supplemental issuance requires exact payment evidence"
+            end
+          end
           source_time_entry_id = parse_source_time_entry_id(permitted.fetch(:source_time_entry_id))
           line_attributes = payable_line_attributes!(batch, source_time_entry_id, permitted)
           batch_entry = line_attributes.delete(:batch_entry) || batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)

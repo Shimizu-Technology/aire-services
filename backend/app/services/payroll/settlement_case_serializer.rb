@@ -82,6 +82,11 @@ module Payroll
 
     def processing_status
       batch = settlement_case.included_payroll_batch
+      if batch&.payload&.fetch("purpose", nil) == "supplemental"
+        rows = batch.payroll_batch_entries.select { |row| row.source_time_entry_id == settlement_case.source_time_entry_id }
+        events = batch.payroll_entry_processing_events.select { |event| event.source_time_entry_id == settlement_case.source_time_entry_id }
+        return EntryProcessingSummary.new(rows: rows, events: events).call
+      end
       if batch && settlement_case.origin_reason.in?(%w[changed_after_cutoff deleted_after_cutoff])
         rows = batch.payroll_batch_entries.select do |row|
           row.source_time_entry_id == settlement_case.source_time_entry_id && row.source_user_id == settlement_case.source_user_id && row.source_user_uuid == settlement_case.source_user_uuid &&

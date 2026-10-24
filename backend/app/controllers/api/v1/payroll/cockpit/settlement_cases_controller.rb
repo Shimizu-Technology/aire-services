@@ -51,6 +51,9 @@ module Api
               replay: ->(_current_case, metadata) { { command_result: metadata } },
               response: ->(current_case, _body) { { settlement_case: serialize(current_case) } }
             ) do |locked_case, reason|
+              if PayrollManualAllocation.active.exists?(time_entry_id: locked_case.source_time_entry_id)
+                raise ::Payroll::SettlementCaseRouter::RoutingError, "This source is reserved in manual payroll; reconcile its existing obligation before routing"
+              end
               routed = ::Payroll::SettlementCaseRouter.new(
                 settlement_case: locked_case,
                 destination_kind: command_params[:destination_kind],

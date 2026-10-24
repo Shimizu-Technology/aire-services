@@ -94,3 +94,80 @@ This command requires the shared secret, an eligible delegated actor with settle
 An issued allocation returns to committed; a committed allocation remains committed with a new version and a cancellation record. Both retain their source-hour claim. The command clears active payment fields and appends the original instrument tuple and cancellation evidence to immutable history. It also reopens only settled supplemental cases for the same source identity when remaining issued coverage falls below the case hours and the previous settlement demonstrably depended on the cancelled manual component. Exact component evidence may span pay periods; the existing case target stays unchanged. Older automatic closures require verified final and cancelled issue events recorded before closure. This includes an earlier partial component even when a later component closed the case; independently settled cases stay unchanged. New manual settlements retain every issued component ID and instrument tuple. Case reopening uses the audit recording time and retains the physical cancellation time in metadata.
 
 Both initial acceptance and an exact retry return the original committed acknowledgement/version, even after replacement issuance, plus `command.id` naming the request UUID and the source integration descriptor. Cancellation command metadata retains a bounded immutable `manual_allocation` proof: allocation/source IDs and versions, employee UUID, work date, regular/overtime/total hours, external period/item, committed status and `cancelled_payment` with its native event ID/type, physical timestamp, original instrument/date and cancellation evidence. The response adds the reason from that exact append-only cancellation event; names, history and free text are not duplicated into the command receipt. A stale version or changed command payload returns `409`. An original instrument cannot be issued again after cancellation. The replacement uses a fresh command ID and method/reference tuple. The case-level `payment_cancelled` event is derived from manual allocation evidence; replacement resumes through the allocation’s `issue` command rather than the standalone supplemental acknowledgement API. Existing `void` behavior remains separate: it releases an unissued payroll allocation and continues refusing issued allocations.
+
+## Pay late hours: immutable supplemental snapshot
+
+Both `GET` and `POST /api/v1/payroll/cockpit/periods/:external_pay_period_id/late_hours` require the shared secret and a connected AIRE administrator. Legacy grants require `settlement_case_management`, including for GET. The path identifies the **origin regular calendar period**, not the adjustment destination.
+
+GET returns:
+
+```json
+{
+  "period_version": 2,
+  "cases": [{
+    "id": "<case public UUID>",
+    "version": 1,
+    "employee": {
+      "payroll_integration_id": "<source staff UUID>",
+      "source_user_id": "42",
+      "name": "Example Worker",
+      "email": "worker@example.test"
+    },
+    "reason": "Approved after the original payroll cutoff",
+    "adjustments": [{
+      "source_time_entry_id": "123",
+      "source_time_entry_version": 2,
+      "line_key": "category:3|user:42|date:2026-10-01",
+      "source_kind": "carryover",
+      "original_work_date": "2026-10-01",
+      "original_week_start": "2026-09-27",
+      "source_category_id": "3",
+      "category": {"id": 3, "key": "operations", "name": "Operations"},
+      "total_hours": 4,
+      "regular_hours": 4,
+      "overtime_hours": 0
+    }],
+    "total_hours": 4,
+    "regular_hours": 4,
+    "overtime_hours": 0
+  }]
+}
+```
+
+The adjustment lines use the existing batch-v2 serialization. Cases are limited to open, unassigned cases from the origin batch. A source must still be fully payable in the live BatchBuilder context, with positive lines, matching staff identity and original work date, and a resolved category. Any included batch, any prior `PayrollBatchEntry` for that entry, active manual allocation, pending payment attestation, other active destination, held approval, denial or chronology hold excludes it. A due, unfinalized regular cutoff that still owns positive frozen source hours must be finalized and reconciled first; the shared pending-cutoff guard also excludes those sources. GET returns an empty case list for a calendar without a finalized origin. Case versions also change when the underlying unassigned source entry is edited or approved; the case's original source version remains unchanged.
+
+POST accepts:
+
+```json
+{
+  "command_id": "<new UUID>",
+  "expected_version": 2,
+  "reason": "Pay approved late hours in a separate adjustment",
+  "target_external_pay_period_id": "901",
+  "pay_date": "2026-10-25",
+  "cases": [{"id": "<case public UUID>", "version": 1}]
+}
+```
+
+`expected_version` is GET's `period_version`. Each case version is the exact integer from GET. Select 1–250 distinct cases. The target is the new Payroll adjustment's positive integer ID encoded as a string. AIRE does not verify Payroll's run type remotely; Payroll owns destination creation and must bind it to this command. `pay_date` uses `YYYY-MM-DD`.
+
+The command takes BatchFinalizer's transaction advisory lock and SHARE locks on time entries, breaks and revisions before locking the origin and selected cases. It revalidates every selection and writes the immutable batch, rows, supplemental routes, included/in-payroll transitions, audit and durable command receipt in one transaction. Any ineligible selection rejects the whole request with `409`. Malformed input returns `422`; stale period/case versions and reused target/command conflicts return `409`.
+
+Success and exact replay both return `201`:
+
+```json
+{
+  "payroll_batch": {"schema_version": "2.0", "purpose": "supplemental", "target_external_pay_period_id": "901", "...": "full batch-v2 export"},
+  "command": {"id": "<request UUID>", "replayed": false}
+}
+```
+
+This command is an exception to the ordinary minimal `command_result` response: it returns the full original `payroll_batch` snapshot on every exact retry. The append-only receipt stores the immutable batch ID and original export envelope; replay combines that envelope with the immutable batch payload. It does not recompute today's payroll source, export capabilities or integration identity. Changing the payload, actor, expected version or target while reusing the command ID conflicts. A different command cannot create another supplemental snapshot for the same target.
+
+The batch payload adds `purpose: "supplemental"`, `target_external_pay_period_id`, `pay_date`, `origin_external_pay_period_id` and `origin_payroll_batch_id`. The checksum covers these fields. Employee `source_user_uuid` and `source_user_id` equal GET's `employee.payroll_integration_id` and `employee.source_user_id`. All selected entry dates are exported, including an overnight line on the day after the origin's nominal end. Batch `start_date`/`end_date` remain the origin's nominal dates. Lines retain the live builder's identities, source versions, category, payable date and Sunday workweek; their source kind is `carryover`. Rates and compensation remain Payroll-owned. No negative or partial-entry rows are admitted.
+
+Use the normal exact-line receipt endpoint on the returned batch ID. Supplemental receipts require contract `2.0`, the named target run, `external_system: "cornerstone_payroll"`, source staff UUID and Payroll item identity. Issuance additionally requires the payment method and reference. Aggregate batch receipts and legacy case acknowledgements cannot report this snapshot paid. Every split line needs matching issued evidence before case completion derives `paid`; commit and payment preparation remain unpaid. The old route endpoint refuses included/in-payroll cases and sources reserved in manual payroll.
+
+Regular batch listing, overlap/publication guards and builder watermarks ignore supplemental snapshots. Ledger balances and receipt views still include their exact rows so subsequent ordinary payroll cannot pay them again.
+
+Deploy migration `20261024050000_allow_supplemental_payroll_batches` before enabling the command. It changes the date-range unique index to cover regular batches and adds a unique supplemental target index. Existing payloads/checksums are unchanged. Once supplemental batches exist, rollback refuses to discard their immutable evidence; roll forward instead.

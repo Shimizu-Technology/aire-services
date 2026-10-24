@@ -25,6 +25,8 @@ class PayrollBatch < ApplicationRecord
   validates :schema_version, inclusion: { in: [ SCHEMA_VERSION ] }
   validate :end_date_on_or_after_start_date
 
+  scope :regular, -> { where("COALESCE(payload->>'purpose', 'regular') = 'regular'") }
+
   def readonly?
     persisted?
   end

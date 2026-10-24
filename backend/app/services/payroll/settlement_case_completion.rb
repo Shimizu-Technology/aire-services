@@ -17,6 +17,8 @@ module Payroll
         settlement_case.source_user_id == user.id && settlement_case.source_user_uuid == user.payroll_integration_uuid &&
         entry.work_date == settlement_case.original_work_date
 
+      return supplemental_completion(batch) if batch.payload["purpose"] == "supplemental"
+
       rows = matching_rows(batch)
       return unless rows.one?
       row = rows.first
@@ -39,6 +41,37 @@ module Payroll
     private
 
     attr_reader :settlement_case, :entry, :held
+
+    def supplemental_completion(batch)
+      rows = batch.payroll_batch_entries.select { |row| row.source_time_entry_id == entry.id }
+      split = allocation
+      return unless rows.any? && split && !split[:hold_reason] &&
+        rows.sum(&:total_hours) == entry.hours.to_d && rows.sum(&:regular_hours) == split[:regular_hours].to_d &&
+        rows.sum(&:overtime_hours) == split[:overtime_hours].to_d &&
+        (!split[:overtime_hours].to_d.positive? || entry.overtime_status.in?(%w[approved none]))
+      dates = PayableIntervals.segments(entry).select { |segment| segment[:seconds].positive? }.map { |segment| segment[:work_date] }.sort
+      return unless rows.map(&:work_date).sort == dates
+      return unless settlement_case.target_external_pay_period_id == batch.payload["target_external_pay_period_id"]
+      return unless rows.all? do |row|
+        version = row.snapshot["version"]
+        event = exact_event(batch, row)
+        row.source_kind == "carryover" && row.source_user_id == entry.user_id && row.source_user_uuid == user.payroll_integration_uuid &&
+          row.source_category_id.present? && row.source_category_id == supplemental_category_id(row) &&
+          version.is_a?(Integer) && version == entry.lock_version && version >= settlement_case.source_time_entry_version &&
+          row.regular_hours >= 0 && row.overtime_hours >= 0 && row.total_hours == row.regular_hours + row.overtime_hours &&
+          issued?(row, event) && event.external_pay_period_id == settlement_case.target_external_pay_period_id
+      end
+
+      "paid"
+    end
+
+    def supplemental_category_id(row)
+      return entry.time_category_id if entry.time_category_id.present?
+      return unless row.snapshot["time_category_inferred_from_sole_assignment"]
+
+      assigned = user.assigned_time_categories.where(is_active: true).pluck(:id)
+      assigned.first if assigned.one?
+    end
 
     def user
       entry.user

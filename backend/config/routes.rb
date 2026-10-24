@@ -73,6 +73,7 @@ Rails.application.routes.draw do
             end
           end
           resources :periods, only: [ :show ], param: :id do
+            resource :late_hours, only: [ :show, :create ], controller: :late_hours
             member do
               post :finalize
             end
