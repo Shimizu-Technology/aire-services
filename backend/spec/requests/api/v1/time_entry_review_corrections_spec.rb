@@ -179,9 +179,11 @@ RSpec.describe "Explicit time entry review corrections", type: :request do
       travel_to(cutoff + 1.minute)
       expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id).call[:status]).to eq("finalized")
       origin = PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)
+      wait_for_database_cutoff(cutoff)
       expect { submit(overrides: { stop_date: start.to_date.iso8601 }) }
         .to have_enqueued_job(PayrollSettlementCaseCaptureJob).with(entry.id, nil, admin.id)
       expect(response).to have_http_status(:ok)
+      expect(PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last.recorded_at).to be > cutoff
       PayrollSettlementCaseCaptureJob.perform_now(entry.id, nil, admin.id)
       expect(origin.reload.origin_reason).to eq("open_clock")
       expect(origin.source_time_entry_id).to eq(entry.id)

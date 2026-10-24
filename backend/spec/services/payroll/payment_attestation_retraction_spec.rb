@@ -42,11 +42,9 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
                    entry_method: "manual", status: "completed", approval_status: "pending", overtime_status: "none",
                    created_at: fixture_clock - 1.day, updated_at: fixture_clock - 1.day)
     origin = origin_period
-    # This target must really close before the later source edit. Keep the
-    # wait bounded instead of pretending Rails travel advances revision time.
-    old_target = following_period(origin, cutoff: database_clock + 0.2.seconds)
+    old_target = following_period(origin)
     target = following_period(old_target)
-    travel_to(origin.cutoff_at + 0.000001.seconds, with_usec: true) do
+    travel_to(origin.cutoff_at + 1.minute) do
       expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
       entry.update!(approval_status: "approved", approved_by: actor, approved_at: Time.current)
     end
@@ -72,6 +70,12 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
     origin, old_target, target, entry, settlement_case = held_case_fixture
     origin_checksum = origin.payroll_batch.checksum
     travel_to(database_clock, with_usec: true) do
+      # Finish shared setup before starting the bounded cutoff window. Keep
+      # the attestation before it and the later source revision after it.
+      closing_cutoff = database_clock + 2.seconds
+      old_target.update!(cutoff_at: closing_cutoff, next_finalization_attempt_at: closing_cutoff,
+                         previous_regular_pay_date: closing_cutoff.to_date - 7.days)
+      expect(old_target.cutoff_at).to be > database_clock
       attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
                                     reason: "Owner reported payment; the physical check evidence has not been verified")
       expect(settlement_case.reload.status).to eq("superseded")
@@ -79,6 +83,8 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
       travel_to(old_target.cutoff_at + 1.minute)
       wait_for_database_cutoff(old_target.cutoff_at)
       entry.update!(description: "Source correction requiring fresh review")
+      expect(PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last.recorded_at)
+        .to be > old_target.cutoff_at
       recorder.retract!(attestation: attestation.reload, reason: reason)
 
       expect(settlement_case.reload).to have_attributes(
