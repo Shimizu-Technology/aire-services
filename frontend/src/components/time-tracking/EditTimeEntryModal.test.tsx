@@ -353,8 +353,8 @@ describe('precise clock editor payloads', () => {
   })
   it('requires detailed breaks to be edited rather than overriding their aggregate', () => {
     show()
-    expect(screen.getByRole('button', { name: 'None', exact: true })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '1h', exact: true })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'None' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '1h' })).toBeDisabled()
   })
   it('closes an unchanged save without sending an empty patch', async () => {
     show()
