@@ -138,6 +138,8 @@ module Api
           time_category_id: @time_entry.time_category_id,
           overtime_status: @time_entry.overtime_status,
           start_time: @time_entry.formatted_start_time,
+          clock_in_at: @time_entry.clock_in_at&.iso8601(6),
+          clock_out_at: @time_entry.clock_out_at&.iso8601(6),
           end_time: @time_entry.formatted_end_time,
           break_minutes: @time_entry.break_minutes.to_i,
           breaks: audit_break_rows(@time_entry.time_entry_breaks.order(:start_time, :id))
@@ -174,7 +176,11 @@ module Api
         @time_entry.transaction do
           saved = @time_entry.update(update_params)
           if saved && break_update
-            break_replace_error = replace_break_records(@time_entry, break_update[:breaks])
+            break_replace_error = if break_update[:retain_ids]
+              update_retained_break_records(@time_entry, break_update[:breaks])
+            else
+              replace_break_records(@time_entry, break_update[:breaks])
+            end
             raise ActiveRecord::Rollback if break_replace_error
           end
           raise ActiveRecord::Rollback unless saved
@@ -200,6 +206,8 @@ module Api
             time_category_id: @time_entry.time_category_id,
             overtime_status: @time_entry.overtime_status,
             start_time: @time_entry.formatted_start_time,
+            clock_in_at: @time_entry.clock_in_at&.iso8601(6),
+            clock_out_at: @time_entry.clock_out_at&.iso8601(6),
             end_time: @time_entry.formatted_end_time,
             break_minutes: @time_entry.break_minutes.to_i,
             breaks: audit_break_rows(@time_entry.time_entry_breaks.reload.sort_by { |entry_break| [ entry_break.start_time, entry_break.id ] })
@@ -643,8 +651,12 @@ module Api
         return unless entry.clock_entry?
 
         target_work_date = raw_params[:work_date].presence || params_hash[:work_date].presence || entry.work_date
+        # Date corrections relocate the whole shift; the audit and revision ledger
+        # retain the original actual punches. Explicit endpoint edits take precedence.
+        day_delta = (Date.parse(target_work_date.to_s) - entry.work_date).to_i
         start_value = raw_params[:start_time].presence || params_hash[:start_time]
-        corrected_start = clock_time_on_work_date(start_value, target_work_date) if start_value.present?
+        start_to_resolve = start_value.presence || (entry.start_time if day_delta.nonzero?)
+        corrected_start = clock_time_on_work_date(start_to_resolve, target_work_date) if start_to_resolve.present?
 
         if corrected_start
           if entry.active? && corrected_start > Time.current
@@ -652,12 +664,12 @@ module Api
           end
 
           first_break = entry.time_entry_breaks.order(:start_time).first
-          if first_break && corrected_start >= first_break.start_time
+          if first_break && corrected_start >= first_break.start_time.advance(days: day_delta)
             return render json: { error: "Clock-in time must be before the first break" }, status: :unprocessable_entity
           end
 
           params_hash[:start_time] = corrected_start
-          params_hash[:clock_in_at] = corrected_start
+          params_hash[:clock_in_at] = start_value.present? ? corrected_start : entry.clock_in_at&.advance(days: day_delta)
         end
 
         if entry.active?
@@ -665,32 +677,32 @@ module Api
           params_hash.delete(:hours)
         else
           end_value = raw_params[:end_time].presence || params_hash[:end_time]
-          return unless end_value.present?
+          end_to_resolve = end_value.presence || (entry.end_time if day_delta.nonzero?)
+          return unless end_to_resolve.present?
 
           start_reference = corrected_start || clock_time_on_work_date(entry.start_time, target_work_date)
-          corrected_end = clock_time_on_work_date(end_value, target_work_date, after: start_reference)
+          corrected_end = clock_time_on_work_date(end_to_resolve, target_work_date, after: start_reference)
 
-          if corrected_end > Time.current
+          actual_end = end_value.present? ? corrected_end : entry.clock_out_at&.advance(days: day_delta)
+          if corrected_end > Time.current || (actual_end && actual_end > Time.current)
             return render json: { error: "Clock-out time cannot be in the future" }, status: :unprocessable_entity
           end
 
           params_hash[:end_time] = corrected_end
-          params_hash[:clock_out_at] = corrected_end
+          params_hash[:clock_out_at] = actual_end
         end
       rescue ArgumentError
         render json: { error: "Clock times are invalid" }, status: :unprocessable_entity
       end
 
       def clock_time_on_work_date(value, work_date, after: nil)
-        # An explicit instant is already a precise correction, including its date.
-        return Time.iso8601(value) if value.is_a?(String) && value.match?(/\A\d{4}-\d{2}-\d{2}T/)
+        return Time.iso8601(value) if iso_timestamp_with_zone?(value)
 
-        local_time = value.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
-        date = Date.parse(work_date.to_s)
-        tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
-        corrected = tz.local(date.year, date.month, date.day, local_time.hour, local_time.min, local_time.sec + local_time.subsec)
-        corrected += 1.day if after.present? && corrected <= after
-        corrected
+        time_on_work_date(value, Date.parse(work_date.to_s), after: after)
+      end
+
+      def iso_timestamp_with_zone?(value)
+        value.is_a?(String) && value.match?(/\A\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})\z/)
       end
 
       def raw_time_entry_params
@@ -705,6 +717,17 @@ module Api
             if update_params.key?(:break_minutes) && submitted_minutes != entry.break_minutes
               render json: { error: "Edit or remove the detailed breaks to change their total duration" }, status: :unprocessable_entity
               return nil
+            end
+            day_delta = (Date.parse((update_params[:work_date].presence || entry.work_date).to_s) - entry.work_date).to_i
+            if day_delta.nonzero?
+              shifted = entry.time_entry_breaks.map do |row|
+                { id: row.id, start_time: row.start_time.advance(days: day_delta),
+                  end_time: row.end_time&.advance(days: day_delta), duration_minutes: row.duration_minutes }
+              end
+              validate_retained_breaks(entry, update_params, rows: shifted)
+              return nil if performed?
+
+              return { breaks: shifted, total_minutes: entry.break_minutes, retain_ids: true }
             end
             validate_retained_breaks(entry, update_params)
           end
@@ -761,14 +784,15 @@ module Api
         nil
       end
 
-      def validate_retained_breaks(entry, update_params)
-        return if entry.active? || (update_params.keys & %i[work_date start_time end_time]).empty?
+      def validate_retained_breaks(entry, update_params, rows: entry.time_entry_breaks)
+        return if (update_params.keys & %i[work_date start_time end_time]).empty?
 
         work_date = Date.parse((update_params[:work_date].presence || entry.work_date).to_s)
         starts_at = time_on_work_date(update_params[:start_time].presence || entry.start_time, work_date)
-        ends_at = time_on_work_date(update_params[:end_time].presence || entry.end_time, work_date, after: starts_at)
-        invalid_break = entry.time_entry_breaks.any? do |row|
-          row.end_time.nil? || row.start_time < starts_at || row.end_time > ends_at
+        ends_at = entry.active? ? Time.current : time_on_work_date(update_params[:end_time].presence || entry.end_time, work_date, after: starts_at)
+        invalid_break = rows.any? do |row|
+          (!entry.active? && row[:end_time].nil?) || row[:start_time] < starts_at || row[:start_time] > ends_at ||
+            (row[:end_time] && row[:end_time] > ends_at)
         end
         if invalid_break
           render json: { error: "Breaks must fall within the entry start and end time" }, status: :unprocessable_entity
@@ -778,10 +802,10 @@ module Api
       end
 
       def time_on_work_date(value, work_date, after: nil)
-        return Time.iso8601(value) if value.is_a?(String) && value.match?(/\A\d{4}-\d{2}-\d{2}T/)
+        return Time.iso8601(value) if iso_timestamp_with_zone?(value)
 
         seconds = 0
-        if value.respond_to?(:in_time_zone)
+        if !value.is_a?(String) && value.respond_to?(:in_time_zone)
           local = value.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
           hour = local.hour
           minute = local.min
@@ -801,6 +825,16 @@ module Api
         resolved
       end
 
+      def update_retained_break_records(entry, break_rows)
+        break_rows.each do |row|
+          entry_break = entry.time_entry_breaks.find(row.fetch(:id))
+          unless entry_break.update(row.slice(:start_time, :end_time))
+            return entry_break.errors.full_messages.to_sentence
+          end
+        end
+        nil
+      end
+
       def replace_break_records(entry, break_rows)
         entry.time_entry_breaks.destroy_all
         break_rows.each do |row|
@@ -813,8 +847,8 @@ module Api
       def audit_break_rows(breaks)
         breaks.map do |entry_break|
           {
-            start_time: entry_break.start_time&.iso8601,
-            end_time: entry_break.end_time&.iso8601,
+            start_time: entry_break.start_time&.iso8601(6),
+            end_time: entry_break.end_time&.iso8601(6),
             duration_minutes: entry_break.duration_minutes.to_i
           }
         end
