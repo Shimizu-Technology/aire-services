@@ -5,7 +5,8 @@ require "rails_helper"
 RSpec.describe "Payroll rollout calendar contract", type: :request do
   include ActiveSupport::Testing::TimeHelpers
 
-  let(:headers) { { "X-Shared-Secret" => ENV.fetch("PAYROLL_SHARED_SECRET"), "Content-Type" => "application/json" } }
+  let(:secret) { "lock-rollout-shared-secret" }
+  let(:headers) { { "X-Shared-Secret" => secret, "Content-Type" => "application/json" } }
   let(:payload) do
     {
       schema_version: "2.0", start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-31",
@@ -13,6 +14,14 @@ RSpec.describe "Payroll rollout calendar contract", type: :request do
       cutoff_rule: "after_previous_regular_payday", cutoff_days: 7, schedule_version: 1,
       publication_id: SecureRandom.uuid, lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16"
     }
+  end
+
+  around do |example|
+    previous = ENV["PAYROLL_SHARED_SECRET"]
+    ENV["PAYROLL_SHARED_SECRET"] = secret
+    example.run
+  ensure
+    ENV["PAYROLL_SHARED_SECRET"] = previous
   end
 
   before do

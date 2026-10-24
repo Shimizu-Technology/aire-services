@@ -11,10 +11,19 @@ RSpec.describe "Manual calendar Lock with negative corrections", type: :request 
   let(:actor) { create(:user, :admin) }
   let(:category) { create(:time_category) }
   let(:reason) { "Freeze the reviewed October source for Payroll import" }
+  let(:secret) { "manual-calendar-correction-secret" }
   let(:headers) do
     grant = PayrollIntegrationGrant.issue!(user: actor, capabilities: [ "payroll_finalization" ])
-    { "X-Shared-Secret" => ENV.fetch("PAYROLL_SHARED_SECRET"), "Content-Type" => "application/json",
+    { "X-Shared-Secret" => secret, "Content-Type" => "application/json",
       "X-Aire-Delegation-Token" => grant.issued_token }
+  end
+
+  around do |example|
+    previous = ENV["PAYROLL_SHARED_SECRET"]
+    ENV["PAYROLL_SHARED_SECRET"] = secret
+    example.run
+  ensure
+    ENV["PAYROLL_SHARED_SECRET"] = previous
   end
 
   def publish(second_half: false)
