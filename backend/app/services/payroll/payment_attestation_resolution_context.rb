@@ -45,9 +45,12 @@ module Payroll
         raise Error, "Published calendar overtime policy requires historical review before matching payment"
       end
       split = WeeklyOvertimeAllocator.call(current).fetch(held_entry.id)
+      if split[:hold_reason] || split.fetch(:segments, []).size > 1
+        raise Error, "Overnight allocation requires review through its exact scheduled batch lines before matching payment"
+      end
       regular = BigDecimal(split.fetch(:regular_hours).to_s).round(2)
       overtime = BigDecimal(split.fetch(:overtime_hours).to_s).round(2)
-      if held_entry.overtime_status.in?(%w[pending denied]) && overtime.positive?
+      if held_entry.overtime_status != "approved" && overtime.positive?
         raise Error, "Approve the complete reported overtime before matching payment"
       end
       unless regular + overtime == attestation.hours.to_d

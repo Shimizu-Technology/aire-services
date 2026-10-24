@@ -26,11 +26,15 @@ module Payroll
       control_scope = overtime_context_entries_scope(context_start_date..context_end_date, user_ids)
       enforce_sync_entry_limit!(control_scope)
       control_entries = control_scope.to_a
-      report_entries = filter_report_entries(control_entries)
+
       @entry_quality_flags = build_entry_quality_flags(control_entries)
       @overtime_allocations_by_user = control_entries.group_by(&:user_id).transform_values { |rows| allocate_weekly_overtime(rows) }
       allocations = @overtime_allocations_by_user.values.each_with_object({}) { |rows, result| result.merge!(rows) }
       @payroll_lifecycles = EntryLifecycleResolver.new(entries: control_entries, overtime_allocations: allocations).call
+      @allocation_holds = allocations.select { |_id, allocation| allocation[:hold_reason] }.keys.to_set
+      @allocation_holds.each { |id| (@entry_quality_flags[id] ||= []) << "overnight_allocation_review" }
+      control_entries = PayableSegmentView.expand(control_entries, allocations)
+      report_entries = filter_report_entries(control_entries)
       control_period_entries = control_entries.select { |entry| entry.work_date.between?(start_date, end_date) }
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
       breakdowns = build_breakdowns(employees)
@@ -83,7 +87,7 @@ module Payroll
     end
 
     def overtime_context_entries_scope(range, user_ids)
-      base_entries_scope(range, user_ids)
+      base_entries_scope((range.begin - 1)..range.end, user_ids)
     end
 
     def enforce_sync_entry_limit!(scope)
@@ -205,15 +209,15 @@ module Payroll
     def build_days(entries, allocations)
       entries.group_by(&:work_date).sort_by { |date, _| date }.map do |date, day_entries|
         day_entries = day_entries.sort_by { |entry| [ entry_sort_seconds(entry), entry.created_at, entry.id ] }
-        regular = day_entries.sum { |entry| allocations.fetch(entry.id, {})[:regular_hours].to_f }
-        overtime = day_entries.sum { |entry| allocations.fetch(entry.id, {})[:overtime_hours].to_f }
+        regular = day_entries.sum { |entry| PayableSegmentView.allocation(entry, allocations)[:regular_hours].to_f }
+        overtime = day_entries.sum { |entry| PayableSegmentView.allocation(entry, allocations)[:overtime_hours].to_f }
         {
           work_date: date.iso8601,
           total_hours: round_hours(day_entries.sum { |entry| entry.hours.to_f }),
           regular_hours: round_hours(regular),
           overtime_hours: round_hours(overtime),
           break_hours: round_hours(day_entries.sum { |entry| entry.break_minutes.to_i / 60.0 }),
-          entries: day_entries.map { |entry| serialize_entry(entry, allocations.fetch(entry.id, {})) }
+          entries: day_entries.map { |entry| serialize_entry(entry, PayableSegmentView.allocation(entry, allocations)) }
         }
       end
     end
@@ -225,8 +229,8 @@ module Payroll
           key: category&.key,
           name: category&.name || "Uncategorized",
           total_hours: round_hours(category_entries.sum { |entry| entry.hours.to_f }),
-          regular_hours: round_hours(category_entries.sum { |entry| allocations.fetch(entry.id, {})[:regular_hours].to_f }),
-          overtime_hours: round_hours(category_entries.sum { |entry| allocations.fetch(entry.id, {})[:overtime_hours].to_f }),
+          regular_hours: round_hours(category_entries.sum { |entry| PayableSegmentView.allocation(entry, allocations)[:regular_hours].to_f }),
+          overtime_hours: round_hours(category_entries.sum { |entry| PayableSegmentView.allocation(entry, allocations)[:overtime_hours].to_f }),
           break_hours: round_hours(category_entries.sum { |entry| entry.break_minutes.to_i / 60.0 }),
           entries_count: category_entries.size
         }
@@ -250,8 +254,8 @@ module Payroll
           weekly_total_hours: round_hours(countable.sum { |entry| entry.hours.to_f }),
           period_hours: round_hours(period_entries.sum { |entry| entry.hours.to_f }),
           context_hours: context_hours,
-          regular_hours: round_hours(period_entries.sum { |entry| allocations.fetch(entry.id, {})[:regular_hours].to_f }),
-          overtime_hours: round_hours(period_entries.sum { |entry| allocations.fetch(entry.id, {})[:overtime_hours].to_f }),
+          regular_hours: round_hours(period_entries.sum { |entry| PayableSegmentView.allocation(entry, allocations)[:regular_hours].to_f }),
+          overtime_hours: round_hours(period_entries.sum { |entry| PayableSegmentView.allocation(entry, allocations)[:overtime_hours].to_f }),
           context_note: context_hours.positive? ? "Includes #{context_hours}h from outside this filtered report selection to calculate Sunday–Saturday overtime." : nil
         }
       end.compact
@@ -262,6 +266,7 @@ module Payroll
         id: entry.id,
         version: entry.lock_version,
         work_date: entry.work_date.iso8601,
+        nominal_work_date: entry.respond_to?(:payable_allocation) ? entry.__getobj__.work_date.iso8601 : entry.work_date.iso8601,
         start_time: entry.start_time&.in_time_zone(BUSINESS_TIMEZONE)&.strftime("%H:%M"),
         end_time: entry.end_time&.in_time_zone(BUSINESS_TIMEZONE)&.strftime("%H:%M"),
         formatted_start_time: entry.formatted_start_time,
@@ -300,6 +305,7 @@ module Payroll
     def issues_for(entries)
       countable_entries = entries.select { |entry| countable?(entry) }
       {
+        allocation_hold_count: entries.count { |entry| @allocation_holds&.include?(entry.id) },
         pending_count: entries.count { |entry| entry.approval_status == "pending" },
         denied_count: entries.count { |entry| entry.approval_status == "denied" },
         pending_overtime_count: entries.count { |entry| entry.overtime_status == "pending" },
@@ -310,7 +316,7 @@ module Payroll
     end
 
     def report_ready?(issues)
-      issues.fetch(:uncategorized_count).zero?
+      issues.fetch(:uncategorized_count).zero? && issues.fetch(:allocation_hold_count, 0).zero?
     end
 
     def report_quality(employees)
@@ -398,6 +404,7 @@ module Payroll
         overtime_hours: sum(employees, :overtime_hours),
         break_hours: sum(employees, :break_hours),
         entries_count: employees.sum { |employee| employee[:entries_count].to_i },
+        allocation_hold_count: period_entries.count { |entry| @allocation_holds&.include?(entry.id) },
         pending_count: period_entries.count { |entry| entry.approval_status == "pending" },
         denied_count: period_entries.count { |entry| entry.approval_status == "denied" },
         pending_overtime_count: period_entries.count { |entry| entry.overtime_status == "pending" },
@@ -451,7 +458,7 @@ module Payroll
     end
 
     def countable?(entry)
-      entry.counts_toward_hours?
+      entry.counts_toward_hours? && !@allocation_holds&.include?(entry.id)
     end
 
     def user_status(user)

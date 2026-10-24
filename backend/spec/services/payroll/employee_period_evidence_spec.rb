@@ -405,6 +405,7 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
         receipt(origin, line(origin, previous, 8, 0, "current", snapshot: { "version" => previous.lock_version }),
           "payment_issued", payment_method: "paper_check", payment_reference: "30000")
       end
+      source.reload.update_columns(overtime_status: "approved", overtime_approved_at: Time.current)
       original_line
       unless defect == "original_missing"
         if defect == "original_legacy"
@@ -465,7 +466,7 @@ RSpec.describe Payroll::EmployeePeriodEvidence do
         when "foreign_system" then receipt(included, delta, "payment_issued", external_system: "foreign_payroll", payment_method: "paper_check", payment_reference: "30004")
         when "foreign_uuid" then receipt(included, delta, "payment_issued", source_user_uuid: SecureRandom.uuid, payment_method: "paper_check", payment_reference: "30004")
         when "stale_version" then source.update!(description: "Changed after issuance")
-        when "future_case_version" then historical.update!(source_time_entry_version: 2)
+        when "future_case_version" then historical.update!(source_time_entry_version: source.lock_version + 1)
         when "ambiguous_original" then line(origin, source, 1)
         when "ambiguous_delta" then line(included, source, 1, 0, "correction", snapshot: { "version" => 1 })
         when "pending_ot" then source.update_columns(overtime_status: "pending")

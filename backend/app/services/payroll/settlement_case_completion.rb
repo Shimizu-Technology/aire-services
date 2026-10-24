@@ -110,7 +110,7 @@ module Payroll
 
     def allocation
       @allocation ||= WeeklyOvertimeAllocator.call(
-        TimeEntry.where(user_id: entry.user_id, work_date: entry.work_date.all_week(:sunday)).order(:work_date, :id).select(&:counts_toward_hours?)
+        TimeEntry.where(user_id: entry.user_id, work_date: (entry.work_date.beginning_of_week(:sunday) - 1)..(entry.work_date.end_of_week(:sunday) + 7)).order(:work_date, :id).select(&:counts_toward_hours?)
       )[entry.id]
     end
   end

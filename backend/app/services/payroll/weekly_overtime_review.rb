@@ -15,10 +15,10 @@ module Payroll
       return {} if flagged.empty?
 
       unless allocations
-        pairs = flagged.map { |entry| [ entry.user_id, entry.work_date.beginning_of_week(:sunday) ] }.to_set
+        pairs = flagged.flat_map { |entry| WeeklyOvertimeAllocator.weeks(entry).map { |week| [ entry.user_id, week ] } }.to_set
         context = context_entries || context_for(pairs)
         eligible = context.select do |entry|
-          entry.counts_toward_hours? && pairs.include?([ entry.user_id, entry.work_date.beginning_of_week(:sunday) ])
+          entry.counts_toward_hours? && WeeklyOvertimeAllocator.weeks(entry).any? { |week| pairs.include?([ entry.user_id, week ]) }
         end
         allocations = eligible.group_by(&:user_id).each_with_object({}) do |(_user_id, user_entries), result|
           result.merge!(WeeklyOvertimeAllocator.call(user_entries))
@@ -35,11 +35,11 @@ module Payroll
           <<~SQL.squish,
             INNER JOIN jsonb_to_recordset(?::jsonb) AS overtime_review_pairs(user_id bigint, week_start date)
               ON overtime_review_pairs.user_id = time_entries.user_id
-             AND time_entries.work_date BETWEEN overtime_review_pairs.week_start AND overtime_review_pairs.week_start + 6
+             AND time_entries.work_date BETWEEN overtime_review_pairs.week_start - 1 AND overtime_review_pairs.week_start + 6
           SQL
           records.to_json
         ])
-        TimeEntry.countable.joins(join_sql).to_a
+        TimeEntry.countable.joins(join_sql).includes(:time_entry_breaks).distinct.to_a
       end
     end
     private_class_method :context_for

@@ -135,7 +135,10 @@ module Payroll
     end
 
     def build_periods(include_settlement_cases:)
-      entries = bounded(date_scope(TimeEntry.where(user: user).includes(:time_category), :work_date).order(:work_date, :id))
+      entry_scope = TimeEntry.where(user: user).includes(:time_category, :time_entry_breaks)
+      entry_scope = entry_scope.where(work_date: (start_date - 1)..) if start_date
+      entry_scope = entry_scope.where(work_date: ..end_date) if end_date
+      entries = bounded(entry_scope.order(:work_date, :id))
       frozen_owner_scope = PayrollBatchEntry.where(source_user_id: user.id).or(PayrollBatchEntry.where(source_user_uuid: user.payroll_integration_uuid))
       frozen = bounded(date_scope(frozen_owner_scope
         .includes(payroll_batch: :payroll_batch_processing_events), :work_date).order(:id))
@@ -146,6 +149,9 @@ module Payroll
         .where(source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).order(:id))
       events_by_line = events.group_by { |event| [ event.payroll_batch_id, event.source_time_entry_id ] }
       allocations = current_allocations(entries)
+      entries = PayableSegmentView.expand(entries, allocations).select do |entry|
+        (!start_date || entry.work_date >= start_date) && (!end_date || entry.work_date <= end_date)
+      end
       line_counts = PayrollBatchEntry.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq, source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).group(:payroll_batch_id, :source_time_entry_id).count
       lines = frozen.map { |row| key = [ row.payroll_batch_id, row.source_time_entry_id ]; frozen_line(row, events_by_line.fetch(key, []), line_counts.fetch(key)) }
       lines.concat(manual.map { |row| manual_line(row) })
@@ -161,7 +167,7 @@ module Payroll
         period_lines = lines_by_period.fetch(starts_on, [])
         period_cases = cases_by_period.fetch(starts_on, [])
         lines_by_entry = period_lines.group_by { |line| line[:source_time_entry_id] }
-        entry_rows = period_entries.map { |entry| current_entry(entry, allocations.fetch(entry.id, {}), lines_by_entry.fetch(entry.id.to_s, []), holds[entry.id]) }
+        entry_rows = period_entries.map { |entry| current_entry(entry, PayableSegmentView.allocation(entry, allocations), lines_by_entry.fetch(entry.id.to_s, []), holds[entry.id]) }
         summary = BUCKETS.index_with { |key| round(entry_rows.sum { |row| row[key].to_d }) }
         # Retained receipts include deleted source rows and signed corrections.
         %i[issued committed exported].each do |bucket|
@@ -209,18 +215,19 @@ module Payroll
     def current_allocations(entries)
       return {} if entries.empty?
 
-      context = bounded(TimeEntry.where(user: user, work_date: entries.first.work_date.beginning_of_week(:sunday)..entries.last.work_date.end_of_week(:sunday)).order(:work_date, :id))
+      context = bounded(TimeEntry.where(user: user, work_date: (entries.first.work_date.beginning_of_week(:sunday) - 1)..(entries.last.work_date.end_of_week(:sunday) + 7)).order(:work_date, :id))
       WeeklyOvertimeAllocator.call(context.select(&:counts_toward_hours?))
     end
 
     def current_entry(entry, allocation, lines, hold)
-      matching = lines
+      matching = entry.respond_to?(:payable_allocation) ? lines.select { |line| line[:work_date] == entry.work_date.iso8601 } : lines
       issued = matching.select { |line| line[:coverage_state] == "issued" }.sum { |line| line[:total_hours].to_d }
       committed = matching.select { |line| line[:coverage_state] == "committed" && !line[:accounting_only] }.sum { |line| line[:total_hours].to_d }
       exported = matching.select { |line| line[:coverage_state] == "exported" }.sum { |line| line[:total_hours].to_d }
       eligible = entry.counts_toward_hours? ? entry.hours.to_d : 0.to_d
-      ot_review = allocation[:overtime_hours].to_f.positive? && entry.overtime_status.in?(%w[pending denied])
-      eligible -= allocation[:overtime_hours].to_d if ot_review
+      eligible = 0.to_d if allocation[:hold_reason]
+      ot_review = allocation[:overtime_hours].to_f.positive? && entry.overtime_status != "approved"
+      eligible -= allocation[:overtime_hours].to_d if ot_review && !allocation[:hold_reason]
       held = [ hold&.hours.to_d || 0.to_d, [ eligible - issued - committed - exported, 0.to_d ].max ].min
       remaining = [ eligible - issued - committed - exported - held, 0.to_d ].max
       { id: entry.id.to_s, version: entry.lock_version, work_date: entry.work_date.iso8601,
@@ -228,9 +235,10 @@ module Payroll
         end_time: entry.end_time&.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)&.strftime("%H:%M"),
         description: entry.description, category: entry.time_category&.name, approval_status: entry.approval_status,
         overtime_status: entry.overtime_status, status: entry.status,
+        allocation_review_reason: allocation[:hold_reason],
         regular_hours: allocation[:regular_hours].to_f, overtime_hours: allocation[:overtime_hours].to_f,
         worked_hours: round(entry.hours), eligible_hours: round(eligible),
-        pending_hours: entry.approval_status == "pending" || entry.active? || (entry.manual_entry? && entry.approval_status.nil?) ? round(entry.hours) : (ot_review && entry.overtime_status == "pending" ? allocation[:overtime_hours] : 0),
+        pending_hours: allocation[:hold_reason] || entry.approval_status == "pending" || entry.active? || (entry.manual_entry? && entry.approval_status.nil?) ? round(entry.hours) : (ot_review && entry.overtime_status == "pending" ? allocation[:overtime_hours] : 0),
         denied_hours: entry.approval_status == "denied" ? round(entry.hours) : (ot_review && entry.overtime_status == "denied" ? allocation[:overtime_hours] : 0),
         issued_hours: round(issued), committed_hours: round(committed), exported_hours: round(exported),
         held_hours: round(held), needs_reconciliation_hours: round(remaining), accounting_correction_hours: round(matching.select { |line| line[:accounting_only] }.sum { |line| line[:total_hours].to_d }), payment_attestation: hold&.reason }

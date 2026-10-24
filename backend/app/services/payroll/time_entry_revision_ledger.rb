@@ -37,7 +37,7 @@ module Payroll
     end
 
     def entries_in_range(range)
-      states(latest_scope.where(source_work_date: range))
+      states(latest_scope.where(source_work_date: (range.begin - 1)..range.end)).select { |entry| overlaps?(entry, range) }
     end
 
     def entries_for_ids(ids)
@@ -53,13 +53,13 @@ module Payroll
 
       user_ids = pairs.map(&:first).uniq
       week_starts = pairs.map(&:last)
-      work_dates = week_starts.min..(week_starts.max + 6.days)
+      work_dates = (week_starts.min - 1)..(week_starts.max + 6.days)
       states(latest_scope.where(source_user_id: user_ids, source_work_date: work_dates))
-        .select { |entry| pairs.include?([ entry.user_id, entry.work_date.beginning_of_week(:sunday) ]) }
+        .select { |entry| WeeklyOvertimeAllocator.weeks(entry).any? { |week| pairs.include?([ entry.user_id, week ]) } }
     end
 
     def entries_created_after_cutoff_in_range(range)
-      states(first_post_cutoff_create_scope.where(source_work_date: range))
+      states(first_post_cutoff_create_scope.where(source_work_date: (range.begin - 1)..range.end)).select { |entry| overlaps?(entry, range) }
     end
 
     def entries_created_after_cutoff_for_pairs(pairs)
@@ -68,12 +68,16 @@ module Payroll
 
       user_ids = pairs.map(&:first).uniq
       week_starts = pairs.map(&:last)
-      work_dates = week_starts.min..(week_starts.max + 6.days)
+      work_dates = (week_starts.min - 1)..(week_starts.max + 6.days)
       states(first_post_cutoff_create_scope.where(source_user_id: user_ids, source_work_date: work_dates))
-        .select { |entry| pairs.include?([ entry.user_id, entry.work_date.beginning_of_week(:sunday) ]) }
+        .select { |entry| WeeklyOvertimeAllocator.weeks(entry).any? { |week| pairs.include?([ entry.user_id, week ]) } }
     end
 
     private
+
+    def overlaps?(entry, range)
+      PayableIntervals.segments(entry).any? { |s| range.cover?(s[:work_date]) }
+    end
 
     def latest_scope_for(filters = {})
       source = PayrollTimeEntryRevision

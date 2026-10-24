@@ -21,7 +21,7 @@ module Payroll
       policy.respond_to?(:stringify_keys) && policy.stringify_keys == POLICY.stringify_keys
     end
 
-    def self.call(entries)
+    def self.legacy_call(entries)
       allocations = {}
       entries.group_by { |entry| entry.work_date.beginning_of_week(:sunday) }.each_value do |week_entries|
         weekly_cumulative = 0.to_d
@@ -45,6 +45,23 @@ module Payroll
         end
       end
       allocations
+    end
+
+    CONTRACT_VERSION = "guam_intervals_v1"
+
+    def self.call(entries, contract: CONTRACT_VERSION)
+      return legacy_call(entries) unless contract == CONTRACT_VERSION
+
+      PayableIntervals.allocate(entries)
+    end
+
+    def self.weeks(entry)
+      interval = PayableIntervals.bounds(entry)
+      return [ entry.work_date.beginning_of_week(:sunday) ] unless interval
+
+      first = interval.first.to_date.beginning_of_week(:sunday)
+      last = (interval.last - 0.000001).to_date.beginning_of_week(:sunday)
+      first.step(last, 7).to_a
     end
 
     def self.sort_key(entry)

@@ -220,7 +220,7 @@ module Payroll
 
     def weekly_split(entry)
       entries = TimeEntry.countable.where(user_id: entry.user_id)
-        .where(work_date: entry.work_date.beginning_of_week(:sunday)..entry.work_date.end_of_week(:sunday))
+        .where(work_date: (entry.work_date.beginning_of_week(:sunday) - 1)..(entry.work_date.end_of_week(:sunday) + 7))
         .order(:work_date, :id)
         .to_a
       period = PayrollCalendarPeriod.where("start_date <= ? AND end_date >= ?", entry.work_date, entry.work_date).order(:id).last
@@ -229,9 +229,13 @@ module Payroll
       end
       result = WeeklyOvertimeAllocator.call(entries)[entry.id]
       raise Error, "This AIRE entry is not eligible for payroll; refresh its approval status" unless result
+      raise Error, "Review overnight break placement before reconciling" if result[:hold_reason]
+      if result.fetch(:segments, []).size > 1
+        raise Error, "This overnight entry has multiple payable dates; settle its exact lines through the scheduled payroll batch"
+      end
       {
         regular_hours: BigDecimal(result.fetch(:regular_hours).to_s).round(2),
-        overtime_hours: entry.overtime_status.in?(%w[pending denied]) ? 0.to_d : BigDecimal(result.fetch(:overtime_hours).to_s).round(2)
+        overtime_hours: entry.overtime_status != "approved" ? 0.to_d : BigDecimal(result.fetch(:overtime_hours).to_s).round(2)
       }
     end
 

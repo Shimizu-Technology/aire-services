@@ -24,6 +24,27 @@ COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching
 
 
 --
+-- Name: capture_payroll_break_revision(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.capture_payroll_break_revision() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- Touching the source creates a new immutable entry+break snapshot at
+  -- the database clock, including break-only inserts/updates/deletes.
+  IF TG_OP <> 'INSERT' THEN
+    UPDATE time_entries SET updated_at = clock_timestamp(), lock_version = lock_version + 1 WHERE id = OLD.time_entry_id;
+  END IF;
+  IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND NEW.time_entry_id <> OLD.time_entry_id) THEN
+    UPDATE time_entries SET updated_at = clock_timestamp(), lock_version = lock_version + 1 WHERE id = NEW.time_entry_id;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+
+--
 -- Name: capture_payroll_time_entry_revision(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -60,6 +81,7 @@ BEGIN
     clock_timestamp(),
     jsonb_build_object(
       'time_entry', to_jsonb(source_row),
+      'breaks', COALESCE((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.start_time, b.id) FROM time_entry_breaks b WHERE b.time_entry_id = source_row.id), '[]'::jsonb),
       'user', jsonb_build_object(
         'id', users.id,
         'payroll_integration_uuid', users.payroll_integration_uuid,
@@ -701,6 +723,7 @@ CREATE TABLE public.payroll_batches (
     issues jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
+    allocation_contract_version character varying,
     CONSTRAINT check_payroll_batches_date_order CHECK ((end_date >= start_date))
 );
 
@@ -2032,7 +2055,9 @@ CREATE TABLE public.time_entries (
     overtime_note text,
     clock_source character varying,
     effective_rate_cents_snapshot integer,
-    lock_version integer DEFAULT 0 NOT NULL
+    lock_version integer DEFAULT 0 NOT NULL,
+    overtime_allocation_signature jsonb,
+    allocation_contract_version character varying
 );
 
 
@@ -4498,6 +4523,13 @@ CREATE TRIGGER time_entries_capture_payroll_revision AFTER INSERT OR DELETE OR U
 
 
 --
+-- Name: time_entry_breaks time_entry_breaks_capture_payroll_revision; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER time_entry_breaks_capture_payroll_revision AFTER INSERT OR DELETE OR UPDATE ON public.time_entry_breaks FOR EACH ROW EXECUTE FUNCTION public.capture_payroll_break_revision();
+
+
+--
 -- Name: payroll_manual_allocations fk_manual_allocations_time_category; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5032,6 +5064,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261024010000'),
 ('20261013010000'),
 ('20261011010000'),
 ('20261007010000'),

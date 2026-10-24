@@ -380,6 +380,7 @@ function EmploymentStatusBadge({ employee }: { employee: HoursReportEmployee }) 
 const QUALITY_FLAG_LABELS: Record<NonNullable<TimeEntryItem['quality_flags']>[number], string> = {
   missing_category: 'Missing category',
   missing_description: 'Missing note',
+  overnight_allocation_review: 'Overnight break placement needs review',
   long_shift: 'Long shift',
   overlap: 'Overlapping time',
 }
@@ -2250,7 +2251,9 @@ export default function TimeTracking() {
               </div>
               <p className="mt-1 text-sm leading-relaxed">
                 {!hoursReport.ready
-                  ? `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before finalizing the cutoff.`
+                  ? reportSummary.allocation_hold_count
+                    ? 'Overnight time or break placement needs administrator review. These hours and their affected workweeks are held from payroll until the intervals can be confirmed.'
+                    : `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before finalizing the cutoff.`
                   : excludedEntryCount > 0
                     ? [
                       reportSummary.pending_count > 0 ? `${reportSummary.pending_count} pending` : null,

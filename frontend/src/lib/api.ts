@@ -824,7 +824,7 @@ export interface HoursReportEntry {
   time_category: { id: number; key?: string | null; name: string } | null;
   breaks: Array<{ id: number; start_time: string | null; end_time: string | null; duration_minutes: number | null }>;
   payroll_lifecycle?: PayrollEntryLifecycle;
-  quality_flags: Array<'missing_category' | 'missing_description' | 'long_shift' | 'overlap'>;
+  quality_flags: Array<'missing_category' | 'missing_description' | 'long_shift' | 'overlap' | 'overnight_allocation_review'>;
 }
 
 export type PayrollEntryLifecycleStatus =
@@ -1007,6 +1007,7 @@ export interface HoursReportEmployee {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
+    allocation_hold_count?: number;
   };
   quality: HoursReportQuality;
   payroll_statuses?: HoursReportPayrollStatuses;
@@ -1052,6 +1053,7 @@ export interface HoursReportResponse {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
+    allocation_hold_count?: number;
     payroll_statuses?: HoursReportPayrollStatuses;
   };
   breakdowns: {

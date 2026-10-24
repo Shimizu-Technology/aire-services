@@ -1,6 +1,18 @@
 # frozen_string_literal: true
 
 class TimeEntry < ApplicationRecord
+  attr_accessor :payroll_break_chronology, :skip_overtime_recomputation
+  around_save :recompute_affected_overtime
+  around_destroy :recompute_affected_overtime, prepend: true
+
+  # Services which already require a row lock must acquire the employee lock
+  # first, just like direct saves, so concurrent approvals cannot deadlock.
+  def with_lock(*args, **options, &block)
+    self.class.transaction do
+      Payroll::AffectedOvertimeReview.lock([ user_id ]) { super(*args, **options, &block) }
+    end
+  end
+
   MAX_CLOCK_SPAN = 24.hours
   ADMINISTRATOR_CORRECTION_NOTE = "Needs administrator correction: clock spans 24 hours or more; confirm punches and breaks before approval".freeze
 
@@ -33,6 +45,7 @@ class TimeEntry < ApplicationRecord
   validate :end_time_after_start_time
   validate :selected_time_category_is_active, if: :validate_selected_time_category?
 
+  before_validation :capture_allocation_contract
   before_validation :calculate_hours_from_times, if: :time_calculation_required?
   validate :held_clock_cannot_be_approved
   before_validation :set_zero_hours_if_clocked_in, if: -> { status.in?(%w[clocked_in on_break]) }
@@ -184,6 +197,16 @@ class TimeEntry < ApplicationRecord
   end
 
   private
+
+  def capture_allocation_contract
+    if new_record? || (changes.keys & Payroll::AffectedOvertimeReview::INPUTS).any?
+      self.allocation_contract_version = Payroll::WeeklyOvertimeAllocator::CONTRACT_VERSION
+    end
+  end
+
+  def recompute_affected_overtime(&block)
+    Payroll::AffectedOvertimeReview.around(self, &block)
+  end
 
   def time_calculation_required?
     start_time.present? && end_time.present? &&
