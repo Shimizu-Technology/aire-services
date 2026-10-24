@@ -15,6 +15,7 @@ class AddressGeocodingService
 
   class << self
     def search(query:, limit: DEFAULT_LIMIT)
+      StagingOutboundPolicy.block!("Geocoding")
       raise GeocodingError, "Address query is required" if query.blank?
 
       normalized_query = query.to_s.strip
@@ -45,6 +46,7 @@ class AddressGeocodingService
     end
 
     def perform_request(uri)
+      StagingOutboundPolicy.block!("Geocoding")
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = uri.scheme == "https"
       http.open_timeout = 5

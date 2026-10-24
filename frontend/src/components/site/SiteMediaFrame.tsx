@@ -1,3 +1,4 @@
+import { isStaging } from '../../lib/staging'
 import { useMemo, useState, type ReactNode } from 'react'
 import type { SiteMedia } from '../../lib/api'
 import { videoEmbedUrl } from '../../lib/siteMedia'
@@ -36,8 +37,8 @@ function imageSourcesFor(media: SiteMedia | null | undefined, fallbackSrc?: stri
     }
   }
 
-  const baseSrc = media.file_card_url || media.file_url || media.external_url || fallbackSrc || null
-  const heroSrc = media.file_hero_url || media.file_card_url || media.file_url || media.external_url || fallbackSrc || null
+  const baseSrc = media.file_card_url || media.file_url || (!isStaging ? media.external_url : null) || fallbackSrc || null
+  const heroSrc = media.file_hero_url || media.file_card_url || media.file_url || (!isStaging ? media.external_url : null) || fallbackSrc || null
   const src = priority ? heroSrc : baseSrc
   const srcSetParts = [
     media.file_thumb_url ? `${media.file_thumb_url} 480w` : null,
@@ -109,7 +110,7 @@ export default function SiteMediaFrame({
   const alt = media?.alt_text || fallbackAlt
   const poster = posterFor(media, fallbackSrc, priority)
   const { src: imageSource, srcSet } = imageSourcesFor(media, fallbackSrc, priority)
-  const embedUrl = media?.external_url ? videoEmbedUrl(media.external_url) : null
+  const embedUrl = !isStaging && media?.external_url ? videoEmbedUrl(media.external_url) : null
 
   const skeleton = useMemo(() => (
     <div className="absolute inset-0 overflow-hidden bg-slate-200">

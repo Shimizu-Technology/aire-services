@@ -81,3 +81,6 @@ group :test do
 end
 
 gem "roo", "~> 3.0"
+
+# Re-mark stored PDFs at the staging artifact boundary.
+gem "combine_pdf"

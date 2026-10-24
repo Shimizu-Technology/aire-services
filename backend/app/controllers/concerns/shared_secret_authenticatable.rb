@@ -12,7 +12,18 @@ module SharedSecretAuthenticatable
       return
     end
 
-    expected = ENV["PAYROLL_SHARED_SECRET"].presence || ENV["TIME_TRACKING_EXPORT_SECRET"].presence
+    if StagingOutboundPolicy.staging?
+      begin
+        StagingOutboundPolicy.validate_shared_secret!
+      rescue StagingOutboundPolicy::ConfigurationError
+        Rails.logger.error("Staging payroll shared-secret configuration rejected")
+        render json: { error: "Service unavailable" }, status: :service_unavailable
+        return
+      end
+      expected = ENV.fetch("PAYROLL_SHARED_SECRET")
+    else
+      expected = ENV["PAYROLL_SHARED_SECRET"].presence || ENV["TIME_TRACKING_EXPORT_SECRET"].presence
+    end
     unless expected.present?
       Rails.logger.error("PAYROLL_SHARED_SECRET or legacy TIME_TRACKING_EXPORT_SECRET is not configured")
       render json: { error: "Service unavailable" }, status: :service_unavailable

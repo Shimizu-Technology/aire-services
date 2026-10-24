@@ -16,6 +16,7 @@ class GooglePlacesService
 
   class << self
     def autocomplete(query:, session_token:, limit: DEFAULT_LIMIT)
+      StagingOutboundPolicy.block!("Geocoding")
       normalized_query = query.to_s.strip
       raise PlacesError, "Address query is required" if normalized_query.blank?
 
@@ -26,6 +27,7 @@ class GooglePlacesService
     end
 
     def details(place_id:, session_token:)
+      StagingOutboundPolicy.block!("Geocoding")
       normalized_place_id = place_id.to_s.strip
       raise PlacesError, "Place ID is required" if normalized_place_id.blank?
 
@@ -93,6 +95,7 @@ class GooglePlacesService
     end
 
     def perform_request(uri, method:, field_mask:, body: nil)
+      StagingOutboundPolicy.block!("Geocoding")
       api_key = ENV["GOOGLE_MAPS_API_KEY"].to_s.strip
       raise PlacesError, "Google Maps API key is not configured" if api_key.blank?
 
