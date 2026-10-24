@@ -7,6 +7,15 @@ RSpec.describe "Interval batch history and receipts", type: :request do
   let(:user) { create(:user, :employee) }
   let(:category) { create(:time_category) }
   let(:zone) { ActiveSupport::TimeZone["Pacific/Guam"] }
+  let(:secret) { "interval-batch-receipts-test-secret" }
+
+  around do |example|
+    previous = ENV["PAYROLL_SHARED_SECRET"]
+    ENV["PAYROLL_SHARED_SECRET"] = secret
+    example.run
+  ensure
+    ENV["PAYROLL_SHARED_SECRET"] = previous
+  end
 
   def overnight
     @overnight ||= create(:time_entry, user: user, time_category: category,
