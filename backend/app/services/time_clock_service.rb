@@ -373,9 +373,18 @@ class TimeClockService
 
       entry.with_lock do
         raise ClockError, TimeEntry::ADMINISTRATOR_CORRECTION_NOTE if entry.needs_administrator_correction?
+        if entry.allocation_contract_version.nil?
+          Payroll::AffectedOvertimeReview.around(entry, force: true) { nil }
+        end
         raise ClockError, "Entry does not have pending overtime" unless entry.overtime_status == "pending"
 
+        allocation = Payroll::AffectedOvertimeReview.allocation_for(entry)
+        if allocation.nil? || allocation[:hold_reason]
+          raise ClockError, "Confirm worked time and overnight break placement before approving overtime"
+        end
         entry.update!(
+          allocation_contract_version: Payroll::WeeklyOvertimeAllocator::CONTRACT_VERSION,
+          overtime_allocation_signature: Payroll::AffectedOvertimeReview.signature(entry, allocation),
           overtime_status: "approved",
           overtime_approved_by: approved_by,
           overtime_approved_at: Time.current,
@@ -498,11 +507,17 @@ class TimeClockService
     end
 
     def hours_today(user, date = BusinessDate.today)
-      TimeEntry.countable.for_user(user).for_date(date).sum(:hours).to_f
+      payable_hours_between(user, date, date)
     end
 
     def hours_this_week(user, date = BusinessDate.today)
-      TimeEntry.countable.for_user(user).for_week(date).sum(:hours).to_f
+      payable_hours_between(user, date.beginning_of_week(:sunday), date.end_of_week(:sunday))
+    end
+
+    def payable_hours_between(user, first, last)
+      entries = TimeEntry.countable.for_user(user).where(work_date: (first - 1)..last).includes(:time_entry_breaks).to_a
+      allocations = Payroll::WeeklyOvertimeAllocator.call(entries)
+      Payroll::PayableSegmentView.expand(entries, allocations).select { |entry| entry.work_date.between?(first, last) }.sum(&:hours).to_f
     end
 
     def record_time_event!(action, entry, user:, actor:, source:, metadata: {})
@@ -559,7 +574,7 @@ class TimeClockService
     # in-memory entry, its persisted row is excluded before the current hours are
     # added so both new and edited entries are counted exactly once.
     def check_overtime_status(user, entry, include_entry_hours: true)
-      context = TimeEntry.countable.for_user(user).for_week(entry.work_date)
+      context = TimeEntry.countable.for_user(user).where(work_date: (entry.work_date.beginning_of_week(:sunday) - 1)..(entry.work_date.end_of_week(:sunday) + 7)).includes(:time_entry_breaks)
       context = context.where.not(id: entry.id) if include_entry_hours && entry.persisted?
       entries = context.to_a
       entries << entry if include_entry_hours

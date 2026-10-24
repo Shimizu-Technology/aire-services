@@ -115,6 +115,9 @@ RSpec.describe Payroll::BatchFinalizer do
 
     travel_to(guam.local(2026, 5, 25, 9)) do
       pending.update!(approval_status: "approved", approved_by: admin, approved_at: Time.current)
+      friday = employee.time_entries.find_by!(work_date: Date.new(2026, 5, 9))
+      expect(friday.reload.overtime_status).to eq("pending")
+      TimeClockService.approve_overtime(entry: friday, approved_by: admin)
       next_batch = finalize(
         start_date: "2026-05-11",
         end_date: "2026-05-24",
@@ -190,9 +193,9 @@ RSpec.describe Payroll::BatchFinalizer do
       expect(TimeClockService.check_overtime_status(employee, target)).to eq("pending")
       batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
       row = batch.payroll_batch_entries.find_by!(source_time_entry_id: target.id)
-      expect(row).to have_attributes(regular_hours: 6, overtime_hours: 4)
-      expect(target.reload.overtime_status).to eq("none")
-      expect(batch.summary).to include("regular_hours" => 40.0, "overtime_hours" => 4.0)
+      expect(row).to have_attributes(regular_hours: 6, overtime_hours: 0)
+      expect(target.reload.overtime_status).to eq("pending")
+      expect(batch.summary).to include("regular_hours" => 40.0, "overtime_hours" => 0.0)
     end
   end
 
@@ -314,6 +317,7 @@ RSpec.describe Payroll::BatchFinalizer do
     travel_to(guam.local(2026, 5, 11, 9)) do
       moved = create_entry(date: Date.new(2026, 5, 3))
       (Date.new(2026, 5, 4)..Date.new(2026, 5, 8)).each { |date| last_entry = create_entry(date: date) }
+      TimeClockService.approve_overtime(entry: last_entry, approved_by: admin)
       finalize(start_date: "2026-05-01", end_date: "2026-05-10")
     end
 

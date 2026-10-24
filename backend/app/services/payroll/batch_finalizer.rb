@@ -70,6 +70,7 @@ module Payroll
         checksum = CanonicalPayload.checksum(payload)
         batch = PayrollBatch.create!(
           public_id: reference,
+          allocation_contract_version: result.fetch(:payload)[:allocation_contract_version],
           start_date: result.fetch(:start_date),
           end_date: result.fetch(:end_date),
           cutoff_at: cutoff,

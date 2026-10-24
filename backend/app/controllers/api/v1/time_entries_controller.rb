@@ -174,65 +174,67 @@ module Api
         saved = false
         break_replace_error = nil
         @time_entry.transaction do
-          saved = @time_entry.update(update_params)
-          if saved && break_update
-            break_replace_error = if break_update[:retain_ids]
-              update_retained_break_records(@time_entry, break_update[:breaks])
-            else
-              replace_break_records(@time_entry, break_update[:breaks])
+          ::Payroll::AffectedOvertimeReview.around(@time_entry, force: true) do
+            saved = @time_entry.update(update_params)
+            if saved && break_update
+              break_replace_error = if break_update[:retain_ids]
+                update_retained_break_records(@time_entry, break_update[:breaks])
+              else
+                replace_break_records(@time_entry, break_update[:breaks])
+              end
+              raise ActiveRecord::Rollback if break_replace_error
             end
-            raise ActiveRecord::Rollback if break_replace_error
-          end
-          raise ActiveRecord::Rollback unless saved
+            raise ActiveRecord::Rollback unless saved
 
-          if @time_entry.status == "completed" &&
-             (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
-            new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
-            overtime_attrs = { overtime_status: new_overtime }
+            if @time_entry.status == "completed" &&
+               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
+              new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
+              overtime_attrs = { overtime_status: new_overtime }
 
-            if !current_user.admin? || old_values[:overtime_status].in?([ "approved", "denied" ])
-              overtime_attrs[:overtime_approved_by] = nil
-              overtime_attrs[:overtime_approved_at] = nil
-              overtime_attrs[:overtime_note] = nil
+              if !current_user.admin? || old_values[:overtime_status].in?([ "approved", "denied" ])
+                overtime_attrs[:overtime_approved_by] = nil
+                overtime_attrs[:overtime_approved_at] = nil
+                overtime_attrs[:overtime_note] = nil
+              end
+
+              @time_entry.update!(overtime_attrs)
             end
 
-            @time_entry.update!(overtime_attrs)
-          end
-
-          new_values = {
-            hours: @time_entry.hours.to_f,
-            work_date: @time_entry.work_date.iso8601,
-            description: @time_entry.description,
-            time_category_id: @time_entry.time_category_id,
-            overtime_status: @time_entry.overtime_status,
-            start_time: @time_entry.formatted_start_time,
-            clock_in_at: @time_entry.clock_in_at&.iso8601(6),
-            clock_out_at: @time_entry.clock_out_at&.iso8601(6),
-            end_time: @time_entry.formatted_end_time,
-            break_minutes: @time_entry.break_minutes.to_i,
-            breaks: audit_break_rows(@time_entry.time_entry_breaks.reload.sort_by { |entry_break| [ entry_break.start_time, entry_break.id ] })
-          }
-
-          changes = old_values.each_with_object({}) do |(key, old_val), hash|
-            new_val = new_values[key]
-            hash[key] = { from: old_val, to: new_val } if old_val != new_val
-          end
-
-          AuditLog.record!(
-            action: "time_entry.updated",
-            auditable: @time_entry,
-            actor: current_user,
-            event_category: "time_tracking",
-            changes: changes.presence,
-            metadata: {
+            new_values = {
               hours: @time_entry.hours.to_f,
               work_date: @time_entry.work_date.iso8601,
-              correction_reason: correction_reason,
-              finalized_payroll_batch_ids: finalized_payroll_batches.map(&:public_id).presence
-            }.compact
-          )
+              description: @time_entry.description,
+              time_category_id: @time_entry.time_category_id,
+              overtime_status: @time_entry.overtime_status,
+              start_time: @time_entry.formatted_start_time,
+              clock_in_at: @time_entry.clock_in_at&.iso8601(6),
+              clock_out_at: @time_entry.clock_out_at&.iso8601(6),
+              end_time: @time_entry.formatted_end_time,
+              break_minutes: @time_entry.break_minutes.to_i,
+              breaks: audit_break_rows(@time_entry.time_entry_breaks.reload.sort_by { |entry_break| [ entry_break.start_time, entry_break.id ] })
+            }
 
-          invalidate_payroll_exports!
+            changes = old_values.each_with_object({}) do |(key, old_val), hash|
+              new_val = new_values[key]
+              hash[key] = { from: old_val, to: new_val } if old_val != new_val
+            end
+
+            AuditLog.record!(
+              action: "time_entry.updated",
+              auditable: @time_entry,
+              actor: current_user,
+              event_category: "time_tracking",
+              changes: changes.presence,
+              metadata: {
+                hours: @time_entry.hours.to_f,
+                work_date: @time_entry.work_date.iso8601,
+                correction_reason: correction_reason,
+                finalized_payroll_batch_ids: finalized_payroll_batches.map(&:public_id).presence
+              }.compact
+            )
+
+            invalidate_payroll_exports!
+          end
         end
 
         if break_replace_error
@@ -466,32 +468,37 @@ module Api
         updated_entries = []
         error_message = nil
         ActiveRecord::Base.transaction do
-          entries_by_id = TimeEntry.where(id: entry_ids).lock.index_by(&:id)
+          # Bulk review uses the same employee-before-entry lock order as
+          # individual approval and clock writes, across every selected owner.
+          User.where(id: TimeEntry.where(id: entry_ids).select(:user_id)).order(:id).lock.load
+          entries_by_id = TimeEntry.where(id: entry_ids).order(:id).lock.index_by(&:id)
           missing_ids = entry_ids - entries_by_id.keys
           if missing_ids.any?
             error_message = "One or more selected entries could not be found"
             raise ActiveRecord::Rollback
           end
 
-          entry_ids.each do |entry_id|
-            entry = entries_by_id.fetch(entry_id)
-            unless entry.approval_status == "pending" || entry.overtime_status == "pending"
-              error_message = "One or more selected entries are no longer pending approval"
-              raise ActiveRecord::Rollback
-            end
+          ::Payroll::AffectedOvertimeReview.around_entries(entries_by_id.values, force: true) do
+            entry_ids.each do |entry_id|
+              entry = entries_by_id.fetch(entry_id)
+              unless entry.approval_status == "pending" || entry.overtime_status == "pending"
+                error_message = "One or more selected entries are no longer pending approval"
+                raise ActiveRecord::Rollback
+              end
 
-            approval_changes = []
-            if entry.approval_status == "pending"
-              entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note)
-              approval_changes << "Time entry approved"
-            end
-            if entry.overtime_status == "pending"
-              entry = TimeClockService.approve_overtime(entry: entry, approved_by: current_user, note: note)
-              approval_changes << "Overtime approved"
-            end
-            invalidate_exports_for_entry!(entry, approval_change_reason(approval_changes.join(" and "), note))
+              approval_changes = []
+              if entry.approval_status == "pending"
+                entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note)
+                approval_changes << "Time entry approved"
+              end
+              if entry.overtime_status == "pending"
+                entry = TimeClockService.approve_overtime(entry: entry, approved_by: current_user, note: note)
+                approval_changes << "Overtime approved"
+              end
+              invalidate_exports_for_entry!(entry, approval_change_reason(approval_changes.join(" and "), note))
 
-            updated_entries << eager_reload(entry)
+              updated_entries << eager_reload(entry)
+            end
           end
         end
 

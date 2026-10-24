@@ -210,7 +210,7 @@ module Payroll
           row.external_pay_period_id.present? && row.external_payroll_item_id.present? && row.payment_effective_on.present? &&
           row.payment_method.in?(%w[paper_check direct_deposit]) && row.payment_reference.present?
       end
-      split = WeeklyOvertimeAllocator.call(TimeEntry.where(user_id: entry.user_id, work_date: entry.work_date.all_week(:sunday))
+      split = WeeklyOvertimeAllocator.call(TimeEntry.where(user_id: entry.user_id, work_date: (entry.work_date.beginning_of_week(:sunday) - 1)..(entry.work_date.end_of_week(:sunday) + 7))
         .order(:work_date, :id).select(&:counts_toward_hours?))[entry.id]
       split && rows.sum(&:total_hours) == entry.hours.to_d && rows.sum(&:regular_hours) == split[:regular_hours].to_d &&
         rows.sum(&:overtime_hours) == split[:overtime_hours].to_d &&

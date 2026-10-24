@@ -37,6 +37,15 @@ module Payroll
       concurrent_replay = nil
       ActiveRecord::Base.transaction do
         lock_payroll_evidence!
+        owner_id = if target.respond_to?(:user_id)
+          target.user_id
+        elsif target.respond_to?(:source_user_id)
+          target.source_user_id
+        end
+        AffectedOvertimeReview.lock_users!([ owner_id ])
+        if action == "payroll_payment_attestation.resolve"
+          ActiveRecord::Base.connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions IN SHARE MODE")
+        end
         target.lock!
         existing = PayrollIntegrationCommand.find_by(command_id: command_id)
         if existing
@@ -77,11 +86,6 @@ module Payroll
       connection = ActiveRecord::Base.connection
       connection.execute("SET LOCAL lock_timeout = '5s'")
       connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
-      if action == "payroll_payment_attestation.resolve"
-        # Match BatchFinalizer's lock order: finish in-flight source writes and
-        # fence sibling changes before taking the target/entry row locks.
-        connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions IN SHARE MODE")
-      end
     end
 
     def replay(receipt)

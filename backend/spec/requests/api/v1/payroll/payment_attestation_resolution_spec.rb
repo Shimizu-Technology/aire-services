@@ -325,6 +325,7 @@ RSpec.describe "Reported payment resolution", type: :request do
     create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 8, 13),
       start_time: Time.utc(2000, 1, 1, 0, 0), end_time: Time.utc(2000, 1, 1, 2, 0),
       entry_method: "manual", status: "completed", approval_status: "approved")
+    TimeClockService.approve_overtime(entry: entry, approved_by: actor)
     expect(context).to include(available: true, regular_hours: "6.0", overtime_hours: "2.0", total_hours: "8.0")
     resolve(regular_hours: "8.00", overtime_hours: "0.00")
     expect(response).to have_http_status(:unprocessable_entity)

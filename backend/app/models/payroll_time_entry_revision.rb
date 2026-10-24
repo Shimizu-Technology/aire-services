@@ -18,6 +18,11 @@ class PayrollTimeEntryRevision < ApplicationRecord
     else
       entry.association(:time_category).loaded!
     end
+    entry.payroll_break_chronology = snapshot.key?("breaks")
+    entry.association(:time_entry_breaks).target = Array(snapshot["breaks"]).map do |attributes|
+      TimeEntryBreak.instantiate(attributes.slice(*TimeEntryBreak.column_names))
+    end
+    entry.association(:time_entry_breaks).loaded!
     entry
   end
 

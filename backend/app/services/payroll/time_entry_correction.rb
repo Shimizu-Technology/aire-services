@@ -19,57 +19,59 @@ module Payroll
       raise CorrectionError, "A correction reason is required" if reason.blank?
 
       entry.class.transaction do
-        before = audit_snapshot(entry)
-        corrected, break_rows = normalized_attributes
-        entry.assign_attributes(corrected)
-        if corrected[:end_time].present? && entry.active?
-          entry.status = "completed"
-          entry.clock_out_at = corrected.fetch(:end_time)
-        end
-        entry.approval_status = "pending"
-        entry.approved_by = nil
-        entry.approved_at = nil
-        entry.approval_note = [ entry.approval_note.presence, "Corrected from Cornerstone: #{reason}" ].compact.join(" | ")
-        entry.break_minutes = break_rows.sum { |row| row.fetch(:duration_minutes) } if break_rows
-        entry.calculate_hours_from_times if entry.start_time.present? && entry.end_time.present?
-        entry.overtime_status = if entry.status == "completed"
-          TimeClockService.check_overtime_status(entry.user, entry)
-        else
-          "none"
-        end
-        entry.overtime_approved_by = nil
-        entry.overtime_approved_at = nil
-        entry.overtime_note = nil
-        entry.save!
-        replace_breaks!(break_rows) if break_rows
+        AffectedOvertimeReview.around(entry, force: true) do
+          before = audit_snapshot(entry)
+          corrected, break_rows = normalized_attributes
+          entry.assign_attributes(corrected)
+          if corrected[:end_time].present? && entry.active?
+            entry.status = "completed"
+            entry.clock_out_at = corrected.fetch(:end_time)
+          end
+          entry.approval_status = "pending"
+          entry.approved_by = nil
+          entry.approved_at = nil
+          entry.approval_note = [ entry.approval_note.presence, "Corrected from Cornerstone: #{reason}" ].compact.join(" | ")
+          entry.break_minutes = break_rows.sum { |row| row.fetch(:duration_minutes) } if break_rows
+          entry.calculate_hours_from_times if entry.start_time.present? && entry.end_time.present?
+          entry.overtime_status = if entry.status == "completed"
+            TimeClockService.check_overtime_status(entry.user, entry)
+          else
+            "none"
+          end
+          entry.overtime_approved_by = nil
+          entry.overtime_approved_at = nil
+          entry.overtime_note = nil
+          entry.save!
+          replace_breaks!(break_rows) if break_rows
 
-        after = audit_snapshot(entry)
-        AuditLog.record!(
-          action: "payroll_cockpit.time_entry_corrected",
-          actor: actor,
-          source: "integration",
-          event_category: "payroll",
-          auditable: entry,
-          metadata: {
-            reason: reason,
-            before: before,
-            after: after,
-            requires_approval: true
-          }
-        )
-        PayrollSettlementCase.active.where(source_time_entry_id: entry.id).find_each do |settlement_case|
-          settlement_case.payroll_settlement_case_events.create!(
-            event_id: SecureRandom.uuid,
+          after = audit_snapshot(entry)
+          AuditLog.record!(
+            action: "payroll_cockpit.time_entry_corrected",
             actor: actor,
-            actor_payroll_integration_uuid: actor.payroll_integration_uuid,
-            event_type: "corrected",
-            from_status: settlement_case.status,
-            to_status: settlement_case.status,
-            occurred_at: Time.current,
-            metadata: { reason: reason, time_entry_version: entry.lock_version }
+            source: "integration",
+            event_category: "payroll",
+            auditable: entry,
+            metadata: {
+              reason: reason,
+              before: before,
+              after: after,
+              requires_approval: true
+            }
           )
+          PayrollSettlementCase.active.where(source_time_entry_id: entry.id).find_each do |settlement_case|
+            settlement_case.payroll_settlement_case_events.create!(
+              event_id: SecureRandom.uuid,
+              actor: actor,
+              actor_payroll_integration_uuid: actor.payroll_integration_uuid,
+              event_type: "corrected",
+              from_status: settlement_case.status,
+              to_status: settlement_case.status,
+              occurred_at: Time.current,
+              metadata: { reason: reason, time_entry_version: entry.lock_version }
+            )
+          end
+          entry
         end
-        entry
       end
     rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotDestroyed => e
       raise CorrectionError, e.record.errors.full_messages.to_sentence

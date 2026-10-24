@@ -196,8 +196,9 @@ module Payroll
         next if reservation_recorded_at && period.cutoff_at >= reservation_recorded_at
 
         frozen_entry = TimeEntryRevisionLedger.new(cutoff_at: period.cutoff_at).entries_for_ids([ entry.id ]).first
-        relevant = entry.work_date.in?(period.start_date..period.end_date) ||
-          frozen_entry&.work_date&.in?(period.start_date..period.end_date) ||
+        range = period.start_date..period.end_date
+        relevant = PayableIntervals.overlaps?(entry, range) ||
+          (frozen_entry && PayableIntervals.overlaps?(frozen_entry, range)) ||
           PayrollSettlementCase.active.exists?(target_payroll_calendar_period: period, source_time_entry_id: entry.id)
         next unless relevant
 
@@ -268,8 +269,8 @@ module Payroll
 
     def weekly_split(entry)
       entries = TimeEntry.countable.where(user_id: entry.user_id)
-        .where(work_date: entry.work_date.beginning_of_week(:sunday)..entry.work_date.end_of_week(:sunday))
-        .order(:work_date, :id)
+        .where(work_date: (entry.work_date.beginning_of_week(:sunday) - 1)..(entry.work_date.end_of_week(:sunday) + 7))
+        .includes(:time_entry_breaks).order(:work_date, :id)
         .to_a
       period = PayrollCalendarPeriod.where("start_date <= ? AND end_date >= ?", entry.work_date, entry.work_date).order(:id).last
       if period && !WeeklyOvertimeAllocator.supported_policy?(period.overtime_policy)
@@ -277,9 +278,15 @@ module Payroll
       end
       result = WeeklyOvertimeAllocator.call(entries)[entry.id]
       raise Error, "This AIRE entry is not eligible for payroll; refresh its approval status" unless result
+      raise Error, "Review overnight break placement before reconciling" if result[:hold_reason]
+      if result.fetch(:segments, []).size > 1
+        raise Error, "This overnight entry has multiple payable dates; settle its exact lines through the scheduled payroll batch"
+      end
+      legacy = WeeklyOvertimeAllocator.legacy_call(entries)[entry.id]
+      reviewed = AffectedOvertimeReview.approval_valid?(entry, result, legacy_allocation: legacy)
       {
         regular_hours: BigDecimal(result.fetch(:regular_hours).to_s).round(2),
-        overtime_hours: entry.overtime_status.in?(%w[pending denied]) ? 0.to_d : BigDecimal(result.fetch(:overtime_hours).to_s).round(2)
+        overtime_hours: !reviewed ? 0.to_d : BigDecimal(result.fetch(:overtime_hours).to_s).round(2)
       }
     end
 

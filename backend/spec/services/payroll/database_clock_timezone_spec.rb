@@ -31,7 +31,7 @@ RSpec.describe "Payroll database clock timezone boundaries" do
   end
 
   def sql_insert(record)
-    attributes = record.attributes.except("id")
+    attributes = record.attributes_for_database.except("id")
     attributes["external_payroll_item_id"] = SecureRandom.uuid if record.is_a?(PayrollManualAllocation)
     columns = attributes.keys.map { |key| connection.quote_column_name(key) }.join(", ")
     values = attributes.values.map { |value| connection.quote(value) }.join(", ")

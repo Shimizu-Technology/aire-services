@@ -41,7 +41,7 @@ module Api
               .includes({ user: :assigned_time_categories }, :time_category, :approved_by, :overtime_approved_by, :time_entry_breaks)
               .find(params[:id])
             context = TimeEntry.countable.where(user_id: entry.user_id)
-              .where(work_date: entry.work_date.beginning_of_week(:sunday)..entry.work_date.end_of_week(:sunday))
+              .where(work_date: (entry.work_date.beginning_of_week(:sunday) - 1)..(entry.work_date.end_of_week(:sunday) + 7))
               .order(:work_date, :id).to_a
             split = ::Payroll::WeeklyOvertimeAllocator.call(context).fetch(entry.id, { regular_hours: 0, overtime_hours: 0 })
             body = serialize_command_entry(entry, nil)

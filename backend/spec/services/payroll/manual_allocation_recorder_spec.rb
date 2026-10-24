@@ -193,7 +193,7 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     end.to raise_error(described_class::Error, /identity changed/)
   end
 
-  it "accepts weekly overtime with no separate overtime approval when the batch builder includes it" do
+  it "holds weekly overtime until its current allocation is separately approved" do
     4.times do |offset|
       create(:time_entry, user: employee, time_category: category,
                           work_date: Date.new(2026, 8, 9) + offset,
@@ -207,7 +207,9 @@ RSpec.describe Payroll::ManualAllocationRecorder do
     ).call.fetch(:payload)
     adjustment = preview.fetch(:employees).first.fetch(:adjustments).find { |row| row[:source_time_entry_id] == entry.id.to_s }
     expect(adjustment.fetch(:regular_hours)).to eq(8.0)
-    expect(adjustment.fetch(:overtime_hours)).to eq(1.0)
+    expect(adjustment.fetch(:overtime_hours)).to eq(0.0)
+    entry.update!(overtime_status: "pending")
+    TimeClockService.approve_overtime(entry: entry, approved_by: actor)
 
     allocation = recorder.commit!(
       entry: entry, source_user_uuid: employee.payroll_integration_uuid,
