@@ -36,7 +36,7 @@ module Api
                 start_date: batch.start_date.iso8601,
                 end_date: batch.end_date.iso8601,
                 cutoff_at: batch.contract_cutoff_at,
-                finalized_at: batch.finalized_at.iso8601,
+                finalized_at: batch.contract_finalized_at,
                 checksum: batch.checksum,
                 summary: batch.summary
               }

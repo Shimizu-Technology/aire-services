@@ -86,7 +86,7 @@ module Api
               id: batch.public_id,
               checksum: batch.checksum,
               schema_version: batch.schema_version,
-              finalized_at: batch.finalized_at&.iso8601,
+              finalized_at: batch.contract_finalized_at,
               summary: batch.summary,
               issues: batch.issues,
               processing: batch.processing_status
