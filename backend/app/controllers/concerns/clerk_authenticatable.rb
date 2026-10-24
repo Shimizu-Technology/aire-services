@@ -27,6 +27,11 @@ module ClerkAuthenticatable
       return
     end
 
+    if StagingOutboundPolicy.staging? && !StagingOutboundPolicy.bindings.value?(decoded["sub"])
+      render_forbidden("Staging access is restricted to named testers")
+      return
+    end
+
     set_session_fingerprint(decoded)
 
     @current_user = resolve_user_from_claims(decoded)
@@ -35,6 +40,12 @@ module ClerkAuthenticatable
       AuditLog.record_security_event!(action: "auth.access_denied", outcome: "denied", metadata: { reason: "not_invited" })
       render_forbidden(INVITE_ONLY_MESSAGE)
       return # rubocop:disable Style/RedundantReturn -- consistent with other early-exits in this method
+    end
+
+    unless StagingOutboundPolicy.tester?(email: @current_user.email, id: decoded["sub"])
+      @current_user = nil
+      render_forbidden("Staging tester binding does not match")
+      return
     end
 
     unless @current_user.personal_access_enabled?
@@ -60,11 +71,12 @@ module ClerkAuthenticatable
     token = header.split(" ").last
     decoded = ClerkAuth.verify(token)
     return unless decoded
+    return if StagingOutboundPolicy.staging? && !StagingOutboundPolicy.bindings.value?(decoded["sub"])
 
     set_session_fingerprint(decoded)
 
     resolved_user = resolve_user_from_claims(decoded)
-    if resolved_user&.is_active? && resolved_user.personal_access_enabled?
+    if resolved_user&.is_active? && resolved_user.personal_access_enabled? && StagingOutboundPolicy.tester?(email: resolved_user.email, id: decoded["sub"])
       @current_user = resolved_user
       Current.user = resolved_user
     end

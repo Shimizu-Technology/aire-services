@@ -17,9 +17,9 @@ class ContactMailer < ApplicationMailer
     safe_reply_to = email.to_s.delete("\r\n")
     safe_subject = subject.to_s.delete("\r\n")
 
-    Rails.logger.info "📧 Sending AIRE contact form email to: #{to_emails.join(', ')}"
+    Rails.logger.info "📧 Sending AIRE contact form email to: #{to_emails.join(', ')}" unless StagingOutboundPolicy.staging?
 
-    Resend::Emails.send({
+    StagingMailTransport.deliver({
       from: from_email,
       to: to_emails,
       reply_to: safe_reply_to,

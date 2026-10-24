@@ -1,3 +1,4 @@
+import { isStaging } from '../../lib/staging'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
@@ -59,7 +60,7 @@ const normalizeApprovalGroupKey = (value: string) => (
     .replace(/_+/g, '_')
 )
 
-const GOOGLE_MAPS_BROWSER_KEY = import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY
+const GOOGLE_MAPS_BROWSER_KEY = isStaging ? '' : import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY
 const IS_TEST = import.meta.env.MODE === 'test'
 
 const createPlaceSessionToken = () => {
@@ -1024,7 +1025,7 @@ export default function Settings() {
                             Confirm the pin is on the AIRE office and then save the rule.
                           </p>
                         </div>
-                        {hasPreviewCoordinates && mapIframeSrc ? (
+                        {!isStaging && hasPreviewCoordinates && mapIframeSrc ? (
                           <>
                             <div className="overflow-hidden rounded-2xl border border-slate-200">
                               {GOOGLE_MAPS_BROWSER_KEY ? (

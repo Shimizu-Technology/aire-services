@@ -20,6 +20,7 @@ module ApplicationCable
       clerk_id = decoded["sub"]
       user = User.find_by(clerk_id: clerk_id)
       reject_unauthorized_connection unless user&.admin?
+      reject_unauthorized_connection unless StagingOutboundPolicy.tester?(email: user.email, id: user.clerk_id)
 
       user
     end
