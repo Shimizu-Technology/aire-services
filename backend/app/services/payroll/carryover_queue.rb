@@ -65,7 +65,7 @@ module Payroll
       current_entries = TimeEntry.includes(:user, :time_category).where(id: entry_ids).index_by(&:id)
       @weekly_overtime_reviews = WeeklyOvertimeReview.call(current_entries.values)
       @lifecycles = EntryLifecycleResolver.new(entries: current_entries.values, weekly_overtime_reviews: @weekly_overtime_reviews).call
-      later_entries = PayrollBatchEntry
+      later_entries = PayrollBatchEntry.effective
         .includes(payroll_batch: :payroll_batch_processing_events)
         .where(source_time_entry_id: entry_ids)
         .to_a

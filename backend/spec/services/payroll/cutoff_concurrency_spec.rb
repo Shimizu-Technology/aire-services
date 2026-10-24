@@ -15,7 +15,7 @@ RSpec.describe "Payroll cutoff concurrency" do
     connection.execute("ALTER TABLE payroll_settlement_case_events DISABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
     begin
       connection.execute("ALTER TABLE payroll_payment_attestations DISABLE TRIGGER payroll_payment_attestation_history_prevent_truncate")
-      %w[payroll_manual_allocations payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events].each do |table|
+      %w[payroll_manual_allocations payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events payroll_late_hours_retirements].each do |table|
         connection.execute("ALTER TABLE #{table} DISABLE TRIGGER #{table}_prevent_truncate")
       end
       connection.execute("ALTER TABLE payroll_obligation_corrections DISABLE TRIGGER payroll_obligation_corrections_prevent_truncate")
@@ -45,7 +45,7 @@ RSpec.describe "Payroll cutoff concurrency" do
       TimeCategory.where(id: @reservation_race_category_id).delete_all if @reservation_race_category_id
     ensure
       connection.execute("ALTER TABLE payroll_payment_attestations ENABLE TRIGGER payroll_payment_attestation_history_prevent_truncate")
-      %w[payroll_manual_allocations payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events].each do |table|
+      %w[payroll_manual_allocations payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events payroll_late_hours_retirements].each do |table|
         connection.execute("ALTER TABLE #{table} ENABLE TRIGGER #{table}_prevent_truncate")
       end
       begin
@@ -442,6 +442,120 @@ RSpec.describe "Payroll cutoff concurrency" do
       release << true if release
       first&.join
       second&.join
+    end
+  end
+
+  def late_hours_race_fixture
+    actor = create(:user, :admin, is_active: true, personal_access_enabled: true)
+    employee = create(:user, :employee)
+    @reservation_race_user_ids = [ actor.id, employee.id ]
+    dates = payroll_calendar_at(database_clock)
+    category = create(:time_category)
+    @reservation_race_category_id = category.id
+    entry = create(:time_entry, user: employee, time_category: category, work_date: dates[:start_date] + 2.days,
+      status: "completed", entry_method: "manual", approval_status: "pending", overtime_status: "none",
+      start_time: payroll_time(dates[:start_date] + 2.days, hour: 8), end_time: payroll_time(dates[:start_date] + 2.days, hour: 12))
+    period = create(:payroll_calendar_period, **payroll_calendar_at(capture_payroll_cutoff))
+    wait_for_database_cutoff(period.cutoff_at)
+    expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id).call[:status]).to eq("finalized")
+    TimeClockService.approve_entry(entry: entry.reload, approved_by: actor, note: "Synthetic late hours race")
+    held = PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)
+    grant = PayrollIntegrationGrant.issue!(user: actor, capabilities: [ "settlement_case_management" ])
+    caller = { "X-Payroll-Shared-Secret" => "late-hours-race", "X-Aire-Delegation-Token" => grant.issued_token }
+    payload = { command_id: SecureRandom.uuid, expected_version: period.reload.lock_version, reason: "Reviewed synthetic race",
+      target_external_pay_period_id: "901", pay_date: database_clock.to_date.iso8601, cases: [ { id: held.public_id, version: held.lock_version } ] }
+    [ period, payload, caller, held ]
+  end
+
+  def race_request(path, payload, caller)
+    session = ActionDispatch::Integration::Session.new(Rails.application)
+    session.post(path, params: payload, headers: caller, as: :json)
+    [ session.response.status, session.response.parsed_body ]
+  end
+
+  def ordered_late_hours_requests(first_work, second_work)
+    entered = Queue.new
+    release = Queue.new
+    first_pids = Queue.new
+    second_pids = Queue.new
+    first = database_worker(first_pids) do
+      ActiveRecord::Base.transaction do
+        ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{Payroll::BatchFinalizer::ADVISORY_LOCK_KEY})")
+        entered << true
+        queue_pop(release)
+        first_work.call
+      end
+    end
+    first_pid = queue_pop(first_pids)
+    queue_pop(entered)
+    second = database_worker(second_pids, &second_work)
+    wait_for_blocker(queue_pop(second_pids), first_pid)
+    release << true
+    [ first.value, second.value ]
+  ensure
+    release << true if release
+    first&.join
+    second&.join
+  end
+
+  [ :retire_first, :claim_first ].each do |order|
+    it "durably resolves delayed original delivery with #{order} under the finalizer lock" do
+      previous = ENV["PAYROLL_SHARED_SECRET"]
+      ENV["PAYROLL_SHARED_SECRET"] = "late-hours-race"
+      period, original, caller, = late_hours_race_fixture
+      path = "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}/late_hours"
+      recovery = original.except(:pay_date, :cases).merge(command_id: SecureRandom.uuid)
+      claim = -> { race_request(path, original, caller) }
+      retire = -> { race_request("#{path}/#{original[:command_id]}/recover", recovery, caller) }
+      first, second = ordered_late_hours_requests(*(order == :retire_first ? [ retire, claim ] : [ claim, retire ]))
+      if order == :retire_first
+        expect(first).to include(200, include("status" => "no_claim"))
+        expect(second.first).to eq(409)
+        expect(PayrollBatch.count).to eq(1)
+      else
+        expect(first.first).to eq(201)
+        expect(second).to include(200, include("status" => "claimed", "payroll_batch" => first.last.fetch("payroll_batch")))
+        expect(PayrollBatch.count).to eq(2)
+      end
+    ensure
+      ENV["PAYROLL_SHARED_SECRET"] = previous
+    end
+  end
+
+  [ :cancel_first, :receipt_first, :cancel_before_original_replay ].each do |order|
+    it "never releases a claim with accepted receipt evidence with #{order} lock acquisition" do
+      previous = ENV["PAYROLL_SHARED_SECRET"]
+      ENV["PAYROLL_SHARED_SECRET"] = "late-hours-race"
+      period, original, caller, held = late_hours_race_fixture
+      path = "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}/late_hours"
+      expect(race_request(path, original, caller).first).to eq(201)
+      batch = held.reload.included_payroll_batch
+      row = batch.payroll_batch_entries.sole
+      cancellation = original.except(:pay_date, :cases).merge(command_id: SecureRandom.uuid,
+        expected_batch_id: batch.public_id, confirm_unapplied: true)
+      receipt = { event_id: SecureRandom.uuid, status: "imported", occurred_at: Time.current.iso8601(6),
+        external_system: "cornerstone_payroll", external_pay_period_id: "901", external_payroll_item_id: "1001",
+        source_time_entry_id: row.source_time_entry_id.to_s, source_user_uuid: row.source_user_uuid,
+        contract_version: "2.0", source_line_key: row.line_key, source_kind: row.source_kind,
+        total_hours: row.total_hours.to_s, regular_hours: row.regular_hours.to_s, overtime_hours: row.overtime_hours.to_s }
+      cancel = -> { race_request("#{path}/#{original[:command_id]}/cancel", cancellation, caller) }
+      apply = -> { race_request("/api/v1/payroll/batches/#{batch.public_id}/processing_events", receipt, caller) }
+      if order == :cancel_before_original_replay
+        first, second = ordered_late_hours_requests(cancel, -> { race_request(path, original, caller) })
+        expect(first.first).to eq(200)
+        expect(second.first).to eq(409)
+        expect(held.reload.status).to eq("open")
+        expect(batch.late_hours_canceled?).to be(true)
+        next
+      end
+      first, second = ordered_late_hours_requests(*(order == :cancel_first ? [ cancel, apply ] : [ apply, cancel ]))
+      expect(first.first).to eq(order == :cancel_first ? 200 : 201)
+      expect(second.first).to eq(409)
+      expect(PayrollEntryProcessingEvent.where(payroll_batch: batch).count).to eq(order == :cancel_first ? 0 : 1)
+      expect(held.reload.status).to eq(order == :cancel_first ? "open" : "in_payroll")
+      expect(batch.late_hours_canceled?).to eq(order == :cancel_first)
+    ensure
+      ENV["PAYROLL_SHARED_SECRET"] = previous
     end
   end
 end

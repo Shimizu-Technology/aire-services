@@ -157,7 +157,7 @@ module Payroll
       # unchanged paid entries under today's overtime/category rules. Seed only
       # new or changed entries; related old entries are pulled in below when a
       # real source change affects their employee/week.
-      represented_dates = PayrollBatchEntry.where(source_time_entry_id: nominal.map(&:id))
+      represented_dates = PayrollBatchEntry.effective.where(source_time_entry_id: nominal.map(&:id))
         .distinct.pluck(:source_time_entry_id, :work_date).to_set
       represented_ids = represented_dates.map(&:first).to_set
       nominal.reject! do |entry|
@@ -188,7 +188,7 @@ module Payroll
         .where("time_entries.work_date < ? AND time_entries.updated_at > ?", start_date, latest_cutoff)
         .to_a
       changed_prior = staff_entries
-        .where(id: PayrollBatchEntry.select(:source_time_entry_id))
+        .where(id: PayrollBatchEntry.effective.select(:source_time_entry_id))
         .where("time_entries.updated_at > ?", latest_cutoff)
         .to_a
       deleted_entry_ids = AuditLog
@@ -256,12 +256,12 @@ module Payroll
       ids = entry_ids.compact.uniq
       return [] if ids.empty?
 
-      PayrollBatchEntry.includes(:payroll_batch).where(source_time_entry_id: ids).to_a
+      PayrollBatchEntry.effective.includes(:payroll_batch).where(source_time_entry_id: ids).to_a
     end
 
     def prior_rows_for_pairs(pairs)
       pair_batches(pairs).flat_map do |pair_batch|
-        PayrollBatchEntry
+        PayrollBatchEntry.effective
           .joins(pair_join_sql(pair_batch, user_column: "source_user_id") do
             <<~SQL
               ON affected_pairs.source_user_id = payroll_batch_entries.source_user_id

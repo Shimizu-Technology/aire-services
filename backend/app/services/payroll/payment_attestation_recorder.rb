@@ -16,7 +16,7 @@ module Payroll
       raise Error, "AIRE employee identity changed; refresh before attesting" unless entry.user&.staff? &&
         entry.user.payroll_integration_uuid == source_user_uuid.to_s.downcase
       raise Error, "Complete and approve this AIRE time entry first" unless entry.counts_toward_hours?
-      raise Error, "This entry is already represented in an AIRE payroll batch" if PayrollBatchEntry.exists?(source_time_entry_id: entry.id)
+      raise Error, "This entry is already represented in an AIRE payroll batch" if PayrollBatchEntry.effective.exists?(source_time_entry_id: entry.id)
       raise Error, "This entry already has a Cornerstone allocation" if PayrollManualAllocation.active.exists?(time_entry_id: entry.id)
       raise Error, "This entry already has a payment attestation" if PayrollPaymentAttestation.exists?(time_entry_id: entry.id)
 

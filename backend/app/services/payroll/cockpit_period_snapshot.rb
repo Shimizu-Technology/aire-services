@@ -133,7 +133,7 @@ module Payroll
           ids.concat(staff.where("time_entries.work_date < ? AND time_entries.updated_at > ?", period.start_date, latest_batch.cutoff_at).pluck(:id))
           ids.concat(
             staff
-              .where(id: PayrollBatchEntry.select(:source_time_entry_id))
+              .where(id: PayrollBatchEntry.effective.select(:source_time_entry_id))
               .where("time_entries.updated_at > ?", latest_batch.cutoff_at)
               .pluck(:id)
           )

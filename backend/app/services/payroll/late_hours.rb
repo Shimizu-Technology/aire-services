@@ -101,7 +101,7 @@ module Payroll
     def candidate_scope
       PayrollSettlementCase.where(origin_payroll_batch: period.payroll_batch, status: "open", destination_kind: "unassigned",
         included_payroll_batch_id: nil)
-        .where.not(source_time_entry_id: PayrollBatchEntry.select(:source_time_entry_id))
+        .where.not(source_time_entry_id: PayrollBatchEntry.effective.select(:source_time_entry_id))
         .where.not(source_time_entry_id: PayrollManualAllocation.active.select(:time_entry_id))
         .where.not(source_time_entry_id: PayrollPaymentAttestation.pending_evidence.select(:time_entry_id))
         .where.not(source_time_entry_id: PayrollSettlementCase.active.where.not(destination_kind: "unassigned").select(:source_time_entry_id))
@@ -121,7 +121,7 @@ module Payroll
 
     def validate_pending_cutoff!(item)
       entry = TimeEntry.find_by(id: item.source_time_entry_id)
-      PendingCutoffClaimGuard.call!(entry: entry) if entry
+      PendingCutoffClaimGuard.call!(entry: entry, fence_relevant_snapshots: true) if entry
     rescue PendingCutoffClaimGuard::ConflictError => e
       raise CockpitCommand::ConflictError, e.message
     end

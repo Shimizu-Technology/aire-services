@@ -134,7 +134,7 @@ GET returns:
 }
 ```
 
-The adjustment lines use the existing batch-v2 serialization. Cases are limited to open, unassigned cases from the origin batch. A source must still be fully payable in the live BatchBuilder context, with positive lines, matching staff identity and original work date, and a resolved category. Any included batch, any prior `PayrollBatchEntry` for that entry, active manual allocation, pending payment attestation, other active destination, held approval, denial or chronology hold excludes it. A due, unfinalized regular cutoff that still owns positive frozen source hours must be finalized and reconciled first; the shared pending-cutoff guard also excludes those sources. GET returns an empty case list for a calendar without a finalized origin. Case versions also change when the underlying unassigned source entry is edited or approved; the case's original source version remains unchanged.
+The adjustment lines use the existing batch-v2 serialization. Cases are limited to open, unassigned cases from the origin batch. A source must still be fully payable in the live BatchBuilder context, with positive lines, matching staff identity and original work date, and a resolved category. Any included batch, any effective prior `PayrollBatchEntry` for that entry, active manual allocation, pending payment attestation, other active destination, held approval, denial or chronology hold excludes it. Any due, unfinalized regular cutoff that overlaps current or frozen source dates, or targets the source case, must be finalized and reconciled first. This supplemental fence includes denied, open-clock and pending zero-pay frozen states because their delayed evaluation could otherwise reverse a later claim. The shared guard retains its existing positive-row rule for manual reservations. GET returns an empty case list for a calendar without a finalized origin. Case versions also change when the underlying unassigned source entry is edited or approved; the case's original source version remains unchanged.
 
 POST accepts:
 
@@ -162,12 +162,55 @@ Success and exact replay both return `201`:
 }
 ```
 
-This command is an exception to the ordinary minimal `command_result` response: it returns the full original `payroll_batch` snapshot on every exact retry. The append-only receipt stores the immutable batch ID and original export envelope; replay combines that envelope with the immutable batch payload. It does not recompute today's payroll source, export capabilities or integration identity. Changing the payload, actor, expected version or target while reusing the command ID conflicts. A different command cannot create another supplemental snapshot for the same target.
+This command is an exception to the ordinary minimal `command_result` response: it returns the full original `payroll_batch` snapshot on every exact retry while the claim remains accepted. Retired commands return `409` even on original-command replay. The append-only receipt stores the immutable batch ID and original export envelope; replay combines that envelope with the immutable batch payload. It does not recompute today's payroll source, export capabilities or integration identity. Changing the payload, actor, expected version or target while reusing the command ID conflicts. A different command cannot create another supplemental snapshot for the same target.
 
 The batch payload adds `purpose: "supplemental"`, `target_external_pay_period_id`, `pay_date`, `origin_external_pay_period_id` and `origin_payroll_batch_id`. The checksum covers these fields. Employee `source_user_uuid` and `source_user_id` equal GET's `employee.payroll_integration_id` and `employee.source_user_id`. All selected entry dates are exported, including an overnight line on the day after the origin's nominal end. Batch `start_date`/`end_date` remain the origin's nominal dates. Lines retain the live builder's identities, source versions, category, payable date and Sunday workweek; their source kind is `carryover`. Rates and compensation remain Payroll-owned. No negative or partial-entry rows are admitted.
 
-Use the normal exact-line receipt endpoint on the returned batch ID. Supplemental receipts require contract `2.0`, the named target run, `external_system: "cornerstone_payroll"`, source staff UUID and Payroll item identity. Issuance additionally requires the payment method and reference. Aggregate batch receipts and legacy case acknowledgements cannot report this snapshot paid. Every split line needs matching issued evidence before case completion derives `paid`; commit and payment preparation remain unpaid. The old route endpoint refuses included/in-payroll cases and sources reserved in manual payroll.
+Use the normal exact-line receipt endpoint on the returned batch ID. Initial supplemental receipts require contract `2.0`, the named target run, `external_system: "cornerstone_payroll"`, source staff UUID and Payroll item identity. Issuance additionally requires the payment method and reference. Aggregate batch receipts and legacy case acknowledgements cannot report this snapshot paid. After an exact financial void, `/obligation_events` accepts only an immutable `payroll_obligation_correction_v1` chain rooted in the original target. The validated current successor may then send exact payment callbacks through `/processing_events`; old or arbitrary owners are refused. Every split line needs matching issued evidence from its current validated owner before case completion derives `paid`; commit and payment preparation remain unpaid. The old route endpoint refuses included/in-payroll cases and sources reserved in manual payroll.
 
-Regular batch listing, overlap/publication guards and builder watermarks ignore supplemental snapshots. Ledger balances and receipt views still include their exact rows so subsequent ordinary payroll cannot pay them again.
+Regular batch listing, overlap/publication guards and builder watermarks ignore supplemental snapshots. Ledger balances and receipt views include effective exact rows so subsequent ordinary payroll cannot pay them again. Canceled, never-applied claims retain their frozen payload and rows but cease to represent wages.
 
 Deploy migration `20261024050000_allow_supplemental_payroll_batches` before enabling the command. It changes the date-range unique index to cover regular batches and adds a unique supplemental target index. Existing payloads/checksums are unchanged. Once supplemental batches exist, rollback refuses to discard their immutable evidence; roll forward instead.
+
+
+### Recover or retire a saved late-hours operation
+
+These additive commands require the shared secret and the **current caller's** active connected actor grant with `settlement_case_management`. A different authorized accountant can recover a saved operation after its creator loses access. Original create-command replay remains actor-bound; recovery does not impersonate its creator.
+
+POST `/api/v1/payroll/cockpit/periods/:origin/late_hours/:source_command_id/recover`:
+
+```json
+{
+  "command_id": "<fresh recovery UUID>",
+  "expected_version": 2,
+  "reason": "Reviewed the saved operation and its named adjustment",
+  "target_external_pay_period_id": "901"
+}
+```
+
+`source_command_id` is the original create UUID. `origin` and the positive integer target string must match that original claim. `expected_version` is the origin's current GET `period_version`. A recovery command UUID must differ from the original UUID. Recovery returns `200` with one of:
+
+```json
+{"status":"claimed","payroll_batch":{"...":"original immutable export snapshot"},"command":{"id":"<recovery UUID>","replayed":false}}
+{"status":"no_claim","command":{"id":"<recovery UUID>","replayed":false}}
+{"status":"canceled","command":{"id":"<recovery UUID>","replayed":false}}
+```
+
+`claimed` uses the original batch payload and saved export envelope, including its original installation identity. If no original receipt or competing destination binding exists, `no_claim` is an append-only terminal fence for **both** the original command and named target. The fence is committed under the finalizer advisory lock before returning. A delayed original POST, original replay, or new command on that retired target is refused. A new selection must use a new original command **and new adjustment target**. Bare GET absence is never authority to abandon an operation.
+
+POST `/api/v1/payroll/cockpit/periods/:origin/late_hours/:source_command_id/cancel` uses the same fields plus:
+
+```json
+{
+  "expected_batch_id": "<exact supplemental batch public ID>",
+  "confirm_unapplied": true
+}
+```
+
+The caller must first lock its local operation and adjustment, confirm there are no local items/imports/applied changes, and obtain an explicit reviewed reason. AIRE also requires the original source/origin/target tuple and expected batch, every original case still exclusively in that batch, and **no remote batch/line processing receipt, financial correction, case payment evidence, active manual allocation, pending attestation or other effective owner**. Imported or committed evidence refuses cancellation even without issuance. The response is `200` with `status: "canceled"` and the new command receipt.
+
+Cancellation appends an immutable retirement record, reopens the cases as unassigned with explicit-routing audit, and excludes canceled rows from the live economic ledger. It preserves the original batch, checksum, rows, command receipts and all audit evidence. Exact receipt recording shares the same advisory lock: either the receipt wins and cancellation conflicts, or cancellation wins and all delayed callbacks conflict. Batch detail returns `410` for canceled claims. Recovery of a canceled claim returns `canceled`, including replay of an earlier recovery command; it never offers its snapshot for application again.
+
+Both commands use durable actor-bound command receipts. Exact retries replay their command, while the terminal fence remains authoritative. Malformed confirmation/UUID/target/reason is `422`; stale versions, mismatched command/origin/target/batch and unsafe cancellation are `409`. Recovery/cancellation audits retain the current caller and original actor reference.
+
+Deploy `20261024070000_create_payroll_late_hours_retirements` with this endpoint behavior before enabling the consumer's recovery/cancellation controls. The new append-only table has unique command/target fences and PostgreSQL mutation/truncate protection. Roll forward; its evidence is intentionally irreversible. No existing immutable batch or row is rewritten.

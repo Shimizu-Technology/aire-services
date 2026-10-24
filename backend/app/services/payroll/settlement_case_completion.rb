@@ -59,10 +59,18 @@ module Payroll
           row.source_category_id.present? && row.source_category_id == supplemental_category_id(row) &&
           version.is_a?(Integer) && version == entry.lock_version && version >= settlement_case.source_time_entry_version &&
           row.regular_hours >= 0 && row.overtime_hours >= 0 && row.total_hours == row.regular_hours + row.overtime_hours &&
-          issued?(row, event) && event.external_pay_period_id == settlement_case.target_external_pay_period_id
+          issued?(row, event) && supplemental_owner_matches?(row, event, batch)
       end
 
       "paid"
+    end
+
+    def supplemental_owner_matches?(row, event, batch)
+      owner = PayrollObligationCorrection.where(payroll_batch_entry: row).order(:id).last
+      return event.external_pay_period_id == batch.payload["target_external_pay_period_id"] unless owner
+
+      event.payroll_obligation_correction_id == owner.id && event.external_system == owner.external_system &&
+        event.external_pay_period_id == owner.successor_pay_period_id && event.external_payroll_item_id == owner.successor_payroll_item_id
     end
 
     def supplemental_category_id(row)

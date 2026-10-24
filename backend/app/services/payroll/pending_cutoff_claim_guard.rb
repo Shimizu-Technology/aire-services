@@ -5,7 +5,7 @@ module Payroll
   class PendingCutoffClaimGuard
     class ConflictError < StandardError; end
 
-    def self.call!(entry:, reservation_recorded_at: nil)
+    def self.call!(entry:, reservation_recorded_at: nil, fence_relevant_snapshots: false)
       now = ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()")
       PayrollCalendarPeriod.where.not(status: "finalized").where("cutoff_at <= ?", now).order(:cutoff_at, :id).each do |period|
         next if reservation_recorded_at && period.cutoff_at >= reservation_recorded_at
@@ -17,9 +17,11 @@ module Payroll
           PayrollSettlementCase.active.exists?(target_payroll_calendar_period: period, source_time_entry_id: entry.id)
         next unless relevant
 
-        result = BatchBuilder.new(start_date: period.start_date, end_date: period.end_date,
-          cutoff_at: period.cutoff_at, calendar_period: period).call
-        next unless result.fetch(:rows).any? { |row| row[:source_time_entry_id] == entry.id && row[:total_hours].positive? }
+        unless fence_relevant_snapshots
+          result = BatchBuilder.new(start_date: period.start_date, end_date: period.end_date,
+            cutoff_at: period.cutoff_at, calendar_period: period).call
+          next unless result.fetch(:rows).any? { |row| row[:source_time_entry_id] == entry.id && row[:total_hours].positive? }
+        end
 
         raise ConflictError, "Payroll cutoff #{period.external_pay_period_id} is due. Lock that cutoff and reconcile its frozen hours before committing this payroll claim"
       end

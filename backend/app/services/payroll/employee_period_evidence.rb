@@ -139,7 +139,7 @@ module Payroll
       entry_scope = entry_scope.where(work_date: (start_date - 1)..) if start_date
       entry_scope = entry_scope.where(work_date: ..end_date) if end_date
       entries = bounded(entry_scope.order(:work_date, :id))
-      frozen_owner_scope = PayrollBatchEntry.where(source_user_id: user.id).or(PayrollBatchEntry.where(source_user_uuid: user.payroll_integration_uuid))
+      frozen_owner_scope = PayrollBatchEntry.effective.where(source_user_id: user.id).or(PayrollBatchEntry.effective.where(source_user_uuid: user.payroll_integration_uuid))
       frozen = bounded(date_scope(frozen_owner_scope
         .includes(payroll_batch: :payroll_batch_processing_events), :work_date).order(:id))
       manual = bounded(date_scope(PayrollManualAllocation.where(user: user).includes(:payroll_manual_allocation_events, :resolved_payment_attestation), :work_date).order(:id))
@@ -152,7 +152,7 @@ module Payroll
       entries = PayableSegmentView.expand(entries, allocations).select do |entry|
         (!start_date || entry.work_date >= start_date) && (!end_date || entry.work_date <= end_date)
       end
-      line_counts = PayrollBatchEntry.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq, source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).group(:payroll_batch_id, :source_time_entry_id).count
+      line_counts = PayrollBatchEntry.effective.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq, source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).group(:payroll_batch_id, :source_time_entry_id).count
       lines = frozen.map { |row| key = [ row.payroll_batch_id, row.source_time_entry_id ]; frozen_line(row, events_by_line.fetch(key, []), line_counts.fetch(key)) }
       lines.concat(manual.map { |row| manual_line(row) })
       hold_rows = holds.values

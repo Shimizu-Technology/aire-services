@@ -70,7 +70,7 @@ module Payroll
 
       def open_case!(period, batch, allocation, actor)
         entry = allocation.time_entry
-        represented = PayrollBatchEntry.where(source_time_entry_id: entry.id).sum(:total_hours).to_d
+        represented = PayrollBatchEntry.effective.where(source_time_entry_id: entry.id).sum(:total_hours).to_d
         reserved = PayrollManualAllocation.active.where(time_entry_id: entry.id).sum("regular_hours + overtime_hours").to_d
         remaining = [ entry.hours.to_d - represented - reserved, 0.to_d ].max
         settlement = PayrollSettlementCase.where(origin_payroll_batch: batch, source_time_entry_id: entry.id)

@@ -26,7 +26,27 @@ module Api
             end
           end
 
+          def recover
+            recovery_command(:recover!)
+          end
+
+          def cancel
+            recovery_command(:cancel!)
+          end
+
           private
+
+          def recovery_command(operation)
+            period = origin_period
+            payload = params.permit(:command_id, :expected_version, :reason, :target_external_pay_period_id,
+              :expected_batch_id, :confirm_unapplied).to_h.merge("source_command_id" => params[:source_command_id])
+            run_command(action: "#{::Payroll::LateHours::ACTION}.#{action_name}", target: period, payload: payload,
+              replay: ->(_period, metadata) { ::Payroll::LateHoursRecovery.response(metadata) }) do |locked_period, _reason|
+              metadata = ::Payroll::LateHoursRecovery.new(period: locked_period, actor: payroll_actor).public_send(operation,
+                source_command_id: params[:source_command_id], parameters: payload.deep_symbolize_keys)
+              [ ::Payroll::LateHoursRecovery.response(metadata), metadata ]
+            end
+          end
 
           def origin_period
             PayrollCalendarPeriod.find_by!(external_pay_period_id: params[:period_id])

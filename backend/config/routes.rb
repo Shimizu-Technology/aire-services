@@ -73,6 +73,8 @@ Rails.application.routes.draw do
             end
           end
           resources :periods, only: [ :show ], param: :id do
+            post "late_hours/:source_command_id/recover", to: "late_hours#recover"
+            post "late_hours/:source_command_id/cancel", to: "late_hours#cancel"
             resource :late_hours, only: [ :show, :create ], controller: :late_hours
             member do
               post :finalize

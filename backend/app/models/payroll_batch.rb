@@ -27,6 +27,10 @@ class PayrollBatch < ApplicationRecord
 
   scope :regular, -> { where("COALESCE(payload->>'purpose', 'regular') = 'regular'") }
 
+  def late_hours_canceled?
+    PayrollLateHoursRetirement.exists?(payroll_batch_id: id, status: "canceled")
+  end
+
   def readonly?
     persisted?
   end

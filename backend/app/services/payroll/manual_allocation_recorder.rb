@@ -36,7 +36,7 @@ module Payroll
             !attestation.source_changed? && hours!(regular_hours) + hours!(overtime_hours) == attestation.hours.to_d
           raise Error, "Resolve the unchanged complete payment report before linking its issued evidence"
         end
-        if PayrollBatchEntry.exists?(source_time_entry_id: entry.id) || PayrollManualAllocation.active.exists?(time_entry_id: entry.id)
+        if PayrollBatchEntry.effective.exists?(source_time_entry_id: entry.id) || PayrollManualAllocation.active.exists?(time_entry_id: entry.id)
           raise Error, "Reported source hours already have payroll coverage; review before resolving"
         end
         create_allocation!(entry: entry, regular_hours: regular_hours, overtime_hours: overtime_hours,
@@ -212,7 +212,7 @@ module Payroll
       reject_pending_cutoff_claim!(entry)
       expected = weekly_split(entry)
       existing = PayrollManualAllocation.active.where(time_entry_id: entry.id)
-      batch_rows = PayrollBatchEntry.where(source_time_entry_id: entry.id)
+      batch_rows = PayrollBatchEntry.effective.where(source_time_entry_id: entry.id)
       if batch_rows.sum(:regular_hours).to_d + existing.sum(:regular_hours).to_d + regular > expected.fetch(:regular_hours) ||
          batch_rows.sum(:overtime_hours).to_d + existing.sum(:overtime_hours).to_d + overtime > expected.fetch(:overtime_hours)
         raise Error, "These hours exceed the AIRE regular or overtime hours still owed for this time entry"
@@ -356,7 +356,7 @@ module Payroll
       return settlement_case.held_total_hours.to_d unless released
 
       entry = TimeEntry.find(settlement_case.source_time_entry_id)
-      represented = PayrollBatchEntry.where(source_time_entry_id: entry.id).sum(:total_hours).to_d
+      represented = PayrollBatchEntry.effective.where(source_time_entry_id: entry.id).sum(:total_hours).to_d
       # Retained payments belong to the whole unexported source obligation;
       # they cannot on their own close a smaller newly released component.
       [ entry.hours.to_d - represented, 0.to_d ].max
