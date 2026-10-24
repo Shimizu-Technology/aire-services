@@ -13,6 +13,7 @@ class StagingExecutionGate
 
   def self.enforce!
     return true unless StagingOutboundPolicy.staging?
+    StagingOutboundPolicy.validate_shared_secret!
     unless StagingQuarantine.complete?
       raise StagingOutboundPolicy::ConfigurationError, "Staging execution is held: run staging:clone:quarantine, migrate, then staging:clone:configure before web/worker boot"
     end

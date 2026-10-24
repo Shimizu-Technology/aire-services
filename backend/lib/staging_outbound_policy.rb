@@ -157,14 +157,12 @@ class StagingOutboundPolicy
           raise ConfigurationError, "Unsafe staging RESEND_API_KEY assertion"
         end
       end
-      %w[SECRET_KEY_BASE PAYROLL_SHARED_SECRET].each do |name|
-        value = require_setting!(name == "PAYROLL_SHARED_SECRET" ? "STAGING_PAYROLL_SHARED_SECRET" : name, env)
+      %w[SECRET_KEY_BASE].each do |name|
+        value = require_setting!(name, env)
         production_fingerprint = require_setting!("PRODUCTION_#{name}_SHA256", env)
         raise ConfigurationError, "Unsafe staging #{name} assertion" if value.length < 32 || !production_fingerprint.match?(/\A[0-9a-f]{64}\z/) || Digest::SHA256.hexdigest(value) == production_fingerprint
       end
-      if env["PAYROLL_SHARED_SECRET"] && env["PAYROLL_SHARED_SECRET"] != env["STAGING_PAYROLL_SHARED_SECRET"]
-        raise ConfigurationError, "PAYROLL_SHARED_SECRET must match STAGING_PAYROLL_SHARED_SECRET"
-      end
+      validate_shared_secret!(env: env)
       bindings(env)
       unless (list("STAGING_MAIL_ALLOWLIST", env) - bindings(env).keys).empty?
         raise ConfigurationError, "STAGING_MAIL_ALLOWLIST must contain named testers only"
@@ -172,6 +170,19 @@ class StagingOutboundPolicy
       true
     rescue URI::InvalidURIError
       raise ConfigurationError, "Invalid staging containment URL"
+    end
+
+    # Validate live authority even when clone data configuration is complete.
+    def validate_shared_secret!(env: ENV)
+      return true unless staging?(env)
+      actual = require_setting!("PAYROLL_SHARED_SECRET", env)
+      expected = require_setting!("STAGING_PAYROLL_SHARED_SECRET", env)
+      production = require_setting!("PRODUCTION_PAYROLL_SHARED_SECRET_SHA256", env)
+      unless actual == expected && expected.length >= 32 && production.match?(/\A[0-9a-f]{64}\z/) && Digest::SHA256.hexdigest(actual) != production
+        raise ConfigurationError, "Unsafe PAYROLL_SHARED_SECRET / STAGING_PAYROLL_SHARED_SECRET assertion"
+      end
+      raise ConfigurationError, "Remove TIME_TRACKING_EXPORT_SECRET in staging" unless env["TIME_TRACKING_EXPORT_SECRET"].to_s.empty?
+      true
     end
 
     def mail_payload(payload, env: ENV)

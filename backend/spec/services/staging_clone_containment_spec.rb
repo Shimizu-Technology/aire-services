@@ -21,6 +21,8 @@ RSpec.describe StagingCloneContainment do
     ENV["STAGING_AIRE_BASE_URL"] = "https://aire-staging.example.test"
     ENV["STAGING_PAYROLL_SHARED_SECRET"] = "n" * 64
     ENV["PAYROLL_SHARED_SECRET"] = "n" * 64
+    ENV["PRODUCTION_PAYROLL_SHARED_SECRET_SHA256"] = Digest::SHA256.hexdigest("q" * 64)
+    ENV.delete("TIME_TRACKING_EXPORT_SECRET")
     example.run
   ensure
     ENV.replace(old)
@@ -81,6 +83,29 @@ RSpec.describe StagingCloneContainment do
     expect { service.configure(apply: true) }.to raise_error(StagingOutboundPolicy::ConfigurationError, /verified primary/)
     expect([ leon.reload.clerk_id, chels.reload.clerk_id ]).to eq(original)
     expect(StagingQuarantine.complete?).to eq(false)
+  end
+
+  it "revalidates runtime credentials after the completion marker persists" do
+    service = described_class.new
+    service.quarantine(apply: true)
+    service.send(:mark!, "__containment_complete__")
+    ENV.delete("PAYROLL_SHARED_SECRET")
+    ENV["TIME_TRACKING_EXPORT_SECRET"] = "q" * 64
+    expect(HTTParty).not_to receive(:get)
+    expect { StagingExecutionGate.enforce! }.to raise_error(StagingOutboundPolicy::ConfigurationError, /PAYROLL_SHARED_SECRET/)
+    expect { service.configure(apply: true) }.to raise_error(StagingOutboundPolicy::ConfigurationError, /PAYROLL_SHARED_SECRET/)
+  end
+
+  it "invalidates copied legacy secret settings even for an already configured clone" do
+    service = described_class.new
+    service.quarantine(apply: true)
+    service.send(:mark!, "__containment_complete__")
+    legacy = Setting.create!(key: "time_tracking_export_secret", value: "copied-private-legacy-secret")
+    service.configure
+    expect(legacy.reload.value).to eq("copied-private-legacy-secret")
+    service.configure(apply: true)
+    expect(Setting.exists?(legacy.id)).to eq(false)
+    expect { service.configure(apply: true) }.not_to change(Setting, :count)
   end
 
   it "rebinds the two existing tester identities, preserves local IDs, and is repeatable" do

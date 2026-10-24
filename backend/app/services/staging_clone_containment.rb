@@ -3,6 +3,7 @@
 class StagingCloneContainment
   QUEUE_TABLES = %w[solid_queue_ready_executions solid_queue_scheduled_executions solid_queue_claimed_executions solid_queue_blocked_executions solid_queue_failed_executions solid_queue_recurring_executions solid_queue_recurring_tasks solid_queue_pauses solid_queue_semaphores solid_queue_processes].freeze
   DISPATCH = { "payroll_outbox_events" => "delivery_status IN ('pending', 'failed')", "payroll_calendar_periods" => "status IN ('scheduled', 'failed')", "payroll_integration_grants" => "active = TRUE", "payroll_account_links" => "active = TRUE" }.freeze
+  LEGACY_SECRET_SETTINGS = %w[time_tracking_export_secret payroll_shared_secret].freeze
   TOKEN_TABLES = %w[payroll_account_link_sessions].freeze
 
   def self.queue_schema_complete?(connection: ActiveRecord::Base.connection)
@@ -48,14 +49,17 @@ class StagingCloneContainment
 
   def configure(apply: false)
     guard!
-    return counts if marker?("__containment_complete__")
+    StagingOutboundPolicy.validate_shared_secret!(env: env)
+    if marker?("__containment_complete__")
+      invalidate_legacy_secrets! if apply
+      return counts
+    end
     verified_testers = StagingTesterIdentity.verify!(env: env)
     testers = verified_testers.to_h { |tester| [ tester.fetch("email"), tester.fetch("clerk_subject") ] }
-    secret = StagingOutboundPolicy.require_setting!("STAGING_PAYROLL_SHARED_SECRET", env)
-    raise StagingOutboundPolicy::ConfigurationError, "PAYROLL_SHARED_SECRET must match the new STAGING_PAYROLL_SHARED_SECRET" unless env["PAYROLL_SHARED_SECRET"] == secret && secret.length >= 32
     return counts unless apply
     raise StagingOutboundPolicy::ConfigurationError, "Run staging:clone:quarantine with APPLY=true first" unless marker?("__quarantine_complete__")
     connection.transaction do
+      invalidate_legacy_secrets!
       Setting.where(key: "contact_email").update_all(value: testers.keys.first)
       # Non-null Clerk IDs remain inert placeholders. Payroll employee UUIDs,
       # local user IDs, roles, time entries and immutable frozen evidence stay intact.
@@ -94,6 +98,11 @@ class StagingCloneContainment
     StagingDatabasePolicy.validate_parameters!(connection.pool.db_config.configuration_hash, env: env)
     StagingDatabasePolicy.validate_live!(connection.raw_connection, env: env)
     true
+  end
+
+  # These legacy settings never provide staging authentication authority.
+  def invalidate_legacy_secrets!
+    Setting.where(key: LEGACY_SECRET_SETTINGS).delete_all
   end
 
   def table?(table)

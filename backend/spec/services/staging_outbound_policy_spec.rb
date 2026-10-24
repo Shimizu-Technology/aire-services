@@ -84,10 +84,18 @@ RSpec.describe StagingOutboundPolicy do
         "PRODUCTION_CLERK_ISSUER" => "https://synthetic-live.clerk.accounts.dev",
         "CLERK_SECRET_KEY" => "sk_test_synthetic",
         "AUTH_ENABLED" => "true", "SECRET_KEY_BASE" => "s" * 64,
-        "STAGING_PAYROLL_SHARED_SECRET" => "n" * 64,
+        "STAGING_PAYROLL_SHARED_SECRET" => "n" * 64, "PAYROLL_SHARED_SECRET" => "n" * 64,
         "PRODUCTION_SECRET_KEY_BASE_SHA256" => Digest::SHA256.hexdigest("p" * 64),
         "PRODUCTION_PAYROLL_SHARED_SECRET_SHA256" => Digest::SHA256.hexdigest("q" * 64)
       )
+    end
+
+    it "requires the effective pair secret and refuses copied legacy credentials on every boot" do
+      safe.delete("PAYROLL_SHARED_SECRET")
+      expect { described_class.validate!(env: safe) }.to raise_error(described_class::ConfigurationError, /PAYROLL_SHARED_SECRET/)
+      safe["PAYROLL_SHARED_SECRET"] = safe.fetch("STAGING_PAYROLL_SHARED_SECRET")
+      safe["TIME_TRACKING_EXPORT_SECRET"] = "copied-private-legacy-secret"
+      expect { described_class.validate!(env: safe) }.to raise_error(described_class::ConfigurationError, /TIME_TRACKING_EXPORT_SECRET/) { |error| expect(error.message).not_to include("copied-private-legacy-secret") }
     end
 
     it "accepts isolated staging settings without a mail or AI key" do

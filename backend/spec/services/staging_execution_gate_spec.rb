@@ -3,6 +3,16 @@
 require "rails_helper"
 
 RSpec.describe StagingExecutionGate do
+  around do |example|
+    original = ENV.to_h
+    ENV.update("PAYROLL_SHARED_SECRET" => "n" * 64, "STAGING_PAYROLL_SHARED_SECRET" => "n" * 64,
+      "PRODUCTION_PAYROLL_SHARED_SECRET_SHA256" => Digest::SHA256.hexdigest("q" * 64))
+    ENV.delete("TIME_TRACKING_EXPORT_SECRET")
+    example.run
+  ensure
+    ENV.replace(original)
+  end
+
   it "allows only invocations containing exclusively approved maintenance tasks" do
     expect(described_class.maintenance_only?(%w[db:migrate solid_queue:setup staging:clone:configure])).to eq(true)
     expect(described_class.maintenance_only?(%w[db:version solid_queue:start])).to eq(false)
