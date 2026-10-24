@@ -2,9 +2,11 @@
 
 require "rails_helper"
 require "timeout"
+require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe "Payroll cutoff concurrency" do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
   self.use_transactional_tests = false
 
@@ -12,11 +14,22 @@ RSpec.describe "Payroll cutoff concurrency" do
     connection = ActiveRecord::Base.connection
     connection.execute("ALTER TABLE payroll_settlement_case_events DISABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
     begin
+      connection.execute("ALTER TABLE payroll_payment_attestations DISABLE TRIGGER payroll_payment_attestation_history_prevent_truncate")
+      %w[payroll_manual_allocations payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events].each do |table|
+        connection.execute("ALTER TABLE #{table} DISABLE TRIGGER #{table}_prevent_truncate")
+      end
       connection.execute("ALTER TABLE payroll_obligation_corrections DISABLE TRIGGER payroll_obligation_corrections_prevent_truncate")
       connection.execute(<<~SQL)
         TRUNCATE TABLE
           payroll_settlement_case_events,
           payroll_settlement_cases,
+          payroll_manual_allocation_revisions,
+          payroll_manual_allocation_events,
+          payroll_manual_allocations,
+          payroll_time_entry_revisions,
+          payroll_integration_commands,
+          time_entry_breaks,
+          time_entries,
           payroll_outbox_events,
           payroll_calendar_period_revisions,
           payroll_calendar_periods,
@@ -28,7 +41,13 @@ RSpec.describe "Payroll cutoff concurrency" do
           audit_logs
         RESTART IDENTITY CASCADE
       SQL
+      User.where(id: @reservation_race_user_ids).delete_all if @reservation_race_user_ids
+      TimeCategory.where(id: @reservation_race_category_id).delete_all if @reservation_race_category_id
     ensure
+      connection.execute("ALTER TABLE payroll_payment_attestations ENABLE TRIGGER payroll_payment_attestation_history_prevent_truncate")
+      %w[payroll_manual_allocations payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events].each do |table|
+        connection.execute("ALTER TABLE #{table} ENABLE TRIGGER #{table}_prevent_truncate")
+      end
       begin
         connection.execute("ALTER TABLE payroll_obligation_corrections ENABLE TRIGGER payroll_obligation_corrections_prevent_truncate")
       ensure
@@ -362,5 +381,67 @@ RSpec.describe "Payroll cutoff concurrency" do
     expect(PayrollBatch.count).to eq(1)
     expect(PayrollOutboxEvent.count).to eq(1)
     expect(period.reload.payroll_batch).to eq(PayrollBatch.first)
+  end
+  [ :manual_first, :finalizer_first ].each do |order|
+    it "never claims the same due obligation twice with #{order} lock acquisition" do
+      actor = create(:user, :admin)
+      employee = create(:user, :employee)
+      @reservation_race_user_ids = [ actor.id, employee.id ]
+      dates = payroll_calendar_at(database_clock)
+      entry = create(:time_entry, user: employee, work_date: dates.fetch(:start_date) + 2.days,
+        status: "completed", entry_method: "clock", approval_status: nil, overtime_status: "none")
+      @reservation_race_category_id = entry.time_category_id
+      period = create(:payroll_calendar_period, **payroll_calendar_at(capture_payroll_cutoff))
+      recorder = Payroll::ManualAllocationRecorder.new(actor: actor)
+      finalization = Payroll::BatchFinalizer.new(start_date: period.start_date, end_date: period.end_date,
+        actor: nil, cutoff_at: period.cutoff_at.iso8601(6), automated_cutoff: true, calendar_period: period)
+      entered = Queue.new
+      release = Queue.new
+      first_pids = Queue.new
+      second_pids = Queue.new
+      manual_work = lambda do
+        recorder.commit!(entry: TimeEntry.find(entry.id), source_user_uuid: employee.payroll_integration_uuid,
+          regular_hours: 8, overtime_hours: 0, external_pay_period_id: "manual-race",
+          external_payroll_item_id: SecureRandom.uuid, pay_date: database_clock.to_date.iso8601,
+          reason: "Synthetic competing manual claim on due cutoff")
+      end
+      if order == :manual_first
+        barrier_entered = false
+        allow(recorder).to receive(:reject_pending_cutoff_claim!).and_wrap_original do |original, *args, **kwargs|
+          unless barrier_entered
+            barrier_entered = true
+            entered << true
+            queue_pop(release)
+          end
+          original.call(*args, **kwargs)
+        end
+        first = database_worker(first_pids, &manual_work)
+        first_pid = queue_pop(first_pids)
+        queue_pop(entered)
+        second = database_worker(second_pids) { finalization.call }
+      else
+        allow(finalization).to receive(:lock_source_ledger!).and_wrap_original do |original|
+          original.call
+          entered << true
+          queue_pop(release)
+        end
+        first = database_worker(first_pids) { finalization.call }
+        first_pid = queue_pop(first_pids)
+        queue_pop(entered)
+        second = database_worker(second_pids, &manual_work)
+      end
+      wait_for_blocker(queue_pop(second_pids), first_pid)
+      release << true
+      results = [ first.value, second.value ]
+      expect(results.grep(PayrollBatch).one?).to be(true)
+      expect(results.grep(Payroll::ManualAllocationRecorder::Error).one?).to be(true)
+      expect(PayrollManualAllocation.count).to eq(0)
+      expect(PayrollBatchEntry.where(source_time_entry_id: entry.id).sum(:total_hours)).to eq(8)
+      expect(PayrollBatch.count).to eq(1)
+    ensure
+      release << true if release
+      first&.join
+      second&.join
+    end
   end
 end

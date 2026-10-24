@@ -221,9 +221,9 @@ RSpec.describe Payroll::ManualAllocationRecorder do
   end
 
   it "uses the covering published calendar policy instead of later settings" do
-    entry.update_columns(hours: 9, overtime_status: "none")
-    create(:payroll_calendar_period, start_date: Date.new(2026, 8, 1), end_date: Date.new(2026, 8, 15),
-           pay_date: Date.new(2026, 8, 31), cutoff_at: Time.iso8601("2026-08-24T17:00:00+10:00"),
+    calendar_attributes = payroll_calendar_for(future_payroll_month)
+    entry.update_columns(hours: 9, overtime_status: "none", work_date: calendar_attributes.fetch(:start_date) + 2.days)
+    create(:payroll_calendar_period, **calendar_attributes,
            overtime_policy: Payroll::WeeklyOvertimeAllocator.configured_policy)
     Setting.set("overtime_daily_threshold_hours", "12")
 

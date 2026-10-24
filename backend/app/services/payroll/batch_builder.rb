@@ -64,7 +64,8 @@ module Payroll
           # allocation is authorized. A pending OT reclassification must not
           # export only its negative REG leg and temporarily reverse wages.
           reviewed_replacement_pending = entry_exclusions.any? { |row| row[:reason].in?(%w[pending_approval approved_after_cutoff pending_overtime denied_overtime overtime_approved_after_cutoff created_after_cutoff]) }
-          next if entry_prior_rows.any? && reviewed_replacement_pending
+          represented = entry_prior_rows.any? || manually_allocated_hours(entry.id)[:total_hours].positive?
+          next if represented && reviewed_replacement_pending
 
           if target[:total_hours] > manually_allocated_hours(entry.id)[:total_hours]
             blocking[:missing_category_count] += 1 if resolved_time_category(entry).nil?
@@ -454,11 +455,13 @@ module Payroll
     end
 
     def preload_manual_allocations(entry_ids)
-      @manual_allocations_by_entry = PayrollManualAllocation.active
-        .where(time_entry_id: entry_ids.to_a)
-        .includes(:user, :time_category)
-        .to_a
-        .group_by(&:time_entry_id)
+      allocations = if calendar_period
+        ManualAllocationLedger.active_at(cutoff_at, entry_ids: entry_ids.to_a)
+      else
+        PayrollManualAllocation.active.where(time_entry_id: entry_ids.to_a).to_a
+      end
+      ActiveRecord::Associations::Preloader.new(records: allocations, associations: [ :user, :time_category ]).call
+      @manual_allocations_by_entry = allocations.group_by(&:time_entry_id)
     end
 
     def preload_payment_attestations(entry_ids)
