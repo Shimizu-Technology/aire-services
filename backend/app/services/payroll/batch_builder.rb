@@ -56,6 +56,10 @@ module Payroll
         entry_prior_rows = prior_by_entry.fetch(entry_id, [])
 
         if entry
+          # This is calculation context for an earlier manual payroll, not its
+          # source work. Keep its review and exclusions at its own destination.
+          next if deferred_later_manual_dimension?(entry.work_date)
+
           allocation = allocations.fetch(entry.id, {})
           reviewed_current = entry.allocation_contract_version == allocation_contract_version &&
             entry.overtime_allocation_signature == AffectedOvertimeReview.signature(entry, allocation)
@@ -553,6 +557,10 @@ module Payroll
         prior_rows.any? { |row| row.payroll_batch.cutoff_at > cutoff_at }
     end
 
+    def deferred_later_manual_dimension?(work_date)
+      calendar_period&.manual_lock? && calendar_period.cutoff_enforcement_starts_on.present? && work_date > end_date
+    end
+
     def settlement_rows_for(entry, target, prior_rows, targets: nil)
       balances = prior_balances(prior_rows + manual_prior_rows_for(entry))
       current_key = dimension_key(resolved_time_category(entry)&.id, entry.user_id, entry.work_date)
@@ -567,7 +575,10 @@ module Payroll
         # A delayed scheduled snapshot cannot reinterpret an earlier calendar
         # that was manually locked at a newer instant. Still subtract all its
         # claims; the current calendar keeps its original revision cutoff.
-        next if newer_claim_outside_period?(work_date, prior_rows)
+        # Later work remains owned by its named settlement destination. Keep
+        # the full week in the allocator, but never consume its signed delta
+        # merely because the accountant locks an earlier manual period late.
+        next if deferred_later_manual_dimension?(work_date) || newer_claim_outside_period?(work_date, prior_rows)
 
         desired = targets.dig(key, :hours) || zero_hours
         prior = balances.dig(key, :totals) || zero_hours
@@ -642,7 +653,8 @@ module Payroll
 
     def deleted_rows_for(entry_id, prior_rows)
       prior_balances(prior_rows).filter_map do |line_key, balance|
-        next if newer_claim_outside_period?(balance.fetch(:latest).work_date, prior_rows)
+        next if deferred_later_manual_dimension?(balance.fetch(:latest).work_date) ||
+          newer_claim_outside_period?(balance.fetch(:latest).work_date, prior_rows)
 
         prior = balance.fetch(:totals)
         next if prior.values.all?(&:zero?)
