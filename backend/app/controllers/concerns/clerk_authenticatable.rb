@@ -42,7 +42,7 @@ module ClerkAuthenticatable
       return # rubocop:disable Style/RedundantReturn -- consistent with other early-exits in this method
     end
 
-    unless StagingOutboundPolicy.tester?(email: @current_user.email, id: decoded["sub"])
+    unless StagingOutboundPolicy.tester?(user_id: @current_user.id, email: @current_user.email, id: decoded["sub"])
       @current_user = nil
       render_forbidden("Staging tester binding does not match")
       return
@@ -76,7 +76,7 @@ module ClerkAuthenticatable
     set_session_fingerprint(decoded)
 
     resolved_user = resolve_user_from_claims(decoded)
-    if resolved_user&.is_active? && resolved_user.personal_access_enabled? && StagingOutboundPolicy.tester?(email: resolved_user.email, id: decoded["sub"])
+    if resolved_user&.is_active? && resolved_user.personal_access_enabled? && StagingOutboundPolicy.tester?(user_id: resolved_user.id, email: resolved_user.email, id: decoded["sub"])
       @current_user = resolved_user
       Current.user = resolved_user
     end
@@ -190,6 +190,11 @@ module ClerkAuthenticatable
   end
 
   def resolve_user_from_claims(decoded)
+    if StagingOutboundPolicy.staging?
+      user = User.find_by(clerk_id: decoded["sub"])
+      return user if user && StagingOutboundPolicy.tester?(user_id: user.id, email: user.email, id: decoded["sub"])
+      return nil
+    end
     identity = identity_attributes_from(decoded)
     find_or_create_user(**identity)
   end

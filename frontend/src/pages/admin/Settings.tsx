@@ -1022,10 +1022,17 @@ export default function Settings() {
                         <div>
                           <p className="text-sm font-semibold text-slate-900">Map preview</p>
                           <p className="mt-1 text-sm text-slate-500">
-                            Confirm the pin is on the AIRE office and then save the rule.
+                            {isStaging ? 'Map previews are disabled in staging. Saved coordinates remain available below.' : 'Confirm the pin is on the AIRE office and then save the rule.'}
                           </p>
                         </div>
-                        {!isStaging && hasPreviewCoordinates && mapIframeSrc ? (
+                        {isStaging ? (
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                            {hasPreviewCoordinates ? <>
+                              <p><span className="font-semibold text-slate-800">Latitude:</span> {thresholdDraft.clock_in_location_latitude}</p>
+                              <p className="mt-1"><span className="font-semibold text-slate-800">Longitude:</span> {thresholdDraft.clock_in_location_longitude}</p>
+                            </> : <p>No saved coordinates.</p>}
+                          </div>
+                        ) : hasPreviewCoordinates && mapIframeSrc ? (
                           <>
                             <div className="overflow-hidden rounded-2xl border border-slate-200">
                               {GOOGLE_MAPS_BROWSER_KEY ? (

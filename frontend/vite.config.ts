@@ -1,13 +1,15 @@
+import { assertDeploymentFlags, assertStagingOrigin, stagingBrowserContainment } from './build/staging'
 import { defineConfig } from "vitest/config"
 import { loadEnv } from "vite"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  if (env.DEPLOYMENT_ENV === 'staging' && env.VITE_DEPLOYMENT_ENV !== 'staging') throw new Error('DEPLOYMENT_ENV=staging requires VITE_DEPLOYMENT_ENV=staging')
-  if (env.VITE_DEPLOYMENT_ENV === 'staging' && mode !== 'test') {
+  assertDeploymentFlags(env, command === 'build' ? 'production' : mode)
+  if (env.VITE_DEPLOYMENT_ENV === 'staging' && (mode !== 'test' || command === 'build')) {
+    assertStagingOrigin(env.VITE_STAGING_PAYROLL_FRONTEND_ORIGIN, 'VITE_STAGING_PAYROLL_FRONTEND_ORIGIN')
     for (const key of ['VITE_STAGING_SNAPSHOT_AT', 'VITE_STAGING_CODE_SHA', 'VITE_API_URL', 'VITE_CLERK_PUBLISHABLE_KEY']) {
       if (!env[key]) throw new Error(`Staging build requires ${key}`)
     }
@@ -21,13 +23,7 @@ export default defineConfig(({ mode }) => {
     if (env.VITE_AUTH_ENABLED === 'false') throw new Error('Staging build requires authentication')
   }
   return {
-  plugins: [react(), tailwindcss(), {
-    name: 'staging-browser-containment',
-    transformIndexHtml(html) {
-      if (env.VITE_DEPLOYMENT_ENV !== 'staging') return html
-      return html.replace(/<link[^>]+(?:fonts\.googleapis\.com|fonts\.gstatic\.com)[^>]*>/g, '')
-    },
-  }],
+  plugins: [stagingBrowserContainment(env.VITE_DEPLOYMENT_ENV === 'staging'), react(), tailwindcss()],
   build: {
     rollupOptions: {
       output: {

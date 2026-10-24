@@ -1,13 +1,15 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../support/staging_storage_helpers"
 
 RSpec.describe "staging transport boundaries" do
+  include StagingStorageHelpers
   around do |example|
     old = ENV.to_h
     ENV["DEPLOYMENT_ENV"] = "staging"
     ENV["CLERK_SECRET_KEY"] = "sk_test_synthetic"
-    ENV["STAGING_TESTER_BINDINGS"] = '{"leon@example.test":"user_leon"}'
+    ENV["STAGING_TESTER_BINDINGS"] = '[{"user_id":1,"email":"leon@example.test","clerk_subject":"user_leon"}]'
     ENV["STAGING_INTEGRATION_HOSTS"] = "aire-staging.example.test"
     ENV["PRODUCTION_INTEGRATION_HOSTS"] = "aire.example.test"
     example.run
@@ -23,7 +25,9 @@ RSpec.describe "staging transport boundaries" do
   end
 
   it "rejects storage construction and presigning with copied bucket credentials" do
-    expect { ActiveStorage::Service::S3Service.new(bucket: "production", access_key_id: "copied", secret_access_key: "copied", region: "us-east-1") }.to raise_error(StagingOutboundPolicy::ConfigurationError)
+    ENV.update(staging_storage_env(provider: :aws))
+    expect { ActiveStorage::Service::S3Service.new(bucket: "synthetic-live-bucket", access_key_id: "synthetic-staging-key", secret_access_key: "synthetic-only", region: "us-east-1") }.to raise_error(StagingOutboundPolicy::ConfigurationError, /BUCKET/)
+    expect { ActiveStorage::Service::S3Service.new(bucket: "synthetic-staging-bucket", access_key_id: "synthetic-live-key", secret_access_key: "synthetic-only", region: "us-east-1") }.to raise_error(StagingOutboundPolicy::ConfigurationError, /ACCESS_KEY/)
   end
 
   it "blocks Google and Nominatim entry points even without provider credentials" do

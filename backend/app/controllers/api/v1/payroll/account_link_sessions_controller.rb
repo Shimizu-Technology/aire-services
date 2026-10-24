@@ -79,10 +79,13 @@ module Api
 
         def authorization_url(token)
           base_url = ENV.fetch("FRONTEND_URL", "http://localhost:5173").to_s.chomp("/")
-          "#{base_url}/admin/payroll-link?token=#{CGI.escape(token)}"
+          url = "#{base_url}/admin/payroll-link?token=#{CGI.escape(token)}"
+          StagingOutboundPolicy.frontend_origin!(url)
+          url
         end
 
         def callback_url(raw_url, result)
+          StagingOutboundPolicy.frontend_origin!(raw_url)
           uri = URI.parse(raw_url)
           query = URI.decode_www_form(uri.query.to_s)
           query.reject! { |key, _value| key == "aire_link" }

@@ -6,12 +6,14 @@ module AttachmentUrlHelpers
   private
 
   def attachment_url(attachment)
+    return nil if StagingOutboundPolicy.staging?
     return nil unless attachment&.attached?
 
     Rails.application.routes.url_helpers.rails_blob_url(attachment, host: request.base_url)
   end
 
   def attachment_variant_url(attachment, resize_to_fill: nil, resize_to_limit: nil)
+    return nil if StagingOutboundPolicy.staging?
     return nil unless attachment&.attached?
     return attachment_url(attachment) unless attachment.variable?
 
@@ -33,6 +35,7 @@ module AttachmentUrlHelpers
   end
 
   def image_variant_url(attachment, width:)
+    return nil if StagingOutboundPolicy.staging?
     return nil unless attachment&.attached?
     return nil unless attachment.variable?
 

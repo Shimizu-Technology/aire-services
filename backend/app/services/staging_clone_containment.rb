@@ -5,6 +5,10 @@ class StagingCloneContainment
   DISPATCH = { "payroll_outbox_events" => "delivery_status IN ('pending', 'failed')", "payroll_calendar_periods" => "status IN ('scheduled', 'failed')", "payroll_integration_grants" => "active = TRUE", "payroll_account_links" => "active = TRUE" }.freeze
   TOKEN_TABLES = %w[payroll_account_link_sessions].freeze
 
+  def self.queue_schema_complete?(connection: ActiveRecord::Base.connection)
+    ([ "solid_queue_jobs" ] + QUEUE_TABLES).all? { |table| connection.data_source_exists?(table) }
+  end
+
   def initialize(env: ENV, connection: ActiveRecord::Base.connection)
     @env = env
     @connection = connection
@@ -45,11 +49,8 @@ class StagingCloneContainment
   def configure(apply: false)
     guard!
     return counts if marker?("__containment_complete__")
-    testers = StagingOutboundPolicy.bindings(env)
-    testers.each_key do |email|
-      count = User.unscoped.where("lower(email) = ?", email).count
-      raise StagingOutboundPolicy::ConfigurationError, "Each STAGING_TESTER_BINDINGS email must match exactly one existing user" unless count == 1
-    end
+    verified_testers = StagingTesterIdentity.verify!(env: env)
+    testers = verified_testers.to_h { |tester| [ tester.fetch("email"), tester.fetch("clerk_subject") ] }
     secret = StagingOutboundPolicy.require_setting!("STAGING_PAYROLL_SHARED_SECRET", env)
     raise StagingOutboundPolicy::ConfigurationError, "PAYROLL_SHARED_SECRET must match the new STAGING_PAYROLL_SHARED_SECRET" unless env["PAYROLL_SHARED_SECRET"] == secret && secret.length >= 32
     return counts unless apply
@@ -87,12 +88,11 @@ class StagingCloneContainment
 
   def guard!
     StagingOutboundPolicy.validate_database!(env: env)
-    actual_host = connection.pool.db_config.configuration_hash[:host].to_s.downcase
-    approved = StagingOutboundPolicy.list("STAGING_DATABASE_HOSTS", env)
-    denied = StagingOutboundPolicy.list("PRODUCTION_DATABASE_HOSTS", env)
-    unless approved.include?(actual_host) && !denied.include?(actual_host)
-      raise StagingOutboundPolicy::ConfigurationError, "Actual database connection failed STAGING_DATABASE_HOSTS assertion"
+    unless self.class.queue_schema_complete?(connection: connection)
+      raise StagingOutboundPolicy::ConfigurationError, "Staging requires the complete Solid Queue schema before containment"
     end
+    StagingDatabasePolicy.validate_parameters!(connection.pool.db_config.configuration_hash, env: env)
+    StagingDatabasePolicy.validate_live!(connection.raw_connection, env: env)
     true
   end
 
@@ -124,6 +124,7 @@ class StagingCloneContainment
   def capture(table, predicate = "TRUE")
     columns = connection.columns(table).map(&:name)
     state = if columns.include?("delivery_status") then :delivery_status
+    elsif columns.include?("verification_status") then :verification_status
     elsif columns.include?("status") then :status
     end
     relation(table).where(predicate).in_batches(of: 1_000) do |batch|

@@ -17,11 +17,20 @@ class EmailService
         html: invitation_html(user: user, invited_by: invited_by, sign_up_url: sign_up_url)
       })
 
+      if StagingOutboundPolicy.staging? && response["staging_captured"]
+        Rails.logger.info "[InviteEmail] STAGING captured invitation user_id=#{user.id}; no email was sent"
+        return :captured
+      end
+
       Rails.logger.info "Resend API response for #{CGI.escapeHTML(user.email.to_s)}: #{response.inspect}" unless StagingOutboundPolicy.staging?
       true
     rescue StandardError => e
-      Rails.logger.error "Failed to send invitation email to #{CGI.escapeHTML(user.email.to_s)}: #{e.class} - #{e.message}" unless StagingOutboundPolicy.staging?
-      Rails.logger.error e.backtrace.first(5).join("\n") if e.backtrace
+      if StagingOutboundPolicy.staging?
+        Rails.logger.error "[InviteEmail] Failed user_id=#{user.id}: #{e.class}; content redacted"
+      else
+        Rails.logger.error "Failed to send invitation email to #{CGI.escapeHTML(user.email.to_s)}: #{e.class} - #{e.message}"
+        Rails.logger.error e.backtrace.first(5).join("\n") if e.backtrace
+      end
       false
     end
 
@@ -29,7 +38,7 @@ class EmailService
 
     def resend_configured?
       if !StagingOutboundPolicy.staging? && ENV["RESEND_API_KEY"].blank?
-        Rails.logger.warn "RESEND_API_KEY not configured, skipping email" unless StagingOutboundPolicy.staging?
+        Rails.logger.warn "RESEND_API_KEY not configured, skipping email"
         return false
       end
       true

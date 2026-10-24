@@ -3,6 +3,12 @@
 require "cgi"
 
 class ContactMailer < ApplicationMailer
+  # This mailer uses the provider transport directly. Expose its outcome to the
+  # controller instead of discarding it through Action Mailer's NullMail result.
+  def self.deliver_contact_form(**attributes)
+    new.contact_form_email(**attributes)
+  end
+
   def contact_form_email(name:, email:, phone:, subject:, message:)
     @name = CGI.escapeHTML(name.to_s)
     @email = CGI.escapeHTML(email.to_s)
