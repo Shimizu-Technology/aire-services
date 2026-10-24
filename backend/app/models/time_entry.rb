@@ -139,7 +139,9 @@ class TimeEntry < ApplicationRecord
   end
 
   def calculate_hours_from_times
-    return unless start_time.present? && end_time.present?
+    # Some correction services call this explicitly for note-only edits. Do not
+    # reinterpret historical approved punches unless calculation inputs changed.
+    return unless time_calculation_required?
 
     if needs_administrator_correction?
       self.hours = 0
@@ -189,7 +191,7 @@ class TimeEntry < ApplicationRecord
   end
 
   def held_clock_cannot_be_approved
-    if needs_administrator_correction? && approval_status == "approved"
+    if will_save_change_to_approval_status?(to: "approved") && needs_administrator_correction?
       errors.add(:approval_status, "needs administrator correction before approval")
     end
   end
