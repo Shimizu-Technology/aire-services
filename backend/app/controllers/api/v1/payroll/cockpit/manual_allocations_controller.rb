@@ -47,6 +47,9 @@ module Api
               [ { manual_allocation: serialize(allocation) },
                 { manual_allocation_id: allocation.id, result_version: allocation.lock_version, status: allocation.status } ]
             end
+          rescue ::Payroll::ManualAllocationRecorder::ClaimConflictError => e
+            audit_invalid_command(entry, e) if entry
+            render json: { error: e.message, review_required: true }, status: :conflict
           rescue ::Payroll::ManualAllocationRecorder::Error, ActiveRecord::RecordInvalid => e
             audit_invalid_command(entry, e) if entry
             render json: { error: e.message }, status: :unprocessable_entity

@@ -16,6 +16,9 @@ module Payroll
             record_missing_exclusion_cases!(period)
             record_post_cutoff_deletions!(period)
             record_post_cutoff_entries!(period)
+            # A genuinely uncovered reservation still fails closed, but must
+            # not skip other reconciliation work for this frozen calendar.
+            ManualReservationRelease.record_for_period!(period: period, batch: period.payroll_batch)
             PayrollSettlementReconciliation.create_or_find_by!(payroll_calendar_period: period) do |marker|
               marker.reconciled_at = Time.current
             end
@@ -63,6 +66,8 @@ module Payroll
             )
           end
         end
+
+        ManualReservationRelease.record_for_period!(period: period, batch: batch, actor: actor)
 
         batch.payroll_batch_exclusions.order(:id).each do |exclusion|
           superseded = targeted.find { |settlement_case| settlement_case.source_time_entry_id == exclusion.source_time_entry_id }

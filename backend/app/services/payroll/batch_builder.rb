@@ -422,11 +422,13 @@ module Payroll
     end
 
     def preload_manual_allocations(entry_ids)
-      @manual_allocations_by_entry = PayrollManualAllocation.active
-        .where(time_entry_id: entry_ids.to_a)
-        .includes(:user, :time_category)
-        .to_a
-        .group_by(&:time_entry_id)
+      allocations = if calendar_period
+        ManualAllocationLedger.active_at(cutoff_at, entry_ids: entry_ids.to_a)
+      else
+        PayrollManualAllocation.active.where(time_entry_id: entry_ids.to_a).to_a
+      end
+      ActiveRecord::Associations::Preloader.new(records: allocations, associations: [ :user, :time_category ]).call
+      @manual_allocations_by_entry = allocations.group_by(&:time_entry_id)
     end
 
     def preload_payment_attestations(entry_ids)

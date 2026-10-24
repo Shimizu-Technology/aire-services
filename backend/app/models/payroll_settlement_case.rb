@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class PayrollSettlementCase < ApplicationRecord
-  ORIGIN_REASONS = (PayrollBatchExclusion::REASONS + %w[changed_after_cutoff deleted_after_cutoff]).uniq.freeze
+  ORIGIN_REASONS = (PayrollBatchExclusion::REASONS + %w[changed_after_cutoff deleted_after_cutoff manual_reservation_released]).uniq.freeze
   DESTINATION_KINDS = %w[unassigned regular supplemental not_payable].freeze
   STATUSES = %w[open scheduled in_payroll settled not_payable superseded].freeze
   ACTIVE_STATUSES = %w[open scheduled in_payroll].freeze

@@ -1,0 +1,35 @@
+# Manual reservations at scheduled cutoffs
+
+A manual payroll link reserves exact regular and overtime source hours. Cancelling a check or deposit keeps that wage reservation. Voiding the payroll link releases it, after any previously issued instrument has its exact verified cancellation evidence.
+
+Published calendar batches reconstruct reservations from `payroll_manual_allocation_revisions` at the original cutoff. PostgreSQL captures the full allocation snapshot with `clock_timestamp()` on insert and update. Physical payment/cancellation dates and Rails timestamps do not determine the reservation state at cutoff. The revision table rejects updates, deletes and truncation. The allocation projection also rejects DELETE and TRUNCATE, including eventless bulk-import rows; release requires a recorded void. SQL and model bulk updates still create DB-stamped revisions.
+
+A new manual commitment takes the same transaction advisory lock as batch finalization, before locking its source entry. If a due, unfinalized calendar still offers that source obligation, the command returns HTTP 409 with `review_required: true`. Lock that cutoff and reconcile its frozen coverage before retrying. The check runs both before creation and after the reservation has its DB-stamped revision, under the same advisory lock and transaction. A claim inserted after cutoff rolls back if that cutoff still has its hours available; a partial claim stamped before cutoff remains valid. This includes the entry's work date at cutoff, so moving the current entry does not evade it. A held entry with no payable cutoff line can still be reconciled manually. This deliberately uses a conflict rather than taking a calendar row lock inside an already-running cockpit command.
+
+When a void releases a reservation that suppressed an earlier cutoff, AIRE opens or reopens an exact-source settlement case. This also works when that cutoff had no lines or exclusions, or when the delayed finalizer runs after the void. The case requires an explicit destination and review of current source hours and approvals. Use the existing settlement controls to select a named future regular payroll, a supplemental payroll, or a not-payable disposition. An existing scheduled or supplemental destination is cleared on a new release.
+
+The case records the released allocation ID. Repeated void commands, reconciliation and finalizer retries cannot open the same release twice. Partial releases retain other active allocations; future batches subtract both those allocations and all frozen source lines. A retained payment component cannot by itself settle newly released unpaid hours. Cancellation uses the same full required coverage as settlement closure, so cancelling either component reopens the case. A later void of a replacement allocation also clears its supplemental destination, even when that replacement was created after the original cutoff.
+
+## Migration and rollout
+
+Migration `20261024010000` briefly locks `payroll_manual_allocations` in `SHARE ROW EXCLUSIVE` mode, installs the capture trigger, and snapshots existing rows. It does not change source time, existing allocation/payment events, frozen batches or checksums. It requires a forward correction rather than destructive rollback.
+
+Existing rows start their trusted history at migration time. A cutoff older than that history fails closed when its source has an uncovered reservation. The scheduled finalizer marks this as requiring review without automatic retry; cockpit reads return a review-required response. Do not backdate snapshots to make an old cutoff pass. Reconcile those historical obligations before retrying. Existing frozen exports remain unchanged.
+
+This migration does not certify a production restore or a lock window under concurrent production load. The release owner must rehearse those deployment conditions and handle any legacy history gaps. No historical data repair is included.
+
+Follow-up migration `20261024020000` installs DELETE/TRUNCATE guards on the allocation projection. No application path legitimately deletes reservations; test teardown disables only the exact owned test database's truncate guard. Legacy release coverage is scoped to allocations whose work dates overlap the frozen period, so unrelated older calendars cannot block a covered release. If a genuinely relevant gap remains, other exclusion/deletion/entry reconciliation for that calendar completes before the release error is reported; the reconciliation marker stays absent for a later retry.
+
+Replacement releases also follow their exact supplemental case back to its origin, including after the source work date moves. Periodic reconciliation uses the same link; historical coverage is still requested only for reservations dated within the original period.
+
+### UTC recording clocks
+
+Both ledgers store UTC instants in `timestamp without time zone` columns. Trigger capture now explicitly uses `clock_timestamp() AT TIME ZONE 'UTC'`, independent of the SQL writer's session TimeZone. The pending manual-ledger migration uses the same expression for its backfill. Forward migration `20261024030000` replaces both live capture functions; all other function statements remain identical. The already-applied time-entry migration is unchanged. Existing append-only history is preserved; the writer timezone of an old row cannot be recovered from that row alone.
+
+The migration-clock audit also checked calendar immutability: its live function already compares `(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')` with UTC cutoff values. A New York direct-SQL regression verifies that guard. The other migration hits (`20260527010000`, `20260829010000`, `20260829011000`, `20260829013000`, `20260831011000`) are one-time access/approval metadata or legacy-lock archives. They install no clock-writing function and are not used as trusted revision/cutoff evidence. Applied migrations and historical metadata were not rewritten.
+
+### Component identity across manual payrolls
+
+Release recovery identifies an origin case through immutable `manual_allocation_component_ids` on its committed/settled events, scoped to the exact source entry and user UUID. Full manual commitment records this membership before issuance. Settlement retains every issued component ID even if the final component changes the case's displayed payroll destination. Neither that mutable destination nor issue order determines release membership. The same evidence drives recorder void and periodic reconciliation; unrelated legacy reservations still require no historical coverage lookup.
+
+A moved 3h replacement under payroll B remains recoverable when a retained 5h component under payroll A was issued last. Cancellation retains B's wage reservation; subsequent void clears both destination references and records one explicit-routing release event. Repeated void/sync/finalization produces one future export with net 3h, alongside the retained 5h commitment. Existing dimensional correction rows are preserved when the source work date moves.
