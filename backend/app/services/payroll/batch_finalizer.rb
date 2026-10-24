@@ -274,7 +274,7 @@ module Payroll
         end
       end
       return unless issues.fetch(:negative_adjustment_count).positive?
-      return if automated_cutoff
+      return if automated_cutoff || manual_calendar_lock
       return if acknowledge_negative_adjustments && negative_adjustment_note.present?
 
       raise FinalizationError, "Negative payroll corrections require acknowledgement and an explanatory note"
@@ -328,7 +328,7 @@ module Payroll
     end
 
     def requires_negative_adjustment_review(payload)
-      return unless automated_cutoff && payload.dig(:issues, :negative_adjustment_count).to_i.positive?
+      return unless (automated_cutoff || manual_calendar_lock) && payload.dig(:issues, :negative_adjustment_count).to_i.positive?
 
       true
     end

@@ -209,9 +209,12 @@ RSpec.describe Payroll::BatchFinalizer do
     travel_to(guam.local(2026, 6, 1, 9)) do
       entry.update!(end_time: entry.end_time - 2.hours)
 
-      expect do
-        finalize(start_date: "2026-05-16", end_date: "2026-05-31")
-      end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /Negative payroll corrections/)
+      [ {}, { acknowledge_negative_adjustments: true },
+        { negative_adjustment_note: "A note alone does not acknowledge the correction" } ].each do |options|
+        expect do
+          finalize(start_date: "2026-05-16", end_date: "2026-05-31", **options)
+        end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /Negative payroll corrections/)
+      end
 
       batch = finalize(
         start_date: "2026-05-16",
