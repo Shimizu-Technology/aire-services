@@ -13,10 +13,12 @@ module Payroll
       def sync_finalized_periods!
         reconciliation_scope.includes(:payroll_batch).find_each do |period|
           begin
-            ManualReservationRelease.record_for_period!(period: period, batch: period.payroll_batch)
             record_missing_exclusion_cases!(period)
             record_post_cutoff_deletions!(period)
             record_post_cutoff_entries!(period)
+            # A genuinely uncovered reservation still fails closed, but must
+            # not skip other reconciliation work for this frozen calendar.
+            ManualReservationRelease.record_for_period!(period: period, batch: period.payroll_batch)
             PayrollSettlementReconciliation.create_or_find_by!(payroll_calendar_period: period) do |marker|
               marker.reconciled_at = Time.current
             end

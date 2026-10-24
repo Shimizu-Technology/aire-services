@@ -190,9 +190,11 @@ module Payroll
       end
     end
 
-    def reject_pending_cutoff_claim!(entry)
+    def reject_pending_cutoff_claim!(entry, reservation_recorded_at = nil)
       now = ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()")
       PayrollCalendarPeriod.where.not(status: "finalized").where("cutoff_at <= ?", now).order(:cutoff_at, :id).each do |period|
+        next if reservation_recorded_at && period.cutoff_at >= reservation_recorded_at
+
         frozen_entry = TimeEntryRevisionLedger.new(cutoff_at: period.cutoff_at).entries_for_ids([ entry.id ]).first
         relevant = entry.work_date.in?(period.start_date..period.end_date) ||
           frozen_entry&.work_date&.in?(period.start_date..period.end_date) ||
@@ -246,6 +248,12 @@ module Payroll
         external_payroll_item_id: item_id,
         reason: explanation
       )
+      # The cutoff can pass while validating the weekly split or inserting.
+      # Recheck only after the DB-stamped reservation exists: a post-cutoff
+      # revision cannot cover that cutoff's payable obligation. Both the claim
+      # and its revision roll back on conflict under the finalization lock.
+      recorded_at = PayrollManualAllocationRevision.where(payroll_manual_allocation_id: allocation.id).order(:id).first!.recorded_at
+      reject_pending_cutoff_claim!(entry, recorded_at)
       record_event!(allocation, "committed", explanation)
       route_fully_allocated_cases!(entry, allocation)
       allocation
@@ -427,7 +435,7 @@ module Payroll
       remaining_paid = components.sum { |component| component[:regular_hours].to_d + component[:overtime_hours].to_d }
       PayrollSettlementCase.where(status: "settled", destination_kind: "supplemental",
                                   source_time_entry_id: allocation.time_entry_id, source_user_uuid: allocation.source_user_uuid).lock.each do |settlement_case|
-        next if remaining_paid >= settlement_case.held_total_hours.to_d
+        next if remaining_paid >= required_manual_coverage(settlement_case)
         closing = settlement_case.payroll_settlement_case_events.order(:id).last
         next unless manual_settlement_evidence?(closing, allocation, method, reference)
 

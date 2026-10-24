@@ -15,7 +15,7 @@ RSpec.describe "Payroll cutoff concurrency" do
     connection.execute("ALTER TABLE payroll_settlement_case_events DISABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
     begin
       connection.execute("ALTER TABLE payroll_payment_attestations DISABLE TRIGGER payroll_payment_attestation_history_prevent_truncate")
-      %w[payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events].each do |table|
+      %w[payroll_manual_allocations payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events].each do |table|
         connection.execute("ALTER TABLE #{table} DISABLE TRIGGER #{table}_prevent_truncate")
       end
       connection.execute("ALTER TABLE payroll_obligation_corrections DISABLE TRIGGER payroll_obligation_corrections_prevent_truncate")
@@ -45,7 +45,7 @@ RSpec.describe "Payroll cutoff concurrency" do
       TimeCategory.where(id: @reservation_race_category_id).delete_all if @reservation_race_category_id
     ensure
       connection.execute("ALTER TABLE payroll_payment_attestations ENABLE TRIGGER payroll_payment_attestation_history_prevent_truncate")
-      %w[payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events].each do |table|
+      %w[payroll_manual_allocations payroll_manual_allocation_revisions payroll_manual_allocation_events payroll_time_entry_revisions payroll_integration_commands payroll_payment_attestation_events].each do |table|
         connection.execute("ALTER TABLE #{table} ENABLE TRIGGER #{table}_prevent_truncate")
       end
       begin

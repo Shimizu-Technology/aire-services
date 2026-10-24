@@ -4512,6 +4512,20 @@ CREATE TRIGGER payroll_manual_allocation_revisions_prevent_truncate BEFORE TRUNC
 
 
 --
+-- Name: payroll_manual_allocations payroll_manual_allocations_prevent_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_manual_allocations_prevent_delete BEFORE DELETE ON public.payroll_manual_allocations FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_manual_allocations payroll_manual_allocations_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_manual_allocations_prevent_truncate BEFORE TRUNCATE ON public.payroll_manual_allocations FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
 -- Name: payroll_obligation_corrections payroll_obligation_corrections_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5130,6 +5144,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261024020000'),
 ('20261024010000'),
 ('20261013010000'),
 ('20261011010000'),

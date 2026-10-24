@@ -8,7 +8,8 @@ module Payroll
       def record!(allocation:, actor:)
         return unless allocation.status == "voided"
 
-        PayrollCalendarPeriod.where(status: "finalized").order(:cutoff_at, :id).each do |period|
+        PayrollCalendarPeriod.where(status: "finalized").overlapping(allocation.work_date, allocation.work_date)
+          .order(:cutoff_at, :id).each do |period|
           record_for_period!(period: period, batch: period.payroll_batch, allocations: [ allocation ], actor: actor)
         end
       end
@@ -16,14 +17,18 @@ module Payroll
       def record_for_period!(period:, batch:, actor: nil, allocations: nil)
         allocations ||= PayrollManualAllocation.where(status: "voided")
           .where(work_date: period.start_date..period.end_date).to_a
+        # Coverage is required only for reservations capable of suppressing
+        # this period. An unrelated legacy calendar must not block a release.
+        allocations = allocations.select { |allocation| allocation.work_date.in?(period.start_date..period.end_date) }
         return if allocations.empty?
 
         PayrollSettlementCase.transaction do
           ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
-          historical = ManualAllocationLedger.active_at(period.cutoff_at, entry_ids: allocations.map(&:time_entry_id)).index_by(&:id)
+          historical = ManualAllocationLedger.active_at(period.cutoff_at,
+            entry_ids: allocations.map(&:time_entry_id), allocation_ids: allocations.map(&:id)).index_by(&:id)
           allocations.each do |allocation|
             reserved = historical[allocation.id]
-            next unless reserved && reserved.work_date.in?(period.start_date..period.end_date)
+            next unless reserved || routed_manual_case?(allocation, batch)
             next if release_recorded?(allocation)
 
             open_case!(period, batch, allocation, actor)
@@ -32,6 +37,16 @@ module Payroll
       end
 
       private
+
+      def routed_manual_case?(allocation, batch)
+        # A replacement may be reserved after the original cutoff and then
+        # settle its existing supplemental case. Voiding that replacement
+        # still requires a new destination for the now-uncovered obligation.
+        PayrollSettlementCase.where(origin_payroll_batch: batch,
+          source_time_entry_id: allocation.time_entry_id, source_user_uuid: allocation.source_user_uuid,
+          destination_kind: "supplemental", target_external_pay_period_id: allocation.external_pay_period_id,
+          status: %w[scheduled in_payroll settled]).exists?
+      end
 
       def release_recorded?(allocation)
         PayrollSettlementCaseEvent.joins(:payroll_settlement_case)
