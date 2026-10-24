@@ -136,6 +136,25 @@ RSpec.describe "Manual reservation review boundaries" do
     expect(batch.reload.checksum).to eq(checksum)
   end
 
+  it "reuses an active release case before a newer superseded case for the same origin" do
+    allocation = reserve
+    period = origin
+    batch = finalize(period)
+    active_case = create(:payroll_settlement_case, origin_payroll_batch: batch,
+      source_time_entry_id: entry.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+      original_work_date: entry.work_date, source_time_entry_version: entry.lock_version)
+    historical_case = create(:payroll_settlement_case, origin_payroll_batch: batch,
+      source_time_entry_id: entry.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+      original_work_date: entry.work_date, source_time_entry_version: entry.lock_version + 1,
+      status: "superseded", resolved_at: database_clock)
+    historical = historical_case.reload.attributes
+
+    expect { release(allocation) }.not_to raise_error
+    expect(active_case.reload).to have_attributes(status: "open", destination_kind: "unassigned", held_total_hours: 8)
+    expect(active_case.payroll_settlement_case_events.where("metadata ->> 'released_manual_allocation_id' = ?", allocation.id.to_s).count).to eq(1)
+    expect(historical_case.reload.attributes).to eq(historical)
+  end
+
   it "F2 scopes coverage to relevant allocations and preserves other reconciliation work on legacy gaps" do
     old = historical_period
     legacy = direct_allocation(work_date: old.start_date + 2.days, status: "voided", created_at: old.cutoff_at - 1.day)

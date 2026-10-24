@@ -93,6 +93,18 @@ RSpec.describe Payroll::CarryoverQueue do
       expect(exclusion.reload.reason).to eq("denied_approval")
     end
 
+    it "keeps the active case visible when a newer origin case is superseded" do
+      active_case = case_for(target, exclusion)
+      newer_exclusion = exclude(target, reason: "pending_approval")
+      historical_case = case_for(target, newer_exclusion)
+      historical_case.update!(status: "superseded", resolved_at: Time.current)
+      before = [ active_case.reload.attributes, historical_case.reload.attributes ]
+
+      item = read_queue.fetch(:items).sole
+      expect(item.fetch(:settlement_case)).to include(id: active_case.public_id, status: "open")
+      expect([ active_case.reload.attributes, historical_case.reload.attributes ]).to eq(before)
+    end
+
     it "respects an explicit not-payable decision despite current approval" do
       settlement_case = case_for(target, exclusion)
       Payroll::SettlementCaseRouter.new(
