@@ -1,21 +1,23 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe Payroll::CalendarPeriodPublisher do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
-  let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
-  let(:now) { guam.local(2026, 10, 1, 9) }
+  let(:month) { future_payroll_month }
+  let(:now) { database_clock }
   let(:publication_id) { SecureRandom.uuid }
   let(:attributes) do
     {
       schema_version: "1.0",
       external_pay_period_id: "cornerstone-2026-10-a",
-      start_date: "2026-10-01",
-      end_date: "2026-10-15",
-      pay_date: "2026-10-25",
-      cutoff_at: "2026-10-18T17:00:00+10:00",
+      start_date: month.change(day: 1).iso8601,
+      end_date: month.change(day: 15).iso8601,
+      pay_date: month.change(day: 25).iso8601,
+      cutoff_at: payroll_time(month.change(day: 18)).iso8601,
       time_zone: "Pacific/Guam",
       cutoff_days_before: 7,
       schedule_version: 1,
@@ -40,10 +42,12 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
 
   it "refuses a revision into a frozen manual batch and preserves the prior schedule" do
     period = described_class.new(attributes, now: now).call.period
-    batch = Payroll::BatchFinalizer.new(start_date: "2026-10-16", end_date: "2026-10-31", actor: nil).call
+    batch = Payroll::BatchFinalizer.new(start_date: month.change(day: 16).iso8601, end_date: month.end_of_month.iso8601, actor: nil).call
     original = [ period.attributes.deep_dup, batch.attributes.deep_dup ]
     revision = attributes.merge(schedule_version: 2, publication_id: SecureRandom.uuid,
-      start_date: "2026-10-16", end_date: "2026-10-31", pay_date: "2026-11-10", cutoff_at: "2026-11-03T17:00:00+10:00")
+      start_date: month.change(day: 16).iso8601, end_date: month.end_of_month.iso8601,
+      pay_date: month.next_month.change(day: 10).iso8601,
+      cutoff_at: payroll_time(month.next_month.change(day: 3)).iso8601)
     expect { described_class.new(revision, now: now).call }
       .to raise_error(described_class::ConflictError, /already covers/)
     expect([ period.reload.attributes, batch.reload.attributes ]).to eq(original)
@@ -92,7 +96,7 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     expect(period.reload.overtime_policy).to eq(legacy)
     explicit = revised.merge(schedule_version: 3, publication_id: SecureRandom.uuid,
                              overtime_policy: Payroll::WeeklyOvertimeAllocator.configured_policy,
-                             cutoff_at: "2026-10-18T18:00:00+10:00")
+                             cutoff_at: payroll_time(month.change(day: 18), hour: 18).iso8601)
     expect do
       described_class.new(explicit, now: Time.iso8601(attributes[:cutoff_at])).call
     end.to raise_error(described_class::ConflictError, /cannot be revised after its cutoff/)
@@ -120,7 +124,7 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     revised = attributes.merge(
       schedule_version: 2,
       publication_id: SecureRandom.uuid,
-      cutoff_at: "2026-10-18T16:30:00+10:00"
+      cutoff_at: payroll_time(month.change(day: 18), hour: 16, min: 30).iso8601
     )
 
     result = described_class.new(revised, now: now).call
@@ -135,8 +139,8 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
       schema_version: "2.0",
       cutoff_rule: "after_previous_regular_payday",
       cutoff_days: 7,
-      previous_regular_pay_date: "2026-10-10",
-      cutoff_at: "2026-10-17T17:00:00+10:00"
+      previous_regular_pay_date: month.change(day: 10).iso8601,
+      cutoff_at: payroll_time(month.change(day: 17)).iso8601
     )
 
     result = described_class.new(version_two, now: now).call
@@ -145,11 +149,11 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
       schema_version: "2.0",
       cutoff_rule: "after_previous_regular_payday",
       cutoff_days: 7,
-      previous_regular_pay_date: Date.new(2026, 10, 10)
+      previous_regular_pay_date: month.change(day: 10)
     )
     expect(result.period.as_contract_json).to include(
-      cutoff_at: "2026-10-17T17:00:00+10:00",
-      previous_regular_pay_date: "2026-10-10"
+      cutoff_at: payroll_time(month.change(day: 17)).iso8601,
+      previous_regular_pay_date: month.change(day: 10).iso8601
     )
     expect(result.period.as_contract_json).not_to have_key(:cutoff_days_before)
     audit_metadata = AuditLog.find_by!(action: "payroll_calendar_period.published", auditable: result.period).metadata
@@ -157,7 +161,7 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
       "schema_version" => "2.0",
       "cutoff_rule" => "after_previous_regular_payday",
       "cutoff_days" => 7,
-      "previous_regular_pay_date" => "2026-10-10"
+      "previous_regular_pay_date" => month.change(day: 10).iso8601
     )
     expect(audit_metadata).not_to have_key("cutoff_days_before")
   end
@@ -167,7 +171,7 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
       schema_version: "2.0",
       cutoff_rule: "before_pay_date",
       cutoff_days: 5,
-      cutoff_at: "2026-10-20T17:00:00+10:00"
+      cutoff_at: payroll_time(month.change(day: 20)).iso8601
     )
 
     result = described_class.new(version_two, now: now).call
@@ -187,7 +191,7 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
       schema_version: "2.0",
       cutoff_rule: "after_previous_regular_payday",
       cutoff_days: 7,
-      previous_regular_pay_date: "2026-10-10"
+      previous_regular_pay_date: month.change(day: 10).iso8601
     )
 
     expect do
@@ -198,18 +202,18 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
   it "rejects a revision that would move an assigned settlement case before its origin" do
     target_attributes = attributes.merge(
       external_pay_period_id: "cornerstone-2026-11-a",
-      start_date: "2026-11-01",
-      end_date: "2026-11-15",
-      pay_date: "2026-11-25",
-      cutoff_at: "2026-11-18T17:00:00+10:00"
+      start_date: month.next_month.change(day: 1).iso8601,
+      end_date: month.next_month.change(day: 15).iso8601,
+      pay_date: month.next_month.change(day: 25).iso8601,
+      cutoff_at: payroll_time(month.next_month.change(day: 18)).iso8601
     )
     period = described_class.new(target_attributes, now: now).call.period
     origin_batch = create(
       :payroll_batch,
-      start_date: Date.new(2026, 10, 16),
-      end_date: Date.new(2026, 10, 31),
-      cutoff_at: guam.local(2026, 11, 3, 17),
-      finalized_at: guam.local(2026, 11, 3, 17)
+      start_date: month.change(day: 16),
+      end_date: month.end_of_month,
+      cutoff_at: payroll_time(month.next_month.change(day: 3)),
+      finalized_at: payroll_time(month.next_month.change(day: 3))
     )
     create(
       :payroll_settlement_case,
@@ -222,28 +226,28 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     invalid_revision = target_attributes.merge(
       schedule_version: 2,
       publication_id: SecureRandom.uuid,
-      start_date: "2026-10-16",
-      end_date: "2026-10-31",
-      pay_date: "2026-11-10",
-      cutoff_at: "2026-11-03T17:00:00+10:00"
+      start_date: month.change(day: 16).iso8601,
+      end_date: month.end_of_month.iso8601,
+      pay_date: month.next_month.change(day: 10).iso8601,
+      cutoff_at: payroll_time(month.next_month.change(day: 3)).iso8601
     )
 
     expect { described_class.new(invalid_revision, now: now).call }
       .to raise_error(described_class::ConflictError, /assigned settlement case/)
-    expect(period.reload.start_date).to eq(Date.new(2026, 11, 1))
+    expect(period.reload.start_date).to eq(month.next_month.change(day: 1))
   end
 
   it "rejects a reused publication ID with different content" do
     described_class.new(attributes, now: now).call
 
     expect do
-      described_class.new(attributes.merge(pay_date: "2026-10-26"), now: now).call
+      described_class.new(attributes.merge(pay_date: month.change(day: 26).iso8601), now: now).call
     end.to raise_error(described_class::ConflictError, /publication_id/)
   end
 
   it "does not collapse distinct fractional cutoff timestamps into an idempotent replay" do
-    first = attributes.merge(cutoff_at: "2026-10-18T17:00:00.100000+10:00")
-    different_fraction = attributes.merge(cutoff_at: "2026-10-18T17:00:00.900000+10:00")
+    first = attributes.merge(cutoff_at: payroll_time(month.change(day: 18), usec: 100000).iso8601(6))
+    different_fraction = attributes.merge(cutoff_at: payroll_time(month.change(day: 18), usec: 900000).iso8601(6))
     described_class.new(first, now: now).call
 
     expect do
@@ -275,13 +279,13 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
 
   it "enforces semimonthly dates, Guam timezone, T-7, and explicit timestamp offsets" do
     invalid_examples = [
-      [ attributes.merge(start_date: "2026-10-02", publication_id: SecureRandom.uuid),
+      [ attributes.merge(start_date: month.change(day: 2).iso8601, publication_id: SecureRandom.uuid),
        ActiveRecord::RecordInvalid, /1st–15th or 16th–month end/ ],
       [ attributes.merge(time_zone: "UTC", publication_id: SecureRandom.uuid),
        ActiveRecord::RecordInvalid, /Time zone is not included/ ],
-      [ attributes.merge(cutoff_at: "2026-10-17T17:00:00+10:00", publication_id: SecureRandom.uuid),
+      [ attributes.merge(cutoff_at: payroll_time(month.change(day: 17)).iso8601, publication_id: SecureRandom.uuid),
        ActiveRecord::RecordInvalid, /seven calendar days/ ],
-      [ attributes.merge(cutoff_at: "2026-10-18T17:00:00", publication_id: SecureRandom.uuid),
+      [ attributes.merge(cutoff_at: payroll_time(month.change(day: 18)).strftime("%Y-%m-%dT%H:%M:%S"), publication_id: SecureRandom.uuid),
        ArgumentError, /explicit UTC offset/ ]
     ]
 
@@ -320,10 +324,10 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
     past_period = create(
       :payroll_calendar_period,
       external_pay_period_id: "past-cutoff-period",
-      start_date: Date.new(2026, 8, 16),
-      end_date: Date.new(2026, 8, 31),
-      pay_date: Date.new(2026, 9, 13),
-      cutoff_at: Time.iso8601("2026-09-06T17:00:00+10:00")
+      start_date: month.prev_month(3).change(day: 16),
+      end_date: month.prev_month(3).end_of_month,
+      pay_date: month.prev_month(2).change(day: 13),
+      cutoff_at: payroll_time(month.prev_month(2).change(day: 6))
     )
     expect do
       PayrollCalendarPeriod.transaction(requires_new: true) do
