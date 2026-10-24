@@ -84,7 +84,7 @@ module Payroll
           .where("payroll_batches.end_date < ?", period.start_date)
           .lock
           .find_each do |settlement_case|
-            routing_event = settlement_case.payroll_settlement_case_events.where(event_type: %w[routed rerouted]).order(:id).last
+            routing_event = settlement_case.payroll_settlement_case_events.where(event_type: %w[routed rerouted]).reorder(:id).last
             next if routing_event&.metadata&.fetch("requires_explicit_routing", false)
 
             route_to_period!(settlement_case, period: period, actor: nil, reason: "Next published regular payroll")
@@ -111,7 +111,7 @@ module Payroll
         end
         PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id)
           .lock.find_each do |settlement_case|
-          closing_event = settlement_case.payroll_settlement_case_events.order(:id).last
+          closing_event = settlement_case.payroll_settlement_case_events.reorder(:id).last
           next unless closing_event&.event_type == "superseded" &&
             closing_event.metadata["payment_attestation_id"].to_s == attestation.id.to_s
           next if PayrollSettlementCase.active.exists?(
@@ -126,7 +126,7 @@ module Payroll
       def resolve_attestation_cases!(attestation:, actor:)
         recorder = ManualAllocationRecorder.new(actor: actor)
         PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id).lock.each do |settlement_case|
-          closing = settlement_case.payroll_settlement_case_events.order(:id).last
+          closing = settlement_case.payroll_settlement_case_events.reorder(:id).last
           next unless closing&.event_type == "superseded" &&
             closing.metadata["payment_attestation_id"].to_s == attestation.id.to_s
 

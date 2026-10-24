@@ -49,7 +49,7 @@ module Payroll
           reason: reason
         }.compact
       )
-      event = settlement_case.payroll_settlement_case_events.order(:id).last
+      event = settlement_case.payroll_settlement_case_events.reorder(:id).last
       employee_name = User.find_by(id: settlement_case.source_user_id)&.full_name || settlement_case.source_snapshot["employee_name"]
       AuditLog.record!(
         action: "payroll_settlement_case.#{event_type}", actor: actor, auditable: settlement_case,

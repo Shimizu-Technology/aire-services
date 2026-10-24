@@ -51,7 +51,7 @@ module Payroll
     attr_reader :reconcile_settlement_cases
 
     def finalize_transaction!
-      PayrollCalendarPeriod.transaction do
+      PayrollCalendarPeriod.transaction(requires_new: true) do
         period = PayrollCalendarPeriod.lock("FOR UPDATE SKIP LOCKED").find_by(id: period_id)
         return nil unless period
         return period.payroll_batch if period.status == "finalized"

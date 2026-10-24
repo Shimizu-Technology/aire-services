@@ -436,7 +436,7 @@ module Payroll
       PayrollSettlementCase.where(status: "settled", destination_kind: "supplemental",
                                   source_time_entry_id: allocation.time_entry_id, source_user_uuid: allocation.source_user_uuid).lock.each do |settlement_case|
         next if remaining_paid >= required_manual_coverage(settlement_case)
-        closing = settlement_case.payroll_settlement_case_events.order(:id).last
+        closing = settlement_case.payroll_settlement_case_events.reorder(:id).last
         next unless manual_settlement_evidence?(closing, allocation, method, reference)
 
         SettlementCaseCoordinator.transition!(settlement_case, status: "in_payroll", resolved_at: nil,

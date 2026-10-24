@@ -24,7 +24,7 @@ class PayrollSettlementCase < ApplicationRecord
              inverse_of: :included_payroll_settlement_cases,
              optional: true
   belongs_to :assigned_to, class_name: "User", optional: true
-  has_many :payroll_settlement_case_events, dependent: :restrict_with_error
+  has_many :payroll_settlement_case_events, -> { order(:occurred_at, :id) }, dependent: :restrict_with_error
 
   validates :public_id, :source_time_entry_id, :source_time_entry_version, :source_user_id, :origin_reason,
             :original_work_date, :destination_kind, :owner_role, :action_due_on, :status,
