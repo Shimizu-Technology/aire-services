@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe Payroll::SettlementCaseRouter do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
   around { |example| travel_to(Time.utc(2026, 10, 1)) { example.run } }
 
@@ -65,7 +67,7 @@ RSpec.describe Payroll::SettlementCaseRouter do
   end
 
   it "retains route and reroute decision types in Activity History" do
-    future = create(:payroll_calendar_period, start_date: Date.new(2026, 11, 1), end_date: Date.new(2026, 11, 15))
+    future = create(:payroll_calendar_period, **payroll_calendar_for(future_payroll_month))
     first = payload.merge(destination_kind: "regular", target_external_pay_period_id: future.external_pay_period_id)
     command(first)
     second = payload.merge(command_id: SecureRandom.uuid, expected_version: held_case.reload.lock_version,
