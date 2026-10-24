@@ -84,6 +84,8 @@ class ProductionReadiness
   end
 
   def run(live: environment.production?)
+    return StagingReadiness.new(env: env).run(live: live) if StagingOutboundPolicy.staging?(env)
+
     checks = configuration_checks
     checks.concat(live_dependency_checks) if live
     Report.new(checks: checks)

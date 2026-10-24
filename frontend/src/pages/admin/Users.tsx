@@ -3,6 +3,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
 import { api } from '../../lib/api'
+import { invitationOutcomeMessage } from '../../lib/invitationOutcome'
 import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
 import { formatDateInTimeZoneISO, formatDateTime } from '../../lib/dateUtils'
 import { initialsForName } from '../../lib/initials'
@@ -153,6 +154,11 @@ export default function Users() {
   const [savingPin, setSavingPin] = useState(false)
 
   const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
+  const [invitationNotice, setInvitationNotice] = useState('')
+  const invitationNoticeRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (invitationNotice) invitationNoticeRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [invitationNotice])
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [terminationUser, setTerminationUser] = useState<AdminUser | null>(null)
   const [terminationEffectiveOn, setTerminationEffectiveOn] = useState(formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
@@ -445,13 +451,8 @@ export default function Users() {
       if (response.error) {
         setCreateError(response.error)
       } else {
-        const sent = response.data?.invitation_email_sent
         const inviteNote = createPersonalAccess
-          ? sent === false
-            ? 'The account was created, but the invitation email could not be sent. You can resend it from the user list.'
-            : sendInvitationEmail
-              ? 'Their invitation is on the way.'
-              : 'You can send their invitation later from the user list.'
+          ? invitationOutcomeMessage(response.data, sendInvitationEmail)
           : 'They can use the kiosk immediately with the PIN below.'
         setCreateSuccess({ message: inviteNote, pin: response.data?.kiosk_pin })
         void refreshData()
@@ -582,6 +583,7 @@ export default function Users() {
         setEditError(res.error)
       } else {
         let savedUser = res.data?.user
+        if (payload.send_invitation) setInvitationNotice(`Profile saved. ${invitationOutcomeMessage(res.data, true)}`)
 
         if (editPublicTeamPhotoFile) {
           const photoResponse = await api.updateUserPublicTeamPhoto(targetUserId, editPublicTeamPhotoFile)
@@ -682,13 +684,14 @@ export default function Users() {
   }
 
   const handleResendInvite = async (user: AdminUser) => {
+    setInvitationNotice('')
     setResendingIds((prev) => new Set(prev).add(user.id))
     try {
       const response = await api.resendInvite(user.id)
-      if (response.error) alert(response.error)
-      else alert(`Invitation re-sent to ${user.email}`)
+      if (response.error) setInvitationNotice(response.error)
+      else setInvitationNotice(invitationOutcomeMessage(response.data, true, Boolean(response.data?.message)))
     } catch {
-      alert('Failed to resend invite')
+      setInvitationNotice('Invitation email failed. Please try again.')
     } finally {
       setResendingIds((prev) => {
         const next = new Set(prev)
@@ -831,6 +834,7 @@ export default function Users() {
           </div>
         </div>
 
+        {invitationNotice && <p ref={invitationNoticeRef} role="status" className="mx-5 my-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">{invitationNotice}</p>}
         {loading ? (
           <div className="px-5 py-10 text-center text-sm text-slate-500">Loading team members...</div>
         ) : loadError && !loadedAt ? (
@@ -934,7 +938,7 @@ export default function Users() {
               <div className="px-5 py-10 text-center text-sm text-slate-500">No team members match those filters.</div>
             ) : (
               <>
-              {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{user.staff_title || user.role}</p>{renderStatusBadge(user)}</div></div><p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.time_tracking_enabled && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
+              {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{user.staff_title || user.role}</p>{renderStatusBadge(user)}</div></div><p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.is_active && user.is_pending && user.email && <button className="min-h-11 text-sm font-semibold text-cyan-800" onClick={() => handleResendInvite(user)} disabled={resendingIds.has(user.id)}>{resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}</button>}{user.time_tracking_enabled && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
               {!compact && <div className="overflow-x-auto">
                 <table className="w-full min-w-[1200px]">
                   <thead className="bg-slate-50">
@@ -1279,7 +1283,7 @@ export default function Users() {
                     <>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Email <span className="text-rose-600">*</span></label>
                       <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} disabled={!canEditEmail} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
-                      <p className="mt-2 text-xs text-slate-500">{editingUser.has_clerk_account ? 'This activated account’s email and name are managed by Clerk.' : 'This email will receive the invitation.'}</p>
+                      <p className="mt-2 text-xs text-slate-500">{editingUser.has_clerk_account ? 'This activated account’s email and name are managed by Clerk.' : 'Invitation email address.'}</p>
                       {(editingUser.is_pending || (!editingUser.personal_access_enabled && !editingUser.has_clerk_account)) && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"><input type="checkbox" checked={editSendInvitation} onChange={(event) => setEditSendInvitation(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="text-sm text-slate-700">Send invitation when these changes are saved</span></label>}
                     </>
                   ) : (

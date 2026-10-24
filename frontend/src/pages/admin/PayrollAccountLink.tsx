@@ -1,3 +1,4 @@
+import { stagingNavigationUrl } from '../../lib/staging'
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Check, Link2, Loader2, ShieldCheck, Unplug } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
@@ -11,7 +12,7 @@ const permissions = [
 ]
 
 function callbackWithResult(rawUrl: string, result: string) {
-  const url = new URL(rawUrl)
+  const url = new URL(stagingNavigationUrl(rawUrl))
   url.searchParams.set('aire_link', result)
   return url.toString()
 }
@@ -43,7 +44,10 @@ export default function PayrollAccountLink() {
       if (response.error || !response.data?.account_link_session) {
         setError(response.error || 'This connection request is invalid or has expired.')
       } else {
-        setLoadedSession({ token, data: response.data.account_link_session })
+        try {
+          stagingNavigationUrl(response.data.account_link_session.return_url)
+          setLoadedSession({ token, data: response.data.account_link_session })
+        } catch { setError('Invalid staging connection destination. Return to Cornerstone and start again.') }
       }
       setLoading(false)
     }
@@ -66,7 +70,12 @@ export default function PayrollAccountLink() {
       setConnecting(false)
       return
     }
-    window.location.assign(response.data.redirect_url)
+    try {
+      window.location.assign(stagingNavigationUrl(response.data.redirect_url))
+    } catch {
+      setError('Invalid staging connection destination. Return to Cornerstone and start again.')
+      setConnecting(false)
+    }
   }
 
   return (

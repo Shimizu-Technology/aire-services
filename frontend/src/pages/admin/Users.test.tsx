@@ -265,6 +265,80 @@ describe('Users filters', () => {
     expect(await screen.findByText('Team member added')).toBeInTheDocument()
   })
 
+  it.each([
+    [{ invitation_email_sent: false, invitation_email_captured: true }, 'Captured in staging (not sent)'],
+    [{ invitation_email_queued: true }, 'Invitation queued'],
+    [{ invitation_email_sent: true }, 'Invitation submitted to the email provider'],
+    [{ invitation_email_sent: false }, 'Invitation email failed'],
+  ])('reports the actual invitation outcome when creating a user: %j', async (outcome, message) => {
+    apiMock.inviteUser.mockResolvedValueOnce({ data: { user: makeUser({}), ...outcome, kiosk_pin: null } })
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
+    fireEvent.change(screen.getByLabelText(/^email/i), { target: { value: 'invitee@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    fireEvent.click(screen.getByLabelText(/tracks work hours/i))
+    fireEvent.click(screen.getByRole('button', { name: /add and send invite/i }))
+    expect(await screen.findByText(new RegExp(message.replace(/[()]/g, '\\$&')))).toBeInTheDocument()
+    if ('invitation_email_captured' in outcome) expect(screen.queryByText(/could not be sent/i)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [{ invitation_email_sent: false, invitation_email_captured: true, message: 'Invitation captured in staging; no email was sent.' }, 'Captured in staging (not sent)'],
+    [{ message: 'Invitation email resent to invitee@example.test' }, 'Invitation submitted to the email provider'],
+  ])('reports the actual resend outcome: %j', async (outcome, message) => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
+    apiMock.resendInvite.mockResolvedValueOnce({ data: outcome })
+    render(<MemoryRouter initialEntries={['/?status=pending']}><Users /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Resend invite' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(message)
+  })
+
+  it('retains the resend failure rather than claiming submission', async () => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
+    apiMock.resendInvite.mockResolvedValueOnce({ error: 'Synthetic invitation failure' })
+    render(<MemoryRouter initialEntries={['/?status=pending']}><Users /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Resend invite' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Synthetic invitation failure')
+    expect(screen.queryByText(/Invitation submitted/)).not.toBeInTheDocument()
+  })
+
+  it('offers the compact invitation resend and reports capture on a phone card', async () => {
+    const originalWidth = window.innerWidth
+    const originalScroll = HTMLElement.prototype.scrollIntoView
+    const scrollIntoView = vi.fn()
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    try {
+      apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
+      apiMock.resendInvite.mockResolvedValueOnce({ data: { invitation_email_sent: false, invitation_email_captured: true, message: 'Invitation captured in staging; no email was sent.' } })
+      render(<MemoryRouter initialEntries={['/?status=pending']}><Users /></MemoryRouter>)
+      const card = (await screen.findByText('Test User')).closest('article')!
+      fireEvent.click(within(card).getByRole('button', { name: 'Resend invite' }))
+      expect(await screen.findByRole('status')).toHaveTextContent('Captured in staging (not sent)')
+      expect(apiMock.resendInvite).toHaveBeenCalledWith(1)
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' }))
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScroll
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    }
+  })
+
+  it.each([
+    [{ invitation_email_sent: false, invitation_email_captured: true }, 'Captured in staging (not sent)'],
+    [{ invitation_email_sent: true }, 'Invitation submitted to the email provider'],
+    [{ invitation_email_sent: false }, 'Invitation email failed'],
+  ])('reports the outcome when an edit requests an invitation: %j', async (outcome, message) => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
+    apiMock.updateUser.mockResolvedValueOnce({ data: { user: makeUser({}), ...outcome } })
+    render(<MemoryRouter initialEntries={['/?status=pending']}><Users /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByLabelText('Send invitation when these changes are saved'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(message)
+    expect(apiMock.updateUser).toHaveBeenCalledWith(1, expect.objectContaining({ send_invitation: true }))
+  })
+
   it('keeps time tracking and kiosk access enabled when changing a user to kiosk-only', async () => {
     render(<MemoryRouter><Users /></MemoryRouter>)
 

@@ -26,7 +26,7 @@ module Payroll
     class << self
       def call_due(now: Time.current, enqueue: nil)
         enqueue ||= ->(event_id) { PayrollOutboxDeliveryJob.perform_later(event_id) }
-        event_ids = PayrollOutboxEvent.due_at(now).order(:occurred_at, :id).limit(DELIVERY_BATCH_SIZE).pluck(:id)
+        event_ids = StagingQuarantine.excluding(PayrollOutboxEvent.due_at(now)).order(:occurred_at, :id).limit(DELIVERY_BATCH_SIZE).pluck(:id)
         event_ids.filter_map do |event_id|
           reservation_until = reserve_for_enqueue(event_id, now)
           next unless reservation_until
@@ -74,6 +74,7 @@ module Payroll
     end
 
     def call
+      return { event_id: event_id, status: "quarantined" } if StagingQuarantine.suppressed?("payroll_outbox_events", event_id)
       event = claim_event!
       return event if event.is_a?(Hash)
 
@@ -135,23 +136,15 @@ module Payroll
       value = env["CORNERSTONE_PAYROLL_EVENTS_URL"].to_s.strip
       raise ConfigurationError, "CORNERSTONE_PAYROLL_EVENTS_URL is not configured" if value.blank?
 
+      StagingOutboundPolicy.integration!(value, env: env)
       uri = URI.parse(value)
       allowed = uri.is_a?(URI::HTTPS) ||
-        (!Rails.env.production? && uri.is_a?(URI::HTTP)) ||
-        staging_private_http_destination?(uri)
+        (!Rails.env.production? && uri.is_a?(URI::HTTP))
       raise ConfigurationError, "CORNERSTONE_PAYROLL_EVENTS_URL must use HTTPS" unless allowed && uri.host.present?
 
       uri
     rescue URI::InvalidURIError
       raise ConfigurationError, "CORNERSTONE_PAYROLL_EVENTS_URL is invalid"
-    end
-
-    def staging_private_http_destination?(uri)
-      env["DEPLOYMENT_ENV"] == "staging" &&
-        env["ALLOW_PRIVATE_INTEGRATION_HTTP"] == "true" &&
-        uri.is_a?(URI::HTTP) && !uri.is_a?(URI::HTTPS) &&
-        uri.host == env["CORNERSTONE_PRIVATE_INTEGRATION_HOST"] &&
-        uri.port == 3000
     end
 
     def request_headers(event)
