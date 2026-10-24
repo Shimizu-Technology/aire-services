@@ -95,6 +95,20 @@ module Payroll
       raise ArgumentError, "external_pay_period_id is required" if normalized[:external_pay_period_id].blank?
       raise ArgumentError, "external_pay_period_id is too long" if normalized[:external_pay_period_id].length > 128
 
+      config = PayrollLockRollout.installation
+      expected_mode = config.lock_mode_for(normalized.fetch(:start_date))
+      if values.key?(:lock_mode) && values[:lock_mode].to_s != expected_mode
+        raise ArgumentError, "lock_mode must be #{expected_mode} for this installation's activation date"
+      end
+      if values.key?(:cutoff_enforcement_starts_on) && parse_date!(values[:cutoff_enforcement_starts_on], "cutoff_enforcement_starts_on") != config.cutoff_enforcement_starts_on
+        raise ArgumentError, "cutoff_enforcement_starts_on does not match this installation"
+      end
+      # Preserve historical request checksums and replay semantics for legacy
+      # callers. Derived fields are frozen on the row and revision separately.
+      normalized[:lock_mode] = values[:lock_mode].to_s if values.key?(:lock_mode)
+      normalized[:cutoff_enforcement_starts_on] = config.cutoff_enforcement_starts_on if values.key?(:cutoff_enforcement_starts_on)
+      @derived_lock_mode = expected_mode
+      @activation_date = config.cutoff_enforcement_starts_on
       checksum_payload = normalized.transform_values { |value| serialize(value) }.except(:publication_id)
       normalized.merge(request_checksum: CanonicalPayload.checksum(checksum_payload))
     rescue KeyError => e
@@ -106,7 +120,7 @@ module Payroll
     end
 
     def validate_publishable_time!
-      return if attributes.fetch(:cutoff_at) > now
+      return if @derived_lock_mode == "manual" || attributes.fetch(:cutoff_at) > now
 
       raise ArgumentError, "cutoff_at must be in the future when published"
     end
@@ -153,6 +167,10 @@ module Payroll
         raise ConflictError, "A payroll period cannot be revised after its cutoff"
       end
 
+      if period.lock_mode != @derived_lock_mode || (period.cutoff_enforcement_starts_on && period.cutoff_enforcement_starts_on != @activation_date)
+        raise ConflictError, "Published calendar lock mode is immutable"
+      end
+      @activation_date = period.cutoff_enforcement_starts_on
       expected_version = period.schedule_version + 1
       unless attributes.fetch(:schedule_version) == expected_version
         raise ConflictError, "schedule_version must be #{expected_version}"
@@ -230,6 +248,8 @@ module Payroll
         fields[:cutoff_days] = 7
         fields[:previous_regular_pay_date] = nil
       end
+      fields[:lock_mode] = @derived_lock_mode
+      fields[:cutoff_enforcement_starts_on] = @activation_date
       fields
     end
 
@@ -244,7 +264,7 @@ module Payroll
     end
 
     def revision_payload
-      attributes.except(:request_checksum).transform_values { |value| serialize(value) }.merge(
+      attributes.merge(lock_mode: @derived_lock_mode, cutoff_enforcement_starts_on: @activation_date).except(:request_checksum).transform_values { |value| serialize(value) }.merge(
         overtime_policy: PayrollCalendarPeriod.find_by!(external_pay_period_id: attributes.fetch(:external_pay_period_id)).overtime_policy
       )
     end
@@ -276,6 +296,8 @@ module Payroll
         event_category: "payroll",
         auditable: period,
         metadata: {
+          lock_mode: period.lock_mode,
+          cutoff_enforcement_starts_on: period.cutoff_enforcement_starts_on&.iso8601,
           external_pay_period_id: period.external_pay_period_id,
           schedule_version: period.schedule_version,
           publication_id: period.publication_id,

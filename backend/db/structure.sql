@@ -174,6 +174,23 @@ $$;
 
 
 --
+-- Name: protect_payroll_calendar_lock_mode(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_payroll_calendar_lock_mode() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.lock_mode IS DISTINCT FROM OLD.lock_mode
+    OR NEW.cutoff_enforcement_starts_on IS DISTINCT FROM OLD.cutoff_enforcement_starts_on THEN
+    RAISE EXCEPTION 'published payroll calendar lock mode and activation are immutable';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: protect_payroll_calendar_period_after_cutoff(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -236,6 +253,19 @@ CREATE FUNCTION public.protect_payroll_integration_command() RETURNS trigger
     AS $$
 BEGIN
   RAISE EXCEPTION 'payroll integration commands are append-only';
+END;
+$$;
+
+
+--
+-- Name: protect_payroll_lock_rollout(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_payroll_lock_rollout() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'installation payroll lock rollout is immutable';
 END;
 $$;
 
@@ -833,6 +863,8 @@ CREATE TABLE public.payroll_calendar_periods (
     cutoff_days integer DEFAULT 7 NOT NULL,
     previous_regular_pay_date date,
     overtime_policy jsonb DEFAULT '{}'::jsonb NOT NULL,
+    lock_mode character varying DEFAULT 'scheduled'::character varying NOT NULL,
+    cutoff_enforcement_starts_on date,
     CONSTRAINT check_payroll_calendar_period_cutoff_date CHECK ((((schema_version)::text = ANY (ARRAY[('1.0'::character varying)::text, ('2.0'::character varying)::text])) AND ((cutoff_rule)::text = ANY (ARRAY[('before_pay_date'::character varying)::text, ('after_previous_regular_payday'::character varying)::text])) AND ((cutoff_days >= 0) AND (cutoff_days <= 31)) AND ((((schema_version)::text = '1.0'::text) AND ((cutoff_rule)::text = 'before_pay_date'::text) AND (cutoff_days = 7) AND (previous_regular_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - 7))) OR (((schema_version)::text = '2.0'::text) AND ((((cutoff_rule)::text = 'before_pay_date'::text) AND (previous_regular_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - cutoff_days))) OR (((cutoff_rule)::text = 'after_previous_regular_payday'::text) AND (previous_regular_pay_date IS NOT NULL) AND (previous_regular_pay_date < pay_date) AND ((previous_regular_pay_date + cutoff_days) < pay_date) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (previous_regular_pay_date + cutoff_days)))))))),
     CONSTRAINT check_payroll_calendar_period_cutoff_days CHECK ((cutoff_days_before = 7)),
     CONSTRAINT check_payroll_calendar_period_date_order CHECK ((end_date >= start_date)),
@@ -841,6 +873,11 @@ CREATE TABLE public.payroll_calendar_periods (
     CONSTRAINT check_payroll_calendar_period_status CHECK (((status)::text = ANY (ARRAY[('scheduled'::character varying)::text, ('failed'::character varying)::text, ('finalized'::character varying)::text]))),
     CONSTRAINT check_payroll_calendar_period_time_zone CHECK (((time_zone)::text = 'Pacific/Guam'::text)),
     CONSTRAINT check_payroll_calendar_period_version CHECK ((schedule_version > 0)),
+    CONSTRAINT payroll_calendar_lock_mode_valid CHECK ((((lock_mode)::text = ANY ((ARRAY['manual'::character varying, 'scheduled'::character varying])::text[])) AND (((cutoff_enforcement_starts_on IS NULL) AND ((lock_mode)::text = 'scheduled'::text)) OR ((cutoff_enforcement_starts_on IS NOT NULL) AND (EXTRACT(day FROM cutoff_enforcement_starts_on) = ANY (ARRAY[(1)::numeric, (16)::numeric])) AND ((lock_mode)::text =
+CASE
+    WHEN (start_date < cutoff_enforcement_starts_on) THEN 'manual'::text
+    ELSE 'scheduled'::text
+END))))),
     CONSTRAINT payroll_calendar_overtime_policy_object CHECK ((jsonb_typeof(overtime_policy) = 'object'::text))
 );
 
@@ -1031,6 +1068,41 @@ CREATE SEQUENCE public.payroll_late_hours_retirements_id_seq
 --
 
 ALTER SEQUENCE public.payroll_late_hours_retirements_id_seq OWNED BY public.payroll_late_hours_retirements.id;
+
+
+--
+-- Name: payroll_lock_rollouts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_lock_rollouts (
+    id bigint NOT NULL,
+    cutoff_enforcement_starts_on date NOT NULL,
+    configured_by character varying NOT NULL,
+    reason text NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT payroll_lock_rollout_singleton CHECK ((id = 1)),
+    CONSTRAINT payroll_lock_rollout_valid_configuration CHECK (((EXTRACT(day FROM cutoff_enforcement_starts_on) = ANY (ARRAY[(1)::numeric, (16)::numeric])) AND (length(TRIM(BOTH FROM configured_by)) > 0) AND (length(TRIM(BOTH FROM reason)) >= 10)))
+);
+
+
+--
+-- Name: payroll_lock_rollouts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_lock_rollouts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_lock_rollouts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_lock_rollouts_id_seq OWNED BY public.payroll_lock_rollouts.id;
 
 
 --
@@ -2460,6 +2532,13 @@ ALTER TABLE ONLY public.payroll_late_hours_retirements ALTER COLUMN id SET DEFAU
 
 
 --
+-- Name: payroll_lock_rollouts id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_lock_rollouts ALTER COLUMN id SET DEFAULT nextval('public.payroll_lock_rollouts_id_seq'::regclass);
+
+
+--
 -- Name: payroll_manual_allocation_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2848,6 +2927,14 @@ ALTER TABLE ONLY public.payroll_integration_grants
 
 ALTER TABLE ONLY public.payroll_late_hours_retirements
     ADD CONSTRAINT payroll_late_hours_retirements_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_lock_rollouts payroll_lock_rollouts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_lock_rollouts
+    ADD CONSTRAINT payroll_lock_rollouts_pkey PRIMARY KEY (id);
 
 
 --
@@ -4572,6 +4659,13 @@ CREATE TRIGGER payroll_batches_append_only BEFORE DELETE OR UPDATE ON public.pay
 
 
 --
+-- Name: payroll_calendar_periods payroll_calendar_lock_mode_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_calendar_lock_mode_immutable BEFORE UPDATE ON public.payroll_calendar_periods FOR EACH ROW EXECUTE FUNCTION public.protect_payroll_calendar_lock_mode();
+
+
+--
 -- Name: payroll_calendar_period_revisions payroll_calendar_period_revisions_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4618,6 +4712,20 @@ CREATE TRIGGER payroll_late_hours_retirements_append_only BEFORE DELETE OR UPDAT
 --
 
 CREATE TRIGGER payroll_late_hours_retirements_prevent_truncate BEFORE TRUNCATE ON public.payroll_late_hours_retirements FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_lock_rollouts payroll_lock_rollouts_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_lock_rollouts_immutable BEFORE DELETE OR UPDATE ON public.payroll_lock_rollouts FOR EACH ROW EXECUTE FUNCTION public.protect_payroll_lock_rollout();
+
+
+--
+-- Name: payroll_lock_rollouts payroll_lock_rollouts_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_lock_rollouts_prevent_truncate BEFORE TRUNCATE ON public.payroll_lock_rollouts FOR EACH STATEMENT EXECUTE FUNCTION public.protect_payroll_lock_rollout();
 
 
 --
@@ -5312,6 +5420,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261024080000'),
 ('20261024070000'),
 ('20261024050000'),
 ('20261024040000'),

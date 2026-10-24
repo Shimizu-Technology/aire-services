@@ -811,7 +811,7 @@ module Payroll
         batch_id: batch_reference,
         start_date: start_date.iso8601,
         end_date: end_date.iso8601,
-        cutoff_at: cutoff_at.iso8601,
+        cutoff_at: calendar_period&.manual_lock? ? cutoff_at.iso8601(6) : cutoff_at.iso8601,
         generated_at: cutoff_at.iso8601,
         overtime_policy: calendar_period&.overtime_policy,
         employees: employees,

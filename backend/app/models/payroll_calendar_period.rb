@@ -5,6 +5,7 @@ class PayrollCalendarPeriod < ApplicationRecord
   CUTOFF_DAYS_BEFORE = 7
   CUTOFF_RULES = %w[before_pay_date after_previous_regular_payday].freeze
   SCHEMA_VERSIONS = %w[1.0 2.0].freeze
+  LOCK_MODES = %w[manual scheduled].freeze
   STATUSES = %w[scheduled failed finalized].freeze
 
   scope :overlapping, ->(start_date, end_date) { where("start_date <= ? AND end_date >= ?", end_date, start_date) }
@@ -31,6 +32,7 @@ class PayrollCalendarPeriod < ApplicationRecord
   validates :cutoff_rule, inclusion: { in: CUTOFF_RULES }
   validates :cutoff_days, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 31 }
   validates :schedule_version, numericality: { only_integer: true, greater_than: 0 }
+  validates :lock_mode, inclusion: { in: LOCK_MODES }
   validates :status, inclusion: { in: STATUSES }
   validates :finalization_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validate :semimonthly_period
@@ -43,21 +45,48 @@ class PayrollCalendarPeriod < ApplicationRecord
 
   before_validation :capture_overtime_policy, on: :create
 
+  scope :scheduled_locks, lambda {
+    scheduled = where(lock_mode: "scheduled")
+    config = PayrollLockRollout.find_by(id: 1)
+    config ? scheduled.where("start_date >= ?", config.cutoff_enforcement_starts_on) : scheduled
+  }
+
+  def self.next_scheduled_cutoff_at
+    scheduled_locks.where.not(status: "finalized").minimum(:cutoff_at)&.in_time_zone(BUSINESS_TIME_ZONE)&.iso8601
+  end
+
+  def scheduled_lock_enforced?
+    return false if manual_lock?
+
+    config = PayrollLockRollout.find_by(id: 1)
+    config.nil? || start_date >= config.cutoff_enforcement_starts_on
+  end
+
+  def manual_lock?
+    lock_mode == "manual"
+  end
+
+  # The nominal policy cutoff is retained; manual frozen evidence has its own instant.
+  def snapshot_cutoff_at
+    payroll_batch&.cutoff_at || cutoff_at
+  end
+
   scope :due_at, lambda { |time|
-    scheduled = where(status: "scheduled", cutoff_at: ..time)
-    retryable_failure = where(status: "failed", cutoff_at: ..time, next_finalization_attempt_at: ..time)
+    scheduled = scheduled_locks.where(status: "scheduled", cutoff_at: ..time)
+    retryable_failure = scheduled_locks.where(status: "failed", cutoff_at: ..time, next_finalization_attempt_at: ..time)
     scheduled.or(retryable_failure)
   }
 
   def cutoff_state(now: Time.current)
     return "finalized" if status == "finalized"
+    return "manual" if manual_lock?
     return "attention_required" if status == "failed"
     return "due" if cutoff_at <= now
 
     "upcoming"
   end
 
-  def as_contract_json(now: Time.current)
+  def as_contract_json(now: Time.current, next_scheduled_cutoff_at: self.class.next_scheduled_cutoff_at)
     fields = {
       external_pay_period_id: external_pay_period_id,
       start_date: start_date.iso8601,
@@ -77,6 +106,10 @@ class PayrollCalendarPeriod < ApplicationRecord
       next_finalization_attempt_at: next_finalization_attempt_at&.in_time_zone(time_zone)&.iso8601,
       last_finalization_error: last_finalization_error
     }.compact
+    fields[:locked_at] = payroll_batch.cutoff_at.iso8601(6) if manual_lock? && status == "finalized"
+    fields[:lock_mode] = lock_mode
+    fields[:cutoff_enforcement_starts_on] = cutoff_enforcement_starts_on&.iso8601
+    fields[:next_scheduled_cutoff_at] = next_scheduled_cutoff_at
     fields[:overtime_policy] = overtime_policy if overtime_policy.present?
     if schema_version == "1.0"
       fields[:cutoff_days_before] = cutoff_days_before

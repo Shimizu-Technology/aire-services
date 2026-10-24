@@ -12,12 +12,12 @@ module Payroll
 
     attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note,
                 :manual_processing, :cutoff_at, :processed_at, :external_pay_period_id, :processing_note,
-                :acknowledge_missing_categories, :automated_cutoff, :calendar_period
+                :acknowledge_missing_categories, :automated_cutoff, :calendar_period, :manual_calendar_lock
 
     def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil,
                    manual_processing: false, cutoff_at: nil, processed_at: nil, external_pay_period_id: nil,
                    processing_note: nil, acknowledge_missing_categories: false, automated_cutoff: false,
-                   calendar_period: nil)
+                   calendar_period: nil, manual_calendar_lock: false, calendar_authorization: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @actor = actor
@@ -26,6 +26,8 @@ module Payroll
       @manual_processing = ActiveModel::Type::Boolean.new.cast(manual_processing)
       @automated_cutoff = ActiveModel::Type::Boolean.new.cast(automated_cutoff)
       @calendar_period = calendar_period
+      @manual_calendar_lock = manual_calendar_lock
+      @calendar_authorization = calendar_authorization
       @cutoff_at = if @manual_processing
         parse_manual_time!(cutoff_at, "cutoff_at")
       elsif cutoff_at.present?
@@ -50,10 +52,11 @@ module Payroll
         configure_lock_timeout!
         lock_publication_for_manual_finalization!
         lock_finalization!
-        reject_published_calendar! unless automated_cutoff
+        validate_calendar_authority!
+        reject_published_calendar! unless authorized_calendar?
         lock_source_ledger!
         source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        cutoff = cutoff_at || Time.current
+        cutoff = manual_calendar_lock ? Time.current.round(6) : (cutoff_at || Time.current)
         reference = build_reference(cutoff)
         reject_out_of_order_automated_batch!(cutoff)
         reject_overlapping_batch!
@@ -85,6 +88,7 @@ module Payroll
         result.fetch(:exclusions).each do |row|
           batch.payroll_batch_exclusions.create!(row.except(:work_date))
         end
+        calendar_period.payroll_batch = batch if calendar_period
         SettlementCaseCoordinator.finalize_period!(period: calendar_period, batch: batch, actor: actor) if calendar_period
         record_manual_processing!(batch) if manual_processing
         AuditLog.record!(
@@ -167,9 +171,29 @@ module Payroll
     # never request this publication lock. Unlinked manual batches take both
     # advisories in publication -> batch order and do not lock calendar rows.
     def lock_publication_for_manual_finalization!
-      return if automated_cutoff
+      return if authorized_calendar?
 
       ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
+    end
+
+    def authorized_calendar?
+      calendar_period && @calendar_authorization.equal?(ScheduledCutoffFinalizer.const_get(:BATCH_AUTHORIZATION, false))
+    end
+
+    def validate_calendar_authority!
+      if calendar_period && !authorized_calendar?
+        raise PublishedCalendarError, "Published calendars must use their cockpit Lock or scheduled finalizer"
+      end
+      return unless authorized_calendar?
+
+      valid = calendar_period.persisted? && calendar_period.status != "finalized" &&
+        calendar_period.start_date == start_date && calendar_period.end_date == end_date && !manual_processing
+      valid &&= if calendar_period.manual_lock?
+        manual_calendar_lock && !automated_cutoff && actor.present? && cutoff_at.nil?
+      else
+        automated_cutoff && !manual_calendar_lock && cutoff_at == calendar_period.cutoff_at && cutoff_at <= Time.current
+      end
+      raise PublishedCalendarError, "Calendar lock mode, range or cutoff does not authorize this finalization" unless valid
     end
 
     def reject_published_calendar!

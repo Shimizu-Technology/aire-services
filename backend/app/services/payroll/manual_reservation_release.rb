@@ -29,7 +29,7 @@ module Payroll
           # Only dated reservations could suppress this original cutoff.
           # A moved replacement instead proves relevance through its exact
           # supplemental case; unrelated legacy history is never requested.
-          historical = ManualAllocationLedger.active_at(period.cutoff_at,
+          historical = ManualAllocationLedger.active_at(batch.cutoff_at,
             entry_ids: dated.map(&:time_entry_id), allocation_ids: dated.map(&:id)).index_by(&:id)
           allocations.each do |allocation|
             reserved = historical[allocation.id]

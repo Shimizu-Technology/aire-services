@@ -11,9 +11,11 @@ module Api
 
         def index
           periods = PayrollCalendarPeriod.order(start_date: :desc).limit(100)
+          next_cutoff = PayrollCalendarPeriod.next_scheduled_cutoff_at
           render json: {
+            next_scheduled_cutoff_at: next_cutoff,
             schema_version: ::Payroll::CalendarPeriodPublisher::SCHEMA_VERSION,
-            payroll_calendar_periods: periods.map(&:as_contract_json)
+            payroll_calendar_periods: periods.map { |period| period.as_contract_json(next_scheduled_cutoff_at: next_cutoff) }
           }
         end
 
@@ -67,6 +69,8 @@ module Api
           end
           params.permit(
             :schema_version,
+            :lock_mode,
+            :cutoff_enforcement_starts_on,
             :start_date,
             :end_date,
             :pay_date,

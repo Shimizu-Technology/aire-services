@@ -139,11 +139,11 @@ module Payroll
 
         resolved_actor = actor || User.find_by(id: actor_id) || Current.user
         relevant_periods_for(entry, previous_work_date: previous_work_date).each do |period|
-          next unless entry.created_at > period.cutoff_at || entry.updated_at > period.cutoff_at
+          next unless entry.created_at > period.snapshot_cutoff_at || entry.updated_at > period.snapshot_cutoff_at
           next if PayrollSettlementCase.active.exists?(origin_payroll_batch: period.payroll_batch, source_time_entry_id: entry.id)
 
           represented = period.payroll_batch.payroll_batch_entries.where(source_time_entry_id: entry.id).sum(:total_hours)
-          reason = entry.created_at > period.cutoff_at && represented.zero? ? "created_after_cutoff" : "changed_after_cutoff"
+          reason = entry.created_at > period.snapshot_cutoff_at && represented.zero? ? "created_after_cutoff" : "changed_after_cutoff"
           held_hours = if reason == "changed_after_cutoff"
             current_payable_hours = if entry.work_date.in?(period.start_date..period.end_date) && entry.counts_toward_hours?
               entry.hours.to_d
@@ -254,7 +254,7 @@ module Payroll
           .joins(:user)
           .merge(User.staff)
           .where(work_date: period.start_date..period.end_date)
-          .where("time_entries.created_at > :cutoff OR time_entries.updated_at > :cutoff", cutoff: period.cutoff_at)
+          .where("time_entries.created_at > :cutoff OR time_entries.updated_at > :cutoff", cutoff: period.snapshot_cutoff_at)
           .includes(:user, :time_category)
           .find_each { |entry| record_entry!(entry) }
       end
@@ -263,7 +263,7 @@ module Payroll
         represented_ids = period.payroll_batch.payroll_batch_entries.select(:source_time_entry_id)
         PayrollTimeEntryRevision
           .where(deleted: true, source_time_entry_id: represented_ids)
-          .where("recorded_at > ?", period.cutoff_at)
+          .where("recorded_at > ?", period.snapshot_cutoff_at)
           .order(:source_time_entry_id, :recorded_at, :id)
           .find_each do |revision|
             next if PayrollSettlementCase.exists?(
@@ -356,7 +356,7 @@ module Payroll
           source_snapshot: snapshot,
           actor: actor
         )
-        attestation = PayrollPaymentAttestation.blocking_at(period.cutoff_at).find_by(time_entry_id: exclusion.source_time_entry_id)
+        attestation = PayrollPaymentAttestation.blocking_at(period.snapshot_cutoff_at).find_by(time_entry_id: exclusion.source_time_entry_id)
         if attestation&.status == "pending_evidence"
           supersede_attestation_case!(settlement_case, attestation, actor)
         elsif attestation&.status == "retracted"

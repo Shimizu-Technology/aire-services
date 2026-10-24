@@ -5,17 +5,21 @@ require "rails_helper"
 RSpec.describe "Payroll calendar periods", type: :request do
   include ActiveSupport::Testing::TimeHelpers
 
+  before do
+    PayrollLockRollout.configure!(starts_on: "2026-10-16", actor: "test operator", reason: "Approved test rollout")
+  end
+
   let(:secret) { "calendar-shared-secret" }
   let(:headers) { { "X-Shared-Secret" => secret, "Content-Type" => "application/json" } }
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
-  let(:period_id) { "cornerstone-2026-10-a" }
+  let(:period_id) { "cornerstone-2026-11-a" }
   let(:payload) do
     {
       schema_version: "1.0",
-      start_date: "2026-10-01",
-      end_date: "2026-10-15",
-      pay_date: "2026-10-25",
-      cutoff_at: "2026-10-18T17:00:00+10:00",
+      start_date: "2026-11-01",
+      end_date: "2026-11-15",
+      pay_date: "2026-11-25",
+      cutoff_at: "2026-11-18T17:00:00+10:00",
       time_zone: "Pacific/Guam",
       cutoff_days_before: 7,
       schedule_version: 1,
@@ -91,8 +95,8 @@ RSpec.describe "Payroll calendar periods", type: :request do
       schema_version: "2.0",
       cutoff_rule: "after_previous_regular_payday",
       cutoff_days: 7,
-      previous_regular_pay_date: "2026-10-10",
-      cutoff_at: "2026-10-17T17:00:00+10:00"
+      previous_regular_pay_date: "2026-11-10",
+      cutoff_at: "2026-11-17T17:00:00+10:00"
     )
 
     put "/api/v1/payroll/calendar_periods/#{period_id}", params: version_two.to_json, headers: headers
@@ -102,14 +106,14 @@ RSpec.describe "Payroll calendar periods", type: :request do
       "schema_version" => "2.0",
       "cutoff_rule" => "after_previous_regular_payday",
       "cutoff_days" => 7,
-      "previous_regular_pay_date" => "2026-10-10",
-      "cutoff_at" => "2026-10-17T17:00:00+10:00"
+      "previous_regular_pay_date" => "2026-11-10",
+      "cutoff_at" => "2026-11-17T17:00:00+10:00"
     )
     expect(response.parsed_body.fetch("payroll_calendar_period")).not_to have_key("cutoff_days_before")
   end
 
   it "returns actionable validation and conflict responses" do
-    invalid = payload.merge(cutoff_at: "2026-10-18T17:00:00")
+    invalid = payload.merge(cutoff_at: "2026-11-18T17:00:00")
     put "/api/v1/payroll/calendar_periods/#{period_id}", params: invalid.to_json, headers: headers
     expect(response).to have_http_status(:unprocessable_entity)
     expect(response.parsed_body.fetch("error")).to include("explicit UTC offset")
