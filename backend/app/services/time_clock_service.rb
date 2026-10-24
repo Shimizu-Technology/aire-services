@@ -497,11 +497,11 @@ class TimeClockService
       count
     end
 
-    def hours_today(user, date = Date.current)
+    def hours_today(user, date = BusinessDate.today)
       payable_hours_between(user, date, date)
     end
 
-    def hours_this_week(user, date = Date.current)
+    def hours_this_week(user, date = BusinessDate.today)
       payable_hours_between(user, date.beginning_of_week(:sunday), date.end_of_week(:sunday))
     end
 

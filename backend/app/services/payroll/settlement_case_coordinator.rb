@@ -423,7 +423,7 @@ module Payroll
       end
 
       def reconciliation_scope
-        lookback_start = Date.current - reconciliation_lookback_days.days
+        lookback_start = BusinessDate.today - reconciliation_lookback_days.days
         PayrollCalendarPeriod
           .where(status: "finalized")
           .left_outer_joins(:payroll_settlement_reconciliation)

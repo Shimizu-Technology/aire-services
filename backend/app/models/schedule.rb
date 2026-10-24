@@ -14,7 +14,7 @@ class Schedule < ApplicationRecord
   scope :for_date_range, ->(start_date, end_date) { where(work_date: start_date..end_date) }
   scope :for_user, ->(user_id) { where(user_id: user_id) }
   scope :ordered, -> { order(:work_date, :start_time) }
-  scope :upcoming, -> { where("work_date >= ?", Date.current).ordered }
+  scope :upcoming, -> { where("work_date >= ?", BusinessDate.today).ordered }
 
   # Calculate hours for this shift
   def hours

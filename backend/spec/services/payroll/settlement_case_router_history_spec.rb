@@ -33,6 +33,15 @@ RSpec.describe Payroll::SettlementCaseRouter do
     end
   end
 
+  it "defaults a not-payable decision date to Guam today on a UTC server" do
+    held_case
+    Time.use_zone("UTC") do
+      travel_to(Time.utc(2026, 10, 24, 14, 30))
+      command
+      expect(held_case.reload.action_due_on).to eq(Date.new(2026, 10, 25))
+    end
+  end
+
   it "records a matching decision audit once and leaves unrelated active time and payment evidence unchanged" do
     valid_entry = create(:time_entry, user: worker, work_date: Date.new(2026, 9, 2),
                          approval_status: "pending", end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 13))

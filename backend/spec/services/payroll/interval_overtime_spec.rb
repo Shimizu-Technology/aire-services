@@ -3,6 +3,8 @@
 require "rails_helper"
 
 RSpec.describe "Guam payable intervals and affected overtime review" do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:user) { create(:user, :employee) }
   let(:admin) { create(:user, :admin) }
   let(:category) { create(:time_category) }
@@ -34,6 +36,15 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
     overnight = shift(sunday - 1, 22, 4, break_minutes: 60)
     overnight.time_entry_breaks.create!(start_time: zone.parse("2026-10-17 23:30"), end_time: zone.parse("2026-10-18 00:30"))
     expect(allocation(overnight).fetch(:segments).map { |s| s[:total_hours] }).to eq([ 1.5, 1.5 ])
+  end
+
+  it "uses Guam today with the overlapping Saturday segment for clock summaries" do
+    shift(sunday - 1, 22, 4)
+    travel_to Time.utc(2026, 10, 17, 15) do
+      expect(BusinessDate.today).to eq(sunday)
+      expect(TimeClockService.hours_today(user)).to eq(2)
+      expect(TimeClockService.hours_this_week(user)).to eq(2)
+    end
   end
 
   it "holds an overnight aggregate break without observed placement" do

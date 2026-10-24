@@ -62,6 +62,16 @@ describe('WhosWorking refresh strategy', () => {
     vi.useRealTimers()
   })
 
+  it('shows an 08:00 Guam punch regardless of the device timezone', async () => {
+    mocks.getWhosWorking.mockResolvedValue({ data: { workers: [{
+      user: { id: 7, display_name: 'Guam Worker', full_name: 'Guam Worker', email: 'guam@example.test' },
+      status: 'clocked_in', clock_in_at: '2026-10-24T22:00:00Z',
+      total_hours_today: 1, breaks: [],
+    }] } })
+    render(<WhosWorking alwaysShow />)
+    expect(await screen.findByText('In since 8:00 AM')).toBeInTheDocument()
+  })
+
   it('uses cable events while connected and restores polling after disconnect', async () => {
     render(<WhosWorking alwaysShow />)
 
