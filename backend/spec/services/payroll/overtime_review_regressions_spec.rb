@@ -21,6 +21,13 @@ RSpec.describe "Overtime review correctness and bounded work" do
       entry_method: "clock", status: "completed", approval_status: nil, **attrs)
   end
 
+  def reserve(entry, regular:, overtime:)
+    Payroll::ManualAllocationRecorder.new(actor: admin).commit!(entry: entry,
+      source_user_uuid: user.payroll_integration_uuid, regular_hours: regular, overtime_hours: overtime,
+      external_pay_period_id: "week-membership", external_payroll_item_id: SecureRandom.uuid,
+      pay_date: BusinessDate.today.iso8601, reason: "Verified synthetic historical manual payment")
+  end
+
   it "uses paid 40.00 hours as weekly capacity despite 70 extra elapsed seconds" do
     entries = 5.times.map { |i| shift(sunday + i, 8.hours + 14) }
     expect(entries.sum(&:hours)).to eq(40)
@@ -107,5 +114,63 @@ RSpec.describe "Overtime review correctness and bounded work" do
     expect(employee[:entries_count]).to eq(1)
     expect(employee[:days].flat_map { |day| day[:entry_ids] }.uniq).to eq([ entry.id ])
     expect(employee[:total_hours]).to eq(4)
+  end
+
+  [ :approval, :edit ].each do |action|
+    it "does not reclassify a previous-week Saturday paid as OT after a receiving-week #{action}" do
+      5.times { |i| shift(sunday - 6 + i) }
+      saturday = shift(sunday - 1)
+      TimeClockService.approve_overtime(entry: saturday, approved_by: admin)
+      allocation = reserve(saturday, regular: 0, overtime: 8)
+      travel 1.second
+      batch = Payroll::BatchFinalizer.new(start_date: sunday - 7, end_date: sunday - 1, actor: admin).call
+      frozen_batch = batch.attributes
+      frozen_payment = allocation.attributes
+      reviewed = saturday.reload.attributes.slice("overtime_status", "overtime_approved_at", "overtime_allocation_signature")
+      expect(reviewed["overtime_status"]).to eq("approved")
+      expect(Payroll::WeeklyOvertimeAllocator.weeks(saturday)).to eq([ sunday - 7 ])
+
+      travel 1.second
+      receiving = shift(sunday + 1, approval_status: action == :approval ? "pending" : nil)
+      if action == :approval
+        TimeClockService.approve_entry(entry: receiving, approved_by: admin)
+      else
+        receiving.update!(end_time: receiving.end_time + 1.hour, clock_out_at: receiving.clock_out_at + 1.hour)
+      end
+      result = Payroll::BatchBuilder.new(start_date: sunday, end_date: sunday + 6).call
+      expect(result[:rows].select { |row| row[:source_time_entry_id] == saturday.id }).to be_empty
+      expect(result[:rows]).to include(include(source_time_entry_id: receiving.id, regular_hours: action == :approval ? 8 : 9, overtime_hours: 0))
+      expect(saturday.reload.attributes.slice(*reviewed.keys)).to eq(reviewed)
+      expect(batch.reload.attributes).to eq(frozen_batch)
+      expect(allocation.reload.attributes).to eq(frozen_payment)
+    end
+  end
+
+  it "still settles a manually paid Saturday that genuinely bridges the receiving week" do
+    saturday = shift(sunday - 1)
+    allocation = reserve(saturday, regular: 8, overtime: 0)
+    travel 1.second
+    from = zone.local(2026, 10, 17, 22)
+    saturday.update!(start_time: from, clock_in_at: from, end_time: from + 8.hours, clock_out_at: from + 8.hours)
+    # Freeze a preceding period after the edit: neither the unchanged source
+    # nor its reservation is a late-change seed in the receiving preview.
+    batch = Payroll::BatchFinalizer.new(start_date: "2026-10-01", end_date: "2026-10-15", actor: admin).call
+    frozen_batch = batch.attributes
+    frozen_payment = allocation.attributes
+    expect(Payroll::WeeklyOvertimeAllocator.weeks(saturday)).to eq([ sunday - 7, sunday ])
+    travel 1.second
+    receiving = shift(sunday + 1, approval_status: "pending")
+    TimeClockService.approve_entry(entry: receiving, approved_by: admin)
+    # Monday starts the requested range, so the Saturday/Sunday bridge enters
+    # only through the affected-week manual-allocation settlement join.
+    result = Payroll::BatchBuilder.new(start_date: sunday + 1, end_date: sunday + 6).call
+    rows = result[:rows].select { |row| row[:source_time_entry_id] == saturday.id }
+    expect(rows).to contain_exactly(
+      include(work_date: sunday - 1, regular_hours: -6, overtime_hours: 0, source_kind: "correction"),
+      include(work_date: sunday, regular_hours: 6, overtime_hours: 0, source_kind: "correction"))
+    expect(rows.sum { |row| row[:total_hours] }).to eq(0)
+    expect(result[:rows]).to include(include(source_time_entry_id: receiving.id, regular_hours: 8))
+    expect(batch.reload.attributes).to eq(frozen_batch)
+    expect(allocation.reload.attributes).to eq(frozen_payment)
   end
 end

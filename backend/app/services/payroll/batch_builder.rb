@@ -383,7 +383,12 @@ module Payroll
              AND time_entries.work_date BETWEEN affected_pairs.week_start - 1 AND affected_pairs.week_start + 6
             SQL
           end)
-          .pluck(:id).each { |id| ids << id }
+          .includes(:time_entry_breaks)
+          .distinct.each do |entry|
+            next unless WeeklyOvertimeAllocator.weeks(entry).any? { |week| affected_pairs.include?([ entry.user_id, week ]) }
+
+            ids << entry.id
+          end
       end
       ids
     end
