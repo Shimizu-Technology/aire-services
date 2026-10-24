@@ -54,8 +54,9 @@ module Payroll
         [ item.fetch(:id).to_s, version ]
       end
       selected = PayrollSettlementCase.where(public_id: ids).order(:id).lock.to_a
+      eligible_ids = finalized_origin? ? candidate_scope.where(id: selected.map(&:id)).pluck(:id).to_set : Set.new
       unless finalized_origin? && selected.size == ids.size &&
-          selected.all? { |item| candidate_scope.exists?(id: item.id) && item.lock_version == versions.fetch(item.public_id) }
+          selected.all? { |item| eligible_ids.include?(item.id) && item.lock_version == versions.fetch(item.public_id) }
         raise CockpitCommand::ConflictError, "Selected late hours changed or are already reserved. Refresh before trying again."
       end
       selected.each { |item| validate_pending_cutoff!(item) }

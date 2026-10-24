@@ -12,8 +12,18 @@ RSpec.describe "Payroll late-hours supplemental batches", type: :request do
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:dates) { payroll_calendar_at(database_clock) }
   let(:grant) { PayrollIntegrationGrant.issue!(user: actor, capabilities: [ "settlement_case_management" ]) }
+  let(:secret) { "late-hours-test-secret" }
+
+  around do |example|
+    previous_secret = ENV["PAYROLL_SHARED_SECRET"]
+    ENV["PAYROLL_SHARED_SECRET"] = secret
+    example.run
+  ensure
+    ENV["PAYROLL_SHARED_SECRET"] = previous_secret
+  end
+
   let(:headers) do
-    { "X-Payroll-Shared-Secret" => ENV.fetch("PAYROLL_SHARED_SECRET"),
+    { "X-Payroll-Shared-Secret" => secret,
       "X-Aire-Delegation-Token" => grant.issued_token, "Content-Type" => "application/json" }
   end
   let(:source) do
@@ -254,7 +264,15 @@ RSpec.describe "Payroll late-hours supplemental batches", type: :request do
       entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current, overtime_status: "none")
     body = payload
     body[:cases] << { id: other_case.public_id, version: other_case.lock_version }
-    claim!(body)
+    eligibility_queries = []
+    subscriber = lambda do |_name, _start, _finish, _id, event|
+      sql = event[:sql]
+      if sql.include?('"payroll_settlement_cases"') && sql.include?('"payroll_manual_allocations"') && sql.include?("NOT IN")
+        eligibility_queries << sql
+      end
+    end
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") { claim!(body) }
+    expect(eligibility_queries.size).to eq(1), "Expected one eligibility query while the source ledger is locked; got #{eligibility_queries.size}"
     expect(response).to have_http_status(:created)
     employee = json.fetch("payroll_batch").fetch("employees").sole
     expect(employee).to include("source_user_uuid" => worker.payroll_integration_uuid, "source_user_id" => worker.id.to_s)
