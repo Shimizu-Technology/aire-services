@@ -131,4 +131,23 @@ describe('Payroll cutoff notice', () => {
     await screen.findByRole('dialog')
   })
 
+  it.each(['personal', 'kiosk'])('does not label a cached %s cutoff stale while the first refresh is pending', async audience => {
+    sessionStorage.setItem('aire:last-payroll-cutoff', JSON.stringify(cutoff))
+    let finish!: (value: Awaited<ReturnType<typeof api.getPayrollCutoff>>) => void
+    vi.mocked(api.getPayrollCutoff).mockReturnValue(new Promise(resolve => { finish = resolve }))
+    render(<MemoryRouter><PayrollCutoffNotice kiosk={audience === 'kiosk' ? { accessToken: 'access', employeeToken: '', sessionKey: 'shared', notice: null } : undefined} /></MemoryRouter>)
+    expect(screen.getByRole('region', { name: 'Payroll cutoff' })).toHaveTextContent('November 7, 2026')
+    expect(screen.queryByText(/unable to refresh/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await act(async () => { finish({ error: 'Offline' }) })
+    expect(screen.getByText(/unable to refresh/i)).toBeInTheDocument()
+  })
+
+  it('starts keyboard focus on Got it while keeping Close available', async () => {
+    mount()
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveFocus()
+    expect(within(dialog).getByRole('button', { name: 'Close payroll cutoff notice' })).toBeVisible()
+  })
+
 })

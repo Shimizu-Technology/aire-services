@@ -47,7 +47,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   const { userRole, currentUser, isClerkEnabled } = useAuthContext()
   const isAdmin = !kiosk && (!isClerkEnabled || userRole === 'admin')
   const [response, setResponse] = useState<PayrollCutoffResponse | null>(lastKnownCutoff)
-  const [stale, setStale] = useState(true)
+  const [stale, setStale] = useState(false)
+  const [validated, setValidated] = useState(false)
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
   const [ackError, setAckError] = useState(false)
   const [pending, setPending] = useState<number | null>(null)
@@ -64,7 +65,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     const result = await api.getPayrollCutoff(accessToken)
     if (session !== activeSession.current || sequence !== requestSequence.current) return
     if (result.data) {
-      setResponse(result.data); setStale(false)
+      setResponse(result.data); setStale(false); setValidated(true)
       try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(result.data.cutoff)) } catch { /* Storage may be unavailable on shared devices. */ }
     }
     else setStale(true)
@@ -86,10 +87,10 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   // A kiosk dialog may open only from a verified PIN/action response. Background
   // refreshes update the banner without interrupting an action already in progress.
   const notice = kiosk ? kiosk.notice : response
-  const cutoff = stale && kiosk?.notice ? kiosk.notice.cutoff : response?.cutoff ?? kiosk?.notice?.cutoff
+  const cutoff = (!validated || stale) && kiosk?.notice ? kiosk.notice.cutoff : response?.cutoff ?? kiosk?.notice?.cutoff
   const noticeCutoff = notice?.cutoff
   const noticeKey = noticeCutoff ? `${sessionKey}:${identity(noticeCutoff)}` : ''
-  const open = !!noticeCutoff && (!stale || !!kiosk?.notice) && !notice?.acknowledged && !dismissed.has(noticeKey)
+  const open = !!noticeCutoff && (validated || !!kiosk?.notice) && (!stale || !!kiosk?.notice) && !notice?.acknowledged && !dismissed.has(noticeKey)
     && (noticeCutoff.stage === '24h' || noticeCutoff.stage === '4h')
     && (!kiosk || stale || (!!cutoff && identity(cutoff) === identity(noticeCutoff)))
   const dismiss = () => {
@@ -102,7 +103,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
       if (result.status === 409) void refresh()
     })
   }
-  useDialogFocus(open, dialogRef, dismiss)
+  useDialogFocus(open, dialogRef, dismiss, '[data-cutoff-ack]')
   useEffect(() => {
     if (!open) return
     const banner = bannerRef.current
@@ -113,7 +114,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   if (!cutoff) return null
   if (!cutoff.period) return isAdmin ? <section aria-label="Payroll cutoff setup" className="cutoff-notice">No scheduled payroll cutoff is published. <Link to="/admin/payroll">Set up the payroll calendar</Link>.</section> : null
   if (cutoff.stage === 'none') return null
-  const banner = copy(cutoff, stale)
+  const banner = copy(cutoff, stale || (!validated && !kiosk?.notice))
   const modal = noticeCutoff ? copy(noticeCutoff, stale) : banner
   const passed = cutoff.stage === 'passed' || cutoff.stage === 'finalizing'
   return <>
@@ -141,7 +142,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
           <p>You can keep clocking in and out. “Got it” changes no hours.</p>
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
-          <button type="button" onClick={dismiss} className="cutoff-primary">Got it</button>
+          <button type="button" onClick={dismiss} data-cutoff-ack className="cutoff-primary">Got it</button>
           {!kiosk && <Link onClick={dismiss} to="/admin/time?tab=entries" className="cutoff-secondary">Review my hours</Link>}
         </div>
       </div>

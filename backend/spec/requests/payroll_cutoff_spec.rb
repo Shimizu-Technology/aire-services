@@ -53,10 +53,21 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
         cutoff_at: guam.local(2026, 10, 22, 17), lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16" }
     end
 
-    it "never warns" do
+    it "never warns, including after a failed manual lock" do
+      period.update!(status: "failed")
+      expect(PayrollCalendarPeriod.next_scheduled_cutoff_at).to be_nil
       expect(read_cutoff.fetch("stage")).to eq("none")
       expect(read_cutoff.fetch("period")).to be_nil
     end
+  end
+
+  it "keeps failed scheduled cutoffs relevant through delayed finalization" do
+    period.update!(status: "failed", next_finalization_attempt_at: cutoff + 2.hours)
+    travel_to(cutoff - 4.hours)
+    expect(read_cutoff.fetch("stage")).to eq("4h")
+    travel_to(cutoff + 1.minute)
+    expect(read_cutoff.fetch("stage")).to eq("finalizing")
+    expect(PayrollCalendarPeriod.next_scheduled_cutoff_at).to eq(cutoff.iso8601)
   end
 
   it "returns only the safe contract and requires staff authentication" do
@@ -68,7 +79,7 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
     expect(response).to have_http_status(:unauthorized)
   end
 
-  it "persists acknowledgements across devices and invalidates on a changed publication or stage" do
+  it "persists acknowledgements across devices and invalidates on a changed stage" do
     payload = read_cutoff.slice("publication_id", "version", "stage").merge("period_id" => period.id)
     expect {
       post "/api/v1/payroll_cutoff/acknowledge", params: payload, headers: headers
@@ -80,11 +91,24 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
     travel_to(cutoff - 4.hours)
     get "/api/v1/payroll_cutoff", headers: headers
     expect(response.parsed_body.fetch("acknowledged")).to be(false)
-    period.update!(publication_id: SecureRandom.uuid)
+  end
+
+  it "invalidates an acknowledged publication without changing the warning stage" do
+    payload = read_cutoff.slice("publication_id", "version", "stage").merge("period_id" => period.id)
+    expect(payload.fetch("stage")).to eq("24h")
+    post "/api/v1/payroll_cutoff/acknowledge", params: payload, headers: headers
+    expect(response).to have_http_status(:ok)
+    get "/api/v1/payroll_cutoff", headers: headers
+    expect(response.parsed_body.fetch("acknowledged")).to be(true)
+
+    # Hold stage and optimistic-lock version constant to isolate publication identity.
+    period.update_columns(publication_id: SecureRandom.uuid)
+    get "/api/v1/payroll_cutoff", headers: headers
+    expect(response.parsed_body.dig("cutoff", "stage")).to eq("24h")
+    expect(response.parsed_body.dig("cutoff", "version")).to eq(payload.fetch("version"))
+    expect(response.parsed_body.fetch("acknowledged")).to be(false)
     post "/api/v1/payroll_cutoff/acknowledge", params: payload, headers: headers
     expect(response).to have_http_status(:conflict)
-    get "/api/v1/payroll_cutoff", headers: headers
-    expect(response.parsed_body.fetch("acknowledged")).to be(false)
   end
 
   it "isolates two kiosk employees and never changes their hours on acknowledgement" do

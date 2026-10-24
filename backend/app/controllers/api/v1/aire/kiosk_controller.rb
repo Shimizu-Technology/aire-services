@@ -24,8 +24,7 @@ module Api
             employee: serialize_user(result[:user]),
             kiosk_token: result[:kiosk_token],
             current_status: serialize_status(result[:current_status]),
-            available_categories: serialize_categories_for(result[:user], result[:available_categories]),
-            cutoff_warning: cutoff_warning(result[:user])
+            available_categories: serialize_categories_for(result[:user], result[:available_categories])
           }
         rescue AireKioskService::KioskError => e
           failed_user = User.find_kiosk_user_by_pin(params[:pin].to_s)
@@ -107,18 +106,12 @@ module Api
 
         private
 
-        def cutoff_warning(user)
-          cutoff = ::Payroll::CutoffPresenter.call
-          { cutoff: cutoff, acknowledged: PayrollCutoffAcknowledgement.exists?(PayrollCutoffAcknowledgement.identity(user, cutoff)) }
-        end
-
         def serialize_action_response(result)
           {
             employee: serialize_user(result[:user]),
             time_entry: serialize_entry(result[:entry]),
             current_status: serialize_status(result[:current_status]),
-            available_categories: serialize_categories_for(result[:user], result[:available_categories]),
-            cutoff_warning: cutoff_warning(result[:user])
+            available_categories: serialize_categories_for(result[:user], result[:available_categories])
           }
         end
 
