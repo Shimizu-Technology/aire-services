@@ -323,7 +323,8 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
     expect(settlement_case.reload.destination_kind).to eq("supplemental")
     manual.void!(allocation: allocation, occurred_at: Time.current.iso8601,
                  reason: "Unissued supplemental check was voided before any delivery")
-    expect(settlement_case.reload.status).to eq("scheduled")
+    expect(settlement_case.reload).to have_attributes(status: "open", destination_kind: "unassigned",
+      target_payroll_calendar_period_id: nil, target_external_pay_period_id: nil, held_total_hours: 8)
     expect(preview(target).fetch(:rows)).to be_empty
 
     route(settlement_case, target)
