@@ -76,6 +76,55 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
     expect(period.payroll_outbox_events.count).to eq(0)
   end
 
+  it "keeps October 1-15 unfrozen immediately before, at and after its nominal cutoff" do
+    configure
+    period = publish
+    included = entry(period)
+    [ -1.second, 0.seconds, 1.second ].each do |offset|
+      instant = period.cutoff_at + offset
+      travel_to(instant) do
+        expect(PayrollCalendarPeriod.due_at(instant)).not_to include(period)
+        expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: instant).call[:status]).to eq("skipped")
+        expect { Payroll::ScheduledCutoffFinalizer.call_due(now: instant) }.not_to change(PayrollBatch, :count)
+        expect { Payroll::PendingCutoffClaimGuard.call!(entry: included, fence_relevant_snapshots: true) }.not_to raise_error
+        expect(period.reload.payroll_batch).to be_nil
+        expect(period.cutoff_state(now: instant)).to eq("manual")
+      end
+    end
+    expect(Payroll::ManualCalendarFinalizer.new(period_id: period.id, actor: actor, reason: reason).call[:status]).to eq("finalized")
+    expect(period.reload.payroll_batch.payroll_batch_entries.pluck(:source_time_entry_id)).to eq([ included.id ])
+  end
+
+  it "fences October 16-31 at November 7 17:00 Guam until a delayed worker freezes it" do
+    configure
+    period = publish(second_half: true)
+    included = entry(period)
+    expect(period.cutoff_at).to eq(guam.local(2026, 11, 7, 17))
+    connection = ActiveRecord::Base.connection
+    allow(connection).to receive(:select_value).and_call_original
+    [ -1.second, 0.seconds, 1.second ].each do |offset|
+      instant = period.cutoff_at + offset
+      # Exercise the database-clock claim boundary without moving the revision ledger's clock.
+      allow(connection).to receive(:select_value).with("SELECT clock_timestamp()").and_return(instant)
+      claim = -> { Payroll::PendingCutoffClaimGuard.call!(entry: included, fence_relevant_snapshots: true) }
+      if offset.negative?
+        expect(PayrollCalendarPeriod.due_at(instant)).not_to include(period)
+        expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: instant).call[:status]).to eq("skipped")
+        expect(&claim).not_to raise_error
+      else
+        expect(PayrollCalendarPeriod.due_at(instant)).to include(period)
+        expect(&claim).to raise_error(Payroll::PendingCutoffClaimGuard::ConflictError, /is due/)
+      end
+      expect(period.reload.payroll_batch).to be_nil
+    end
+    allow(connection).to receive(:select_value).with("SELECT clock_timestamp()").and_call_original
+    outcome = travel_to(period.cutoff_at + 2.minutes) { Payroll::ScheduledCutoffFinalizer.new(period_id: period.id).call }
+    expect(outcome[:status]).to eq("finalized"), outcome.inspect
+    expect(period.reload.payroll_batch.cutoff_at).to eq(period.cutoff_at)
+    expect(period.payroll_batch.payroll_batch_entries.pluck(:source_time_entry_id)).to eq([ included.id ])
+    expect { Payroll::PendingCutoffClaimGuard.call!(entry: included, fence_relevant_snapshots: true) }.not_to raise_error
+  end
+
   it "validates explicit mode and activation and derives scheduled for legacy callers on activation" do
     configure
     expect { publish(lock_mode: "scheduled") }.to raise_error(ArgumentError, /lock_mode/)
