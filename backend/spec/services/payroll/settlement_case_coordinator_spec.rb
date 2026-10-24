@@ -56,7 +56,7 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
       target_external_pay_period_id: "regular-oct-2",
       action_due_on: target.pay_date
     )
-    expect(settlement_case.payroll_settlement_case_events.pluck(:event_type)).to eq(%w[opened routed])
+    expect(settlement_case.payroll_settlement_case_events.order(:id).pluck(:event_type)).to eq(%w[opened routed])
 
     travel_to(origin.cutoff_at + 2.minutes) do
       TimeClockService.approve_entry(entry: held, approved_by: create(:user, :admin), note: "Verified after cutoff")

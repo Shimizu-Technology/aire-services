@@ -1,3 +1,5 @@
+import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
+import type { PayrollCutoffResponse } from '../../lib/api'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { SignInButton } from '@clerk/clerk-react'
@@ -56,6 +58,7 @@ function formatStatus(status: ClockStatus | null) {
 
 export default function AireKiosk() {
   const { isClerkEnabled, isSignedIn, userRole } = useAuthContext()
+  const [cutoffNotice, setCutoffNotice] = useState<PayrollCutoffResponse | null>(null)
   const [pin, setPin] = useState('')
   const [employee, setEmployee] = useState<AireKioskEmployee | null>(null)
   const [kioskToken, setKioskToken] = useState<string | null>(null)
@@ -101,6 +104,7 @@ export default function AireKiosk() {
 
   const clearSession = useCallback(() => {
     setPin('')
+    setCutoffNotice(null)
     setEmployee(null)
     setKioskToken(null)
     setCategories([])
@@ -221,6 +225,7 @@ export default function AireKiosk() {
       return
     }
 
+    setCutoffNotice(result.data.cutoff_warning ?? null)
     setEmployee(result.data.employee)
     setKioskToken(result.data.kiosk_token)
     setStatus(result.data.current_status)
@@ -281,6 +286,8 @@ export default function AireKiosk() {
     }
 
     const data = result.data
+    setCutoffNotice(data.cutoff_warning ?? null)
+    window.dispatchEvent(new Event('aire:clock-action'))
     applyResponse(data, action === 'switch_category')
     const responseCategory = data.time_entry.time_category
       ? categories.find((category) => category.id === data.time_entry.time_category?.id) ?? selectedCategory
@@ -404,6 +411,9 @@ export default function AireKiosk() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
+      {kioskUnlocked && <div className="mx-auto max-w-6xl px-4 pt-4 md:px-6">
+        <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice }} />
+      </div>}
       <div className="mx-auto flex max-w-6xl items-center justify-end gap-4 px-4 pt-3 text-xs md:px-6">
         <Link to="/admin" className="text-slate-500 transition hover:text-slate-300">Admin</Link>
         <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>

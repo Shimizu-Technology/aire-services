@@ -1,3 +1,4 @@
+import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
 import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -1210,6 +1211,7 @@ export default function TimeTracking() {
 
   return (
     <div className="space-y-6">
+      <PayrollCutoffNotice />
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
       <TimePayrollWorkspaceHeader
         activeSection={activeTab}

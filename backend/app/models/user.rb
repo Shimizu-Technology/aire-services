@@ -10,6 +10,7 @@ class User < ApplicationRecord
   has_secure_password :kiosk_pin, validations: false
 
   has_many :audit_logs, dependent: :nullify
+  has_many :payroll_cutoff_acknowledgements, dependent: :destroy
   belongs_to :terminated_by, class_name: "User", optional: true
   has_many :terminated_users, class_name: "User", foreign_key: :terminated_by_id, dependent: :nullify, inverse_of: :terminated_by
   has_many :time_entries, dependent: :restrict_with_error

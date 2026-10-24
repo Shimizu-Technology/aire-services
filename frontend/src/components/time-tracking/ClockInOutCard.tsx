@@ -235,6 +235,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
         await fetchStatus()
       } else {
         await fetchStatus()
+        window.dispatchEvent(new Event('aire:clock-action'))
         onStatusChange?.()
       }
     } catch (caughtError) {
@@ -274,6 +275,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
         await fetchStatus()
       } else {
         await fetchStatus()
+        window.dispatchEvent(new Event('aire:clock-action'))
         onStatusChange?.()
       }
     } catch (caughtError) {
@@ -470,7 +472,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
                   setError(null)
                   try {
                     const result = await api.switchCategory(catId)
-                    if (result?.error) { setError(result.error) } else { await fetchStatus(); onStatusChange?.() }
+                    if (result?.error) { setError(result.error) } else { await fetchStatus(); window.dispatchEvent(new Event('aire:clock-action')); onStatusChange?.() }
                   } catch { setError('Switch failed.') }
                   finally { setActionLoading(false) }
                 }}
@@ -665,7 +667,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
                 setError(null)
                 try {
                   const result = await api.switchCategory(catId)
-                  if (result?.error) { setError(result.error) } else { await fetchStatus(); onStatusChange?.() }
+                  if (result?.error) { setError(result.error) } else { await fetchStatus(); window.dispatchEvent(new Event('aire:clock-action')); onStatusChange?.() }
                 } catch { setError('Switch failed.') }
                 finally { setActionLoading(false) }
               }}
