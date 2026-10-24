@@ -144,7 +144,8 @@ module Payroll
         external_period_id = period.external_pay_period_id
         retryable = !error.is_a?(BatchFinalizer::OutOfOrderFinalizationError) &&
           !error.is_a?(BatchBuilder::PolicyUnavailableError) &&
-          !error.is_a?(TimeEntryRevisionLedger::CoverageError)
+          !error.is_a?(TimeEntryRevisionLedger::CoverageError) &&
+          !error.is_a?(ManualAllocationLedger::CoverageError)
         period.update!(
           status: "failed",
           finalization_attempts: attempts,

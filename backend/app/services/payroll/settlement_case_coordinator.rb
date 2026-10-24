@@ -13,6 +13,7 @@ module Payroll
       def sync_finalized_periods!
         reconciliation_scope.includes(:payroll_batch).find_each do |period|
           begin
+            ManualReservationRelease.record_for_period!(period: period, batch: period.payroll_batch)
             record_missing_exclusion_cases!(period)
             record_post_cutoff_deletions!(period)
             record_post_cutoff_entries!(period)
@@ -63,6 +64,8 @@ module Payroll
             )
           end
         end
+
+        ManualReservationRelease.record_for_period!(period: period, batch: batch, actor: actor)
 
         batch.payroll_batch_exclusions.order(:id).each do |exclusion|
           superseded = targeted.find { |settlement_case| settlement_case.source_time_entry_id == exclusion.source_time_entry_id }

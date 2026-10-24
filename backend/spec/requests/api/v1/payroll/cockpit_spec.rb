@@ -98,6 +98,24 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(response).to have_http_status(:ok)
   end
 
+  it "returns an explicit reconciliation conflict instead of claiming a due cutoff twice" do
+    dates = payroll_calendar_at(database_clock)
+    entry = create_entry(work_date: dates.fetch(:start_date) + 2.days, approval_status: "approved", approved_at: database_clock)
+    due = create(:payroll_calendar_period, **payroll_calendar_at(capture_payroll_cutoff))
+    post "/api/v1/payroll/cockpit/manual_allocations", params: {
+      source_time_entry_id: entry.id, source_user_uuid: employee.payroll_integration_uuid,
+      command_id: SecureRandom.uuid, expected_version: entry.lock_version,
+      regular_hours: 8, overtime_hours: 0, external_pay_period_id: "manual-after-due",
+      external_payroll_item_id: "manual-after-due-item", pay_date: database_clock.to_date.iso8601,
+      reason: "Synthetic manual commitment competing with delayed cutoff"
+    }.to_json, headers: settlement_headers
+    expect(response).to have_http_status(:conflict)
+    expect(json).to include(review_required: true)
+    expect(json.fetch(:error)).to include(due.external_pay_period_id, "reconcile")
+    expect(PayrollManualAllocation.count).to eq(0)
+    expect(PayrollIntegrationCommand.count).to eq(0)
+  end
+
   it "replays the original allocation acknowledgement after its payment state changes" do
     entry = create_entry(approval_status: "approved", approved_at: Time.current, hours: 8)
     path = "/api/v1/payroll/cockpit/manual_allocations"

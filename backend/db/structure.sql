@@ -24,6 +24,22 @@ COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching
 
 
 --
+-- Name: capture_payroll_manual_allocation_revision(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.capture_payroll_manual_allocation_revision() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO payroll_manual_allocation_revisions
+    (payroll_manual_allocation_id, source_time_entry_id, recorded_at, snapshot)
+  VALUES (NEW.id, NEW.time_entry_id, clock_timestamp(), to_jsonb(NEW));
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: capture_payroll_time_entry_revision(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -991,6 +1007,38 @@ CREATE SEQUENCE public.payroll_manual_allocation_events_id_seq
 --
 
 ALTER SEQUENCE public.payroll_manual_allocation_events_id_seq OWNED BY public.payroll_manual_allocation_events.id;
+
+
+--
+-- Name: payroll_manual_allocation_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_manual_allocation_revisions (
+    id bigint NOT NULL,
+    payroll_manual_allocation_id bigint NOT NULL,
+    source_time_entry_id bigint NOT NULL,
+    recorded_at timestamp(6) without time zone NOT NULL,
+    snapshot jsonb NOT NULL
+);
+
+
+--
+-- Name: payroll_manual_allocation_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_manual_allocation_revisions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_manual_allocation_revisions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_manual_allocation_revisions_id_seq OWNED BY public.payroll_manual_allocation_revisions.id;
 
 
 --
@@ -2346,6 +2394,13 @@ ALTER TABLE ONLY public.payroll_manual_allocation_events ALTER COLUMN id SET DEF
 
 
 --
+-- Name: payroll_manual_allocation_revisions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocation_revisions ALTER COLUMN id SET DEFAULT nextval('public.payroll_manual_allocation_revisions_id_seq'::regclass);
+
+
+--
 -- Name: payroll_manual_allocations id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2723,6 +2778,14 @@ ALTER TABLE ONLY public.payroll_manual_allocation_events
 
 
 --
+-- Name: payroll_manual_allocation_revisions payroll_manual_allocation_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_manual_allocation_revisions
+    ADD CONSTRAINT payroll_manual_allocation_revisions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: payroll_manual_allocations payroll_manual_allocations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3000,6 +3063,13 @@ CREATE UNIQUE INDEX idx_employee_pay_rates_user_category ON public.employee_pay_
 
 
 --
+-- Name: idx_manual_allocation_revisions_recording; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_manual_allocation_revisions_recording ON public.payroll_manual_allocation_revisions USING btree (payroll_manual_allocation_id, recorded_at, id);
+
+
+--
 -- Name: idx_on_export_type_start_date_end_date_1234e92c05; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3011,6 +3081,13 @@ CREATE INDEX idx_on_export_type_start_date_end_date_1234e92c05 ON public.report_
 --
 
 CREATE INDEX idx_on_payroll_obligation_correction_id_5d3cc0406a ON public.payroll_entry_processing_events USING btree (payroll_obligation_correction_id);
+
+
+--
+-- Name: idx_on_source_time_entry_id_896f0d23b5; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_on_source_time_entry_id_896f0d23b5 ON public.payroll_manual_allocation_revisions USING btree (source_time_entry_id);
 
 
 --
@@ -4337,6 +4414,13 @@ CREATE TRIGGER audit_logs_append_only BEFORE DELETE OR UPDATE ON public.audit_lo
 
 
 --
+-- Name: payroll_manual_allocations capture_payroll_manual_allocation_revision; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER capture_payroll_manual_allocation_revision AFTER INSERT OR UPDATE ON public.payroll_manual_allocations FOR EACH ROW EXECUTE FUNCTION public.capture_payroll_manual_allocation_revision();
+
+
+--
 -- Name: payroll_batch_entries payroll_batch_entries_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4411,6 +4495,20 @@ CREATE TRIGGER payroll_manual_allocation_events_append_only BEFORE DELETE OR UPD
 --
 
 CREATE TRIGGER payroll_manual_allocation_events_prevent_truncate BEFORE TRUNCATE ON public.payroll_manual_allocation_events FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_manual_allocation_revisions payroll_manual_allocation_revisions_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_manual_allocation_revisions_append_only BEFORE DELETE OR UPDATE ON public.payroll_manual_allocation_revisions FOR EACH ROW EXECUTE FUNCTION public.protect_finalized_payroll_records();
+
+
+--
+-- Name: payroll_manual_allocation_revisions payroll_manual_allocation_revisions_prevent_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER payroll_manual_allocation_revisions_prevent_truncate BEFORE TRUNCATE ON public.payroll_manual_allocation_revisions FOR EACH STATEMENT EXECUTE FUNCTION public.protect_finalized_payroll_records();
 
 
 --
@@ -5032,6 +5130,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261024010000'),
 ('20261013010000'),
 ('20261011010000'),
 ('20261007010000'),

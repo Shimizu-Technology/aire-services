@@ -1,0 +1,19 @@
+# Manual reservations at scheduled cutoffs
+
+A manual payroll link reserves exact regular and overtime source hours. Cancelling a check or deposit keeps that wage reservation. Voiding the payroll link releases it, after any previously issued instrument has its exact verified cancellation evidence.
+
+Published calendar batches reconstruct reservations from `payroll_manual_allocation_revisions` at the original cutoff. PostgreSQL captures the full allocation snapshot with `clock_timestamp()` on insert and update. Physical payment/cancellation dates and Rails timestamps do not determine the reservation state at cutoff. The revision table rejects updates, deletes and truncation.
+
+A new manual commitment takes the same transaction advisory lock as batch finalization, before locking its source entry. If a due, unfinalized calendar still offers that source obligation, the command returns HTTP 409 with `review_required: true`. Lock that cutoff and reconcile its frozen coverage before retrying. This check includes the entry's work date at cutoff, so moving the current entry does not evade it. A held entry with no payable cutoff line can still be reconciled manually. This deliberately uses a conflict rather than taking a calendar row lock inside an already-running cockpit command.
+
+When a void releases a reservation that suppressed an earlier cutoff, AIRE opens or reopens an exact-source settlement case. This also works when that cutoff had no lines or exclusions, or when the delayed finalizer runs after the void. The case requires an explicit destination and review of current source hours and approvals. Use the existing settlement controls to select a named future regular payroll, a supplemental payroll, or a not-payable disposition. An existing scheduled or supplemental destination is cleared on a new release.
+
+The case records the released allocation ID. Repeated void commands, reconciliation and finalizer retries cannot open the same release twice. Partial releases retain other active allocations; future batches subtract both those allocations and all frozen source lines. A retained payment component cannot by itself settle newly released unpaid hours.
+
+## Migration and rollout
+
+Migration `20261024010000` briefly locks `payroll_manual_allocations` in `SHARE ROW EXCLUSIVE` mode, installs the capture trigger, and snapshots existing rows. It does not change source time, existing allocation/payment events, frozen batches or checksums. It requires a forward correction rather than destructive rollback.
+
+Existing rows start their trusted history at migration time. A cutoff older than that history fails closed when its source has an uncovered reservation. The scheduled finalizer marks this as requiring review without automatic retry; cockpit reads return a review-required response. Do not backdate snapshots to make an old cutoff pass. Reconcile those historical obligations before retrying. Existing frozen exports remain unchanged.
+
+This migration does not certify a production restore or a lock window under concurrent production load. The release owner must rehearse those deployment conditions and handle any legacy history gaps. No historical data repair is included.
