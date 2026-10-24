@@ -205,6 +205,38 @@ RSpec.describe "Payroll late-hours recovery and conservation", type: :request do
     end
   end
 
+  it "replays retained original-owner receipts after split-line financial succession without accepting new stale-owner evidence" do
+    overnight!
+    approve!
+    claim!
+    batch = held.reload.included_payroll_batch
+    batch.payroll_batch_entries.order(:work_date).each do |row|
+      original = exact_body(row, status: "committed")
+      submit_receipt(batch, original)
+      expect(response).to have_http_status(:created)
+      expect(json.fetch("replayed")).to be(false)
+      stored = json.fetch("entry_processing")
+      submit_receipt(batch, exact_body(row, status: "payment_voided"))
+      expect(response).to have_http_status(:created)
+      void_event = batch.payroll_entry_processing_events.where(source_line_key: row.line_key, status: "payment_voided").sole
+      submit_receipt(batch, correction_body(batch, row, void_event), obligation: true)
+      expect(response).to have_http_status(:created)
+      retained = batch.payroll_entry_processing_events.order(:id).map(&:attributes)
+
+      expect { submit_receipt(batch, original) }.not_to change(PayrollEntryProcessingEvent, :count)
+      expect(response).to have_http_status(:ok)
+      expect(json).to include("replayed" => true, "entry_processing" => stored)
+      [ original.merge(external_pay_period_id: "902"), original.merge(status: "payment_voided"),
+        original.merge(metadata: { changed: true }), original.merge(occurred_at: 1.minute.ago.iso8601(6)) ].each do |changed|
+        submit_receipt(batch, changed)
+        expect(response).to have_http_status(:conflict)
+      end
+      submit_receipt(batch, original.merge(event_id: SecureRandom.uuid))
+      expect(response).to have_http_status(:conflict)
+      expect(batch.payroll_entry_processing_events.order(:id).map(&:attributes)).to eq(retained)
+    end
+  end
+
   it "refuses alternate initial owners and invalid correction roots, predecessors and source versions" do
     approve!
     claim!

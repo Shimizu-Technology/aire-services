@@ -186,7 +186,6 @@ module Api
           source_time_entry_id = parse_source_time_entry_id(permitted.fetch(:source_time_entry_id))
           line_attributes = payable_line_attributes!(batch, source_time_entry_id, permitted)
           batch_entry = line_attributes.delete(:batch_entry) || batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)
-          validate_supplemental_owner!(batch, batch_entry, permitted) if batch.payload["purpose"] == "supplemental"
           source_user_uuid = permitted[:source_user_uuid].to_s.strip.downcase.presence
           if source_user_uuid.present? && batch_entry.source_user_uuid.present? &&
              source_user_uuid != batch_entry.source_user_uuid.to_s
@@ -209,6 +208,7 @@ module Api
                 event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
                 next if event
 
+                validate_supplemental_owner!(batch, batch_entry, permitted) if batch.payload["purpose"] == "supplemental"
                 correction = ::Payroll::ObligationCorrectionRecorder.call!(row: batch_entry, attributes: permitted, occurred_at: occurred_at)
                 if receipt_endpoint_mismatch?(permitted, correction, batch)
                   raise ::Payroll::EntryProcessingSummary::LineConflictError, "Validated obligation receipts require the dedicated obligation endpoint"
@@ -301,6 +301,7 @@ module Api
           end
 
           body = { entry_processing: serialize_entry_processing_event(event) }
+          body[:replayed] = !created if batch.payload["purpose"] == "supplemental"
           body[:obligation_correction] = event.payroll_obligation_correction.receipt if event.payroll_obligation_correction
           body[:integration] = ::Payroll::IntegrationProfile.call if event.line_contract? || event.status == "payment_cancelled"
           render json: body, status: created ? :created : :ok
