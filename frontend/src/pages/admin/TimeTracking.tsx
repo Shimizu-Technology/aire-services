@@ -8,7 +8,7 @@ import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
-import { formatDateISO } from '../../lib/dateUtils'
+import { addDateDays, businessDateISO, businessWeekStart, formatDateOnly } from '../../lib/dateUtils'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
@@ -141,7 +141,7 @@ const ChevronRightIcon = () => (
 
 // Helper functions
 function formatDate(dateString: string): string {
-  return new Date(dateString + 'T00:00:00').toLocaleDateString('en-US', {
+  return formatDateOnly(dateString, {
     weekday: 'short',
     month: 'short',
     day: 'numeric'
@@ -160,24 +160,9 @@ function formatRecordedDate(timestamp: string): string {
   })
 }
 
-function getWeekDates(date: Date): Date[] {
-  const start = new Date(date)
-  const day = start.getDay()
-  start.setDate(start.getDate() - day) // Start on Sunday
-  
-  const dates: Date[] = []
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(start)
-    d.setDate(start.getDate() + i)
-    dates.push(d)
-  }
-  return dates
-}
-
-function isSameDay(date1: Date, date2: Date): boolean {
-  return date1.getFullYear() === date2.getFullYear() &&
-         date1.getMonth() === date2.getMonth() &&
-         date1.getDate() === date2.getDate()
+function getWeekDates(date: string): string[] {
+  const start = businessWeekStart(date)
+  return Array.from({ length: 7 }, (_, index) => addDateDays(start, index))
 }
 
 function sumEntryHours(entries: TimeEntryItem[]): number {
@@ -188,19 +173,8 @@ function formatHours(value: number): string {
   return Number(value).toFixed(2)
 }
 
-function guamToday(): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Pacific/Guam',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date())
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value])) as Record<string, string>
-  return `${values.year}-${values.month}-${values.day}`
-}
-
 function reportPresetRange(preset: 'current_period' | 'previous_period' | 'this_month' | 'last_month' | 'year_to_date'): PayrollPeriod {
-  const today = guamToday()
+  const today = businessDateISO()
   const [year, month, day] = today.split('-').map(Number)
   const iso = (valueYear: number, valueMonth: number, valueDay: number) =>
     `${valueYear}-${String(valueMonth).padStart(2, '0')}-${String(valueDay).padStart(2, '0')}`
@@ -465,9 +439,9 @@ export default function TimeTracking() {
   
   // View mode: 'day' or 'week'
   const viewMode = routedView
-  const currentDate = useMemo(() => isIsoDate(routedDate) ? new Date(`${routedDate}T00:00:00`) : new Date(), [routedDate])
+  const currentDate = useMemo(() => isIsoDate(routedDate) ? routedDate : businessDateISO(), [routedDate])
   const setViewMode = (mode: 'day' | 'week') => { const next = new URLSearchParams(searchParams); next.set('view', mode); next.delete('entries_page'); setSearchParams(next) }
-  const setCurrentDate = (date: Date) => { const next = new URLSearchParams(searchParams); next.set('date', formatDateISO(date)); next.delete('entries_page'); next.delete('entry_id'); setSearchParams(next) }
+  const setCurrentDate = (date: string) => { const next = new URLSearchParams(searchParams); next.set('date', date); next.delete('entries_page'); next.delete('entry_id'); setSearchParams(next) }
   
   // Entries filters (for Time Entries tab)
   const [entryFilters, setEntryFilters] = useState({
@@ -478,8 +452,8 @@ export default function TimeTracking() {
   
   // Report filters
   const [reportFilters, setReportFilters] = useState(() => ({
-    start_date: initialLinkedPeriod?.start ?? formatDateISO(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-    end_date: initialLinkedPeriod?.end ?? formatDateISO(new Date()),
+    start_date: initialLinkedPeriod?.start ?? `${businessDateISO().slice(0, 7)}-01`,
+    end_date: initialLinkedPeriod?.end ?? businessDateISO(),
     user_id: routedUserId,
     time_category_id: routedCategoryFilter || (/^\d+$/.test(searchParams.get('time_category_id') || '') ? searchParams.get('time_category_id')! : ''),
     approval_group: routedApprovalGroup,
@@ -522,7 +496,7 @@ export default function TimeTracking() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<TimeEntryItem | null>(null)
   const [formData, setFormData] = useState({
-    work_date: formatDateISO(new Date()),
+    work_date: businessDateISO(),
     start_time: '08:00',
     end_time: '17:00',
     description: '',
@@ -610,12 +584,9 @@ export default function TimeTracking() {
       const params: Record<string, string | number> = { per_page: 100, page: entriesPage }
       
       if (viewMode === 'day') {
-        params.date = formatDateISO(currentDate)
+        params.date = currentDate
       } else {
-        // Get week start (Sunday)
-        const weekStart = new Date(currentDate)
-        weekStart.setDate(currentDate.getDate() - currentDate.getDay())
-        params.week = formatDateISO(weekStart)
+        params.week = businessWeekStart(currentDate)
       }
 
       // Apply filters
@@ -954,36 +925,18 @@ export default function TimeTracking() {
     return () => { cancelled = true }
   }, [routedPrefill, routedScheduleId, routedPrefillOwner, optionsReady, users, isAdmin, currentUserId, initialCategoryForOwner, prefillRetry])
 
-  // Navigation
-  const goToToday = () => setCurrentDate(new Date())
-  
-  const goToPrevious = () => {
-    const newDate = new Date(currentDate)
-    if (viewMode === 'day') {
-      newDate.setDate(newDate.getDate() - 1)
-    } else {
-      newDate.setDate(newDate.getDate() - 7)
-    }
-    setCurrentDate(newDate)
-  }
-
-  const goToNext = () => {
-    const newDate = new Date(currentDate)
-    if (viewMode === 'day') {
-      newDate.setDate(newDate.getDate() + 1)
-    } else {
-      newDate.setDate(newDate.getDate() + 7)
-    }
-    setCurrentDate(newDate)
-  }
+  // Calendar navigation operates on date-only values, never device timestamps.
+  const goToToday = () => setCurrentDate(businessDateISO())
+  const goToPrevious = () => setCurrentDate(addDateDays(currentDate, viewMode === 'day' ? -1 : -7))
+  const goToNext = () => setCurrentDate(addDateDays(currentDate, viewMode === 'day' ? 1 : 7))
 
   // Modal handlers
-  const openNewEntry = (date?: Date, prefillStart?: string, prefillEnd?: string, prefillNotes?: string, ownerId?: number | null) => {
+  const openNewEntry = (date?: string, prefillStart?: string, prefillEnd?: string, prefillNotes?: string, ownerId?: number | null) => {
     if (!optionsReady || searchParams.get('prefill') === 'true') return
     const selectedOwner = ownerId ?? (isAdmin && entryFilters.user_id ? Number(entryFilters.user_id) : currentUserId)
     setEditingEntry(null)
     setFormData({
-      work_date: formatDateISO(date || currentDate),
+      work_date: date || currentDate,
       start_time: prefillStart || '08:00',
       end_time: prefillEnd || '17:00',
       description: prefillNotes || '',
@@ -1155,7 +1108,7 @@ export default function TimeTracking() {
 
   // Calculate hours per day
   const hoursPerDay = weekDates.reduce((acc, date) => {
-    const dateStr = formatDateISO(date)
+    const dateStr = date
     const dayEntries = entriesByDate[dateStr] || []
     acc[dateStr] = sumEntryHours(dayEntries)
     return acc
@@ -1366,8 +1319,8 @@ export default function TimeTracking() {
           <div className="text-center">
             <div className="font-semibold text-primary-dark">
               {viewMode === 'day'
-                ? currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-                : `${weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                ? formatDateOnly(currentDate, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                : `${formatDateOnly(weekDates[0], { month: 'short', day: 'numeric' })} - ${formatDateOnly(weekDates[6], { month: 'short', day: 'numeric', year: 'numeric' })}`
               }
             </div>
             <div className="text-sm text-primary-dark">
@@ -1408,7 +1361,7 @@ export default function TimeTracking() {
               <button
                 onClick={goToToday}
                 className={`px-2 py-1 text-sm font-medium rounded-lg ${
-                  isSameDay(currentDate, new Date())
+                  currentDate === businessDateISO()
                     ? 'bg-primary text-white'
                     : 'text-primary-dark hover:bg-neutral-warm'
                 }`}
@@ -1462,7 +1415,7 @@ export default function TimeTracking() {
             <button
               onClick={goToToday}
               className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                isSameDay(currentDate, new Date())
+                currentDate === businessDateISO()
                   ? 'bg-primary text-white'
                   : 'text-primary-dark hover:text-primary hover:bg-neutral-warm'
               }`}
@@ -1481,8 +1434,8 @@ export default function TimeTracking() {
           <div className="text-right">
             <div className="font-semibold text-primary-dark">
               {viewMode === 'day'
-                ? currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-                : `${weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                ? formatDateOnly(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+                : `${formatDateOnly(weekDates[0], { month: 'short', day: 'numeric' })} - ${formatDateOnly(weekDates[6], { month: 'short', day: 'numeric', year: 'numeric' })}`
               }
             </div>
             <div className="text-sm text-primary-dark">
@@ -1578,8 +1531,8 @@ export default function TimeTracking() {
             {/* Week Header */}
             <div className="grid min-w-[980px] grid-cols-7 border-b border-neutral-warm lg:min-w-full">
               {weekDates.map((date, idx) => {
-                const dateStr = formatDateISO(date)
-                const isToday = isSameDay(date, new Date())
+                const dateStr = date
+                const isToday = date === businessDateISO()
                 const dayHours = hoursPerDay[dateStr] || 0
                 
                 return (
@@ -1590,10 +1543,10 @@ export default function TimeTracking() {
                     }`}
                   >
                     <div className={`text-xs font-semibold uppercase ${isToday ? 'text-primary' : 'text-primary-dark'}`}>
-                      {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                      {formatDateOnly(date, { weekday: 'short' })}
                     </div>
                     <div className={`text-base sm:text-lg font-bold ${isToday ? 'text-primary' : 'text-primary-dark'}`}>
-                      {date.getDate()}
+                      {Number(date.slice(8, 10))}
                     </div>
                     <div className={`text-xs font-semibold ${isToday ? 'text-primary' : (dayHours > 0 ? 'text-primary' : 'text-primary-dark')}`}>
                       {dayHours.toFixed(1)}h
@@ -1606,9 +1559,9 @@ export default function TimeTracking() {
             {/* Week Entries */}
             <div className="grid min-h-[280px] grid-cols-7 min-w-[980px] sm:min-h-[320px] lg:min-w-full">
               {weekDates.map((date, idx) => {
-                const dateStr = formatDateISO(date)
+                const dateStr = date
                 const dayEntries = entriesByDate[dateStr] || []
-                const isToday = isSameDay(date, new Date())
+                const isToday = date === businessDateISO()
 
                 const groupedByUser = dayEntries.reduce((acc, entry) => {
                   const uid = entry.user.id
@@ -1675,7 +1628,7 @@ export default function TimeTracking() {
                           lastEnd={lastEnd}
                           hasPending={hasPending}
                           hasDenied={hasDenied}
-                          onClick={() => setPersonDayModal({ entries: userEntries, name, date: formatDateISO(date) })}
+                          onClick={() => setPersonDayModal({ entries: userEntries, name, date })}
                         />
                       )
                     })}
@@ -1832,7 +1785,7 @@ export default function TimeTracking() {
                 const userId = e ? e.user.id : currentUserId
                 returnToPersonDay.current = { name: personDayModal.name, date: personDayModal.date, userId: userId || 0 }
                 setPersonDayModal(null)
-                openNewEntry(new Date(`${personDayModal.date}T00:00:00`), undefined, undefined, undefined, userId)
+                openNewEntry(personDayModal.date, undefined, undefined, undefined, userId)
               }}
               onDeleteEntry={async (entry) => {
                 await handleDelete(entry)

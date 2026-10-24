@@ -130,6 +130,25 @@ describe('TimeTracking routed report periods', () => {
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
   })
 
+  it.each([
+    ['2026-10-24T14:30:00Z', '2026-10-25', '2026-10-25', '2026-10-01'],
+    ['2026-10-31T14:30:00Z', '2026-11-01', '2026-11-01', '2026-11-01'],
+  ])('defaults entries and reports to Guam at %s', async (instant, today, week, monthStart) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(instant))
+    try {
+      render(<MemoryRouter initialEntries={['/admin/time']}><TimeRouteHarness /></MemoryRouter>)
+      await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week })))
+      fireEvent.click(screen.getByRole('button', { name: 'Log Time' }))
+      expect(await screen.findByDisplayValue(today)).toHaveAttribute('type', 'date')
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Hours Reports' }))
+      await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({ start_date: monthStart, end_date: today })))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each(['day', 'week'])('shows loaded %s entries before animation timers run', async (view) => {
     vi.useFakeTimers()
     try {

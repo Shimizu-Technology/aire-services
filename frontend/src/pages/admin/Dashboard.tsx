@@ -3,7 +3,7 @@ import WhosWorking from '../../components/time-tracking/WhosWorking'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
-import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
+import { businessDateISO, businessWeekStart } from '../../lib/dateUtils'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeEntry } from '../../lib/api'
 import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, withPayrollPeriod } from '../../lib/payrollPeriods'
@@ -46,14 +46,8 @@ const actionLinks = [
   },
 ]
 
-function formatDateISO(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
 function formatWeekStart(date: Date): string {
-  const d = new Date(`${formatDateInTimeZoneISO(date, 'Pacific/Guam')}T00:00:00`)
-  d.setDate(d.getDate() - d.getDay())
-  return formatDateISO(d)
+  return businessWeekStart(businessDateISO(date))
 }
 
 export default function Dashboard() {
@@ -71,7 +65,7 @@ function EmployeeDashboard() {
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([])
   const [loadingTodayEntries, setLoadingTodayEntries] = useState(true)
 
-  const todayStr = formatDateISO(new Date())
+  const todayStr = businessDateISO()
   const loadDashboardData = useCallback(async () => {
     try {
       const [scheduleRes, entriesRes] = await Promise.all([
@@ -260,7 +254,7 @@ function AdminDashboard() {
         (w) => w.status === 'clocked_in' || w.status === 'on_break',
       ).length
 
-      const todayStr = formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')
+      const todayStr = businessDateISO()
       const schedules = schedulesRes.data?.schedules ?? []
       const todaySchedules = schedules.filter((s) => s.work_date === todayStr)
       const weeklyHours = schedules.reduce((sum, s) => sum + s.hours, 0)

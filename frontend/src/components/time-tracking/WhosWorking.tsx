@@ -1,3 +1,4 @@
+import { formatBusinessTime } from '../../lib/dateUtils'
 import { useState, useEffect, useCallback, useRef, type JSX } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, getAuthTokenValue } from '../../lib/api'
@@ -184,8 +185,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     no_schedule: { label: 'Off', color: 'text-text-muted/50', dot: 'bg-neutral-warm/60' },
   }
 
-  const fmtTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  const fmtTime = formatBusinessTime
 
   const sourceLabel = (source?: string | null) =>
     ({ kiosk: 'Kiosk', mobile: 'Mobile', admin: 'Admin', legacy: 'Legacy' }[source || ''] || '—')

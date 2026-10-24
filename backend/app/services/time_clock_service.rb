@@ -497,11 +497,11 @@ class TimeClockService
       count
     end
 
-    def hours_today(user, date = Date.current)
+    def hours_today(user, date = BusinessDate.today)
       TimeEntry.countable.for_user(user).for_date(date).sum(:hours).to_f
     end
 
-    def hours_this_week(user, date = Date.current)
+    def hours_this_week(user, date = BusinessDate.today)
       TimeEntry.countable.for_user(user).for_week(date).sum(:hours).to_f
     end
 

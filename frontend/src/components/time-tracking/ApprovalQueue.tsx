@@ -9,7 +9,7 @@ import type {
   TimeCategory,
   TimeEntry,
 } from '../../lib/api'
-import { formatDateISO, formatWorkDate } from '../../lib/dateUtils'
+import { addDateDays, businessDateISO, businessWeekStart, formatWorkDate } from '../../lib/dateUtils'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
@@ -81,18 +81,13 @@ function formatCompactDate(dateString: string | null | undefined) {
   return parseLocalDate(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-function getWeekBounds(date: Date) {
-  const start = new Date(date)
-  start.setDate(start.getDate() - start.getDay())
-  const end = new Date(start)
-  end.setDate(start.getDate() + 6)
-  return { start: formatDateISO(start), end: formatDateISO(end) }
+function getWeekBounds(date: string) {
+  const start = businessWeekStart(date)
+  return { start, end: addDateDays(start, 6) }
 }
 
-function getPreviousWeekBounds(date: Date) {
-  const thisWeek = new Date(date)
-  thisWeek.setDate(thisWeek.getDate() - thisWeek.getDay() - 7)
-  return getWeekBounds(thisWeek)
+function getPreviousWeekBounds(date: string) {
+  return getWeekBounds(addDateDays(date, -7))
 }
 
 function buildPendingApprovalParams(filters: ReviewFilters): Omit<PendingApprovalsParams, 'approval_group'> {
@@ -548,17 +543,15 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
   }
 
   const applyQuickDateFilter = (kind: 'today' | 'yesterday' | 'this_week' | 'last_week' | 'through_today') => {
-    const today = new Date()
+    const today = businessDateISO()
     if (kind === 'today') {
-      const date = formatDateISO(today)
+      const date = today
       updateReviewFilters({ dateMode: 'exact', date })
       return
     }
 
     if (kind === 'yesterday') {
-      const yesterday = new Date(today)
-      yesterday.setDate(today.getDate() - 1)
-      updateReviewFilters({ dateMode: 'exact', date: formatDateISO(yesterday) })
+      updateReviewFilters({ dateMode: 'exact', date: addDateDays(today, -1) })
       return
     }
 
@@ -574,7 +567,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
       return
     }
 
-    updateReviewFilters({ dateMode: 'through', throughDate: formatDateISO(today) })
+    updateReviewFilters({ dateMode: 'through', throughDate: today })
   }
 
   if (loading && !fetchError) {
