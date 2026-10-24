@@ -3,7 +3,12 @@
 require "rails_helper"
 
 RSpec.describe "Affected overtime concurrency" do
+  include ActiveSupport::Testing::TimeHelpers
+
   self.use_transactional_tests = false
+
+  before { travel_to Time.utc(2026, 11, 16, 12) }
+  after { travel_back }
 
   around do |example|
     count = AuditLog.count
@@ -29,7 +34,8 @@ RSpec.describe "Affected overtime concurrency" do
 
   it "serializes clock-out and an earlier approval into one review allocation" do
     zone = ActiveSupport::TimeZone["Pacific/Guam"]
-    sunday = zone.now.to_date.beginning_of_week(:sunday) - 7
+    sunday = Date.new(2026, 10, 18)
+    travel_to zone.local(2026, 10, 23, 8)
     admin = create(:user, :admin)
     user = create(:user, :employee)
     category = create(:time_category)
@@ -44,7 +50,7 @@ RSpec.describe "Affected overtime concurrency" do
     4.times { |i| build_shift.call(sunday + i + 1) }
     friday = build_shift.call(sunday + 5, schedule: schedule, status: "clocked_in", end_time: nil, clock_out_at: nil, hours: 0)
     stop = zone.local(friday.work_date.year, friday.work_date.month, friday.work_date.day, 16)
-    allow(Time).to receive(:current).and_return(stop)
+    travel_to stop
     ready = Queue.new
     start = Queue.new
     errors = Queue.new
@@ -85,7 +91,7 @@ RSpec.describe "Affected overtime concurrency" do
   it "orders a cockpit-style entry lock against a bulk employee-first approval" do
     user = create(:user, :employee)
     category = create(:time_category)
-    entry = create(:time_entry, user: user, time_category: category, work_date: BusinessDate.today - 7,
+    entry = create(:time_entry, user: user, time_category: category, work_date: Date.new(2026, 10, 19),
       entry_method: "clock", status: "completed", approval_status: nil)
     locked = Queue.new
     errors = Queue.new

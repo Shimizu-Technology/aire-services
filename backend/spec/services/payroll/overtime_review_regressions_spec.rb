@@ -3,6 +3,11 @@
 require "rails_helper"
 
 RSpec.describe "Overtime review correctness and bounded work" do
+  include ActiveSupport::Testing::TimeHelpers
+
+  before { travel_to Time.utc(2026, 11, 16, 12) }
+  after { travel_back }
+
   let(:user) { create(:user, :employee) }
   let(:admin) { create(:user, :admin) }
   let(:category) { create(:time_category) }

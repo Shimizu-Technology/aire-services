@@ -1,15 +1,28 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe "Guam payable intervals and affected overtime review" do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
+
+  # Application-only fixtures use a completed fixed week. Revision tests must
+  # observe PostgreSQL's real clock, which travel_to deliberately cannot move.
+  before { |example| travel_to Time.utc(2026, 11, 16, 12) unless example.metadata[:database_clock] }
+  after { travel_back }
 
   let(:user) { create(:user, :employee) }
   let(:admin) { create(:user, :admin) }
   let(:category) { create(:time_category) }
   let(:zone) { ActiveSupport::TimeZone["Pacific/Guam"] }
-  let(:sunday) { Date.new(2026, 10, 18) }
+  let(:sunday) do
+    if RSpec.current_example.metadata[:database_clock]
+      database_clock.to_date.beginning_of_week(:sunday) - 7
+    else
+      Date.new(2026, 10, 18)
+    end
+  end
 
   def shift(date, start_hour, hours, **attrs)
     start = zone.local(date.year, date.month, date.day, start_hour)
@@ -34,13 +47,13 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
 
   it "subtracts only each segment's intersection with a spanning break" do
     overnight = shift(sunday - 1, 22, 4, break_minutes: 60)
-    overnight.time_entry_breaks.create!(start_time: zone.parse("2026-10-17 23:30"), end_time: zone.parse("2026-10-18 00:30"))
+    overnight.time_entry_breaks.create!(start_time: zone.parse("#{sunday - 1} 23:30"), end_time: zone.parse("#{sunday} 00:30"))
     expect(allocation(overnight).fetch(:segments).map { |s| s[:total_hours] }).to eq([ 1.5, 1.5 ])
   end
 
   it "uses Guam today with the overlapping Saturday segment for clock summaries" do
-    shift(sunday - 1, 22, 4)
-    travel_to Time.utc(2026, 10, 17, 15) do
+    travel_to Time.utc(2026, 10, 17, 18) do
+      shift(sunday - 1, 22, 4)
       expect(BusinessDate.today).to eq(sunday)
       expect(TimeClockService.hours_today(user)).to eq(2)
       expect(TimeClockService.hours_this_week(user)).to eq(2)
@@ -52,27 +65,27 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
     expect(allocation(overnight)).to include(hold_reason: "unplaced_overnight_break")
   end
 
-  it "captures break-only changes at the DB clock and reconstructs the cutoff break" do
+  it "captures break-only changes at the DB clock and reconstructs the cutoff break", :database_clock do
     overnight = shift(sunday - 1, 22, 4, break_minutes: 60)
-    brk = overnight.time_entry_breaks.create!(start_time: zone.parse("2026-10-17 23:30"), end_time: zone.parse("2026-10-18 00:30"))
+    brk = overnight.time_entry_breaks.create!(start_time: zone.parse("#{sunday - 1} 23:30"), end_time: zone.parse("#{sunday} 00:30"))
     cutoff = ApplicationRecord.connection.select_value("SELECT clock_timestamp()")
-    brk.update!(start_time: zone.parse("2026-10-18 00:30"), end_time: zone.parse("2026-10-18 01:30"))
+    brk.update!(start_time: zone.parse("#{sunday} 00:30"), end_time: zone.parse("#{sunday} 01:30"))
     state = Payroll::TimeEntryRevisionLedger.new(cutoff_at: cutoff).entries_for_ids([ overnight.id ]).sole
-    expect(state.time_entry_breaks.sole.start_time).to eq(zone.parse("2026-10-17 23:30"))
+    expect(state.time_entry_breaks.sole.start_time).to eq(zone.parse("#{sunday - 1} 23:30"))
     expect(Payroll::WeeklyOvertimeAllocator.call([ state ]).fetch(state.id).fetch(:segments).map { |s| s[:total_hours] }).to eq([ 1.5, 1.5 ])
     brk.destroy!
     expect(Payroll::TimeEntryRevisionLedger.new(cutoff_at: ApplicationRecord.connection.select_value("SELECT clock_timestamp()"))
       .entries_for_ids([ overnight.id ]).sole.time_entry_breaks).to be_empty
   end
 
-  it "records UTC break chronology and cutoff states in a non-UTC SQL session" do
+  it "records UTC break chronology and cutoff states in a non-UTC SQL session", :database_clock do
     connection = ApplicationRecord.connection
     connection.execute("SET LOCAL TimeZone = 'America/New_York'")
     before_insert = connection.select_value("SELECT clock_timestamp()")
     overnight = shift(sunday - 1, 22, 4, break_minutes: 60)
-    brk = overnight.time_entry_breaks.create!(start_time: zone.parse("2026-10-17 23:30"), end_time: zone.parse("2026-10-18 00:30"))
+    brk = overnight.time_entry_breaks.create!(start_time: zone.parse("#{sunday - 1} 23:30"), end_time: zone.parse("#{sunday} 00:30"))
     inserted_at = connection.select_value("SELECT clock_timestamp()")
-    connection.execute("UPDATE time_entry_breaks SET start_time = '2026-10-17 14:30:00', end_time = '2026-10-17 15:30:00' WHERE id = #{brk.id}")
+    connection.execute("UPDATE time_entry_breaks SET start_time = #{connection.quote(zone.parse("#{sunday} 00:30").utc)}, end_time = #{connection.quote(zone.parse("#{sunday} 01:30").utc)} WHERE id = #{brk.id}")
     updated_at = connection.select_value("SELECT clock_timestamp()")
     expect(overnight.reload.updated_at).to be_between(inserted_at, updated_at)
     connection.execute("DELETE FROM time_entry_breaks WHERE id = #{brk.id}")
@@ -83,8 +96,8 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
     inserted = Payroll::TimeEntryRevisionLedger.new(cutoff_at: inserted_at).entries_for_ids([ overnight.id ]).sole
     updated = Payroll::TimeEntryRevisionLedger.new(cutoff_at: updated_at).entries_for_ids([ overnight.id ]).sole
     deleted = Payroll::TimeEntryRevisionLedger.new(cutoff_at: deleted_at).entries_for_ids([ overnight.id ]).sole
-    expect(inserted.time_entry_breaks.sole.start_time).to eq(zone.parse("2026-10-17 23:30"))
-    expect(updated.time_entry_breaks.sole.start_time).to eq(zone.parse("2026-10-18 00:30"))
+    expect(inserted.time_entry_breaks.sole.start_time).to eq(zone.parse("#{sunday - 1} 23:30"))
+    expect(updated.time_entry_breaks.sole.start_time).to eq(zone.parse("#{sunday} 00:30"))
     expect(deleted.time_entry_breaks).to be_empty
   end
 
@@ -167,14 +180,15 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
   it "closes a category at midnight and starts the next category in the receiving week" do
     other = create(:time_category)
     user.assigned_time_categories << [ category, other ]
-    schedule = Schedule.create!(user: user, work_date: sunday - 1, start_time: "08:00", end_time: "23:00")
     from = zone.parse("2026-10-17 22:00")
+    travel_to from
+    schedule = Schedule.create!(user: user, work_date: sunday - 1, start_time: "08:00", end_time: "23:00")
     active = create(:time_entry, user: user, time_category: category, work_date: sunday - 1,
       status: "clocked_in", entry_method: "clock", start_time: from, clock_in_at: from, end_time: nil,
       clock_out_at: nil, hours: 0, schedule: schedule)
-    allow(Time).to receive(:current).and_return(zone.parse("2026-10-18 00:00"))
+    travel_to zone.parse("2026-10-18 00:00")
     next_entry = TimeClockService.switch_category(user: user, time_category_id: other.id, admin_override_by: admin)
-    allow(Time).to receive(:current).and_return(zone.parse("2026-10-18 02:00"))
+    travel_to zone.parse("2026-10-18 02:00")
     TimeClockService.clock_out(user: user)
     expect(active.reload).to have_attributes(work_date: sunday - 1, hours: 2, time_category_id: category.id)
     expect(next_entry.reload).to have_attributes(work_date: sunday, hours: 2, time_category_id: other.id)
@@ -215,6 +229,7 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
     friday = weekdays.last
     first = Payroll::BatchFinalizer.new(start_date: sunday.to_s, end_date: (sunday + 6).to_s, actor: admin).call
     old_bytes = [ first.reload.payload.to_json, first.checksum ]
+    travel 1.second
     TimeClockService.approve_entry(entry: earlier, approved_by: admin)
     pending = Payroll::BatchBuilder.new(start_date: (sunday + 7).to_s, end_date: (sunday + 13).to_s).call
     expect(pending[:rows].select { |row| row[:source_time_entry_id] == friday.id }).to be_empty
@@ -224,20 +239,21 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
     expect(reviewed[:rows]).to include(include(source_time_entry_id: friday.id, regular_hours: -8, overtime_hours: 8, total_hours: 0))
     expect([ first.reload.payload.to_json, first.checksum ]).to eq(old_bytes)
   end
-  it "builds a delayed published cutoff from its observed break positions rather than live breaks" do
+  it "builds a delayed published cutoff from its observed break positions rather than live breaks", :database_clock do
     overnight = shift(sunday - 1, 22, 4, break_minutes: 60)
-    brk = overnight.time_entry_breaks.create!(start_time: zone.parse("2026-10-17 23:30"), end_time: zone.parse("2026-10-18 00:30"))
+    brk = overnight.time_entry_breaks.create!(start_time: zone.parse("#{sunday - 1} 23:30"), end_time: zone.parse("#{sunday} 00:30"))
     cutoff = ApplicationRecord.connection.select_value("SELECT clock_timestamp()")
     cutoff_date = cutoff.in_time_zone(zone).to_date
-    period_start = cutoff_date.day <= 15 ? cutoff_date.beginning_of_month : cutoff_date.change(day: 16)
+    source_date = sunday - 1
+    period_start = source_date.day <= 15 ? source_date.beginning_of_month : source_date.change(day: 16)
     period_end = period_start.day == 1 ? period_start.change(day: 15) : period_start.end_of_month
     # The source can be historical carryover; use a published destination
     # containing the source's nominal date for this probe.
     period = PayrollCalendarPeriod.create!(external_pay_period_id: SecureRandom.uuid,
-      start_date: Date.new(2026, 10, 16), end_date: Date.new(2026, 10, 31), pay_date: [ Date.new(2026, 11, 7), period_end + 14 ].max,
+      start_date: period_start, end_date: period_end, pay_date: [ cutoff_date + 14, period_end + 7 ].max,
       cutoff_at: cutoff, schedule_version: 1, schema_version: "2.0", cutoff_rule: "after_previous_regular_payday", cutoff_days: 1,
       previous_regular_pay_date: cutoff_date - 1, publication_id: SecureRandom.uuid, request_checksum: "a" * 64)
-    brk.update!(start_time: zone.parse("2026-10-18 00:30"), end_time: zone.parse("2026-10-18 01:30"))
+    brk.update!(start_time: zone.parse("#{sunday} 00:30"), end_time: zone.parse("#{sunday} 01:30"))
     result = Payroll::BatchBuilder.new(start_date: period.start_date.to_s, end_date: period.end_date.to_s,
       cutoff_at: cutoff, calendar_period: period).call
     expect(result[:rows].select { |row| row[:source_time_entry_id] == overnight.id }.map { |row| [ row[:work_date], row[:total_hours] ] })

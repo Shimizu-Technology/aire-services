@@ -3,6 +3,11 @@
 require "rails_helper"
 
 RSpec.describe "Interval batch history and receipts", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
+
+  before { travel_to Time.utc(2026, 11, 16, 12) }
+  after { travel_back }
+
   let(:admin) { create(:user, :admin) }
   let(:user) { create(:user, :employee) }
   let(:category) { create(:time_category) }
@@ -65,6 +70,7 @@ RSpec.describe "Interval batch history and receipts", type: :request do
     batch = finalize
     batch.payroll_batch_entries.each { |line| receipt(batch, line) }
     original = frozen_bytes(batch)
+    travel 1.second
     overnight.update!(end_time: zone.parse("2026-10-18 01:00"), clock_out_at: zone.parse("2026-10-18 01:00"), approval_status: "pending")
     TimeClockService.approve_entry(entry: overnight, approved_by: admin)
     result = Payroll::BatchBuilder.new(start_date: "2026-11-01", end_date: "2026-11-15").call
@@ -100,6 +106,7 @@ RSpec.describe "Interval batch history and receipts", type: :request do
     old_state = Payroll::TimeEntryRevisionLedger.new(cutoff_at: pre_upgrade_cutoff).entries_for_ids([ overnight.id ]).sole
     expect(Payroll::WeeklyOvertimeAllocator.call([ old_state ]).fetch(overnight.id))
       .to include(hold_reason: "missing_break_chronology")
+    travel 1.second
     overnight.reload.update!(description: "Unrelated post-upgrade note")
     create(:time_entry, user: user, time_category: category, work_date: Date.new(2026, 10, 20))
     expect(frozen_bytes(batch)).to eq(original)

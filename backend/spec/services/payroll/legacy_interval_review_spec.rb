@@ -1,6 +1,11 @@
 require 'rails_helper'
 
 RSpec.describe 'PR 138 independent upgrade and boundary probes' do
+  include ActiveSupport::Testing::TimeHelpers
+
+  before { travel_to Time.utc(2026, 11, 16, 12) }
+  after { travel_back }
+
   let(:zone) { ActiveSupport::TimeZone['Pacific/Guam'] }
   let(:sunday) { Date.new(2026, 10, 18) }
   let(:employee) { create(:user, :employee) }
@@ -50,6 +55,7 @@ RSpec.describe 'PR 138 independent upgrade and boundary probes' do
     first=Payroll::BatchFinalizer.new(start_date: sunday, end_date: sunday+6, actor: admin).call
     expect(first.payroll_batch_entries.find_by!(source_time_entry_id: friday.id).regular_hours).to eq(8)
     frozen = first.attributes
+    travel 1.second
     TimeEntry.where(user: employee).update_all(overtime_allocation_signature: nil, allocation_contract_version: nil)
     allow_any_instance_of(Payroll::BatchBuilder).to receive(:allocation_contract_version).and_call_original
     TimeClockService.approve_entry(entry: earlier.reload, approved_by: admin)
@@ -70,9 +76,14 @@ RSpec.describe 'PR 138 independent upgrade and boundary probes' do
     friday.reload.update_columns(overtime_status: 'approved', overtime_approved_at: reviewed_at, overtime_approved_by_id: admin.id)
     # Compare the persisted approval, after PostgreSQL's microsecond serialization.
     reviewed_at = friday.reload.overtime_approved_at
+    # The preview must follow the subsecond approval, even at a frozen clock.
+    travel 1.second
+    expect(reviewed_at).to be < Time.current
     friday.update!(description: 'Legacy note leaves the reviewed split unchanged')
     expect(friday.reload).to have_attributes(overtime_status: 'approved', overtime_approved_at: reviewed_at, allocation_contract_version: nil)
-    expect(Payroll::BatchBuilder.new(start_date: sunday, end_date: sunday + 6).call[:rows])
+    preview = Payroll::BatchBuilder.new(start_date: sunday, end_date: sunday + 6).call
+    expect(preview[:exclusions]).to be_empty
+    expect(preview[:rows])
       .to include(include(source_time_entry_id: friday.id, overtime_hours: 8))
   end
 end

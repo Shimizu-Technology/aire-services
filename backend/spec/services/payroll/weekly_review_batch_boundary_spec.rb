@@ -1,5 +1,10 @@
 require 'rails_helper'
 RSpec.describe 'Independent pair-query boundary probe' do
+  include ActiveSupport::Testing::TimeHelpers
+
+  before { travel_to Time.utc(2026, 11, 16, 12) }
+  after { travel_back }
+
   it 'does not count one overnight source twice across pair query batches' do
     zone=ActiveSupport::TimeZone['Pacific/Guam']
     employee=create(:user, :employee)
