@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe "Payment attestation retraction in V2 calendars" do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:actor) { create(:user, :admin) }
@@ -11,23 +13,37 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
   let(:recorder) { Payroll::PaymentAttestationRecorder.new(actor: actor) }
   let(:reason) { "Owner corrected the payment statement after reviewing the original check evidence." }
 
-  def period(start_date, payday, previous_payday)
-    cutoff = previous_payday + 7.days
+  let(:fixture_clock) { database_clock }
+  let(:source_start) { payroll_calendar_at(fixture_clock).fetch(:start_date) }
+  let(:source_date) { source_start + 2.days }
+
+  def origin_period
+    cutoff = capture_payroll_cutoff
+    create_v2_period(source_start, cutoff)
+  end
+
+  def create_v2_period(start_date, cutoff)
+    end_date = start_date.day == 1 ? start_date.change(day: 15) : start_date.end_of_month
+    pay_date = [ end_date + 16.days, cutoff.to_date + 9.days ].max
     create(:payroll_calendar_period,
-           start_date: start_date, end_date: start_date.day == 1 ? start_date.change(day: 15) : start_date.end_of_month,
-           pay_date: payday, schema_version: "2.0", cutoff_rule: "after_previous_regular_payday",
-           cutoff_days: 7, previous_regular_pay_date: previous_payday,
-           cutoff_at: guam.local(cutoff.year, cutoff.month, cutoff.day, 17),
-           next_finalization_attempt_at: guam.local(cutoff.year, cutoff.month, cutoff.day, 17))
+           start_date: start_date, end_date: end_date, pay_date: pay_date,
+           schema_version: "2.0", cutoff_rule: "after_previous_regular_payday",
+           cutoff_days: 7, previous_regular_pay_date: cutoff.to_date - 7.days,
+           cutoff_at: cutoff, next_finalization_attempt_at: cutoff)
+  end
+
+  def following_period(origin, cutoff: nil)
+    cutoff ||= payroll_time(origin.pay_date + 7.days)
+    create_v2_period(next_payroll_start(origin.start_date), cutoff)
   end
 
   def held_case_fixture
-    origin = period(Date.new(2026, 10, 1), Date.new(2026, 10, 31), Date.new(2026, 10, 15))
-    old_target = period(Date.new(2026, 10, 16), Date.new(2026, 11, 15), Date.new(2026, 10, 31))
-    target = period(Date.new(2026, 11, 1), Date.new(2026, 11, 30), Date.new(2026, 11, 15))
-    entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 3),
+    entry = create(:time_entry, user: employee, work_date: source_date,
                    entry_method: "manual", status: "completed", approval_status: "pending", overtime_status: "none",
-                   created_at: guam.local(2026, 10, 3, 17), updated_at: guam.local(2026, 10, 3, 17))
+                   created_at: fixture_clock - 1.day, updated_at: fixture_clock - 1.day)
+    origin = origin_period
+    old_target = following_period(origin)
+    target = following_period(old_target)
     travel_to(origin.cutoff_at + 1.minute) do
       expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
       entry.update!(approval_status: "approved", approved_by: actor, approved_at: Time.current)
@@ -53,13 +69,22 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
   it "returns old held work to explicit review and then previews and finalizes its named future destination" do
     origin, old_target, target, entry, settlement_case = held_case_fixture
     origin_checksum = origin.payroll_batch.checksum
-    travel_to(origin.cutoff_at + 1.hour) do
+    travel_to(database_clock, with_usec: true) do
+      # Finish shared setup before starting the bounded cutoff window. Keep
+      # the attestation before it and the later source revision after it.
+      closing_cutoff = database_clock + 2.seconds
+      old_target.update!(cutoff_at: closing_cutoff, next_finalization_attempt_at: closing_cutoff,
+                         previous_regular_pay_date: closing_cutoff.to_date - 7.days)
+      expect(old_target.cutoff_at).to be > database_clock
       attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
                                     reason: "Owner reported payment; the physical check evidence has not been verified")
       expect(settlement_case.reload.status).to eq("superseded")
       travel_back
       travel_to(old_target.cutoff_at + 1.minute)
+      wait_for_database_cutoff(old_target.cutoff_at)
       entry.update!(description: "Source correction requiring fresh review")
+      expect(PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last.recorded_at)
+        .to be > old_target.cutoff_at
       recorder.retract!(attestation: attestation.reload, reason: reason)
 
       expect(settlement_case.reload).to have_attributes(
@@ -103,16 +128,16 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
   end
 
   it "routes work held before its first cutoff after retraction" do
-    origin = period(Date.new(2026, 10, 1), Date.new(2026, 10, 31), Date.new(2026, 10, 15))
-    target = period(Date.new(2026, 10, 16), Date.new(2026, 11, 15), Date.new(2026, 10, 31))
     entry = nil
     attestation = nil
-    travel_to(guam.local(2026, 10, 3, 17)) do
-      entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 3),
+    travel_to(fixture_clock - 1.day) do
+      entry = create(:time_entry, user: employee, work_date: source_date,
                      entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current)
       attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
                                     reason: "Owner reported payment before any cutoff; check evidence remains pending")
     end
+    origin = origin_period
+    target = following_period(origin)
     travel_to(origin.cutoff_at + 1.minute) do
       expect(preview(origin).fetch(:exclusions).sole.fetch(:reason)).to eq("pending_payment_attestation")
       expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
@@ -134,16 +159,16 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
   end
 
   it "retains cutoff-held hours when retraction precedes the delayed first finalizer" do
-    origin = period(Date.new(2026, 10, 1), Date.new(2026, 10, 31), Date.new(2026, 10, 15))
-    target = period(Date.new(2026, 10, 16), Date.new(2026, 11, 15), Date.new(2026, 10, 31))
     entry = nil
     attestation = nil
-    travel_to(guam.local(2026, 10, 3, 17)) do
-      entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 3),
+    travel_to(fixture_clock - 1.day) do
+      entry = create(:time_entry, user: employee, work_date: source_date,
                      entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current)
       attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
                                     reason: "Owner reported payment before cutoff; check evidence still requires review")
     end
+    origin = origin_period
+    target = following_period(origin)
     travel_to(origin.cutoff_at + 1.minute) do
       recorder.retract!(attestation: attestation, reason: reason)
       expect(origin.reload.payroll_batch_id).to be_nil
@@ -178,18 +203,18 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
   end
 
   it "admits a hold retracted before cutoff but retains a later hold through delayed finalization" do
-    origin = period(Date.new(2026, 10, 1), Date.new(2026, 10, 31), Date.new(2026, 10, 15))
     released_entry = nil
     later_entry = nil
-    travel_to(guam.local(2026, 10, 3, 17)) do
-      released_entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 3),
+    travel_to(fixture_clock - 1.day) do
+      released_entry = create(:time_entry, user: employee, work_date: source_date,
                               entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current)
-      later_entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 4),
+      later_entry = create(:time_entry, user: employee, work_date: source_date + 1.day,
                            entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current)
       attestation = recorder.attest!(entry: released_entry, source_user_uuid: employee.payroll_integration_uuid,
                                     reason: "Owner reported payment before cutoff; original check evidence remains pending")
       recorder.retract!(attestation: attestation, reason: reason)
     end
+    origin = origin_period
     travel_to(origin.cutoff_at + 1.minute) do
       later_hold = recorder.attest!(entry: later_entry, source_user_uuid: employee.payroll_integration_uuid,
                                    reason: "Owner reported payment while finalization was delayed; evidence remains pending")
@@ -206,16 +231,16 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
   end
 
   it "creates explicit review for a legacy frozen period that omitted the held source" do
-    origin = period(Date.new(2026, 10, 1), Date.new(2026, 10, 31), Date.new(2026, 10, 15))
-    target = period(Date.new(2026, 10, 16), Date.new(2026, 11, 15), Date.new(2026, 10, 31))
     entry = nil
     attestation = nil
-    travel_to(guam.local(2026, 10, 3, 17)) do
-      entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 3),
+    travel_to(fixture_clock - 1.day) do
+      entry = create(:time_entry, user: employee, work_date: source_date,
                      entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current)
       attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
                                     reason: "Owner reported payment before any cutoff; original evidence still pending")
     end
+    origin = origin_period
+    target = following_period(origin)
     travel_to(origin.cutoff_at + 1.minute) do
       batch = create(:payroll_batch, start_date: origin.start_date, end_date: origin.end_date, cutoff_at: origin.cutoff_at)
       origin.update!(status: "finalized", payroll_batch: batch, finalized_at: Time.current)
@@ -233,15 +258,15 @@ RSpec.describe "Payment attestation retraction in V2 calendars" do
 
   [ [ "open", "changed_after_cutoff" ], [ "superseded", "pending_payment_attestation" ] ].each do |status, origin_reason|
     it "preserves a concurrently returned #{status} #{origin_reason} fallback case" do
-      origin = period(Date.new(2026, 10, 1), Date.new(2026, 10, 31), Date.new(2026, 10, 15))
       entry = nil
       attestation = nil
-      travel_to(guam.local(2026, 10, 3, 17)) do
-        entry = create(:time_entry, user: employee, work_date: Date.new(2026, 10, 3),
+      travel_to(fixture_clock - 1.day) do
+        entry = create(:time_entry, user: employee, work_date: source_date,
                        entry_method: "manual", status: "completed", approval_status: "approved", approved_at: Time.current)
         attestation = recorder.attest!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
                                       reason: "Owner reported payment before cutoff; original evidence still requires review")
       end
+      origin = origin_period
       travel_to(origin.cutoff_at + 1.minute) do
         batch = create(:payroll_batch, start_date: origin.start_date, end_date: origin.end_date, cutoff_at: origin.cutoff_at)
         origin.update!(status: "finalized", payroll_batch: batch, finalized_at: Time.current)

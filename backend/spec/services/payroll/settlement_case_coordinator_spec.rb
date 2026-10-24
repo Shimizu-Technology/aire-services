@@ -1,24 +1,24 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe Payroll::SettlementCaseCoordinator do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:employee) { create(:user, :employee, first_name: "Case", last_name: "Worker") }
   let(:category) { create(:time_category, name: "Operations") }
 
-  def calendar_period(start_date:, pay_date:, external_id: SecureRandom.uuid)
-    create(
-      :payroll_calendar_period,
-      external_pay_period_id: external_id,
-      start_date: start_date,
-      end_date: start_date.day == 1 ? start_date.change(day: 15) : start_date.end_of_month,
-      pay_date: pay_date,
-      cutoff_at: guam.local(pay_date.year, pay_date.month, pay_date.day, 17) - 7.days,
-      next_finalization_attempt_at: guam.local(pay_date.year, pay_date.month, pay_date.day, 17) - 7.days
-    )
+  let(:source_period) { build(:payroll_calendar_period, **payroll_calendar_at(database_clock)) }
+
+  def origin_period(external_id: SecureRandom.uuid)
+    create(:payroll_calendar_period, **payroll_calendar_at(capture_payroll_cutoff), external_pay_period_id: external_id)
+  end
+
+  def following_period(origin, external_id: SecureRandom.uuid)
+    create(:payroll_calendar_period, **payroll_calendar_for(next_payroll_start(origin.start_date)), external_pay_period_id: external_id)
   end
 
   def entry(period:, approval_status: "pending", created_at: period.cutoff_at - 1.day)
@@ -39,9 +39,9 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "creates a durable case for held time and names the next published regular payroll" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "regular-oct-1")
-    target = calendar_period(start_date: Date.new(2026, 10, 16), pay_date: Date.new(2026, 11, 10), external_id: "regular-oct-2")
-    held = entry(period: origin)
+    held = entry(period: source_period)
+    origin = origin_period(external_id: "regular-oct-1")
+    target = following_period(origin, external_id: "regular-oct-2")
 
     travel_to(origin.cutoff_at + 1.minute) do
       expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
@@ -65,8 +65,8 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "captures time submitted after a finalized cutoff and gives it a named destination" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "late-origin")
-    target = calendar_period(start_date: Date.new(2026, 10, 16), pay_date: Date.new(2026, 11, 10), external_id: "late-target")
+    origin = origin_period(external_id: "late-origin")
+    target = following_period(origin, external_id: "late-target")
     travel_to(origin.cutoff_at + 1.minute) do
       expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
     end
@@ -83,11 +83,11 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "skips a failed period that cannot be retried when automatically naming the next payroll" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "failed-route-origin")
-    unavailable = calendar_period(start_date: Date.new(2026, 10, 16), pay_date: Date.new(2026, 11, 10), external_id: "failed-route-target")
+    held = entry(period: source_period)
+    origin = origin_period(external_id: "failed-route-origin")
+    unavailable = following_period(origin, external_id: "failed-route-target")
     unavailable.update!(status: "failed", next_finalization_attempt_at: nil)
-    available = calendar_period(start_date: Date.new(2026, 11, 1), pay_date: Date.new(2026, 11, 25), external_id: "scheduled-route-target")
-    held = entry(period: origin)
+    available = following_period(unavailable, external_id: "scheduled-route-target")
 
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
@@ -102,7 +102,7 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "preserves the initiating administrator on asynchronously captured case events" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "actor-origin")
+    origin = origin_period(external_id: "actor-origin")
     admin = create(:user, :admin)
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
@@ -120,9 +120,9 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "captures the paid-hour correction when an included entry becomes unpayable after cutoff" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "approval-origin")
-    target = calendar_period(start_date: Date.new(2026, 10, 16), pay_date: Date.new(2026, 11, 10), external_id: "approval-target")
-    paid = entry(period: origin, approval_status: "approved")
+    paid = entry(period: source_period, approval_status: "approved")
+    origin = origin_period(external_id: "approval-origin")
+    target = following_period(origin, external_id: "approval-target")
 
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
@@ -140,9 +140,9 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "does not pull a supplemental case into a regular payroll batch" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "supp-origin")
-    target = calendar_period(start_date: Date.new(2026, 10, 16), pay_date: Date.new(2026, 11, 10), external_id: "supp-target")
-    held = entry(period: origin)
+    held = entry(period: source_period)
+    origin = origin_period(external_id: "supp-origin")
+    target = following_period(origin, external_id: "supp-target")
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
     end
@@ -169,10 +169,10 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "keeps a named correction path when previously included time is deleted" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "delete-origin")
-    target = calendar_period(start_date: Date.new(2026, 10, 16), pay_date: Date.new(2026, 11, 10), external_id: "delete-target")
-    included = entry(period: origin, approval_status: "approved")
+    included = entry(period: source_period, approval_status: "approved")
     included.update_columns(entry_method: "clock", clock_source: "kiosk")
+    origin = origin_period(external_id: "delete-origin")
+    target = following_period(origin, external_id: "delete-target")
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
       described_class.record_deletion!(included, actor: create(:user, :admin))
@@ -194,9 +194,9 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "supersedes an unassigned correction before creating the deletion case" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "unassigned-delete-origin")
-    included = entry(period: origin, approval_status: "approved")
+    included = entry(period: source_period, approval_status: "approved")
     included.update_columns(entry_method: "clock", clock_source: "kiosk")
+    origin = origin_period(external_id: "unassigned-delete-origin")
 
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
@@ -212,8 +212,8 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "keeps not-payable settlement cases out of the ready-for-payroll count" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25), external_id: "not-payable-origin")
-    held = entry(period: origin)
+    held = entry(period: source_period)
+    origin = origin_period(external_id: "not-payable-origin")
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
     end
@@ -266,8 +266,8 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "revisits a recent finalized period without duplicate markers or failure events" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25))
-    entry(period: origin)
+    entry(period: source_period)
+    origin = origin_period
 
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
@@ -282,7 +282,7 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "captures newly added late work when a recent period already has a marker" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25))
+    origin = origin_period
 
     travel_to(origin.cutoff_at + 1.minute) do
       Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call
@@ -298,7 +298,7 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
   end
 
   it "keeps the database uniqueness constraint on reconciliation markers" do
-    origin = calendar_period(start_date: Date.new(2026, 10, 1), pay_date: Date.new(2026, 10, 25))
+    origin = origin_period
     marker = PayrollSettlementReconciliation.create_or_find_by!(payroll_calendar_period: origin) do |record|
       record.reconciled_at = Time.current
     end

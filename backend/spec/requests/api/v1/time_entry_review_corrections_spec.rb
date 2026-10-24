@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../../support/payroll_clock_helpers"
 
 RSpec.describe "Explicit time entry review corrections", type: :request do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
   let(:admin) { create(:user, :admin) }
   let(:employee) { create(:user, :employee) }
   let(:category) { create(:time_category) }
@@ -167,17 +169,25 @@ RSpec.describe "Explicit time entry review corrections", type: :request do
     expect(AuditLog.where(action: "time_entry.clock_ended")).to be_empty
   end
 
-  it "captures post-cutoff changes through the normal job and keeps the origin case" do
-    entry.update_columns(created_at: start, updated_at: start)
-    period = create(:payroll_calendar_period, start_date: start.to_date, end_date: start.to_date + 14.days,
-                    pay_date: Date.new(2026, 11, 30), cutoff_at: zone.local(2026, 11, 23, 17))
-    expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id).call[:status]).to eq("finalized")
-    origin = PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)
-    expect { submit }.to have_enqueued_job(PayrollSettlementCaseCaptureJob).with(entry.id, nil, admin.id)
-    expect(response).to have_http_status(:ok)
-    PayrollSettlementCaseCaptureJob.perform_now(entry.id, nil, admin.id)
-    expect(origin.reload.origin_reason).to eq("open_clock")
-    expect(origin.source_time_entry_id).to eq(entry.id)
+  context "with a cutoff captured after the source revision" do
+    let(:start) { payroll_time(payroll_calendar_at(database_clock).fetch(:start_date), hour: 8) }
+
+    it "captures post-cutoff changes through the normal job and keeps the origin case" do
+      entry.update_columns(created_at: database_clock - 1.day, updated_at: database_clock - 1.day)
+      cutoff = capture_payroll_cutoff
+      period = create(:payroll_calendar_period, **payroll_calendar_at(cutoff))
+      travel_to(cutoff + 1.minute)
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: period.id).call[:status]).to eq("finalized")
+      origin = PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)
+      wait_for_database_cutoff(cutoff)
+      expect { submit(overrides: { stop_date: start.to_date.iso8601 }) }
+        .to have_enqueued_job(PayrollSettlementCaseCaptureJob).with(entry.id, nil, admin.id)
+      expect(response).to have_http_status(:ok)
+      expect(PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last.recorded_at).to be > cutoff
+      PayrollSettlementCaseCaptureJob.perform_now(entry.id, nil, admin.id)
+      expect(origin.reload.origin_reason).to eq("open_clock")
+      expect(origin.source_time_entry_id).to eq(entry.id)
+    end
   end
 
   it "recomputes weekly overtime and clears prior overtime approval" do

@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe Payroll::CarryoverQueue do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
   around { |example| travel_to(Time.utc(2026, 10, 1)) { example.run } }
 
@@ -68,7 +70,7 @@ RSpec.describe Payroll::CarryoverQueue do
 
     it "requires review until an operator routes the approved entry to a regular period" do
       settlement_case = case_for(target, exclusion)
-      future = create(:payroll_calendar_period, start_date: Date.new(2026, 11, 1), end_date: Date.new(2026, 11, 15))
+      future = create(:payroll_calendar_period, **payroll_calendar_for(future_payroll_month))
       Payroll::SettlementCaseCoordinator.prepare_for_period!(future)
       expect(settlement_case.reload).to have_attributes(status: "open", destination_kind: "unassigned")
       expect(PayrollBatchExclusion::CARRYOVER_REASONS).not_to include("denied_approval")
@@ -359,7 +361,7 @@ RSpec.describe Payroll::CarryoverQueue do
       source_kind: "current", line_key: "category:#{category.id}",
       total_hours: 8, regular_hours: 8, overtime_hours: 0, snapshot: {}
     )
-    future = create(:payroll_calendar_period, start_date: Date.new(2026, 11, 1), end_date: Date.new(2026, 11, 15))
+    future = create(:payroll_calendar_period, **payroll_calendar_for(future_payroll_month))
     admin = create(:user, :admin)
     Payroll::SettlementCaseCoordinator.finalize_period!(period: origin, batch: batch, actor: admin)
     settlement_case = PayrollSettlementCase.find_by!(source_time_entry_id: target.id)

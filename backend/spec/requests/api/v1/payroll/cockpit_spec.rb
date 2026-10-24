@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../../../support/payroll_clock_helpers"
 
 RSpec.describe "Payroll cockpit API", type: :request do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
   let(:secret) { "cornerstone-cockpit-secret" }
   let(:admin) { create(:user, :admin, is_active: true, personal_access_enabled: true) }
@@ -1108,10 +1110,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
     target = create(
       :payroll_calendar_period,
       external_pay_period_id: "nonretryable-target",
-      start_date: Date.new(2026, 11, 1),
-      end_date: Date.new(2026, 11, 15),
-      pay_date: Date.new(2026, 11, 25),
-      cutoff_at: ActiveSupport::TimeZone["Pacific/Guam"].local(2026, 11, 18, 17),
+      **payroll_calendar_for(future_payroll_month),
       status: "failed",
       next_finalization_attempt_at: nil,
       last_finalization_error: "Requires operator review"
