@@ -439,7 +439,12 @@ module Payroll
         closing = settlement_case.payroll_settlement_case_events.reorder(:id).last
         next unless manual_settlement_evidence?(closing, allocation, method, reference)
 
-        SettlementCaseCoordinator.transition!(settlement_case, status: "in_payroll", resolved_at: nil,
+        current_case = PayrollSettlementCase.active.where(origin_payroll_batch_id: settlement_case.origin_payroll_batch_id,
+          source_time_entry_id: settlement_case.source_time_entry_id).lock.first
+        # A newer correction keeps its named authority. The verified cancellation
+        # supersedes the paid history without reopening a second active case.
+        state = current_case ? { status: "superseded", resolved_at: Time.current } : { status: "in_payroll", resolved_at: nil }
+        SettlementCaseCoordinator.transition!(settlement_case, **state,
           event_type: "payment_cancelled", actor: @actor, occurred_at: Time.current,
           metadata: { external_pay_period_id: allocation.external_pay_period_id,
                       external_payroll_item_id: allocation.external_payroll_item_id, payment_method: method,
@@ -447,7 +452,8 @@ module Payroll
                       retained_manual_allocation_component_ids: components.map { |component| component[:allocation_id] },
                       retained_manual_allocation_components: components,
                       cancelled_component_committed_hours: allocation.total_hours.to_s("F"),
-                      reason: reason, physical_cancelled_at: cancelled_at.iso8601, committed_hours_retained: true })
+                      reason: reason, physical_cancelled_at: cancelled_at.iso8601, committed_hours_retained: true,
+                      current_settlement_case_id: current_case&.public_id }.compact)
       end
     end
 

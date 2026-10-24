@@ -155,6 +155,47 @@ RSpec.describe "Manual reservation review boundaries" do
     expect(historical_case.reload.attributes).to eq(historical)
   end
 
+  it "cancels historical manual payment without reopening over an active source correction" do
+    allocation = reserve
+    period = origin
+    batch = finalize(period)
+    original = create(:payroll_settlement_case, origin_payroll_batch: batch,
+      source_time_entry_id: entry.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+      original_work_date: entry.work_date, source_time_entry_version: entry.lock_version)
+    issue(allocation, "original-eight")
+    expect(original.reload.status).to eq("settled")
+    target = create(:payroll_calendar_period, **payroll_calendar_for(next_payroll_start(period.start_date)))
+    Payroll::TimeEntryCorrection.new(entry: entry, attributes: { end_time: (entry.end_time + 1.hour).iso8601 },
+      actor: actor, reason: "Verified one extra source hour after original manual payment").call
+    TimeClockService.approve_entry(entry: entry, approved_by: actor, note: "Verified corrected source hours")
+    Payroll::SettlementCaseCoordinator.record_entry!(entry.reload, actor: actor)
+    current = PayrollSettlementCase.active.find_by!(origin_payroll_batch: batch, source_time_entry_id: entry.id)
+    expect(current).to have_attributes(status: "scheduled", target_payroll_calendar_period: target)
+    current_before = current.attributes
+    historical_events = original.payroll_settlement_case_events.map(&:attributes)
+    frozen_before = batch.attributes
+
+    expect do
+      PayrollManualAllocation.transaction(requires_new: true) { cancel(allocation, "original-eight") }
+    end.not_to raise_error
+    expect(allocation.reload).to have_attributes(status: "committed", payment_reference: nil)
+    expect(original.reload).to have_attributes(status: "superseded", included_payroll_batch_id: nil)
+    expect(current.reload.attributes).to eq(current_before)
+    expect(PayrollSettlementCase.active.where(origin_payroll_batch: batch, source_time_entry_id: entry.id).pluck(:id)).to eq([ current.id ])
+    history = original.payroll_settlement_case_events.reload.map(&:attributes)
+    expect(history.first(historical_events.length)).to eq(historical_events)
+    expect(original.payroll_settlement_case_events.last).to have_attributes(event_type: "payment_cancelled", to_status: "superseded")
+    expect(original.payroll_settlement_case_events.last.metadata).to include("current_settlement_case_id" => current.public_id,
+      "manual_allocation_id" => allocation.id.to_s, "committed_hours_retained" => true)
+    expect(PayrollManualAllocation.active.where(time_entry_id: entry.id).sum("regular_hours + overtime_hours")).to eq(8)
+    expect(batch.reload.attributes).to eq(frozen_before)
+
+    release(allocation)
+    expect(current.reload).to have_attributes(status: "open", destination_kind: "unassigned", held_total_hours: 9)
+    expect(original.reload.status).to eq("superseded")
+    expect(PayrollManualAllocation.active.where(time_entry_id: entry.id)).to be_empty
+  end
+
   it "F2 scopes coverage to relevant allocations and preserves other reconciliation work on legacy gaps" do
     old = historical_period
     legacy = direct_allocation(work_date: old.start_date + 2.days, status: "voided", created_at: old.cutoff_at - 1.day)
