@@ -110,7 +110,7 @@ module Api
               scheduled: counts.fetch("scheduled", 0),
               in_payroll: counts.fetch("in_payroll", 0),
               settled: counts.fetch("settled", 0),
-              attention_due: aggregate_scope.active.where(action_due_on: ..Date.current).count
+              attention_due: aggregate_scope.active.where(action_due_on: ..BusinessDate.today).count
             }
           end
         end

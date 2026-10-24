@@ -125,6 +125,24 @@ describe('ApprovalQueue review workflow', () => {
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
   })
 
+  it.each([
+    ['Today', { date: '2026-11-01' }],
+    ['Yesterday', { date: '2026-10-31' }],
+    ['This week', { start_date: '2026-11-01', end_date: '2026-11-07' }],
+    ['Last week', { start_date: '2026-10-25', end_date: '2026-10-31' }],
+    ['Through today', { through_date: '2026-11-01' }],
+  ])('uses Guam for the %s quick date filter', async (label, expected) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-31T14:30:00Z'))
+    try {
+      render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded isAdmin />)
+      fireEvent.click(await screen.findByRole('button', { name: label }))
+      await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining(expected)))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each([true, false])('passes the admin role (%s) to the denied overtime editor', async (isAdmin) => {
     const denied = makeEntry({ version: 7, approval_status: 'denied', overtime_status: 'pending' })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [denied], count: 1, summary } })

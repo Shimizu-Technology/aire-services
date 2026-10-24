@@ -105,7 +105,7 @@ module Payroll
             destination_kind: "not_payable",
             target_payroll_calendar_period: nil,
             target_external_pay_period_id: nil,
-            action_due_on: action_due_on || Date.current,
+            action_due_on: action_due_on || BusinessDate.today,
             included_payroll_batch: nil,
             resolved_at: Time.current
           },

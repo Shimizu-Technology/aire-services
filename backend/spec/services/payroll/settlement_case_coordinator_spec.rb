@@ -235,6 +235,25 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
     expect(queue.fetch(:summary)).to include(ready_for_next_batch_count: 0, not_payable_count: 1)
   end
 
+  it "starts the reconciliation lookback on Guam today on a UTC server" do
+    batch = create(:payroll_batch)
+    period = create(:payroll_calendar_period, start_date: batch.start_date, end_date: batch.end_date,
+      pay_date: Date.new(2026, 9, 25), cutoff_at: batch.cutoff_at,
+      status: "finalized", payroll_batch: batch, finalized_at: batch.finalized_at)
+    PayrollSettlementReconciliation.create!(payroll_calendar_period: period, reconciled_at: Time.current)
+    allow(described_class).to receive(:reconciliation_lookback_days).and_return(39)
+
+    Time.use_zone("UTC") do
+      travel_to(Time.utc(2026, 10, 24, 14, 30)) do
+        # Oct 25 minus 39 days is Sep 16: the reconciled Sep 15 period is out.
+        expect(described_class.send(:reconciliation_scope)).not_to include(period)
+        # Unmarked historical periods are still reconciled once.
+        period.payroll_settlement_reconciliation.destroy!
+        expect(described_class.send(:reconciliation_scope)).to include(period)
+      end
+    end
+  end
+
   it "reconciles old unmarked periods once while continuing to revisit recent periods" do
     old_batch = create(
       :payroll_batch,
