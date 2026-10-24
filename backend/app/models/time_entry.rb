@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 class TimeEntry < ApplicationRecord
+  MAX_CLOCK_SPAN = 24.hours
+  ADMINISTRATOR_CORRECTION_NOTE = "Needs administrator correction: clock spans 24 hours or more; confirm punches and breaks before approval".freeze
+
   ENTRY_METHODS = %w[clock manual].freeze
   CLOCK_SOURCES = %w[kiosk mobile admin legacy].freeze
   STATUSES = %w[clocked_in on_break completed].freeze
@@ -30,7 +33,8 @@ class TimeEntry < ApplicationRecord
   validate :end_time_after_start_time
   validate :selected_time_category_is_active, if: :validate_selected_time_category?
 
-  before_validation :calculate_hours_from_times, if: -> { start_time.present? && end_time.present? }
+  before_validation :calculate_hours_from_times, if: :time_calculation_required?
+  validate :held_clock_cannot_be_approved
   before_validation :set_zero_hours_if_clocked_in, if: -> { status.in?(%w[clocked_in on_break]) }
   after_commit :capture_post_cutoff_payroll_case, on: [ :create, :update ], if: :payroll_case_relevant_change?
 
@@ -124,8 +128,29 @@ class TimeEntry < ApplicationRecord
     hours.round(2)
   end
 
+  def actual_elapsed_hours
+    return unless clock_entry? && clock_in_at && clock_out_at
+
+    (clock_out_at - clock_in_at) / 3600.0
+  end
+
+  def needs_administrator_correction?
+    actual_elapsed_hours.to_f >= MAX_CLOCK_SPAN / 3600.0
+  end
+
   def calculate_hours_from_times
-    return unless start_time.present? && end_time.present?
+    # Some correction services call this explicitly for note-only edits. Do not
+    # reinterpret historical approved punches unless calculation inputs changed.
+    return unless time_calculation_required?
+
+    if needs_administrator_correction?
+      self.hours = 0
+      self.approval_status = "pending"
+      self.approved_by = nil
+      self.approved_at = nil
+      self.approval_note = [ approval_note.presence, ADMINISTRATOR_CORRECTION_NOTE ].compact.uniq.join(" | ") unless approval_note.to_s.include?(ADMINISTRATOR_CORRECTION_NOTE)
+      return
+    end
 
     start_seconds = start_time.utc.seconds_since_midnight
     end_seconds = end_time.utc.seconds_since_midnight
@@ -135,6 +160,13 @@ class TimeEntry < ApplicationRecord
     end
 
     duration_hours = (end_seconds - start_seconds) / 3600.0
+    # Actual timestamps retain the date and precision absent from nominal TIME
+    # columns. Corrected nominal endpoints deliberately remain authoritative.
+    if clock_entry? && clock_in_at && clock_out_at &&
+       start_seconds == clock_in_at.utc.seconds_since_midnight &&
+       end_time.utc.seconds_since_midnight == clock_out_at.utc.seconds_since_midnight
+      duration_hours = actual_elapsed_hours
+    end
 
     if break_minutes.present? && break_minutes > 0
       duration_hours -= (break_minutes / 60.0)
@@ -152,6 +184,17 @@ class TimeEntry < ApplicationRecord
   end
 
   private
+
+  def time_calculation_required?
+    start_time.present? && end_time.present? &&
+      (new_record? || (changes.keys & %w[start_time end_time clock_in_at clock_out_at break_minutes status hours]).any?)
+  end
+
+  def held_clock_cannot_be_approved
+    if will_save_change_to_approval_status?(to: "approved") && needs_administrator_correction?
+      errors.add(:approval_status, "needs administrator correction before approval")
+    end
+  end
 
   PAYROLL_CASE_ATTRIBUTES = %w[
     user_id work_date start_time end_time hours break_minutes time_category_id status

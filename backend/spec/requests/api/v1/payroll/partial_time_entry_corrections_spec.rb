@@ -185,7 +185,11 @@ RSpec.describe "Payroll partial time corrections", type: :request do
       expect(response).to have_http_status(:ok)
       expect(entry.reload).to have_attributes(clock_in_at: zone.local(2026, 11, 14, 9),
                                              end_time: original_time_end, clock_out_at: actual_end,
-                                             hours: 8.01, approval_status: "pending")
+                                             hours: day == 15 ? 0 : 8.01, approval_status: "pending")
+      if day == 15
+        expect(entry.approval_note).to include(TimeEntry::ADMINISTRATOR_CORRECTION_NOTE)
+        expect(entry.counts_toward_hours?).to be(false)
+      end
     end
   end
 

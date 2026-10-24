@@ -67,7 +67,7 @@ class TimeEntryReviewCorrection
     start = entry.clock_in_at || entry.start_time
     raise CorrectionError, "Clock-out must be after clock-in" unless start && stop > start
     raise CorrectionError, "Clock-out time cannot be in the future" if stop > Time.current
-    raise CorrectionError, "A clock entry cannot span more than 24 hours; correct the clock-in first" if stop - start > 24.hours
+    raise CorrectionError, "A clock entry must span less than 24 hours; correct the clock-in first" if stop - start >= TimeEntry::MAX_CLOCK_SPAN
 
     breaks = entry.time_entry_breaks.order(:start_time, :id).lock.to_a
     breaks.each do |entry_break|
