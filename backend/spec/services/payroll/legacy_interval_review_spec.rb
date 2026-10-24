@@ -66,8 +66,10 @@ RSpec.describe 'PR 138 independent upgrade and boundary probes' do
     rows = 6.times.map { |i| shift(sunday + i, 8, 8) }
     friday = rows.last
     TimeEntry.where(user: employee).update_all(overtime_allocation_signature: nil, allocation_contract_version: nil)
-    reviewed_at = Time.current
+    reviewed_at = Time.at(Time.current.to_i, 123_456_789, :nanosecond)
     friday.reload.update_columns(overtime_status: 'approved', overtime_approved_at: reviewed_at, overtime_approved_by_id: admin.id)
+    # Compare the persisted approval, after PostgreSQL's microsecond serialization.
+    reviewed_at = friday.reload.overtime_approved_at
     friday.update!(description: 'Legacy note leaves the reviewed split unchanged')
     expect(friday.reload).to have_attributes(overtime_status: 'approved', overtime_approved_at: reviewed_at, allocation_contract_version: nil)
     expect(Payroll::BatchBuilder.new(start_date: sunday, end_date: sunday + 6).call[:rows])
