@@ -35,7 +35,7 @@ module Api
           placement: item.placement,
           media_type: item.media_type,
           external_url: StagingOutboundPolicy.staging? ? nil : item.external_url,
-          **(StagingOutboundPolicy.staging? ? { staging_artifact_blocked: true } : {}),
+          **(StagingOutboundPolicy.staging? ? { staging_artifact_blocked: attachment_url(item.file).nil? } : {}),
           file_url: attachment_url(item.file),
           file_thumb_url: image_variant_url(item.file, width: 480),
           file_card_url: image_variant_url(item.file, width: 900),
