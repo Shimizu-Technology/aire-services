@@ -10,6 +10,12 @@ RSpec.describe "Payroll cutoff concurrency" do
 
   self.use_transactional_tests = false
 
+  before do
+    # Keep these pre-rollout scheduler races on their original scheduled policy.
+    allow(PayrollLockRollout).to receive(:installation).and_return(
+      PayrollLockRollout.new(cutoff_enforcement_starts_on: "1900-01-01"))
+  end
+
   after do
     connection = ActiveRecord::Base.connection
     connection.execute("ALTER TABLE payroll_settlement_case_events DISABLE TRIGGER payroll_settlement_case_events_prevent_truncate")
@@ -393,8 +399,7 @@ RSpec.describe "Payroll cutoff concurrency" do
       @reservation_race_category_id = entry.time_category_id
       period = create(:payroll_calendar_period, **payroll_calendar_at(capture_payroll_cutoff))
       recorder = Payroll::ManualAllocationRecorder.new(actor: actor)
-      finalization = Payroll::BatchFinalizer.new(start_date: period.start_date, end_date: period.end_date,
-        actor: nil, cutoff_at: period.cutoff_at.iso8601(6), automated_cutoff: true, calendar_period: period)
+      finalization = Payroll::ScheduledCutoffFinalizer.new(period_id: period.id)
       entered = Queue.new
       release = Queue.new
       first_pids = Queue.new
@@ -420,7 +425,7 @@ RSpec.describe "Payroll cutoff concurrency" do
         queue_pop(entered)
         second = database_worker(second_pids) { finalization.call }
       else
-        allow(finalization).to receive(:lock_source_ledger!).and_wrap_original do |original|
+        allow_any_instance_of(Payroll::BatchFinalizer).to receive(:lock_source_ledger!).and_wrap_original do |original|
           original.call
           entered << true
           queue_pop(release)
@@ -433,7 +438,7 @@ RSpec.describe "Payroll cutoff concurrency" do
       wait_for_blocker(queue_pop(second_pids), first_pid)
       release << true
       results = [ first.value, second.value ]
-      expect(results.grep(PayrollBatch).one?).to be(true)
+      expect(results.grep(Hash).count { |result| result[:status] == "finalized" }).to eq(1)
       expect(results.grep(Payroll::ManualAllocationRecorder::Error).one?).to be(true)
       expect(PayrollManualAllocation.count).to eq(0)
       expect(PayrollBatchEntry.where(source_time_entry_id: entry.id).sum(:total_hours)).to eq(8)

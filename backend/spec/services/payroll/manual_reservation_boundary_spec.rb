@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require "timeout"
 require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe "Manual reservation review boundaries" do
@@ -134,6 +135,186 @@ RSpec.describe "Manual reservation review boundaries" do
     2.times { Payroll::SettlementCaseCoordinator.sync_finalized_periods! }
     expect(PayrollSettlementCase.where(source_time_entry_id: entry.id).count).to eq(1)
     expect(batch.reload.checksum).to eq(checksum)
+  end
+
+  it "reuses an active release case before a newer superseded case for the same origin" do
+    allocation = reserve
+    period = origin
+    batch = finalize(period)
+    active_case = create(:payroll_settlement_case, origin_payroll_batch: batch,
+      source_time_entry_id: entry.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+      original_work_date: entry.work_date, source_time_entry_version: entry.lock_version)
+    historical_case = create(:payroll_settlement_case, origin_payroll_batch: batch,
+      source_time_entry_id: entry.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+      original_work_date: entry.work_date, source_time_entry_version: entry.lock_version + 1,
+      status: "superseded", resolved_at: database_clock)
+    historical = historical_case.reload.attributes
+
+    expect { release(allocation) }.not_to raise_error
+    expect(active_case.reload).to have_attributes(status: "open", destination_kind: "unassigned", held_total_hours: 8)
+    expect(active_case.payroll_settlement_case_events.where("metadata ->> 'released_manual_allocation_id' = ?", allocation.id.to_s).count).to eq(1)
+    expect(historical_case.reload.attributes).to eq(historical)
+  end
+
+  it "cancels historical manual payment without reopening over an active source correction" do
+    allocation = reserve
+    period = origin
+    batch = finalize(period)
+    original = create(:payroll_settlement_case, origin_payroll_batch: batch,
+      source_time_entry_id: entry.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+      original_work_date: entry.work_date, source_time_entry_version: entry.lock_version)
+    issue(allocation, "original-eight")
+    expect(original.reload.status).to eq("settled")
+    target = create(:payroll_calendar_period, **payroll_calendar_for(next_payroll_start(period.start_date)))
+    Payroll::TimeEntryCorrection.new(entry: entry, attributes: { end_time: (entry.end_time + 1.hour).iso8601 },
+      actor: actor, reason: "Verified one extra source hour after original manual payment").call
+    TimeClockService.approve_entry(entry: entry, approved_by: actor, note: "Verified corrected source hours")
+    Payroll::SettlementCaseCoordinator.record_entry!(entry.reload, actor: actor)
+    current = PayrollSettlementCase.active.find_by!(origin_payroll_batch: batch, source_time_entry_id: entry.id)
+    expect(current).to have_attributes(status: "scheduled", target_payroll_calendar_period: target)
+    current_before = current.attributes
+    historical_events = original.payroll_settlement_case_events.map(&:attributes)
+    frozen_before = batch.attributes
+
+    expect do
+      PayrollManualAllocation.transaction(requires_new: true) { cancel(allocation, "original-eight") }
+    end.not_to raise_error
+    expect(allocation.reload).to have_attributes(status: "committed", payment_reference: nil)
+    expect(original.reload).to have_attributes(status: "superseded", included_payroll_batch_id: nil)
+    expect(current.reload.attributes).to eq(current_before)
+    expect(PayrollSettlementCase.active.where(origin_payroll_batch: batch, source_time_entry_id: entry.id).pluck(:id)).to eq([ current.id ])
+    history = original.payroll_settlement_case_events.reload.map(&:attributes)
+    expect(history.first(historical_events.length)).to eq(historical_events)
+    expect(original.payroll_settlement_case_events.last).to have_attributes(event_type: "payment_cancelled", to_status: "superseded")
+    expect(original.payroll_settlement_case_events.last.metadata).to include("current_settlement_case_id" => current.public_id,
+      "manual_allocation_id" => allocation.id.to_s, "committed_hours_retained" => true)
+    expect(PayrollManualAllocation.active.where(time_entry_id: entry.id).sum("regular_hours + overtime_hours")).to eq(8)
+    expect(batch.reload.attributes).to eq(frozen_before)
+
+    release(allocation)
+    expect(current.reload).to have_attributes(status: "open", destination_kind: "unassigned", held_total_hours: 9)
+    expect(original.reload.status).to eq("superseded")
+    expect(PayrollManualAllocation.active.where(time_entry_id: entry.id)).to be_empty
+  end
+
+  context "when capture races manual cancellation" do
+    self.use_transactional_tests = false
+    around do |example|
+      ActiveRecord::Base.transaction do
+        example.run
+        raise ActiveRecord::Rollback
+      end
+    end
+    before(:context) { @case_race_schemas = [] }
+    after(:context) do
+      @case_race_schemas.each do |schema|
+        raise "unsafe fixture schema" unless schema.match?(/\Apayroll_case_race_[0-9a-f]+\z/)
+        ActiveRecord::Base.connection.execute("DROP SCHEMA IF EXISTS #{schema} CASCADE")
+      end
+    end
+
+    it "reselects a concurrently captured successor after an empty active lookup" do
+      allocation = reserve
+      period = origin
+      batch = finalize(period)
+      original = create(:payroll_settlement_case, origin_payroll_batch: batch,
+        source_time_entry_id: entry.id, source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+        original_work_date: entry.work_date, source_time_entry_version: entry.lock_version)
+      issue(allocation, "raced-original-eight")
+      target = create(:payroll_calendar_period, **payroll_calendar_for(next_payroll_start(period.start_date)))
+      Payroll::TimeEntryCorrection.new(entry: entry, attributes: { end_time: (entry.end_time + 1.hour).iso8601 },
+        actor: actor, reason: "Corrected source before asynchronous capture").call
+      TimeClockService.approve_entry(entry: entry, approved_by: actor, note: "Verified source awaiting capture")
+      expect(PayrollSettlementCase.active.where(origin_payroll_batch: batch, source_time_entry_id: entry.id)).to be_empty
+      historical = original.reload.attributes
+      events = original.payroll_settlement_case_events.map(&:attributes)
+      schema = "payroll_case_race_#{SecureRandom.hex(6)}"
+      @case_race_schemas << schema
+      # Only case projections/events need committed visibility. Clone their real
+      # constraints/indexes into a private schema; never disable history triggers.
+      Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do |connection|
+          connection.execute("CREATE SCHEMA #{schema}")
+          %w[payroll_settlement_cases payroll_settlement_case_events].each do |table|
+            connection.execute("CREATE TABLE #{schema}.#{table} (LIKE public.#{table} INCLUDING ALL)")
+          end
+          index = connection.select_value("SELECT indexname FROM pg_indexes WHERE schemaname = '#{schema}' AND tablename = 'payroll_settlement_cases' AND indexdef LIKE '%WHERE%status%open%'")
+          connection.execute("ALTER INDEX #{schema}.#{index} RENAME TO idx_payroll_settlement_cases_active_origin_entry")
+          previous = connection.schema_search_path
+          begin
+            connection.schema_search_path = "#{schema},public"
+            PayrollSettlementCase.insert_all!([ historical ])
+            PayrollSettlementCaseEvent.insert_all!(events)
+          ensure
+            connection.schema_search_path = previous
+          end
+        end
+      end.value
+      main_connection = ActiveRecord::Base.connection
+      main_pid = main_connection.select_value("SELECT pg_backend_pid()")
+      previous_path = main_connection.schema_search_path
+      main_connection.schema_search_path = "#{schema},public"
+      ready = Queue.new
+      captured = Queue.new
+      writer = Thread.new do
+        ready.pop
+        ActiveRecord::Base.connection_pool.with_connection do |connection|
+          previous = connection.schema_search_path
+          begin
+            connection.schema_search_path = "#{schema},public"
+            writer_pid = connection.select_value("SELECT pg_backend_pid()")
+            current = PayrollSettlementCase.transaction do
+              record = Payroll::SettlementCaseCoordinator.send(:create_case!, period: period, origin_batch: batch,
+                source_time_entry_id: entry.id, source_time_entry_version: entry.lock_version,
+                source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+                reason: "changed_after_cutoff", work_date: entry.work_date, held_hours: 9, source_snapshot: {}, actor: actor)
+              Payroll::SettlementCaseCoordinator.route_to_period!(record, period: target, actor: actor, reason: "Named successor after capture")
+              record
+            end
+            captured << [ writer_pid, current.attributes ]
+          ensure
+            connection.schema_search_path = previous
+          end
+        end
+      rescue StandardError => error
+        captured << error
+      end
+      fired = false
+      successor = nil
+      subscriber = lambda do |*arguments|
+        payload = arguments.last
+        sql = payload[:sql]
+        next unless !fired && payload[:connection] == main_connection && sql.include?("payroll_settlement_cases") &&
+          sql.include?("FOR UPDATE") && sql.include?("status\" IN")
+
+        fired = true
+        ready << true
+        outcome = Timeout.timeout(10) { captured.pop }
+        raise outcome if outcome.is_a?(Exception)
+        expect(outcome.first).not_to eq(main_pid)
+        successor = outcome.last
+      end
+      ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+        expect do
+          PayrollManualAllocation.transaction(requires_new: true) { cancel(allocation, "raced-original-eight") }
+        end.not_to raise_error
+      end
+      expect(fired).to be(true)
+      expect(allocation.reload.status).to eq("committed")
+      expect(original.reload.status).to eq("superseded")
+      current = PayrollSettlementCase.active.where(origin_payroll_batch: batch, source_time_entry_id: entry.id).sole
+      expect(current.attributes).to eq(successor)
+      expect(original.payroll_settlement_case_events.reload.map(&:attributes).first(events.length)).to eq(events)
+      expect(original.payroll_settlement_case_events.last.metadata).to include("current_settlement_case_id" => current.public_id,
+        "committed_hours_retained" => true)
+      expect(original.payroll_settlement_case_events.where(event_type: "payment_cancelled").count).to eq(1)
+      expect(allocation.payroll_manual_allocation_events.where(event_type: "payment_cancelled").count).to eq(1)
+      expect(PayrollManualAllocation.active.where(time_entry_id: entry.id).sum("regular_hours + overtime_hours")).to eq(8)
+    ensure
+      ready << true if defined?(ready) && ready && !fired
+      writer&.join(15)
+      main_connection.schema_search_path = previous_path if main_connection && previous_path
+    end
   end
 
   it "F2 scopes coverage to relevant allocations and preserves other reconciliation work on legacy gaps" do

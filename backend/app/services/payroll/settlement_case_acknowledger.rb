@@ -70,7 +70,7 @@ module Payroll
     def latest_processing_event
       settlement_case.payroll_settlement_case_events
         .where(event_type: EVENT_TYPES)
-        .order(id: :desc)
+        .reorder(id: :desc)
         .first
     end
 

@@ -12,12 +12,12 @@ module Payroll
 
     attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note,
                 :manual_processing, :cutoff_at, :processed_at, :external_pay_period_id, :processing_note,
-                :acknowledge_missing_categories, :automated_cutoff, :calendar_period
+                :acknowledge_missing_categories, :automated_cutoff, :calendar_period, :manual_calendar_lock
 
     def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil,
                    manual_processing: false, cutoff_at: nil, processed_at: nil, external_pay_period_id: nil,
                    processing_note: nil, acknowledge_missing_categories: false, automated_cutoff: false,
-                   calendar_period: nil)
+                   calendar_period: nil, manual_calendar_lock: false, calendar_authorization: nil, calendar_lock_reason: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @actor = actor
@@ -26,6 +26,9 @@ module Payroll
       @manual_processing = ActiveModel::Type::Boolean.new.cast(manual_processing)
       @automated_cutoff = ActiveModel::Type::Boolean.new.cast(automated_cutoff)
       @calendar_period = calendar_period
+      @manual_calendar_lock = manual_calendar_lock
+      @calendar_lock_reason = calendar_lock_reason.to_s.strip
+      @calendar_authorization = calendar_authorization
       @cutoff_at = if @manual_processing
         parse_manual_time!(cutoff_at, "cutoff_at")
       elsif cutoff_at.present?
@@ -50,12 +53,17 @@ module Payroll
         configure_lock_timeout!
         lock_publication_for_manual_finalization!
         lock_finalization!
-        reject_published_calendar! unless automated_cutoff
+        validate_calendar_authority!
+        reject_published_calendar! unless authorized_calendar?
         lock_source_ledger!
         source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        cutoff = cutoff_at || Time.current
+        cutoff = if manual_calendar_lock
+          ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()").utc
+        else
+          cutoff_at || Time.current
+        end
         reference = build_reference(cutoff)
-        reject_out_of_order_automated_batch!(cutoff)
+        reject_out_of_order_automated_batch!
         reject_overlapping_batch!
         SettlementCaseCoordinator.prepare_for_period!(calendar_period) if calendar_period
         result = BatchBuilder.new(
@@ -85,6 +93,7 @@ module Payroll
         result.fetch(:exclusions).each do |row|
           batch.payroll_batch_exclusions.create!(row.except(:work_date))
         end
+        calendar_period.payroll_batch = batch if calendar_period
         SettlementCaseCoordinator.finalize_period!(period: calendar_period, batch: batch, actor: actor) if calendar_period
         record_manual_processing!(batch) if manual_processing
         AuditLog.record!(
@@ -104,6 +113,8 @@ module Payroll
             negative_adjustment_note: negative_adjustment_note.presence,
             manual_processing: manual_processing,
             automated_cutoff: automated_cutoff,
+            manual_calendar_lock: manual_calendar_lock,
+            calendar_lock_reason: @calendar_lock_reason.presence,
             processing_note: processing_note.presence,
             external_pay_period_id: external_pay_period_id.presence,
             processed_at: processed_at&.iso8601
@@ -167,9 +178,33 @@ module Payroll
     # never request this publication lock. Unlinked manual batches take both
     # advisories in publication -> batch order and do not lock calendar rows.
     def lock_publication_for_manual_finalization!
-      return if automated_cutoff
+      return if authorized_calendar?
 
       ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
+    end
+
+    def authorized_calendar?
+      calendar_period && @calendar_authorization.equal?(ScheduledCutoffFinalizer.const_get(:BATCH_AUTHORIZATION, false))
+    end
+
+    def validate_calendar_authority!
+      if manual_calendar_lock && !calendar_period
+        raise PublishedCalendarError, "Manual calendar lock requires an authorized published calendar"
+      end
+      if calendar_period && !authorized_calendar?
+        raise PublishedCalendarError, "Published calendars must use their cockpit Lock or scheduled finalizer"
+      end
+      return unless authorized_calendar?
+
+      valid = calendar_period.persisted? && calendar_period.status != "finalized" &&
+        calendar_period.start_date == start_date && calendar_period.end_date == end_date && !manual_processing
+      valid &&= if calendar_period.manual_lock?
+        manual_calendar_lock && !automated_cutoff && actor.is_a?(User) && actor.persisted? &&
+          @calendar_lock_reason.present? && cutoff_at.nil?
+      else
+        automated_cutoff && !manual_calendar_lock && cutoff_at == calendar_period.cutoff_at && cutoff_at <= Time.current
+      end
+      raise PublishedCalendarError, "Calendar lock mode, range or cutoff does not authorize this finalization" unless valid
     end
 
     def reject_published_calendar!
@@ -224,10 +259,12 @@ module Payroll
       raise ExistingBatchError, "Payroll batch #{overlap.public_id} already covers part of this period"
     end
 
-    def reject_out_of_order_automated_batch!(cutoff)
+    def reject_out_of_order_automated_batch!
       return unless automated_cutoff
 
-      later_batch = PayrollBatch.regular.where("cutoff_at > ?", cutoff).order(:cutoff_at, :id).first
+      # Payroll order is the work period, not the snapshot instant: an earlier
+      # manual calendar may legitimately be locked after this scheduled cutoff.
+      later_batch = PayrollBatch.regular.where("start_date > ?", end_date).order(:start_date, :id).first
       return unless later_batch
 
       raise OutOfOrderFinalizationError,
@@ -242,7 +279,7 @@ module Payroll
         end
       end
       return unless issues.fetch(:negative_adjustment_count).positive?
-      return if automated_cutoff
+      return if automated_cutoff || manual_calendar_lock
       return if acknowledge_negative_adjustments && negative_adjustment_note.present?
 
       raise FinalizationError, "Negative payroll corrections require acknowledgement and an explanatory note"
@@ -296,7 +333,7 @@ module Payroll
     end
 
     def requires_negative_adjustment_review(payload)
-      return unless automated_cutoff && payload.dig(:issues, :negative_adjustment_count).to_i.positive?
+      return unless (automated_cutoff || manual_calendar_lock) && payload.dig(:issues, :negative_adjustment_count).to_i.positive?
 
       true
     end

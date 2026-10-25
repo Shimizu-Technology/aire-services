@@ -51,15 +51,16 @@ module Payroll
     def snapshot_records
       return persisted_snapshot if period.payroll_batch
 
-      preview = Rails.cache.fetch(preview_cache_key, expires_in: PREVIEW_CACHE_TTL) do
+      build_preview = lambda do
         BatchBuilder.new(
           start_date: period.start_date,
           end_date: period.end_date,
-          cutoff_at: period.cutoff_at,
+          cutoff_at: period.manual_lock? ? Time.current : period.cutoff_at,
           batch_reference: "COCKPIT-PREVIEW",
           calendar_period: period
         ).call.slice(:rows, :exclusions, :summary, :issues)
       end
+      preview = period.manual_lock? ? build_preview.call : Rails.cache.fetch(preview_cache_key, expires_in: PREVIEW_CACHE_TTL) { build_preview.call }
       scoped_snapshot(preview.fetch(:rows), preview.fetch(:exclusions), preview.fetch(:summary), preview.fetch(:issues))
     end
 

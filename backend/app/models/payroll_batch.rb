@@ -35,6 +35,14 @@ class PayrollBatch < ApplicationRecord
     persisted?
   end
 
+  def contract_cutoff_at
+    payroll_calendar_period&.manual_lock? ? cutoff_at.iso8601(6) : cutoff_at.iso8601
+  end
+
+  def contract_finalized_at
+    payroll_calendar_period&.manual_lock? ? finalized_at.iso8601(6) : finalized_at.iso8601
+  end
+
   def export_payload
     payload.deep_dup.merge(
       "export" => {
@@ -44,8 +52,8 @@ class PayrollBatch < ApplicationRecord
         "checksum_algorithm" => "SHA-256",
         "checksum_scope" => "payload_without_export",
         "readiness_status" => "finalized",
-        "cutoff_at" => cutoff_at.iso8601,
-        "finalized_at" => finalized_at.iso8601,
+        "cutoff_at" => contract_cutoff_at,
+        "finalized_at" => contract_finalized_at,
         "integration" => Payroll::IntegrationProfile.call
       }
     )

@@ -56,6 +56,10 @@ module Payroll
         entry_prior_rows = prior_by_entry.fetch(entry_id, [])
 
         if entry
+          # This is calculation context for an earlier manual payroll, not its
+          # source work. Keep its review and exclusions at its own destination.
+          next if deferred_later_manual_dimension?(entry.work_date)
+
           allocation = allocations.fetch(entry.id, {})
           reviewed_current = entry.allocation_contract_version == allocation_contract_version &&
             entry.overtime_allocation_signature == AffectedOvertimeReview.signature(entry, allocation)
@@ -80,7 +84,7 @@ module Payroll
             blocking[:missing_category_count] += 1 if resolved_time_category(entry).nil?
           end
           if allocation[:segments] && base_approved?(entry) && payable_at_cutoff?(entry) && !@payment_attestations_by_entry.key?(entry.id)
-            segments = allocation[:segments].select { |segment| @source_entry_ids || segment[:work_date] <= end_date }
+            segments = payable_segments(entry, allocation, entry_prior_rows)
             targets = segments.to_h do |segment|
               ot = target[:overtime_hours].positive? ? segment[:overtime_hours].to_d : 0.to_d
               hours = { regular_hours: segment[:regular_hours].to_d, overtime_hours: ot,
@@ -172,6 +176,7 @@ module Payroll
           .where(target_payroll_calendar_period: calendar_period)
           .distinct
           .pluck(:source_time_entry_id)
+        @targeted_settlement_entry_ids = targeted_ids.to_set
         carryovers = if revision_ledger?
           revision_ledger.entries_for_ids(targeted_ids)
         else
@@ -528,6 +533,34 @@ module Payroll
       delta.values.all?(&:zero?)
     end
 
+    def payable_segments(entry, allocation, prior_rows)
+      return allocation[:segments] if @source_entry_ids
+      return allocation[:segments].select { |segment| segment[:work_date] <= end_date } unless calendar_period&.cutoff_enforcement_starts_on
+
+      # A new overnight entry belongs to each calendar only for that calendar's
+      # payable dates. Represented entries still need their complete target:
+      # dropping a later segment would turn its frozen balance into a reversal,
+      # and source edits/deletions must retain their real correction deltas.
+      represented = prior_rows + manual_prior_rows_for(entry)
+      earlier_claim = represented.any? { |row| row.work_date < start_date }
+      later_claim = represented.any? { |row| row.work_date > end_date }
+      routed = @targeted_settlement_entry_ids&.include?(entry.id)
+      allocation[:segments].select do |segment|
+        date = segment[:work_date]
+        date.between?(start_date, end_date) ||
+          (date < start_date && (earlier_claim || routed)) || (date > end_date && later_claim)
+      end
+    end
+
+    def newer_claim_outside_period?(work_date, prior_rows)
+      calendar_period && !work_date.between?(start_date, end_date) &&
+        prior_rows.any? { |row| row.payroll_batch.cutoff_at > cutoff_at }
+    end
+
+    def deferred_later_manual_dimension?(work_date)
+      calendar_period&.manual_lock? && calendar_period.cutoff_enforcement_starts_on.present? && work_date > end_date
+    end
+
     def settlement_rows_for(entry, target, prior_rows, targets: nil)
       balances = prior_balances(prior_rows + manual_prior_rows_for(entry))
       current_key = dimension_key(resolved_time_category(entry)&.id, entry.user_id, entry.work_date)
@@ -538,6 +571,15 @@ module Payroll
       has_prior = balances.values.any? { |balance| balance.fetch(:totals).values.any?(&:nonzero?) }
 
       keys.filter_map do |key|
+        work_date = targets.dig(key, :work_date) || balances.fetch(key).fetch(:latest).work_date
+        # A delayed scheduled snapshot cannot reinterpret an earlier calendar
+        # that was manually locked at a newer instant. Still subtract all its
+        # claims; the current calendar keeps its original revision cutoff.
+        # Later work remains owned by its named settlement destination. Keep
+        # the full week in the allocator, but never consume its signed delta
+        # merely because the accountant locks an earlier manual period late.
+        next if deferred_later_manual_dimension?(work_date) || newer_claim_outside_period?(work_date, prior_rows)
+
         desired = targets.dig(key, :hours) || zero_hours
         prior = balances.dig(key, :totals) || zero_hours
         delta = subtract(desired, prior)
@@ -611,6 +653,9 @@ module Payroll
 
     def deleted_rows_for(entry_id, prior_rows)
       prior_balances(prior_rows).filter_map do |line_key, balance|
+        next if deferred_later_manual_dimension?(balance.fetch(:latest).work_date) ||
+          newer_claim_outside_period?(balance.fetch(:latest).work_date, prior_rows)
+
         prior = balance.fetch(:totals)
         next if prior.values.all?(&:zero?)
 
@@ -811,8 +856,8 @@ module Payroll
         batch_id: batch_reference,
         start_date: start_date.iso8601,
         end_date: end_date.iso8601,
-        cutoff_at: cutoff_at.iso8601,
-        generated_at: cutoff_at.iso8601,
+        cutoff_at: calendar_period&.manual_lock? ? cutoff_at.iso8601(6) : cutoff_at.iso8601,
+        generated_at: calendar_period&.manual_lock? ? cutoff_at.iso8601(6) : cutoff_at.iso8601,
         overtime_policy: calendar_period&.overtime_policy,
         employees: employees,
         exclusions: exclusions.map { |row| serialize_exclusion(row) },

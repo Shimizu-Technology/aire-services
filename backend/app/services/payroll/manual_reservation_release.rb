@@ -29,7 +29,7 @@ module Payroll
           # Only dated reservations could suppress this original cutoff.
           # A moved replacement instead proves relevance through its exact
           # supplemental case; unrelated legacy history is never requested.
-          historical = ManualAllocationLedger.active_at(period.cutoff_at,
+          historical = ManualAllocationLedger.active_at(batch.cutoff_at,
             entry_ids: dated.map(&:time_entry_id), allocation_ids: dated.map(&:id)).index_by(&:id)
           allocations.each do |allocation|
             reserved = historical[allocation.id]
@@ -73,8 +73,9 @@ module Payroll
         represented = PayrollBatchEntry.effective.where(source_time_entry_id: entry.id).sum(:total_hours).to_d
         reserved = PayrollManualAllocation.active.where(time_entry_id: entry.id).sum("regular_hours + overtime_hours").to_d
         remaining = [ entry.hours.to_d - represented - reserved, 0.to_d ].max
-        settlement = PayrollSettlementCase.where(origin_payroll_batch: batch, source_time_entry_id: entry.id)
-          .order(:id).lock.last
+        cases = PayrollSettlementCase.where(origin_payroll_batch: batch, source_time_entry_id: entry.id).lock
+        # Reuse the unique active authority before explicitly reopening history.
+        settlement = cases.active.first || cases.order(:id).last
         settlement ||= PayrollSettlementCase.new(origin_payroll_batch: batch,
           source_time_entry_id: entry.id, source_user_id: allocation.user_id,
           source_user_uuid: allocation.source_user_uuid, origin_reason: "manual_reservation_released",

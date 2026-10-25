@@ -71,6 +71,31 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     end
   end
 
+  it "rolls back all frozen rows on failure inside an outer transaction and retries cleanly" do
+    time_entry(entry_method: "clock", approval_status: nil)
+    time_entry(entry_method: "manual", approval_status: "pending")
+    period
+    allow_any_instance_of(described_class).to receive(:record_success_audit!).and_raise("Synthetic audit failure after outbox creation")
+    travel_to(cutoff + 2.minutes) do
+      ActiveRecord::Base.transaction do
+        expect(described_class.new(period_id: period.id).call).to include(status: "failed")
+      end
+    end
+
+    expect(period.reload.status).to eq("failed")
+    expect(period.cutoff_state).to eq("attention_required")
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchExclusion.count, PayrollOutboxEvent.count ]).to eq([ 0, 0, 0, 0 ])
+    expect(AuditLog.find_by!(action: "payroll_calendar_period.finalization_failed", auditable: period).outcome).to eq("failed")
+    allow_any_instance_of(described_class).to receive(:record_success_audit!).and_call_original
+    retry_at = period.next_finalization_attempt_at + 1.second
+    travel_to(retry_at) do
+      ActiveRecord::Base.transaction do
+        expect(described_class.new(period_id: period.id).call).to include(status: "finalized")
+      end
+    end
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchExclusion.count, PayrollOutboxEvent.count ]).to eq([ 1, 1, 1, 1 ])
+  end
+
   it "is idempotent when workers repeat or overlap" do
     time_entry(entry_method: "clock", approval_status: nil)
 

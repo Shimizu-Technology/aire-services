@@ -7,7 +7,7 @@ module Payroll
 
     def self.call!(entry:, reservation_recorded_at: nil, fence_relevant_snapshots: false)
       now = ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()")
-      PayrollCalendarPeriod.where.not(status: "finalized").where("cutoff_at <= ?", now).order(:cutoff_at, :id).each do |period|
+      PayrollCalendarPeriod.scheduled_locks.where.not(status: "finalized").where("cutoff_at <= ?", now).order(:cutoff_at, :id).each do |period|
         next if reservation_recorded_at && period.cutoff_at >= reservation_recorded_at
 
         frozen_entry = TimeEntryRevisionLedger.new(cutoff_at: period.cutoff_at).entries_for_ids([ entry.id ]).first

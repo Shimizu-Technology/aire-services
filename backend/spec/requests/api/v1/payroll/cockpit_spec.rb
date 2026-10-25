@@ -972,6 +972,68 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(response).to have_http_status(:unprocessable_entity)
   end
 
+  it "locks a manual calendar before nominal cutoff with reason, actor and precise immutable instant" do
+    cutoff = database_clock + 2.days
+    manual = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15",
+      pay_date: cutoff.in_time_zone("Pacific/Guam").to_date + 7.days, cutoff_at: cutoff,
+      lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+    payload = { command_id: SecureRandom.uuid, expected_version: manual.lock_version, reason: "Reviewed manual lock" }
+    path = "/api/v1/payroll/cockpit/periods/#{manual.external_pay_period_id}/finalize"
+    post path, params: payload.merge(reason: "").to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(manual.reload.status).to eq("scheduled")
+    post path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(json.dig(:payroll_period, :lock_mode)).to eq("manual")
+    expect(json.dig(:payroll_period, :locked_at)).to eq(manual.reload.payroll_batch.cutoff_at.iso8601(6))
+    expect(json.dig(:payroll_period, :cutoff_at)).to eq(cutoff.in_time_zone("Pacific/Guam").iso8601)
+    expect(manual.payroll_batch.cutoff_at).to be < cutoff
+    expect(manual.payroll_batch.finalized_by).to eq(admin)
+    audit = AuditLog.find_by!(action: "payroll_calendar_period.finalized", auditable: manual)
+    expect(audit.user).to eq(admin)
+    expect(audit.metadata["reason"]).to eq(payload[:reason])
+    batch_id = manual.payroll_batch_id
+    post path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(json.dig(:command, :replayed)).to be(true)
+    expect(manual.reload.payroll_batch_id).to eq(batch_id)
+    expect(manual.payroll_outbox_events.count).to eq(1)
+  end
+
+  it "rolls back a failed manual Lock inside the command transaction and retries without partial frozen evidence" do
+    cutoff = database_clock + 2.days
+    manual = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15",
+      pay_date: cutoff.in_time_zone("Pacific/Guam").to_date + 7.days, cutoff_at: cutoff,
+      lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+    date = manual.start_date + 2.days
+    [ "approved", "pending" ].each do |approval|
+      create(:time_entry, user: employee, time_category: category, work_date: date,
+        start_time: date.in_time_zone("Pacific/Guam") + 8.hours, end_time: date.in_time_zone("Pacific/Guam") + 10.hours,
+        entry_method: "manual", approval_status: approval, approved_at: approval == "approved" ? Time.current : nil,
+        overtime_status: "none")
+    end
+    path = "/api/v1/payroll/cockpit/periods/#{manual.external_pay_period_id}/finalize"
+    allow_any_instance_of(Payroll::ManualCalendarFinalizer).to receive(:record_success_audit!).and_raise("Synthetic audit failure after outbox creation")
+
+    post path, params: { command_id: SecureRandom.uuid, expected_version: manual.lock_version, reason: "Reviewed manual lock" }.to_json, headers: headers
+
+    expect(response).to have_http_status(:accepted)
+    expect(json.dig(:result, :status)).to eq("failed")
+    expect(manual.reload.status).to eq("failed")
+    expect(manual.cutoff_state).to eq("attention_required")
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchExclusion.count, PayrollOutboxEvent.count ]).to eq([ 0, 0, 0, 0 ])
+    expect(AuditLog.where(action: "payroll_calendar_period.finalized", auditable: manual)).not_to exist
+    expect(AuditLog.find_by!(action: "payroll_calendar_period.finalization_failed", auditable: manual).outcome).to eq("failed")
+    expect(AuditLog.find_by!(action: "payroll_cockpit.finalization_requested", auditable: manual).outcome).to eq("failed")
+
+    allow_any_instance_of(Payroll::ManualCalendarFinalizer).to receive(:record_success_audit!).and_call_original
+    post path, params: { command_id: SecureRandom.uuid, expected_version: manual.lock_version, reason: "Retry reviewed manual lock" }.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(json.dig(:result, :status)).to eq("finalized")
+    expect(manual.reload.status).to eq("finalized")
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchExclusion.count, PayrollOutboxEvent.count ]).to eq([ 1, 1, 1, 1 ])
+  end
+
   it "allows an administrator to trigger a due finalization idempotently" do
     cutoff = period.cutoff_at
     create_entry(entry_method: "clock", approval_status: nil)

@@ -37,12 +37,16 @@ module Api
               replay: ->(_current_period, metadata) { serialize_finalization_replay(metadata) },
               status: :accepted
             ) do |locked_period, reason|
-              if locked_period.cutoff_at > Time.current
+              if !locked_period.manual_lock? && locked_period.cutoff_at > Time.current
                 raise ::Payroll::CockpitCommand::InvalidCommandError,
                       "This payroll period cannot be finalized before its cutoff"
               end
 
-              result = ::Payroll::ScheduledCutoffFinalizer.new(period_id: locked_period.id, now: Time.current).call
+              result = if locked_period.manual_lock?
+                ::Payroll::ManualCalendarFinalizer.new(period_id: locked_period.id, actor: payroll_actor, reason: reason).call
+              else
+                ::Payroll::ScheduledCutoffFinalizer.new(period_id: locked_period.id, now: Time.current).call
+              end
               locked_period.reload
               AuditLog.record!(
                 action: "payroll_cockpit.finalization_requested",
@@ -82,7 +86,7 @@ module Api
               id: batch.public_id,
               checksum: batch.checksum,
               schema_version: batch.schema_version,
-              finalized_at: batch.finalized_at&.iso8601,
+              finalized_at: batch.contract_finalized_at,
               summary: batch.summary,
               issues: batch.issues,
               processing: batch.processing_status

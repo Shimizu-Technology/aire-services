@@ -57,6 +57,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
                     pay_date: Date.new(2026, 8, 25), cutoff_at: Time.iso8601("2026-08-18T17:00:00+10:00"))
     original = period.attributes.deep_dup
     dates = { start_date: "2026-08-10", end_date: "2026-08-20" }
+    expect(PayrollCalendarPeriod).not_to receive(:next_scheduled_cutoff_at)
     post "/api/v1/admin/payroll_batches/preview", params: dates, headers: admin_headers
     expect(response).to have_http_status(:ok)
     expect(json[:can_finalize]).to be(false)

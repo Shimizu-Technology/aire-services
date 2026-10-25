@@ -39,10 +39,11 @@ module Api
           ).call
           periods = PayrollCalendarPeriod.overlapping(result.fetch(:start_date), result.fetch(:end_date))
             .includes(:payroll_batch).order(:start_date, :id).to_a
+          rollout = PayrollLockRollout.find_by(id: 1) if periods.any?
           render json: result.fetch(:payload).merge(
             preview: true,
             can_finalize: periods.empty? && result.dig(:issues, :missing_category_count).zero?,
-            published_calendar_periods: periods.map { |period| period.as_contract_json.slice(
+            published_calendar_periods: periods.map { |period| period.as_contract_json(rollout: rollout, next_scheduled_cutoff_at: nil).slice(
               :external_pay_period_id, :start_date, :end_date, :cutoff_at, :status, :payroll_batch_id
             ) },
             finalization_blocked_reason: periods.any? ? "This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch." : nil,

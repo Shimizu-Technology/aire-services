@@ -7,6 +7,10 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
   include ActiveSupport::Testing::TimeHelpers
   include PayrollClockHelpers
 
+  before do
+    PayrollLockRollout.configure!(starts_on: "2026-10-16", actor: "test operator", reason: "Approved test rollout")
+  end
+
   let(:month) { future_payroll_month }
   let(:now) { database_clock }
   let(:publication_id) { SecureRandom.uuid }
