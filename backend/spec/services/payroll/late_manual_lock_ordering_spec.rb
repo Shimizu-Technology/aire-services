@@ -111,7 +111,7 @@ RSpec.describe "Late manual calendar lock ordering" do
     end
   end
 
-  it "retains legitimate changed and deleted later-entry corrections in a late manual lock" do
+  it "leaves changed and deleted later-entry corrections outside the earlier manual lock" do
     manual = publish(false)
     scheduled = publish(true)
     employee = create(:user, :employee)
@@ -125,10 +125,9 @@ RSpec.describe "Late manual calendar lock ordering" do
     deleted.destroy!
     expect(lock_on_nov8(manual)[:status]).to eq("finalized")
     rows = manual.reload.payroll_batch.payroll_batch_entries
-    expect(rows.where(source_time_entry_id: changed.id).sum(:total_hours)).to eq(2)
-    expect(rows.where(source_time_entry_id: deleted.id).sum(:total_hours)).to eq(-8)
+    expect(rows.where(source_time_entry_id: [ changed.id, deleted.id ])).not_to exist
     expect(scheduled.payroll_batch.reload.attributes).to eq(frozen)
-    expect(manual.payroll_batch.payload["requires_negative_adjustment_review"]).to eq(true)
+    expect(manual.payroll_batch.payload["requires_negative_adjustment_review"]).not_to eq(true)
   end
 
   it "retains post-Lock edits as settlement work without changing either frozen batch" do

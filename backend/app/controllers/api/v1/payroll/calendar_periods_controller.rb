@@ -10,12 +10,13 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :period_not_found
 
         def index
-          periods = PayrollCalendarPeriod.order(start_date: :desc).limit(100)
-          next_cutoff = PayrollCalendarPeriod.next_scheduled_cutoff_at
+          periods = PayrollCalendarPeriod.includes(:payroll_batch).order(start_date: :desc).limit(100)
+          rollout = PayrollLockRollout.find_by(id: 1)
+          next_cutoff = PayrollCalendarPeriod.next_scheduled_cutoff_at(rollout: rollout)
           render json: {
             next_scheduled_cutoff_at: next_cutoff,
             schema_version: ::Payroll::CalendarPeriodPublisher::SCHEMA_VERSION,
-            payroll_calendar_periods: periods.map { |period| period.as_contract_json(next_scheduled_cutoff_at: next_cutoff) }
+            payroll_calendar_periods: periods.map { |period| period.as_contract_json(rollout: rollout, next_scheduled_cutoff_at: next_cutoff) }
           }
         end
 

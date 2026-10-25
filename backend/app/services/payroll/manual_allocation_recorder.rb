@@ -436,18 +436,41 @@ module Payroll
       PayrollSettlementCase.where(status: "settled", destination_kind: "supplemental",
                                   source_time_entry_id: allocation.time_entry_id, source_user_uuid: allocation.source_user_uuid).lock.each do |settlement_case|
         next if remaining_paid >= required_manual_coverage(settlement_case)
-        closing = settlement_case.payroll_settlement_case_events.order(:id).last
+        closing = settlement_case.payroll_settlement_case_events.reorder(:id).last
         next unless manual_settlement_evidence?(closing, allocation, method, reference)
 
-        SettlementCaseCoordinator.transition!(settlement_case, status: "in_payroll", resolved_at: nil,
-          event_type: "payment_cancelled", actor: @actor, occurred_at: Time.current,
-          metadata: { external_pay_period_id: allocation.external_pay_period_id,
-                      external_payroll_item_id: allocation.external_payroll_item_id, payment_method: method,
-                      payment_reference: reference, manual_allocation_id: allocation.id.to_s,
-                      retained_manual_allocation_component_ids: components.map { |component| component[:allocation_id] },
-                      retained_manual_allocation_components: components,
-                      cancelled_component_committed_hours: allocation.total_hours.to_s("F"),
-                      reason: reason, physical_cancelled_at: cancelled_at.iso8601, committed_hours_retained: true })
+        record_cancelled_case!(settlement_case,
+          external_pay_period_id: allocation.external_pay_period_id,
+          external_payroll_item_id: allocation.external_payroll_item_id, payment_method: method,
+          payment_reference: reference, manual_allocation_id: allocation.id.to_s,
+          retained_manual_allocation_component_ids: components.map { |component| component[:allocation_id] },
+          retained_manual_allocation_components: components,
+          cancelled_component_committed_hours: allocation.total_hours.to_s("F"),
+          reason: reason, physical_cancelled_at: cancelled_at.iso8601, committed_hours_retained: true)
+      end
+    end
+
+    def record_cancelled_case!(settlement_case, **metadata)
+      retries = 0
+      begin
+        PayrollSettlementCase.transaction(requires_new: true) do
+          current_case = PayrollSettlementCase.active.where(origin_payroll_batch_id: settlement_case.origin_payroll_batch_id,
+            source_time_entry_id: settlement_case.source_time_entry_id).lock.first
+          # A newer correction keeps its named authority and original snapshot.
+          state = current_case ? { status: "superseded", resolved_at: Time.current } : { status: "in_payroll", resolved_at: nil }
+          SettlementCaseCoordinator.transition!(settlement_case, **state,
+            event_type: "payment_cancelled", actor: @actor, occurred_at: Time.current,
+            metadata: metadata.merge(current_settlement_case_id: current_case&.public_id).compact)
+        end
+      rescue ActiveRecord::RecordNotUnique => error
+        # Capture may insert after an empty lookup. Roll back only this attempt,
+        # reload the historical projection, and select the winning authority.
+        raise unless retries.zero? && error.cause.respond_to?(:result) &&
+          error.cause.result.error_field(PG::Result::PG_DIAG_CONSTRAINT_NAME) == "idx_payroll_settlement_cases_active_origin_entry"
+
+        retries += 1
+        settlement_case.reload
+        retry
       end
     end
 

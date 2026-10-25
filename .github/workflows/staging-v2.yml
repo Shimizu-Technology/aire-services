@@ -68,6 +68,9 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+        env:
+          DEPLOYMENT_ENV: production
+          VITE_DEPLOYMENT_ENV: production
 
   staging-configuration:
     runs-on: ubuntu-latest
@@ -82,7 +85,12 @@ jobs:
           STAGING_CLERK_PUBLISHABLE_KEY: ${{ secrets.STAGING_CLERK_PUBLISHABLE_KEY }}
         run: >-
           docker build --file frontend/Dockerfile --tag aire-services-web:ci
-          --build-arg VITE_API_URL=
+          --build-arg DEPLOYMENT_ENV=staging
+          --build-arg VITE_DEPLOYMENT_ENV=staging
+          --build-arg VITE_STAGING_SNAPSHOT_AT=1970-01-01T00:00:00Z
+          --build-arg VITE_STAGING_CODE_SHA="${{ github.sha }}"
+          --build-arg VITE_STAGING_PAYROLL_FRONTEND_ORIGIN=https://payroll-staging.example.test
+          --build-arg VITE_API_URL=https://aire-api-staging.example.test/api/v1
           --build-arg VITE_CLERK_PUBLISHABLE_KEY="${STAGING_CLERK_PUBLISHABLE_KEY}"
           frontend
       - name: Validate staging Caddyfile
@@ -158,5 +166,10 @@ jobs:
             ghcr.io/shimizu-technology/${{ matrix.image }}:${{ github.sha }}
             ghcr.io/shimizu-technology/${{ matrix.image }}:staging-v2
           build-args: |
-            VITE_API_URL=
+            DEPLOYMENT_ENV=staging
+            VITE_DEPLOYMENT_ENV=staging
+            VITE_STAGING_SNAPSHOT_AT=${{ vars.STAGING_SNAPSHOT_AT }}
+            VITE_STAGING_CODE_SHA=${{ github.sha }}
+            VITE_STAGING_PAYROLL_FRONTEND_ORIGIN=${{ vars.STAGING_PAYROLL_FRONTEND_ORIGIN }}
+            VITE_API_URL=${{ vars.STAGING_API_URL }}
             VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.STAGING_CLERK_PUBLISHABLE_KEY }}

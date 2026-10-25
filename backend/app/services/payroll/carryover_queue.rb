@@ -93,9 +93,15 @@ module Payroll
           current_entries[exclusion.source_time_entry_id],
           later_entries[exclusion.source_time_entry_id] || [],
           processing_events,
-          settlement_cases.fetch(exclusion.source_time_entry_id, []).last
+          current_case(settlement_cases.fetch(exclusion.source_time_entry_id, []))
         )
       end
+    end
+
+    def current_case(cases)
+      # History can append a superseded case after a still-active origin.
+      # Keep its current authority visible; only use closed history if none is active.
+      cases.reverse.find { |item| item.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) } || cases.last
     end
 
     def summary_for(items)

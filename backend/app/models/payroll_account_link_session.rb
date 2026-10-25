@@ -93,9 +93,12 @@ class PayrollAccountLinkSession < ApplicationRecord
   end
 
   def return_url_is_safe
+    StagingOutboundPolicy.frontend_origin!(return_url)
     uri = URI.parse(return_url.to_s)
     allowed_scheme = uri.scheme == "https" || (Rails.env.development? || Rails.env.test?) && uri.scheme == "http"
     errors.add(:return_url, "must be a secure HTTP URL") unless allowed_scheme && uri.host.present? && uri.userinfo.blank?
+  rescue StagingOutboundPolicy::Blocked
+    errors.add(:return_url, "must use an approved staging frontend")
   rescue URI::InvalidURIError
     errors.add(:return_url, "must be a valid URL")
   end

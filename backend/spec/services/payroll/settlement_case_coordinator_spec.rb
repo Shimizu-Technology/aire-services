@@ -56,12 +56,15 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
       target_external_pay_period_id: "regular-oct-2",
       action_due_on: target.pay_date
     )
-    expect(settlement_case.payroll_settlement_case_events.order(:id).pluck(:event_type)).to eq(%w[opened routed])
+    history = settlement_case.payroll_settlement_case_events.order(:occurred_at, :id)
+    expect(history.pluck(:event_type)).to eq(%w[opened routed])
+    expect(history.pluck(:occurred_at)).to eq([ (origin.cutoff_at + 1.minute).change(usec: 0) ] * 2)
+    expect(settlement_case.payroll_settlement_case_events.reload.map(&:event_type)).to eq(%w[opened routed])
 
     travel_to(origin.cutoff_at + 2.minutes) do
       TimeClockService.approve_entry(entry: held, approved_by: create(:user, :admin), note: "Verified after cutoff")
     end
-    expect(settlement_case.payroll_settlement_case_events.order(:id).pluck(:event_type)).to eq(%w[opened routed approval_changed])
+    expect(history.reload.pluck(:event_type)).to eq(%w[opened routed approval_changed])
   end
 
   it "captures time submitted after a finalized cutoff and gives it a named destination" do

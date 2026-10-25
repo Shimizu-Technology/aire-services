@@ -110,7 +110,8 @@ module Api
 
           render json: {
             user: serialize_user(@user),
-            invitation_email_sent: email_sent,
+            invitation_email_sent: email_sent == :captured ? false : email_sent,
+            **(email_sent == :captured ? { invitation_email_captured: true } : {}),
             kiosk_pin: access_configuration&.generated_pin
           }, status: :created
         end
@@ -201,7 +202,8 @@ module Api
 
           render json: {
             user: serialize_user(@user.reload),
-            invitation_email_sent: invitation_email_sent,
+            invitation_email_sent: invitation_email_sent == :captured ? false : invitation_email_sent,
+            **(invitation_email_sent == :captured ? { invitation_email_captured: true } : {}),
             kiosk_pin: access_configuration&.generated_pin
           }
         end
@@ -306,6 +308,10 @@ module Api
 
           email_sent = send_invitation_email(@user)
 
+          if email_sent == :captured
+            return render json: { message: "Invitation captured in staging; no email was sent.", invitation_email_sent: false, invitation_email_captured: true }
+          end
+
           unless email_sent
             Rails.cache.delete(cache_key)
             return render json: { error: "Failed to send invitation email. Please check email configuration." }, status: :unprocessable_entity
@@ -398,6 +404,7 @@ module Api
             public_team_sort_order: user.public_team_sort_order,
             public_team_photo_position_x: user.public_team_photo_position_x,
             public_team_photo_position_y: user.public_team_photo_position_y,
+            **(StagingOutboundPolicy.staging? ? { staging_artifact_blocked: true } : {}),
             public_team_photo_url: attachment_url(user.public_team_photo),
             public_team_photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 160, nil ]),
             public_team_photo_card_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 640, nil ]),
@@ -477,7 +484,10 @@ module Api
 
         def send_invitation_email(user)
           sent = EmailService.send_invitation_email(user: user, invited_by: current_user)
-          if sent
+          if StagingOutboundPolicy.staging?
+            outcome = sent == :captured ? "captured" : sent ? "sent" : "failed"
+            Rails.logger.info "[InviteEmail] STAGING #{outcome} user_id=#{user.id}; content redacted"
+          elsif sent
             Rails.logger.info "Invitation email sent to #{user.email}"
           else
             Rails.logger.warn "Invitation email could not be sent to #{user.email}"

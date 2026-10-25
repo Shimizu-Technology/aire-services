@@ -2,6 +2,12 @@
 import type { PublicContactInfoSettings } from './businessInfo'
 import { apiUrl } from './apiBase'
 
+export interface InvitationEmailOutcome {
+  invitation_email_sent?: boolean | null;
+  invitation_email_captured?: boolean;
+  invitation_email_queued?: boolean;
+}
+
 interface ApiResponse<T> {
   data?: T;
   error?: string;
@@ -1553,7 +1559,7 @@ export const api = {
     kiosk_pin?: string;
     time_category_ids?: number[];
   }) =>
-    fetchApi<{ user: AdminUser; invitation_email_sent: boolean | null; kiosk_pin: string | null }>('/api/v1/admin/users', {
+    fetchApi<InvitationEmailOutcome & { user: AdminUser; kiosk_pin: string | null }>('/api/v1/admin/users', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -1587,7 +1593,7 @@ export const api = {
     send_invitation?: boolean;
     time_category_ids?: number[];
   }) =>
-    fetchApi<{ user: AdminUser; invitation_email_sent?: boolean | null; kiosk_pin?: string | null }>(`/api/v1/admin/users/${id}`, {
+    fetchApi<InvitationEmailOutcome & { user: AdminUser; kiosk_pin?: string | null }>(`/api/v1/admin/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
@@ -1620,7 +1626,7 @@ export const api = {
     }),
 
   resendInvite: (id: number) =>
-    fetchApi<{ message: string }>(`/api/v1/admin/users/${id}/resend_invite`, {
+    fetchApi<InvitationEmailOutcome & { message: string }>(`/api/v1/admin/users/${id}/resend_invite`, {
       method: 'POST',
     }),
 

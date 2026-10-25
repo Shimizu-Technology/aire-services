@@ -1,3 +1,4 @@
+import { StagingContext } from './components/StagingContext'
 /* eslint-disable react-refresh/only-export-components */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -54,6 +55,7 @@ function Root() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <StagingContext />
     <Root />
   </StrictMode>,
 )

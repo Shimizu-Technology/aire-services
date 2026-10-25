@@ -57,4 +57,24 @@ RSpec.describe "Payroll rollout calendar contract", type: :request do
         .to eq([ "2026-11-07T17:00:00+10:00" ])
     end
   end
+
+  it "reports unenforced scheduled inventory as attention required with one shared rollout lookup" do
+    [ Date.new(2026, 9, 1), Date.new(2026, 9, 16), Date.new(2026, 10, 1) ].each do |start|
+      create(:payroll_calendar_period, start_date: start, end_date: start.day == 1 ? start.change(day: 15) : start.end_of_month,
+        pay_date: "2026-10-31", cutoff_at: "2026-10-24T17:00:00+10:00")
+    end
+    [ Time.iso8601("2026-10-23T12:00:00+10:00"), Time.iso8601("2026-10-25T12:00:00+10:00") ].each do |now|
+      queries = []
+      subscriber = ->(_name, _start, _finish, _id, data) { queries << data[:sql] if data[:sql].match?(/SELECT.*FROM "payroll_lock_rollouts"/i) }
+      travel_to(now) do
+        ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+          get "/api/v1/payroll/calendar_periods", headers: headers
+        end
+      end
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.fetch("payroll_calendar_periods").map { |item| item.fetch("cutoff_state") })
+        .to eq([ "attention_required" ] * 3)
+      expect(queries.length).to eq(1)
+    end
+  end
 end

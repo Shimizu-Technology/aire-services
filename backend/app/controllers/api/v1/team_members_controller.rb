@@ -15,6 +15,7 @@ module Api
             id: user.id,
             name: name,
             title: title,
+            **(StagingOutboundPolicy.staging? ? { staging_artifact_blocked: true } : {}),
             photo_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 900, nil ]),
             photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 480, nil ]),
             photo_alt: user.public_team_photo.attached? ? "#{name}, #{title} at AIRE Services Guam" : nil,

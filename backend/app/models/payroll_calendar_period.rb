@@ -7,6 +7,8 @@ class PayrollCalendarPeriod < ApplicationRecord
   SCHEMA_VERSIONS = %w[1.0 2.0].freeze
   LOCK_MODES = %w[manual scheduled].freeze
   STATUSES = %w[scheduled failed finalized].freeze
+  UNLOADED_LOCK_ROLLOUT = Object.new.freeze
+  private_constant :UNLOADED_LOCK_ROLLOUT
 
   scope :overlapping, ->(start_date, end_date) { where("start_date <= ? AND end_date >= ?", end_date, start_date) }
 
@@ -45,21 +47,21 @@ class PayrollCalendarPeriod < ApplicationRecord
 
   before_validation :capture_overtime_policy, on: :create
 
-  scope :scheduled_locks, lambda {
+  scope :scheduled_locks, lambda { |config = PayrollLockRollout.find_by(id: 1)|
     scheduled = where(lock_mode: "scheduled")
-    config = PayrollLockRollout.find_by(id: 1)
     config ? scheduled.where("start_date >= ?", config.cutoff_enforcement_starts_on) : scheduled
   }
 
-  def self.next_scheduled_cutoff_at
-    scheduled_locks.where.not(status: "finalized").minimum(:cutoff_at)&.in_time_zone(BUSINESS_TIME_ZONE)&.iso8601
+  def self.next_scheduled_cutoff_at(rollout: UNLOADED_LOCK_ROLLOUT)
+    rollout = PayrollLockRollout.find_by(id: 1) if rollout.equal?(UNLOADED_LOCK_ROLLOUT)
+    scheduled_locks(rollout).where.not(status: "finalized").minimum(:cutoff_at)&.in_time_zone(BUSINESS_TIME_ZONE)&.iso8601
   end
 
-  def scheduled_lock_enforced?
+  def scheduled_lock_enforced?(rollout: UNLOADED_LOCK_ROLLOUT)
     return false if manual_lock?
 
-    config = PayrollLockRollout.find_by(id: 1)
-    config.nil? || start_date >= config.cutoff_enforcement_starts_on
+    rollout = PayrollLockRollout.find_by(id: 1) if rollout.equal?(UNLOADED_LOCK_ROLLOUT)
+    rollout.nil? || start_date >= rollout.cutoff_enforcement_starts_on
   end
 
   def manual_lock?
@@ -77,16 +79,17 @@ class PayrollCalendarPeriod < ApplicationRecord
     scheduled.or(retryable_failure)
   }
 
-  def cutoff_state(now: Time.current)
+  def cutoff_state(now: Time.current, rollout: UNLOADED_LOCK_ROLLOUT)
     return "finalized" if status == "finalized"
     return "attention_required" if status == "failed"
     return "manual" if manual_lock?
+    return "attention_required" unless scheduled_lock_enforced?(rollout: rollout)
     return "due" if cutoff_at <= now
 
     "upcoming"
   end
 
-  def as_contract_json(now: Time.current, next_scheduled_cutoff_at: self.class.next_scheduled_cutoff_at)
+  def as_contract_json(now: Time.current, rollout: UNLOADED_LOCK_ROLLOUT, next_scheduled_cutoff_at: self.class.next_scheduled_cutoff_at(rollout: rollout))
     fields = {
       external_pay_period_id: external_pay_period_id,
       start_date: start_date.iso8601,
@@ -98,7 +101,7 @@ class PayrollCalendarPeriod < ApplicationRecord
       schedule_version: schedule_version,
       publication_id: publication_id,
       status: status,
-      cutoff_state: cutoff_state(now: now),
+      cutoff_state: cutoff_state(now: now, rollout: rollout),
       payroll_batch_id: payroll_batch&.public_id,
       finalized_at: finalized_at&.in_time_zone(time_zone)&.iso8601,
       finalization_attempts: finalization_attempts,
