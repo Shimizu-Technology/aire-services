@@ -8,6 +8,7 @@ module AttachmentUrlHelpers
   def staging_image_url(attachment)
     return nil unless StagingStoragePolicy.shared? && attachment&.attached?
     return nil unless %w[image/png image/jpeg image/webp].include?(attachment.blob.content_type)
+    return nil if attachment.blob.byte_size > Api::V1::StagingImagesController::MAX_IMAGE_BYTES
 
     Rails.application.routes.url_helpers.api_v1_staging_image_url(
       attachment.blob.signed_id(purpose: :staging_marked_image, expires_in: 10.minutes), host: request.base_url

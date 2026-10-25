@@ -59,6 +59,62 @@ RSpec.describe "shared staging marked photos", type: :request do
     expect(response.parsed_body.fetch("site_media").first).to include("file_url" => nil, "staging_artifact_blocked" => true)
   end
 
+  it "advertises cloned image URLs only within the endpoint metadata size limit" do
+    limit = Api::V1::StagingImagesController::MAX_IMAGE_BYTES
+    @media.file.blob.update_column(:byte_size, limit + 1)
+    get "/api/v1/site-media"
+    item = response.parsed_body.fetch("site_media").first
+    expect(item).to include("staging_artifact_blocked" => true)
+    expect(item.values_at("file_url", "file_thumb_url", "file_card_url", "file_hero_url")).to all(be_nil)
+
+    get "/api/v1/staging-images/#{@media.file.blob.signed_id(purpose: :staging_marked_image)}"
+    expect(response).to have_http_status(:service_unavailable)
+
+    @media.file.blob.update_column(:byte_size, limit)
+    get "/api/v1/site-media"
+    item = response.parsed_body.fetch("site_media").first
+    expect(item.fetch("staging_artifact_blocked")).to eq(false)
+    expect(item.values_at("file_url", "file_thumb_url", "file_card_url", "file_hero_url")).to all(include("/staging-images/"))
+  end
+
+  it "reports available admin user photos consistently and retains separate and non-staging responses" do
+    admin = bound_admin
+    admin.public_team_photo.attach(@media.file.blob)
+    get "/api/v1/admin/users/#{admin.id}", headers: admin_headers
+    expect(response).to have_http_status(:ok)
+    user = response.parsed_body.fetch("user")
+    expect(user.fetch("staging_artifact_blocked")).to eq(false)
+    expect(user.values_at("public_team_photo_url", "public_team_photo_thumb_url", "public_team_photo_card_url")).to all(include("/staging-images/"))
+    get URI(user.fetch("public_team_photo_url")).request_uri
+    expect(response).to have_http_status(:ok)
+    expect(response.media_type).to eq("image/png")
+
+    %w[STAGING_SHARES_PRODUCTION_CLERK STAGING_SHARES_PRODUCTION_STORAGE STAGING_STORAGE_WRITE_PREFIX].each { |key| ENV.delete(key) }
+    get "/api/v1/admin/users/#{admin.id}", headers: admin_headers
+    expect(response.parsed_body.fetch("user")).to include("staging_artifact_blocked" => true, "public_team_photo_url" => nil)
+
+    ENV["DEPLOYMENT_ENV"] = "production"
+    get "/api/v1/admin/users/#{admin.id}", headers: admin_headers
+    user = response.parsed_body.fetch("user")
+    expect(user).not_to have_key("staging_artifact_blocked")
+    expect(user.fetch("public_team_photo_url")).to include("/rails/active_storage/blobs/")
+  end
+
+  it "reports missing, oversized and unsupported admin user photos as held" do
+    admin = bound_admin
+    get "/api/v1/admin/users/#{admin.id}", headers: admin_headers
+    expect(response.parsed_body.fetch("user")).to include("staging_artifact_blocked" => true, "public_team_photo_url" => nil)
+
+    admin.public_team_photo.attach(@media.file.blob)
+    @media.file.blob.update_column(:byte_size, Api::V1::StagingImagesController::MAX_IMAGE_BYTES + 1)
+    get "/api/v1/admin/users/#{admin.id}", headers: admin_headers
+    expect(response.parsed_body.fetch("user")).to include("staging_artifact_blocked" => true, "public_team_photo_url" => nil)
+
+    @media.file.blob.update_columns(byte_size: @image.bytesize, content_type: "image/gif")
+    get "/api/v1/admin/users/#{admin.id}", headers: admin_headers
+    expect(response.parsed_body.fetch("user")).to include("staging_artifact_blocked" => true, "public_team_photo_url" => nil)
+  end
+
   it "holds oversized actual bytes before decoding and returns not found for missing source objects" do
     stub_const("Api::V1::StagingImagesController::MAX_IMAGE_BYTES", 16)
     @media.file.blob.update_column(:byte_size, 1)
@@ -86,5 +142,16 @@ RSpec.describe "shared staging marked photos", type: :request do
     ENV["DEPLOYMENT_ENV"] = "production"
     get url
     expect(response).to have_http_status(:not_found)
+  end
+
+  def bound_admin
+    admin = create(:user, :admin, clerk_id: "user_phototester")
+    ENV["STAGING_TESTER_BINDINGS"] = [ { user_id: admin.id, email: admin.email, clerk_subject: admin.clerk_id } ].to_json
+    allow(ClerkAuth).to receive(:verify).and_return({ "sub" => admin.clerk_id, "email" => admin.email })
+    admin
+  end
+
+  def admin_headers
+    { "Authorization" => "Bearer synthetic" }
   end
 end

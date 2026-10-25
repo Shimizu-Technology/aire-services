@@ -408,7 +408,7 @@ module Api
             public_team_sort_order: user.public_team_sort_order,
             public_team_photo_position_x: user.public_team_photo_position_x,
             public_team_photo_position_y: user.public_team_photo_position_y,
-            **(StagingOutboundPolicy.staging? ? { staging_artifact_blocked: true } : {}),
+            **(StagingOutboundPolicy.staging? ? { staging_artifact_blocked: attachment_url(user.public_team_photo).nil? } : {}),
             public_team_photo_url: attachment_url(user.public_team_photo),
             public_team_photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 160, nil ]),
             public_team_photo_card_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 640, nil ]),
