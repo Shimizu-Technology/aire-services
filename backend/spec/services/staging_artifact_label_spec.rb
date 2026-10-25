@@ -28,6 +28,19 @@ RSpec.describe StagingArtifactLabel do
     expect { described_class.mark("government file", filename: "efw2.txt") }.to raise_error(StagingOutboundPolicy::Blocked)
   end
 
+  it "retains the default separate-mode hold for image delivery and images inside ZIPs" do
+    ENV.delete("STAGING_SHARES_PRODUCTION_CLERK")
+    ENV.delete("STAGING_SHARES_PRODUCTION_STORAGE")
+    ENV.delete("STAGING_STORAGE_WRITE_PREFIX")
+    expect { described_class.mark("unmarked", filename: "photo.png", type: "image/png") }.to raise_error(StagingOutboundPolicy::Blocked, /format is disabled/)
+    require "zip"
+    zip = Zip::OutputStream.write_buffer do |archive|
+      archive.put_next_entry("photo.png")
+      archive.write("unmarked")
+    end.string
+    expect { described_class.mark(zip, filename: "photos.zip") }.to raise_error(StagingOutboundPolicy::Blocked, /format is disabled/)
+  end
+
   it "leaves non-staging artifact bytes intact" do
     ENV["DEPLOYMENT_ENV"] = "production"
     expect(described_class.mark("original", filename: "efw2.txt")).to eq("original")

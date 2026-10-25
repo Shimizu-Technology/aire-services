@@ -108,6 +108,25 @@ RSpec.describe StagingCloneContainment do
     expect { service.configure(apply: true) }.not_to change(Setting, :count)
   end
 
+  it "clears cloned identities then rebinds original shared production tester subjects using verified reads" do
+    ENV.update("STAGING_SHARES_PRODUCTION_CLERK" => "true", "STAGING_SHARES_PRODUCTION_STORAGE" => "true", "STAGING_STORAGE_WRITE_PREFIX" => "staging/2026-10-25/", "CLERK_SECRET_KEY" => "sk_test_synthetic")
+    leon = create(:user, email: "leon@example.test", clerk_id: "user_originalleon")
+    outsider = create(:user, clerk_id: "user_originaloutsider")
+    ENV["STAGING_TESTER_BINDINGS"] = [ { user_id: leon.id, email: leon.email, clerk_subject: leon.clerk_id } ].to_json
+    expect(HTTParty).to receive(:get).with("https://api.clerk.com/v1/users/user_originalleon", anything).and_return(double(success?: true, parsed_response: { "id" => leon.clerk_id, "primary_email_address_id" => "primary", "email_addresses" => [ { "id" => "primary", "email_address" => leon.email, "verification" => { "status" => "verified" } } ] }))
+    expect(HTTParty).not_to receive(:patch)
+    statements = []
+    listener = ->(_name, _start, _finish, _id, payload) { statements << payload[:sql] }
+    service = described_class.new
+    service.quarantine(apply: true)
+    ActiveSupport::Notifications.subscribed(listener, "sql.active_record") { service.configure(apply: true) }
+    expect(statements.index { |sql| sql.include?("UPDATE users SET clerk_id = 'staging_quarantined_'") }).to be < statements.index { |sql| sql.start_with?('UPDATE "users" SET "clerk_id"') }
+    expect(leon.reload.clerk_id).to eq("user_originalleon")
+    expect(leon.personal_access_enabled).to eq(true)
+    expect(outsider.reload.clerk_id).to eq("staging_quarantined_#{outsider.id}")
+    expect(outsider.personal_access_enabled).to eq(false)
+  end
+
   it "rebinds the two existing tester identities, preserves local IDs, and is repeatable" do
     leon = create(:user, email: "leon@example.test")
     chels = create(:user, email: "chels@example.test")

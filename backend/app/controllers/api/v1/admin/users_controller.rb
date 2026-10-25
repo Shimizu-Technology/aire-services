@@ -155,6 +155,7 @@ module Api
 
                   permitted = payload.fetch(:local_attributes)
                   clerk_attributes = payload.fetch(:clerk_attributes)
+                  StagingOutboundPolicy.clerk_target!(id: @user.clerk_id) if clerk_attributes.present?
                   previous_state = snapshot_local_user_state(@user) if clerk_attributes.present?
 
                   @user.assign_attributes(permitted)
@@ -170,6 +171,8 @@ module Api
                 end
               end
             end
+          rescue StagingOutboundPolicy::Blocked => e
+            return render json: { error: e.message, staging: true }, status: :service_unavailable
           rescue UserAccessConfiguration::ConfigurationError => e
             return render json: { error: e.message }, status: :unprocessable_entity
           rescue ActiveRecord::RecordInvalid => e
@@ -181,7 +184,7 @@ module Api
           if clerk_attributes.present?
             begin
               ClerkUserService.update_user!(clerk_user_id: @user.clerk_id, **clerk_attributes)
-            rescue ClerkUserService::Error => e
+            rescue ClerkUserService::Error, StagingOutboundPolicy::Blocked => e
               begin
                 restore_local_user_state!(@user, previous_state)
               rescue StandardError => rollback_error
@@ -191,7 +194,8 @@ module Api
                 return render json: { error: "Clerk sync failed after saving local changes, and automatic rollback could not be completed. Manual intervention is required." }, status: :internal_server_error
               end
 
-              return render json: { error: e.message }, status: :unprocessable_entity
+              status = e.is_a?(StagingOutboundPolicy::Blocked) ? :service_unavailable : :unprocessable_entity
+              return render json: { error: e.message }, status: status
             end
           end
 

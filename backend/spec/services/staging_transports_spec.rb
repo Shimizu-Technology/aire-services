@@ -26,8 +26,8 @@ RSpec.describe "staging transport boundaries" do
 
   it "rejects storage construction and presigning with copied bucket credentials" do
     ENV.update(staging_storage_env(provider: :aws))
-    expect { ActiveStorage::Service::S3Service.new(bucket: "synthetic-live-bucket", access_key_id: "synthetic-staging-key", secret_access_key: "synthetic-only", region: "us-east-1") }.to raise_error(StagingOutboundPolicy::ConfigurationError, /BUCKET/)
-    expect { ActiveStorage::Service::S3Service.new(bucket: "synthetic-staging-bucket", access_key_id: "synthetic-live-key", secret_access_key: "synthetic-only", region: "us-east-1") }.to raise_error(StagingOutboundPolicy::ConfigurationError, /ACCESS_KEY/)
+    expect { ActiveStorage::Service::StagingS3Service.new(bucket: "synthetic-live-bucket", access_key_id: "synthetic-staging-key", secret_access_key: "synthetic-only", region: "us-east-1") }.to raise_error(StagingOutboundPolicy::ConfigurationError, /BUCKET/)
+    expect { ActiveStorage::Service::StagingS3Service.new(bucket: "synthetic-staging-bucket", access_key_id: "synthetic-live-key", secret_access_key: "synthetic-only", region: "us-east-1") }.to raise_error(StagingOutboundPolicy::ConfigurationError, /ACCESS_KEY/)
   end
 
   it "blocks Google and Nominatim entry points even without provider credentials" do

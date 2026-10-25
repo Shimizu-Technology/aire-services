@@ -10,6 +10,8 @@ Rails.application.routes.draw do
       post "auth/me", to: "auth#me"
       post "auth/kiosk_pin", to: "auth#update_kiosk_pin"
 
+      resources :staging_images, only: [ :show ], path: "staging-images"
+
       # Public marketing/contact
       post "contact", to: "contact#create"
       resource :contact_settings, only: [ :show ]

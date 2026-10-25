@@ -90,6 +90,19 @@ RSpec.describe StagingOutboundPolicy do
       )
     end
 
+    it "accepts the shared production issuer and JWKS only with exact paired opt-in" do
+      safe["CLERK_ISSUER"] = safe["STAGING_CLERK_ISSUER"] = safe.fetch("PRODUCTION_CLERK_ISSUER")
+      safe["CLERK_JWKS_URL"] = "#{safe.fetch('CLERK_ISSUER')}/.well-known/jwks.json"
+      expect { described_class.validate!(env: safe) }.to raise_error(described_class::ConfigurationError, /CLERK_ISSUER/)
+      safe.merge!("STAGING_SHARES_PRODUCTION_CLERK" => "true", "STAGING_SHARES_PRODUCTION_STORAGE" => "true", "STAGING_STORAGE_WRITE_PREFIX" => "staging/2026-10-25/")
+      expect(described_class.validate!(env: safe)).to eq(true)
+      safe["CLERK_JWKS_URL"] = "https://other.example.test/.well-known/jwks.json"
+      expect { described_class.validate!(env: safe) }.to raise_error(described_class::ConfigurationError, /CLERK_JWKS_URL/)
+      safe.delete("CLERK_JWKS_URL")
+      safe["CLERK_SECRET_KEY"] = "sk_live_synthetic"
+      expect { described_class.validate!(env: safe) }.to raise_error(described_class::ConfigurationError, /sk_test_/)
+    end
+
     it "requires the effective pair secret and refuses copied legacy credentials on every boot" do
       safe.delete("PAYROLL_SHARED_SECRET")
       expect { described_class.validate!(env: safe) }.to raise_error(described_class::ConfigurationError, /PAYROLL_SHARED_SECRET/)

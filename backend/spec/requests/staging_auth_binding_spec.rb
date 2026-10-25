@@ -38,6 +38,20 @@ RSpec.describe "staging authenticated tester binding", type: :request do
     expect(response).to have_http_status(:forbidden)
   end
 
+  it "keeps original shared production subjects restricted to the exact local tester" do
+    ENV.update("STAGING_SHARES_PRODUCTION_CLERK" => "true", "STAGING_SHARES_PRODUCTION_STORAGE" => "true", "STAGING_STORAGE_WRITE_PREFIX" => "staging/2026-10-25/")
+    ENV["STAGING_TESTER_BINDINGS"] = [ { user_id: user.id, email: user.email, clerk_subject: user.clerk_id } ].to_json
+    verify_subject(user.clerk_id)
+    get "/api/v1/auth/me", headers: { "Authorization" => "Bearer synthetic" }
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.dig("user", "id")).to eq(user.id)
+    outsider = create(:user, clerk_id: "user_copiedoutsider")
+    verify_subject(outsider.clerk_id)
+    get "/api/v1/auth/me", headers: { "Authorization" => "Bearer synthetic" }
+    expect(response).to have_http_status(:forbidden)
+    expect(outsider.reload.clerk_id).to eq("user_copiedoutsider")
+  end
+
   it "accepts only the exact explicitly bound local tester" do
     ENV["STAGING_TESTER_BINDINGS"] = [ { user_id: user.id, email: user.email, clerk_subject: user.clerk_id } ].to_json
     verify_subject(user.clerk_id)
