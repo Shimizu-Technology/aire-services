@@ -1,0 +1,12 @@
+.cutoff-notice { border: 1px solid #a5cbd9; border-radius: 12px; padding: 16px 20px; background: #f0f8fc; color: #19334f; font-size: 16px; line-height: 1.5; }
+.cutoff-notice a { color: #143c60; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.cutoff-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgb(15 23 42 / 65%); }
+.cutoff-dialog { width: min(100%, 540px); max-height: 100%; overflow-y: auto; border-radius: 16px; padding: 24px; background: white; color: #19334f; font-size: 16px; line-height: 1.5; animation: cutoff-appear 160ms ease-out; }
+.cutoff-close { display: block; margin-left: auto; min-height: 44px; padding: 8px 12px; color: #19334f; text-decoration: underline; }
+.cutoff-primary, .cutoff-secondary { min-height: 44px; padding: 10px 16px; border-radius: 8px; font-weight: 600; touch-action: manipulation; transition: opacity 160ms ease-out; }
+.cutoff-primary { background: #1e3a5f; color: white; }
+.cutoff-secondary { border: 1px solid #b6c6d4; color: #1e3a5f; }
+.cutoff-primary:active, .cutoff-secondary:active { opacity: .8; }
+.cutoff-notice a:focus-visible, .cutoff-dialog :focus-visible { outline: 3px solid #087c9e; outline-offset: 3px; }
+@keyframes cutoff-appear { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cutoff-dialog { animation: none; } .cutoff-primary, .cutoff-secondary { transition: none; } }

@@ -1,3 +1,4 @@
+vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

@@ -1425,7 +1425,32 @@ export interface ScheduleTimePresetsResponse {
 // API methods
 // ---------------------------------------------------------------------------
 
+export interface PayrollCutoff {
+  period: { id: number; start_date: string; end_date: string } | null;
+  publication_id: string | null;
+  version: number | null;
+  now: string;
+  cutoff_at: string | null;
+  seconds_remaining: number | null;
+  time_zone: string;
+  stage: 'none' | '24h' | '4h' | 'passed' | 'finalizing';
+}
+export interface PayrollCutoffAttention {
+  period: NonNullable<PayrollCutoff['period']>;
+  lock_mode: 'manual' | 'scheduled';
+  cutoff_state: 'attention_required';
+}
+export interface PayrollCutoffResponse { cutoff: PayrollCutoff; acknowledged?: boolean; attention?: PayrollCutoffAttention | null }
+export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
+
 export const api = {
+  getPayrollCutoff: (kioskAccessToken?: string, kioskToken?: string) => kioskAccessToken !== undefined
+    ? fetchApi<PayrollCutoffResponse>('/api/v1/aire/kiosk/cutoff', { method: 'POST', body: JSON.stringify({ kiosk_access_token: kioskAccessToken, ...(kioskToken ? { kiosk_token: kioskToken } : {}) }) }, false)
+    : fetchApi<PayrollCutoffResponse>('/api/v1/payroll_cutoff'),
+  acknowledgePayrollCutoff: (identity: PayrollCutoffIdentity, kiosk?: { accessToken: string; employeeToken: string }) =>
+    fetchApi<{ acknowledged: boolean }>(kiosk ? '/api/v1/aire/kiosk/cutoff/acknowledge' : '/api/v1/payroll_cutoff/acknowledge', {
+      method: 'POST', body: JSON.stringify({ ...identity, ...(kiosk ? { kiosk_access_token: kiosk.accessToken, kiosk_token: kiosk.employeeToken } : {}) }),
+    }, !kiosk),
   // Auth
   getCurrentUser: () =>
     fetchApi<{ user: CurrentUser }>('/api/v1/auth/me', {

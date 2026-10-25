@@ -933,6 +933,42 @@ ALTER SEQUENCE public.payroll_calendar_periods_id_seq OWNED BY public.payroll_ca
 
 
 --
+-- Name: payroll_cutoff_acknowledgements; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_cutoff_acknowledgements (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    payroll_calendar_period_id bigint NOT NULL,
+    publication_id uuid NOT NULL,
+    publication_version integer NOT NULL,
+    stage character varying NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT payroll_cutoff_ack_stage CHECK (((stage)::text = ANY ((ARRAY['24h'::character varying, '4h'::character varying])::text[])))
+);
+
+
+--
+-- Name: payroll_cutoff_acknowledgements_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.payroll_cutoff_acknowledgements_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: payroll_cutoff_acknowledgements_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.payroll_cutoff_acknowledgements_id_seq OWNED BY public.payroll_cutoff_acknowledgements.id;
+
+
+--
 -- Name: payroll_entry_processing_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2535,6 +2571,13 @@ ALTER TABLE ONLY public.payroll_calendar_periods ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: payroll_cutoff_acknowledgements id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_cutoff_acknowledgements ALTER COLUMN id SET DEFAULT nextval('public.payroll_cutoff_acknowledgements_id_seq'::regclass);
+
+
+--
 -- Name: payroll_entry_processing_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2929,6 +2972,14 @@ ALTER TABLE ONLY public.payroll_calendar_periods
 
 
 --
+-- Name: payroll_cutoff_acknowledgements payroll_cutoff_acknowledgements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_cutoff_acknowledgements
+    ADD CONSTRAINT payroll_cutoff_acknowledgements_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: payroll_entry_processing_events payroll_entry_processing_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3273,6 +3324,13 @@ CREATE INDEX idx_manual_allocation_revisions_recording ON public.payroll_manual_
 --
 
 CREATE INDEX idx_on_export_type_start_date_end_date_1234e92c05 ON public.report_exports USING btree (export_type, start_date, end_date);
+
+
+--
+-- Name: idx_on_payroll_calendar_period_id_e911df0764; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_on_payroll_calendar_period_id_e911df0764 ON public.payroll_cutoff_acknowledgements USING btree (payroll_calendar_period_id);
 
 
 --
@@ -3868,6 +3926,20 @@ CREATE UNIQUE INDEX index_payroll_batches_supplemental_target ON public.payroll_
 --
 
 CREATE UNIQUE INDEX index_payroll_calendar_periods_on_payroll_batch_id ON public.payroll_calendar_periods USING btree (payroll_batch_id);
+
+
+--
+-- Name: index_payroll_cutoff_ack_identity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_payroll_cutoff_ack_identity ON public.payroll_cutoff_acknowledgements USING btree (user_id, payroll_calendar_period_id, publication_id, publication_version, stage);
+
+
+--
+-- Name: index_payroll_cutoff_acknowledgements_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_payroll_cutoff_acknowledgements_on_user_id ON public.payroll_cutoff_acknowledgements USING btree (user_id);
 
 
 --
@@ -4908,6 +4980,14 @@ ALTER TABLE ONLY public.payroll_manual_allocations
 
 
 --
+-- Name: payroll_cutoff_acknowledgements fk_rails_024d4304d6; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_cutoff_acknowledgements
+    ADD CONSTRAINT fk_rails_024d4304d6 FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
 -- Name: payroll_late_hours_retirements fk_rails_047a230159; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5081,6 +5161,14 @@ ALTER TABLE ONLY public.payroll_late_hours_retirements
 
 ALTER TABLE ONLY public.leave_requests
     ADD CONSTRAINT fk_rails_4268444d33 FOREIGN KEY (cancelled_by_id) REFERENCES public.users(id);
+
+
+--
+-- Name: payroll_cutoff_acknowledgements fk_rails_483355d7fe; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_cutoff_acknowledgements
+    ADD CONSTRAINT fk_rails_483355d7fe FOREIGN KEY (payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id);
 
 
 --
@@ -5458,6 +5546,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261025010000'),
 ('20261024090000'),
 ('20261024080000'),
 ('20261024070000'),

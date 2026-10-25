@@ -16,6 +16,11 @@ Rails.application.routes.draw do
       resources :team_members, only: [ :index ]
       resources :site_media, only: [ :index ], path: "site-media"
 
+      get "payroll_cutoff", to: "payroll_cutoffs#show"
+      post "payroll_cutoff/acknowledge", to: "payroll_cutoffs#acknowledge"
+      post "aire/kiosk/cutoff", to: "payroll_cutoffs#kiosk"
+      post "aire/kiosk/cutoff/acknowledge", to: "payroll_cutoffs#kiosk_acknowledge"
+
       # Public kiosk endpoints
       namespace :aire do
         post "kiosk/verify", to: "kiosk#verify"

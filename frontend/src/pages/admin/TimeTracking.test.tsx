@@ -1,3 +1,4 @@
+vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
 import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'

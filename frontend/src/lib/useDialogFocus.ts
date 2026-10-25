@@ -18,7 +18,7 @@ export function lockDialogScroll() {
 }
 
 /** Keep keyboard navigation inside an open dialog and return to its trigger. */
-export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>, onClose: () => void) {
+export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>, onClose: () => void, initialFocusSelector?: string) {
   const close = useEffectEvent(onClose)
   useEffect(() => {
     if (!open || !ref.current) return
@@ -26,7 +26,7 @@ export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const unlockScroll = lockDialogScroll()
     const controls = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')).filter(element => element.getClientRects().length > 0)
-    ;(controls()[0] || dialog).focus()
+    ;((initialFocusSelector && dialog.querySelector<HTMLElement>(initialFocusSelector)) || controls()[0] || dialog).focus()
     function handleKey(event: KeyboardEvent) {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return }
       if (event.key !== 'Tab') return
@@ -44,5 +44,5 @@ export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>
       unlockScroll()
       if (trigger?.isConnected) trigger.focus()
     }
-  }, [open, ref])
+  }, [open, ref, initialFocusSelector])
 }

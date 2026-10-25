@@ -1,3 +1,4 @@
+import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import { useState, useEffect, useCallback } from 'react'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
@@ -88,6 +89,7 @@ function EmployeeDashboard() {
 
   return (
     <div className="space-y-6">
+      <PayrollCutoffNotice />
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">AIRE Ops</p>
         <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">My Dashboard</h1>
@@ -283,6 +285,7 @@ function AdminDashboard() {
 
   return (
     <div className="space-y-8">
+      <PayrollCutoffNotice />
       <div>
         <div className="flex items-start justify-between gap-4">
           <div>
