@@ -5,7 +5,7 @@ require "rails_helper"
 RSpec.describe "staging payroll shared-secret authentication", type: :request do
   around do |example|
     original = ENV.to_h
-    ENV.update("DEPLOYMENT_ENV" => "staging", "PAYROLL_SHARED_SECRET" => "n" * 64,
+    ENV.update("DEPLOYMENT_ENV" => "staging", "CONNECTED_PAYROLL_MODE" => "enabled", "PAYROLL_SHARED_SECRET" => "n" * 64,
       "STAGING_PAYROLL_SHARED_SECRET" => "n" * 64,
       "PRODUCTION_PAYROLL_SHARED_SECRET_SHA256" => Digest::SHA256.hexdigest("q" * 64))
     ENV.delete("TIME_TRACKING_EXPORT_SECRET")

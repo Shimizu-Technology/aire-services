@@ -25,10 +25,25 @@ RSpec.describe Payroll::OutboxDispatcher do
   let(:private_http_environment) do
     environment.merge(
       "CORNERSTONE_PAYROLL_EVENTS_URL" => "http://payroll-api:3000/api/v1/integrations/aire/events",
-      "DEPLOYMENT_ENV" => "staging",
+      "DEPLOYMENT_ENV" => "staging", "CONNECTED_PAYROLL_MODE" => "enabled",
       "ALLOW_PRIVATE_INTEGRATION_HTTP" => "true",
       "CORNERSTONE_PRIVATE_INTEGRATION_HOST" => "payroll-api"
     )
+  end
+
+  it "records events while paused, holds dispatch without any state changes, and drains exactly once on resume" do
+    paused = environment.merge("CONNECTED_PAYROLL_MODE" => "paused")
+    client = spy("http client", call: Struct.new(:code).new("202"))
+    original = event.attributes
+    allow(ConnectedPayrollMode).to receive(:enabled?).and_call_original
+    allow(ConnectedPayrollMode).to receive(:enabled?).with(no_args).and_return(false)
+    expect(described_class.call_due(now: now)).to eq([])
+    expect(described_class.new(event_id: event.id, now: now, env: paused, client: client).call[:status]).to eq("paused")
+    expect(event.reload.attributes).to eq(original)
+    expect(client).not_to have_received(:call)
+    2.times { described_class.new(event_id: event.id, now: now, env: environment.merge("CONNECTED_PAYROLL_MODE" => "enabled"), client: client).call }
+    expect(client).to have_received(:call).once
+    expect(event.reload).to have_attributes(delivery_status: "delivered", delivery_attempts: 1)
   end
 
   it "delivers the immutable event with authentication and an idempotency key" do

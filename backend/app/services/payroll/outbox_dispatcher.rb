@@ -25,6 +25,7 @@ module Payroll
 
     class << self
       def call_due(now: Time.current, enqueue: nil)
+        return [] unless ConnectedPayrollMode.enabled?
         enqueue ||= ->(event_id) { PayrollOutboxDeliveryJob.perform_later(event_id) }
         event_ids = StagingQuarantine.excluding(PayrollOutboxEvent.due_at(now)).order(:occurred_at, :id).limit(DELIVERY_BATCH_SIZE).pluck(:id)
         event_ids.filter_map do |event_id|
@@ -74,6 +75,7 @@ module Payroll
     end
 
     def call
+      return { event_id: event_id, status: "paused" } unless ConnectedPayrollMode.enabled?(env: env)
       return { event_id: event_id, status: "quarantined" } if StagingQuarantine.suppressed?("payroll_outbox_events", event_id)
       event = claim_event!
       return event if event.is_a?(Hash)

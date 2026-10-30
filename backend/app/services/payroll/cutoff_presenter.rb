@@ -4,6 +4,7 @@ module Payroll
   # Deliberately excludes payroll totals, identities, errors and integration credentials.
   class CutoffPresenter
     def self.period(now:)
+      return unless ConnectedPayrollMode.enabled?
       scheduled = PayrollCalendarPeriod.scheduled_locks
       pending = scheduled.where.not(status: "finalized").order(:cutoff_at, :id).first
       return pending if pending && pending.cutoff_at <= now + 24.hours
@@ -12,6 +13,7 @@ module Payroll
     end
 
     def self.call(now: Time.current, period: self.period(now: now))
+      period = nil unless ConnectedPayrollMode.enabled?
       seconds = period && (period.cutoff_at - now).ceil
       # Admins retain attention_required for manual failures. Employee notices
       # never treat a manual publication as a cutoff, even when passed directly.
@@ -42,6 +44,7 @@ module Payroll
         cutoff_at: period&.cutoff_at&.iso8601,
         seconds_remaining: seconds,
         time_zone: PayrollCalendarPeriod::BUSINESS_TIME_ZONE,
+        connected_payroll: ConnectedPayrollMode.capability,
         stage: stage
       }
     end

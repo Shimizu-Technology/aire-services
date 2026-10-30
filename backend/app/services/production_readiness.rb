@@ -31,7 +31,8 @@ class ProductionReadiness
   class Report
     attr_reader :checks, :generated_at, :revision
 
-    def initialize(checks:, generated_at: Time.current, revision: ENV.fetch("RENDER_GIT_COMMIT", ENV.fetch("GIT_COMMIT", "unknown")))
+    def initialize(checks:, connected_payroll: ConnectedPayrollMode.capability, generated_at: Time.current, revision: ENV.fetch("RENDER_GIT_COMMIT", ENV.fetch("GIT_COMMIT", "unknown")))
+      @connected_payroll = connected_payroll
       @checks = checks
       @generated_at = generated_at
       @revision = revision
@@ -49,6 +50,7 @@ class ProductionReadiness
       {
         generated_at: generated_at.iso8601,
         revision: revision,
+        connected_payroll: @connected_payroll,
         passed: passed?,
         checks: checks.map { |check| { name: check.name, passed: check.passed, detail: check.detail } }
       }
@@ -88,7 +90,7 @@ class ProductionReadiness
 
     checks = configuration_checks
     checks.concat(live_dependency_checks) if live
-    Report.new(checks: checks)
+    Report.new(checks: checks, connected_payroll: ConnectedPayrollMode.capability(env: env, environment: environment))
   end
 
   private
@@ -129,8 +131,8 @@ class ProductionReadiness
       check("the Clerk Backend API accepts the configured key and matches MFA evidence") { clerk_ready? },
       check("the Clerk JWKS endpoint is reachable") { clerk_jwks_ready? },
       check("the Resend sender domain is ready") { resend_ready? },
-      check("the Cornerstone payroll API health endpoint is reachable") { cornerstone_ready? },
-      check("no payroll event has remained undelivered past the retry window") { no_stale_outbox_events? }
+      check("the Cornerstone payroll API health endpoint is reachable") { !ConnectedPayrollMode.enabled?(env: env) || cornerstone_ready? },
+      check("no payroll event has remained undelivered past the retry window") { !ConnectedPayrollMode.enabled?(env: env) || no_stale_outbox_events? }
     ]
   end
 
