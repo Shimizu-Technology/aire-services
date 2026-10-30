@@ -50,9 +50,9 @@ class ProductionReadiness
       {
         generated_at: generated_at.iso8601,
         revision: revision,
-        connected_payroll: @connected_payroll,
         passed: passed?,
-        checks: checks.map { |check| { name: check.name, passed: check.passed, detail: check.detail } }
+        checks: checks.map { |check| { name: check.name, passed: check.passed, detail: check.detail } },
+        connected_payroll: @connected_payroll
       }
     end
   end
@@ -131,8 +131,8 @@ class ProductionReadiness
       check("the Clerk Backend API accepts the configured key and matches MFA evidence") { clerk_ready? },
       check("the Clerk JWKS endpoint is reachable") { clerk_jwks_ready? },
       check("the Resend sender domain is ready") { resend_ready? },
-      check("the Cornerstone payroll API health endpoint is reachable") { !ConnectedPayrollMode.enabled?(env: env) || cornerstone_ready? },
-      check("no payroll event has remained undelivered past the retry window") { !ConnectedPayrollMode.enabled?(env: env) || no_stale_outbox_events? }
+      check("the Cornerstone payroll API health endpoint is reachable") { !ConnectedPayrollMode.enabled?(env: env, environment: environment) || cornerstone_ready? },
+      check("no payroll event has remained undelivered past the retry window") { !ConnectedPayrollMode.enabled?(env: env, environment: environment) || no_stale_outbox_events? }
     ]
   end
 

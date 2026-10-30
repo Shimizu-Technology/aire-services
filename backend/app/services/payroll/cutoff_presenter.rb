@@ -44,7 +44,6 @@ module Payroll
         cutoff_at: period&.cutoff_at&.iso8601,
         seconds_remaining: seconds,
         time_zone: PayrollCalendarPeriod::BUSINESS_TIME_ZONE,
-        connected_payroll: ConnectedPayrollMode.capability,
         stage: stage
       }
     end
