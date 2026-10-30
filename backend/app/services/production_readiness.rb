@@ -131,9 +131,17 @@ class ProductionReadiness
       check("the Clerk Backend API accepts the configured key and matches MFA evidence") { clerk_ready? },
       check("the Clerk JWKS endpoint is reachable") { clerk_jwks_ready? },
       check("the Resend sender domain is ready") { resend_ready? },
-      check("the Cornerstone payroll API health endpoint is reachable") { !ConnectedPayrollMode.enabled?(env: env, environment: environment) || cornerstone_ready? },
-      check("no payroll event has remained undelivered past the retry window") { !ConnectedPayrollMode.enabled?(env: env, environment: environment) || no_stale_outbox_events? }
+      connected_dependency_check("the Cornerstone payroll API health endpoint is reachable") { cornerstone_ready? },
+      connected_dependency_check("no payroll event has remained undelivered past the retry window") { no_stale_outbox_events? }
     ]
+  end
+
+  def connected_dependency_check(name)
+    unless ConnectedPayrollMode.enabled?(env: env, environment: environment)
+      return Check.new(name: name, passed: true, detail: "skipped: connected payroll is paused")
+    end
+
+    check(name) { yield }
   end
 
   def check(name)

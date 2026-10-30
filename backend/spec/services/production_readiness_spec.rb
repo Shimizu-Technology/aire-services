@@ -138,7 +138,13 @@ RSpec.describe ProductionReadiness do
     env["CONNECTED_PAYROLL_MODE"] = "paused"
     expect(readiness).not_to receive(:cornerstone_ready?)
     expect(readiness).not_to receive(:no_stale_outbox_events?)
-    expect(readiness.run(live: true).as_json.fetch(:connected_payroll)).to include(mode: "paused", enabled: false)
+    evidence = readiness.run(live: true).as_json
+    expect(evidence.fetch(:connected_payroll)).to include(mode: "paused", enabled: false)
+    skipped = evidence.fetch(:checks).select { |check| check[:detail].start_with?("skipped:") }
+    expect(skipped.map { |check| check[:name] }).to contain_exactly(
+      "the Cornerstone payroll API health endpoint is reachable",
+      "no payroll event has remained undelivered past the retry window"
+    )
   end
 
   it "passes effective configuration and every safe live dependency probe" do

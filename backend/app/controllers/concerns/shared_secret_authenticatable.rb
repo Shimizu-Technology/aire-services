@@ -9,7 +9,7 @@ module SharedSecretAuthenticatable
     unless ConnectedPayrollMode.enabled?
       response.headers["Retry-After"] = "60"
       render json: { error: ConnectedPayrollMode::MESSAGE, connected_payroll: ConnectedPayrollMode.capability }, status: :service_unavailable
-      return
+      return :connected_payroll_paused
     end
     provided = request.headers["X-Shared-Secret"].presence || request.headers["X-Payroll-Shared-Secret"].presence
     unless provided.present?
