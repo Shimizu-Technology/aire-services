@@ -34,9 +34,9 @@ RSpec.describe Payroll::OutboxDispatcher do
   it "records events while paused, holds dispatch without any state changes, and drains exactly once on resume" do
     paused = environment.merge("CONNECTED_PAYROLL_MODE" => "paused")
     client = spy("http client", call: Struct.new(:code).new("202"))
-    original = event.attributes
     allow(ConnectedPayrollMode).to receive(:enabled?).and_call_original
     allow(ConnectedPayrollMode).to receive(:enabled?).with(no_args).and_return(false)
+    original = event.attributes
     expect(described_class.call_due(now: now)).to eq([])
     expect(described_class.new(event_id: event.id, now: now, env: paused, client: client).call[:status]).to eq("paused")
     expect(event.reload.attributes).to eq(original)

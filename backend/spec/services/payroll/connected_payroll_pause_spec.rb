@@ -16,7 +16,8 @@ RSpec.describe "Connected payroll pause" do
   end
 
   it "holds manual locks and hides imminent automatic-lock warnings" do
-    period = create(:payroll_calendar_period)
+    start_date = PayrollClockHelpers.future_payroll_month
+    period = create(:payroll_calendar_period, start_date: start_date, lock_mode: "manual", cutoff_enforcement_starts_on: start_date.next_month)
     actor = create(:user, :admin)
     expect(Payroll::ManualCalendarFinalizer.new(period_id: period.id, actor: actor, reason: "Review complete").call[:status]).to eq("paused")
     expect(Payroll::CutoffPresenter.call(period: period)).to include(stage: "none", cutoff_at: nil, seconds_remaining: nil)
