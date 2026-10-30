@@ -19,7 +19,7 @@ RSpec.describe "shared staging marked photos", type: :request do
     @media = create(:site_media)
     @image = Vips::Image.black(640, 300, bands: 3).new_from_image([ 30, 90, 160 ]).pngsave_buffer
     @media.file.attach(io: StringIO.new(@image), filename: "cloned.png", content_type: "image/png")
-    ENV.update("DEPLOYMENT_ENV" => "staging", "STAGING_SHARES_PRODUCTION_CLERK" => "true", "STAGING_SHARES_PRODUCTION_STORAGE" => "true", "STAGING_STORAGE_WRITE_PREFIX" => "staging/2026-10-25/")
+    ENV.update("DEPLOYMENT_ENV" => "staging", "CONNECTED_PAYROLL_MODE" => "enabled", "STAGING_SHARES_PRODUCTION_CLERK" => "true", "STAGING_SHARES_PRODUCTION_STORAGE" => "true", "STAGING_STORAGE_WRITE_PREFIX" => "staging/2026-10-25/")
   end
 
   it "serves existing cloned photos through signed marked URLs without changing source storage" do

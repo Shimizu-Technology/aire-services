@@ -19,6 +19,7 @@ module Payroll
     end
 
     def call
+      ConnectedPayrollMode.require_enabled!
       PayrollCalendarPeriod.transaction do
         ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{ADVISORY_LOCK_KEY})")
         @now ||= Time.current

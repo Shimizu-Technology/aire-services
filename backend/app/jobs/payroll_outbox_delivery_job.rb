@@ -5,7 +5,8 @@ class PayrollOutboxDeliveryJob < ApplicationJob
 
   def perform(event_id = nil)
     if event_id
-      Payroll::OutboxDispatcher.new(event_id: event_id).call
+      result = Payroll::OutboxDispatcher.new(event_id: event_id).call
+      retry_job(wait: 1.minute) if result[:status] == "paused"
     else
       Payroll::OutboxDispatcher.call_due
     end

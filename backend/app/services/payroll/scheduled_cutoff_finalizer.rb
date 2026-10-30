@@ -9,6 +9,7 @@ module Payroll
 
     class << self
       def call_due(now: Time.current)
+        return [] unless ConnectedPayrollMode.enabled?
         reconcile_settlement_cases_safely
         PayrollCalendarPeriod.due_at(now).order(:cutoff_at, :id).pluck(:id).map do |period_id|
           new(period_id: period_id, now: now, reconcile_settlement_cases: false).call
@@ -38,6 +39,7 @@ module Payroll
     end
 
     def call
+      return { period_id: period_id, status: "paused" } unless ConnectedPayrollMode.enabled?
       self.class.reconcile_settlement_cases_safely if reconcile_settlement_cases
       batch = finalize_transaction!
       { period_id: period_id, status: batch ? "finalized" : "skipped", payroll_batch_id: batch&.public_id }

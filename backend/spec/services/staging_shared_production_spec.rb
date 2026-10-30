@@ -64,7 +64,7 @@ RSpec.describe "shared production staging containment" do
       expect(StagingStoragePolicy.new_key("original", env: env)).to eq("original")
       expect(StagingStoragePolicy.write!("original", env: env)).to eq(true)
     end
-    expect(StagingOutboundPolicy.shared_production_credentials?({ "DEPLOYMENT_ENV" => "staging" })).to eq(false)
+    expect(StagingOutboundPolicy.shared_production_credentials?({ "DEPLOYMENT_ENV" => "staging", "CONNECTED_PAYROLL_MODE" => "enabled" })).to eq(false)
   end
 
   it "rejects an orphan storage write prefix without both sharing flags" do

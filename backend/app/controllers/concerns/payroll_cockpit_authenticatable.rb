@@ -8,8 +8,8 @@ module PayrollCockpitAuthenticatable
   private
 
   def authenticate_payroll_cockpit!
-    authenticate_shared_secret!
-    audit_payroll_authorization_denial(nil, "service_authentication_failed") if performed?
+    result = authenticate_shared_secret!
+    audit_payroll_authorization_denial(nil, "service_authentication_failed") if performed? && result != :connected_payroll_paused
   end
 
   def authenticate_payroll_actor!

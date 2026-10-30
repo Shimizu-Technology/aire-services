@@ -27,6 +27,7 @@ module Payroll
 
     def self.call
       {
+        connected_payroll: ConnectedPayrollMode.capability,
         protocol: PROTOCOL,
         protocol_version: PROTOCOL_VERSION,
         source_type: SOURCE_TYPE,

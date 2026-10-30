@@ -25,10 +25,41 @@ RSpec.describe Payroll::OutboxDispatcher do
   let(:private_http_environment) do
     environment.merge(
       "CORNERSTONE_PAYROLL_EVENTS_URL" => "http://payroll-api:3000/api/v1/integrations/aire/events",
-      "DEPLOYMENT_ENV" => "staging",
+      "DEPLOYMENT_ENV" => "staging", "CONNECTED_PAYROLL_MODE" => "enabled",
       "ALLOW_PRIVATE_INTEGRATION_HTTP" => "true",
       "CORNERSTONE_PRIVATE_INTEGRATION_HOST" => "payroll-api"
     )
+  end
+
+  it "records events while paused and drains scheduled work in order exactly once on resume" do
+    previous = ENV["CONNECTED_PAYROLL_MODE"]
+    ENV["CONNECTED_PAYROLL_MODE"] = "paused"
+    paused = environment.merge("CONNECTED_PAYROLL_MODE" => "paused")
+    delivered = []
+    client = ->(_uri, _payload, headers) { delivered << headers.fetch("Idempotency-Key"); Struct.new(:code).new("202") }
+    original = event.attributes
+    second = period.payroll_outbox_events.create!(event_type: "payroll_batch.finalized",
+      occurred_at: now - 4.minutes, next_delivery_attempt_at: now, payload: event.payload)
+    second_original = second.attributes
+    expect(described_class.call_due(now: now)).to eq([])
+    expect(described_class.new(event_id: event.id, now: now, env: paused, client: client).call[:status]).to eq("paused")
+    expect(event.reload.attributes).to eq(original)
+    expect(second.reload.attributes).to eq(second_original)
+    expect(delivered).to be_empty
+
+    ENV["CONNECTED_PAYROLL_MODE"] = "enabled"
+    queued = []
+    described_class.call_due(now: now, enqueue: ->(id) { queued << id })
+    expect(queued).to eq([ event.id, second.id ])
+    expect(described_class.call_due(now: now)).to eq([])
+    queued.each do |id|
+      2.times { described_class.new(event_id: id, now: now, env: environment.merge("CONNECTED_PAYROLL_MODE" => "enabled"), client: client).call }
+    end
+    expect(delivered).to eq([ event.event_id, second.event_id ])
+    expect(event.reload).to have_attributes(delivery_status: "delivered", delivery_attempts: 1)
+    expect(second.reload).to have_attributes(delivery_status: "delivered", delivery_attempts: 1)
+  ensure
+    ENV["CONNECTED_PAYROLL_MODE"] = previous
   end
 
   it "delivers the immutable event with authentication and an idempotency key" do

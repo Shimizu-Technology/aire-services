@@ -13,7 +13,7 @@ RSpec.describe "shared staging Clerk edit atomicity", type: :request do
   it "refuses shared tester profile edits before persisting names, local fields or approval assignments" do
     admin = create(:user, :admin, clerk_id: "user_originaladmin")
     tester = create(:user, clerk_id: "user_originaltester")
-    ENV.update("DEPLOYMENT_ENV" => "staging", "STAGING_SHARES_PRODUCTION_CLERK" => "true", "STAGING_SHARES_PRODUCTION_STORAGE" => "true", "STAGING_STORAGE_WRITE_PREFIX" => "staging/2026-10-25/", "CLERK_SECRET_KEY" => "sk_test_synthetic", "STAGING_TESTER_BINDINGS" => [ { user_id: admin.id, email: admin.email, clerk_subject: admin.clerk_id }, { user_id: tester.id, email: tester.email, clerk_subject: tester.clerk_id } ].to_json)
+    ENV.update("DEPLOYMENT_ENV" => "staging", "CONNECTED_PAYROLL_MODE" => "enabled", "STAGING_SHARES_PRODUCTION_CLERK" => "true", "STAGING_SHARES_PRODUCTION_STORAGE" => "true", "STAGING_STORAGE_WRITE_PREFIX" => "staging/2026-10-25/", "CLERK_SECRET_KEY" => "sk_test_synthetic", "STAGING_TESTER_BINDINGS" => [ { user_id: admin.id, email: admin.email, clerk_subject: admin.clerk_id }, { user_id: tester.id, email: tester.email, clerk_subject: tester.clerk_id } ].to_json)
     original = tester.attributes
     expect(ClerkUserService).not_to receive(:update_user!)
     expect(HTTParty).not_to receive(:send)
