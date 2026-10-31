@@ -22,7 +22,7 @@ import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 
 function NavIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
-    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition group-hover:border-cyan-200 group-hover:text-cyan-700 group-focus-visible:border-cyan-200 group-focus-visible:text-cyan-700">
+    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors group-hover:border-cyan-200 group-hover:text-cyan-700 group-focus-visible:border-cyan-200 group-focus-visible:text-cyan-700">
       <Icon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
     </span>
   )
@@ -163,7 +163,7 @@ export default function AdminLayout() {
   }, [navigationOpen, isDesktop])
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.08),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#f3f4f6_100%)]">
+    <div className="app-feedback min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.08),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#f3f4f6_100%)]">
       <div inert={navigationOpen && !isDesktop} className="border-b border-slate-200/90 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
         <div className="mx-auto flex h-16 w-full max-w-[104rem] items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
@@ -207,7 +207,7 @@ export default function AdminLayout() {
           />
         )}
 
-        <aside ref={sidebarRef} role={!isDesktop && navigationOpen ? 'dialog' : undefined} aria-modal={!isDesktop && navigationOpen ? true : undefined} aria-label="Navigation" aria-hidden={!isDesktop && !navigationOpen ? true : undefined} inert={!isDesktop && !navigationOpen} className={`fixed top-16 bottom-0 left-0 z-40 overflow-y-auto border-r border-slate-200 bg-white px-4 py-6 shadow-xl transition-all duration-300 motion-reduce:transition-none lg:static lg:translate-x-0 lg:overflow-visible lg:shadow-none ${desktopCollapsed ? 'w-72 lg:w-24' : 'w-72'} ${navigationOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+        <aside ref={sidebarRef} role={!isDesktop && navigationOpen ? 'dialog' : undefined} aria-modal={!isDesktop && navigationOpen ? true : undefined} aria-label="Navigation" aria-hidden={!isDesktop && !navigationOpen ? true : undefined} inert={!isDesktop && !navigationOpen} className={`fixed top-16 bottom-0 left-0 z-40 overflow-y-auto border-r border-slate-200 bg-white px-4 py-6 shadow-xl transition-[transform,width] duration-160 motion-reduce:transition-none lg:static lg:translate-x-0 lg:overflow-visible lg:shadow-none ${desktopCollapsed ? 'w-72 lg:w-24' : 'w-72'} ${navigationOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
           {!isDesktop && <button type="button" onClick={() => setMobileOpen(false)} className="mb-4 flex min-h-11 items-center gap-2 text-slate-700 lg:hidden" aria-label="Close navigation"><X className="h-5 w-5" aria-hidden="true" />Close</button>}
           <div className={`mb-6 ${desktopCollapsed ? 'px-0' : 'px-2'}`}>
             <p className={`text-xs font-semibold uppercase tracking-[0.12em] text-slate-400 ${desktopCollapsed ? 'hidden lg:block lg:text-center' : ''}`}>
@@ -222,13 +222,13 @@ export default function AdminLayout() {
                 onClick={() => setMobileOpen(false)}
                 aria-label={desktopCollapsed ? item.name : undefined}
                 title={desktopCollapsed ? item.name : undefined}
-                className={`group relative flex items-center rounded-xl px-4 py-3 text-sm font-medium transition ${desktopCollapsed ? 'gap-3 lg:justify-center lg:gap-0 lg:px-2' : 'gap-3'} ${isActive(item.href) ? 'bg-cyan-50 text-cyan-700 shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                className={`group relative flex items-center rounded-xl px-4 py-3 text-sm font-medium transition-colors ${desktopCollapsed ? 'gap-3 lg:justify-center lg:gap-0 lg:px-2' : 'gap-3'} ${isActive(item.href) ? 'bg-cyan-50 text-cyan-700 shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
               >
                 {desktopCollapsed ? (
                   <>
                     <span className="inline-flex"><NavIcon icon={item.icon} /></span>
                     <span className="lg:hidden">{item.name}</span>
-                    <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-lg transition duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 lg:block">
+                    <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 lg:block">
                       {item.name}
                     </span>
                   </>

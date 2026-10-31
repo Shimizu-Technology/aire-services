@@ -757,7 +757,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
                 type="button"
                 onClick={toggleSelectAllVisible}
                 disabled={queueUnavailable || approvableEntries.length === 0}
-                className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-primary-dark transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-primary-dark transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {queueUnavailable ? 'Select approvable' : allVisibleSelected ? 'Clear selection' : `Select approvable (${approvableEntries.length})`}
               </button>
@@ -765,7 +765,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
                 type="button"
                 onClick={handleBulkApproveSelected}
                 disabled={queueUnavailable || bulkActionLoading || selectedEntries.length === 0 || selectedEntries.length > 100}
-                className="min-h-[44px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {bulkActionLoading ? 'Approving…' : queueUnavailable ? 'Approve Selected' : `Approve Selected (${selectedEntries.length})`}
               </button>
@@ -943,7 +943,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
               key={option.value}
               type="button"
               onClick={() => applyFilter(option.value)}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
                 approvalGroupFilter === option.value
                   ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
                   : 'border-neutral-warm bg-white text-text-muted hover:border-slate-300 hover:text-primary-dark'

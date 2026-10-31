@@ -367,10 +367,10 @@ export default function AireKiosk() {
 
   if (!canViewKiosk) {
     return (
-      <div className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6">
+      <div className="app-feedback min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-center justify-end gap-4 text-xs">
-            <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
+            <Link to="/" className="text-slate-500 transition-colors hover:text-slate-300">Home</Link>
           </div>
           <section className="mt-12 rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center shadow-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
@@ -385,13 +385,13 @@ export default function AireKiosk() {
               {!isClerkEnabled ? (
                 <Link
                   to="/admin"
-                  className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+                  className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-300"
                 >
                   Open admin workspace
                 </Link>
               ) : !isSignedIn ? (
                 <SignInButton mode="modal" forceRedirectUrl="/kiosk" fallbackRedirectUrl="/kiosk">
-                  <button className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+                  <button className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-300">
                     Admin sign in to open kiosk
                   </button>
                 </SignInButton>
@@ -402,7 +402,7 @@ export default function AireKiosk() {
                   </div>
                   <Link
                     to="/admin"
-                    className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+                    className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-300"
                   >
                     Back to admin workspace
                   </Link>
@@ -410,7 +410,7 @@ export default function AireKiosk() {
               )}
               <Link
                 to="/"
-                className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10"
+                className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-200 transition-colors hover:border-cyan-300 hover:bg-cyan-500/10"
               >
                 Back to site
               </Link>
@@ -422,13 +422,13 @@ export default function AireKiosk() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="app-feedback min-h-screen bg-slate-950 text-slate-100">
       {kioskUnlocked && <div className="mx-auto max-w-6xl px-4 pt-4 md:px-6">
         <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice }} />
       </div>}
       <div className="mx-auto flex max-w-6xl items-center justify-end gap-4 px-4 pt-3 text-xs md:px-6">
-        <Link to="/admin" className="text-slate-500 transition hover:text-slate-300">Admin</Link>
-        <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
+        <Link to="/admin" className="text-slate-500 transition-colors hover:text-slate-300">Admin</Link>
+        <Link to="/" className="text-slate-500 transition-colors hover:text-slate-300">Home</Link>
       </div>
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-8 pt-4 md:grid-cols-[1.15fr_1fr] md:px-6">
         <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
@@ -440,10 +440,10 @@ export default function AireKiosk() {
             <div className="rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-right">
               <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Guam Time</p>
               <p className="mt-1 text-lg font-semibold text-cyan-200">
-                {now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
+                {now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Pacific/Guam' })}
               </p>
               <p className="text-xs text-slate-400">
-                {now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                {now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Pacific/Guam' })}
               </p>
             </div>
           </div>
@@ -469,7 +469,7 @@ export default function AireKiosk() {
               {kioskUnlocked ? (
                 <button
                   onClick={handleLock}
-                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
                 >
                   Lock kiosk
                 </button>
@@ -477,7 +477,7 @@ export default function AireKiosk() {
                 <button
                   onClick={handleUnlock}
                   disabled={unlocking || (isClerkEnabled && !isSignedIn)}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
                     unlocking || (isClerkEnabled && !isSignedIn)
                       ? 'cursor-not-allowed bg-slate-800 text-slate-500'
                       : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
@@ -486,7 +486,7 @@ export default function AireKiosk() {
                   {unlocking ? 'Unlocking…' : 'Unlock kiosk'}
                 </button>
               ) : (
-                <Link to="/admin" className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10">
+                <Link to="/admin" className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-cyan-300 hover:bg-cyan-500/10">
                   Admin unlock
                 </Link>
               )}
@@ -503,7 +503,7 @@ export default function AireKiosk() {
               {employee && (
                 <button
                   onClick={clearSession}
-                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10"
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-cyan-300 hover:bg-cyan-500/10"
                 >
                   Not you? Reset
                 </button>
@@ -539,7 +539,7 @@ export default function AireKiosk() {
                   <button
                     key={category.id}
                     onClick={() => setSelectedCategoryId(category.id)}
-                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-colors ${
                       selected
                         ? 'border-cyan-300 bg-cyan-400/15 text-white'
                         : 'border-slate-700 bg-slate-900/40 text-slate-200 hover:border-slate-500'
@@ -568,7 +568,7 @@ export default function AireKiosk() {
                 key={action}
                 onClick={() => runAction(action)}
                 disabled={!enabled || !!actionLoading || !!loading}
-                className={`rounded-2xl px-5 py-3.5 text-sm font-semibold transition ${className} ${
+                className={`rounded-2xl px-5 py-3.5 text-sm font-semibold transition-colors ${className} ${
                   !enabled || actionLoading || loading ? 'cursor-not-allowed opacity-50' : ''
                 }`}
               >
@@ -578,11 +578,11 @@ export default function AireKiosk() {
           </div>
 
           {error && (
-            <p className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>
+            <p role="alert" aria-atomic="true" className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>
           )}
 
           {success && (
-            <p className="mt-6 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</p>
+            <p role="status" aria-live="polite" aria-atomic="true" className="mt-6 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</p>
           )}
 
           <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
@@ -599,7 +599,7 @@ export default function AireKiosk() {
           <button
             onClick={handleVerify}
             disabled={loading || !kioskUnlocked || !!employee || pin.length < 4}
-            className={`mt-4 w-full rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+            className={`mt-4 w-full rounded-2xl px-4 py-3 text-sm font-semibold transition-colors ${
               loading || !kioskUnlocked || employee || pin.length < 4
                 ? 'cursor-not-allowed bg-slate-800 text-slate-500'
                 : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
@@ -614,7 +614,7 @@ export default function AireKiosk() {
                 key={key}
                 onClick={() => press(key)}
                 disabled={loading || !!employee}
-                className={`rounded-xl border border-slate-700 bg-slate-950 px-4 py-4 text-lg font-semibold text-slate-100 transition hover:border-cyan-300 hover:bg-cyan-500/10 ${
+                className={`rounded-xl border border-slate-700 bg-slate-950 px-4 py-4 text-lg font-semibold text-slate-100 transition-colors hover:border-cyan-300 hover:bg-cyan-500/10 ${
                   loading || employee ? 'cursor-not-allowed opacity-50' : ''
                 }`}
               >
