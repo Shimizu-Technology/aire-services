@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AireKiosk from './AireKiosk'
 
 const authMock = vi.hoisted(() => ({ isClerkEnabled: true, isSignedIn: true, userRole: 'admin' as 'admin' | 'employee' | null }))
@@ -9,6 +9,8 @@ vi.mock('../../lib/api', () => ({ api: mocks }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => authMock }))
 vi.mock('@clerk/clerk-react', () => ({ SignInButton: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: ({ kiosk }: { kiosk: { notice: unknown } }) => <div data-testid="warning">{kiosk.notice ? 'notice' : 'none'}</div> }))
+
+afterEach(() => { vi.useRealTimers() })
 
 const employee = { id: 1, display_name: 'Avery', full_name: 'Avery Fixture' }
 const category = { id: 1, name: 'Ground operations' }
@@ -36,6 +38,7 @@ it('does not wait for warning reads to finish clocking and ignores reads superse
   expect(mocks.getPayrollCutoff).toHaveBeenCalledWith('access', 'employee-token')
   fireEvent.click(clockIn)
   await screen.findByText('Avery clocked in for Ground operations.')
+  expect(screen.getByRole('status')).toHaveTextContent('Avery clocked in')
   await act(async () => { pending[0]({ data: { cutoff: {}, acknowledged: false } }) })
   expect(screen.getByTestId('warning')).toHaveTextContent('none')
   fireEvent.click(screen.getByRole('button', { name: 'Clock Out' }))
@@ -64,4 +67,31 @@ it('shows an admin-only message for signed-in non-admin users', () => {
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   expect(screen.getByText(/only admins can open this kiosk/i)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Admin sign in to open kiosk' })).not.toBeInTheDocument()
+})
+
+it('shows Guam clock and date together across Guam midnight in a non-Guam host zone', () => {
+  vi.useFakeTimers()
+  const previous = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
+  try {
+    vi.setSystemTime(new Date('2026-10-31T14:05:06Z'))
+    render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+    expect(screen.getByText('12:05:06 AM')).toBeInTheDocument()
+    expect(screen.getByText('Sun, Nov 1, 2026')).toBeInTheDocument()
+  } finally {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  }
+})
+
+it('announces a failed PIN without moving focus away from Verify PIN', async () => {
+  mocks.getPayrollCutoff.mockResolvedValue({ data: null })
+  mocks.aireKioskVerify.mockResolvedValue({ error: 'Invalid PIN' })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  for (const digit of '1234') fireEvent.click(screen.getByRole('button', { name: digit }))
+  const verify = screen.getByRole('button', { name: 'Verify PIN' })
+  verify.focus()
+  fireEvent.click(verify)
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid PIN')
+  expect(verify).toHaveFocus()
 })

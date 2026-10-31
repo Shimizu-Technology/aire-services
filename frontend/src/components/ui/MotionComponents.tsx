@@ -1,12 +1,16 @@
-import { motion, useInView } from 'framer-motion'
+import { motion, useInView, useReducedMotion } from 'framer-motion'
 import { useRef, type ReactNode } from 'react'
 
 const EASE = [0.22, 1, 0.36, 1] as const
 
 /** Fade up on scroll */
-export function FadeUp({ children, delay = 0, className = '' }: { children: ReactNode; delay?: number; className?: string }) {
+export function FadeUp({ children, delay = 0, className = '', operational = false }: { children: ReactNode; delay?: number; className?: string; operational?: boolean }) {
   const ref = useRef(null)
   const isInView = useInView(ref, { once: true, margin: '-80px' })
+  const reducedMotion = useReducedMotion()
+
+  // Repeated operational tasks need content immediately, with no positional reveal.
+  if (operational || reducedMotion) return <div className={className}>{children}</div>
 
   return (
     <motion.div
