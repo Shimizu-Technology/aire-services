@@ -284,8 +284,8 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
           )}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Leave type</label>
-              <select
+              <label htmlFor="leave-request-field-1" className="mb-2 block text-sm font-medium text-slate-700">Leave type</label>
+              <select id="leave-request-field-1"
                 value={formData.leave_type}
                 onChange={(event) => setFormData((current) => ({ ...current, leave_type: event.target.value as LeaveRequest['leave_type'] }))}
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -296,8 +296,8 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
               </select>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Start date</label>
-              <input
+              <label htmlFor="leave-request-field-2" className="mb-2 block text-sm font-medium text-slate-700">Start date</label>
+              <input id="leave-request-field-2"
                 type="date"
                 required
                 value={formData.start_date}
@@ -306,8 +306,8 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
               />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">End date</label>
-              <input
+              <label htmlFor="leave-request-field-3" className="mb-2 block text-sm font-medium text-slate-700">End date</label>
+              <input id="leave-request-field-3"
                 type="date"
                 required
                 value={formData.end_date}
@@ -327,8 +327,8 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
             </div>
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Notes</label>
-            <textarea
+            <label htmlFor="leave-request-field-4" className="mb-2 block text-sm font-medium text-slate-700">Notes</label>
+            <textarea id="leave-request-field-4"
               rows={3}
               value={formData.reason}
               onChange={(event) => setFormData((current) => ({ ...current, reason: event.target.value }))}

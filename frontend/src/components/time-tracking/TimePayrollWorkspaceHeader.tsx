@@ -83,7 +83,7 @@ export default function TimePayrollWorkspaceHeader({
             const active = activeSection === section.id
             const Icon = section.icon
             const label = section.id === 'approvals' && pendingApprovalCount > 0
-              ? `Approvals, ${pendingApprovalCount} pending`
+              ? `Approvals${approvalBadge(pendingApprovalCount)}, ${pendingApprovalCount} pending`
               : section.label
             const content = (
               <>

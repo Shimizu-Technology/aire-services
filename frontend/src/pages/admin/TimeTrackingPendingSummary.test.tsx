@@ -56,11 +56,11 @@ describe('TimeTracking pending approval summary requests', () => {
 
     if (trigger === 'saved entry refresh') fireEvent.click(screen.getByRole('button', { name: 'Refresh saved entry' }))
     else fireEvent(document, new Event('visibilitychange'))
-    expect(await screen.findByRole('button', { name: 'Approvals, 2 pending' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'Approvals2, 2 pending' })).toBeVisible()
 
     await act(async () => older.resolve({ data: { pending_entries: [], count: 9, summary: summary(9) } }))
-    expect(screen.getByRole('button', { name: 'Approvals, 2 pending' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: 'Approvals, 9 pending' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approvals2, 2 pending' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Approvals9, 9 pending' })).not.toBeInTheDocument()
   })
 
   it('does not consume a pending summary response or poll again after unmount', async () => {

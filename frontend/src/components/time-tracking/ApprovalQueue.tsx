@@ -994,7 +994,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
                           {groupSelected && <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.312a1 1 0 0 1-1.42.002L3.29 9.23a1 1 0 1 1 1.42-1.408l4.04 4.07 6.54-6.596a1 1 0 0 1 1.414-.006Z" clipRule="evenodd" /></svg>}
                         </span>
                         <div>
-                          <h4 className="text-sm font-bold text-primary-dark">{formatWorkDate(group.date)}</h4>
+                          <h3 className="text-sm font-bold text-primary-dark">{formatWorkDate(group.date)}</h3>
                           <p className="text-xs text-text-muted">{group.entries.length} entr{group.entries.length === 1 ? 'y' : 'ies'} · {group.totalHours.toFixed(2)}h total entry hours</p>
                         </div>
                       </button>
