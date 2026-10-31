@@ -10,7 +10,7 @@ interface FadeInProps {
 export function FadeIn({ 
   children, 
   delay = 0, 
-  duration = 300,
+  duration = 160,
   className = '' 
 }: FadeInProps) {
   const [isVisible, setIsVisible] = useState(false)
@@ -25,11 +25,10 @@ export function FadeIn({
 
   return (
     <div
-      className={`transition-all ${className}`}
+      className={`motion-reduce:!opacity-100 motion-reduce:!transition-none transition-opacity ${className}`}
       style={{
         opacity: isVisible ? 1 : 0,
-        transform: isVisible ? 'translateY(0)' : 'translateY(8px)',
-        transitionDuration: `${duration}ms`,
+        transitionDuration: `${Math.min(duration, 160)}ms`,
         transitionTimingFunction: 'ease-out'
       }}
     >
@@ -51,7 +50,7 @@ export function FadeInList({
   children, 
   staggerDelay = 50, 
   initialDelay = 0,
-  duration = 300,
+  duration = 160,
   className = ''
 }: FadeInListProps) {
   return (

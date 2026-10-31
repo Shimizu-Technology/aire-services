@@ -99,7 +99,7 @@ export default function TimePayrollWorkspaceHeader({
                 )}
               </>
             )
-            const className = `inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+            const className = `inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
               active
                 ? 'border-primary text-primary'
                 : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-900'

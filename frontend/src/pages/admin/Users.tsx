@@ -780,7 +780,7 @@ export default function Users() {
 
   return (
     <div className="space-y-6">
-      <FadeUp>
+      <FadeUp operational>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Team</h1>
@@ -790,7 +790,7 @@ export default function Users() {
           </div>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+            className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
           >
             Add team member
           </button>
@@ -926,7 +926,7 @@ export default function Users() {
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100"
                   >
                     Clear filters
                   </button>
@@ -1049,7 +1049,7 @@ export default function Users() {
                         <button
                           type="button"
                           onClick={() => openEditUser(user)}
-                          className="text-slate-700 transition hover:text-slate-900"
+                          className="text-slate-700 transition-colors hover:text-slate-900"
                         >
                           Edit
                         </button>
@@ -1057,7 +1057,7 @@ export default function Users() {
                           <button
                             type="button"
                             onClick={() => openPinModal(user)}
-                            className="text-cyan-700 transition hover:text-cyan-900"
+                            className="text-cyan-700 transition-colors hover:text-cyan-900"
                           >
                             {user.kiosk_pin_configured ? 'Reset PIN' : 'Set kiosk PIN'}
                           </button>
@@ -1067,7 +1067,7 @@ export default function Users() {
                             type="button"
                             onClick={() => handleResendInvite(user)}
                             disabled={resendingIds.has(user.id)}
-                            className="text-slate-700 transition hover:text-slate-900 disabled:opacity-50"
+                            className="text-slate-700 transition-colors hover:text-slate-900 disabled:opacity-50"
                           >
                             {resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}
                           </button>
@@ -1077,7 +1077,7 @@ export default function Users() {
                             type="button"
                             onClick={() => handleDelete(user)}
                             disabled={deletingIds.has(user.id)}
-                            className="text-red-600 transition hover:text-red-800 disabled:opacity-50"
+                            className="text-red-600 transition-colors hover:text-red-800 disabled:opacity-50"
                             title="Delete a never-used profile that has no work or payroll history"
                           >
                             {deletingIds.has(user.id) ? 'Deleting…' : 'Delete unused profile'}
@@ -1113,7 +1113,7 @@ export default function Users() {
                     <p className="mt-2 text-xs text-slate-600">Share this securely. It will not be shown again.</p>
                   </div>
                 )}
-                <button type="button" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="mt-7 w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">Done</button>
+                <button type="button" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="mt-7 w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800">Done</button>
               </div>
             ) : (
               <form onSubmit={handleCreate} className="flex min-h-0 flex-1 flex-col">
@@ -1123,7 +1123,7 @@ export default function Users() {
                       <h2 id="create-user-title" className="text-xl font-semibold text-slate-950">Add team member</h2>
                       <p className="mt-1 text-sm text-slate-500">Set up access first, then choose their team and time-tracking details.</p>
                     </div>
-                    <button type="button" aria-label="Close" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+                    <button type="button" aria-label="Close" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900">
                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
                     </button>
                   </div>
@@ -1152,12 +1152,12 @@ export default function Users() {
                       <fieldset>
                         <legend className="text-sm font-medium text-slate-700">How will this person access AIRE Ops?</legend>
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          <label className={`cursor-pointer rounded-2xl border p-4 transition ${createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
+                          <label className={`cursor-pointer rounded-2xl border p-4 transition-colors ${createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
                             <input type="radio" name="create-access" checked={createPersonalAccess} onChange={() => { setCreatePersonalAccess(true); setSendInvitationEmail(true) }} className="sr-only" />
                             <span className="block text-sm font-semibold text-slate-900">Personal account</span>
                             <span className="mt-1 block text-xs leading-5 text-slate-600">They sign in with email. Clerk supplies their name after activation.</span>
                           </label>
-                          <label className={`rounded-2xl border p-4 transition ${createRole === 'admin' ? 'cursor-not-allowed bg-slate-50 opacity-50' : 'cursor-pointer'} ${!createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
+                          <label className={`rounded-2xl border p-4 transition-colors ${createRole === 'admin' ? 'cursor-not-allowed bg-slate-50 opacity-50' : 'cursor-pointer'} ${!createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
                             <input type="radio" name="create-access" checked={!createPersonalAccess} disabled={createRole === 'admin'} onChange={() => { setCreateRole('employee'); setCreatePersonalAccess(false); setSendInvitationEmail(false); setCreateTimeTracking(true) }} className="sr-only" />
                             <span className="block text-sm font-semibold text-slate-900">Kiosk only</span>
                             <span className="mt-1 block text-xs leading-5 text-slate-600">No email or account. AIRE stores their name and they clock in with a PIN.</span>
@@ -1220,8 +1220,8 @@ export default function Users() {
                 </div>
 
                 <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:px-7">
-                  <button type="button" onClick={() => createStep === 2 ? (setCreateStep(1), setCreateError('')) : (setShowCreateModal(false), resetCreateForm())} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">{createStep === 2 ? 'Back' : 'Cancel'}</button>
-                  <button type="submit" disabled={creating || (createStep === 2 && createTimeTracking && activeCategories.length === 0)} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">{createStep === 1 ? 'Continue' : creating ? 'Saving…' : createPersonalAccess && sendInvitationEmail ? 'Add and send invite' : 'Add team member'}</button>
+                  <button type="button" onClick={() => createStep === 2 ? (setCreateStep(1), setCreateError('')) : (setShowCreateModal(false), resetCreateForm())} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">{createStep === 2 ? 'Back' : 'Cancel'}</button>
+                  <button type="submit" disabled={creating || (createStep === 2 && createTimeTracking && activeCategories.length === 0)} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">{createStep === 1 ? 'Continue' : creating ? 'Saving…' : createPersonalAccess && sendInvitationEmail ? 'Add and send invite' : 'Add team member'}</button>
                 </div>
               </form>
             )}
@@ -1394,7 +1394,7 @@ export default function Users() {
                           <p className="text-xs leading-relaxed text-slate-500">
                             Upload a clean portrait for the public Team page. Use the focal-point controls below to keep faces centered when cards crop on phones.
                           </p>
-                          <label className="mt-3 block rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm transition hover:border-cyan-300 hover:bg-cyan-50/60">
+                          <label className="mt-3 block rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm transition-colors hover:border-cyan-300 hover:bg-cyan-50/60">
                             <span className="flex items-center gap-2 font-semibold text-slate-800">
                               <svg className="h-4 w-4 text-cyan-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m0 0 4.5 4.5M12 4 7.5 8.5M4 20h16" />
@@ -1418,7 +1418,7 @@ export default function Users() {
                               <button
                                 type="button"
                                 onClick={() => setEditPublicTeamPhotoFile(null)}
-                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                               >
                                 Clear selected photo
                               </button>
@@ -1427,7 +1427,7 @@ export default function Users() {
                               <button
                                 type="button"
                                 onClick={() => setEditRemovePublicTeamPhoto(true)}
-                                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+                                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50"
                               >
                                 Remove current photo
                               </button>
@@ -1436,7 +1436,7 @@ export default function Users() {
                               <button
                                 type="button"
                                 onClick={() => setEditRemovePublicTeamPhoto(false)}
-                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                               >
                                 Undo removal
                               </button>
@@ -1503,7 +1503,7 @@ export default function Users() {
                                     setEditPublicTeamPhotoPositionX(String(preset.x))
                                     setEditPublicTeamPhotoPositionY(String(preset.y))
                                   }}
-                                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
+                                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50"
                                 >
                                   {preset.label}
                                 </button>
@@ -1614,7 +1614,7 @@ export default function Users() {
                     else void handleReactivate(editingUser)
                   }}
                   disabled={savingEdit}
-                  className={`rounded-xl border px-4 py-3 text-sm font-medium transition disabled:opacity-50 ${editingUser.is_active ? 'border-rose-200 text-rose-700 hover:bg-rose-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
+                  className={`rounded-xl border px-4 py-3 text-sm font-medium transition-colors disabled:opacity-50 ${editingUser.is_active ? 'border-rose-200 text-rose-700 hover:bg-rose-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
                 >
                   {editingUser.is_active ? 'Terminate employment' : 'Reactivate user'}
                 </button>
@@ -1624,7 +1624,7 @@ export default function Users() {
                 <button
                   type="submit"
                   disabled={savingEdit}
-                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
                 >
                   {savingEdit ? 'Saving…' : 'Save changes'}
                 </button>
@@ -1645,7 +1645,7 @@ export default function Users() {
                   This disables sign-in and clock access. The employee record, time entries, schedules, payroll trail, and historical reports stay intact.
                 </p>
               </div>
-              <button type="button" aria-label="Close" onClick={closeTerminationModal} className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+              <button type="button" aria-label="Close" onClick={closeTerminationModal} className="rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -1668,8 +1668,8 @@ export default function Users() {
             {terminationError && <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{terminationError}</div>}
 
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button type="button" onClick={closeTerminationModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Cancel</button>
-              <button type="button" onClick={() => void handleTerminate()} disabled={savingTermination || !terminationEffectiveOn} className="rounded-xl bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:opacity-50">
+              <button type="button" onClick={closeTerminationModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">Cancel</button>
+              <button type="button" onClick={() => void handleTerminate()} disabled={savingTermination || !terminationEffectiveOn} className="rounded-xl bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50">
                 {savingTermination ? 'Terminating…' : 'Confirm termination'}
               </button>
             </div>
@@ -1733,7 +1733,7 @@ export default function Users() {
                   type="button"
                   onClick={() => handleResetKioskPin(pinModalUser, customPin.trim() || undefined)}
                   disabled={savingPin || customPin.trim().length === 0}
-                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
                 >
                   {savingPin ? 'Saving…' : 'Set PIN'}
                 </button>

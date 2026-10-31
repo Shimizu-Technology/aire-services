@@ -120,7 +120,7 @@ export default function Media() {
     setPoster(null)
     setError('')
     setMessage('')
-    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }), 0)
   }
 
   const handleSave = async (event: React.FormEvent) => {
@@ -188,7 +188,7 @@ export default function Media() {
   }
 
   return (
-    <FadeUp>
+    <FadeUp operational>
       <div className="space-y-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -201,7 +201,7 @@ export default function Media() {
           <button
             type="button"
             onClick={resetForm}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
             New media
           </button>
@@ -226,7 +226,7 @@ export default function Media() {
                       key={placement.key}
                       type="button"
                       onClick={() => handlePlacementChange(placement.key)}
-                      className={`block w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
+                      className={`block w-full rounded-xl border px-3 py-2 text-left text-sm transition-colors ${
                         form.placement === placement.key
                           ? 'border-cyan-300 bg-cyan-50 text-cyan-950'
                           : 'border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/60'
@@ -258,7 +258,7 @@ export default function Media() {
                 <select
                   value={form.placement}
                   onChange={(event) => handlePlacementChange(event.target.value as SiteMediaPlacement)}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                 >
                   {groupedPlacements.map(({ group, placements }) => (
                     <optgroup key={group} label={group}>
@@ -282,7 +282,7 @@ export default function Media() {
                       href={selectedPlacement.pageHref}
                       target="_blank"
                       rel="noreferrer"
-                      className="shrink-0 rounded-xl border border-cyan-200 bg-white px-3 py-2 text-center text-xs font-semibold text-cyan-800 transition hover:bg-cyan-50"
+                      className="shrink-0 rounded-xl border border-cyan-200 bg-white px-3 py-2 text-center text-xs font-semibold text-cyan-800 transition-colors hover:bg-cyan-50"
                     >
                       View page
                     </a>
@@ -310,7 +310,7 @@ export default function Media() {
                   <input
                     value={form.title}
                     onChange={(event) => setForm((draft) => ({ ...draft, title: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                     placeholder="Island tour coastline"
                     required
                   />
@@ -320,7 +320,7 @@ export default function Media() {
                   <select
                     value={form.media_type}
                     onChange={(event) => setForm((draft) => ({ ...draft, media_type: event.target.value as SiteMediaType }))}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                   >
                     <option value="image">Image</option>
                     <option value="video">Video</option>
@@ -333,7 +333,7 @@ export default function Media() {
                 <input
                   value={form.alt_text}
                   onChange={(event) => setForm((draft) => ({ ...draft, alt_text: event.target.value }))}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                   placeholder="Aerial view of Guam coastline from an AIRE Services flight"
                   required={form.media_type === 'image'}
                 />
@@ -344,7 +344,7 @@ export default function Media() {
                 <input
                   value={form.caption}
                   onChange={(event) => setForm((draft) => ({ ...draft, caption: event.target.value }))}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                   placeholder="Optional caption"
                 />
               </div>
@@ -355,14 +355,14 @@ export default function Media() {
                   <input
                     value={form.external_url}
                     onChange={(event) => setForm((draft) => ({ ...draft, external_url: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                     placeholder="YouTube, Vimeo, or hosted video URL"
                   />
                 </div>
               )}
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-sm transition hover:border-cyan-300 hover:bg-cyan-50/50">
+                <label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-sm transition-colors hover:border-cyan-300 hover:bg-cyan-50/50">
                   <span className="font-semibold text-slate-800">{form.media_type === 'video' ? 'Upload short video file' : 'Upload image'}</span>
                   <span className="mt-1 block text-xs leading-relaxed text-slate-500">
                     {form.media_type === 'video' ? 'MP4, WebM, or MOV. Keep hero clips short and compressed.' : 'JPG, PNG, WebP, AVIF, or GIF.'}
@@ -375,7 +375,7 @@ export default function Media() {
                   />
                 </label>
 
-                <label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-sm transition hover:border-cyan-300 hover:bg-cyan-50/50">
+                <label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-sm transition-colors hover:border-cyan-300 hover:bg-cyan-50/50">
                   <span className="font-semibold text-slate-800">Poster image</span>
                   <span className="mt-1 block text-xs leading-relaxed text-slate-500">Recommended for videos and social previews.</span>
                   <input
@@ -410,7 +410,7 @@ export default function Media() {
                     type="number"
                     value={form.sort_order}
                     onChange={(event) => setForm((draft) => ({ ...draft, sort_order: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                   />
                 </div>
                 <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
@@ -423,19 +423,19 @@ export default function Media() {
                 </label>
               </div>
 
-              {error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-              {message && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</div>}
+              {error && <div role="alert" aria-atomic="true" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+              {message && <div role="status" aria-live="polite" aria-atomic="true" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</div>}
 
               <div className="flex flex-wrap justify-end gap-3">
                 {editing && (
-                  <button type="button" onClick={resetForm} className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                  <button type="button" onClick={resetForm} className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50">
                     Cancel
                   </button>
                 )}
                 <button
                   type="submit"
                   disabled={saving}
-                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   {saving ? 'Saving...' : editing ? 'Save changes' : 'Add media'}
                 </button>
@@ -452,7 +452,7 @@ export default function Media() {
               <select
                 value={placementFilter}
                 onChange={(event) => setPlacementFilter(event.target.value as SiteMediaPlacement | 'all')}
-                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
               >
                 <option value="all">All placements</option>
                 {groupedPlacements.map(({ group, placements }) => (

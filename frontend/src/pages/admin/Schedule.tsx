@@ -386,7 +386,7 @@ export default function Schedule() {
         </div>
       )}
       {/* Header */}
-      <FadeUp>
+      <FadeUp operational>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary-dark tracking-tight">Employee Schedule</h1>
