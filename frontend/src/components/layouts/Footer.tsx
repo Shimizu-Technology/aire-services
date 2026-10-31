@@ -19,9 +19,9 @@ export default function Footer() {
   return (
     <footer className="bg-slate-950 text-slate-300">
       <div className="mx-auto max-w-6xl px-4 pt-12 sm:px-6 lg:px-8">
-        <div className="grid gap-6 rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/20 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="grid gap-6 rounded-[2rem] border border-white/10 bg-slate-900 p-6 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Ready to plan with AIRE?</p>
+            <p className="text-xs font-bold uppercase tracking-[0.1em] text-cyan-200">Ready to plan with AIRE?</p>
             <h2 className="mt-3 max-w-2xl text-2xl font-bold tracking-tight text-white md:text-3xl">
               Talk with the Guam-based aviation team about training, tours, or media add-ons.
             </h2>
@@ -59,7 +59,7 @@ export default function Footer() {
           </div>
 
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-200">Site</h3>
+            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-slate-200">Site</h3>
             <ul className="mt-4 space-y-1 text-sm">
               {siteLinks.map((link) => (
                 <li key={link.href}>
@@ -72,7 +72,7 @@ export default function Footer() {
           </div>
 
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-200">Contact</h3>
+            <h3 className="text-xs font-bold uppercase tracking-[0.1em] text-slate-200">Contact</h3>
             <ul className="mt-5 space-y-4 text-sm text-slate-400">
               <li className="flex gap-3">
                 <span className="mt-0.5 text-cyan-200"><PinIcon className="h-4 w-4" /></span>

@@ -147,3 +147,24 @@ input[type="button"],
     font-size: max(16px, 1em);
   }
 }
+
+/* Press feedback changes only paint/compositing; event handlers still run immediately. */
+.app-feedback :is(button, [role="button"]):not(:disabled):not([aria-disabled="true"]) {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  transition-property: background-color, border-color, color, box-shadow, opacity, scale;
+  transition-duration: 120ms;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+.app-feedback :is(button, [role="button"]):not(:disabled):not([aria-disabled="true"]):active:not(:focus-visible) {
+  scale: 0.98;
+  filter: brightness(0.92);
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-feedback :is(button, [role="button"]):not(:disabled):not([aria-disabled="true"]) {
+    transition: none;
+  }
+  .app-feedback :is(button, [role="button"]):not(:disabled):not([aria-disabled="true"]):active:not(:focus-visible) { scale: none; }
+  .animate-fadeIn, .animate-fadeInUp { animation: none; }
+}

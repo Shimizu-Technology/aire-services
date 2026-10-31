@@ -337,7 +337,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
   const btnBreak = 'min-h-[48px] py-3 px-5 bg-amber-500 hover:bg-amber-400 active:bg-amber-300 disabled:opacity-50 text-amber-950 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm'
 
   return (
-    <div className={`rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md overflow-hidden bg-white ${borderColor}`}>
+    <div className={`rounded-2xl border shadow-sm transition-[border-color,box-shadow] duration-300 hover:shadow-md overflow-hidden bg-white ${borderColor}`}>
       <div className={`h-1 ${stripeColor}`} />
       {(status?.review_alerts?.daily_threshold_exceeded || status?.review_alerts?.weekly_threshold_exceeded) && (
         <p className="border-b border-neutral-warm bg-secondary/60 px-5 py-3 text-sm text-text-muted">
@@ -863,6 +863,8 @@ function ErrorMsg({ error }: { error: string | null }) {
     <AnimatePresence>
       {error && (
         <motion.div
+          role="alert"
+          aria-atomic="true"
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: 'auto' }}
           exit={{ opacity: 0, height: 0 }}

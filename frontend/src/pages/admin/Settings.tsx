@@ -815,7 +815,7 @@ export default function Settings() {
 
   return (
     <div className="space-y-8">
-      <FadeUp>
+      <FadeUp operational>
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h1>
           <p className="mt-1 text-sm text-slate-600">
@@ -828,7 +828,7 @@ export default function Settings() {
         <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500 shadow-sm">Loading settings…</div>
       ) : (
         <>
-          <FadeUp delay={0.05}>
+          <FadeUp operational delay={0.05}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Time clock rules</h2>
@@ -838,7 +838,7 @@ export default function Settings() {
               </div>
               <form onSubmit={handleSaveThresholds} className="space-y-5 px-5 py-5">
                 {settingsError && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{settingsError}</div>
+                  <div role="alert" aria-atomic="true" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{settingsError}</div>
                 )}
                 <div className="grid gap-5 sm:grid-cols-3">
                   <div>
@@ -937,14 +937,14 @@ export default function Settings() {
                                 type="button"
                                 onClick={handleUseCurrentLocation}
                                 disabled={currentLocationLoading}
-                                className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-800 ring-1 ring-slate-300 transition hover:bg-slate-50 disabled:opacity-50"
+                                className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-800 ring-1 ring-slate-300 transition-colors hover:bg-slate-50 disabled:opacity-50"
                               >
                                 {currentLocationLoading ? 'Locating…' : 'Use current location'}
                               </button>
                             </div>
                           </div>
                           {geocodeError && (
-                            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{geocodeError}</div>
+                            <div role="alert" aria-atomic="true" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{geocodeError}</div>
                           )}
                           {placeSuggestions.length > 0 && (
                             <div className="space-y-2">
@@ -955,7 +955,7 @@ export default function Settings() {
                                   type="button"
                                   onClick={() => void handleSelectPlaceSuggestion(suggestion)}
                                   disabled={selectedPlaceLoading}
-                                  className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
+                                  className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50"
                                 >
                                   <span className="block font-semibold text-slate-900">{suggestion.main_text || suggestion.description}</span>
                                   {suggestion.secondary_text && (
@@ -1064,7 +1064,7 @@ export default function Settings() {
                   <button
                     type="submit"
                     disabled={savingThresholds || !clockSettings}
-                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
                   >
                     {savingThresholds ? 'Saving…' : 'Save time clock rules'}
                   </button>
@@ -1073,7 +1073,7 @@ export default function Settings() {
             </section>
           </FadeUp>
 
-          <FadeUp delay={0.08}>
+          <FadeUp operational delay={0.08}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Departments</h2>
@@ -1083,10 +1083,10 @@ export default function Settings() {
               </div>
               <form onSubmit={handleSaveApprovalGroups} className="space-y-5 px-5 py-5">
                 {approvalGroupsError && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{approvalGroupsError}</div>
+                  <div role="alert" aria-atomic="true" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{approvalGroupsError}</div>
                 )}
                 {approvalGroupsMessage && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{approvalGroupsMessage}</div>
+                  <div role="status" aria-live="polite" aria-atomic="true" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{approvalGroupsMessage}</div>
                 )}
                 <div className="space-y-3">
                   {approvalGroupDrafts.map((group, index) => (
@@ -1114,7 +1114,7 @@ export default function Settings() {
                           type="button"
                           onClick={() => removeApprovalGroupDraft(index)}
                           disabled={approvalGroupDrafts.length === 1 && !group.label.trim() && !group.key.trim()}
-                          className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Remove
                         </button>
@@ -1131,7 +1131,7 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={addApprovalGroupDraft}
-                    className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                    className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-100"
                   >
                     Add department
                   </button>
@@ -1143,7 +1143,7 @@ export default function Settings() {
                   <button
                     type="submit"
                     disabled={savingApprovalGroups}
-                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
                   >
                     {savingApprovalGroups ? 'Saving…' : 'Save departments'}
                   </button>
@@ -1152,7 +1152,7 @@ export default function Settings() {
             </section>
           </FadeUp>
 
-          <FadeUp delay={0.1}>
+          <FadeUp operational delay={0.1}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Contact settings</h2>
@@ -1162,10 +1162,10 @@ export default function Settings() {
               </div>
               <form onSubmit={handleSaveContactSettings} className="space-y-5 px-5 py-5">
                 {contactSettingsError && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{contactSettingsError}</div>
+                  <div role="alert" aria-atomic="true" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{contactSettingsError}</div>
                 )}
                 {contactSettingsMessage && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{contactSettingsMessage}</div>
+                  <div role="status" aria-live="polite" aria-atomic="true" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{contactSettingsMessage}</div>
                 )}
                 <div>
                   <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Public website contact details</h3>
@@ -1257,7 +1257,7 @@ export default function Settings() {
                       <button
                         type="button"
                         onClick={addPublicPhoneContactDraft}
-                        className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50"
+                        className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-50"
                       >
                         Add phone contact
                       </button>
@@ -1326,7 +1326,7 @@ export default function Settings() {
                               type="button"
                               onClick={() => removePublicPhoneContactDraft(index)}
                               disabled={publicContactDraft.phone_contacts.length === 1 && !contact.label.trim() && !contact.phone_display.trim() && !contact.phone_e164.trim()}
-                              className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               Remove
                             </button>
@@ -1349,7 +1349,7 @@ export default function Settings() {
                     <button
                       type="button"
                       onClick={addSocialLinkDraft}
-                      className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                      className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-100"
                     >
                       Add social link
                     </button>
@@ -1383,7 +1383,7 @@ export default function Settings() {
                             type="button"
                             onClick={() => removeSocialLinkDraft(index)}
                             disabled={socialLinksDraft.length === 1 && !link.label.trim() && !link.url.trim()}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Remove
                           </button>
@@ -1414,7 +1414,7 @@ export default function Settings() {
                       <button
                         type="button"
                         onClick={addInquiryTopicDraft}
-                        className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                        className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-100"
                       >
                         Add topic
                       </button>
@@ -1435,7 +1435,7 @@ export default function Settings() {
                             onClick={() => removeInquiryTopicDraft(index)}
                             disabled={inquiryTopicsDraft.length === 1 && !topic.trim()}
                             aria-label={`Remove inquiry topic ${index + 1}`}
-                            className="rounded-lg border border-slate-200 px-3 py-3 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="rounded-lg border border-slate-200 px-3 py-3 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Remove
                           </button>
@@ -1456,7 +1456,7 @@ export default function Settings() {
                   <button
                     type="submit"
                     disabled={savingContactSettings}
-                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
                   >
                     {savingContactSettings ? 'Saving…' : 'Save contact settings'}
                   </button>
@@ -1465,7 +1465,7 @@ export default function Settings() {
             </section>
           </FadeUp>
 
-          <FadeUp delay={0.12}>
+          <FadeUp operational delay={0.12}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1487,7 +1487,7 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={openNewCategory}
-                    className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
                   >
                     Add category
                   </button>
@@ -1495,7 +1495,7 @@ export default function Settings() {
               </div>
 
               {categoriesError && (
-                <div className="mx-5 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{categoriesError}</div>
+                <div role="alert" aria-atomic="true" className="mx-5 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{categoriesError}</div>
               )}
 
               {visibleCategories.length === 0 ? (
@@ -1627,7 +1627,7 @@ export default function Settings() {
                 <button
                   type="submit"
                   disabled={savingCategory}
-                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
                 >
                   {savingCategory ? 'Saving…' : editingCategory ? 'Save changes' : 'Create category'}
                 </button>

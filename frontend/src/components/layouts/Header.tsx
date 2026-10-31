@@ -20,7 +20,7 @@ export default function Header() {
   const isActive = (href: string) => location.pathname === href
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/[0.92] shadow-[0_1px_0_rgba(15,23,42,0.03)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/[0.82]">
+    <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white">
       <nav className="mx-auto flex h-[68px] max-w-6xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 xl:h-[74px]">
         <Link to="/" className="flex min-w-0 items-center rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan-500" aria-label="AIRE Services Guam home">
           <img src="/assets/aire/logo.png" alt="AIRE Services Guam" className="h-11 w-auto shrink-0 object-contain sm:h-12 xl:h-[3.35rem]" />
@@ -48,7 +48,7 @@ export default function Header() {
             <div className="ml-2 flex items-center gap-2 border-l border-slate-200 pl-4">
               <SignedOut>
                 <SignInButton mode="modal" forceRedirectUrl="/admin" fallbackRedirectUrl="/admin">
-                  <button className="inline-flex h-11 items-center rounded-2xl bg-slate-950 px-5 text-sm font-semibold leading-none text-white shadow-[0_14px_30px_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5 hover:bg-slate-800">
+                  <button className="inline-flex h-11 items-center rounded-2xl bg-slate-950 px-5 text-sm font-semibold leading-none text-white transition hover:-translate-y-0.5 hover:bg-slate-800">
                     Staff Login
                   </button>
                 </SignInButton>
@@ -88,7 +88,7 @@ export default function Header() {
       </nav>
 
       {mobileOpen && (
-        <div className="border-t border-slate-200 bg-white/[0.96] shadow-xl shadow-slate-900/5 backdrop-blur-xl xl:hidden">
+        <div className="border-t border-slate-200 bg-white shadow-slate-900/5 xl:hidden">
           <div className="mx-auto max-w-6xl space-y-2 px-4 py-4 sm:px-6 lg:px-8">
             {navigation.map((item) => (
               <Link
