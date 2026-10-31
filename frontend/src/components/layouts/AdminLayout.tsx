@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { lockDialogScroll } from '../../lib/useDialogFocus'
+import { controlStyles } from '../ui/controlStyles'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 
 function NavIcon({ icon: Icon }: { icon: LucideIcon }) {
@@ -166,13 +167,13 @@ export default function AdminLayout() {
       <div inert={navigationOpen && !isDesktop} className="border-b border-slate-200/90 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
         <div className="mx-auto flex h-16 w-full max-w-[104rem] items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <button ref={mobileTriggerRef} onClick={() => setMobileOpen((v) => !v)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Toggle sidebar" aria-expanded={navigationOpen}>
+            <button ref={mobileTriggerRef} onClick={() => setMobileOpen((v) => !v)} className={controlStyles('icon', 'rounded-lg p-2 lg:hidden')} aria-label="Toggle sidebar" aria-expanded={navigationOpen}>
               {navigationOpen ? <X className="h-6 w-6" aria-hidden="true" /> : <Menu className="h-6 w-6" aria-hidden="true" />}
             </button>
             <button
               type="button"
               onClick={() => setDesktopCollapsed((value) => !value)}
-              className="hidden rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 lg:inline-flex"
+              className={controlStyles('icon', 'hidden rounded-lg p-2 lg:inline-flex')}
               aria-label={desktopCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               {desktopCollapsed ? <PanelLeftOpen className="h-5 w-5" aria-hidden="true" /> : <PanelLeftClose className="h-5 w-5" aria-hidden="true" />}
