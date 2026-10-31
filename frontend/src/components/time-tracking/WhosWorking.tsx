@@ -131,7 +131,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
       <div className={cardClass}>
         {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
         <div className="p-5 flex-1">
-          <h3 className="font-semibold text-primary-dark text-base mb-3">Today's Team</h3>
+          <h2 className="font-semibold text-primary-dark text-base mb-3">Today's Team</h2>
           <div className="text-center py-4">
             <p className="text-sm text-red-600 mb-2">Unable to load team status</p>
             <button onClick={fetchWorkers} className="text-xs text-primary-dark hover:underline font-medium">
@@ -156,7 +156,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
         {!dashboardStyle && <div className="h-1 bg-neutral-warm" />}
         <div className="p-5 flex-1 flex flex-col">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-primary-dark text-base">Today's Team</h3>
+            <h2 className="font-semibold text-primary-dark text-base">Today's Team</h2>
             <div className="flex items-center gap-1.5 bg-secondary rounded-full px-2.5 py-1">
               <div className="w-2 h-2 rounded-full bg-neutral-warm" />
               <span className="text-xs text-text-muted font-medium">0 active</span>
@@ -179,7 +179,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
     clocked_in: { label: 'Working', color: 'text-emerald-600', dot: 'bg-emerald-500' },
     on_break: { label: 'On Break', color: 'text-amber-600', dot: 'bg-amber-400' },
     clocked_out: { label: 'Done', color: 'text-blue-600', dot: 'bg-blue-400' },
-    late: { label: 'Late', color: 'text-red-500', dot: 'bg-red-400' },
+    late: { label: 'Late', color: 'text-status-danger', dot: 'bg-red-400' },
     no_show: { label: 'No Show', color: 'text-red-700', dot: 'bg-red-600' },
     not_clocked_in: { label: 'Not In', color: 'text-text-muted', dot: 'bg-neutral-warm' },
     no_schedule: { label: 'Off', color: 'text-text-muted/50', dot: 'bg-neutral-warm/60' },
@@ -199,7 +199,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
         {fetchError && <div role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Team status could not refresh. Showing the last successful snapshot. <button type="button" onClick={fetchWorkers} className="min-h-11 underline">Retry team status</button></div>}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-primary-dark text-base">Today's Team</h3>
+            <h2 className="font-semibold text-primary-dark text-base">Today's Team</h2>
             {cableConnected && !fetchError && (
               <span className="flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />

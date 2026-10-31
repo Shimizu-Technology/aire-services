@@ -334,7 +334,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
   // Shared button styles
   const btnPrimary = 'min-h-[48px] py-3 px-5 bg-primary hover:bg-primary-dark active:bg-primary-dark disabled:bg-neutral-warm disabled:text-text-muted text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm'
   const btnSecondary = 'min-h-[48px] py-3 px-5 bg-secondary-dark hover:bg-neutral-warm active:bg-neutral-warm text-primary-dark font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm border border-neutral-warm'
-  const btnBreak = 'min-h-[48px] py-3 px-5 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm'
+  const btnBreak = 'min-h-[48px] py-3 px-5 bg-amber-500 hover:bg-amber-400 active:bg-amber-300 disabled:opacity-50 text-amber-950 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm'
 
   return (
     <div className={`rounded-2xl border shadow-sm transition-[border-color,box-shadow] duration-300 hover:shadow-md overflow-hidden bg-white ${borderColor}`}>
@@ -368,10 +368,10 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
         {isClockedIn && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-5">
             <div className={`text-center py-3 rounded-xl ${isOnBreak ? 'bg-amber-50 border border-amber-200/60' : 'bg-secondary/60'}`}>
-              <div className={`font-mono text-3xl font-bold tabular-nums tracking-tight ${isOnBreak ? 'text-amber-600' : 'text-primary-dark'}`}>
+              <div className={`font-mono text-3xl font-bold tabular-nums tracking-tight ${isOnBreak ? 'text-status-warning' : 'text-primary-dark'}`}>
                 {isOnBreak ? fmt(breakElapsed) : fmt(Math.max(netSessionWorkSeconds, 0))}
               </div>
-              <div className={`text-[10px] mt-1 font-medium uppercase tracking-wider ${isOnBreak ? 'text-amber-500' : 'text-text-muted'}`}>
+              <div className={`text-[10px] mt-1 font-medium uppercase tracking-wider ${isOnBreak ? 'text-status-warning' : 'text-text-muted'}`}>
                 {isOnBreak ? 'Break time' : 'Time worked'}
               </div>
             </div>
@@ -539,7 +539,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
 
           {!isClockedIn && blockedReason && blockedReason !== 'already_clocked_in' && (
             <div className="flex-1 text-center">
-              <span className="text-xs text-amber-600 font-medium">
+              <span className="text-xs text-status-warning font-medium">
                 {blockedReason === 'too_early' && (status?.minutes_until != null ? `Clock in available in ~${status.minutes_until}m` : 'Shift hasn\'t started yet')}
                 {blockedReason === 'shift_ended' && 'Shift has ended'}
                 {blockedReason === 'categories_missing' && 'Work categories need to be assigned'}
@@ -589,10 +589,10 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
           >
             <div className="flex items-center gap-6 lg:gap-8">
               <div className="text-center">
-                <div className={`font-mono text-3xl lg:text-4xl font-bold tabular-nums tracking-tight ${isOnBreak ? 'text-amber-600' : 'text-primary-dark'}`}>
+                <div className={`font-mono text-3xl lg:text-4xl font-bold tabular-nums tracking-tight ${isOnBreak ? 'text-status-warning' : 'text-primary-dark'}`}>
                   {isOnBreak ? fmt(breakElapsed) : fmt(Math.max(netSessionWorkSeconds, 0))}
                 </div>
-                <div className={`text-[10px] font-medium uppercase tracking-wider mt-1 ${isOnBreak ? 'text-amber-500' : 'text-text-muted'}`}>
+                <div className={`text-[10px] font-medium uppercase tracking-wider mt-1 ${isOnBreak ? 'text-status-warning' : 'text-text-muted'}`}>
                   {isOnBreak ? 'Break time' : 'Time worked'}
                 </div>
               </div>
@@ -730,12 +730,12 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
               {correctionTime && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                   <div className="flex items-start gap-2 mb-3">
-                    <svg className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-status-warning mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <div>
                       <p className="text-sm font-medium text-amber-700">Past scheduled shift end</p>
-                      <p className="text-xs text-amber-600 mt-0.5">
+                      <p className="text-xs text-status-warning mt-0.5">
                         Your shift was scheduled to end at {status?.schedule?.end_time}. What time did you actually stop?
                       </p>
                     </div>
@@ -749,7 +749,7 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
                     }`}
                   />
                   {correctionBeforeClockIn && (
-                    <p className="text-xs text-red-500 mt-1.5">Time must be after your clock-in ({fmtTime(status!.clock_in_at!)})</p>
+                    <p className="text-xs text-status-danger mt-1.5">Time must be after your clock-in ({fmtTime(status!.clock_in_at!)})</p>
                   )}
                   <div className="flex items-center gap-2 mt-2">
                     <button
@@ -819,7 +819,7 @@ function TimelineSection({ clockInAt, breaks, fmtTime, compact }: {
                 <span className="text-text-muted">({b.duration_minutes}m)</span>
               </>
             ) : (
-              <span className="text-amber-600 font-medium">(active)</span>
+              <span className="text-status-warning font-medium">(active)</span>
             )}
           </span>
         ))}
@@ -849,7 +849,7 @@ function SessionSegments({ segments, fmtTime, compact }: {
                   <span>{fmtTime(seg.clock_out_at)}</span>
                 </>
               )}
-              {seg.active && <span className="text-emerald-600 font-medium">(now)</span>}
+              {seg.active && <span className="text-status-success font-medium">(now)</span>}
             </span>
           ))}
         </div>
@@ -881,7 +881,7 @@ function NoScheduleMsg() {
   return (
     <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
       <div className="flex items-start gap-2">
-        <svg className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-4 h-4 text-text-muted mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
         <div className="text-xs text-slate-500">No shift scheduled today — you can still clock in.</div>
@@ -894,12 +894,12 @@ function ShiftEndedMsg({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div className="mb-4 p-3.5 bg-amber-50 rounded-xl border border-amber-200">
       <div className="flex items-start gap-2">
-        <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-4 h-4 text-status-warning mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <div>
           <div className="text-sm font-medium text-amber-700">Shift has ended</div>
-          <div className="text-xs text-amber-600 mt-0.5">
+          <div className="text-xs text-status-warning mt-0.5">
             {isAdmin
               ? 'Your shift has ended, but you can use admin override.'
               : 'Your shift has ended. Please submit a manual entry if you need to log time.'}
@@ -914,12 +914,12 @@ function TooEarlyMsg({ isAdmin, minutesUntil }: { isAdmin: boolean; minutesUntil
   return (
     <div className="mb-4 p-3.5 bg-amber-50 rounded-xl border border-amber-200">
       <div className="flex items-start gap-2">
-        <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-4 h-4 text-status-warning mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <div>
           <div className="text-sm font-medium text-amber-700">Too early to clock in</div>
-          <div className="text-xs text-amber-600 mt-0.5">
+          <div className="text-xs text-status-warning mt-0.5">
             {isAdmin
               ? 'Your shift hasn\'t started yet, but you can use admin override.'
               : `You can clock in ${minutesUntil != null ? `in ~${minutesUntil} minutes` : 'shortly before your shift'}. This will update automatically.`}

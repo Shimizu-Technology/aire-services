@@ -83,7 +83,7 @@ export default function TimePayrollWorkspaceHeader({
             const active = activeSection === section.id
             const Icon = section.icon
             const label = section.id === 'approvals' && pendingApprovalCount > 0
-              ? `Approvals, ${pendingApprovalCount} pending`
+              ? `Approvals${approvalBadge(pendingApprovalCount)}, ${pendingApprovalCount} pending`
               : section.label
             const content = (
               <>
@@ -91,6 +91,7 @@ export default function TimePayrollWorkspaceHeader({
                 <span>{section.label}</span>
                 {section.id === 'approvals' && pendingApprovalCount > 0 && (
                   <span
+                    aria-hidden="true"
                     className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-[11px] font-bold leading-none text-amber-700"
                     title={`${pendingApprovalCount} pending approval${pendingApprovalCount === 1 ? '' : 's'}${pendingOvertimeCount > 0 ? ` · ${pendingOvertimeCount} overtime` : ''}`}
                   >

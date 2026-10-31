@@ -10,6 +10,10 @@
 
   --color-neutral-warm: #cbd5e1;
   --color-text-muted: #475569;
+  /* Small text on white / 50–100 tinted app surfaces: >= 4.5:1. */
+  --color-status-warning: #92400e;
+  --color-status-success: #065f46;
+  --color-status-danger: #991b1b;
 
   --color-accent: #0f172a;
   --color-accent-light: #1e293b;
@@ -66,7 +70,7 @@ input[type="button"],
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--focus-color, var(--color-primary));
   outline-offset: 2px;
 }
 
@@ -131,6 +135,17 @@ input[type="button"],
 
 .animate-fadeInUp {
   animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* Dark kiosk focus contrasts with the surface after transitions settle. */
+.aire-kiosk { --focus-color: #67e8f9; }
+
+/* Preserve zoom and desktop density. Only text entry grows on touch devices. */
+@media (any-pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]),
+  textarea, select {
+    font-size: max(16px, 1em);
+  }
 }
 
 /* Press feedback changes only paint/compositing; event handlers still run immediately. */

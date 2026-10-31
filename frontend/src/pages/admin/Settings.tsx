@@ -842,8 +842,8 @@ export default function Settings() {
                 )}
                 <div className="grid gap-5 sm:grid-cols-3">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Daily hours review alert after (hours)</label>
-                    <input
+                    <label htmlFor="settings-field-1" className="mb-2 block text-sm font-medium text-slate-700">Daily hours review alert after (hours)</label>
+                    <input id="settings-field-1"
                       type="number"
                       step="0.25"
                       min="0.25"
@@ -854,8 +854,8 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Weekly hours review alert after (hours)</label>
-                    <input
+                    <label htmlFor="settings-field-2" className="mb-2 block text-sm font-medium text-slate-700">Weekly hours review alert after (hours)</label>
+                    <input id="settings-field-2"
                       type="number"
                       step="0.25"
                       min="0.25"
@@ -866,8 +866,8 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Early clock-in buffer (minutes)</label>
-                    <input
+                    <label htmlFor="settings-field-3" className="mb-2 block text-sm font-medium text-slate-700">Early clock-in buffer (minutes)</label>
+                    <input id="settings-field-3"
                       type="number"
                       step="1"
                       min="0"
@@ -900,8 +900,8 @@ export default function Settings() {
                     <div className="grid gap-4 lg:grid-cols-[1.3fr_0.9fr]">
                       <div className="space-y-4">
                         <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Location label</label>
-                          <input
+                          <label htmlFor="settings-field-4" className="mb-2 block text-sm font-medium text-slate-700">Location label</label>
+                          <input id="settings-field-4"
                             value={thresholdDraft.clock_in_location_name}
                             onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_name: e.target.value }))}
                             placeholder="AIRE Services Guam"
@@ -911,10 +911,11 @@ export default function Settings() {
 
                         <div className="space-y-3">
                           <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700">Find location by address</label>
+                            <label htmlFor="settings-location-search" className="mb-2 block text-sm font-medium text-slate-700">Find location by address</label>
                             <div className="flex flex-col gap-3 sm:flex-row">
                               <div className="relative flex-1">
                                 <input
+                                  id="settings-location-search"
                                   value={locationSearchQuery}
                                   onChange={(e) => setLocationSearchQuery(e.target.value)}
                                   onKeyDown={(e) => {
@@ -924,8 +925,6 @@ export default function Settings() {
                                     }
                                   }}
                                   placeholder="Start typing AIRE, Admiral Sherman, Tiyan, or a Guam address"
-                                  aria-autocomplete="list"
-                                  aria-expanded={placeSuggestions.length > 0}
                                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                                 />
                                 {(placeLoading || selectedPlaceLoading) && (
@@ -969,10 +968,10 @@ export default function Settings() {
                         </div>
 
                         <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Allowed radius (meters)</label>
+                          <label htmlFor="settings-radius" className="mb-2 block text-sm font-medium text-slate-700">Allowed radius (meters)</label>
                           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_130px]">
                             <input
-                              type="range"
+                              aria-label="Allowed radius (meters)" type="range"
                               min="50"
                               max="2000"
                               step="25"
@@ -981,6 +980,7 @@ export default function Settings() {
                               className="w-full accent-cyan-600"
                             />
                             <input
+                              id="settings-radius"
                               type="number"
                               min="1"
                               step="1"
@@ -995,8 +995,8 @@ export default function Settings() {
                           <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">Advanced coordinates</summary>
                           <div className="grid gap-4 border-t border-slate-200 px-4 py-4 md:grid-cols-2">
                             <div>
-                              <label className="mb-2 block text-sm font-medium text-slate-700">Latitude</label>
-                              <input
+                              <label htmlFor="settings-field-5" className="mb-2 block text-sm font-medium text-slate-700">Latitude</label>
+                              <input id="settings-field-5"
                                 type="number"
                                 step="0.000001"
                                 value={thresholdDraft.clock_in_location_latitude}
@@ -1005,8 +1005,8 @@ export default function Settings() {
                               />
                             </div>
                             <div>
-                              <label className="mb-2 block text-sm font-medium text-slate-700">Longitude</label>
-                              <input
+                              <label htmlFor="settings-field-6" className="mb-2 block text-sm font-medium text-slate-700">Longitude</label>
+                              <input id="settings-field-6"
                                 type="number"
                                 step="0.000001"
                                 value={thresholdDraft.clock_in_location_longitude}
@@ -1092,8 +1092,8 @@ export default function Settings() {
                   {approvalGroupDrafts.map((group, index) => (
                     <div key={`approval-group-${index}`} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[1.2fr_1fr_auto]">
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Label</label>
-                        <input
+                        <label htmlFor={`approval-group-label-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Label</label>
+                        <input id={`approval-group-label-${index}`}
                           value={group.label}
                           onChange={(e) => updateApprovalGroupDraft(index, 'label', e.target.value)}
                           placeholder={index === 0 ? 'CFI' : 'Ops / Maintenance'}
@@ -1101,8 +1101,8 @@ export default function Settings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Key</label>
-                        <input
+                        <label htmlFor={`approval-group-key-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Key</label>
+                        <input id={`approval-group-key-${index}`}
                           value={group.key}
                           onChange={(e) => updateApprovalGroupDraft(index, 'key', e.target.value)}
                           placeholder="optional; auto-generated from label"
@@ -1583,8 +1583,8 @@ export default function Settings() {
 
             <form onSubmit={handleSaveCategory} className="mt-6 space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Name</label>
-                <input
+                <label htmlFor="settings-field-9" className="mb-2 block text-sm font-medium text-slate-700">Name</label>
+                <input id="settings-field-9"
                   value={categoryForm.name}
                   onChange={(e) => setCategoryForm((f) => ({ ...f, name: e.target.value }))}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -1592,8 +1592,8 @@ export default function Settings() {
                 />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Key (optional)</label>
-                <input
+                <label htmlFor="settings-field-10" className="mb-2 block text-sm font-medium text-slate-700">Key (optional)</label>
+                <input id="settings-field-10"
                   value={categoryForm.key}
                   onChange={(e) => setCategoryForm((f) => ({ ...f, key: e.target.value }))}
                   placeholder="e.g. aire_flight_instruction"
@@ -1601,8 +1601,8 @@ export default function Settings() {
                 />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Description (optional)</label>
-                <textarea
+                <label htmlFor="settings-field-11" className="mb-2 block text-sm font-medium text-slate-700">Description (optional)</label>
+                <textarea id="settings-field-11"
                   value={categoryForm.description}
                   onChange={(e) => setCategoryForm((f) => ({ ...f, description: e.target.value }))}
                   rows={3}

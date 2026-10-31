@@ -92,7 +92,7 @@ export default function Footer() {
                     >
                       <span className="mt-1 text-cyan-200"><Icon className="h-4 w-4" /></span>
                       <span>
-                        <span className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{contact.label}</span>
+                        <span className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">{contact.label}</span>
                         <span className="mt-1 block text-slate-300">{contact.display}</span>
                       </span>
                     </a>
@@ -109,7 +109,7 @@ export default function Footer() {
           </div>
         </div>
       </div>
-      <div className="border-t border-slate-800 px-4 py-5 text-center text-xs text-slate-500">© {year} AIRE Services Guam. All rights reserved.</div>
+      <div className="border-t border-slate-800 px-4 py-5 text-center text-xs text-slate-400">© {year} AIRE Services Guam. All rights reserved.</div>
     </footer>
   )
 }
