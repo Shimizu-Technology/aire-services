@@ -16,17 +16,17 @@ interface PublicButtonLinkProps {
 }
 
 const buttonVariants: Record<PublicButtonVariant, string> = {
-  primary: 'bg-cyan-400 text-slate-950 shadow-[0_18px_45px_rgba(34,211,238,0.22)] hover:-translate-y-0.5 hover:bg-cyan-300 hover:shadow-[0_22px_55px_rgba(34,211,238,0.28)]',
-  secondary: 'border border-white/20 bg-white/[0.08] text-white hover:-translate-y-0.5 hover:border-white/35 hover:bg-white/[0.14]',
-  dark: 'bg-slate-950 text-white shadow-[0_18px_45px_rgba(15,23,42,0.16)] hover:-translate-y-0.5 hover:bg-slate-800',
-  light: 'bg-white text-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)] hover:-translate-y-0.5 hover:bg-slate-50',
-  outline: 'border border-slate-300 bg-white text-slate-800 hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-50/70 hover:text-cyan-900',
+  primary: 'bg-cyan-400 text-slate-950  hover:bg-cyan-300 ',
+  secondary: 'border border-white/20 bg-slate-900 text-white hover:border-white/35 hover:bg-white/[0.14]',
+  dark: 'bg-slate-950 text-white  hover:bg-slate-800',
+  light: 'bg-white text-slate-950  hover:bg-slate-50',
+  outline: 'border border-slate-300 bg-white text-slate-800 hover:border-cyan-300 hover:bg-cyan-50/70 hover:text-cyan-900',
   text: 'px-0 text-cyan-700 hover:text-cyan-900',
 }
 
 export function PublicButtonLink({ to, children, variant = 'primary', className, ariaLabel }: PublicButtonLinkProps) {
   const classes = cx(
-    'inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold leading-none transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-500',
+    'inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold leading-none transition-[background-color,border-color,color,scale] duration-150 active:scale-[0.98] motion-reduce:transform-none motion-reduce:active:scale-100 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-500',
     buttonVariants[variant],
     className,
   )
@@ -187,7 +187,7 @@ export function SocialIcon({ socialKey, className = 'h-4 w-4' }: { socialKey: st
 
 export function SectionEyebrow({ children, light = false, className }: { children: ReactNode; light?: boolean; className?: string }) {
   return (
-    <p className={cx('text-xs font-bold uppercase tracking-[0.18em]', light ? 'text-cyan-200' : 'text-cyan-700', className)}>
+    <p className={cx('text-xs font-bold uppercase tracking-[0.1em]', light ? 'text-cyan-200' : 'text-cyan-700', className)}>
       {children}
     </p>
   )
@@ -289,7 +289,7 @@ export function PublicPageHero({
         </div>
 
         {showSideMedia && (
-          <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.08] p-2 shadow-2xl shadow-slate-950/40 backdrop-blur-sm">
+          <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-slate-900 p-2">
             <SiteMediaFrame
               media={media}
               fallbackSrc={fallbackSrc}

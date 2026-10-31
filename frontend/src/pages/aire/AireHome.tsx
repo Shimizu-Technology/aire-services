@@ -160,7 +160,7 @@ export default function AireHome() {
 
         <div className="relative mx-auto grid max-w-6xl gap-9 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[1.02fr_0.98fr] lg:items-center lg:px-8 lg:py-20">
           <div>
-            <p className="inline-flex max-w-full rounded-full border border-white/15 bg-white/10 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-200 shadow-sm backdrop-blur-sm sm:text-xs">
+            <p className="inline-flex max-w-full rounded-full border border-white/15 bg-white/10 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-cyan-200 shadow-sm sm:text-xs">
               Guam aviation experiences
             </p>
             <h1 className="mt-5 max-w-3xl text-4xl font-bold leading-[0.98] tracking-tight sm:text-5xl lg:text-6xl xl:text-7xl">
@@ -186,19 +186,19 @@ export default function AireHome() {
                 <SmartStatLink
                   key={item.label}
                   href={item.href}
-                  className="group rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-4 text-center shadow-sm backdrop-blur-sm transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/40 hover:bg-white/[0.1]"
+                  className="group rounded-2xl border border-white/10 bg-slate-900 px-3 py-4 text-center shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/40 hover:bg-white/[0.1]"
                 >
                   <div className="text-base font-bold leading-tight text-white sm:text-lg">{item.value}</div>
-                  <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">{item.label}</div>
+                  <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-300">{item.label}</div>
                 </SmartStatLink>
               ))}
             </div>
           </div>
 
-          <div className="hidden rounded-[2rem] border border-white/10 bg-white/[0.07] p-4 shadow-2xl shadow-slate-950/35 backdrop-blur-md sm:p-5 lg:block lg:p-6">
+          <div className="hidden rounded-[2rem] border border-white/10 bg-slate-900 p-4 sm:p-5 lg:block lg:p-6">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Choose your route</p>
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-cyan-200">Choose your route</p>
                 <h2 className="mt-2 text-2xl font-bold tracking-tight text-white">Three ways to fly with AIRE.</h2>
               </div>
               <span className="hidden h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-cyan-200 sm:inline-flex">
@@ -248,7 +248,7 @@ export default function AireHome() {
                 <Link
                   key={pillar.title}
                   to={pillar.href}
-                  className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)] transition duration-300 hover:-translate-y-1 hover:border-cyan-200 hover:shadow-[0_24px_70px_rgba(14,116,144,0.12)]"
+                  className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white transition duration-300 hover:-translate-y-1 hover:border-cyan-200"
                 >
                   {mediaLoading || pillarMedia[pillar.title] ? (
                     <SiteMediaFrame
@@ -288,7 +288,7 @@ export default function AireHome() {
 
           <div className="grid gap-5 lg:grid-cols-3">
             {tours.map((tour) => (
-              <div key={tour.title} className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.07)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_70px_rgba(15,23,42,0.1)]">
+              <div key={tour.title} className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white transition duration-300 hover:-translate-y-1">
                 {(mediaLoading || tourMedia[tour.title]) && (
                   <SiteMediaFrame
                     media={tourMedia[tour.title]}
@@ -301,7 +301,7 @@ export default function AireHome() {
                 <div className="p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">{tour.title}</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-cyan-700">{tour.title}</p>
                       <h3 className="mt-2 text-4xl font-bold tracking-tight text-slate-950">{tour.price}</h3>
                     </div>
                     <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
@@ -327,7 +327,7 @@ export default function AireHome() {
       <section className="py-16 md:py-24">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <div className="overflow-hidden rounded-[2rem] bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,0.2)]">
+            <div className="overflow-hidden rounded-[2rem] bg-slate-950 text-white">
               {(mediaLoading || firstFor('programs_video')) && (
                 <SiteMediaFrame
                   media={firstFor('programs_video')}
@@ -338,14 +338,14 @@ export default function AireHome() {
                 />
               )}
               <div className="p-7 sm:p-8">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Video packages</p>
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-cyan-200">Video packages</p>
                 <h2 className="mt-3 text-3xl font-bold tracking-tight">Edited content that matches the experience.</h2>
                 <p className="mt-4 text-sm leading-7 text-slate-300">
                   Every package is built around 4K delivery, preferred theme selection, and a seven-day download window after the content is ready.
                 </p>
                 <div className="mt-6 grid gap-3 sm:grid-cols-3">
                   {['4K videos', 'Theme choice', '7-day download'].map((item) => (
-                    <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-4 text-center">
+                    <div key={item} className="rounded-2xl border border-white/10 bg-slate-900 px-4 py-4 text-center">
                       <div className="text-sm font-bold text-white">{item}</div>
                     </div>
                   ))}
@@ -356,7 +356,7 @@ export default function AireHome() {
             <div className="grid gap-5 md:grid-cols-2">
               {videoPackages.map((tier) => (
                 <div key={tier.title} className="rounded-[2rem] border border-slate-200 bg-slate-50/70 p-6">
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">{tier.title}</p>
+                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-cyan-700">{tier.title}</p>
                   <h3 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{tier.prices}</h3>
                   <div className="mt-5 space-y-3">
                     {tier.features.map((feature) => (
@@ -385,7 +385,7 @@ export default function AireHome() {
 
           <div className="grid gap-5 md:grid-cols-3">
             {trainingPath.map((step, index) => (
-              <div key={step.title} className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+              <div key={step.title} className="rounded-[2rem] border border-slate-200 bg-white p-6">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-sm font-bold text-cyan-200">{index + 1}</div>
                 <h3 className="mt-5 text-xl font-bold tracking-tight text-slate-950">{step.title}</h3>
                 <p className="mt-3 text-sm leading-7 text-slate-600">{step.description}</p>
@@ -396,9 +396,9 @@ export default function AireHome() {
       </section>
 
       <section className="py-16 md:py-24">
-        <div className="mx-auto grid max-w-6xl gap-8 rounded-[2rem] bg-slate-950 px-6 py-10 text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)] sm:px-8 lg:grid-cols-[1fr_auto] lg:items-center lg:px-10">
+        <div className="mx-auto grid max-w-6xl gap-8 rounded-[2rem] bg-slate-950 px-6 py-10 text-white sm:px-8 lg:grid-cols-[1fr_auto] lg:items-center lg:px-10">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">Ready to plan?</p>
+            <p className="text-xs font-bold uppercase tracking-[0.1em] text-cyan-200">Ready to plan?</p>
             <h2 className="mt-3 text-3xl font-bold tracking-tight">Talk with AIRE about training, tours, or your video package add-on.</h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
               If you need help picking the right tour, understanding training, or confirming local and military pricing, reach out directly and the team can guide you.
