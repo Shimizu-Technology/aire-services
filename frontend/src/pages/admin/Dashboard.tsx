@@ -137,7 +137,7 @@ function EmployeeDashboard() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-semibold text-slate-900">{entry.hours.toFixed(2)}h</p>
-                    <p className="text-xs uppercase tracking-[0.12em] text-slate-400">{entry.entry_method}</p>
+                    <p className="text-xs uppercase tracking-[0.12em] text-text-muted">{entry.entry_method}</p>
                   </div>
                 </div>
               )
@@ -169,7 +169,7 @@ function EmployeeDashboard() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-slate-700">{s.formatted_start_time} — {s.formatted_end_time}</p>
-                    <p className="text-xs text-slate-400">{s.hours}h</p>
+                    <p className="text-xs text-text-muted">{s.hours}h</p>
                   </div>
                 </div>
               )
@@ -187,7 +187,7 @@ function EmployeeDashboard() {
             <h3 className="text-sm font-semibold text-slate-900">My Time Entries</h3>
             <p className="mt-0.5 text-xs text-slate-500">View and manage your logged hours.</p>
           </div>
-          <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="h-5 w-5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </Link>
@@ -199,7 +199,7 @@ function EmployeeDashboard() {
             <h3 className="text-sm font-semibold text-slate-900">Request Leave</h3>
             <p className="mt-0.5 text-xs text-slate-500">Submit and track your time-off requests.</p>
           </div>
-          <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="h-5 w-5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </Link>
@@ -211,7 +211,7 @@ function EmployeeDashboard() {
             <h3 className="text-sm font-semibold text-slate-900">Full Schedule</h3>
             <p className="mt-0.5 text-xs text-slate-500">See the team schedule for the week.</p>
           </div>
-          <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="h-5 w-5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </Link>
@@ -400,7 +400,7 @@ function AdminDashboard() {
                 <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
                 <p className="mt-0.5 text-sm text-slate-500">{item.description}</p>
               </div>
-              <svg className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-5 w-5 shrink-0 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </Link>
@@ -430,7 +430,7 @@ function StatCard({ label, value, sublabel, accent }: { label: string; value: st
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <p className="text-sm text-slate-500">{label}</p>
       <p className={`mt-2 text-3xl font-bold ${accent ? 'text-cyan-700' : 'text-slate-900'}`}>{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{sublabel}</p>
+      <p className="mt-1 text-xs text-text-muted">{sublabel}</p>
     </div>
   )
 }

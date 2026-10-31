@@ -371,8 +371,8 @@ export default function EditTimeEntryModal({
                   </label>
                 )}
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-primary-dark">Date *</label>
-                  <input
+                  <label htmlFor="edittimeentrymodal-field-1" className="mb-1 block text-sm font-medium text-primary-dark">Date *</label>
+                  <input id="edittimeentrymodal-field-1"
                     type="date"
                     disabled={!!reviewAction}
                     value={formData.work_date}
@@ -522,8 +522,8 @@ export default function EditTimeEntryModal({
                 )}
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-primary-dark">Work category *</label>
-                  <select
+                  <label htmlFor="edittimeentrymodal-field-2" className="mb-1 block text-sm font-medium text-primary-dark">Work category *</label>
+                  <select id="edittimeentrymodal-field-2"
                     disabled={reviewAction === 'resubmit_denied'}
                     value={formData.time_category_id}
                     onChange={(event) => setFormData({ ...formData, time_category_id: event.target.value })}

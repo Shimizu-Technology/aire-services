@@ -1274,8 +1274,8 @@ export default function TimeTracking() {
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-text-muted mb-1">Employee</label>
-              <select
+              <label htmlFor="timetracking-field-1" className="block text-sm text-text-muted mb-1">Employee</label>
+              <select id="timetracking-field-1"
                 value={entryFilters.user_id}
                 onChange={(e) => { const next = new URLSearchParams(searchParams); next.delete('entries_page'); next.delete('entry_id'); if (e.target.value) next.set('user_id', e.target.value); else next.delete('user_id'); setSearchParams(next, { replace: true }) }}
                 className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
@@ -1287,8 +1287,8 @@ export default function TimeTracking() {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-text-muted mb-1">Category</label>
-              <select
+              <label htmlFor="timetracking-field-2" className="block text-sm text-text-muted mb-1">Category</label>
+              <select id="timetracking-field-2"
                 value={entryFilters.time_category_id}
                 onChange={(e) => { setEntryFilters({ ...entryFilters, time_category_id: e.target.value }); const next = new URLSearchParams(searchParams); next.delete('entries_page'); setSearchParams(next) }}
                 className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
@@ -1356,6 +1356,7 @@ export default function TimeTracking() {
             </div>
             <div className="flex items-center gap-1">
               <button
+                aria-label="Previous period"
                 onClick={goToPrevious}
                 className="p-2 text-primary-dark hover:bg-neutral-warm rounded-lg"
               >
@@ -1372,6 +1373,7 @@ export default function TimeTracking() {
                 Today
               </button>
               <button
+                aria-label="Next period"
                 onClick={goToNext}
                 className="p-2 text-primary-dark hover:bg-neutral-warm rounded-lg"
               >
@@ -1410,6 +1412,7 @@ export default function TimeTracking() {
           {/* Date Navigation - Center */}
           <div className="flex items-center justify-center gap-2">
             <button
+              aria-label="Previous period"
               onClick={goToPrevious}
               className="p-2 text-primary-dark hover:text-primary hover:bg-neutral-warm rounded-lg transition-colors"
             >
@@ -1426,6 +1429,7 @@ export default function TimeTracking() {
               Today
             </button>
             <button
+              aria-label="Next period"
               onClick={goToNext}
               className="p-2 text-primary-dark hover:text-primary hover:bg-neutral-warm rounded-lg transition-colors"
             >
@@ -1837,10 +1841,10 @@ export default function TimeTracking() {
               <fieldset>
                 {/* Date */}
                 <div>
-                  <label className="block text-sm font-medium text-primary-dark mb-1">
+                  <label htmlFor="timetracking-field-3" className="block text-sm font-medium text-primary-dark mb-1">
                     Date *
                   </label>
-                  <input
+                  <input id="timetracking-field-3"
                     type="date"
                     value={formData.work_date}
                     onChange={(e) => setFormData({ ...formData, work_date: e.target.value })}
@@ -1852,10 +1856,10 @@ export default function TimeTracking() {
                 {/* Time Range */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-primary-dark mb-1">
+                    <label htmlFor="timetracking-field-4" className="block text-sm font-medium text-primary-dark mb-1">
                       Start Time *
                     </label>
-                    <input
+                    <input id="timetracking-field-4"
                       type="time"
                       value={formData.start_time}
                       onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
@@ -1864,10 +1868,10 @@ export default function TimeTracking() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-primary-dark mb-1">
+                    <label htmlFor="timetracking-field-5" className="block text-sm font-medium text-primary-dark mb-1">
                       End Time *
                     </label>
-                    <input
+                    <input id="timetracking-field-5"
                       type="time"
                       value={formData.end_time}
                       onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
@@ -1960,10 +1964,10 @@ export default function TimeTracking() {
 
                 {/* Category */}
                 <div>
-                  <label className="block text-sm font-medium text-primary-dark mb-1">
+                  <label htmlFor="timetracking-field-6" className="block text-sm font-medium text-primary-dark mb-1">
                     Work category *
                   </label>
-                  <select aria-label="Work category"
+                  <select id="timetracking-field-6" aria-label="Work category"
                     value={formData.time_category_id}
                     onChange={(e) => setFormData({ ...formData, time_category_id: e.target.value })}
                     className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -1985,10 +1989,10 @@ export default function TimeTracking() {
 
                 {/* Description */}
                 <div>
-                  <label className="block text-sm font-medium text-primary-dark mb-1">
+                  <label htmlFor="timetracking-field-7" className="block text-sm font-medium text-primary-dark mb-1">
                     Description
                   </label>
-                  <textarea
+                  <textarea id="timetracking-field-7"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     rows={3}
@@ -2086,31 +2090,31 @@ export default function TimeTracking() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Start Date</label>
-                <input type="date" value={reportFilters.start_date} onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
+                <label htmlFor="timetracking-field-8" className="mb-1 block text-sm text-text-muted">Start Date</label>
+                <input id="timetracking-field-8" type="date" value={reportFilters.start_date} onChange={(e) => setReportFilters({ ...reportFilters, start_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">End Date</label>
-                <input type="date" value={reportFilters.end_date} onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
+                <label htmlFor="timetracking-field-9" className="mb-1 block text-sm text-text-muted">End Date</label>
+                <input id="timetracking-field-9" type="date" value={reportFilters.end_date} onChange={(e) => setReportFilters({ ...reportFilters, end_date: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Employee</label>
-                <select value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-10" className="mb-1 block text-sm text-text-muted">Employee</label>
+                <select id="timetracking-field-10" value={reportFilters.user_id} onChange={(e) => setReportFilters({ ...reportFilters, user_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All employees</option>
                   {users.map(user => <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Department</label>
-                <select value={reportFilters.approval_group} onChange={(e) => setReportFilters({ ...reportFilters, approval_group: e.target.value as typeof reportFilters.approval_group })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-11" className="mb-1 block text-sm text-text-muted">Department</label>
+                <select id="timetracking-field-11" value={reportFilters.approval_group} onChange={(e) => setReportFilters({ ...reportFilters, approval_group: e.target.value as typeof reportFilters.approval_group })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="all">All departments</option>
                   <option value="unassigned">Unassigned</option>
                   {approvalGroups.map(group => <option key={group.key} value={group.key}>{group.label}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Employee Status</label>
-                <select value={reportFilters.employee_status} onChange={(e) => setReportFilters({ ...reportFilters, employee_status: e.target.value as typeof reportFilters.employee_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-12" className="mb-1 block text-sm text-text-muted">Employee Status</label>
+                <select id="timetracking-field-12" value={reportFilters.employee_status} onChange={(e) => setReportFilters({ ...reportFilters, employee_status: e.target.value as typeof reportFilters.employee_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="all">All statuses</option>
                   <option value="current">Current users</option>
                   <option value="active">Active only</option>
@@ -2120,24 +2124,24 @@ export default function TimeTracking() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Role</label>
-                <select value={reportFilters.role} onChange={(e) => setReportFilters({ ...reportFilters, role: e.target.value as typeof reportFilters.role })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-13" className="mb-1 block text-sm text-text-muted">Role</label>
+                <select id="timetracking-field-13" value={reportFilters.role} onChange={(e) => setReportFilters({ ...reportFilters, role: e.target.value as typeof reportFilters.role })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All roles</option>
                   <option value="employee">Employees</option>
                   <option value="admin">Admins</option>
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Category</label>
-                <select value={reportFilters.time_category_id} onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-14" className="mb-1 block text-sm text-text-muted">Category</label>
+                <select id="timetracking-field-14" value={reportFilters.time_category_id} onChange={(e) => setReportFilters({ ...reportFilters, time_category_id: e.target.value })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All categories</option>
                   <option value="uncategorized">Missing category (needs correction)</option>
                   {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Source</label>
-                <select value={reportFilters.clock_source} onChange={(e) => setReportFilters({ ...reportFilters, clock_source: e.target.value as typeof reportFilters.clock_source })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-15" className="mb-1 block text-sm text-text-muted">Source</label>
+                <select id="timetracking-field-15" value={reportFilters.clock_source} onChange={(e) => setReportFilters({ ...reportFilters, clock_source: e.target.value as typeof reportFilters.clock_source })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All sources</option>
                   <option value="kiosk">Kiosk</option>
                   <option value="mobile">Mobile</option>
@@ -2146,16 +2150,16 @@ export default function TimeTracking() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Entry Method</label>
-                <select value={reportFilters.entry_method} onChange={(e) => setReportFilters({ ...reportFilters, entry_method: e.target.value as typeof reportFilters.entry_method })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-16" className="mb-1 block text-sm text-text-muted">Entry Method</label>
+                <select id="timetracking-field-16" value={reportFilters.entry_method} onChange={(e) => setReportFilters({ ...reportFilters, entry_method: e.target.value as typeof reportFilters.entry_method })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">Clock + manual</option>
                   <option value="clock">Clock only</option>
                   <option value="manual">Manual only</option>
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Approval Status</label>
-                <select value={reportFilters.approval_status} onChange={(e) => setReportFilters({ ...reportFilters, approval_status: e.target.value as typeof reportFilters.approval_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-17" className="mb-1 block text-sm text-text-muted">Approval Status</label>
+                <select id="timetracking-field-17" value={reportFilters.approval_status} onChange={(e) => setReportFilters({ ...reportFilters, approval_status: e.target.value as typeof reportFilters.approval_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="approved_or_standard">Approved / standard</option>
                   <option value="">All statuses</option>
                   <option value="pending">Pending</option>
@@ -2164,8 +2168,8 @@ export default function TimeTracking() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-text-muted">Overtime Status</label>
-                <select value={reportFilters.overtime_status} onChange={(e) => setReportFilters({ ...reportFilters, overtime_status: e.target.value as typeof reportFilters.overtime_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                <label htmlFor="timetracking-field-18" className="mb-1 block text-sm text-text-muted">Overtime Status</label>
+                <select id="timetracking-field-18" value={reportFilters.overtime_status} onChange={(e) => setReportFilters({ ...reportFilters, overtime_status: e.target.value as typeof reportFilters.overtime_status })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All OT statuses</option>
                   <option value="none">No OT flag</option>
                   <option value="pending">Pending OT review</option>

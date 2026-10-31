@@ -367,10 +367,10 @@ export default function AireKiosk() {
 
   if (!canViewKiosk) {
     return (
-      <div className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6">
+      <div role="main" className="aire-kiosk min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-center justify-end gap-4 text-xs">
-            <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
+            <Link to="/" className="text-slate-400 transition hover:text-slate-200">Home</Link>
           </div>
           <section className="mt-12 rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center shadow-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
@@ -422,13 +422,13 @@ export default function AireKiosk() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div role="main" className="aire-kiosk min-h-screen bg-slate-950 text-slate-100">
       {kioskUnlocked && <div className="mx-auto max-w-6xl px-4 pt-4 md:px-6">
         <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice }} />
       </div>}
       <div className="mx-auto flex max-w-6xl items-center justify-end gap-4 px-4 pt-3 text-xs md:px-6">
-        <Link to="/admin" className="text-slate-500 transition hover:text-slate-300">Admin</Link>
-        <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
+        <Link to="/admin" className="text-slate-400 transition hover:text-slate-200">Admin</Link>
+        <Link to="/" className="text-slate-400 transition hover:text-slate-200">Home</Link>
       </div>
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-8 pt-4 md:grid-cols-[1.15fr_1fr] md:px-6">
         <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">

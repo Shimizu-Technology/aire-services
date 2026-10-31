@@ -254,8 +254,8 @@ export default function Media() {
 
             <div className="mt-6 grid gap-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Public site placement</label>
-                <select
+                <label htmlFor="media-field-1" className="mb-2 block text-sm font-medium text-slate-700">Public site placement</label>
+                <select id="media-field-1"
                   value={form.placement}
                   onChange={(event) => handlePlacementChange(event.target.value as SiteMediaPlacement)}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -306,8 +306,8 @@ export default function Media() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Title</label>
-                  <input
+                  <label htmlFor="media-field-2" className="mb-2 block text-sm font-medium text-slate-700">Title</label>
+                  <input id="media-field-2"
                     value={form.title}
                     onChange={(event) => setForm((draft) => ({ ...draft, title: event.target.value }))}
                     className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -316,8 +316,8 @@ export default function Media() {
                   />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Type</label>
-                  <select
+                  <label htmlFor="media-field-3" className="mb-2 block text-sm font-medium text-slate-700">Type</label>
+                  <select id="media-field-3"
                     value={form.media_type}
                     onChange={(event) => setForm((draft) => ({ ...draft, media_type: event.target.value as SiteMediaType }))}
                     className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -329,8 +329,8 @@ export default function Media() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Alt text</label>
-                <input
+                <label htmlFor="media-field-4" className="mb-2 block text-sm font-medium text-slate-700">Alt text</label>
+                <input id="media-field-4"
                   value={form.alt_text}
                   onChange={(event) => setForm((draft) => ({ ...draft, alt_text: event.target.value }))}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -340,8 +340,8 @@ export default function Media() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Caption</label>
-                <input
+                <label htmlFor="media-field-5" className="mb-2 block text-sm font-medium text-slate-700">Caption</label>
+                <input id="media-field-5"
                   value={form.caption}
                   onChange={(event) => setForm((draft) => ({ ...draft, caption: event.target.value }))}
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -351,8 +351,8 @@ export default function Media() {
 
               {form.media_type === 'video' && (
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Video link</label>
-                  <input
+                  <label htmlFor="media-field-6" className="mb-2 block text-sm font-medium text-slate-700">Video link</label>
+                  <input id="media-field-6"
                     value={form.external_url}
                     onChange={(event) => setForm((draft) => ({ ...draft, external_url: event.target.value }))}
                     className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -405,8 +405,8 @@ export default function Media() {
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Sort order</label>
-                  <input
+                  <label htmlFor="media-field-7" className="mb-2 block text-sm font-medium text-slate-700">Sort order</label>
+                  <input id="media-field-7"
                     type="number"
                     value={form.sort_order}
                     onChange={(event) => setForm((draft) => ({ ...draft, sort_order: event.target.value }))}
@@ -450,6 +450,7 @@ export default function Media() {
                 <p className="mt-1 text-sm text-slate-500">{items.length} uploaded or linked items</p>
               </div>
               <select
+                aria-label="Filter media placements"
                 value={placementFilter}
                 onChange={(event) => setPlacementFilter(event.target.value as SiteMediaPlacement | 'all')}
                 className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
