@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react'
 import { api } from '../../lib/api'
 import type {
   ApprovalGroupFilter,
@@ -197,6 +197,7 @@ function summaryCountForApprovalGroup(summary: PendingApprovalsSummary | null, k
 }
 
 export default function ApprovalQueue({ isAdmin = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+  const fieldId = useId()
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -796,8 +797,8 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
         <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div>
-              <label htmlFor="approvalqueue-field-1" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Date filter</label>
-              <select id="approvalqueue-field-1"
+              <label htmlFor={`${fieldId}-1`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Date filter</label>
+              <select id={`${fieldId}-1`}
                 value={reviewFilters.dateMode}
                 onChange={(event) => updateReviewFilters({ dateMode: event.target.value as DateMode })}
                 className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm text-primary-dark focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -812,54 +813,54 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
 
             {reviewFilters.dateMode === 'exact' && (
               <div>
-                <label htmlFor="approvalqueue-field-2" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Work date</label>
-                <input id="approvalqueue-field-2" type="date" value={reviewFilters.date} onChange={(event) => updateReviewFilters({ date: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                <label htmlFor={`${fieldId}-2`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Work date</label>
+                <input id={`${fieldId}-2`} type="date" value={reviewFilters.date} onChange={(event) => updateReviewFilters({ date: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
             )}
             {reviewFilters.dateMode === 'through' && (
               <div>
-                <label htmlFor="approvalqueue-field-3" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Through date</label>
-                <input id="approvalqueue-field-3" type="date" value={reviewFilters.throughDate} onChange={(event) => updateReviewFilters({ throughDate: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                <label htmlFor={`${fieldId}-3`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Through date</label>
+                <input id={`${fieldId}-3`} type="date" value={reviewFilters.throughDate} onChange={(event) => updateReviewFilters({ throughDate: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
             )}
             {reviewFilters.dateMode === 'since' && (
               <div>
-                <label htmlFor="approvalqueue-field-4" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Starting date</label>
-                <input id="approvalqueue-field-4" type="date" value={reviewFilters.sinceDate} onChange={(event) => updateReviewFilters({ sinceDate: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                <label htmlFor={`${fieldId}-4`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Starting date</label>
+                <input id={`${fieldId}-4`} type="date" value={reviewFilters.sinceDate} onChange={(event) => updateReviewFilters({ sinceDate: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
             )}
             {reviewFilters.dateMode === 'range' && (
               <>
                 <div>
-                  <label htmlFor="approvalqueue-field-5" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Start</label>
-                  <input id="approvalqueue-field-5" type="date" value={reviewFilters.startDate} onChange={(event) => updateReviewFilters({ startDate: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  <label htmlFor={`${fieldId}-5`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Start</label>
+                  <input id={`${fieldId}-5`} type="date" value={reviewFilters.startDate} onChange={(event) => updateReviewFilters({ startDate: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                 </div>
                 <div>
-                  <label htmlFor="approvalqueue-field-6" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">End</label>
-                  <input id="approvalqueue-field-6" type="date" value={reviewFilters.endDate} onChange={(event) => updateReviewFilters({ endDate: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  <label htmlFor={`${fieldId}-6`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">End</label>
+                  <input id={`${fieldId}-6`} type="date" value={reviewFilters.endDate} onChange={(event) => updateReviewFilters({ endDate: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                 </div>
               </>
             )}
 
             <div>
-              <label htmlFor="approvalqueue-field-7" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Employee</label>
-              <select id="approvalqueue-field-7" value={reviewFilters.userId} onChange={(event) => updateReviewFilters({ userId: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <label htmlFor={`${fieldId}-7`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Employee</label>
+              <select id={`${fieldId}-7`} value={reviewFilters.userId} onChange={(event) => updateReviewFilters({ userId: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">All employees</option>
                 {userOptions.map((user) => <option key={user.id} value={user.id}>{user.label}</option>)}
               </select>
             </div>
 
             <div>
-              <label htmlFor="approvalqueue-field-8" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Category</label>
-              <select id="approvalqueue-field-8" value={reviewFilters.categoryId} onChange={(event) => updateReviewFilters({ categoryId: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <label htmlFor={`${fieldId}-8`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Category</label>
+              <select id={`${fieldId}-8`} value={reviewFilters.categoryId} onChange={(event) => updateReviewFilters({ categoryId: event.target.value })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">All categories</option>
                 {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
               </select>
             </div>
 
             <div>
-              <label htmlFor="approvalqueue-field-9" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Review type</label>
-              <select id="approvalqueue-field-9" value={reviewFilters.approvalType} onChange={(event) => updateReviewFilters({ approvalType: event.target.value as ReviewFilters['approvalType'] })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <label htmlFor={`${fieldId}-9`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Review type</label>
+              <select id={`${fieldId}-9`} value={reviewFilters.approvalType} onChange={(event) => updateReviewFilters({ approvalType: event.target.value as ReviewFilters['approvalType'] })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">All review types</option>
                 <option value="time_entry">Time entry review</option>
                 <option value="overtime">Overtime review</option>
@@ -868,8 +869,8 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
             </div>
 
             <div>
-              <label htmlFor="approvalqueue-field-10" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Method</label>
-              <select id="approvalqueue-field-10" value={reviewFilters.entryMethod} onChange={(event) => updateReviewFilters({ entryMethod: event.target.value as ReviewFilters['entryMethod'] })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <label htmlFor={`${fieldId}-10`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Method</label>
+              <select id={`${fieldId}-10`} value={reviewFilters.entryMethod} onChange={(event) => updateReviewFilters({ entryMethod: event.target.value as ReviewFilters['entryMethod'] })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">Clock + manual</option>
                 <option value="manual">Manual only</option>
                 <option value="clock">Clock only</option>
@@ -877,8 +878,8 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
             </div>
 
             <div>
-              <label htmlFor="approvalqueue-field-11" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Source</label>
-              <select id="approvalqueue-field-11" value={reviewFilters.clockSource} onChange={(event) => updateReviewFilters({ clockSource: event.target.value as ReviewFilters['clockSource'] })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <label htmlFor={`${fieldId}-11`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Source</label>
+              <select id={`${fieldId}-11`} value={reviewFilters.clockSource} onChange={(event) => updateReviewFilters({ clockSource: event.target.value as ReviewFilters['clockSource'] })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">All sources</option>
                 <option value="kiosk">Kiosk</option>
                 <option value="mobile">Mobile</option>
@@ -888,8 +889,8 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
             </div>
 
             <div>
-              <label htmlFor="approvalqueue-field-12" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Sort</label>
-              <select id="approvalqueue-field-12" value={reviewFilters.sort} onChange={(event) => updateReviewFilters({ sort: event.target.value as SortField })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <label htmlFor={`${fieldId}-12`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Sort</label>
+              <select id={`${fieldId}-12`} value={reviewFilters.sort} onChange={(event) => updateReviewFilters({ sort: event.target.value as SortField })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="work_date">Work date</option>
                 <option value="created_at">Submitted time</option>
                 <option value="employee">Employee</option>
@@ -900,8 +901,8 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
             </div>
 
             <div>
-              <label htmlFor="approvalqueue-field-13" className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Direction</label>
-              <select id="approvalqueue-field-13" value={reviewFilters.direction} onChange={(event) => updateReviewFilters({ direction: event.target.value as SortDirection })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <label htmlFor={`${fieldId}-13`} className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Direction</label>
+              <select id={`${fieldId}-13`} value={reviewFilters.direction} onChange={(event) => updateReviewFilters({ direction: event.target.value as SortDirection })} className="w-full rounded-xl border border-neutral-warm bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="asc">Oldest / A–Z / low first</option>
                 <option value="desc">Newest / Z–A / high first</option>
               </select>

@@ -120,6 +120,7 @@ export default function EditTimeEntryModal({
   const [stopDate, setStopDate] = useState('')
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
+  const fieldId = useId()
   useDialogFocus(isOpen && !!entry, dialogRef, () => { if (!saving && !deleting) onClose() })
 
   useEffect(() => {
@@ -371,8 +372,8 @@ export default function EditTimeEntryModal({
                   </label>
                 )}
                 <div>
-                  <label htmlFor="edittimeentrymodal-field-1" className="mb-1 block text-sm font-medium text-primary-dark">Date *</label>
-                  <input id="edittimeentrymodal-field-1"
+                  <label htmlFor={`${fieldId}-1`} className="mb-1 block text-sm font-medium text-primary-dark">Date *</label>
+                  <input id={`${fieldId}-1`}
                     type="date"
                     disabled={!!reviewAction}
                     value={formData.work_date}
@@ -522,8 +523,8 @@ export default function EditTimeEntryModal({
                 )}
 
                 <div>
-                  <label htmlFor="edittimeentrymodal-field-2" className="mb-1 block text-sm font-medium text-primary-dark">Work category *</label>
-                  <select id="edittimeentrymodal-field-2"
+                  <label htmlFor={`${fieldId}-2`} className="mb-1 block text-sm font-medium text-primary-dark">Work category *</label>
+                  <select id={`${fieldId}-2`}
                     disabled={reviewAction === 'resubmit_denied'}
                     value={formData.time_category_id}
                     onChange={(event) => setFormData({ ...formData, time_category_id: event.target.value })}
