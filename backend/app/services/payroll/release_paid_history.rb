@@ -20,7 +20,7 @@ module Payroll
     end
 
     def call(apply: false, expected_digest: nil)
-      PayrollBatch.transaction do
+      PayrollBatch.transaction(requires_new: true) do
         connection = ActiveRecord::Base.connection
         connection.execute("SET LOCAL lock_timeout = '5s'")
         connection.execute("SELECT pg_advisory_xact_lock(#{CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")

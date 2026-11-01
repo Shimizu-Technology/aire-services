@@ -29,7 +29,7 @@ module Payroll
     def self.blocked?
       return true if !PayrollLockRollout.exists?(id: 1) && legacy_batches.exists?
 
-      uncovered_entries.any?(&:counts_toward_hours?)
+      uncovered_entries.unscope(:includes).find_each.any?(&:counts_toward_hours?)
     end
 
     def self.check!

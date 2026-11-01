@@ -792,6 +792,7 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review historical snapshot' }))
 
     expect(await screen.findByText('599.06 hrs')).toBeInTheDocument()
+    expect(apiMock.previewPayrollBatch).toHaveBeenLastCalledWith('2026-08-01', '2026-08-15', '2026-08-31T03:06:00.000Z', true)
     fireEvent.change(screen.getByLabelText('Cornerstone pay period ID'), { target: { value: '61' } })
     fireEvent.change(screen.getByLabelText(/Reconciliation note/), { target: { value: 'Matched against committed payroll period 61' } })
     fireEvent.click(screen.getByRole('checkbox', { name: /I confirm these 1 legacy uncategorized/ }))

@@ -118,9 +118,11 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
   it "recreates and records a manually processed historical snapshot while preserving late approvals" do
     guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
     included = create_entry
-    included.update_columns(time_category_id: nil, created_at: guam.local(2026, 8, 15, 12), updated_at: guam.local(2026, 8, 30, 12), approved_at: guam.local(2026, 8, 30, 12))
     late = create_entry
     late.update_columns(created_at: guam.local(2026, 8, 15, 12), approved_at: guam.local(2026, 8, 31, 13, 7))
+    # Sibling creation refreshes weekly review metadata. Establish the intended
+    # unchanged historical source only after the complete fixture is seeded.
+    included.update_columns(time_category_id: nil, created_at: guam.local(2026, 8, 15, 12), updated_at: guam.local(2026, 8, 30, 12), approved_at: guam.local(2026, 8, 30, 12))
     cutoff_at = guam.local(2026, 8, 31, 13, 6).iso8601
     processed_at = guam.local(2026, 8, 31, 13, 18, 5).iso8601
 
@@ -147,6 +149,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
                acknowledge_missing_categories: true
              },
              headers: admin_headers
+        expect(response).to have_http_status(:created), response.body
       end.to change(PayrollBatchProcessingEvent, :count).by(1)
         .and change { AuditLog.where(action: "payroll_batch.manually_processed").count }.by(1)
     end

@@ -10,8 +10,10 @@ module Payroll
         .where(payroll_batch_processing_events: { status: "committed", external_system: "cornerstone_payroll_manual" })
         .where.not(id: PayrollCalendarPeriod.where.not(payroll_batch_id: nil).select(:payroll_batch_id))
         .distinct.find_each do |batch|
-          batch.payroll_batch_entries.group_by(&:source_time_entry_id).each do |entry_id, rows|
-            entry = TimeEntry.find_by(id: entry_id)
+          grouped = batch.payroll_batch_entries.group_by(&:source_time_entry_id)
+          entries = TimeEntry.where(id: grouped.keys).index_by(&:id)
+          grouped.each do |entry_id, rows|
+            entry = entries[entry_id]
             next if entry && entry.updated_at <= batch.cutoff_at
 
             reason = entry ? "changed_after_cutoff" : "deleted_after_cutoff"

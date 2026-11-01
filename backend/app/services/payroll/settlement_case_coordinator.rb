@@ -11,7 +11,11 @@ module Payroll
       end
 
       def sync_finalized_periods!
-        ManualBatchCorrectionReview.call
+        begin
+          ManualBatchCorrectionReview.call
+        rescue StandardError => e
+          Rails.error.report(e, handled: true, severity: :warning, context: { operation: "manual_batch_correction_review" })
+        end
         reconciliation_scope.includes(:payroll_batch).find_each do |period|
           begin
             record_missing_exclusion_cases!(period)

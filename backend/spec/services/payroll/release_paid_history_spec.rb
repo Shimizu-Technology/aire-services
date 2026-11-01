@@ -103,6 +103,25 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect { runner.call }.to raise_error(described_class::Error, /Calendar inventory/)
   end
 
+  it "rolls back holds, batches, processing events and audit evidence if a later period fails" do
+    preview = runner.call
+    before_counts = [ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchProcessingEvent.count, AuditLog.count ]
+    allow(Payroll::BatchFinalizer).to receive(:new).and_wrap_original do |original, **options|
+      finalizer = original.call(**options)
+      if options[:external_pay_period_id] == "86"
+        allow(finalizer).to receive(:call).and_raise("simulated failure after two historical batches")
+      end
+      finalizer
+    end
+    expect { runner.call(apply: true, expected_digest: preview.fetch(:preview_digest)) }
+      .to raise_error("simulated failure after two historical batches")
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchProcessingEvent.count, AuditLog.count ]).to eq(before_counts)
+    expect(PayrollPaymentAttestation.count).to eq(0)
+    expect(PayrollPaymentAttestationEvent.count).to eq(0)
+    expect(AuditLog.where(action: described_class::ACTION)).to be_empty
+    expect(PayrollBatchEntry.where(source_time_entry_id: @paid.map(&:id))).to be_empty
+  end
+
   it "blocks arbitrary, Payroll manual Lock and scheduled cutoffs before reconciliation, with an actionable message" do
     post "/api/v1/admin/payroll_batches/preview", params: { start_date: "2026-10-01", end_date: "2026-10-15" },
       headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
