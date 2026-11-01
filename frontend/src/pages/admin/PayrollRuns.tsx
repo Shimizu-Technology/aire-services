@@ -526,7 +526,7 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
     const requestSequence = ++reviewRequestSequence.current
     setReviewing(true)
     setError(null)
-    const response = await api.previewPayrollBatch(period.start, period.end, cutoffAt)
+    const response = await api.previewPayrollBatch(period.start, period.end, cutoffAt, true)
     if (requestSequence !== reviewRequestSequence.current || cutoffLocalRef.current !== requestedCutoffLocal) return
     if (response.data) setSnapshot(response.data)
     else setError(response.error || 'The historical payroll snapshot could not be reviewed.')
@@ -570,12 +570,12 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
       <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="manual-processing-title" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl outline-none sm:p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Historical reconciliation</p>
         <h2 id="manual-processing-title" className="mt-2 text-2xl font-semibold text-slate-950">Record payroll processed outside the integration</h2>
-        <p className="mt-3 text-sm leading-6 text-slate-600">Use this only when payroll was already calculated manually. First recreate the exact AIRE snapshot used at that time, then record the matching Cornerstone period. This does not mark individual checks as paid.</p>
+        <p className="mt-3 text-sm leading-6 text-slate-600">Use this only for payroll already processed manually. Record the selected date range and matching Cornerstone period. Entries changed since the paid snapshot need separate paycheck evidence review. This does not mark individual checks as paid.</p>
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-slate-700">Hours frozen at
             <input type="datetime-local" step="1" value={cutoffLocal} onChange={(event) => { cutoffLocalRef.current = event.target.value; setCutoffLocal(event.target.value); invalidateSnapshot() }} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
-            <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">Guam time. Hours approved after this moment stay unpaid and carry forward.</span>
+            <span className="mt-1 block text-xs font-normal leading-5 text-slate-500">Guam time. Later approvals stay excluded. Reconcile their payment evidence before approving any additional wages.</span>
           </label>
           <label className="text-sm font-medium text-slate-700">Cornerstone processed at
             <input type="datetime-local" step="1" value={processedLocal} onChange={(event) => setProcessedLocal(event.target.value)} className="mt-2 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 outline-none focus:border-primary" />
@@ -937,6 +937,7 @@ export default function PayrollRuns() {
             </div>
           </div>
           {preview && <PublishedCalendarNotice payload={preview} onOpenBatch={(id) => { const next = new URLSearchParams(searchParams); next.set('batch_id', id); setSearchParams(next) }} />}
+          {preview?.finalization_blocked_reason && !preview.published_calendar_periods?.length && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{preview.finalization_blocked_reason}</p>}
           <IssueSummary issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
           {preview && preview.issues.missing_category_count > 0 && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
           <SummaryCards payload={activePayload} />

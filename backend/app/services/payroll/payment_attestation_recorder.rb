@@ -18,7 +18,7 @@ module Payroll
       raise Error, "Complete and approve this AIRE time entry first" unless entry.counts_toward_hours?
       raise Error, "This entry is already represented in an AIRE payroll batch" if PayrollBatchEntry.effective.exists?(source_time_entry_id: entry.id)
       raise Error, "This entry already has a Cornerstone allocation" if PayrollManualAllocation.active.exists?(time_entry_id: entry.id)
-      raise Error, "This entry already has a payment attestation" if PayrollPaymentAttestation.exists?(time_entry_id: entry.id)
+      raise Error, "This entry already has a payment attestation" if PayrollPaymentAttestation.where.not(status: "retracted").exists?(time_entry_id: entry.id)
 
       attestation = PayrollPaymentAttestation.create!(
         time_entry: entry,
@@ -64,6 +64,7 @@ module Payroll
           reason: explanation
         )
         SettlementCaseCoordinator.reopen_attestation_cases!(attestation: attestation, actor: @actor, reason: explanation)
+        LegacyHistoryCaseReview.capture!(attestation.time_entry, actor: @actor, reason: explanation) if LegacyPaidHistoryGuard.uncovered_entries.exists?(id: attestation.time_entry_id)
       end
       attestation
     end

@@ -3348,6 +3348,13 @@ CREATE INDEX idx_on_source_time_entry_id_896f0d23b5 ON public.payroll_manual_all
 
 
 --
+-- Name: idx_payment_attestations_current_entry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_payment_attestations_current_entry ON public.payroll_payment_attestations USING btree (time_entry_id) WHERE ((status)::text <> 'retracted'::text);
+
+
+--
 -- Name: idx_payroll_account_links_external_actor; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3520,6 +3527,13 @@ CREATE INDEX idx_payroll_time_entry_revisions_entry_time ON public.payroll_time_
 --
 
 CREATE INDEX idx_payroll_time_entry_revisions_user_work_time ON public.payroll_time_entry_revisions USING btree (source_user_id, source_work_date, recorded_at);
+
+
+--
+-- Name: idx_time_entries_legacy_payable_history; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_time_entries_legacy_payable_history ON public.time_entries USING btree (work_date, id) WHERE (((status)::text = 'completed'::text) AND ((approval_status)::text = 'approved'::text));
 
 
 --
@@ -4100,7 +4114,7 @@ CREATE INDEX index_payroll_payment_attestations_on_retracted_by_id ON public.pay
 -- Name: index_payroll_payment_attestations_on_time_entry_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX index_payroll_payment_attestations_on_time_entry_id ON public.payroll_payment_attestations USING btree (time_entry_id);
+CREATE INDEX index_payroll_payment_attestations_on_time_entry_id ON public.payroll_payment_attestations USING btree (time_entry_id);
 
 
 --
@@ -5546,6 +5560,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261102000000'),
 ('20261025010000'),
 ('20261024090000'),
 ('20261024080000'),

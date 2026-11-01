@@ -11,12 +11,14 @@ module Payroll
 
     attr_reader :start_date, :end_date, :cutoff_at, :batch_reference, :calendar_period
 
-    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil, source_entry_ids: nil)
+    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil, source_entry_ids: nil, manual_processing: false, excluded_source_entry_ids: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @cutoff_at = cutoff_at
       @batch_reference = batch_reference
       @calendar_period = calendar_period
+      @manual_processing = manual_processing
+      @excluded_source_entry_ids = Array(excluded_source_entry_ids).to_set
       # Supplemental claims use live source state and the whole affected week,
       # but export only the explicitly selected entries. Scheduled cutoffs keep
       # their revision-ledger and named-destination semantics.
@@ -41,7 +43,16 @@ module Payroll
       allocations = overtime_allocations(context_entries)
       @legacy_allocations = AffectedOvertimeReview.allocations(context_entries, legacy: true)
       settlement_ids = settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
+      settlement_ids &= seed_entries.map(&:id).to_set if @manual_processing
+      settlement_ids -= @excluded_source_entry_ids
       settlement_ids &= @source_entry_ids if @source_entry_ids
+      if calendar_period
+        # Even employee/week expansion may not bypass explicit legacy routing.
+        legacy_ids = LegacyPaidHistoryGuard.legacy_entry_ids(settlement_ids.to_a).to_set
+        targeted_ids = PayrollSettlementCase.active.where(target_payroll_calendar_period: calendar_period)
+          .pluck(:source_time_entry_id).to_set
+        settlement_ids -= legacy_ids - targeted_ids
+      end
       preload_first_exclusion_references(settlement_ids)
       preload_manual_allocations(settlement_ids)
       preload_payment_attestations(settlement_ids)
@@ -149,6 +160,13 @@ module Payroll
         frozen_entries + late_entries
       else
         staff_entries.where(work_date: (start_date - 1)..end_date).includes(:time_entry_breaks).to_a.select { |entry| PayableIntervals.overlaps?(entry, start_date..end_date) }
+      end
+      # Recording an already-paid range must never also attest unrelated
+      # historical/carryover work against that range's Cornerstone run.
+      if @manual_processing
+        represented = PayrollBatchEntry.effective.where(source_time_entry_id: nominal.map(&:id)).pluck(:source_time_entry_id).to_set
+        nominal.reject! { |entry| entry.work_date < start_date && represented.include?(entry.id) }
+        return [ nominal, [] ]
       end
       # Published calendars admit historical work through named settlement
       # cases. Live manual-review seeds must not bypass that routing or replace
@@ -490,7 +508,7 @@ module Payroll
     def preload_payment_attestations(entry_ids)
       attestations = calendar_period ? PayrollPaymentAttestation.blocking_at(cutoff_at) : PayrollPaymentAttestation.pending_evidence
       @payment_attestations_by_entry = attestations
-        .where(time_entry_id: entry_ids.to_a)
+        .where(time_entry_id: entry_ids.to_a).order(:id)
         .index_by(&:time_entry_id)
     end
 
@@ -771,6 +789,7 @@ module Payroll
       {
         "id" => entry.id,
         "version" => entry.lock_version,
+        "payable_content_checksum" => PayableContent.checksum(entry),
         "user_id" => entry.user_id,
         "user_uuid" => entry.user.payroll_integration_uuid,
         "employee_name" => entry.user.full_name,

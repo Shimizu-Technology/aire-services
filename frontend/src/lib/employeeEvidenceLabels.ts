@@ -97,6 +97,7 @@ export function historicalReasonLabel(value: string | null | undefined): string 
   "approved_after_cutoff": "Entry was approved after cutoff",
   "overtime_approved_after_cutoff": "Overtime was approved after cutoff",
   "pending_payment_attestation": "Reported payment needed matching evidence",
+  "legacy_history_review": "Legacy hours need payment review",
   "manual_reservation_released": "Manual payroll reservation released",
   "changed_after_cutoff": "Entry changed after cutoff",
   "deleted_after_cutoff": "Entry was deleted after cutoff"

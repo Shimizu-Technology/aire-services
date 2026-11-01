@@ -67,6 +67,22 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
     expect(history.reload.pluck(:event_type)).to eq(%w[opened routed approval_changed])
   end
 
+  it "still reconciles finalized calendars if a legacy manual snapshot cannot be reviewed" do
+    entry(period: source_period)
+    origin = origin_period
+    travel_to(origin.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
+    end
+    allow(Payroll::ManualBatchCorrectionReview).to receive(:call).and_raise("malformed legacy snapshot")
+    expect(Rails.error).to receive(:report).with(an_instance_of(RuntimeError), handled: true, severity: :error,
+      context: { operation: "manual_batch_correction_review" })
+
+    expect(Rails.logger).to receive(:error).with(/malformed legacy snapshot/)
+    expect { described_class.sync_finalized_periods! }.to raise_error("malformed legacy snapshot")
+
+    expect(origin.reload.payroll_settlement_reconciliation).to be_present
+  end
+
   it "captures time submitted after a finalized cutoff and gives it a named destination" do
     origin = origin_period(external_id: "late-origin")
     target = following_period(origin, external_id: "late-target")
