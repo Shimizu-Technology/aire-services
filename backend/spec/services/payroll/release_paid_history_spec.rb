@@ -13,7 +13,8 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     { "periods" => described_class::PERIODS.zip(dates).map do |(start_date, end_date, id), time|
         { "start_date" => start_date, "end_date" => end_date, "external_pay_period_id" => id, "cutoff_at" => time, "processed_at" => time }
       end,
-      "adjustment_entry_ids" => { "83" => [ @adjustments.first.id ], "85" => [ @adjustments.last.id ] } }
+      "adjustment_entry_ids" => { "83" => [ @adjustments.first.id ], "85" => [ @adjustments.last.id ] },
+      "adjustment_notes" => { "83" => "Reviewed exact source/check evidence for adjustment 83", "85" => "Reviewed exact source/check evidence for adjustment 85" } }
   end
 
   def entry(date, updated_at: nil)

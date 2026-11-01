@@ -89,8 +89,10 @@ module Payroll
         raise Error, "Invalid reviewed payment timestamps" unless cutoff <= processed && processed <= Time.current
       end
       adjustments = @plan.fetch("adjustment_entry_ids")
-      unless adjustments.keys.sort == %w[83 85] && adjustments.values.all? { |ids| ids.is_a?(Array) && ids.one? } && adjustments.values.flatten.uniq.length == 2
-        raise Error, "Identify the one exact AIRE entry for each of adjustments #83 and #85"
+      notes = @plan.fetch("adjustment_notes")
+      unless adjustments.keys.sort == %w[83 85] && adjustments.values.all? { |ids| ids.is_a?(Array) && ids.all? { |id| id.is_a?(Integer) && id.positive? } } &&
+          %w[83 85].all? { |id| notes[id].to_s.strip.length >= 20 }
+        raise Error, "Review exact AIRE source IDs and payment evidence for adjustments #83 and #85; document any adjustment with no source-hour coverage"
       end
       adjustments.values.flatten.each do |id|
         entry = legacy_entries.find { |candidate| candidate.id == id }

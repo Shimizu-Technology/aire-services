@@ -5,5 +5,6 @@
     { "start_date": "2026-09-16", "end_date": "2026-09-30", "external_pay_period_id": "86", "cutoff_at": "REVIEWED_ISO8601_SNAPSHOT", "processed_at": "REVIEWED_ISO8601_COMMIT" },
     { "start_date": "2026-10-01", "end_date": "2026-10-15", "external_pay_period_id": "94", "cutoff_at": "REVIEWED_ISO8601_SNAPSHOT", "processed_at": "REVIEWED_ISO8601_COMMIT" }
   ],
-  "adjustment_entry_ids": { "83": ["REVIEWED_AIRE_ENTRY_ID"], "85": ["REVIEWED_AIRE_ENTRY_ID"] }
+  "adjustment_entry_ids": { "83": ["REVIEWED_INTEGER_AIRE_ENTRY_IDS"], "85": ["REVIEWED_INTEGER_AIRE_ENTRY_IDS"] },
+  "adjustment_notes": { "83": "REVIEWED_SOURCE_AND_PAYMENT_EVIDENCE", "85": "REVIEWED_SOURCE_AND_PAYMENT_EVIDENCE" }
 }
