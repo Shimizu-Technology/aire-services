@@ -43,6 +43,7 @@ module Payroll
         report = {
           plan_checksum: plan_checksum,
           hold_entry_ids: holds.map(&:id).sort,
+          partial_coverage_entry_ids: @partial_coverage_entry_ids.to_a.sort,
           owed_entry_ids: owed_entry_ids,
           uncovered_pending_by_user: uncovered_pending_by_user,
           periods: @plan.fetch("periods"),
@@ -80,6 +81,9 @@ module Payroll
     private
 
     def execute!(holds, plan_checksum, digest)
+      if @partial_coverage_entry_ids.any?
+        raise Error, "Partial historical coverage requires exact reconciliation before release: #{@partial_coverage_entry_ids.to_a.sort.join(', ')}"
+      end
       recorder = PaymentAttestationRecorder.new(actor: @actor)
       holds.each do |entry|
         recorder.attest!(entry: entry, source_user_uuid: entry.user.payroll_integration_uuid,
@@ -212,8 +216,10 @@ module Payroll
       reported = PayrollPaymentAttestation.pending_evidence.pluck(:time_entry_id).to_set
       adjustments = @plan.fetch("adjustment_entry_ids").values.flatten.to_set
       splits = split_entries.map(&:id).to_set
+      uncovered = LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").pluck(:id).to_set
+      @partial_coverage_entry_ids = uncovered & (represented | allocated)
       legacy_entries.select do |entry|
-        next false unless payable_entry_ids.include?(entry.id) && entry.approval_status == "approved"
+        next false unless uncovered.include?(entry.id)
         next false if owed_entry_ids.include?(entry.id)
         next false if represented.include?(entry.id) || allocated.include?(entry.id) || reported.include?(entry.id)
 

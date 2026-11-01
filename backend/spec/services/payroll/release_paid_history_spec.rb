@@ -67,6 +67,20 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
   before do |example|
     stub_const("#{described_class}::ANCHOR_ENTRY_COUNT", 1) unless example.metadata[:production_anchor]
     @anchor_entry = entry("2026-08-10")
+    if example.metadata[:legacy_break_baseline]
+      @legacy_break = TimeEntryBreak.create!(time_entry: @anchor_entry,
+        start_time: @anchor_entry.start_time + 2.hours, end_time: @anchor_entry.start_time + 3.hours)
+      source = @anchor_entry.reload
+      version = source.lock_version + 1
+      observed = PayrollTimeEntryRevision.where(source_time_entry_id: source.id).order(:id).last
+      unknown = observed.snapshot.deep_dup.except("breaks")
+      unknown["time_entry"]["lock_version"] = version
+      PayrollTimeEntryRevision.create!(source_time_entry_id: source.id, source_version: version,
+        source_user_id: source.user_id, source_work_date: source.work_date, deleted: false,
+        recorded_at: Time.current, snapshot: unknown)
+      # Chronology migration adds a complete observation at the same version.
+      source.update_columns(lock_version: version, updated_at: Time.iso8601("2026-08-11T00:00:00Z"))
+    end
     if example.metadata[:production_anchor]
       attrs = @anchor_entry.attributes.except("id").merge("hours" => 0.1)
       TimeEntry.insert_all!(Array.new(133) { attrs.dup })
@@ -254,6 +268,88 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect(Payroll::LegacyPaidHistoryGuard.uncovered_entries.pluck(:id)).to match_array([ *sources.map(&:id), other_pending.id ])
     expect(Payroll::LegacyPaidHistoryGuard).to be_blocked
     expect(PayrollPaymentAttestation.where(time_entry_id: [ *sources.map(&:id), other_pending.id, zero.id ])).to be_empty
+  end
+
+  it "fails closed on partial historical allocation instead of losing the unpaid remainder" do
+    PayrollManualAllocation.create!(time_entry: @old, user: employee, recorded_by: admin,
+      source_user_uuid: employee.payroll_integration_uuid, source_time_entry_version: @old.lock_version,
+      work_date: @old.work_date, regular_hours: 4, overtime_hours: 0,
+      external_pay_period_id: "old-manual", external_payroll_item_id: "partial-check",
+      pay_date: Date.new(2026, 8, 15), reason: "Only four of these eight hours have exact payment evidence")
+    expect(Payroll::LegacyPaidHistoryGuard.uncovered_entries.pluck(:id)).to include(@old.id)
+    preview = runner.call
+    expect(preview).to include(status: "preview_failed", error: /partial historical coverage/i)
+    expect(preview.fetch(:hold_entry_ids)).not_to include(@old.id)
+    expect(PayrollBatch.count).to eq(1)
+    expect(PayrollPaymentAttestation.where(time_entry_id: @old.id)).to be_empty
+    period = calendar
+    Payroll::LegacyHistoryCaseReview.call
+    review = PayrollSettlementCase.active.find_by!(source_time_entry_id: @old.id)
+    expect(review.destination_kind).to eq("unassigned")
+    Payroll::SettlementCaseRouter.new(settlement_case: review, destination_kind: "regular",
+      target_external_pay_period_id: period.external_pay_period_id, action_due_on: "2026-11-15", assigned_to_id: nil,
+      reason: "Verified four paid hours and explicitly authorized the four still owed", actor: admin).call
+    result = Payroll::BatchBuilder.new(start_date: period.start_date, end_date: period.end_date,
+      cutoff_at: period.cutoff_at, calendar_period: period).call
+    expect(result.fetch(:rows).select { |row| row[:source_time_entry_id] == @old.id }.sum { |row| row[:total_hours] }).to eq(4)
+  end
+
+  it "keeps a partially represented source uncovered without holding its unpaid increase as paid" do
+    @anchor_entry.update_columns(hours: 10)
+    expect(Payroll::LegacyPaidHistoryGuard.uncovered_entries.pluck(:id)).to include(@anchor_entry.id)
+    preview = runner.call
+    expect(preview).to include(status: "preview_failed", error: /partial historical coverage/i)
+    expect(preview.fetch(:partial_coverage_entry_ids)).to include(@anchor_entry.id)
+    expect(preview.fetch(:hold_entry_ids)).not_to include(@anchor_entry.id)
+    expect(PayrollBatchEntry.where(source_time_entry_id: @anchor_entry.id).sum(:total_hours)).to eq(8)
+    expect(PayrollPaymentAttestation.where(time_entry_id: @anchor_entry.id)).to be_empty
+  end
+
+  it "discovers a legacy manual break change after approval returns to its paid status" do
+    # Exercise the old immutable format without rewriting the paid rows.
+    allow_any_instance_of(PayrollBatchEntry).to receive(:snapshot).and_wrap_original do |original|
+      original.call.except("payable_content_checksum")
+    end
+    source = @anchor_entry
+    Payroll::ManualBatchCorrectionReview.call
+    expect(PayrollSettlementCase.where(source_time_entry_id: source.id)).to be_empty
+    brk = TimeEntryBreak.create!(time_entry: source, start_time: source.start_time + 2.hours,
+      end_time: source.start_time + 2.hours + 15.minutes)
+    source.reload.update!(approval_status: "pending")
+    source.update!(approval_status: "approved")
+    Payroll::ManualBatchCorrectionReview.call
+    review = PayrollSettlementCase.active.find_by!(source_time_entry_id: source.id)
+    expect(review).to have_attributes(origin_reason: "changed_after_cutoff", destination_kind: "unassigned")
+    expect(review.payroll_settlement_case_events.first.metadata["requires_explicit_routing"]).to be(true)
+    expect(source.reload.hours).to eq(8)
+    expect(brk.reload.duration_minutes).to eq(15)
+    Payroll::ManualBatchCorrectionReview.call
+    expect(PayrollSettlementCase.where(source_time_entry_id: source.id).count).to eq(1)
+  end
+
+  it "uses a complete legacy chronology observation and detects deletion after reapproval", :legacy_break_baseline do
+    allow_any_instance_of(PayrollBatchEntry).to receive(:snapshot).and_wrap_original do |original|
+      original.call.except("payable_content_checksum")
+    end
+    source = @anchor_entry.reload
+    Payroll::ManualBatchCorrectionReview.call
+    expect(PayrollSettlementCase.where(source_time_entry_id: source.id)).to be_empty
+    @legacy_break.destroy!
+    source.reload.update!(approval_status: "pending")
+    source.update!(approval_status: "approved")
+    Payroll::ManualBatchCorrectionReview.call
+    expect(PayrollSettlementCase.active.find_by!(source_time_entry_id: source.id))
+      .to have_attributes(origin_reason: "changed_after_cutoff", destination_kind: "unassigned")
+  end
+
+  it "requires explicit review when legacy chronology cannot be established" do
+    allow_any_instance_of(PayrollBatchEntry).to receive(:snapshot).and_wrap_original do |original|
+      original.call.except("payable_content_checksum")
+    end
+    allow(Payroll::ManualBatchCorrectionReview).to receive(:legacy_revision_baselines).and_return({})
+    Payroll::ManualBatchCorrectionReview.call
+    expect(PayrollSettlementCase.active.find_by!(source_time_entry_id: @anchor_entry.id))
+      .to have_attributes(origin_reason: "changed_after_cutoff", destination_kind: "unassigned")
   end
 
   it "preserves pending NULL and denied legacy entries; a November 6 approval opens a case and cutoff succeeds" do

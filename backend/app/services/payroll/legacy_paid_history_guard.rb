@@ -22,12 +22,19 @@ module Payroll
 
     def self.uncovered_entries
       scope = payable_entries
-      [ [ PayrollBatchEntry.effective, :source_time_entry_id ],
-        [ PayrollManualAllocation.active, :time_entry_id ],
-        [ PayrollPaymentAttestation.pending_evidence, :time_entry_id ] ].each do |covered, column|
-        correlated = covered.where(covered.arel_table[column].eq(TimeEntry.arel_table[:id]))
-        scope = scope.where(correlated.arel.exists.not)
-      end
+      # Coverage is hours, not the existence of a payment reference. Active
+      # allocations can cover only part of a source; signed effective batch
+      # rows and active allocations together must cover its full total.
+      batch_hours = PayrollBatchEntry.effective
+        .where(PayrollBatchEntry.arel_table[:source_time_entry_id].eq(TimeEntry.arel_table[:id]))
+        .select("COALESCE(SUM(regular_hours + overtime_hours), 0)")
+      allocated_hours = PayrollManualAllocation.active
+        .where(PayrollManualAllocation.arel_table[:time_entry_id].eq(TimeEntry.arel_table[:id]))
+        .select("COALESCE(SUM(regular_hours + overtime_hours), 0)")
+      scope = scope.where("(#{batch_hours.to_sql}) + (#{allocated_hours.to_sql}) < time_entries.hours")
+      attested = PayrollPaymentAttestation.pending_evidence
+        .where(PayrollPaymentAttestation.arel_table[:time_entry_id].eq(TimeEntry.arel_table[:id]))
+      scope = scope.where(attested.arel.exists.not)
       scope
     end
 

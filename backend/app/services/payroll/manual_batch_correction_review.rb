@@ -16,10 +16,13 @@ module Payroll
             .joins(:payroll_batch).select("DISTINCT ON (source_time_entry_id) payroll_batch_entries.*")
             .order("source_time_entry_id, payroll_batches.cutoff_at DESC, payroll_batch_entries.id DESC")
             .index_by(&:source_time_entry_id)
+          legacy_baselines = legacy_revision_baselines(latest_snapshots)
           grouped.each do |entry_id, rows|
             entry = entries[entry_id]
             latest_snapshot = latest_snapshots[entry_id]&.snapshot || rows.first.snapshot
-            next if entry && !PayableContent.changed_from_snapshot?(entry, latest_snapshot)
+            known_chronology = latest_snapshot["payable_content_checksum"].present? || legacy_baselines.key?(entry_id)
+            next if entry && known_chronology && !PayableContent.changed_from_snapshot?(entry, latest_snapshot,
+              legacy_baseline: legacy_baselines[entry_id]&.time_entry_state)
 
             reason = entry ? "changed_after_cutoff" : "deleted_after_cutoff"
             version = entry&.lock_version || rows.map { |row| row.snapshot.fetch("version", 0).to_i }.max + 1
@@ -47,5 +50,29 @@ module Payroll
           end
         end
     end
+
+    def self.legacy_revision_baselines(rows)
+      versions = rows.filter_map do |entry_id, row|
+        next if row.snapshot["payable_content_checksum"]
+
+        { entry_id: entry_id, version: row.snapshot.fetch("version", 0).to_i }
+      end
+      return {} if versions.empty?
+
+      # Prefer the paid source version. Legacy batches can predate revision
+      # capture; the earliest retained state then anchors later punch/break
+      # changes. Missing break history is unknown, never a known empty list.
+      # Approval/signature/timestamp-only touches are not chronology.
+      join = ActiveRecord::Base.sanitize_sql_array([
+        "INNER JOIN jsonb_to_recordset(?) AS paid(entry_id bigint, version integer) ON paid.entry_id = payroll_time_entry_revisions.source_time_entry_id",
+        versions.to_json
+      ])
+      PayrollTimeEntryRevision.joins(join)
+        .where("snapshot ? 'breaks'")
+        .select("DISTINCT ON (source_time_entry_id) payroll_time_entry_revisions.*")
+        .order(Arel.sql("source_time_entry_id, (source_version <= paid.version) DESC, CASE WHEN source_version <= paid.version THEN source_version END DESC, source_version ASC, id ASC"))
+        .index_by(&:source_time_entry_id)
+    end
+    private_class_method :legacy_revision_baselines
   end
 end
