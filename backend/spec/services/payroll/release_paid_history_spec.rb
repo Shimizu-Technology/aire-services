@@ -216,6 +216,46 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect(apply_history[:status]).to eq("applied")
   end
 
+  it "ignores approved zero-hour legacy sources in holds and final coverage" do
+    zero_entries = %w[2026-05-08 2026-07-10 2026-07-11].map do |date|
+      source = entry(date)
+      source.update_columns(hours: 0)
+      source
+    end
+    preview = runner.call
+    expect(preview).to include(status: "preview")
+    expect(preview.fetch(:hold_entry_ids) & zero_entries.map(&:id)).to be_empty
+    expect(runner.call(apply: true, expected_digest: preview.fetch(:preview_digest)))
+      .to include(status: "applied", held_count: 4, batch_checksums: preview.fetch(:batch_checksums))
+    expect(PayrollPaymentAttestation.where(time_entry_id: zero_entries.map(&:id))).to be_empty
+    expect(Payroll::LegacyPaidHistoryGuard.uncovered_entries).to be_empty
+    expect(Payroll::LegacyPaidHistoryGuard).not_to be_blocked
+    expect(runner.call).to include(status: "already_applied")
+    expect(PayrollBatch.count).to eq(5)
+  end
+
+  it "reports the live payable NULL-approval remainder by employee and date range" do
+    sources = %w[2026-05-01 2026-06-12 2026-08-21].map { |date| entry(date) }
+    other = create(:user, :employee)
+    other_pending = entry("2026-05-03")
+    other_pending.update_columns(user_id: other.id)
+    zero = entry("2026-05-02")
+    zero.update_columns(hours: 0)
+    [ *sources, other_pending, zero ].each { |source| source.update_columns(approval_status: nil, approved_at: nil) }
+    preview = runner.call
+    expect(preview).to include(status: "preview", uncovered_pending_by_user: [
+      { user_id: employee.id, name: [ employee.first_name, employee.last_name ].join(" "), count: 3,
+        start_date: "2026-05-01", end_date: "2026-08-21" },
+      { user_id: other.id, name: [ other.first_name, other.last_name ].join(" "), count: 1,
+        start_date: "2026-05-03", end_date: "2026-05-03" }
+    ])
+    expect(runner.call(apply: true, expected_digest: preview.fetch(:preview_digest)))
+      .to include(status: "applied")
+    expect(Payroll::LegacyPaidHistoryGuard.uncovered_entries.pluck(:id)).to match_array([ *sources.map(&:id), other_pending.id ])
+    expect(Payroll::LegacyPaidHistoryGuard).to be_blocked
+    expect(PayrollPaymentAttestation.where(time_entry_id: [ *sources.map(&:id), other_pending.id, zero.id ])).to be_empty
+  end
+
   it "preserves pending NULL and denied legacy entries; a November 6 approval opens a case and cutoff succeeds" do
     pending = entry("2026-08-21")
     pending.update_columns(approval_status: nil, approved_at: nil)
@@ -387,14 +427,20 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect { Payroll::SettlementCaseCoordinator.sync_finalized_periods! }.to raise_error("synthetic correction discovery failure")
   end
 
-  it "rehearses the audited 966 approved, 20 pending, 10 denied and 55-category-gap inventory", :production_anchor do
+  it "rehearses a 134-row anchor, category gaps and the November 2 payable pending inventory", :production_anchor do
     attrs = @paid.first.attributes.except("id").merge("hours" => 0.01)
     TimeEntry.insert_all!(Array.new(957) { |index| attrs.merge("time_category_id" => index < 55 ? nil : category.id) })
     pending_attrs = attrs.merge("approval_status" => nil, "approved_at" => nil)
     july = Date.new(2026, 7, 10)
-    TimeEntry.insert_all!(Array.new(18) { pending_attrs.merge("work_date" => july) } +
+    TimeEntry.insert_all!(Array.new(60) { |index| pending_attrs.merge("work_date" => index.zero? ? Date.new(2026, 5, 1) : july) } +
       [ pending_attrs.merge("work_date" => Date.new(2026, 8, 20), "hours" => 6.38),
         pending_attrs.merge("work_date" => Date.new(2026, 8, 21), "hours" => 4.38) ])
+    [ 2, 3, 3 ].each do |count|
+      person = create(:user, :employee)
+      TimeEntry.insert_all!(Array.new(count) { pending_attrs.merge("user_id" => person.id, "work_date" => Date.new(2026, 5, 3)) })
+    end
+    zero_person = create(:user, :employee)
+    TimeEntry.insert_all!([ pending_attrs.merge("user_id" => zero_person.id, "work_date" => Date.new(2026, 5, 4), "hours" => 0) ])
     TimeEntry.insert_all!(Array.new(10) { attrs.merge("approval_status" => "denied") })
     owed = entry("2026-09-15", updated_at: Time.iso8601("2026-10-07T00:00:00Z"))
     owed.update_columns(hours: 4.25, created_at: Time.iso8601("2026-09-23T03:14:22Z"))
@@ -407,12 +453,17 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     inventory = TimeEntry.where("work_date < ?", Date.new(2026, 10, 16))
       .where.not(id: PayrollBatchEntry.select(:source_time_entry_id))
     expect(inventory.where(approval_status: "approved").count).to eq(966)
-    expect(inventory.where(approval_status: nil).count).to eq(20)
+    expect(inventory.where(approval_status: nil).count).to eq(71)
     expect(inventory.where(approval_status: "denied").count).to eq(10)
     expect(inventory.where(time_category_id: nil).count).to eq(55)
     preview = runner.call
     expect(preview[:status]).to eq("preview"), preview.inspect
     expect(preview[:split_entry_ids]).to be_empty
+    groups = preview.fetch(:uncovered_pending_by_user)
+    expect(groups.sum { |group| group.fetch(:count) }).to eq(70)
+    expect(groups.map { |group| group.fetch(:count) }).to eq([ 62, 2, 3, 3 ])
+    expect(groups.first).to include(start_date: "2026-05-01", end_date: "2026-08-21")
+    expect(groups.map { |group| group.fetch(:user_id) }).not_to include(zero_person.id)
     expect(preview[:hold_entry_ids]).not_to include(owed.id)
     expect(runner.call(apply: true, expected_digest: preview[:preview_digest])[:batch_checksums]).to eq(preview[:batch_checksums])
     expect(PayrollPaymentAttestation.where(time_entry_id: inventory.where(approval_status: nil).select(:id))).to be_empty

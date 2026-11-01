@@ -14,9 +14,14 @@ module Payroll
         .where("time_entries.work_date < ?", rollout.cutoff_enforcement_starts_on)
     end
 
+    # Match the source hours rule, excluding rows with no payable hours from
+    # both release holds and coverage. NULL clock approvals still count.
+    def self.payable_entries
+      legacy_entries.countable.where("time_entries.hours > 0")
+    end
+
     def self.uncovered_entries
-      scope = legacy_entries.where(status: "completed")
-        .where("time_entries.approval_status = 'approved' OR (time_entries.entry_method = 'clock' AND time_entries.approval_status IS NULL)")
+      scope = payable_entries
       [ [ PayrollBatchEntry.effective, :source_time_entry_id ],
         [ PayrollManualAllocation.active, :time_entry_id ],
         [ PayrollPaymentAttestation.pending_evidence, :time_entry_id ] ].each do |covered, column|

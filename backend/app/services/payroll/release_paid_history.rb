@@ -27,6 +27,8 @@ module Payroll
         connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
         connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions, payroll_manual_allocations, payroll_payment_attestations, payroll_settlement_cases, time_categories, user_time_categories IN SHARE MODE")
         @legacy_entries = nil
+        @payable_entry_ids = nil
+        @split_entries = nil
         @actor&.reload
         validate_environment_state!
         plan_checksum = CanonicalPayload.checksum(@plan)
@@ -42,6 +44,7 @@ module Payroll
           plan_checksum: plan_checksum,
           hold_entry_ids: holds.map(&:id).sort,
           owed_entry_ids: owed_entry_ids,
+          uncovered_pending_by_user: uncovered_pending_by_user,
           periods: @plan.fetch("periods"),
           entries: legacy_entries.map { |entry| [ entry.id, entry.attributes, entry.user.attributes.slice("id", "first_name", "last_name", "email", "role", "payroll_integration_uuid", "is_active"), entry.time_entry_breaks.map(&:attributes) ] },
           context_entries: TimeEntry.where(work_date: Date.new(2026, 10, 16)..Date.new(2026, 10, 21)).includes(:time_entry_breaks).order(:id)
@@ -112,7 +115,7 @@ module Payroll
     end
 
     def split_entries
-      legacy_entries.select do |entry|
+      @split_entries ||= legacy_entries.select do |entry|
         dates = PayableIntervals.segments(entry).map { |segment| segment[:work_date] }
         # Include even represented Aug 15 overnight work in the preview. It is
         # never pulled into the following manual range for a second payment.
@@ -142,7 +145,7 @@ module Payroll
       end
       owed_entry_ids.each do |id|
         source = legacy_entries.find { |entry| entry.id == id }
-        unless source && source.counts_toward_hours? && source.approval_status == "approved" &&
+        unless source && payable_entry_ids.include?(source.id) && source.approval_status == "approved" &&
             !PayrollBatchEntry.effective.exists?(source_time_entry_id: id) && !PayrollManualAllocation.active.exists?(time_entry_id: id) &&
             !PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: id)
           raise Error, "Owed entry #{id} must be approved, unrepresented and without payment holds or allocations"
@@ -188,6 +191,21 @@ module Payroll
         .includes(:user, :time_entry_breaks).order(:id).to_a
     end
 
+    def payable_entry_ids
+      @payable_entry_ids ||= LegacyPaidHistoryGuard.payable_entries.pluck(:id).to_set
+    end
+
+    def uncovered_pending_by_user
+      LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: nil)
+        .group("time_entries.user_id", "users.first_name", "users.last_name").order("time_entries.user_id")
+        .pluck("time_entries.user_id", "users.first_name", "users.last_name",
+          Arel.sql("COUNT(*)"), Arel.sql("MIN(time_entries.work_date)"), Arel.sql("MAX(time_entries.work_date)"))
+        .map do |user_id, first_name, last_name, count, from, to|
+          { user_id: user_id, name: [ first_name, last_name ].join(" "), count: count,
+            start_date: from.iso8601, end_date: to.iso8601 }
+        end
+    end
+
     def proposed_holds
       represented = PayrollBatchEntry.effective.pluck(:source_time_entry_id).to_set
       allocated = PayrollManualAllocation.active.pluck(:time_entry_id).to_set
@@ -195,7 +213,7 @@ module Payroll
       adjustments = @plan.fetch("adjustment_entry_ids").values.flatten.to_set
       splits = split_entries.map(&:id).to_set
       legacy_entries.select do |entry|
-        next false unless entry.counts_toward_hours? && entry.approval_status == "approved"
+        next false unless payable_entry_ids.include?(entry.id) && entry.approval_status == "approved"
         next false if owed_entry_ids.include?(entry.id)
         next false if represented.include?(entry.id) || allocated.include?(entry.id) || reported.include?(entry.id)
 
