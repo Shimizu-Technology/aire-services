@@ -3,7 +3,7 @@
 module Payroll
   class LegacyHistoryCaseReview
     def self.call
-      LegacyPaidHistoryGuard.uncovered_entries.includes(:user, :time_entry_breaks).find_each { |entry| capture!(entry) }
+      LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").includes(:user, :time_entry_breaks).find_each { |entry| capture!(entry) }
     end
 
     def self.capture!(entry, actor: nil, reason: "Review uncovered pre-rollout hours against manual payment evidence")

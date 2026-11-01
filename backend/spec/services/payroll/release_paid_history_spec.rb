@@ -221,6 +221,8 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect(runner.call.fetch(:hold_entry_ids)).not_to include(pending.id, denied.id)
     expect(apply_history[:status]).to eq("applied")
     expect(PayrollBatchEntry.where(source_time_entry_id: pending.id)).to be_empty
+    expect(PayrollSettlementCase.where(source_time_entry_id: pending.id)).to be_empty
+    expect(Payroll::LegacyPaidHistoryGuard.blocked?).to be(true)
     travel_to(Time.iso8601("2026-11-06T00:00:00Z")) do
       pending.update!(approval_status: "approved", approved_at: Time.current)
     end

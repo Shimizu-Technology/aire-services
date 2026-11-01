@@ -97,7 +97,7 @@ module Payroll
         LegacyHistoryCaseReview.capture!(TimeEntry.find(id), actor: @actor,
           reason: "Release evidence confirms these source hours were not paid; explicitly route the owed correction to the first connected payroll or reconcile an exact manual allocation.")
       end
-      uncovered = LegacyPaidHistoryGuard.uncovered_entries.where.not(id: owed_entry_ids)
+      uncovered = LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").where.not(id: owed_entry_ids)
       raise Error, "Historical entries remain uncovered: #{uncovered.limit(20).pluck(:id).join(', ')}" if uncovered.exists?
       checksums = batches.to_h { |batch| [ batch.public_id, batch.checksum ] }
       receipt = AuditLog.record!(action: ACTION, actor: @actor, auditable: PayrollLockRollout.installation, event_category: "payroll",
