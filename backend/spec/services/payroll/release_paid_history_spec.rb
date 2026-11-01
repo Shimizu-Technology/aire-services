@@ -33,6 +33,8 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
   end
 
   def workspace(period)
+    previously_enabled = Payroll::ConnectedPayrollMode.enabled?
+    allow(Payroll::ConnectedPayrollMode).to receive(:enabled?).and_return(true)
     previous = ENV["PAYROLL_SHARED_SECRET"]
     ENV["PAYROLL_SHARED_SECRET"] = "release-history-workspace-secret"
     grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management])
@@ -42,6 +44,7 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     response.parsed_body.fetch("settlement_cases")
   ensure
     ENV["PAYROLL_SHARED_SECRET"] = previous
+    allow(Payroll::ConnectedPayrollMode).to receive(:enabled?).and_return(previously_enabled)
   end
 
   def apply_history
