@@ -131,6 +131,18 @@ function PayrollRouteHarness() {
 }
 
 describe('PayrollRuns', () => {
+  it('explains the historical payment hold while keeping reconciliation available', async () => {
+    apiMock.previewPayrollBatch.mockResolvedValue({ data: {
+      ...preview, can_finalize: false,
+      finalization_blocked_reason: 'Historical manually paid hours need reconciliation. Use Record already processed.',
+    } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Historical manually paid hours need reconciliation')
+    expect(screen.getByRole('button', { name: 'Finalize this cutoff' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Record already processed' })).toBeEnabled()
+  })
+
   beforeEach(() => {
     Object.values(apiMock).forEach((mock) => mock.mockReset())
     apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [], total_count: 0, truncated: false } })

@@ -1964,10 +1964,10 @@ export const api = {
   getPayrollBatch: (id: string) =>
     fetchApi<PayrollBatchDetail>(`/api/v1/admin/payroll_batches/${encodeURIComponent(id)}`),
 
-  previewPayrollBatch: (startDate: string, endDate: string, cutoffAt?: string) =>
+  previewPayrollBatch: (startDate: string, endDate: string, cutoffAt?: string, manualProcessing = false) =>
     fetchApi<PayrollBatchPayload>('/api/v1/admin/payroll_batches/preview', {
       method: 'POST',
-      body: JSON.stringify({ start_date: startDate, end_date: endDate, cutoff_at: cutoffAt }),
+      body: JSON.stringify({ start_date: startDate, end_date: endDate, cutoff_at: cutoffAt, manual_processing: manualProcessing }),
     }),
 
   finalizePayrollBatch: (payload: {

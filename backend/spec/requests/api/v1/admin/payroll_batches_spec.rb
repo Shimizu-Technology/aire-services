@@ -118,7 +118,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
   it "recreates and records a manually processed historical snapshot while preserving late approvals" do
     guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
     included = create_entry
-    included.update_columns(time_category_id: nil, created_at: guam.local(2026, 8, 15, 12), approved_at: guam.local(2026, 8, 30, 12))
+    included.update_columns(time_category_id: nil, created_at: guam.local(2026, 8, 15, 12), updated_at: guam.local(2026, 8, 30, 12), approved_at: guam.local(2026, 8, 30, 12))
     late = create_entry
     late.update_columns(created_at: guam.local(2026, 8, 15, 12), approved_at: guam.local(2026, 8, 31, 13, 7))
     cutoff_at = guam.local(2026, 8, 31, 13, 6).iso8601

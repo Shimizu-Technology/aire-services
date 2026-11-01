@@ -11,6 +11,7 @@ module Payroll
       end
 
       def sync_finalized_periods!
+        ManualBatchCorrectionReview.call
         reconciliation_scope.includes(:payroll_batch).find_each do |period|
           begin
             record_missing_exclusion_cases!(period)
@@ -85,6 +86,8 @@ module Payroll
           .lock
           .find_each do |settlement_case|
             routing_event = settlement_case.payroll_settlement_case_events.where(event_type: %w[routed rerouted]).reorder(:id).last
+            opening_event = settlement_case.payroll_settlement_case_events.where(event_type: "opened").reorder(:id).last
+            next if !routing_event && opening_event&.metadata&.fetch("requires_explicit_routing", false)
             next if routing_event&.metadata&.fetch("requires_explicit_routing", false)
 
             route_to_period!(settlement_case, period: period, actor: nil, reason: "Next published regular payroll")

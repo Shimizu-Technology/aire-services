@@ -11,12 +11,13 @@ module Payroll
 
     attr_reader :start_date, :end_date, :cutoff_at, :batch_reference, :calendar_period
 
-    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil, source_entry_ids: nil)
+    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil, source_entry_ids: nil, manual_processing: false)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @cutoff_at = cutoff_at
       @batch_reference = batch_reference
       @calendar_period = calendar_period
+      @manual_processing = manual_processing
       # Supplemental claims use live source state and the whole affected week,
       # but export only the explicitly selected entries. Scheduled cutoffs keep
       # their revision-ledger and named-destination semantics.
@@ -41,6 +42,7 @@ module Payroll
       allocations = overtime_allocations(context_entries)
       @legacy_allocations = AffectedOvertimeReview.allocations(context_entries, legacy: true)
       settlement_ids = settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
+      settlement_ids &= seed_entries.map(&:id).to_set if @manual_processing
       settlement_ids &= @source_entry_ids if @source_entry_ids
       preload_first_exclusion_references(settlement_ids)
       preload_manual_allocations(settlement_ids)
@@ -150,6 +152,9 @@ module Payroll
       else
         staff_entries.where(work_date: (start_date - 1)..end_date).includes(:time_entry_breaks).to_a.select { |entry| PayableIntervals.overlaps?(entry, start_date..end_date) }
       end
+      # Recording an already-paid range must never also attest unrelated
+      # historical/carryover work against that range's Cornerstone run.
+      return [ nominal, [] ] if @manual_processing
       # Published calendars admit historical work through named settlement
       # cases. Live manual-review seeds must not bypass that routing or replace
       # the source revision frozen at the calendar cutoff.

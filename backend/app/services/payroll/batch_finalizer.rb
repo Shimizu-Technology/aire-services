@@ -65,15 +65,19 @@ module Payroll
         reference = build_reference(cutoff)
         reject_out_of_order_automated_batch!
         reject_overlapping_batch!
+        LegacyPaidHistoryGuard.check! unless manual_processing
+        reject_out_of_order_manual_processing! if manual_processing
         SettlementCaseCoordinator.prepare_for_period!(calendar_period) if calendar_period
         result = BatchBuilder.new(
           start_date: start_date,
           end_date: end_date,
           cutoff_at: cutoff,
           batch_reference: reference,
-          calendar_period: calendar_period
+          calendar_period: calendar_period,
+          manual_processing: manual_processing
         ).call
         validate_result!(result)
+        validate_manual_snapshot!(result) if manual_processing
         payload = finalized_payload(result.fetch(:payload))
         checksum = CanonicalPayload.checksum(payload)
         batch = PayrollBatch.create!(
@@ -269,6 +273,23 @@ module Payroll
 
       raise OutOfOrderFinalizationError,
             "A later payroll batch (#{later_batch.public_id}) is already finalized. Review this older period before retrying."
+    end
+
+    def reject_out_of_order_manual_processing!
+      later = PayrollBatch.regular.where("end_date >= ? OR cutoff_at > ?", start_date, cutoff_at).first
+      return unless later
+
+      raise OutOfOrderFinalizationError, "Record already processed periods in work-date and cutoff order; review #{later.public_id} first"
+    end
+
+    def validate_manual_snapshot!(result)
+      unless result.fetch(:rows).all? { |row| row.fetch(:work_date).between?(start_date, end_date) }
+        raise FinalizationError, "Record already processed cannot include work outside the selected range; reconcile this entry's split periods separately"
+      end
+      ids = result.fetch(:rows).map { |row| row.fetch(:source_time_entry_id) }
+      return unless TimeEntry.where(id: ids).where("updated_at > ?", cutoff_at).exists?
+
+      raise FinalizationError, "Entries changed after the paid snapshot. Report already paid pending evidence and reconcile exact paycheck hours before recording this range; current hours cannot reconstruct historical payment."
     end
 
     def validate_result!(result)

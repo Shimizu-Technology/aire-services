@@ -35,18 +35,24 @@ module Api
           result = ::Payroll::BatchBuilder.new(
             start_date: params[:start_date],
             end_date: params[:end_date],
-            cutoff_at: cutoff_at || Time.current
+            cutoff_at: cutoff_at || Time.current,
+            manual_processing: ActiveModel::Type::Boolean.new.cast(params[:manual_processing])
           ).call
           periods = PayrollCalendarPeriod.overlapping(result.fetch(:start_date), result.fetch(:end_date))
             .includes(:payroll_batch).order(:start_date, :id).to_a
           rollout = PayrollLockRollout.find_by(id: 1) if periods.any?
+          legacy_blocked = ::Payroll::LegacyPaidHistoryGuard.blocked?
           render json: result.fetch(:payload).merge(
             preview: true,
-            can_finalize: periods.empty? && result.dig(:issues, :missing_category_count).zero?,
+            can_finalize: periods.empty? && !legacy_blocked && result.dig(:issues, :missing_category_count).zero?,
             published_calendar_periods: periods.map { |period| period.as_contract_json(rollout: rollout, next_scheduled_cutoff_at: nil).slice(
               :external_pay_period_id, :start_date, :end_date, :cutoff_at, :status, :payroll_batch_id
             ) },
-            finalization_blocked_reason: periods.any? ? "This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch." : nil,
+            finalization_blocked_reason: if periods.any?
+              "This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch."
+                                         elsif legacy_blocked
+              ::Payroll::LegacyPaidHistoryGuard::MESSAGE
+                                         end,
             requires_negative_adjustment_acknowledgement: result.dig(:issues, :negative_adjustment_count).positive?
           )
         rescue ArgumentError => e
