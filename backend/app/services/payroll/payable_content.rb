@@ -16,9 +16,10 @@ module Payroll
 
       # Older immutable snapshots do not have the content checksum. Compare
       # the payable fields they did retain; a sibling touch is not an edit.
+      inferred_category_only = snapshot["time_category_inferred_from_sole_assignment"] && entry.time_category_id.nil?
       fields = %w[user_id work_date hours status entry_method approval_status overtime_status]
       fields.any? { |field| snapshot.key?(field) && entry.public_send(field).to_s != snapshot[field].to_s } ||
-        (snapshot["time_category"] && entry.time_category_id != snapshot.dig("time_category", "id"))
+        (snapshot["time_category"] && !inferred_category_only && entry.time_category_id != snapshot.dig("time_category", "id"))
     end
   end
 end
