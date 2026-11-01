@@ -26,6 +26,7 @@ module Payroll
         connection.execute("SELECT pg_advisory_xact_lock(#{CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
         connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
         connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions, payroll_manual_allocations, payroll_payment_attestations IN SHARE MODE")
+        @legacy_entries = nil
         validate_environment_state!
         plan_checksum = CanonicalPayload.checksum(@plan)
         receipt = AuditLog.find_by(action: ACTION)

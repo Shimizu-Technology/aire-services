@@ -84,9 +84,10 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
   end
 
   it "fails closed for a changed preview, unexpected inventory, active connection and published calendars" do
-    preview = runner.call
+    service = runner
+    preview = service.call
     @paid.first.update!(description: "A source edit after preview")
-    expect { runner.call(apply: true, expected_digest: preview.fetch(:preview_digest)) }.to raise_error(described_class::Error, /State changed/)
+    expect { service.call(apply: true, expected_digest: preview.fetch(:preview_digest)) }.to raise_error(described_class::Error, /State changed/)
     expect(PayrollBatch.count).to eq(1)
     expect(PayrollPaymentAttestation.count).to eq(0)
     allow(ConnectedPayrollMode).to receive(:enabled?).and_return(true)
