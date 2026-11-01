@@ -71,6 +71,11 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
   it "previews without writes, records only the four ranges, holds old/edited/adjustment hours, and retries idempotently" do
     expect { runner.call }.not_to change { [ PayrollBatch.count, AuditLog.count, PayrollPaymentAttestation.count ] }
     expect(runner.call.fetch(:hold_entry_ids)).to match_array([ @old.id, @edited.id, *@adjustments.map(&:id) ])
+    aggregate_plan = plan.deep_dup
+    aggregate_plan["adjustment_entry_ids"] = { "83" => @adjustments.map(&:id), "85" => [] }
+    aggregate_plan["adjustment_notes"]["85"] = "Reviewed adjustment 85: accounting-only item with no additional source-hour coverage"
+    expect(described_class.new(plan: aggregate_plan, actor: admin).call.fetch(:hold_entry_ids))
+      .to match_array([ @old.id, @edited.id, *@adjustments.map(&:id) ])
     expect(apply_history).to include(status: "applied", held_count: 4)
     expect(PayrollBatch.count).to eq(5)
     @paid.each do |source|
