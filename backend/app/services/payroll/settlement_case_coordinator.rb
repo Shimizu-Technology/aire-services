@@ -7,14 +7,18 @@ module Payroll
 
     class << self
       def prepare_for_period!(period)
+        LegacyHistoryCaseReview.call
         route_open_cases_to_period!(period)
       end
 
       def sync_finalized_periods!
         begin
           ManualBatchCorrectionReview.call
+          LegacyHistoryCaseReview.call
         rescue StandardError => e
-          Rails.error.report(e, handled: true, severity: :warning, context: { operation: "manual_batch_correction_review" })
+          manual_review_error = e
+          Rails.logger.error("Manual batch correction review failed: #{e.class}: #{e.message}")
+          Rails.error.report(e, handled: true, severity: :error, context: { operation: "manual_batch_correction_review" })
         end
         reconciliation_scope.includes(:payroll_batch).find_each do |period|
           begin
@@ -31,6 +35,7 @@ module Payroll
             report_reconciliation_failure(period, e)
           end
         end
+        raise manual_review_error if manual_review_error
       end
 
       def finalize_period!(period:, batch:, actor:)
@@ -363,7 +368,7 @@ module Payroll
           source_snapshot: snapshot,
           actor: actor
         )
-        attestation = PayrollPaymentAttestation.blocking_at(period.snapshot_cutoff_at).find_by(time_entry_id: exclusion.source_time_entry_id)
+        attestation = PayrollPaymentAttestation.blocking_at(period.snapshot_cutoff_at).order(id: :desc).find_by(time_entry_id: exclusion.source_time_entry_id)
         if attestation&.status == "pending_evidence"
           supersede_attestation_case!(settlement_case, attestation, actor)
         elsif attestation&.status == "retracted"

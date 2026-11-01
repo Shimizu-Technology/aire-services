@@ -11,10 +11,15 @@ module Payroll
         .where.not(id: PayrollCalendarPeriod.where.not(payroll_batch_id: nil).select(:payroll_batch_id))
         .distinct.find_each do |batch|
           grouped = batch.payroll_batch_entries.group_by(&:source_time_entry_id)
-          entries = TimeEntry.where(id: grouped.keys).index_by(&:id)
+          entries = TimeEntry.where(id: grouped.keys).includes(:time_entry_breaks).index_by(&:id)
+          latest_snapshots = PayrollBatchEntry.effective.where(source_time_entry_id: grouped.keys)
+            .joins(:payroll_batch).select("DISTINCT ON (source_time_entry_id) payroll_batch_entries.*")
+            .order("source_time_entry_id, payroll_batches.cutoff_at DESC, payroll_batch_entries.id DESC")
+            .index_by(&:source_time_entry_id)
           grouped.each do |entry_id, rows|
             entry = entries[entry_id]
-            next if entry && entry.updated_at <= batch.cutoff_at
+            latest_snapshot = latest_snapshots[entry_id]&.snapshot || rows.first.snapshot
+            next if entry && !PayableContent.changed_from_snapshot?(entry, latest_snapshot)
 
             reason = entry ? "changed_after_cutoff" : "deleted_after_cutoff"
             version = entry&.lock_version || rows.map { |row| row.snapshot.fetch("version", 0).to_i }.max + 1

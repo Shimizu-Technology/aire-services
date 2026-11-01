@@ -25,8 +25,9 @@ module Payroll
         connection.execute("SET LOCAL lock_timeout = '5s'")
         connection.execute("SELECT pg_advisory_xact_lock(#{CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
         connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
-        connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions, payroll_manual_allocations, payroll_payment_attestations IN SHARE MODE")
+        connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions, payroll_manual_allocations, payroll_payment_attestations, payroll_settlement_cases, time_categories, user_time_categories IN SHARE MODE")
         @legacy_entries = nil
+        @actor&.reload
         validate_environment_state!
         plan_checksum = CanonicalPayload.checksum(@plan)
         receipt = AuditLog.find_by(action: ACTION)
@@ -40,39 +41,87 @@ module Payroll
         report = {
           plan_checksum: plan_checksum,
           hold_entry_ids: holds.map(&:id).sort,
+          owed_entry_ids: owed_entry_ids,
           periods: @plan.fetch("periods"),
-          entries: legacy_entries.map { |entry| [ entry.id, entry.attributes, entry.user.attributes, entry.time_entry_breaks.map(&:attributes) ] },
+          entries: legacy_entries.map { |entry| [ entry.id, entry.attributes, entry.user.attributes.slice("id", "first_name", "last_name", "email", "role", "payroll_integration_uuid", "is_active"), entry.time_entry_breaks.map(&:attributes) ] },
+          context_entries: TimeEntry.where(work_date: Date.new(2026, 10, 16)..Date.new(2026, 10, 21)).includes(:time_entry_breaks).order(:id)
+            .map { |entry| [ entry.attributes, entry.time_entry_breaks.map(&:attributes) ] },
           categories: TimeCategory.order(:id).map(&:attributes),
+          category_assignments: UserTimeCategory.order(:id).map(&:attributes),
+          actor: @actor.attributes.slice("id", "first_name", "last_name", "email", "role", "is_active"),
           allocations: PayrollManualAllocation.order(:id).map(&:attributes),
           attestations: PayrollPaymentAttestation.order(:id).map(&:attributes),
+          settlement_cases: PayrollSettlementCase.order(:id).map(&:attributes),
           batches: PayrollBatch.order(:id).map(&:attributes)
         }
         digest = CanonicalPayload.checksum(report)
-        return report.except(:entries, :categories, :allocations, :attestations, :batches).merge(status: "preview", preview_digest: digest) unless apply
+        unless apply
+          preview = report.except(:entries, :context_entries, :categories, :category_assignments, :actor, :allocations, :attestations, :settlement_cases, :batches)
+            .merge(status: "preview", preview_digest: digest, split_entry_ids: split_entries.map(&:id))
+          begin
+            PayrollBatch.transaction(requires_new: true) do
+              preview.merge!(execute!(holds, plan_checksum, digest).slice(:batch_checksums, :owed_entry_ids))
+              raise ActiveRecord::Rollback
+            end
+          rescue StandardError => e
+            preview.merge!(status: "preview_failed", error: "#{e.class}: #{e.message}")
+          end
+          return preview
+        end
         raise Error, "State changed or preview digest missing; preview and review again" unless expected_digest == digest
 
-        recorder = PaymentAttestationRecorder.new(actor: @actor)
-        holds.each do |entry|
-          recorder.attest!(entry: entry, source_user_uuid: entry.user.payroll_integration_uuid,
-            reason: "Release review: owner reports this historical period already paid; reconcile exact regular/adjustment paycheck evidence and any post-payment correction before further wages.")
-        end
-        batches = @plan.fetch("periods").map do |period|
-          BatchFinalizer.new(
-            start_date: period.fetch("start_date"), end_date: period.fetch("end_date"), actor: @actor,
-            manual_processing: true, cutoff_at: period.fetch("cutoff_at"), processed_at: period.fetch("processed_at"),
-            external_pay_period_id: period.fetch("external_pay_period_id"),
-            processing_note: "Release reconciliation of paid regular run ##{period.fetch('external_pay_period_id')}; #83/#85 adjustments and changed/older source hours held for exact evidence."
-          ).call
-        end
-        LegacyPaidHistoryGuard.check!
-        receipt = AuditLog.record!(action: ACTION, actor: @actor, auditable: PayrollLockRollout.installation, event_category: "payroll",
-          metadata: { plan_checksum: plan_checksum, preview_checksum: digest, hold_entry_ids: holds.map(&:id),
-            batches: batches.to_h { |batch| [ batch.public_id, batch.checksum ] } })
-        { status: "applied", receipt_id: receipt.id, batches: batches.map(&:public_id), held_count: holds.length }
+        execute!(holds, plan_checksum, digest)
       end
     end
 
     private
+
+    def execute!(holds, plan_checksum, digest)
+      recorder = PaymentAttestationRecorder.new(actor: @actor)
+      holds.each do |entry|
+        recorder.attest!(entry: entry, source_user_uuid: entry.user.payroll_integration_uuid,
+          reason: "Release review: owner reports this historical period already paid; reconcile exact regular/adjustment paycheck evidence and any post-payment correction before further wages.")
+      end
+      batches = @plan.fetch("periods").map do |period|
+        BatchFinalizer.new(
+          start_date: period.fetch("start_date"), end_date: period.fetch("end_date"), actor: @actor,
+          manual_processing: true, cutoff_at: period.fetch("cutoff_at"), processed_at: period.fetch("processed_at"),
+          external_pay_period_id: period.fetch("external_pay_period_id"),
+          excluded_source_entry_ids: owed_entry_ids,
+          manual_batch_reference: "AIRE-HISTORY-#{period.fetch('external_pay_period_id')}-#{plan_checksum.first(16)}",
+          acknowledge_missing_categories: @plan.fetch("acknowledge_missing_categories", false),
+          processing_note: "Release reconciliation of paid regular run ##{period.fetch('external_pay_period_id')}; #83/#85 adjustments and changed/older source hours held for exact evidence."
+        ).call
+      end
+      @plan.fetch("owed_entry_ids", []).each do |id|
+        LegacyHistoryCaseReview.capture!(TimeEntry.find(id), actor: @actor,
+          reason: "Release evidence confirms these source hours were not paid; explicitly route the owed correction to the first connected payroll or reconcile an exact manual allocation.")
+      end
+      uncovered = LegacyPaidHistoryGuard.uncovered_entries.where.not(id: owed_entry_ids)
+      raise Error, "Historical entries remain uncovered: #{uncovered.limit(20).pluck(:id).join(', ')}" if uncovered.exists?
+      checksums = batches.to_h { |batch| [ batch.public_id, batch.checksum ] }
+      receipt = AuditLog.record!(action: ACTION, actor: @actor, auditable: PayrollLockRollout.installation, event_category: "payroll",
+        metadata: { plan_checksum: plan_checksum, preview_checksum: digest, hold_entry_ids: holds.map(&:id),
+          owed_entry_ids: owed_entry_ids, batches: checksums })
+      { status: "applied", receipt_id: receipt.id, batches: batches.map(&:public_id), batch_checksums: checksums,
+        held_count: holds.length, owed_entry_ids: owed_entry_ids }
+    end
+
+    def owed_entry_ids
+      @plan.fetch("owed_entry_ids", [])
+    end
+
+    def split_entries
+      legacy_entries.select do |entry|
+        dates = PayableIntervals.segments(entry).map { |segment| segment[:work_date] }
+        # Include even represented Aug 15 overnight work in the preview. It is
+        # never pulled into the following manual range for a second payment.
+        PERIODS.any? do |start_date, end_date, _id|
+          range = Date.iso8601(start_date)..Date.iso8601(end_date)
+          dates.any? { |date| range.cover?(date) } && dates.any? { |date| !range.cover?(date) }
+        end
+      end
+    end
 
     def validate_environment_state!
       raise Error, "Keep connected payroll paused" if ConnectedPayrollMode.enabled?
@@ -88,12 +137,30 @@ module Payroll
         processed = Time.iso8601(period.fetch("processed_at"))
         raise Error, "Invalid reviewed payment timestamps" unless cutoff <= processed && processed <= Time.current
       end
+      unless owed_entry_ids.is_a?(Array) && owed_entry_ids.all? { |id| id.is_a?(Integer) && id.positive? } && owed_entry_ids.uniq == owed_entry_ids
+        raise Error, "owed_entry_ids must contain unique positive integer source IDs"
+      end
+      owed_entry_ids.each do |id|
+        source = legacy_entries.find { |entry| entry.id == id }
+        unless source && source.counts_toward_hours? && source.approval_status == "approved" &&
+            !PayrollBatchEntry.effective.exists?(source_time_entry_id: id) && !PayrollManualAllocation.active.exists?(time_entry_id: id) &&
+            !PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: id)
+          raise Error, "Owed entry #{id} must be approved, unrepresented and without payment holds or allocations"
+        end
+      end
+      unless [ true, false ].include?(@plan.fetch("acknowledge_missing_categories", false))
+        raise Error, "acknowledge_missing_categories must be a boolean"
+      end
+      if @plan["acknowledge_missing_categories"] && @plan["missing_category_note"].to_s.strip.length < 20
+        raise Error, "Explain the reviewed missing-category evidence before acknowledging it"
+      end
       adjustments = @plan.fetch("adjustment_entry_ids")
       notes = @plan.fetch("adjustment_notes")
       unless adjustments.keys.sort == %w[83 85] && adjustments.values.all? { |ids| ids.is_a?(Array) && ids.all? { |id| id.is_a?(Integer) && id.positive? } } &&
           %w[83 85].all? { |id| notes[id].to_s.strip.length >= 20 }
         raise Error, "Review exact AIRE source IDs and payment evidence for adjustments #83 and #85; document any adjustment with no source-hour coverage"
       end
+      raise Error, "Owed entries cannot also be adjustment-paid entries" if (adjustments.values.flatten & owed_entry_ids).any?
       adjustments.values.flatten.each do |id|
         entry = legacy_entries.find { |candidate| candidate.id == id }
         unless entry && entry.work_date.between?(Date.new(2026, 9, 1), Date.new(2026, 9, 15))
@@ -126,12 +193,14 @@ module Payroll
       allocated = PayrollManualAllocation.active.pluck(:time_entry_id).to_set
       reported = PayrollPaymentAttestation.pending_evidence.pluck(:time_entry_id).to_set
       adjustments = @plan.fetch("adjustment_entry_ids").values.flatten.to_set
+      splits = split_entries.map(&:id).to_set
       legacy_entries.select do |entry|
-        next false unless entry.counts_toward_hours?
+        next false unless entry.counts_toward_hours? && entry.approval_status == "approved"
+        next false if owed_entry_ids.include?(entry.id)
         next false if represented.include?(entry.id) || allocated.include?(entry.id) || reported.include?(entry.id)
 
         period = @plan.fetch("periods").find { |p| entry.work_date.between?(Date.iso8601(p.fetch("start_date")), Date.iso8601(p.fetch("end_date"))) }
-        period.nil? || adjustments.include?(entry.id) || entry.updated_at > Time.iso8601(period.fetch("cutoff_at"))
+        period.nil? || splits.include?(entry.id) || adjustments.include?(entry.id) || entry.updated_at > Time.iso8601(period.fetch("cutoff_at"))
       end
     end
 
@@ -140,10 +209,11 @@ module Payroll
       actual = PayrollBatch.where(public_id: expected.keys).pluck(:public_id, :checksum).to_h
       raise Error, "Recorded historical batches differ from the receipt" unless actual == expected && PayrollBatch.count == 5
       held_ids = receipt.metadata.fetch("hold_entry_ids")
-      unless PayrollPaymentAttestation.where(time_entry_id: held_ids).count == held_ids.length
+      unless PayrollPaymentAttestation.pending_evidence.where(time_entry_id: held_ids).distinct.count(:time_entry_id) == held_ids.length
         raise Error, "Recorded historical holds differ from the receipt"
       end
-      LegacyPaidHistoryGuard.check!
+      missing_cases = receipt.metadata.fetch("owed_entry_ids", []).reject { |id| PayrollSettlementCase.exists?(source_time_entry_id: id, origin_reason: "legacy_history_review") }
+      raise Error, "Recorded owed correction cases are missing" if missing_cases.any?
     end
   end
 end

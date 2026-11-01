@@ -17,7 +17,7 @@ module Payroll
     def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil,
                    manual_processing: false, cutoff_at: nil, processed_at: nil, external_pay_period_id: nil,
                    processing_note: nil, acknowledge_missing_categories: false, automated_cutoff: false,
-                   calendar_period: nil, manual_calendar_lock: false, calendar_authorization: nil, calendar_lock_reason: nil)
+                   calendar_period: nil, manual_calendar_lock: false, calendar_authorization: nil, calendar_lock_reason: nil, manual_batch_reference: nil, excluded_source_entry_ids: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @actor = actor
@@ -37,6 +37,8 @@ module Payroll
       @processed_at = parse_manual_time!(processed_at, "processed_at") if @manual_processing
       @external_pay_period_id = external_pay_period_id.to_s.strip
       @processing_note = processing_note.to_s.strip
+      @excluded_source_entry_ids = excluded_source_entry_ids if @manual_processing
+      @manual_batch_reference = manual_batch_reference if @manual_processing
       @acknowledge_missing_categories = ActiveModel::Type::Boolean.new.cast(acknowledge_missing_categories)
       raise ArgumentError, "end_date must be on or after start_date" if @end_date < @start_date
       if (@end_date - @start_date).to_i > BatchBuilder::MAX_RANGE_DAYS
@@ -65,7 +67,7 @@ module Payroll
         reference = build_reference(cutoff)
         reject_out_of_order_automated_batch!
         reject_overlapping_batch!
-        LegacyPaidHistoryGuard.check! unless manual_processing
+        LegacyPaidHistoryGuard.check! unless manual_processing || calendar_period
         reject_out_of_order_manual_processing! if manual_processing
         SettlementCaseCoordinator.prepare_for_period!(calendar_period) if calendar_period
         result = BatchBuilder.new(
@@ -74,7 +76,8 @@ module Payroll
           cutoff_at: cutoff,
           batch_reference: reference,
           calendar_period: calendar_period,
-          manual_processing: manual_processing
+          manual_processing: manual_processing,
+          excluded_source_entry_ids: @excluded_source_entry_ids
         ).call
         validate_result!(result)
         validate_manual_snapshot!(result) if manual_processing
@@ -360,7 +363,7 @@ module Payroll
     end
 
     def build_reference(cutoff)
-      "AIRE-PAY-#{cutoff.strftime('%Y%m%d')}-#{SecureRandom.hex(6).upcase}"
+      @manual_batch_reference || "AIRE-PAY-#{cutoff.strftime('%Y%m%d')}-#{SecureRandom.hex(6).upcase}"
     end
   end
 end

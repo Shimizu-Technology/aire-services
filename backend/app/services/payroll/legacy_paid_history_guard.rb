@@ -1,23 +1,28 @@
 # frozen_string_literal: true
 
 module Payroll
-  # An installation with pre-calendar manual payroll must reconcile its old
-  # source ledger before adopting scheduled payroll. A date-range preview is
-  # not evidence that those historical hours are still owed.
+  # Arbitrary ranges have no settlement destination. Calendar payroll instead
+  # quarantines individual legacy entries for explicit administrator routing.
   class LegacyPaidHistoryGuard
-    MESSAGE = "Historical manually paid hours need reconciliation. Use Record already processed for each paid period before enabling payroll; hold edited or older entries with Report already paid pending evidence, then reconcile their exact paycheck allocations."
+    MESSAGE = "Historical manually paid hours need reconciliation. Use Record already processed for each paid period before enabling payroll; review uncovered entries in the settlement workspace."
 
-    def self.uncovered_entries
+    def self.legacy_entries
       rollout = PayrollLockRollout.find_by(id: 1)
-      legacy = legacy_batches
-      return TimeEntry.none unless rollout && legacy.exists?
+      return TimeEntry.none unless rollout && legacy_batches.exists?
 
       TimeEntry.joins(:user).merge(User.staff)
-        .where("work_date < ?", rollout.cutoff_enforcement_starts_on)
-        .where.not(id: PayrollBatchEntry.effective.select(:source_time_entry_id))
-        .where.not(id: PayrollManualAllocation.active.select(:time_entry_id))
-        .where.not(id: PayrollPaymentAttestation.pending_evidence.select(:time_entry_id))
-        .includes(:user, :time_entry_breaks)
+        .where("time_entries.work_date < ?", rollout.cutoff_enforcement_starts_on)
+    end
+
+    def self.uncovered_entries
+      scope = legacy_entries.where(status: "completed", approval_status: "approved")
+      [ [ PayrollBatchEntry.effective, :source_time_entry_id ],
+        [ PayrollManualAllocation.active, :time_entry_id ],
+        [ PayrollPaymentAttestation.pending_evidence, :time_entry_id ] ].each do |covered, column|
+        correlated = covered.where(covered.arel_table[column].eq(TimeEntry.arel_table[:id]))
+        scope = scope.where(correlated.arel.exists.not)
+      end
+      scope
     end
 
     def self.legacy_batches
@@ -29,7 +34,7 @@ module Payroll
     def self.blocked?
       return true if !PayrollLockRollout.exists?(id: 1) && legacy_batches.exists?
 
-      uncovered_entries.unscope(:includes).find_each.any?(&:counts_toward_hours?)
+      uncovered_entries.exists?
     end
 
     def self.check!
