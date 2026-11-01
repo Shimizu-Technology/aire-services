@@ -87,7 +87,7 @@ module Payroll
           start_date: period.fetch("start_date"), end_date: period.fetch("end_date"), actor: @actor,
           manual_processing: true, cutoff_at: period.fetch("cutoff_at"), processed_at: period.fetch("processed_at"),
           external_pay_period_id: period.fetch("external_pay_period_id"),
-          excluded_source_entry_ids: owed_entry_ids,
+          excluded_source_entry_ids: owed_entry_ids + legacy_entries.reject { |entry| entry.approval_status == "approved" }.map(&:id),
           manual_batch_reference: "AIRE-HISTORY-#{period.fetch('external_pay_period_id')}-#{plan_checksum.first(16)}",
           acknowledge_missing_categories: @plan.fetch("acknowledge_missing_categories", false),
           processing_note: "Release reconciliation of paid regular run ##{period.fetch('external_pay_period_id')}; #83/#85 adjustments and changed/older source hours held for exact evidence."

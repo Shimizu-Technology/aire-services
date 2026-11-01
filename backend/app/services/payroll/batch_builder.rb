@@ -477,7 +477,7 @@ module Payroll
     def base_approved?(entry)
       return false unless entry.status == "completed"
 
-      entry.clock_entry? ? entry.approval_status.in?(@manual_processing ? [ "approved" ] : [ nil, "approved" ]) : entry.approval_status == "approved"
+      entry.clock_entry? ? entry.approval_status.in?([ nil, "approved" ]) : entry.approval_status == "approved"
     end
 
     def zero_hours
