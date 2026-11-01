@@ -74,10 +74,11 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
       expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
     end
     allow(Payroll::ManualBatchCorrectionReview).to receive(:call).and_raise("malformed legacy snapshot")
-    expect(Rails.error).to receive(:report).with(an_instance_of(RuntimeError), handled: true, severity: :warning,
+    expect(Rails.error).to receive(:report).with(an_instance_of(RuntimeError), handled: true, severity: :error,
       context: { operation: "manual_batch_correction_review" })
 
-    described_class.sync_finalized_periods!
+    expect(Rails.logger).to receive(:error).with(/malformed legacy snapshot/)
+    expect { described_class.sync_finalized_periods! }.to raise_error("malformed legacy snapshot")
 
     expect(origin.reload.payroll_settlement_reconciliation).to be_present
   end

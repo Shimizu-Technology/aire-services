@@ -32,6 +32,18 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     described_class.new(plan: plan, actor: admin)
   end
 
+  def workspace(period)
+    previous = ENV["PAYROLL_SHARED_SECRET"]
+    ENV["PAYROLL_SHARED_SECRET"] = "release-history-workspace-secret"
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management])
+    get "/api/v1/payroll/cockpit/settlement_cases", params: { external_pay_period_id: period.external_pay_period_id },
+      headers: { "X-Payroll-Shared-Secret" => ENV.fetch("PAYROLL_SHARED_SECRET"), "X-Aire-Delegation-Token" => grant.issued_token }
+    expect(response).to have_http_status(:ok), response.body
+    response.parsed_body.fetch("settlement_cases")
+  ensure
+    ENV["PAYROLL_SHARED_SECRET"] = previous
+  end
+
   def apply_history
     preview = runner.call
     runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))
@@ -219,6 +231,7 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     end
     expect(target.reload.payroll_batch.payroll_batch_entries.pluck(:source_time_entry_id)).to eq([ @current.id ])
     review = PayrollSettlementCase.active.find_by!(source_time_entry_id: pending.id)
+    expect(workspace(target).map { |item| item.fetch("id") }).to include(review.public_id)
     expect(review).to have_attributes(destination_kind: "unassigned", origin_reason: "legacy_history_review")
     expect(review.origin_payroll_batch.payroll_batch_processing_events.sole.external_pay_period_id).to eq("67")
     expect(review.payroll_settlement_case_events.sole.metadata).to include("requires_explicit_routing" => true)
@@ -256,6 +269,7 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     target = calendar
     Payroll::SettlementCaseCoordinator.prepare_for_period!(target)
     expect(review.reload.destination_kind).to eq("unassigned")
+    expect(workspace(target).map { |item| item.fetch("id") }).to include(review.public_id)
     Payroll::SettlementCaseRouter.new(settlement_case: review, destination_kind: "regular",
       target_external_pay_period_id: target.external_pay_period_id, action_due_on: "2026-11-15", assigned_to_id: nil,
       reason: "Entry was created after calculation and never paid; authorize exactly 4.25 hours", actor: admin).call
