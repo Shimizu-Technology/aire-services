@@ -48,7 +48,7 @@ module Payroll
       settlement_ids &= @source_entry_ids if @source_entry_ids
       if calendar_period
         # Even employee/week expansion may not bypass explicit legacy routing.
-        legacy_ids = LegacyPaidHistoryGuard.legacy_entries.where(id: settlement_ids.to_a).pluck(:id).to_set
+        legacy_ids = LegacyPaidHistoryGuard.legacy_entry_ids(settlement_ids.to_a).to_set
         targeted_ids = PayrollSettlementCase.active.where(target_payroll_calendar_period: calendar_period)
           .pluck(:source_time_entry_id).to_set
         settlement_ids -= legacy_ids - targeted_ids

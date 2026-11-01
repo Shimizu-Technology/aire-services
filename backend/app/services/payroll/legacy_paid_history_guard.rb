@@ -26,6 +26,20 @@ module Payroll
       scope
     end
 
+    def self.legacy_entry_ids(entry_ids)
+      rollout = PayrollLockRollout.find_by(id: 1)
+      return [] unless rollout && legacy_batches.exists?
+
+      live = legacy_entries.where(id: entry_ids).pluck(:id)
+      # Deleted/moved source rows still have immutable paid history. They need
+      # the same explicit-routing fence as a currently present legacy source.
+      represented = PayrollBatchEntry.effective.where(source_time_entry_id: entry_ids,
+        payroll_batch_id: legacy_batches.select(:id))
+        .where("payroll_batch_entries.work_date < ?", rollout.cutoff_enforcement_starts_on)
+        .pluck(:source_time_entry_id)
+      (live + represented).uniq
+    end
+
     def self.legacy_batches
       PayrollBatch.regular.joins(:payroll_batch_processing_events)
         .where(payroll_batch_processing_events: { status: "committed", external_system: "cornerstone_payroll_manual" })

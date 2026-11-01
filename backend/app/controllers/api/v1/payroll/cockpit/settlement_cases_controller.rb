@@ -24,9 +24,9 @@ module Api
             if params[:external_pay_period_id].present?
               period = PayrollCalendarPeriod.find_by!(external_pay_period_id: params[:external_pay_period_id])
               # Manual release history has no origin calendar. Its unassigned
-              # cases must still be visible in the connected settlement workspace.
+              # unresolved cases must still be visible in the connected settlement workspace.
               legacy_review = scope.where(origin_payroll_batch_id: ::Payroll::LegacyPaidHistoryGuard.legacy_batches.select(:id),
-                status: "open", destination_kind: "unassigned",
+                status: PayrollSettlementCase::ACTIVE_STATUSES, destination_kind: %w[unassigned supplemental],
                 origin_reason: %w[legacy_history_review changed_after_cutoff deleted_after_cutoff])
                 .where("original_work_date < ?", period.start_date)
               scope = scope.where(origin_payroll_batch_id: period.payroll_batch_id)

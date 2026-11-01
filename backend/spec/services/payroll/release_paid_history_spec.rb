@@ -275,6 +275,11 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     Payroll::SettlementCaseCoordinator.prepare_for_period!(target)
     expect(review.reload.destination_kind).to eq("unassigned")
     expect(workspace(target).map { |item| item.fetch("id") }).to include(review.public_id)
+    Payroll::SettlementCaseRouter.new(settlement_case: review, destination_kind: "supplemental",
+      target_external_pay_period_id: "unpaid-release-correction", action_due_on: "2026-11-15", assigned_to_id: nil,
+      reason: "Keep the unpaid obligation visible while accounting decides its destination", actor: admin).call
+    expect(review.reload).to have_attributes(status: "scheduled", destination_kind: "supplemental")
+    expect(workspace(target).map { |item| item.fetch("id") }).to include(review.public_id)
     Payroll::SettlementCaseRouter.new(settlement_case: review, destination_kind: "regular",
       target_external_pay_period_id: target.external_pay_period_id, action_due_on: "2026-11-15", assigned_to_id: nil,
       reason: "Entry was created after calculation and never paid; authorize exactly 4.25 hours", actor: admin).call
@@ -411,5 +416,26 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect(preview[:hold_entry_ids]).not_to include(owed.id)
     expect(runner.call(apply: true, expected_digest: preview[:preview_digest])[:batch_checksums]).to eq(preview[:batch_checksums])
     expect(PayrollPaymentAttestation.where(time_entry_id: inventory.where(approval_status: nil).select(:id))).to be_empty
+  end
+  it "quarantines a deleted legacy source pulled in by the current employee week until explicitly routed" do
+    old = entry("2026-10-15")
+    current = entry("2026-10-16")
+    apply_history
+    old_id = old.id
+    old.destroy!
+    target = calendar
+    Payroll::SettlementCaseCoordinator.sync_finalized_periods!
+    review = PayrollSettlementCase.active.find_by!(source_time_entry_id: old_id)
+    expect(review).to have_attributes(origin_reason: "deleted_after_cutoff", destination_kind: "unassigned")
+    result = Payroll::BatchBuilder.new(start_date: target.start_date, end_date: target.end_date,
+      cutoff_at: target.cutoff_at, calendar_period: target).call
+    expect(result[:rows].map { |row| row[:source_time_entry_id] }).to include(current.id)
+    expect(result[:rows].map { |row| row[:source_time_entry_id] }).not_to include(old_id)
+    Payroll::SettlementCaseRouter.new(settlement_case: review, destination_kind: "regular",
+      target_external_pay_period_id: target.external_pay_period_id, action_due_on: "2026-11-15", assigned_to_id: nil,
+      reason: "Accountant reviewed the paid baseline and explicitly authorized its reversal", actor: admin).call
+    result = Payroll::BatchBuilder.new(start_date: target.start_date, end_date: target.end_date,
+      cutoff_at: target.cutoff_at, calendar_period: target).call
+    expect(result[:rows].select { |row| row[:source_time_entry_id] == old_id }.sum { |row| row[:total_hours] }).to eq(-8)
   end
 end
