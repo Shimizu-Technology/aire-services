@@ -73,6 +73,5 @@ module Payroll
         .order(Arel.sql("source_time_entry_id, (source_version <= paid.version) DESC, CASE WHEN source_version <= paid.version THEN source_version END DESC, source_version ASC, id ASC"))
         .index_by(&:source_time_entry_id)
     end
-    private_class_method :legacy_revision_baselines
   end
 end

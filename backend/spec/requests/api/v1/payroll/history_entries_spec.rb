@@ -87,6 +87,49 @@ RSpec.describe "Payroll history coverage API", type: :request do
     expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
   end
 
+  it "exports exact immutable manual baseline provenance without asserting delivery" do
+    entry = entry_on("2026-09-01")
+    entry.update_columns(created_at: 1.day.ago, updated_at: 1.day.ago, approved_at: 1.day.ago)
+    batch = Payroll::BatchFinalizer.new(start_date: "2026-09-01", end_date: "2026-09-15", actor: admin,
+      manual_processing: true, cutoff_at: 1.minute.ago.iso8601, processed_at: Time.current.iso8601,
+      external_pay_period_id: "76", processing_note: "Reviewed synthetic manually processed historical source").call
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    body = response.parsed_body
+    expect(body).to include("history_evidence_version" => 1)
+    expect(body.dig("integration", "source_instance_id")).to eq(Payroll::IntegrationProfile.source_instance_id)
+    evidence = body.fetch("time_entries").sole.fetch("history_evidence")
+    line = evidence.fetch("baseline_lines").sole
+    expect(line).to include("batch_id" => batch.public_id, "batch_checksum" => batch.checksum,
+      "source_time_entry_id" => entry.id.to_s, "source_user_uuid" => employee.payroll_integration_uuid,
+      "current_content_matches" => true, "source_time_entry_version" => entry.lock_version)
+    expect(line.fetch("processing")).to include("status" => "committed", "external_system" => "cornerstone_payroll_manual", "external_pay_period_id" => "76")
+    expect(evidence.fetch("payable_content_checksum")).to match(/\A[0-9a-f]{64}\z/)
+    expect(evidence.fetch("active_manual_allocation_ids")).to eq([])
+    expect(evidence["payment_attestation"]).to be_nil
+    expect(PayrollEntryProcessingEvent.count).to eq(0)
+    expect(PayrollManualAllocation.count).to eq(0)
+    entry.update_column(:hours, 7)
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body.fetch("time_entries").sole.dig("history_evidence", "baseline_lines", 0, "current_content_matches")).to be(false)
+  end
+
+  it "does not treat a post-snapshot legacy observation as proof of original chronology" do
+    entry = entry_on("2026-09-01")
+    batch = create(:payroll_batch)
+    batch.payroll_batch_entries.create!(source_time_entry_id: entry.id, source_user_id: entry.user_id,
+      source_user_uuid: employee.payroll_integration_uuid, source_kind: "current", line_key: "legacy",
+      work_date: entry.work_date, week_start: entry.work_date.beginning_of_week(:sunday),
+      total_hours: entry.hours, regular_hours: entry.hours, overtime_hours: 0,
+      snapshot: { "user_id" => entry.user_id, "hours" => entry.hours.to_f })
+    batch.payroll_batch_processing_events.create!(event_id: "synthetic-legacy-manual", status: "committed",
+      external_system: "cornerstone_payroll_manual", external_pay_period_id: "76", occurred_at: batch.cutoff_at)
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    line = response.parsed_body.fetch("time_entries").sole.dig("history_evidence", "baseline_lines").sole
+    expect(line).to include("source_time_entry_version" => nil, "source_comparison" => "legacy_observation", "current_content_matches" => false)
+  end
+
   it "retains a legacy null-owner row with an explicit review requirement" do
     entry = entry_on("2026-09-15")
     # Model a legacy installation's nullable owner column inside this example's

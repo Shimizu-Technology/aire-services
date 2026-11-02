@@ -57,7 +57,7 @@ module Payroll
         .order(:id)
         .to_a
         .group_by(&:time_entry_id)
-      attestations_by_entry = PayrollPaymentAttestation.pending_evidence
+      attestations_by_entry = PayrollPaymentAttestation.pending_evidence.includes(:time_entry, :user)
         .where(time_entry_id: entry_ids)
         .index_by(&:time_entry_id)
       resolved_reports_by_entry = PayrollPaymentAttestation.where(status: "resolved").where(time_entry_id: entry_ids).index_by(&:time_entry_id)

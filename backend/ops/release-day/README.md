@@ -1,3 +1,13 @@
+# Stage 2 maintenance and historical coverage
+
+Stage 1 ships the certified pair paused, with no lock rollout configured, and accounting continues manual hour entry. Do not run the dated history/activation procedure below during Stage 1. Stage 2 is held for a separately reviewed pair and a later chosen period.
+
+The corrected Stage 2 order is: paused rollout/manual-history preparation → enable both fleets **unpublished** → pin installation/link authorized account/map identities → export/review/preview/apply the truthful Payroll history packet → fresh `aire_rollout:ensure_complete` with `history_coverage_verified: true` → publish the first connected calendar → explicitly route owed cases. Paused cockpit APIs cannot perform the remote history review. See Payroll `docs/integrations/aire-history-packet.md` for commands and typed disposition rules.
+
+The authenticated history endpoint now returns versioned `history_evidence`: current payable-content checksum; exact immutable batch/line/snapshot digests and manual processing events; current holds, allocations and routing cases. A manual baseline proves recorded processing, not physical check delivery. Pending/NULL approvals remain unchanged, including represented pending rows. Missing legacy content comparisons remain blocked. Neither export nor Payroll packet approval approves time, issues payment, creates an AIRE allocation or claims check handout.
+
+The October dates below describe the original plan. A later rollout sets `rollout_starts_on` in the plan and adds every contiguous complete manual period before it after the original four runs. Each added period requires a unique `external_pay_period_id`, real reviewed `cutoff_at`/`processed_at` and `manual_run_evidence` of at least 20 characters. The runner refuses gaps, duplicate run IDs or a plan ending before the selected boundary. Do not invent timestamps. For Nov 1–15, the adjacent Oct 16–31 regular manual run has Nov 15 payday and anchors Nov 22 at 17:00 Pacific/Guam.
+
 # Record the already-paid AIRE history before activation
 
 Release scope: AIRE `7590ae72` and Payroll `ec0e9c50`, plus the reviewed fixes in these PRs. Both apps stay paused throughout this procedure. Do this after deployment/migrations and lock-rollout configuration, **before any calendar publication or activation**, and before November 7, 2026 at 17:00 Pacific/Guam. Re-certify the final pair of release SHAs after merging.

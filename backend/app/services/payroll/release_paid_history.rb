@@ -48,7 +48,7 @@ module Payroll
           uncovered_pending_by_user: uncovered_pending_by_user,
           periods: @plan.fetch("periods"),
           entries: legacy_entries.map { |entry| [ entry.id, entry.attributes, entry.user.attributes.slice("id", "first_name", "last_name", "email", "role", "payroll_integration_uuid", "is_active"), entry.time_entry_breaks.map(&:attributes) ] },
-          context_entries: TimeEntry.where(work_date: Date.new(2026, 10, 16)..Date.new(2026, 10, 21)).includes(:time_entry_breaks).order(:id)
+          context_entries: TimeEntry.where(work_date: rollout_starts_on..(rollout_starts_on + 5.days)).includes(:time_entry_breaks).order(:id)
             .map { |entry| [ entry.attributes, entry.time_entry_breaks.map(&:attributes) ] },
           categories: TimeCategory.order(:id).map(&:attributes),
           category_assignments: UserTimeCategory.order(:id).map(&:attributes),
@@ -123,7 +123,8 @@ module Payroll
         dates = PayableIntervals.segments(entry).map { |segment| segment[:work_date] }
         # Include even represented Aug 15 overnight work in the preview. It is
         # never pulled into the following manual range for a second payment.
-        PERIODS.any? do |start_date, end_date, _id|
+        @plan.fetch("periods").any? do |period|
+          start_date, end_date = period.values_at("start_date", "end_date")
           range = Date.iso8601(start_date)..Date.iso8601(end_date)
           dates.any? { |date| range.cover?(date) } && dates.any? { |date| !range.cover?(date) }
         end
@@ -133,12 +134,28 @@ module Payroll
     def validate_environment_state!
       raise Error, "Keep connected payroll paused" if ConnectedPayrollMode.enabled?
       raise Error, "An active admin must record this reconciliation" unless @actor&.admin? && @actor.is_active?
-      unless PayrollLockRollout.installation.cutoff_enforcement_starts_on == Date.new(2026, 10, 16)
-        raise Error, "Expected the October 16 lock rollout"
+      unless PayrollLockRollout.installation.cutoff_enforcement_starts_on == rollout_starts_on
+        raise Error, "Expected the reviewed lock rollout boundary"
       end
       raise Error, "Calendar inventory changed; stop for reviewed recovery" if PayrollCalendarPeriod.exists?
       actual = @plan.fetch("periods").map { |p| p.values_at("start_date", "end_date", "external_pay_period_id") }
-      raise Error, "Expected paid regular runs 67, 76, 86, 94 in order" unless actual == PERIODS
+      unless actual.first(PERIODS.length) == PERIODS
+        raise Error, "Expected paid regular runs 67, 76, 86, 94 in order"
+      end
+      next_start = Date.new(2026, 10, 16)
+      @plan.fetch("periods").drop(PERIODS.length).each do |period|
+        from = Date.iso8601(period.fetch("start_date"))
+        to = from.day == 16 ? from.end_of_month : from.change(day: 15)
+        unless from == next_start && period.fetch("end_date") == to.iso8601 &&
+            period.fetch("external_pay_period_id").match?(/\A[1-9]\d*\z/) &&
+            period["manual_run_evidence"].to_s.strip.length >= 20
+          raise Error, "Additional manual periods require contiguous complete ranges and reviewed run evidence"
+        end
+        next_start = to + 1.day
+      end
+      unless next_start == rollout_starts_on && actual.map(&:last).uniq.length == actual.length
+        raise Error, "Manual history must end immediately before the reviewed rollout, without duplicate runs"
+      end
       @plan.fetch("periods").each do |period|
         cutoff = Time.iso8601(period.fetch("cutoff_at"))
         processed = Time.iso8601(period.fetch("processed_at"))
@@ -190,8 +207,12 @@ module Payroll
       end
     end
 
+    def rollout_starts_on
+      Date.iso8601(@plan.fetch("rollout_starts_on", "2026-10-16"))
+    end
+
     def legacy_entries
-      @legacy_entries ||= TimeEntry.joins(:user).merge(User.staff).where("work_date <= ?", Date.new(2026, 10, 15))
+      @legacy_entries ||= TimeEntry.joins(:user).merge(User.staff).where("work_date <= ?", rollout_starts_on - 1.day)
         .includes(:user, :time_entry_breaks).order(:id).to_a
     end
 
@@ -231,7 +252,7 @@ module Payroll
     def verify_receipt!(receipt)
       expected = receipt.metadata.fetch("batches")
       actual = PayrollBatch.where(public_id: expected.keys).pluck(:public_id, :checksum).to_h
-      raise Error, "Recorded historical batches differ from the receipt" unless actual == expected && PayrollBatch.count == 5
+      raise Error, "Recorded historical batches differ from the receipt" unless actual == expected && PayrollBatch.count == @plan.fetch("periods").length + 1
       held_ids = receipt.metadata.fetch("hold_entry_ids")
       unless PayrollPaymentAttestation.pending_evidence.where(time_entry_id: held_ids).distinct.count(:time_entry_id) == held_ids.length
         raise Error, "Recorded historical holds differ from the receipt"

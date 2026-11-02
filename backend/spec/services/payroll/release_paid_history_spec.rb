@@ -99,8 +99,28 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     @edited = entry("2026-09-04", updated_at: Time.iso8601("2026-10-10T00:00:00Z"))
     @adjustments = %w[2026-09-07 2026-09-10].map { |date| entry(date) }
     @current = entry("2026-10-20")
-    PayrollLockRollout.configure!(starts_on: "2026-10-16", actor: "Release operator", reason: "Approved October release boundary")
+    PayrollLockRollout.configure!(starts_on: example.metadata.fetch(:rollout_starts_on, "2026-10-16"), actor: "Release operator", reason: "Approved October release boundary")
     allow(ConnectedPayrollMode).to receive(:enabled?).and_return(false)
+  end
+
+  it "includes an intervening manually committed period before a later rollout", rollout_starts_on: "2026-11-01" do
+    plan["rollout_starts_on"] = "2026-11-01"
+    plan["periods"] << { "start_date" => "2026-10-16", "end_date" => "2026-10-31",
+      "external_pay_period_id" => "119", "cutoff_at" => "2026-11-01T01:00:00Z", "processed_at" => "2026-11-01T02:00:00Z",
+      "manual_run_evidence" => "Reviewed synthetic committed October 16–31 manual run, November 15 payday" }
+    preview = runner.call
+    expect(preview[:status]).to eq("preview"), preview.inspect
+    expect(preview.fetch(:batch_checksums).length).to eq(5)
+    result = runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))
+    expect(result[:status]).to eq("applied")
+    expect(PayrollBatchEntry.where(source_time_entry_id: @current.id).sum(:total_hours)).to eq(8)
+    expect(PayrollPaymentAttestation.where(time_entry_id: @current.id)).not_to exist
+    expect(runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))[:status]).to eq("already_applied")
+  end
+
+  it "rejects a later boundary without the intervening manual evidence", rollout_starts_on: "2026-11-01" do
+    plan["rollout_starts_on"] = "2026-11-01"
+    expect { runner.call }.to raise_error(described_class::Error, /end immediately before/)
   end
 
   it "previews without writes, records only the four ranges, holds old/edited/adjustment hours, and retries idempotently" do

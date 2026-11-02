@@ -15,15 +15,18 @@ module Api
             # Include source rows with a missing owner. An inner join or a
             # payable-only filter would hide exactly the legacy exceptions
             # this coverage review must account for.
-            scope = TimeEntry.where(work_date: ..through_date).includes(:user, :time_category).order(:id)
+            scope = TimeEntry.where(work_date: ..through_date).includes(:user, :time_category, :time_entry_breaks).order(:id)
             page = pagination_for(scope, maximum: 250)
             entries = page.fetch(:records).to_a
             lifecycles = ::Payroll::EntryLifecycleResolver.new(entries: entries).call
+            evidence = ::Payroll::HistoryEntryEvidence.new(entries: entries).call
 
             render json: {
               source_state: "current",
+              integration: ::Payroll::IntegrationProfile.call,
+              history_evidence_version: 1,
               through_work_date: through_date.iso8601,
-              time_entries: entries.map { |entry| serialize(entry, lifecycles.fetch(entry.id)) },
+              time_entries: entries.map { |entry| serialize(entry, lifecycles.fetch(entry.id), evidence.fetch(entry.id)) },
               pagination: page.fetch(:metadata)
             }
           rescue ArgumentError, ActionController::BadRequest => error
@@ -52,7 +55,7 @@ module Api
             end
           end
 
-          def serialize(entry, lifecycle)
+          def serialize(entry, lifecycle, evidence)
             uuid = entry.user&.payroll_integration_uuid
             review_reasons = []
             review_reasons << "source_owner_missing" unless entry.user
@@ -76,6 +79,7 @@ module Api
                 entry_method: entry.entry_method
               },
               lifecycle: lifecycle.slice(:status),
+              history_evidence: evidence,
               review_required: review_reasons.any?,
               review_reasons: review_reasons
             }
