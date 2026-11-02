@@ -3,9 +3,11 @@
 require "rails_helper"
 
 RSpec.describe Payroll::LegacyFrozenBatchEvidence do
+  let(:approved_at) { nil }
+  let(:overtime_approved_at) { nil }
   let(:entry) do
     create(:time_entry, status: "completed", entry_method: "manual", approval_status: "approved", work_date: "2026-09-01",
-      skip_overtime_recomputation: true, created_at: Time.utc(2026, 9, 1), updated_at: Time.utc(2026, 9, 2))
+      skip_overtime_recomputation: true, approved_at: approved_at, overtime_approved_at: overtime_approved_at, created_at: Time.utc(2026, 9, 1), updated_at: Time.utc(2026, 9, 2))
   end
   let(:batch) do
     payload = { "schema_version" => "2.0", "employees" => [] }
@@ -96,6 +98,30 @@ RSpec.describe Payroll::LegacyFrozenBatchEvidence do
       snapshot[field] = "2026-09-02T01:00:00Z"
       expect(evidence[:blockers]).to include("snapshot_mismatch")
     end
+  end
+
+  context "with fractional approval timestamps" do
+    let(:approved_at) { Time.iso8601("2026-09-02T01:00:00.123456Z") }
+    let(:overtime_approved_at) { Time.iso8601("2026-09-02T01:00:01.654321Z") }
+
+    it "compares genuinely serialized whole seconds with the unchanged fractional source" do
+      snapshot["approved_at"] = entry.approved_at.iso8601
+      snapshot["overtime_approved_at"] = entry.overtime_approved_at.iso8601
+      expect(evidence[:eligible]).to be(true)
+    end
+  end
+
+  it "retains unknown breaks in earlier observations without treating absence as an empty break list" do
+    row
+    observation = PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).first
+    allow(observation).to receive(:snapshot).and_return(observation.snapshot.except("breaks"))
+    entry.association(:time_entry_breaks).target = [ TimeEntryBreak.new(start_time: Time.utc(2026, 9, 1, 3),
+      end_time: Time.utc(2026, 9, 1, 3, 15), duration_minutes: 15,
+      created_at: Time.utc(2026, 9, 1), updated_at: Time.utc(2026, 9, 1)) ]
+    entry.association(:time_entry_breaks).loaded!
+    service = described_class.new(rows: [ row ])
+    service.instance_variable_set(:@revisions, { entry.id => [ observation ] })
+    expect(service.call(row: row, entry: entry)).to include(eligible: true, revision_missing_break_chronology_count: 1)
   end
 
   it "preserves fractional finalization for authenticated legacy reconciliation" do

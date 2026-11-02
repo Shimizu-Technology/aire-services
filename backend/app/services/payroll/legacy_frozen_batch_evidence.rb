@@ -50,7 +50,8 @@ module Payroll
         unretained_snapshot_fields: (TIME_FIELDS + %w[breaks effective_rate_cents_snapshot]) - snapshot.keys,
         source_observation_checksum: CanonicalPayload.checksum(observation(entry)),
         revision_observation_count: observations.length,
-        revision_observation_checksum: CanonicalPayload.checksum(observations.map { |revision| [ revision.id, revision.source_version, revision.recorded_at.iso8601(6), revision.deleted, revision.snapshot.dig("time_entry", "updated_at") ] }),
+        revision_missing_break_chronology_count: observations.count { |revision| !revision.snapshot.key?("breaks") },
+        revision_observation_checksum: CanonicalPayload.checksum(observations.map { |revision| [ revision.id, revision.source_version, revision.recorded_at.iso8601(6), revision.deleted, revision.snapshot ] }),
         later_edit_audit_count: edits.length, payload_checksum_verified: checksum_verified?(batch)
       )
     rescue ArgumentError, TypeError, KeyError
@@ -71,9 +72,9 @@ module Payroll
       SCALAR_FIELDS.all? do |key|
         !snapshot.key?(key) || scalar(key, snapshot[key]) == scalar(key, entry.public_send(key))
       end && TIME_FIELDS.all? do |key|
-        !snapshot.key?(key) || instant(key, snapshot[key]) == instant(key, entry.public_send(key))
+        !snapshot.key?(key) || same_retained_instant?(key, snapshot[key], entry.public_send(key))
       end && category_matches?(snapshot["time_category"], entry.time_category) &&
-        (!snapshot.key?("breaks") || normalized_breaks(snapshot["breaks"]) == normalized_breaks(entry.time_entry_breaks.map(&:attributes))) &&
+        (!snapshot.key?("breaks") || breaks_match?(snapshot["breaks"], entry.time_entry_breaks.map(&:attributes))) &&
         %w[regular_hours overtime_hours].all? { |key| !snapshot.key?(key) || BigDecimal(snapshot.fetch(key).to_s) == row.public_send(key) } &&
         rate_matches?(snapshot, entry)
     end
@@ -103,7 +104,8 @@ module Payroll
     def unchanged_observation?(revision, entry, finalized_at)
       state = revision.time_entry_state
       !revision.deleted && revision.source_version == entry.lock_version && state.updated_at && state.updated_at <= finalized_at &&
-        observation(state) == observation(entry) &&
+        observation(state).except("breaks") == observation(entry).except("breaks") &&
+        (!revision.snapshot.key?("breaks") || normalized_breaks(state.time_entry_breaks.map(&:attributes)) == normalized_breaks(entry.time_entry_breaks.map(&:attributes))) &&
         (state.user&.payroll_integration_uuid.blank? || state.user.payroll_integration_uuid == entry.user.payroll_integration_uuid)
     end
 
@@ -129,11 +131,31 @@ module Payroll
       value.to_s
     end
 
-    def instant(key, value)
+    def breaks_match?(frozen, current)
+      retained = Array(frozen).sort_by { |record| record.fetch("start_time") }
+      actual = Array(current).sort_by { |record| record.fetch("start_time") }
+      retained.length == actual.length && retained.zip(actual).all? do |before, now|
+        %w[start_time end_time].all? { |key| same_retained_instant?("break_#{key}", before[key], now[key]) } &&
+          before["duration_minutes"].to_s == now["duration_minutes"].to_s
+      end
+    end
+
+    # JSON/iso8601 snapshots retain only their written fractional precision.
+    # Full source/revision timestamps still enforce the no-later-edit fence.
+    def same_retained_instant?(key, frozen, current)
+      precision = frozen.is_a?(String) ? (frozen[/\.(\d+)/, 1]&.length || 0) : 6
+      instant(key, frozen, precision: precision) == instant(key, current, precision: precision)
+    end
+
+    def instant(key, value, precision: 6)
       return nil if value.blank?
 
       parsed = value.is_a?(Time) ? value : Time.parse(value.to_s)
-      key.in?(%w[start_time end_time]) ? parsed.utc.strftime("%H:%M:%S.%6N") : parsed.utc.iso8601(6)
+      if key.in?(%w[start_time end_time])
+        parsed.utc.strftime("%H:%M:%S") + (precision.positive? ? ".#{parsed.utc.strftime('%6N')[0, precision]}" : "")
+      else
+        parsed.utc.iso8601(precision)
+      end
     end
   end
 end
