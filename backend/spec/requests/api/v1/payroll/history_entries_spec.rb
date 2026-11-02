@@ -87,6 +87,41 @@ RSpec.describe "Payroll history coverage API", type: :request do
     expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
   end
 
+  it "reports deleted or out-of-scope frozen obligations instead of silently dropping their history" do
+    entry = entry_on("2026-09-01")
+    batch = create(:payroll_batch)
+    batch.payroll_batch_entries.create!(source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, source_kind: "current", line_key: "historical",
+      work_date: entry.work_date, week_start: entry.work_date.beginning_of_week(:sunday), total_hours: entry.hours,
+      regular_hours: entry.hours, overtime_hours: 0, snapshot: {})
+    entry.update!(work_date: Date.new(2026, 10, 1))
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
+    entry.destroy!
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
+  end
+
+  it "keeps moved held, allocated and owed obligations visible as blockers" do
+    held = entry_on("2026-09-02")
+    allocated = entry_on("2026-09-03")
+    owed = entry_on("2026-09-04")
+    Payroll::PaymentAttestationRecorder.new(actor: admin).attest!(entry: held,
+      source_user_uuid: employee.payroll_integration_uuid, reason: "Synthetic reported payment awaiting exact evidence")
+    Payroll::ManualAllocationRecorder.new(actor: admin).commit!(entry: allocated,
+      source_user_uuid: employee.payroll_integration_uuid, regular_hours: 8, overtime_hours: 0,
+      external_pay_period_id: "76", external_payroll_item_id: "91", pay_date: "2026-09-30",
+      reason: "Synthetic committed allocation retained for historical review")
+    create(:payroll_settlement_case, source_time_entry_id: owed.id, source_time_entry_version: owed.lock_version,
+      source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+      original_work_date: owed.work_date, origin_reason: "legacy_history_review", held_total_hours: owed.hours)
+    [held, allocated, owed].each { |entry| entry.update_columns(work_date: Date.new(2026, 10, 1)) }
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 3, "time_entries" => [])
+  end
+
   it "exports exact immutable manual baseline provenance without asserting delivery" do
     entry = entry_on("2026-09-01")
     entry.update_columns(created_at: 1.day.ago, updated_at: 1.day.ago, approved_at: 1.day.ago)

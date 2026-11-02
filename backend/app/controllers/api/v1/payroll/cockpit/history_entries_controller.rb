@@ -25,6 +25,7 @@ module Api
               source_state: "current",
               integration: ::Payroll::IntegrationProfile.call,
               history_evidence_version: 1,
+              unresolved_historical_obligation_count: unresolved_obligation_count(through_date),
               through_work_date: through_date.iso8601,
               time_entries: entries.map { |entry| serialize(entry, lifecycles.fetch(entry.id), evidence.fetch(entry.id)) },
               pagination: page.fetch(:metadata)
@@ -34,6 +35,21 @@ module Api
           end
 
           private
+
+          # A recaptured current-row packet must not silently drop a frozen
+          # historical obligation after deletion or movement to a later date.
+          def unresolved_obligation_count(through_date)
+            current_ids = TimeEntry.where(work_date: ..through_date).select(:id)
+            frozen_ids = PayrollBatchEntry.effective.where(work_date: ..through_date)
+              .where.not(source_time_entry_id: current_ids).distinct.pluck(:source_time_entry_id)
+            held_ids = PayrollPaymentAttestation.pending_evidence.where(work_date: ..through_date)
+              .where.not(time_entry_id: current_ids).distinct.pluck(:time_entry_id)
+            owed_ids = PayrollSettlementCase.active.where(original_work_date: ..through_date)
+              .where.not(source_time_entry_id: current_ids).distinct.pluck(:source_time_entry_id)
+            allocated_ids = PayrollManualAllocation.active.where(work_date: ..through_date)
+              .where.not(time_entry_id: current_ids).distinct.pluck(:time_entry_id)
+            (frozen_ids + held_ids + owed_ids + allocated_ids).uniq.length
+          end
 
           def parse_through_date!
             text = params[:through_work_date].to_s
