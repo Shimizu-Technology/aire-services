@@ -123,6 +123,22 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect { runner.call }.to raise_error(described_class::Error, /end immediately before/)
   end
 
+  it "blocks replay when an existing reported-payment hold source changes" do
+    preview = runner.call
+    runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))
+    @old.update_column(:lock_version, @old.reload.lock_version + 1)
+    expect { runner.call(apply: true, expected_digest: preview.fetch(:preview_digest)) }
+      .to raise_error(described_class::Error, /hold source changed/)
+  end
+
+  it "blocks replay when a new approved historical entry lacks a disposition" do
+    preview = runner.call
+    runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))
+    entry("2026-09-12")
+    expect { runner.call(apply: true, expected_digest: preview.fetch(:preview_digest)) }
+      .to raise_error(described_class::Error, /remain uncovered/)
+  end
+
   it "previews without writes, records only the four ranges, holds old/edited/adjustment hours, and retries idempotently" do
     expect { runner.call }.not_to change { [ PayrollBatch.count, AuditLog.count, PayrollPaymentAttestation.count ] }
     expect(runner.call.fetch(:hold_entry_ids)).to match_array([ @old.id, @edited.id, *@adjustments.map(&:id) ])

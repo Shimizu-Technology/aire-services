@@ -257,8 +257,24 @@ module Payroll
       unless PayrollPaymentAttestation.pending_evidence.where(time_entry_id: held_ids).distinct.count(:time_entry_id) == held_ids.length
         raise Error, "Recorded historical holds differ from the receipt"
       end
-      missing_cases = receipt.metadata.fetch("owed_entry_ids", []).reject { |id| PayrollSettlementCase.exists?(source_time_entry_id: id, origin_reason: "legacy_history_review") }
-      raise Error, "Recorded owed correction cases are missing" if missing_cases.any?
+      holds = PayrollPaymentAttestation.pending_evidence.where(time_entry_id: held_ids).includes(:time_entry, :user)
+      if holds.any? { |hold| hold.source_changed? || hold.work_date != hold.time_entry.work_date || hold.hours != hold.time_entry.hours }
+        raise Error, "Recorded historical hold source changed; review current evidence before replay"
+      end
+      owed_ids = receipt.metadata.fetch("owed_entry_ids", [])
+      missing_cases = owed_ids.reject do |id|
+        entry = TimeEntry.includes(:user).find_by(id: id)
+        entry && entry.approval_status == "approved" &&
+          !PayrollBatchEntry.effective.exists?(source_time_entry_id: id) &&
+          !PayrollManualAllocation.active.exists?(time_entry_id: id) &&
+          !PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: id) &&
+          PayrollSettlementCase.active.exists?(source_time_entry_id: id, source_time_entry_version: entry.lock_version,
+            source_user_uuid: entry.user&.payroll_integration_uuid, origin_reason: "legacy_history_review", held_total_hours: entry.hours)
+      end
+      raise Error, "Recorded owed correction cases changed or are missing" if missing_cases.any?
+      if LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").where.not(id: owed_ids).exists?
+        raise Error, "New historical approved entries remain uncovered; review before replay"
+      end
     end
   end
 end

@@ -47,8 +47,9 @@ module Payroll
         record.external_pay_period_id != event.external_pay_period_id || record.status != "committed"
       end
       original_version = row.snapshot["version"]
-      original_chronology = original_version.is_a?(Integer) && legacy && legacy.source_version <= original_version
+      original_chronology = original_version.is_a?(Integer) && legacy && legacy.source_version == original_version && legacy.recorded_at <= batch.cutoff_at
       known_content = row.snapshot["payable_content_checksum"].present? || original_chronology
+      legacy_uuid = entry.user&.payroll_integration_uuid if entry.user_id == row.source_user_id
 
       {
         batch_id: batch.public_id, batch_checksum: batch.checksum,
@@ -57,7 +58,7 @@ module Payroll
         snapshot_checksum: CanonicalPayload.checksum(row.snapshot),
         source_time_entry_id: row.source_time_entry_id.to_s,
         source_user_uuid: row.source_user_uuid || row.snapshot["user_uuid"] ||
-          (entry.user_id == row.source_user_id && entry.user&.payroll_integration_uuid),
+          legacy_uuid,
         source_user_id: row.source_user_id.to_s,
         identity_basis: (row.source_user_uuid || row.snapshot["user_uuid"]) ? "frozen_uuid" : "reviewed_legacy_owner",
         source_comparison: row.snapshot["payable_content_checksum"].present? ? "checksummed_content" : "legacy_observation",
