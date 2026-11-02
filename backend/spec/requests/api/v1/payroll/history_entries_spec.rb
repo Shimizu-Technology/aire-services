@@ -116,7 +116,7 @@ RSpec.describe "Payroll history coverage API", type: :request do
     create(:payroll_settlement_case, source_time_entry_id: owed.id, source_time_entry_version: owed.lock_version,
       source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
       original_work_date: owed.work_date, origin_reason: "legacy_history_review", held_total_hours: owed.hours)
-    [held, allocated, owed].each { |entry| entry.update_columns(work_date: Date.new(2026, 10, 1)) }
+    [ held, allocated, owed ].each { |entry| entry.update_columns(work_date: Date.new(2026, 10, 1)) }
     get path, params: { through_work_date: "2026-09-15" }, headers: headers
     expect(response).to have_http_status(:ok)
     expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 3, "time_entries" => [])
