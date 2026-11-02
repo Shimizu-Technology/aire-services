@@ -131,6 +131,30 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
       .to raise_error(described_class::Error, /hold source changed/)
   end
 
+  it "blocks replay when a represented source moves outside the historical boundary" do
+    apply_history
+    @paid.first.update_columns(work_date: Date.new(2026, 10, 20))
+    expect { runner.call }.to raise_error(described_class::Error, /Represented historical source changed, moved or is missing/)
+  end
+
+  it "blocks replay when a represented source is deleted" do
+    apply_history
+    @paid.first.destroy!
+    expect { runner.call }.to raise_error(described_class::Error, /Represented historical source changed, moved or is missing/)
+  end
+
+  it "blocks replay after a represented source shrinks even when no uncovered balance is left" do
+    apply_history
+    @paid.first.update_columns(hours: 7)
+    expect { runner.call }.to raise_error(described_class::Error, /Represented historical source changed, moved or is missing/)
+  end
+
+  it "permits timestamp-only touches of unchanged represented source content" do
+    apply_history
+    @paid.first.update_columns(updated_at: Time.current)
+    expect(runner.call).to include(status: "already_applied")
+  end
+
   it "blocks replay when a new approved historical entry lacks a disposition" do
     preview = runner.call
     runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))

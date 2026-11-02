@@ -249,10 +249,31 @@ module Payroll
       end
     end
 
+    def verify_represented_sources!
+      rows = PayrollBatchEntry.effective.includes(:payroll_batch).to_a
+      entries = TimeEntry.includes(:user, :time_category, :time_entry_breaks)
+        .where(id: rows.map(&:source_time_entry_id)).index_by(&:id)
+      legacy = LegacyFrozenBatchEvidence.new(rows: rows.reject { |row| row.snapshot["payable_content_checksum"].present? })
+      valid = rows.all? do |row|
+        entry = entries[row.source_time_entry_id]
+        next false unless entry && entry.work_date == row.work_date && entry.work_date < rollout_starts_on &&
+          entry.user_id == row.source_user_id &&
+          (row.source_user_uuid.blank? || row.source_user_uuid == entry.user&.payroll_integration_uuid)
+
+        if row.snapshot["payable_content_checksum"].present?
+          !PayableContent.changed_from_snapshot?(entry, row.snapshot)
+        else
+          legacy.call(row: row, entry: entry).fetch(:eligible)
+        end
+      end
+      raise Error, "Represented historical source changed, moved or is missing; review before replay" unless valid
+    end
+
     def verify_receipt!(receipt)
       expected = receipt.metadata.fetch("batches")
       actual = PayrollBatch.where(public_id: expected.keys).pluck(:public_id, :checksum).to_h
       raise Error, "Recorded historical batches differ from the receipt" unless actual == expected && PayrollBatch.count == @plan.fetch("periods").length + 1
+      verify_represented_sources!
       held_ids = receipt.metadata.fetch("hold_entry_ids")
       unless PayrollPaymentAttestation.pending_evidence.where(time_entry_id: held_ids).distinct.count(:time_entry_id) == held_ids.length
         raise Error, "Recorded historical holds differ from the receipt"
