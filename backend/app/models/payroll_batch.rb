@@ -54,6 +54,7 @@ class PayrollBatch < ApplicationRecord
         "readiness_status" => "finalized",
         "cutoff_at" => contract_cutoff_at,
         "finalized_at" => contract_finalized_at,
+        "finalized_at_precise" => finalized_at.iso8601(6),
         "integration" => Payroll::IntegrationProfile.call
       }
     )

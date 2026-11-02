@@ -13,6 +13,7 @@ module Payroll
       rows = PayrollBatchEntry.effective.where(source_time_entry_id: ids)
         .includes(payroll_batch: :payroll_batch_processing_events).order(:id).to_a
       rows_by_entry = rows.group_by(&:source_time_entry_id)
+      @legacy_frozen_evidence = LegacyFrozenBatchEvidence.new(rows: rows.reject { |row| row.snapshot["payable_content_checksum"].present? })
       legacy = ManualBatchCorrectionReview.legacy_revision_baselines(rows.index_by(&:source_time_entry_id))
       allocations = PayrollManualAllocation.where(time_entry_id: ids).where.not(status: "voided").group_by(&:time_entry_id)
       reports = PayrollPaymentAttestation.pending_evidence.includes(:time_entry, :user).where(time_entry_id: ids).index_by(&:time_entry_id)
@@ -56,6 +57,7 @@ module Payroll
         batch_start_date: batch.start_date.iso8601, batch_end_date: batch.end_date.iso8601,
         processing: processing, processing_conflict: conflict,
         snapshot_checksum: CanonicalPayload.checksum(row.snapshot),
+        legacy_frozen_evidence: row.snapshot["payable_content_checksum"].blank? ? @legacy_frozen_evidence.call(row: row, entry: entry) : nil,
         source_time_entry_id: row.source_time_entry_id.to_s,
         source_user_uuid: row.source_user_uuid || row.snapshot["user_uuid"] ||
           legacy_uuid,

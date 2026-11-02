@@ -149,6 +149,31 @@ RSpec.describe "Payroll history coverage API", type: :request do
     expect(response.parsed_body.fetch("time_entries").sole.dig("history_evidence", "baseline_lines", 0, "current_content_matches")).to be(false)
   end
 
+  it "exports separately typed unchanged legacy evidence without approving time or creating payments" do
+    entry = create(:time_entry, user: employee, work_date: "2026-09-01", status: "completed",
+      entry_method: "manual", approval_status: "pending", skip_overtime_recomputation: true,
+      created_at: Time.utc(2026, 9, 1), updated_at: Time.utc(2026, 9, 2))
+    payload = { "schema_version" => "2.0", "employees" => [] }
+    batch = create(:payroll_batch, payload: payload, checksum: Payroll::CanonicalPayload.checksum(payload))
+    snapshot = entry.attributes.slice(*Payroll::LegacyFrozenBatchEvidence::SCALAR_FIELDS)
+      .merge("time_category" => entry.time_category.attributes.slice("id", "key", "name"))
+    batch.payroll_batch_entries.create!(source_time_entry_id: entry.id, source_user_id: entry.user_id,
+      source_kind: "current", line_key: "legacy", work_date: entry.work_date,
+      week_start: entry.work_date.beginning_of_week(:sunday), total_hours: entry.hours,
+      regular_hours: entry.hours, overtime_hours: 0, snapshot: snapshot)
+    batch.payroll_batch_processing_events.create!(event_id: "synthetic-frozen-legacy", status: "committed",
+      external_system: "cornerstone_payroll_manual", external_pay_period_id: "76", occurred_at: batch.finalized_at)
+    expect do
+      get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    end.not_to change { [ PayrollEntryProcessingEvent.count, PayrollManualAllocation.count, entry.reload.approval_status ] }
+    expect(response).to have_http_status(:ok)
+    line = response.parsed_body.fetch("time_entries").sole.dig("history_evidence", "baseline_lines").sole
+    expect(line).to include("source_time_entry_version" => nil, "current_content_matches" => false,
+      "source_user_uuid" => employee.payroll_integration_uuid, "identity_basis" => "reviewed_legacy_owner")
+    expect(line.fetch("legacy_frozen_evidence")).to include("kind" => "legacy_frozen_batch_baseline", "eligible" => true,
+      "evidence_strength" => "retained_snapshot_and_unchanged_source", "blockers" => [])
+  end
+
   it "does not treat a post-snapshot legacy observation as proof of original chronology" do
     entry = entry_on("2026-09-01")
     batch = create(:payroll_batch)
