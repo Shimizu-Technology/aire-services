@@ -103,6 +103,24 @@ RSpec.describe "Payroll history coverage API", type: :request do
     expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
   end
 
+  it "retains a wholly unpaid frozen pending exclusion when its source moves or is deleted" do
+    entry = entry_on("2026-09-03")
+    batch = create(:payroll_batch)
+    batch.payroll_batch_exclusions.create!(source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, reason: "pending_overtime",
+      held_total_hours: 8, held_regular_hours: 0, held_overtime_hours: 8,
+      snapshot: { "work_date" => "2026-09-03" })
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body["unresolved_historical_obligation_count"]).to eq(0)
+    entry.update!(work_date: Date.new(2026, 10, 1))
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
+    entry.destroy!
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
+    expect(PayrollBatchEntry.where(source_time_entry_id: entry.id)).not_to exist
+  end
+
   it "keeps moved held, allocated and owed obligations visible as blockers" do
     held = entry_on("2026-09-02")
     allocated = entry_on("2026-09-03")

@@ -48,7 +48,11 @@ module Api
               .where.not(source_time_entry_id: current_ids).select(:source_time_entry_id)
             allocated_ids = PayrollManualAllocation.active.where(work_date: ..through_date)
               .where.not(time_entry_id: current_ids).select(:time_entry_id)
-            union = [ frozen_ids, held_ids, owed_ids, allocated_ids ].map { |scope| scope.arel.ast }
+            pending_ids = PayrollBatchExclusion.where(reason: PayrollBatchExclusion::CARRYOVER_REASONS)
+              .where("held_total_hours > 0")
+              .where("snapshot->>'work_date' IS NULL OR snapshot->>'work_date' <= ?", through_date.iso8601)
+              .where.not(source_time_entry_id: current_ids).select(:source_time_entry_id)
+            union = [ frozen_ids, held_ids, owed_ids, allocated_ids, pending_ids ].map { |scope| scope.arel.ast }
               .reduce { |left, right| Arel::Nodes::Union.new(left, right) }
             # A structured UNION keeps both deduplication and counting in SQL.
             table = Arel::Nodes::TableAlias.new(Arel::Nodes::Grouping.new(union), "historical_obligations")
