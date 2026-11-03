@@ -35,7 +35,7 @@ module Payroll
       audits = AuditLog.where(auditable_type: "Setting", auditable_id: settings.map(&:id)).order(:id).to_a
       @threshold_review_required = audits.any? || settings.any? do |row|
         expected = row.key == "overtime_daily_threshold_hours" ? 8.to_d : 40.to_d
-        row.updated_at.to_date <= @batch.start_date && BigDecimal(row.value, exception: false) != expected
+        row.updated_at.in_time_zone("Pacific/Guam").to_date <= @batch.end_date && BigDecimal(row.value, exception: false) != expected
       end
       threshold_evidence = {
         "basis" => "owner_reviewed_8_40_fallback_no_versioned_setting_history",
