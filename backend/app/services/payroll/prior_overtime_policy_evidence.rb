@@ -51,6 +51,7 @@ module Payroll
     def employee(owner)
       rows = @rows.select { |row| row.source_user_id == owner }
       represented = rows.select { |row| row.payroll_batch_id == @batch.id }
+      return { "source_user_id" => owner.to_s, "eligible" => false, "blockers" => [ "unsupported_period_context" ] } if represented.empty?
       blockers = []
       # Settings currently have no versioned history. Do not ignore a retained
       # audit if one is introduced or a historical nonstandard threshold exists.
@@ -88,7 +89,7 @@ module Payroll
       else
         {}
       end
-      lines = represented.group_by(&:source_time_entry_id).flat_map do |id, source_rows|
+      lines = (blockers.empty? ? represented : []).group_by(&:source_time_entry_id).flat_map do |id, source_rows|
         regular = BigDecimal(allocations.dig(id, :regular_hours).to_s.presence || "0")
         source_rows.sort_by { |row| [ row.work_date, row.id ] }.map do |row|
           line_regular = [ regular, row.total_hours ].min
