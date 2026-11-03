@@ -17,11 +17,11 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
       "adjustment_notes" => { "83" => "Reviewed exact source/check evidence for adjustment 83", "85" => "Reviewed exact source/check evidence for adjustment 85" } }
   end
 
-  def entry(date, updated_at: nil)
+  def entry(date, updated_at: nil, hours: 8)
     day = Date.iso8601(date)
     start = Time.find_zone!("Pacific/Guam").local(day.year, day.month, day.day, 8)
     source = create(:time_entry, user: employee, time_category: category, work_date: day,
-      start_time: start, end_time: start + 8.hours, status: "completed", entry_method: "clock", clock_source: "mobile",
+      start_time: start, end_time: start + hours.hours, hours: hours, status: "completed", entry_method: "clock", clock_source: "mobile",
       approval_status: "approved", approved_at: start + 9.hours, overtime_status: "none",
       created_at: start, updated_at: updated_at || start + 9.hours)
     source.update_columns(created_at: start, updated_at: updated_at || start + 9.hours)
@@ -140,19 +140,35 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     (26..29).each { |day| entry("2026-10-#{day}") }
     target = entry("2026-10-30")
     target.update_columns(hours: 10, end_time: target.end_time + 2.hours)
-    plan["pending_overtime_entry_ids"] = [ target.id ]
+    whole = entry("2026-10-31", hours: 0.9)
+    approval_fields = %w[approval_status overtime_status approved_at overtime_approved_at]
+    before_approval = [ target.reload, whole.reload ].map { |source| source.attributes.slice(*approval_fields) }
+    # This manual snapshot follows creation of both fixtures; PostgreSQL's
+    # revision clock remains genuine rather than backdating a later revision.
+    plan["periods"].last.merge!("cutoff_at" => Time.current.iso8601(6), "processed_at" => Time.current.iso8601(6))
+    plan["pending_overtime_entry_ids"] = [ target.id, whole.id ]
     plan["pending_overtime_note"] = "Preserve exact frozen unpaid overtime; no approval or payment claim"
     preview = runner.call
     expect(preview[:status]).to eq("preview"), preview.inspect
-    expect(preview[:pending_overtime_entry_ids]).to eq([ target.id ])
+    expect(preview[:pending_overtime_entry_ids]).to eq([ target.id, whole.id ])
     expect(runner.call(apply: true, expected_digest: preview[:preview_digest])[:status]).to eq("applied")
     expect(PayrollBatchEntry.where(source_time_entry_id: target.id).sum(:regular_hours)).to eq(8)
     expect(Payroll::LegacyPaidHistoryGuard.uncovered_entries.where(id: target.id)).to exist
     expect(PayrollPaymentAttestation.where(time_entry_id: target.id)).not_to exist
-    expect(target.reload.overtime_status).to eq("none")
+    expect([ target.reload, whole.reload ].map { |source| source.attributes.slice(*approval_fields) }).to eq(before_approval)
     expect(runner.call[:status]).to eq("already_applied")
+    allow(ConnectedPayrollMode).to receive(:enabled?).and_return(true)
+    2.times { Payroll::ScheduledCutoffFinalizer.call_due }
+    expect(PayrollSettlementCase.where(source_time_entry_id: [ target.id, whole.id ])).not_to exist
+    expect(Payroll::LegacyHistoryCaseReview.capture!(whole.reload, actor: admin)).to be_nil
+    expect(PayrollBatchExclusion.find_by!(source_time_entry_id: whole.id).held_overtime_hours).to eq(0.9)
+    expect(PayrollManualAllocation.where(time_entry_id: [ target.id, whole.id ])).not_to exist
+    expect([ target.reload, whole.reload ].map { |source| source.attributes.slice(*approval_fields) }).to eq(before_approval)
+    allow(ConnectedPayrollMode).to receive(:enabled?).and_return(false)
     target.update_columns(overtime_status: "approved")
     expect { runner.call }.to raise_error(described_class::Error, /[Pp]ending overtime|Represented historical source/)
+    expect { Payroll::LegacyHistoryCaseReview.capture!(target.reload, actor: admin) }
+      .to change { PayrollSettlementCase.where(source_time_entry_id: target.id).count }.by(1)
   end
 
   [ "2026-08-20", "2026-08-22" ].each do |date|
