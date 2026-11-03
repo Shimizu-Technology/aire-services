@@ -41,14 +41,17 @@ module Api
           def unresolved_obligation_count(through_date)
             current_ids = TimeEntry.where(work_date: ..through_date).select(:id)
             frozen_ids = PayrollBatchEntry.effective.where(work_date: ..through_date)
-              .where.not(source_time_entry_id: current_ids).distinct.pluck(:source_time_entry_id)
+              .where.not(source_time_entry_id: current_ids).select(:source_time_entry_id)
             held_ids = PayrollPaymentAttestation.pending_evidence.where(work_date: ..through_date)
-              .where.not(time_entry_id: current_ids).distinct.pluck(:time_entry_id)
+              .where.not(time_entry_id: current_ids).select(:time_entry_id)
             owed_ids = PayrollSettlementCase.active.where(original_work_date: ..through_date)
-              .where.not(source_time_entry_id: current_ids).distinct.pluck(:source_time_entry_id)
+              .where.not(source_time_entry_id: current_ids).select(:source_time_entry_id)
             allocated_ids = PayrollManualAllocation.active.where(work_date: ..through_date)
-              .where.not(time_entry_id: current_ids).distinct.pluck(:time_entry_id)
-            (frozen_ids + held_ids + owed_ids + allocated_ids).uniq.length
+              .where.not(time_entry_id: current_ids).select(:time_entry_id)
+            queries = [ frozen_ids, held_ids, owed_ids, allocated_ids ].map(&:to_sql)
+            # UNION removes duplicates across all obligation types without
+            # materializing an unbounded orphan inventory in the web process.
+            ActiveRecord::Base.connection.select_value("SELECT COUNT(*) FROM (#{queries.join(' UNION ')}) historical_obligations").to_i
           end
 
           def parse_through_date!
