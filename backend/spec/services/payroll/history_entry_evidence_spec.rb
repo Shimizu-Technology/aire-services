@@ -70,4 +70,56 @@ RSpec.describe Payroll::HistoryEntryEvidence do
     large = measure.call(records)
     expect(large).to be <= small + 1
   end
+
+  describe "payable segments" do
+    let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
+
+    def shift(date, from_hour, to_hour, hours:, break_from: nil, break_to: nil)
+      day = Date.iso8601(date)
+      start = guam.local(day.year, day.month, day.day, *from_hour)
+      finish = guam.local(day.year, day.month, day.day, *to_hour)
+      finish += 1.day if finish <= start
+      entry = create(:time_entry, work_date: day, status: "completed", entry_method: "clock", approval_status: "approved")
+      entry.update_columns(start_time: start, end_time: finish, hours: hours, break_minutes: 0)
+      if break_from
+        TimeEntryBreak.create!(time_entry: entry, start_time: start.change(hour: break_from), end_time: start.change(hour: break_from) + (break_to - break_from).hours)
+        entry.update_columns(break_minutes: (break_to - break_from) * 60)
+      end
+      TimeEntry.includes(:user, :time_entry_breaks).find(entry.id)
+    end
+
+    def segments(entry)
+      described_class.new(entries: [ entry ]).call.fetch(entry.id).fetch(:payable_segments)
+    end
+
+    it "exports a same-day entry as one segment at its nominal date" do
+      expect(segments(shift("2026-09-12", 9, 17, hours: 8))).to eq([ { work_date: "2026-09-12", total_hours: "8.0" } ])
+    end
+
+    it "splits a Saturday overnight shift at Sunday midnight Guam" do
+      entry = shift("2026-09-12", 22, 2, hours: 4)
+      expect(segments(entry)).to eq([ { work_date: "2026-09-12", total_hours: "2.0" }, { work_date: "2026-09-13", total_hours: "2.0" } ])
+      expect(entry.work_date).to eq(Date.new(2026, 9, 12))
+    end
+
+    it "dates a split shift's post-break segment on the next day and excludes the break" do
+      entry = shift("2026-09-15", 20, 3, hours: 6, break_from: 23, break_to: 24)
+      expect(segments(entry)).to eq([ { work_date: "2026-09-15", total_hours: "3.0" }, { work_date: "2026-09-16", total_hours: "3.0" } ])
+    end
+
+    it "uses the batch builder's cumulative rounding so segment totals equal the entry" do
+      entry = shift("2026-09-12", [ 21, 40 ], 1, hours: 3.33)
+      exported = segments(entry)
+      expect(exported).to eq([ { work_date: "2026-09-12", total_hours: "2.33" }, { work_date: "2026-09-13", total_hours: "1.0" } ])
+      allocated = Payroll::PayableIntervals.allocate([ entry ]).fetch(entry.id).fetch(:segments)
+      expect(exported.map { |row| BigDecimal(row[:total_hours]) }).to eq(allocated.map { |row| BigDecimal(row[:total_hours].to_s) })
+      expect(exported.sum { |row| BigDecimal(row[:total_hours]) }).to eq(entry.hours)
+    end
+
+    it "keeps a held overnight interval at its nominal date for review" do
+      entry = shift("2026-09-12", 22, 2, hours: 3.5)
+      entry.update_columns(break_minutes: 30)
+      expect(segments(TimeEntry.includes(:user, :time_entry_breaks).find(entry.id))).to eq([ { work_date: "2026-09-12", total_hours: "3.5" } ])
+    end
+  end
 end
