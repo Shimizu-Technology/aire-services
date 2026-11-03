@@ -88,7 +88,7 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
 
   it "refuses payload tampering and any retained threshold evidence requiring individual review" do
     batch, = freeze_entries
-    Setting.create!(key: "overtime_daily_threshold_hours", value: "6", created_at: "2026-04-01", updated_at: "2026-04-01")
+    Setting.create!(key: "overtime_daily_threshold_hours", value: "6", created_at: "2026-04-01", updated_at: "2026-08-20")
     expect(described_class.new(batch: batch).call["employees"].sole["blockers"]).to include("historical_threshold_audit_requires_review")
     allow(batch).to receive(:checksum).and_return("b" * 64)
     expect(described_class.new(batch: batch).call["employees"].sole["blockers"]).to include("immutable_payload_checksum_mismatch")
