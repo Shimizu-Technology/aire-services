@@ -48,6 +48,20 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(response).to have_http_status(:unauthorized)
   end
 
+  it "exports historical policy evidence authenticated against an actual immutable finalized payload without payment writes" do
+    batch = finalized_batch(hours: 10)
+    checksum = batch.checksum
+    expect do
+      get "/api/v1/payroll/batches/#{batch.public_id}", headers: { "X-Payroll-Shared-Secret" => secret }
+    end.not_to change { [ PayrollBatchProcessingEvent.count, PayrollManualAllocation.count, PayrollPaymentAttestation.count ] }
+    expect(response).to have_http_status(:ok)
+    proof = response.parsed_body.dig("export", "prior_overtime_policy")
+    expect(proof).to include("kind" => Payroll::PriorOvertimePolicyEvidence::KIND, "batch_checksum" => checksum)
+    expect(proof["employees"].sole).to include("eligible" => true, "blockers" => [])
+    expect(proof["employees"].sole["allocations"].sole).to include("regular_hours" => "8.0", "overtime_hours" => "2.0")
+    expect(Payroll::CanonicalPayload.checksum(batch.reload.payload)).to eq(checksum)
+  end
+
   it "discovers finalized batches by exact nominal dates" do
     batch = finalized_batch
 

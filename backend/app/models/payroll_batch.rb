@@ -55,6 +55,7 @@ class PayrollBatch < ApplicationRecord
         "cutoff_at" => contract_cutoff_at,
         "finalized_at" => contract_finalized_at,
         "finalized_at_precise" => finalized_at.iso8601(6),
+        "prior_overtime_policy" => Payroll::PriorOvertimePolicyEvidence.new(batch: self).call,
         "integration" => Payroll::IntegrationProfile.call
       }
     )
