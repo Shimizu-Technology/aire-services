@@ -13,6 +13,7 @@ module Payroll
       rows = PayrollBatchEntry.effective.where(source_time_entry_id: ids)
         .includes(payroll_batch: :payroll_batch_processing_events).order(:id).to_a
       rows_by_entry = rows.group_by(&:source_time_entry_id)
+      overtime_holds = HistoricalOvertimeHoldEvidence.new(entries: @entries, rows: rows)
       @legacy_frozen_evidence = LegacyFrozenBatchEvidence.new(rows: rows.reject { |row| row.snapshot["payable_content_checksum"].present? })
       legacy = ManualBatchCorrectionReview.legacy_revision_baselines(rows.index_by(&:source_time_entry_id))
       allocations = PayrollManualAllocation.where(time_entry_id: ids).where.not(status: "voided").group_by(&:time_entry_id)
@@ -21,6 +22,7 @@ module Payroll
       @entries.index_with do |entry|
         {
           payable_content_checksum: PayableContent.checksum(entry),
+          pending_overtime: overtime_holds.call(entry),
           baseline_lines: rows_by_entry.fetch(entry.id, []).map { |row| baseline_line(row, entry, legacy[entry.id]) },
           active_manual_allocation_ids: allocations.fetch(entry.id, []).map { |row| row.id.to_s }.sort,
           payment_attestation: reports[entry.id]&.then do |report|

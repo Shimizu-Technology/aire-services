@@ -118,6 +118,29 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect(runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))[:status]).to eq("already_applied")
   end
 
+  it "keeps an explicitly reviewed frozen overtime remainder unpaid through apply and replay", rollout_starts_on: "2026-11-01" do
+    plan["rollout_starts_on"] = "2026-11-01"
+    plan["periods"] << { "start_date" => "2026-10-16", "end_date" => "2026-10-31",
+      "external_pay_period_id" => "119", "cutoff_at" => "2026-11-02T01:00:00Z", "processed_at" => "2026-11-02T02:00:00Z",
+      "manual_run_evidence" => "Reviewed synthetic committed predecessor with frozen pending overtime" }
+    (26..29).each { |day| entry("2026-10-#{day}") }
+    target = entry("2026-10-30")
+    target.update_columns(hours: 10, end_time: target.end_time + 2.hours)
+    plan["pending_overtime_entry_ids"] = [ target.id ]
+    plan["pending_overtime_note"] = "Preserve exact frozen unpaid overtime; no approval or payment claim"
+    preview = runner.call
+    expect(preview[:status]).to eq("preview"), preview.inspect
+    expect(preview[:pending_overtime_entry_ids]).to eq([ target.id ])
+    expect(runner.call(apply: true, expected_digest: preview[:preview_digest])[:status]).to eq("applied")
+    expect(PayrollBatchEntry.where(source_time_entry_id: target.id).sum(:regular_hours)).to eq(8)
+    expect(Payroll::LegacyPaidHistoryGuard.uncovered_entries.where(id: target.id)).to exist
+    expect(PayrollPaymentAttestation.where(time_entry_id: target.id)).not_to exist
+    expect(target.reload.overtime_status).to eq("none")
+    expect(runner.call[:status]).to eq("already_applied")
+    target.update_columns(overtime_status: "approved")
+    expect { runner.call }.to raise_error(described_class::Error, /[Pp]ending overtime|Represented historical source/)
+  end
+
   it "rejects a later boundary without the intervening manual evidence", rollout_starts_on: "2026-11-01" do
     plan["rollout_starts_on"] = "2026-11-01"
     expect { runner.call }.to raise_error(described_class::Error, /end immediately before/)

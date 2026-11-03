@@ -45,6 +45,7 @@ module Payroll
           hold_entry_ids: holds.map(&:id).sort,
           partial_coverage_entry_ids: @partial_coverage_entry_ids.to_a.sort,
           owed_entry_ids: owed_entry_ids,
+          pending_overtime_entry_ids: pending_overtime_entry_ids,
           uncovered_pending_by_user: uncovered_pending_by_user,
           periods: @plan.fetch("periods"),
           entries: legacy_entries.map { |entry| [ entry.id, entry.attributes, entry.user.attributes.slice("id", "first_name", "last_name", "email", "role", "payroll_integration_uuid", "is_active"), entry.time_entry_breaks.map(&:attributes) ] },
@@ -104,18 +105,31 @@ module Payroll
         LegacyHistoryCaseReview.capture!(TimeEntry.find(id), actor: @actor,
           reason: "Release evidence confirms these source hours were not paid; explicitly route the owed correction to the first connected payroll or reconcile an exact manual allocation.")
       end
-      uncovered = LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").where.not(id: owed_entry_ids)
+      verify_pending_overtime!
+      uncovered = LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").where.not(id: owed_entry_ids + pending_overtime_entry_ids)
       raise Error, "Historical entries remain uncovered: #{uncovered.limit(20).pluck(:id).join(', ')}" if uncovered.exists?
       checksums = batches.to_h { |batch| [ batch.public_id, batch.checksum ] }
       receipt = AuditLog.record!(action: ACTION, actor: @actor, auditable: PayrollLockRollout.installation, event_category: "payroll",
         metadata: { plan_checksum: plan_checksum, preview_checksum: digest, hold_entry_ids: holds.map(&:id),
-          owed_entry_ids: owed_entry_ids, batches: checksums })
+          owed_entry_ids: owed_entry_ids, pending_overtime_entry_ids: pending_overtime_entry_ids, batches: checksums })
       { status: "applied", receipt_id: receipt.id, batches: batches.map(&:public_id), batch_checksums: checksums,
-        held_count: holds.length, owed_entry_ids: owed_entry_ids }
+        held_count: holds.length, owed_entry_ids: owed_entry_ids, pending_overtime_entry_ids: pending_overtime_entry_ids }
     end
 
     def owed_entry_ids
       @plan.fetch("owed_entry_ids", [])
+    end
+
+    def pending_overtime_entry_ids
+      @plan.fetch("pending_overtime_entry_ids", [])
+    end
+
+    def verify_pending_overtime!
+      entries = TimeEntry.where(id: pending_overtime_entry_ids).includes(:user, :time_entry_breaks).to_a
+      evidence = HistoricalOvertimeHoldEvidence.new(entries: entries)
+      unless entries.length == pending_overtime_entry_ids.length && entries.all? { |entry| evidence.call(entry) }
+        raise Error, "Reviewed pending overtime differs from the exact frozen unpaid remainder"
+      end
     end
 
     def split_entries
@@ -163,6 +177,20 @@ module Payroll
       end
       unless owed_entry_ids.is_a?(Array) && owed_entry_ids.all? { |id| id.is_a?(Integer) && id.positive? } && owed_entry_ids.uniq == owed_entry_ids
         raise Error, "owed_entry_ids must contain unique positive integer source IDs"
+      end
+      unless pending_overtime_entry_ids.is_a?(Array) && pending_overtime_entry_ids.all? { |id| id.is_a?(Integer) && id.positive? } &&
+          pending_overtime_entry_ids.uniq == pending_overtime_entry_ids && (pending_overtime_entry_ids & owed_entry_ids).empty?
+        raise Error, "Pending overtime IDs must be unique and separate from owed entries"
+      end
+      if pending_overtime_entry_ids.any? && @plan["pending_overtime_note"].to_s.strip.length < 20
+        raise Error, "Explain the reviewed frozen unpaid overtime remainder"
+      end
+      pending_overtime_entry_ids.each do |id|
+        entry = legacy_entries.find { |row| row.id == id }
+        unless entry && entry.approval_status == "approved" && entry.overtime_status.in?([ nil, "none", "pending" ]) &&
+            !PayrollManualAllocation.active.exists?(time_entry_id: id) && !PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: id)
+          raise Error, "Pending overtime requires an unchanged unpaid source awaiting overtime approval"
+        end
       end
       owed_entry_ids.each do |id|
         source = legacy_entries.find { |entry| entry.id == id }
@@ -241,7 +269,7 @@ module Payroll
       @partial_coverage_entry_ids = uncovered & (represented | allocated)
       legacy_entries.select do |entry|
         next false unless uncovered.include?(entry.id)
-        next false if owed_entry_ids.include?(entry.id)
+        next false if owed_entry_ids.include?(entry.id) || pending_overtime_entry_ids.include?(entry.id)
         next false if represented.include?(entry.id) || allocated.include?(entry.id) || reported.include?(entry.id)
 
         period = @plan.fetch("periods").find { |p| entry.work_date.between?(Date.iso8601(p.fetch("start_date")), Date.iso8601(p.fetch("end_date"))) }
@@ -293,7 +321,11 @@ module Payroll
             source_user_uuid: entry.user&.payroll_integration_uuid, origin_reason: "legacy_history_review", held_total_hours: entry.hours)
       end
       raise Error, "Recorded owed correction cases changed or are missing" if missing_cases.any?
-      if LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").where.not(id: owed_ids).exists?
+      unless receipt.metadata.fetch("pending_overtime_entry_ids", []) == pending_overtime_entry_ids
+        raise Error, "Recorded pending overtime review differs from the plan"
+      end
+      verify_pending_overtime!
+      if LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").where.not(id: owed_ids + pending_overtime_entry_ids).exists?
         raise Error, "New historical approved entries remain uncovered; review before replay"
       end
     end
