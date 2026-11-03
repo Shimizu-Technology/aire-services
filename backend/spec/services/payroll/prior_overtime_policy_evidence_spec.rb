@@ -69,6 +69,19 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
     expect(described_class.new(batch: batch).call["employees"].sole["inputs"].length).to eq(1)
   end
 
+  it "refuses a nonpayable save that advances the frozen source version" do
+    batch, entries = freeze_entries
+    entry = entries.sole
+    version = entry.lock_version
+    entry.update!(description: "Nonpayable review note")
+    expect(entry.lock_version).to be > version
+    expect(Payroll::PayableContent.changed_from_snapshot?(entry, batch.payroll_batch_entries.sole.snapshot)).to be(false)
+    proof = described_class.new(batch: batch).call["employees"].sole
+    expect(proof["eligible"]).to be(false)
+    expect(proof["inputs"].sole["version"]).to eq(version)
+    expect(proof["blockers"]).to include("frozen_source_changed_or_missing:#{entry.id}")
+  end
+
   it "does not export the prior policy for Oct16 or a later connected period" do
     batch, = freeze_entries(start_on: Date.new(2026, 10, 16), start_date: "2026-10-16", end_date: "2026-10-31")
     expect(described_class.new(batch: batch).call).to be_nil

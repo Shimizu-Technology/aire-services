@@ -72,14 +72,14 @@ module Payroll
         exact = entry && source_rows.all? do |row|
           row.source_user_id == entry.user_id && row.total_hours >= 0 &&
             (row.snapshot["payable_content_checksum"].present? ?
-              !PayableContent.changed_from_snapshot?(entry, row.snapshot) : @legacy.call(row: row, entry: entry)[:eligible])
+              row.snapshot["version"] == entry.lock_version && !PayableContent.changed_from_snapshot?(entry, row.snapshot) : @legacy.call(row: row, entry: entry)[:eligible])
         end
         blockers << "frozen_source_changed_or_missing:#{id}" unless exact
         blockers << "partial_or_conflicting_source:#{id}" unless source_rows.sum(&:total_hours) == BigDecimal(snapshot.fetch("hours").to_s) &&
           source_rows.map { |row| row.snapshot }.uniq.one? && source_rows.map(&:payroll_batch_id).uniq.one?
         # The original algorithm sorted on nominal date/time/creation/id, not
         # interval segments. Only unchanged source supplies unretained ordering.
-        { "source_time_entry_id" => id.to_s, "version" => entry&.lock_version,
+        { "source_time_entry_id" => id.to_s, "version" => snapshot["payable_content_checksum"].present? ? snapshot["version"] : entry&.lock_version,
           "source_user_id" => owner.to_s, "source_user_uuid" => entry&.user&.payroll_integration_uuid,
           "payable_content_checksum" => entry && PayableContent.checksum(entry),
           "work_date" => snapshot.fetch("work_date"), "hours" => BigDecimal(snapshot.fetch("hours").to_s).to_s("F"),
