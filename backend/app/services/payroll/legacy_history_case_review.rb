@@ -2,10 +2,14 @@
 
 module Payroll
   class LegacyHistoryCaseReview
+    REVIEW_BATCH_SIZE = 250
+
     def self.call
-      entries = LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").includes(:user, :time_entry_breaks).to_a
-      overtime_holds = HistoricalOvertimeHoldEvidence.new(entries: entries)
-      entries.each { |entry| capture!(entry, overtime_hold_evidence: overtime_holds) }
+      LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").includes(:user, :time_entry_breaks)
+        .find_in_batches(batch_size: REVIEW_BATCH_SIZE) do |entries|
+        overtime_holds = HistoricalOvertimeHoldEvidence.new(entries: entries)
+        entries.each { |entry| capture!(entry, overtime_hold_evidence: overtime_holds) }
+      end
     end
 
     def self.capture!(entry, actor: nil, reason: "Review uncovered pre-rollout hours against manual payment evidence", overtime_hold_evidence: nil)

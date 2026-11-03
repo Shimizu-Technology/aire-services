@@ -158,6 +158,7 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect([ target.reload, whole.reload ].map { |source| source.attributes.slice(*approval_fields) }).to eq(before_approval)
     expect(runner.call[:status]).to eq("already_applied")
     allow(ConnectedPayrollMode).to receive(:enabled?).and_return(true)
+    stub_const("Payroll::LegacyHistoryCaseReview::REVIEW_BATCH_SIZE", 1)
     2.times { Payroll::ScheduledCutoffFinalizer.call_due }
     expect(PayrollSettlementCase.where(source_time_entry_id: [ target.id, whole.id ])).not_to exist
     expect(Payroll::LegacyHistoryCaseReview.capture!(whole.reload, actor: admin)).to be_nil
