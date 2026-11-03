@@ -6,7 +6,7 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
   let(:user) { create(:user, :employee) }
   let(:category) { create(:time_category) }
 
-  def freeze_entries(hours: [ 10 ], start_on: Date.new(2026, 9, 1), legacy: false, **batch_attributes)
+  def freeze_entries(hours: [ 10 ], start_on: Date.new(2026, 8, 16), legacy: false, **batch_attributes)
     entries = hours.each_with_index.map do |value, index|
       date = start_on + index
       from = ActiveSupport::TimeZone["Pacific/Guam"].local(date.year, date.month, date.day, 8)
@@ -16,7 +16,8 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
         skip_overtime_recomputation: true, created_at: date.to_time, updated_at: date.to_time)
     end
     payload = { "schema_version" => "2.0", "employees" => [] }
-    batch = create(:payroll_batch, payload: payload, checksum: Payroll::CanonicalPayload.checksum(payload), **batch_attributes)
+    batch = create(:payroll_batch, payload: payload, checksum: Payroll::CanonicalPayload.checksum(payload),
+      **{ start_date: "2026-08-16", end_date: "2026-08-31" }.merge(batch_attributes))
     entries.each do |entry|
       snapshot = entry.attributes.slice(*Payroll::LegacyFrozenBatchEvidence::SCALAR_FIELDS)
         .merge("time_category" => category.attributes.slice("id", "key", "name"))
@@ -29,7 +30,7 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
   end
 
   it "exports preserved production daily8/weekly40 semantics and both splits without changing the frozen payload" do
-    batch, = freeze_entries(hours: [ 10, 10, 10, 10, 10 ], start_on: Date.new(2026, 9, 6))
+    batch, = freeze_entries(hours: [ 10, 10, 10, 10, 10 ])
     original = batch.payload.deep_dup
     proof = described_class.new(batch: batch).call
     expect(proof).to include("kind" => described_class::KIND, "policy" => described_class::POLICY)
@@ -45,13 +46,18 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
 
   it "uses frozen prior-period context for a week and resets on Guam Sunday" do
     freeze_entries(hours: [ 20, 20 ], start_on: Date.new(2026, 8, 30), start_date: "2026-08-16", end_date: "2026-08-31")
-    batch, = freeze_entries(hours: [ 5 ], start_on: Date.new(2026, 9, 1))
+    batch, = freeze_entries(hours: [ 5 ], start_on: Date.new(2026, 9, 1), start_date: "2026-09-01", end_date: "2026-09-15")
     expect(described_class.new(batch: batch).call["employees"].sole["allocations"].sole).to include("regular_hours" => "0.0", "overtime_hours" => "5.0")
   end
 
   it "supports unchanged older snapshots without inventing a frozen UUID or version" do
     batch, = freeze_entries(legacy: true)
     expect(described_class.new(batch: batch).call["employees"].sole["eligible"]).to be(true)
+  end
+
+  it "refuses reconstruction when the opening partial week has no frozen predecessor" do
+    batch, = freeze_entries(start_on: Date.new(2026, 8, 1), start_date: "2026-08-01", end_date: "2026-08-15")
+    expect(described_class.new(batch: batch).call["employees"].sole["blockers"]).to include("frozen_workweek_context_unavailable")
   end
 
   it "refuses changed frozen sources and keeps unfrozen owed sources outside its accounting scope" do

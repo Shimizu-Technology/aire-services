@@ -21,6 +21,11 @@ module Payroll
 
       @batch_checksum_verified = CanonicalPayload.checksum(@batch.payload) == @batch.checksum
       first = @batch.start_date.beginning_of_week(:sunday)
+      # The original algorithm consumed the whole Sunday workweek. The first
+      # retained batch cannot reconstruct a preceding, unfrozen partial week.
+      @context_available = first == @batch.start_date || PayrollBatch.regular
+        .where("start_date <= ? AND end_date >= ?", first, @batch.start_date - 1.day)
+        .any? { |batch| CanonicalPayload.checksum(batch.payload) == batch.checksum }
       owners = @batch.payroll_batch_entries.distinct.pluck(:source_user_id)
       @rows = PayrollBatchEntry.effective.where(source_user_id: owners, work_date: first..@batch.end_date)
         .includes(:payroll_batch).order(:id).to_a
@@ -53,6 +58,7 @@ module Payroll
       represented = rows.select { |row| row.payroll_batch_id == @batch.id }
       return { "source_user_id" => owner.to_s, "eligible" => false, "blockers" => [ "unsupported_period_context" ] } if represented.empty?
       blockers = []
+      blockers << "frozen_workweek_context_unavailable" unless @context_available
       # Settings currently have no versioned history. Do not ignore a retained
       # audit if one is introduced or a historical nonstandard threshold exists.
       blockers << "historical_threshold_audit_requires_review" if @threshold_review_required
