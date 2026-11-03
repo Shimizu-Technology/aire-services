@@ -9,9 +9,10 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
   def freeze_entries(hours: [ 10 ], start_on: Date.new(2026, 9, 1), legacy: false, **batch_attributes)
     entries = hours.each_with_index.map do |value, index|
       date = start_on + index
+      from = ActiveSupport::TimeZone["Pacific/Guam"].local(date.year, date.month, date.day, 8)
       create(:time_entry, user: user, time_category: category, work_date: date, hours: value,
-        start_time: Time.zone.local(date.year, date.month, date.day, 8), end_time: Time.zone.local(date.year, date.month, date.day, 8) + value.hours,
-        entry_method: "manual", status: "completed", approval_status: "approved",
+        start_time: from, end_time: from + value.hours, clock_in_at: from, clock_out_at: from + value.hours,
+        entry_method: "clock", clock_source: "legacy", status: "completed", approval_status: "approved",
         skip_overtime_recomputation: true, created_at: date.to_time, updated_at: date.to_time)
     end
     payload = { "schema_version" => "2.0", "employees" => [] }
