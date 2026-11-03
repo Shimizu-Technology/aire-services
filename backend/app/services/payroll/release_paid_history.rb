@@ -213,6 +213,7 @@ module Payroll
         raise Error, "Review exact AIRE source IDs and payment evidence for adjustments #83 and #85; document any adjustment with no source-hour coverage"
       end
       raise Error, "Owed entries cannot also be adjustment-paid entries" if (adjustments.values.flatten & owed_entry_ids).any?
+      raise Error, "Pending overtime entries cannot also be adjustment-paid entries" if (adjustments.values.flatten & pending_overtime_entry_ids).any?
       adjustments.values.flatten.each do |id|
         entry = legacy_entries.find { |candidate| candidate.id == id }
         unless entry && entry.work_date.between?(Date.new(2026, 9, 1), Date.new(2026, 9, 15))
@@ -267,6 +268,11 @@ module Payroll
       splits = split_entries.map(&:id).to_set
       uncovered = LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").pluck(:id).to_set
       @partial_coverage_entry_ids = uncovered & (represented | allocated)
+      pending_partials = legacy_entries.select { |entry| pending_overtime_entry_ids.include?(entry.id) && @partial_coverage_entry_ids.include?(entry.id) }
+      evidence = HistoricalOvertimeHoldEvidence.new(entries: pending_partials)
+      # A selected ID alone cannot excuse an unexplained partial payment.
+      # Exempt only a complete unchanged frozen REG + pending-OT accounting.
+      @partial_coverage_entry_ids.subtract(pending_partials.filter_map { |entry| entry.id if evidence.call(entry) })
       legacy_entries.select do |entry|
         next false unless uncovered.include?(entry.id)
         next false if owed_entry_ids.include?(entry.id) || pending_overtime_entry_ids.include?(entry.id)
@@ -282,9 +288,10 @@ module Payroll
       entries = TimeEntry.includes(:user, :time_category, :time_entry_breaks)
         .where(id: rows.map(&:source_time_entry_id)).index_by(&:id)
       legacy = LegacyFrozenBatchEvidence.new(rows: rows.reject { |row| row.snapshot["payable_content_checksum"].present? })
+      segment_dates = entries.transform_values { |entry| PayableIntervals.segments(entry).map { |segment| segment.fetch(:work_date) }.to_set }
       valid = rows.all? do |row|
         entry = entries[row.source_time_entry_id]
-        next false unless entry && entry.work_date == row.work_date && entry.work_date < rollout_starts_on &&
+        next false unless entry && segment_dates.fetch(entry.id).include?(row.work_date) && row.work_date < rollout_starts_on &&
           entry.user_id == row.source_user_id &&
           (row.source_user_uuid.blank? || row.source_user_uuid == entry.user&.payroll_integration_uuid)
 

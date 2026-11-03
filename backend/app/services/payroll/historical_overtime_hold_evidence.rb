@@ -19,12 +19,13 @@ module Payroll
       exclusions = @exclusions.fetch(entry.id, [])
       return nil unless exclusions.one?
 
+      segment_dates = PayableIntervals.segments(entry).map { |segment| segment.fetch(:work_date) }
       hold = exclusions.sole
       batch = hold.payroll_batch
       return nil unless @batch_checksums.fetch(batch.id) { @batch_checksums[batch.id] = CanonicalPayload.checksum(batch.payload) == batch.checksum } &&
         rows.all? { |row| row.payroll_batch_id == batch.id && row.overtime_hours.zero? && row.regular_hours.positive? &&
           row.source_user_id == entry.user_id && row.source_user_uuid == entry.user.payroll_integration_uuid &&
-          row.work_date == entry.work_date && !PayableContent.changed_from_snapshot?(entry, row.snapshot) }
+          segment_dates.include?(row.work_date) && !PayableContent.changed_from_snapshot?(entry, row.snapshot) }
       return nil unless hold.reason == "pending_overtime" && hold.held_regular_hours.zero? && hold.held_overtime_hours.positive? &&
         hold.held_overtime_hours == hold.held_total_hours && hold.source_user_id == entry.user_id &&
         hold.source_user_uuid == entry.user.payroll_integration_uuid && hold.snapshot["work_date"] == entry.work_date.iso8601 &&
@@ -42,7 +43,7 @@ module Payroll
           row = rows.find { |record| record.line_key == line["line_key"] }
           row && owner["source_user_id"] == entry.user_id.to_s && owner["source_user_uuid"] == entry.user.payroll_integration_uuid &&
             line["source_time_entry_version"] == row.snapshot["version"] && line["source_kind"] == row.source_kind &&
-            line["original_work_date"] == entry.work_date.iso8601 && line["category"] == row.snapshot["time_category"] &&
+            line["original_work_date"] == row.work_date.iso8601 && line["category"] == row.snapshot["time_category"] &&
             %w[total_hours regular_hours overtime_hours].all? { |key| BigDecimal(line.fetch(key).to_s) == row.public_send(key) }
         end
 

@@ -67,6 +67,20 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
   before do |example|
     stub_const("#{described_class}::ANCHOR_ENTRY_COUNT", 1) unless example.metadata[:production_anchor]
     @anchor_entry = entry("2026-08-10")
+    if example.metadata[:anchor_pending_overnight]
+      travel_to(Time.iso8601("2026-08-30T00:00:00Z")) do
+      (2..6).each do |day|
+        previous = entry("2026-08-#{day.to_s.rjust(2, '0')}")
+        previous.update_columns(hours: 7.8, end_time: previous.start_time + 7.8.hours)
+      end
+      @anchor_pending = entry("2026-08-08")
+      start = Time.find_zone!("Pacific/Guam").local(2026, 8, 8, 22)
+      @anchor_pending.update_columns(start_time: start, end_time: start + 6.hours, hours: 6,
+        approved_at: start + 7.hours, updated_at: start + 7.hours)
+      @anchor_pending.reload
+      stub_const("#{described_class}::ANCHOR_ENTRY_COUNT", 8)
+      end
+    end
     if example.metadata[:legacy_break_baseline]
       @legacy_break = TimeEntryBreak.create!(time_entry: @anchor_entry,
         start_time: @anchor_entry.start_time + 2.hours, end_time: @anchor_entry.start_time + 3.hours)
@@ -91,7 +105,7 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     anchor.payroll_batch_processing_events.create!(event_id: "original-integrated", status: "committed",
       occurred_at: anchor.cutoff_at, external_system: "cornerstone_payroll", external_pay_period_id: "61")
     anchor.payroll_batch_entries.each do |row|
-      anchor.payroll_entry_processing_events.create!(event_id: "original-entry-#{row.source_time_entry_id}", status: "committed", occurred_at: anchor.cutoff_at,
+      anchor.payroll_entry_processing_events.create!(event_id: "original-entry-#{row.id}", status: "committed", occurred_at: anchor.cutoff_at,
         external_system: "cornerstone_payroll", external_pay_period_id: "61", source_time_entry_id: row.source_time_entry_id)
     end
     @old = entry("2026-07-10", updated_at: Time.iso8601("2026-09-05T00:00:00Z"))
@@ -139,6 +153,64 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect(runner.call[:status]).to eq("already_applied")
     target.update_columns(overtime_status: "approved")
     expect { runner.call }.to raise_error(described_class::Error, /[Pp]ending overtime|Represented historical source/)
+  end
+
+  [ "2026-08-20", "2026-08-22" ].each do |date|
+    it "replays an unchanged overnight source at its payable segment dates for #{date}" do
+      overnight = entry(date)
+      day = Date.iso8601(date)
+      start = Time.find_zone!("Pacific/Guam").local(day.year, day.month, day.day, 22)
+      overnight.update_columns(start_time: start, end_time: start + 8.hours, hours: 8,
+        approved_at: start + 9.hours, updated_at: start + 9.hours)
+      original = overnight.reload.attributes.slice("work_date", "approval_status", "overtime_status", "hours")
+      preview = runner.call
+      expect(preview[:status]).to eq("preview"), preview.inspect
+      runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))
+      rows = PayrollBatchEntry.where(source_time_entry_id: overnight.id)
+      expect(rows.order(:work_date).pluck(:work_date, :total_hours)).to eq([ [ day, 2.to_d ], [ day + 1, 6.to_d ] ])
+      before = [ PayrollBatch.count, PayrollBatchEntry.count, PayrollManualAllocation.count, PayrollPaymentAttestation.count ]
+      expect(runner.call).to include(status: "already_applied")
+      expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollManualAllocation.count, PayrollPaymentAttestation.count ]).to eq(before)
+      expect(overnight.reload.attributes.slice(*original.keys)).to eq(original)
+      overnight.update_columns(work_date: day + 1)
+      expect { runner.call }.to raise_error(described_class::Error, /Represented historical source/)
+    end
+  end
+
+  it "exempts only a verified frozen Sunday-split pending-OT remainder from partial coverage", :anchor_pending_overnight do
+    plan["pending_overtime_entry_ids"] = [ @anchor_pending.id ]
+    plan["pending_overtime_note"] = "Reviewed one frozen Saturday/Sunday REG split and its exact unpaid overtime remainder"
+    rows = PayrollBatchEntry.where(source_time_entry_id: @anchor_pending.id)
+    expect(rows.order(:work_date).pluck(:work_date, :regular_hours)).to eq([ [ Date.new(2026, 8, 8), 1.to_d ], [ Date.new(2026, 8, 9), 4.to_d ] ])
+    expect(PayrollBatchExclusion.find_by!(source_time_entry_id: @anchor_pending.id).held_overtime_hours).to eq(1)
+    approval = @anchor_pending.attributes.slice("approval_status", "overtime_status", "hours")
+    preview = runner.call
+    expect(preview[:status]).to eq("preview"), preview.inspect
+    expect(preview[:partial_coverage_entry_ids]).to eq([])
+    runner.call(apply: true, expected_digest: preview.fetch(:preview_digest))
+    expect(runner.call).to include(status: "already_applied")
+    expect(Payroll::LegacyPaidHistoryGuard.uncovered_entries.where(id: @anchor_pending.id)).to exist
+    expect(PayrollPaymentAttestation.where(time_entry_id: @anchor_pending.id)).not_to exist
+    expect(PayrollManualAllocation.where(time_entry_id: @anchor_pending.id)).not_to exist
+    expect(@anchor_pending.reload.attributes.slice(*approval.keys)).to eq(approval)
+  end
+
+  it "blocks an unreviewed or changed Sunday-split partial source", :anchor_pending_overnight do
+    expect(runner.call).to include(status: "preview_failed", error: a_string_matching(/Partial historical coverage/))
+    plan["pending_overtime_entry_ids"] = [ @anchor_pending.id ]
+    plan["pending_overtime_note"] = "Review cannot override changed frozen payable content or remaining hours"
+    @anchor_pending.update_columns(hours: 6.1)
+    expect(runner.call).to include(status: "preview_failed", error: a_string_matching(/Partial historical coverage/))
+    expect(PayrollBatch.count).to eq(1)
+    expect(PayrollPaymentAttestation.count).to eq(0)
+  end
+
+  it "rejects a source claimed both adjustment-paid and pending overtime before any write" do
+    plan["pending_overtime_entry_ids"] = [ @adjustments.first.id ]
+    plan["pending_overtime_note"] = "Contradictory review must never suppress an adjustment-paid claim"
+    before = [ PayrollBatch.count, PayrollPaymentAttestation.count, PayrollManualAllocation.count, AuditLog.count ]
+    expect { runner.call }.to raise_error(described_class::Error, /Pending overtime entries cannot also be adjustment-paid/)
+    expect([ PayrollBatch.count, PayrollPaymentAttestation.count, PayrollManualAllocation.count, AuditLog.count ]).to eq(before)
   end
 
   it "rejects a later boundary without the intervening manual evidence", rollout_starts_on: "2026-11-01" do

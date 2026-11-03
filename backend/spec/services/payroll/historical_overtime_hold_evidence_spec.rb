@@ -3,6 +3,7 @@
 require "rails_helper"
 
 RSpec.describe Payroll::HistoricalOvertimeHoldEvidence do
+  include ActiveSupport::Testing::TimeHelpers
   let(:admin) { create(:user, :admin) }
   let(:employee) { create(:user, :employee) }
   let(:category) { create(:time_category) }
@@ -35,6 +36,39 @@ RSpec.describe Payroll::HistoricalOvertimeHoldEvidence do
     expect(PayrollPaymentAttestation.count).to eq(0)
     target.update_columns(overtime_status: "approved")
     expect(described_class.new(entries: [ target ]).call(target.reload)).to be_nil
+  end
+
+  [ :overnight, :sunday_split ].each do |shape|
+    it "accepts represented regular segment dates for an unchanged #{shape} hold" do
+      target = expected = held = start = nil
+      travel_to(Time.iso8601("2026-09-19T00:00:00Z")) do
+      if shape == :overnight
+        (6..9).each { |day| source(day, 8) }
+        source(10, 5)
+        date = Date.new(2026, 9, 10)
+        expected = [ [ date, 2.to_d ], [ date + 1, 1.to_d ] ]
+        held = 3
+      else
+        (6..10).each { |day| source(day, 7.8) }
+        date = Date.new(2026, 9, 12)
+        expected = [ [ date, 1.to_d ], [ date + 1, 4.to_d ] ]
+        held = 1
+      end
+      start = Time.find_zone!("Pacific/Guam").local(date.year, date.month, date.day, 22)
+      target = source(date.day, 6)
+      # Legacy overnight rows retain clock times across midnight.
+      target.update_columns(start_time: start, end_time: start + 6.hours, hours: 6,
+        approved_at: start + 7.hours, updated_at: start + 7.hours)
+      target.reload
+      end
+      freeze_history
+      expect(PayrollBatchEntry.where(source_time_entry_id: target.id).order(:work_date).pluck(:work_date, :regular_hours)).to eq(expected)
+      proof = described_class.new(entries: [ target ]).call(target)
+      expect(proof).to include(represented_regular_hours: (6 - held).to_d.to_s("F"),
+        frozen_exclusion: include("held_overtime_hours" => held.to_f))
+      target.update_columns(start_time: start + 1.hour, end_time: start + 7.hours)
+      expect(described_class.new(entries: [ target.reload ]).call(target)).to be_nil
+    end
   end
 
   it "accounts for a wholly unpaid overtime hold with no baseline lines" do
