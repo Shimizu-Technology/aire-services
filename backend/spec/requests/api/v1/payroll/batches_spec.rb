@@ -62,6 +62,22 @@ RSpec.describe "Api::V1::Payroll::Batches", type: :request do
     expect(Payroll::CanonicalPayload.checksum(batch.reload.payload)).to eq(checksum)
   end
 
+  it "preserves the original nominal-day policy for a real Saturday-to-Sunday frozen shift" do
+    guam = ActiveSupport::TimeZone["Pacific/Guam"]
+    from = guam.local(2026, 9, 12, 22)
+    create(:time_entry, user: employee, time_category: category, work_date: "2026-09-12", hours: 10,
+      start_time: from, end_time: from + 10.hours, clock_in_at: from, clock_out_at: from + 10.hours,
+      entry_method: "clock", clock_source: "legacy", status: "completed", approval_status: "approved",
+      overtime_status: "none", skip_overtime_recomputation: true)
+    batch = Payroll::BatchFinalizer.new(start_date: "2026-09-01", end_date: "2026-09-15", actor: admin).call
+    get "/api/v1/payroll/batches/#{batch.public_id}", headers: { "X-Payroll-Shared-Secret" => secret }
+    expect(response).to have_http_status(:ok)
+    proof = response.parsed_body.dig("export", "prior_overtime_policy", "employees").sole
+    expect(proof).to include("eligible" => true, "blockers" => [])
+    expect(proof["allocations"].pluck("regular_hours", "overtime_hours")).to eq([ [ "2.0", "0.0" ], [ "6.0", "2.0" ] ])
+    expect(response.parsed_body["employees"].sole).to include("regular_hours" => 10.0, "overtime_hours" => 0.0)
+  end
+
   it "discovers finalized batches by exact nominal dates" do
     batch = finalized_batch
 

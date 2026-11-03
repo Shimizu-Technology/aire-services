@@ -56,7 +56,7 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
 
   it "refuses changed frozen sources and keeps unfrozen owed sources outside its accounting scope" do
     batch, entries = freeze_entries
-    entries.sole.update!(hours: 11)
+    entries.sole.update!(clock_out_at: entries.sole.clock_out_at + 1.hour, end_time: entries.sole.end_time + 1.hour)
     expect(described_class.new(batch: batch).call["employees"].sole["blockers"]).to include("frozen_source_changed_or_missing:#{entries.sole.id}")
     create(:time_entry, user: user, time_category: category, hours: 1, work_date: "2026-09-02", status: "completed", approval_status: "approved")
     expect(described_class.new(batch: batch).call["input_scope"]).to eq("all_effective_frozen_current_lines_in_workweek_through_batch_end")
@@ -72,7 +72,7 @@ RSpec.describe Payroll::PriorOvertimePolicyEvidence do
     batch, entries = freeze_entries
     entries.sole.destroy!
     expect(described_class.new(batch: batch).call["employees"].sole["blockers"]).to include("frozen_source_changed_or_missing:#{entries.sole.id}")
-    other, = freeze_entries
+    other, = freeze_entries(start_on: Date.new(2026, 10, 1), start_date: "2026-10-01", end_date: "2026-10-15")
     # Immutable row corrections are unavailable; simulate malformed retained
     # evidence on this read without modifying the source or frozen database.
     rows = other.payroll_batch_entries.to_a
