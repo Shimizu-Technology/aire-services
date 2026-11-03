@@ -48,10 +48,11 @@ module Api
               .where.not(source_time_entry_id: current_ids).select(:source_time_entry_id)
             allocated_ids = PayrollManualAllocation.active.where(work_date: ..through_date)
               .where.not(time_entry_id: current_ids).select(:time_entry_id)
-            queries = [ frozen_ids, held_ids, owed_ids, allocated_ids ].map(&:to_sql)
-            # UNION removes duplicates across all obligation types without
-            # materializing an unbounded orphan inventory in the web process.
-            ActiveRecord::Base.connection.select_value("SELECT COUNT(*) FROM (#{queries.join(' UNION ')}) historical_obligations").to_i
+            union = [ frozen_ids, held_ids, owed_ids, allocated_ids ].map { |scope| scope.arel.ast }
+              .reduce { |left, right| Arel::Nodes::Union.new(left, right) }
+            # A structured UNION keeps both deduplication and counting in SQL.
+            table = Arel::Nodes::TableAlias.new(Arel::Nodes::Grouping.new(union), "historical_obligations")
+            TimeEntry.unscoped.from(table).count
           end
 
           def parse_through_date!
