@@ -25,6 +25,7 @@ describe('Payroll cutoff notice', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveTextContent('ChST (UTC+10)')
     expect(within(dialog).getByRole('link', { name: 'Review my hours' })).toHaveAttribute('href', '/admin/time?tab=entries')
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveFocus())
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByRole('region', { name: 'Payroll cutoff' })).toBeInTheDocument()

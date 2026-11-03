@@ -15,15 +15,19 @@ module Api
             # Include source rows with a missing owner. An inner join or a
             # payable-only filter would hide exactly the legacy exceptions
             # this coverage review must account for.
-            scope = TimeEntry.where(work_date: ..through_date).includes(:user, :time_category).order(:id)
+            scope = TimeEntry.where(work_date: ..through_date).includes(:user, :time_category, :time_entry_breaks).order(:id)
             page = pagination_for(scope, maximum: 250)
             entries = page.fetch(:records).to_a
             lifecycles = ::Payroll::EntryLifecycleResolver.new(entries: entries).call
+            evidence = ::Payroll::HistoryEntryEvidence.new(entries: entries).call
 
             render json: {
               source_state: "current",
+              integration: ::Payroll::IntegrationProfile.call,
+              history_evidence_version: 1,
+              unresolved_historical_obligation_count: unresolved_obligation_count(through_date),
               through_work_date: through_date.iso8601,
-              time_entries: entries.map { |entry| serialize(entry, lifecycles.fetch(entry.id)) },
+              time_entries: entries.map { |entry| serialize(entry, lifecycles.fetch(entry.id), evidence.fetch(entry.id)) },
               pagination: page.fetch(:metadata)
             }
           rescue ArgumentError, ActionController::BadRequest => error
@@ -31,6 +35,29 @@ module Api
           end
 
           private
+
+          # A recaptured current-row packet must not silently drop a frozen
+          # historical obligation after deletion or movement to a later date.
+          def unresolved_obligation_count(through_date)
+            current_ids = TimeEntry.where(work_date: ..through_date).select(:id)
+            frozen_ids = PayrollBatchEntry.effective.where(work_date: ..through_date)
+              .where.not(source_time_entry_id: current_ids).select(:source_time_entry_id)
+            held_ids = PayrollPaymentAttestation.pending_evidence.where(work_date: ..through_date)
+              .where.not(time_entry_id: current_ids).select(:time_entry_id)
+            owed_ids = PayrollSettlementCase.active.where(original_work_date: ..through_date)
+              .where.not(source_time_entry_id: current_ids).select(:source_time_entry_id)
+            allocated_ids = PayrollManualAllocation.active.where(work_date: ..through_date)
+              .where.not(time_entry_id: current_ids).select(:time_entry_id)
+            pending_ids = PayrollBatchExclusion.where(reason: PayrollBatchExclusion::CARRYOVER_REASONS)
+              .where("held_total_hours > 0")
+              .where("snapshot->>'work_date' IS NULL OR snapshot->>'work_date' <= ?", through_date.iso8601)
+              .where.not(source_time_entry_id: current_ids).select(:source_time_entry_id)
+            union = [ frozen_ids, held_ids, owed_ids, allocated_ids, pending_ids ].map { |scope| scope.arel.ast }
+              .reduce { |left, right| Arel::Nodes::Union.new(left, right) }
+            # A structured UNION keeps both deduplication and counting in SQL.
+            table = Arel::Nodes::TableAlias.new(Arel::Nodes::Grouping.new(union), "historical_obligations")
+            TimeEntry.unscoped.from(table).count
+          end
 
           def parse_through_date!
             text = params[:through_work_date].to_s
@@ -52,7 +79,7 @@ module Api
             end
           end
 
-          def serialize(entry, lifecycle)
+          def serialize(entry, lifecycle, evidence)
             uuid = entry.user&.payroll_integration_uuid
             review_reasons = []
             review_reasons << "source_owner_missing" unless entry.user
@@ -76,6 +103,7 @@ module Api
                 entry_method: entry.entry_method
               },
               lifecycle: lifecycle.slice(:status),
+              history_evidence: evidence,
               review_required: review_reasons.any?,
               review_reasons: review_reasons
             }

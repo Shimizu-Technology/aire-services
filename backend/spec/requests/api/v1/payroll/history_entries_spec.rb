@@ -87,6 +87,127 @@ RSpec.describe "Payroll history coverage API", type: :request do
     expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
   end
 
+  it "reports deleted or out-of-scope frozen obligations instead of silently dropping their history" do
+    entry = entry_on("2026-09-01")
+    batch = create(:payroll_batch)
+    batch.payroll_batch_entries.create!(source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, source_kind: "current", line_key: "historical",
+      work_date: entry.work_date, week_start: entry.work_date.beginning_of_week(:sunday), total_hours: entry.hours,
+      regular_hours: entry.hours, overtime_hours: 0, snapshot: {})
+    entry.update!(work_date: Date.new(2026, 10, 1))
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
+    entry.destroy!
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
+  end
+
+  it "retains a wholly unpaid frozen pending exclusion when its source moves or is deleted" do
+    entry = entry_on("2026-09-03")
+    batch = create(:payroll_batch)
+    batch.payroll_batch_exclusions.create!(source_time_entry_id: entry.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, reason: "pending_overtime",
+      held_total_hours: 8, held_regular_hours: 0, held_overtime_hours: 8,
+      snapshot: { "work_date" => "2026-09-03" })
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body["unresolved_historical_obligation_count"]).to eq(0)
+    entry.update!(work_date: Date.new(2026, 10, 1))
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
+    entry.destroy!
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 1, "time_entries" => [])
+    expect(PayrollBatchEntry.where(source_time_entry_id: entry.id)).not_to exist
+  end
+
+  it "keeps moved held, allocated and owed obligations visible as blockers" do
+    held = entry_on("2026-09-02")
+    allocated = entry_on("2026-09-03")
+    owed = entry_on("2026-09-04")
+    Payroll::PaymentAttestationRecorder.new(actor: admin).attest!(entry: held,
+      source_user_uuid: employee.payroll_integration_uuid, reason: "Synthetic reported payment awaiting exact evidence")
+    Payroll::ManualAllocationRecorder.new(actor: admin).commit!(entry: allocated,
+      source_user_uuid: employee.payroll_integration_uuid, regular_hours: 8, overtime_hours: 0,
+      external_pay_period_id: "76", external_payroll_item_id: "91", pay_date: "2026-09-30",
+      reason: "Synthetic committed allocation retained for historical review")
+    create(:payroll_settlement_case, source_time_entry_id: owed.id, source_time_entry_version: owed.lock_version,
+      source_user_id: employee.id, source_user_uuid: employee.payroll_integration_uuid,
+      original_work_date: owed.work_date, origin_reason: "legacy_history_review", held_total_hours: owed.hours)
+    [ held, allocated, owed ].each { |entry| entry.update_columns(work_date: Date.new(2026, 10, 1)) }
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body).to include("unresolved_historical_obligation_count" => 3, "time_entries" => [])
+  end
+
+  it "exports exact immutable manual baseline provenance without asserting delivery" do
+    entry = entry_on("2026-09-01")
+    entry.update_columns(created_at: 1.day.ago, updated_at: 1.day.ago, approved_at: 1.day.ago)
+    batch = Payroll::BatchFinalizer.new(start_date: "2026-09-01", end_date: "2026-09-15", actor: admin,
+      manual_processing: true, cutoff_at: 1.minute.ago.iso8601, processed_at: Time.current.iso8601,
+      external_pay_period_id: "76", processing_note: "Reviewed synthetic manually processed historical source").call
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    body = response.parsed_body
+    expect(body).to include("history_evidence_version" => 1)
+    expect(body.dig("integration", "source_instance_id")).to eq(Payroll::IntegrationProfile.source_instance_id)
+    evidence = body.fetch("time_entries").sole.fetch("history_evidence")
+    line = evidence.fetch("baseline_lines").sole
+    expect(line).to include("batch_id" => batch.public_id, "batch_checksum" => batch.checksum,
+      "source_time_entry_id" => entry.id.to_s, "source_user_uuid" => employee.payroll_integration_uuid,
+      "current_content_matches" => true, "source_time_entry_version" => entry.lock_version)
+    expect(line.fetch("processing")).to include("status" => "committed", "external_system" => "cornerstone_payroll_manual", "external_pay_period_id" => "76")
+    expect(evidence.fetch("payable_content_checksum")).to match(/\A[0-9a-f]{64}\z/)
+    expect(evidence.fetch("active_manual_allocation_ids")).to eq([])
+    expect(evidence["payment_attestation"]).to be_nil
+    expect(PayrollEntryProcessingEvent.count).to eq(0)
+    expect(PayrollManualAllocation.count).to eq(0)
+    entry.update_column(:hours, 7)
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response.parsed_body.fetch("time_entries").sole.dig("history_evidence", "baseline_lines", 0, "current_content_matches")).to be(false)
+  end
+
+  it "exports separately typed unchanged legacy evidence without approving time or creating payments" do
+    entry = create(:time_entry, user: employee, work_date: "2026-09-01", status: "completed",
+      entry_method: "manual", approval_status: "pending", skip_overtime_recomputation: true,
+      created_at: Time.utc(2026, 9, 1), updated_at: Time.utc(2026, 9, 2))
+    payload = { "schema_version" => "2.0", "employees" => [] }
+    batch = create(:payroll_batch, payload: payload, checksum: Payroll::CanonicalPayload.checksum(payload))
+    snapshot = entry.attributes.slice(*Payroll::LegacyFrozenBatchEvidence::SCALAR_FIELDS)
+      .merge("time_category" => entry.time_category.attributes.slice("id", "key", "name"))
+    batch.payroll_batch_entries.create!(source_time_entry_id: entry.id, source_user_id: entry.user_id,
+      source_kind: "current", line_key: "legacy", work_date: entry.work_date,
+      week_start: entry.work_date.beginning_of_week(:sunday), total_hours: entry.hours,
+      regular_hours: entry.hours, overtime_hours: 0, snapshot: snapshot)
+    batch.payroll_batch_processing_events.create!(event_id: "synthetic-frozen-legacy", status: "committed",
+      external_system: "cornerstone_payroll_manual", external_pay_period_id: "76", occurred_at: batch.finalized_at)
+    expect do
+      get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    end.not_to change { [ PayrollEntryProcessingEvent.count, PayrollManualAllocation.count, entry.reload.approval_status ] }
+    expect(response).to have_http_status(:ok)
+    line = response.parsed_body.fetch("time_entries").sole.dig("history_evidence", "baseline_lines").sole
+    expect(line).to include("source_time_entry_version" => nil, "current_content_matches" => false,
+      "source_user_uuid" => employee.payroll_integration_uuid, "identity_basis" => "reviewed_legacy_owner")
+    expect(line.fetch("legacy_frozen_evidence")).to include("kind" => "legacy_frozen_batch_baseline", "eligible" => true,
+      "evidence_strength" => "retained_snapshot_and_unchanged_source", "blockers" => [])
+  end
+
+  it "does not treat a post-snapshot legacy observation as proof of original chronology" do
+    entry = entry_on("2026-09-01")
+    batch = create(:payroll_batch)
+    batch.payroll_batch_entries.create!(source_time_entry_id: entry.id, source_user_id: entry.user_id,
+      source_user_uuid: employee.payroll_integration_uuid, source_kind: "current", line_key: "legacy",
+      work_date: entry.work_date, week_start: entry.work_date.beginning_of_week(:sunday),
+      total_hours: entry.hours, regular_hours: entry.hours, overtime_hours: 0,
+      snapshot: { "user_id" => entry.user_id, "hours" => entry.hours.to_f })
+    batch.payroll_batch_processing_events.create!(event_id: "synthetic-legacy-manual", status: "committed",
+      external_system: "cornerstone_payroll_manual", external_pay_period_id: "76", occurred_at: batch.cutoff_at)
+    get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    line = response.parsed_body.fetch("time_entries").sole.dig("history_evidence", "baseline_lines").sole
+    expect(line).to include("source_time_entry_version" => nil, "source_comparison" => "legacy_observation", "current_content_matches" => false)
+  end
+
   it "retains a legacy null-owner row with an explicit review requirement" do
     entry = entry_on("2026-09-15")
     # Model a legacy installation's nullable owner column inside this example's
