@@ -49,6 +49,7 @@ module Payroll
     end
 
     def call
+      ConnectedPayrollMode.require_enabled! if calendar_period
       source_ledger_locked_at = nil
       outcome = "failed"
       batch = PayrollBatch.transaction do

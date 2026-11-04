@@ -5,6 +5,7 @@ import { useAuthContext } from '../../contexts/AuthContext'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import './PayrollCutoffNotice.css'
+import { PAUSED_PAYROLL_MESSAGE } from '../../lib/connectedPayroll'
 
 interface Props {
   kiosk?: { accessToken: string; employeeToken: string; sessionKey: string; notice: PayrollCutoffResponse | null }
@@ -13,10 +14,11 @@ interface Props {
 const CACHE_KEY = 'aire:last-payroll-cutoff'
 function lastKnownCutoff(): PayrollCutoffResponse | null {
   try {
-    const cutoff = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null') as PayrollCutoff | null
+    const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null') as PayrollCutoffResponse | PayrollCutoff | null
+    const cutoff = cached && ('cutoff' in cached ? cached.cutoff : cached)
     if (!cutoff || !['none', '24h', '4h', 'passed', 'finalizing'].includes(cutoff.stage)) return null
     copy(cutoff, true) // Discard incomplete or corrupt cached dates.
-    return { cutoff }
+    return { cutoff, connected_payroll: cached && 'cutoff' in cached ? cached.connected_payroll : undefined }
   } catch { return null }
 }
 
@@ -68,7 +70,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     if (session !== activeSession.current || sequence !== requestSequence.current) return
     if (result.data) {
       setResponse(result.data); setStale(false); setValidated(true)
-      try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(result.data.cutoff)) } catch { /* Storage may be unavailable on shared devices. */ }
+      try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ cutoff: result.data.cutoff, connected_payroll: result.data.connected_payroll })) } catch { /* Storage may be unavailable on shared devices. */ }
     }
     else setStale(true)
     if (isAdmin) {
@@ -90,9 +92,16 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   // refreshes update the banner without interrupting an action already in progress.
   const notice = kiosk ? kiosk.notice : response
   const cutoff = (!validated || stale) && kiosk?.notice ? kiosk.notice.cutoff : response?.cutoff ?? kiosk?.notice?.cutoff
+  // A verified PIN/action notice outranks shared cache. A newer live server
+  // response may supersede it when the deployment mode changes afterwards.
+  const liveConnection = validated && !stale && response?.connected_payroll ? response : null
+  const pinConnection = kiosk?.notice?.connected_payroll ? kiosk.notice : null
+  const connection = pinConnection && (!liveConnection || Date.parse(pinConnection.cutoff.now) >= Date.parse(liveConnection.cutoff.now))
+    ? pinConnection.connected_payroll : liveConnection?.connected_payroll ?? response?.connected_payroll
+  const paused = connection?.enabled === false
   const noticeCutoff = notice?.cutoff
   const noticeKey = noticeCutoff ? `${sessionKey}:${identity(noticeCutoff)}` : ''
-  const open = !!noticeCutoff && (validated || !!kiosk?.notice) && (!stale || !!kiosk?.notice) && !notice?.acknowledged && !dismissed.has(noticeKey)
+  const open = !paused && !!noticeCutoff && (validated || !!kiosk?.notice) && (!stale || !!kiosk?.notice) && !notice?.acknowledged && !dismissed.has(noticeKey)
     && (noticeCutoff.stage === '24h' || noticeCutoff.stage === '4h')
     && (!kiosk || stale || (!!cutoff && identity(cutoff) === identity(noticeCutoff)))
   const dismiss = () => {
@@ -120,8 +129,9 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     <Link to="/admin/payroll" className="mt-2 inline-flex min-h-11 items-center">Review payroll status</Link>
     {stale && <p className="mt-2">Last known payroll status · unable to refresh.</p>}
   </section> : null
+  if (paused) return <>{attentionNotice}<section aria-label="Payroll connection paused" className="cutoff-notice">{PAUSED_PAYROLL_MESSAGE}</section></>
   if (!cutoff) return attentionNotice
-  if (!cutoff.period) return attentionNotice || (isAdmin ? <section aria-label="Payroll cutoff setup" className="cutoff-notice">No scheduled payroll cutoff is published. <Link to="/admin/payroll">Set up the payroll calendar</Link>.</section> : null)
+  if (!cutoff.period) return attentionNotice || (isAdmin && connection?.enabled === true ? <section aria-label="Payroll cutoff setup" className="cutoff-notice">No scheduled payroll cutoff is published. <Link to="/admin/payroll">Set up the payroll calendar</Link>.</section> : null)
   if (cutoff.stage === 'none') return attentionNotice
   const banner = copy(cutoff, stale || (!validated && !kiosk?.notice))
   const modal = noticeCutoff ? copy(noticeCutoff, stale) : banner

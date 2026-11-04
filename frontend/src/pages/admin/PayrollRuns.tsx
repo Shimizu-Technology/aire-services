@@ -1,3 +1,4 @@
+import { PAUSED_PAYROLL_MESSAGE, type ConnectedPayrollCapability } from '../../lib/connectedPayroll'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -459,16 +460,17 @@ function FinalizeDialog({ payload, onClose, onConfirm, submitting, error }: {
   )
 }
 
-function PublishedCalendarNotice({ payload, onOpenBatch }: {
+function PublishedCalendarNotice({ payload, onOpenBatch, activationEnabled }: {
   payload: PayrollBatchPayload
   onOpenBatch?: (id: string) => void
+  activationEnabled: boolean
 }) {
   if (!payload.published_calendar_periods?.length) return null
   return (
     <section aria-label="Published payroll calendar" className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-4 text-sm text-cyan-950">
-      <p className="font-semibold">Use the published payroll calendar</p>
-      <p className="mt-1 leading-6">{payload.finalization_blocked_reason || 'This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch.'}</p>
-      <p className="mt-1 leading-6">Open Payroll Calendar in Cornerstone Payroll and select the matching period. Its published cutoff determines which hours are included.</p>
+      <p className="font-semibold">{activationEnabled ? 'Use the published payroll calendar' : 'Published payroll history'}</p>
+      <p className="mt-1 leading-6">{activationEnabled ? payload.finalization_blocked_reason || 'This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch.' : 'Published period details and finalized batches remain available for review. Activation actions are unavailable.'}</p>
+      {activationEnabled && <p className="mt-1 leading-6">Open Payroll Calendar in Cornerstone Payroll and select the matching period. Its published cutoff determines which hours are included.</p>}
       <ul className="mt-3 space-y-2">
         {payload.published_calendar_periods.map(period => (
           <li key={period.external_pay_period_id}>
@@ -538,14 +540,14 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
   const missingCategories = snapshot?.issues.missing_category_count || 0
   const negativeAdjustments = snapshot?.issues.negative_adjustment_count || 0
   const canRecord = Boolean(
-    !snapshot?.published_calendar_periods?.length && snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
+    !snapshot?.published_calendar_periods?.length && snapshot?.connected_payroll?.enabled !== false && snapshot && sameInstant(snapshot.cutoff_at, cutoffAt) && cutoffAt && processedAt && externalPayPeriodId.trim() && note.trim().length >= 10 && confirmed &&
     new Date(processedAt || 0).getTime() >= new Date(cutoffAt || 0).getTime() &&
     (!missingCategories || acknowledgeMissingCategories) &&
     (!negativeAdjustments || (acknowledgeNegativeAdjustments && negativeAdjustmentNote.trim().length >= 10)) && !submitting,
   )
 
   const recordProcessed = async () => {
-    if (!snapshot || snapshot.published_calendar_periods?.length || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
+    if (!snapshot || snapshot.connected_payroll?.enabled === false || snapshot.published_calendar_periods?.length || !sameInstant(snapshot.cutoff_at, cutoffAt) || !cutoffAt || !processedAt) return
     setSubmitting(true)
     setError(null)
     const response = await api.finalizePayrollBatch({
@@ -585,7 +587,7 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
 
         <button type="button" onClick={() => void reviewSnapshot()} disabled={reviewing || !cutoffLocal} className="mt-4 min-h-11 w-full rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50">{reviewing ? 'Recreating snapshot…' : snapshot ? 'Refresh historical snapshot' : 'Review historical snapshot'}</button>
 
-        {snapshot && <PublishedCalendarNotice payload={snapshot} />}
+        {snapshot && <PublishedCalendarNotice payload={snapshot} activationEnabled={snapshot.connected_payroll?.enabled === true} />}
         {snapshot && (
           <div className="mt-5 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-cyan-800">Snapshot to be recorded</p>
@@ -652,6 +654,7 @@ function ManualProcessingDialog({ period, onClose, onRecorded }: {
           </div>
         )}
 
+        {snapshot?.connected_payroll?.enabled === false && <p role="status" className="mt-4 text-sm text-slate-700">{PAUSED_PAYROLL_MESSAGE}</p>}
         {error && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button type="button" onClick={onClose} disabled={submitting} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Cancel</button>
@@ -673,6 +676,9 @@ export default function PayrollRuns() {
   const [startDate, setStartDate] = useState(() => routedPeriod.start)
   const [endDate, setEndDate] = useState(() => routedPeriod.end)
   const [preview, setPreview] = useState<PayrollBatchPayload | null>(null)
+  const [connection, setConnection] = useState<ConnectedPayrollCapability | null>(null)
+  const connectionEnabled = connection?.enabled === true
+  const connectionReason = connection?.enabled === false ? PAUSED_PAYROLL_MESSAGE : 'Checking payroll connection status. Activation actions are unavailable until its status is confirmed.'
   const [batches, setBatches] = useState<PayrollBatchListItem[]>([])
   const [carryovers, setCarryovers] = useState<PayrollCarryoverQueue | null>(null)
   const [carryoversLoading, setCarryoversLoading] = useState(true)
@@ -689,6 +695,8 @@ export default function PayrollRuns() {
   const [historyTotalCount, setHistoryTotalCount] = useState(0)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const historyRequestSequence = useRef(0)
+  const connectionRequestSequence = useRef(0)
+  const connectionResponseSequence = useRef(0)
   const carryoverRequestSequence = useRef(0)
   const previewRequestSequence = useRef(0)
   const batchRequestSequence = useRef(0)
@@ -733,10 +741,15 @@ export default function PayrollRuns() {
 
   const loadBatches = useCallback(async () => {
     const requestSequence = ++historyRequestSequence.current
+    const connectionSequence = ++connectionRequestSequence.current
     const response = await api.getPayrollBatches()
     if (requestSequence !== historyRequestSequence.current) return
 
     if (response.data) {
+      if (connectionSequence >= connectionResponseSequence.current) {
+        connectionResponseSequence.current = connectionSequence
+        setConnection(response.data.connected_payroll ?? null)
+      }
       setBatches(response.data.payroll_batches)
       setHistoryTruncated(response.data.truncated)
       setHistoryTotalCount(response.data.total_count)
@@ -771,10 +784,17 @@ export default function PayrollRuns() {
     setSelectedBatch(null)
     setShowConfirm(false)
     setDialogError(null)
+    const connectionSequence = ++connectionRequestSequence.current
     const response = await api.previewPayrollBatch(startDate, endDate)
     if (requestSequence !== previewRequestSequence.current) return
 
-    if (response.data) setPreview(response.data)
+    if (response.data) {
+      setPreview(response.data)
+      if (response.data.connected_payroll && connectionSequence >= connectionResponseSequence.current) {
+        connectionResponseSequence.current = connectionSequence
+        setConnection(response.data.connected_payroll)
+      }
+    }
     else {
       setPreview(null)
       setShowConfirm(false)
@@ -809,7 +829,7 @@ export default function PayrollRuns() {
   }
 
   const finalize = async (note?: string) => {
-    if (!preview || preview.published_calendar_periods?.length) return
+    if (!connectionEnabled || !preview || preview.published_calendar_periods?.length) return
     setFinalizing(true)
     setDialogError(null)
     const response = await api.finalizePayrollBatch({
@@ -889,13 +909,15 @@ export default function PayrollRuns() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Authoritative payroll record</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Payroll Cutoffs</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Preview exactly which approved hours will be included, then freeze an immutable AIRE batch for Cornerstone Payroll. Pending work stays tracked and carries forward only after approval.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{connectionEnabled ? 'Preview exactly which approved hours will be included, then freeze an immutable AIRE batch for Cornerstone Payroll. Pending work stays tracked and carries forward only after approval.' : connection?.enabled === false ? 'Review recorded hours, approvals and finalized history. Use the hours report for manual payroll while the connection is paused.' : 'Review recorded hours, approvals and finalized payroll history while the connection status is being checked.'}</p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'approvals', through_date: activePeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>
           <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'reports' })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">View live hours</Link>
         </div>
       </section>
+
+      {!connectionEnabled && <section aria-label="Payroll connection status" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">{connectionReason}</section>}
 
       <CarryoverQueue queue={carryovers} loading={carryoversLoading} error={carryoversError} />
 
@@ -910,7 +932,7 @@ export default function PayrollRuns() {
           <button type="button" onClick={runPreview} disabled={previewing || !isIsoDate(startDate) || !isIsoDate(endDate) || startDate > endDate} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">{previewing ? 'Calculating…' : 'Preview cutoff'}</button>
         </div>
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3 text-sm leading-6 text-primary">
-          Finalizing locks the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll cutoff.
+          {connectionEnabled ? 'Finalizing locks the payroll snapshot, not the underlying time entries. A later edit creates an auditable correction in the next payroll cutoff.' : 'Hours previews, reports and finalized CSV downloads remain available. Activation actions are unavailable while the payroll connection is paused or its status cannot be confirmed.'}
         </div>
       </section>
 
@@ -932,11 +954,11 @@ export default function PayrollRuns() {
             <div className="flex flex-col gap-2 sm:flex-row">
               {selectedBatch && <Link to={`/admin/activity?event_category=payroll&search=${encodeURIComponent(`${selectedBatch.start_date} through ${selectedBatch.end_date}`)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">View activity</Link>}
               {selectedBatch && <button type="button" onClick={() => void exportBatch(selectedBatch.id)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Download finalized CSV</button>}
-              {preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
-              {preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
+              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => setShowManualProcessing(true)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-primary/40 hover:text-primary">Record already processed</button>}
+              {connectionEnabled && preview && !preview.published_calendar_periods?.length && <button type="button" onClick={() => { setDialogError(null); setShowConfirm(true) }} disabled={!preview.can_finalize} className="min-h-11 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50">Finalize this cutoff</button>}
             </div>
           </div>
-          {preview && <PublishedCalendarNotice payload={preview} onOpenBatch={(id) => { const next = new URLSearchParams(searchParams); next.set('batch_id', id); setSearchParams(next) }} />}
+          {preview && <PublishedCalendarNotice payload={preview} activationEnabled={connectionEnabled} onOpenBatch={(id) => { const next = new URLSearchParams(searchParams); next.set('batch_id', id); setSearchParams(next) }} />}
           {preview?.finalization_blocked_reason && !preview.published_calendar_periods?.length && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{preview.finalization_blocked_reason}</p>}
           <IssueSummary issues={activePayload.issues} period={{ start: activePayload.start_date, end: activePayload.end_date }} />
           {preview && preview.issues.missing_category_count > 0 && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Finalization is blocked until every included entry has a work category.</p>}
@@ -974,8 +996,8 @@ export default function PayrollRuns() {
         </div>
       </section>
 
-      {showConfirm && preview && <FinalizeDialog payload={preview} onClose={() => setShowConfirm(false)} onConfirm={finalize} submitting={finalizing} error={dialogError} />}
-      {showManualProcessing && <ManualProcessingDialog period={{ start: startDate, end: endDate }} onClose={() => setShowManualProcessing(false)} onRecorded={manualProcessingRecorded} />}
+      {connectionEnabled && showConfirm && preview && <FinalizeDialog payload={preview} onClose={() => setShowConfirm(false)} onConfirm={finalize} submitting={finalizing} error={dialogError} />}
+      {connectionEnabled && showManualProcessing && <ManualProcessingDialog period={{ start: startDate, end: endDate }} onClose={() => setShowManualProcessing(false)} onRecorded={manualProcessingRecorded} />}
     </div>
   )
 }

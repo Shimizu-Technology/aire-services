@@ -1,3 +1,4 @@
+import type { ConnectedPayrollCapability } from './connectedPayroll'
 // AIRE Services API client
 import type { PublicContactInfoSettings } from './businessInfo'
 import { apiUrl } from './apiBase'
@@ -1207,6 +1208,7 @@ export interface PayrollBatchExclusion {
 }
 
 export interface PayrollBatchPayload {
+  connected_payroll?: ConnectedPayrollCapability;
   schema_version: string;
   source: string;
   batch_id: string;
@@ -1440,7 +1442,7 @@ export interface PayrollCutoffAttention {
   lock_mode: 'manual' | 'scheduled';
   cutoff_state: 'attention_required';
 }
-export interface PayrollCutoffResponse { cutoff: PayrollCutoff; acknowledged?: boolean; attention?: PayrollCutoffAttention | null }
+export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; attention?: PayrollCutoffAttention | null }
 export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
 
 export const api = {
@@ -1956,7 +1958,7 @@ export const api = {
 
   // Finalized payroll batches
   getPayrollBatches: () =>
-    fetchApi<{ payroll_batches: PayrollBatchListItem[]; total_count: number; truncated: boolean }>('/api/v1/admin/payroll_batches'),
+    fetchApi<{ connected_payroll?: ConnectedPayrollCapability; payroll_batches: PayrollBatchListItem[]; total_count: number; truncated: boolean }>('/api/v1/admin/payroll_batches'),
 
   getPayrollCarryovers: () =>
     fetchApi<PayrollCarryoverQueue>('/api/v1/admin/payroll_batches/carryovers'),

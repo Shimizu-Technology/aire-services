@@ -28,6 +28,7 @@ const issues = {
 
 const preview = {
   schema_version: '2.0',
+  connected_payroll: { mode: 'enabled', enabled: true, message: null },
   source: 'aire_services',
   batch_id: 'PREVIEW',
   start_date: '2026-08-16',
@@ -131,6 +132,66 @@ function PayrollRouteHarness() {
 }
 
 describe('PayrollRuns', () => {
+  it('shows paused mode and withholds manual processing and finalize even if a preview claims it can finalize', async () => {
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: { mode: 'paused', enabled: false, message: 'Connected payroll is paused' }, payroll_batches: [], total_count: 0, truncated: false } })
+    apiMock.previewPayrollBatch.mockResolvedValue({ data: { ...preview, connected_payroll: { mode: 'paused', enabled: false, message: 'Connected payroll is paused' } } })
+    renderPayrollRuns()
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Payroll connection status' })).toHaveTextContent('Payroll connection is paused. Time tracking and approvals work normally; Cornerstone processes payroll from the hours report.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Live preview')
+    expect(screen.queryByRole('button', { name: 'Record already processed' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Finalize this cutoff' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Review approvals' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View live hours' })).toBeInTheDocument()
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
+  it('withholds activation controls when connection capability is unavailable', async () => {
+    apiMock.previewPayrollBatch.mockResolvedValue({ data: { ...preview, connected_payroll: undefined } })
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [], total_count: 0, truncated: false } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Live preview')
+    expect(screen.queryByRole('button', { name: 'Record already processed' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Finalize this cutoff' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a valid deferred history capability when an intervening preview fails', async () => {
+    let finish!: (value: unknown) => void
+    apiMock.getPayrollBatches.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    apiMock.previewPayrollBatch.mockResolvedValueOnce({ error: 'Preview temporarily unavailable' })
+    renderPayrollRuns()
+    await waitFor(() => expect(apiMock.getPayrollBatches).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Preview temporarily unavailable')
+    await act(async () => { finish({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [], total_count: 0, truncated: false } }) })
+    expect(screen.queryByRole('region', { name: 'Payroll connection status' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Preview exactly which approved hours/)).toBeInTheDocument()
+  })
+
+  it('does not describe an unconfirmed connection as paused', async () => {
+    apiMock.getPayrollBatches.mockReturnValue(new Promise(() => {}))
+    renderPayrollRuns()
+    expect(screen.getByRole('region', { name: 'Payroll connection status' })).toHaveTextContent('Checking payroll connection status')
+    expect(screen.queryByText(/Use the hours report for manual payroll while the connection is paused/)).not.toBeInTheDocument()
+    expect(screen.getByText(/while the connection status is being checked/)).toBeInTheDocument()
+  })
+
+  it('keeps read-only published batch history accessible while paused without lock instructions', async () => {
+    const paused = { mode: 'paused', enabled: false, message: 'Connected payroll is paused' }
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: paused, payroll_batches: [], total_count: 0, truncated: false } })
+    apiMock.previewPayrollBatch.mockResolvedValue({ data: { ...preview, connected_payroll: paused, can_finalize: false, published_calendar_periods: [ { external_pay_period_id: 'published', start_date: preview.start_date, end_date: preview.end_date, cutoff_at: preview.cutoff_at, status: 'finalized', payroll_batch_id: finalized.id } ] } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    const notice = await screen.findByRole('region', { name: 'Published payroll calendar' })
+    expect(notice).toHaveTextContent('Published payroll history')
+    expect(notice).not.toHaveTextContent('Lock action')
+    expect(notice).not.toHaveTextContent('Open Payroll Calendar')
+    fireEvent.click(within(notice).getByRole('button', { name: 'View published batch' }))
+    await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(finalized.id))
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
   it('explains the historical payment hold while keeping reconciliation available', async () => {
     apiMock.previewPayrollBatch.mockResolvedValue({ data: {
       ...preview, can_finalize: false,
@@ -145,7 +206,7 @@ describe('PayrollRuns', () => {
 
   beforeEach(() => {
     Object.values(apiMock).forEach((mock) => mock.mockReset())
-    apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [], total_count: 0, truncated: false } })
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [], total_count: 0, truncated: false } })
     apiMock.getPayrollCarryovers.mockResolvedValue({ data: {
       items: [],
       summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 },
@@ -585,6 +646,7 @@ describe('PayrollRuns', () => {
       },
     }
     apiMock.getPayrollBatches.mockResolvedValue({ data: {
+      connected_payroll: { mode: 'enabled', enabled: true, message: null },
       payroll_batches: [paidBatch],
       total_count: 1,
       truncated: false,
@@ -604,6 +666,7 @@ describe('PayrollRuns', () => {
 
   it('renders safe fallbacks for processing statuses added by a newer backend', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({ data: {
+      connected_payroll: { mode: 'enabled', enabled: true, message: null },
       payroll_batches: [{
         ...finalized,
         processing: {
@@ -645,6 +708,7 @@ describe('PayrollRuns', () => {
 
   it('renders zero-value fallbacks for incomplete historical batch summaries', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({ data: {
+      connected_payroll: { mode: 'enabled', enabled: true, message: null },
       payroll_batches: [{ ...finalized, summary: {} }],
       total_count: 1,
       truncated: false,
@@ -884,7 +948,7 @@ describe('PayrollRuns', () => {
   it('clears a prior payroll-history error after a successful refresh', async () => {
     apiMock.getPayrollBatches
       .mockResolvedValueOnce({ error: 'Temporary history failure' })
-      .mockResolvedValue({ data: { payroll_batches: [] } })
+      .mockResolvedValue({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [] } })
     renderPayrollRuns()
     expect(await screen.findByRole('alert')).toHaveTextContent('Temporary history failure')
 
@@ -898,13 +962,13 @@ describe('PayrollRuns', () => {
   })
 
   it('ignores an older payroll-history response that finishes after finalization refreshes it', async () => {
-    let resolveInitialHistory: (value: { data: { payroll_batches: never[]; total_count: number; truncated: boolean } }) => void = () => undefined
-    const initialHistory = new Promise<{ data: { payroll_batches: never[]; total_count: number; truncated: boolean } }>((resolve) => {
+    let resolveInitialHistory: (value: { data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: never[]; total_count: number; truncated: boolean } }) => void = () => undefined
+    const initialHistory = new Promise<{ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: never[]; total_count: number; truncated: boolean } }>((resolve) => {
       resolveInitialHistory = resolve
     })
     apiMock.getPayrollBatches
       .mockReturnValueOnce(initialHistory)
-      .mockResolvedValueOnce({ data: { payroll_batches: [finalized], total_count: 1, truncated: false } })
+      .mockResolvedValueOnce({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [finalized], total_count: 1, truncated: false } })
 
     renderPayrollRuns()
     fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
@@ -914,7 +978,7 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
 
     expect(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
-    resolveInitialHistory({ data: { payroll_batches: [], total_count: 0, truncated: false } })
+    resolveInitialHistory({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [], total_count: 0, truncated: false } })
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })).toBeInTheDocument()
@@ -973,7 +1037,7 @@ describe('PayrollRuns', () => {
   it('discards a pending preview after opening an immutable batch', async () => {
     let resolvePreview!: (value: { data: typeof preview }) => void
     apiMock.previewPayrollBatch.mockReturnValueOnce(new Promise((resolve) => { resolvePreview = resolve }))
-    apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [finalized], total_count: 1, truncated: false } })
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [finalized], total_count: 1, truncated: false } })
     renderPayrollRuns()
     const batchButton = await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ })
     fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
@@ -987,7 +1051,7 @@ describe('PayrollRuns', () => {
   it('discards a pending immutable batch after switching to live preview', async () => {
     let resolveBatch!: (value: { data: typeof finalized }) => void
     apiMock.getPayrollBatch.mockReturnValueOnce(new Promise((resolve) => { resolveBatch = resolve }))
-    apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [finalized], total_count: 1, truncated: false } })
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [finalized], total_count: 1, truncated: false } })
     renderPayrollRuns()
     fireEvent.click(await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123/ }))
     await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalled())
@@ -1000,7 +1064,7 @@ describe('PayrollRuns', () => {
 
   it('opens a finalized batch from history', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({
-      data: { payroll_batches: [finalized], total_count: 1, truncated: false },
+      data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [finalized], total_count: 1, truncated: false },
     })
     renderPayrollRuns()
 
@@ -1039,7 +1103,7 @@ describe('PayrollRuns', () => {
     const firstRequest = new Promise<{ data: typeof firstBatch }>((resolve) => { resolveFirst = resolve })
     const secondRequest = new Promise<{ data: typeof secondBatch }>((resolve) => { resolveSecond = resolve })
     apiMock.getPayrollBatches.mockResolvedValue({
-      data: { payroll_batches: [firstBatch, secondBatch], total_count: 2, truncated: false },
+      data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [firstBatch, secondBatch], total_count: 2, truncated: false },
     })
     apiMock.getPayrollBatch
       .mockReset()
@@ -1076,7 +1140,7 @@ describe('PayrollRuns', () => {
     let resolveBatch: (value: { data: typeof finalized }) => void = () => undefined
     const deferredBatch = new Promise<{ data: typeof finalized }>((resolve) => { resolveBatch = resolve })
     apiMock.getPayrollBatches.mockResolvedValue({
-      data: { payroll_batches: [finalized], total_count: 1, truncated: false },
+      data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [finalized], total_count: 1, truncated: false },
     })
     apiMock.getPayrollBatch.mockReturnValueOnce(deferredBatch)
     render(
@@ -1101,7 +1165,7 @@ describe('PayrollRuns', () => {
 
   it('downloads a finalized batch and reports an empty download response', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({
-      data: { payroll_batches: [finalized], total_count: 1, truncated: false },
+      data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [finalized], total_count: 1, truncated: false },
     })
     apiMock.downloadPayrollBatch
       .mockResolvedValueOnce({ blob: new Blob(['csv']), filename: 'batch.csv' })
@@ -1127,7 +1191,7 @@ describe('PayrollRuns', () => {
 
   it('signals when the permanent history response is truncated', async () => {
     apiMock.getPayrollBatches.mockResolvedValue({
-      data: { payroll_batches: [finalized], total_count: 135, truncated: true },
+      data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [finalized], total_count: 135, truncated: true },
     })
     renderPayrollRuns()
 
@@ -1217,7 +1281,7 @@ it('keeps paid positive lines and a committed accounting correction distinct on 
     paid_hours: 8, outstanding_hours: 0, accounting_only: false, accounting_correction_line_count: 1, accounting_correction_hours: -1,
     lines: [{ source_time_entry_id: '51', source_line_key: 'negative', source_kind: 'correction', total_hours: -1, regular_hours: -1, overtime_hours: 0, status: 'committed', accounting_only: true, accounting_correction: context, external_pay_period_id: '44', external_payroll_item_id: '55' }],
   } }
-  apiMock.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [accountingBatch], total_count: 1, truncated: false } })
+  apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [accountingBatch], total_count: 1, truncated: false } })
   apiMock.getPayrollBatch.mockResolvedValue({ data: accountingBatch })
   renderPayrollRuns()
   const batchButton = await screen.findByRole('button', { name: /AIRE-PAY-20260831-ABC123.*accounting correction recorded/i })
