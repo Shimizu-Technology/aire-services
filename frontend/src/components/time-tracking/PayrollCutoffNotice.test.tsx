@@ -20,15 +20,36 @@ describe('Payroll cutoff notice', () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: false } })
     vi.mocked(api.acknowledgePayrollCutoff).mockResolvedValue({ data: { acknowledged: true } })
   })
-  it('shows paused guidance without calendar setup, reminders or acknowledgement even with a retained cutoff', async () => {
+  it('shows paused guidance and read-only attention without calendar setup, reminders or acknowledgement', async () => {
     auth.role = 'admin'
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, attention: { period: cutoff.period, lock_mode: 'scheduled', cutoff_state: 'attention_required' }, connected_payroll: { mode: 'paused', enabled: false, message: 'Connected payroll is paused' } } })
     mount()
     expect(await screen.findByRole('region', { name: 'Payroll connection paused' })).toHaveTextContent('Payroll connection is paused. Time tracking and approvals work normally; Cornerstone processes payroll from the hours report.')
     expect(screen.queryByRole('link', { name: 'Set up the payroll calendar' })).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'Payroll attention' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Payroll attention' })).toHaveTextContent('Payroll needs attention')
     expect(api.acknowledgePayrollCutoff).not.toHaveBeenCalled()
+  })
+
+  it.each(['paused', 'enabled'] as const)('uses a fresh kiosk %s capability instead of the opposite shared cache', async mode => {
+    const enabled = mode === 'enabled'
+    sessionStorage.setItem('aire:last-payroll-cutoff', JSON.stringify({ cutoff, connected_payroll: { mode: enabled ? 'paused' : 'enabled', enabled: !enabled, message: null } }))
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ error: 'Offline' })
+    render(<MemoryRouter><PayrollCutoffNotice kiosk={{ accessToken: 'access', employeeToken: 'employee', sessionKey: 'fresh', notice: { cutoff, acknowledged: false, connected_payroll: { mode, enabled, message: enabled ? null : 'Connected payroll is paused' } } }} /></MemoryRouter>)
+    if (enabled) {
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Payroll connection paused' })).not.toBeInTheDocument()
+    } else {
+      expect(await screen.findByRole('region', { name: 'Payroll connection paused' })).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    }
+  })
+
+  it('honors a newer live pause after an earlier enabled kiosk action', async () => {
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: { ...cutoff, now: '2026-11-06T14:01:00Z' }, connected_payroll: { mode: 'paused', enabled: false, message: 'Connected payroll is paused' } } })
+    render(<MemoryRouter><PayrollCutoffNotice kiosk={{ accessToken: 'access', employeeToken: 'employee', sessionKey: 'fresh', notice: { cutoff, acknowledged: false, connected_payroll: { mode: 'enabled', enabled: true, message: null } } }} /></MemoryRouter>)
+    await screen.findByRole('region', { name: 'Payroll connection paused' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('retains paused guidance when a later refresh fails', async () => {

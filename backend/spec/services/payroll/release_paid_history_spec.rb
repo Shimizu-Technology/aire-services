@@ -331,15 +331,31 @@ RSpec.describe Payroll::ReleasePaidHistory, type: :request do
     expect(PayrollBatchEntry.where(source_time_entry_id: @paid.map(&:id))).to be_empty
   end
 
+  it "keeps paused guidance and refuses manual recording even when legacy history needs reconciliation" do
+    expect(ConnectedPayrollMode.enabled?).to be(false)
+    headers = { "Authorization" => "Bearer test_token_#{admin.id}" }
+    dates = { start_date: "2026-10-01", end_date: "2026-10-15" }
+    post "/api/v1/admin/payroll_batches/preview", params: dates, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body).to include("can_finalize" => false, "finalization_blocked_reason" => ConnectedPayrollMode::MESSAGE)
+    expect(response.parsed_body.dig("connected_payroll", "enabled")).to be(false)
+    counts = [ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchProcessingEvent.count, AuditLog.count ]
+    post "/api/v1/admin/payroll_batches", params: dates.merge(manual_processing: true), headers: headers
+    expect(response).to have_http_status(:service_unavailable)
+    expect(response.parsed_body.fetch("error")).to eq(ConnectedPayrollMode::MESSAGE)
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchProcessingEvent.count, AuditLog.count ]).to eq(counts)
+  end
+
   it "blocks arbitrary ranges but calendar paths quarantine old hours without blocking other employees" do
+    allow(ConnectedPayrollMode).to receive(:enabled?).and_return(true)
     post "/api/v1/admin/payroll_batches/preview", params: { start_date: "2026-10-01", end_date: "2026-10-15" },
       headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
     expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.dig("connected_payroll", "enabled")).to be(true)
     expect(response.parsed_body).to include("can_finalize" => false, "finalization_blocked_reason" => /Record already processed/)
     expect do
       Payroll::BatchFinalizer.new(start_date: "2026-10-01", end_date: "2026-10-15", actor: admin).call
     end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /Record already processed/)
-    allow(ConnectedPayrollMode).to receive(:enabled?).and_return(true)
     manual = calendar(start_date: "2026-10-01", end_date: "2026-10-15", lock_mode: "manual")
     expect(Payroll::ManualCalendarFinalizer.new(period_id: manual.id, actor: admin, reason: "Manual lock test").call)
       .to include(status: "finalized")

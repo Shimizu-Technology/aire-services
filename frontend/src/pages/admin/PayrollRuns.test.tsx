@@ -156,6 +156,42 @@ describe('PayrollRuns', () => {
     expect(screen.queryByRole('button', { name: 'Finalize this cutoff' })).not.toBeInTheDocument()
   })
 
+  it('keeps a valid deferred history capability when an intervening preview fails', async () => {
+    let finish!: (value: unknown) => void
+    apiMock.getPayrollBatches.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    apiMock.previewPayrollBatch.mockResolvedValueOnce({ error: 'Preview temporarily unavailable' })
+    renderPayrollRuns()
+    await waitFor(() => expect(apiMock.getPayrollBatches).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    await screen.findByText('Preview temporarily unavailable')
+    await act(async () => { finish({ data: { connected_payroll: { mode: 'enabled', enabled: true, message: null }, payroll_batches: [], total_count: 0, truncated: false } }) })
+    expect(screen.queryByRole('region', { name: 'Payroll connection status' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Preview exactly which approved hours/)).toBeInTheDocument()
+  })
+
+  it('does not describe an unconfirmed connection as paused', async () => {
+    apiMock.getPayrollBatches.mockReturnValue(new Promise(() => {}))
+    renderPayrollRuns()
+    expect(screen.getByRole('region', { name: 'Payroll connection status' })).toHaveTextContent('Checking payroll connection status')
+    expect(screen.queryByText(/Use the hours report for manual payroll while the connection is paused/)).not.toBeInTheDocument()
+    expect(screen.getByText(/while the connection status is being checked/)).toBeInTheDocument()
+  })
+
+  it('keeps read-only published batch history accessible while paused without lock instructions', async () => {
+    const paused = { mode: 'paused', enabled: false, message: 'Connected payroll is paused' }
+    apiMock.getPayrollBatches.mockResolvedValue({ data: { connected_payroll: paused, payroll_batches: [], total_count: 0, truncated: false } })
+    apiMock.previewPayrollBatch.mockResolvedValue({ data: { ...preview, connected_payroll: paused, can_finalize: false, published_calendar_periods: [ { external_pay_period_id: 'published', start_date: preview.start_date, end_date: preview.end_date, cutoff_at: preview.cutoff_at, status: 'finalized', payroll_batch_id: finalized.id } ] } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    const notice = await screen.findByRole('region', { name: 'Published payroll calendar' })
+    expect(notice).toHaveTextContent('Published payroll history')
+    expect(notice).not.toHaveTextContent('Lock action')
+    expect(notice).not.toHaveTextContent('Open Payroll Calendar')
+    fireEvent.click(within(notice).getByRole('button', { name: 'View published batch' }))
+    await waitFor(() => expect(apiMock.getPayrollBatch).toHaveBeenCalledWith(finalized.id))
+    expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
+  })
+
   it('explains the historical payment hold while keeping reconciliation available', async () => {
     apiMock.previewPayrollBatch.mockResolvedValue({ data: {
       ...preview, can_finalize: false,

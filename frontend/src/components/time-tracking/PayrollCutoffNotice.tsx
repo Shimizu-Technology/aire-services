@@ -92,7 +92,12 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   // refreshes update the banner without interrupting an action already in progress.
   const notice = kiosk ? kiosk.notice : response
   const cutoff = (!validated || stale) && kiosk?.notice ? kiosk.notice.cutoff : response?.cutoff ?? kiosk?.notice?.cutoff
-  const connection = response?.connected_payroll ?? kiosk?.notice?.connected_payroll
+  // A verified PIN/action notice outranks shared cache. A newer live server
+  // response may supersede it when the deployment mode changes afterwards.
+  const liveConnection = validated && !stale && response?.connected_payroll ? response : null
+  const pinConnection = kiosk?.notice?.connected_payroll ? kiosk.notice : null
+  const connection = pinConnection && (!liveConnection || Date.parse(pinConnection.cutoff.now) >= Date.parse(liveConnection.cutoff.now))
+    ? pinConnection.connected_payroll : liveConnection?.connected_payroll ?? response?.connected_payroll
   const paused = connection?.enabled === false
   const noticeCutoff = notice?.cutoff
   const noticeKey = noticeCutoff ? `${sessionKey}:${identity(noticeCutoff)}` : ''
@@ -124,7 +129,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     <Link to="/admin/payroll" className="mt-2 inline-flex min-h-11 items-center">Review payroll status</Link>
     {stale && <p className="mt-2">Last known payroll status · unable to refresh.</p>}
   </section> : null
-  if (paused) return <section aria-label="Payroll connection paused" className="cutoff-notice">{PAUSED_PAYROLL_MESSAGE}</section>
+  if (paused) return <>{attentionNotice}<section aria-label="Payroll connection paused" className="cutoff-notice">{PAUSED_PAYROLL_MESSAGE}</section></>
   if (!cutoff) return attentionNotice
   if (!cutoff.period) return attentionNotice || (isAdmin && connection?.enabled === true ? <section aria-label="Payroll cutoff setup" className="cutoff-notice">No scheduled payroll cutoff is published. <Link to="/admin/payroll">Set up the payroll calendar</Link>.</section> : null)
   if (cutoff.stage === 'none') return attentionNotice
