@@ -2,11 +2,23 @@
 
 module Payroll
   class LegacyHistoryCaseReview
+    REVIEW_BATCH_SIZE = 250
+
     def self.call
-      LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").includes(:user, :time_entry_breaks).find_each { |entry| capture!(entry) }
+      LegacyPaidHistoryGuard.uncovered_entries.where(approval_status: "approved").includes(:user, :time_entry_breaks)
+        .find_in_batches(batch_size: REVIEW_BATCH_SIZE) do |entries|
+        overtime_holds = HistoricalOvertimeHoldEvidence.new(entries: entries)
+        entries.each { |entry| capture!(entry, overtime_hold_evidence: overtime_holds) }
+      end
     end
 
-    def self.capture!(entry, actor: nil, reason: "Review uncovered pre-rollout hours against manual payment evidence")
+    def self.capture!(entry, actor: nil, reason: "Review uncovered pre-rollout hours against manual payment evidence", overtime_hold_evidence: nil)
+      # A frozen unpaid OT remainder is not new evidence that the entire source
+      # is owed. Leave its exclusion and approval fence intact. Changed or
+      # incomplete holds still fail this proof and receive ordinary review.
+      overtime_holds = overtime_hold_evidence || HistoricalOvertimeHoldEvidence.new(entries: [ entry ])
+      return if overtime_holds.call(entry)
+
       # Prefer the actual covering manual run. Older July work uses the first
       # release-history anchor; its opening event records that distinction.
       batches = LegacyPaidHistoryGuard.legacy_batches.distinct
