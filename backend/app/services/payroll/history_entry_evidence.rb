@@ -22,6 +22,7 @@ module Payroll
       @entries.index_with do |entry|
         {
           payable_content_checksum: PayableContent.checksum(entry),
+          payable_segments: payable_segments(entry),
           pending_overtime: overtime_holds.call(entry),
           baseline_lines: rows_by_entry.fetch(entry.id, []).map { |row| baseline_line(row, entry, legacy[entry.id]) },
           active_manual_allocation_ids: allocations.fetch(entry.id, []).map { |row| row.id.to_s }.sort,
@@ -38,6 +39,15 @@ module Payroll
     end
 
     private
+
+    # Current payable dates and totals, using the batch builder's per-entry
+    # cumulative rounding. Weekly REG/OT split needs the whole week, so it is
+    # deliberately omitted. A held interval collapses to the nominal date.
+    def payable_segments(entry)
+      PayableIntervals.allocate([ entry ]).fetch(entry.id).fetch(:segments).map do |segment|
+        { work_date: segment.fetch(:work_date).iso8601, total_hours: BigDecimal(segment.fetch(:total_hours).to_s).to_s("F") }
+      end
+    end
 
     def baseline_line(row, entry, legacy)
       batch = row.payroll_batch

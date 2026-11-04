@@ -167,6 +167,38 @@ RSpec.describe "Payroll history coverage API", type: :request do
     expect(response.parsed_body.fetch("time_entries").sole.dig("history_evidence", "baseline_lines", 0, "current_content_matches")).to be(false)
   end
 
+  it "exports current payable segments that match frozen overnight and split-shift baseline rows" do
+    guam = ActiveSupport::TimeZone["Pacific/Guam"]
+    # Saturday 22:00 to Sunday 02:00 Guam, split at Sunday 00:00.
+    overnight = entry_on("2026-09-12")
+    overnight.update_columns(start_time: guam.local(2026, 9, 12, 22), end_time: guam.local(2026, 9, 13, 2), hours: 4,
+      created_at: 1.day.ago, updated_at: 1.day.ago, approved_at: 1.day.ago)
+    # A second employee's Thursday 20:00 to Friday 03:00 shift with a 23:00-00:00 break.
+    split = entry_on("2026-09-10", user: create(:user, :employee))
+    split.update_columns(start_time: guam.local(2026, 9, 10, 20), end_time: guam.local(2026, 9, 11, 3), hours: 6, break_minutes: 0)
+    TimeEntryBreak.create!(time_entry: split, start_time: guam.local(2026, 9, 10, 23), end_time: guam.local(2026, 9, 11, 0))
+    split.update_columns(break_minutes: 60, created_at: 1.day.ago, updated_at: 1.day.ago, approved_at: 1.day.ago)
+    batch = Payroll::BatchFinalizer.new(start_date: "2026-09-01", end_date: "2026-09-15", actor: admin,
+      manual_processing: true, cutoff_at: 1.minute.ago.iso8601, processed_at: Time.current.iso8601,
+      external_pay_period_id: "76", processing_note: "Reviewed synthetic manually processed multi-day sources").call
+    expect do
+      get path, params: { through_work_date: "2026-09-15" }, headers: headers
+    end.not_to change { [ PayrollEntryProcessingEvent.count, PayrollManualAllocation.count, PayrollPaymentAttestation.count ] }
+    expect(response).to have_http_status(:ok)
+    rows = response.parsed_body.fetch("time_entries").index_by { |row| row.fetch("id") }
+    { overnight => [ [ "2026-09-12", "2.0" ], [ "2026-09-13", "2.0" ] ],
+      split => [ [ "2026-09-10", "3.0" ], [ "2026-09-11", "3.0" ] ] }.each do |entry, expected|
+      row = rows.fetch(entry.id.to_s)
+      evidence = row.fetch("history_evidence")
+      expect(row.fetch("work_date")).to eq(expected.first.first)
+      expect(evidence.fetch("payable_segments")).to eq(expected.map { |date, hours| { "work_date" => date, "total_hours" => hours } })
+      lines = evidence.fetch("baseline_lines").sort_by { |line| line.fetch("work_date") }
+      expect(lines.map { |line| [ line.fetch("work_date"), BigDecimal(line.fetch("total_hours")) ] })
+        .to eq(expected.map { |date, hours| [ date, BigDecimal(hours) ] })
+      expect(lines).to all(include("batch_id" => batch.public_id, "current_content_matches" => true))
+    end
+  end
+
   it "exports separately typed unchanged legacy evidence without approving time or creating payments" do
     entry = create(:time_entry, user: employee, work_date: "2026-09-01", status: "completed",
       entry_method: "manual", approval_status: "pending", skip_overtime_recomputation: true,
