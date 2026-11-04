@@ -158,7 +158,8 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
     post "/api/v1/aire/kiosk/cutoff", params: payload.merge(kiosk_token: AireKioskToken.issue_for(other))
     expect(response.parsed_body.fetch("acknowledged")).to be(false)
     post "/api/v1/aire/kiosk/cutoff", params: { kiosk_access_token: access }
-    expect(response.parsed_body.keys).to eq([ "cutoff" ])
+    expect(response.parsed_body.keys).to contain_exactly("cutoff", "connected_payroll")
+    expect(response.parsed_body.dig("connected_payroll", "enabled")).to be(true)
   end
   it "shows passed only after a batch is finalized, and retains it before the next warning window" do
     batch = create(:payroll_batch)

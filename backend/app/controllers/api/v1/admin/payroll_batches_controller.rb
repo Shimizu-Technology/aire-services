@@ -5,6 +5,7 @@ module Api
     module Admin
       class PayrollBatchesController < BaseController
         before_action :require_admin!
+        before_action :require_connected_payroll!, only: :create
         before_action :find_batch, only: %i[show export]
 
         def index
@@ -20,6 +21,7 @@ module Api
             .limit(100)
             .to_a
           render json: {
+            connected_payroll: ConnectedPayrollMode.capability,
             payroll_batches: batches.map { |batch| serialize_summary(batch) },
             total_count: total_count,
             truncated: total_count > batches.length
@@ -44,11 +46,14 @@ module Api
           legacy_blocked = ::Payroll::LegacyPaidHistoryGuard.blocked?
           render json: result.fetch(:payload).merge(
             preview: true,
-            can_finalize: periods.empty? && !legacy_blocked && result.dig(:issues, :missing_category_count).zero?,
+            connected_payroll: ConnectedPayrollMode.capability,
+            can_finalize: ConnectedPayrollMode.enabled? && periods.empty? && !legacy_blocked && result.dig(:issues, :missing_category_count).zero?,
             published_calendar_periods: periods.map { |period| period.as_contract_json(rollout: rollout, next_scheduled_cutoff_at: nil).slice(
               :external_pay_period_id, :start_date, :end_date, :cutoff_at, :status, :payroll_batch_id
             ) },
-            finalization_blocked_reason: if periods.any?
+            finalization_blocked_reason: if !ConnectedPayrollMode.enabled?
+              ConnectedPayrollMode::MESSAGE
+                                         elsif periods.any?
               "This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch."
                                          elsif legacy_blocked
               ::Payroll::LegacyPaidHistoryGuard::MESSAGE
@@ -99,6 +104,16 @@ module Api
         end
 
         private
+
+        def require_connected_payroll!
+          return if ConnectedPayrollMode.enabled?
+
+          # Availability refusal is not a domain action; leave all ledgers and
+          # the generic mutation audit untouched, like the integration guard.
+          Current.domain_audit_recorded = true
+          response.headers["Retry-After"] = "60"
+          render json: { error: ConnectedPayrollMode::MESSAGE, connected_payroll: ConnectedPayrollMode.capability }, status: :service_unavailable
+        end
 
         def parse_preview_cutoff
           return if params[:cutoff_at].blank?
