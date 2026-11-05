@@ -1,3 +1,5 @@
+import type { PayrollBatchListItem, PayrollCutoffResponse } from './api'
+
 const BUSINESS_TIME_ZONE = 'Pacific/Guam'
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
@@ -59,4 +61,21 @@ export function greatestPayrollEndDate(batches: Array<{ end_date: string }>) {
 export function withPayrollPeriod(path: string, period: PayrollPeriod, extra: Record<string, string> = {}) {
   const params = new URLSearchParams({ start_date: period.start, end_date: period.end, ...extra })
   return `${path}?${params.toString()}`
+}
+
+/** Choose the work being prepared rather than inferring it from today's date. */
+export function payrollPreparationPeriod(notice: PayrollCutoffResponse | undefined, batches: PayrollBatchListItem[], fallback = currentPayrollPeriod()): PayrollPeriod {
+  // Historical manual runs are recorded processing, not a new preparation task.
+  // This does not claim that their individual payments were issued.
+  const complete = (batch: PayrollBatchListItem) => batch.processing?.status === 'payment_issued'
+    || batch.processing?.external_system === 'cornerstone_payroll_manual'
+    || (batch.processing && 'accounting_only' in batch.processing && batch.processing.accounting_only === true)
+  const published = notice?.attention?.period ?? notice?.cutoff.period
+  if (published) {
+    const batch = batches.find(row => row.start_date === published.start_date && row.end_date === published.end_date)
+    if (!batch || !complete(batch)) return { start: published.start_date, end: published.end_date }
+  }
+  const latest = [...batches].sort((a, b) => Date.parse(b.finalized_at) - Date.parse(a.finalized_at))[0]
+  if (latest && !complete(latest)) return { start: latest.start_date, end: latest.end_date }
+  return fallback
 }

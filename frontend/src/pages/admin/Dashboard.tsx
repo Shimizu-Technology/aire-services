@@ -7,7 +7,7 @@ import { api } from '../../lib/api'
 import { businessDateISO, businessWeekStart } from '../../lib/dateUtils'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeEntry } from '../../lib/api'
-import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, withPayrollPeriod } from '../../lib/payrollPeriods'
+import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, payrollPreparationPeriod, withPayrollPeriod } from '../../lib/payrollPeriods'
 
 const actionLinks = [
   {
@@ -221,7 +221,7 @@ function EmployeeDashboard() {
 }
 
 function AdminDashboard() {
-  const payrollPeriod = currentPayrollPeriod()
+  const [payrollPeriod, setPayrollPeriod] = useState(currentPayrollPeriod)
   const [snapshotError, setSnapshotError] = useState<string | null>(null)
   const [snapshotAt, setSnapshotAt] = useState<Date | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
@@ -231,24 +231,32 @@ function AdminDashboard() {
     scheduledToday: 0,
     weeklyHours: 0,
     totalMembers: 0,
-    pendingApprovalHours: 0,
+    periodPendingApprovals: 0,
+    periodApprovalHours: 0,
     payrollFinalizedThrough: null as string | null,
   })
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true)
     try {
-      const [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes] = await Promise.all([
+      const [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes, cutoffRes] = await Promise.all([
         api.getWhosWorking(),
         api.getPendingApprovals(),
         api.getSchedules({ week: formatWeekStart(new Date()) }),
         api.getUsers(),
         api.getPayrollBatches(),
+        api.getPayrollCutoff(),
       ])
 
-      const failure = [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes].find((result) => result.error || !result.data)
+      const failure = [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes, cutoffRes].find((result) => result.error || !result.data)
       if (failure) {
         setSnapshotError(failure.error || 'Dashboard snapshot unavailable')
+        return
+      }
+      const preparationPeriod = payrollPreparationPeriod(cutoffRes.data, payrollRes.data?.payroll_batches ?? [])
+      const periodApprovals = await api.getPendingApprovals({ start_date: preparationPeriod.start, end_date: preparationPeriod.end, per_page: 1 })
+      if (periodApprovals.error || !periodApprovals.data) {
+        setSnapshotError(periodApprovals.error || 'Payroll-period approvals unavailable')
         return
       }
       const workers = workersRes.data?.workers ?? []
@@ -261,13 +269,15 @@ function AdminDashboard() {
       const todaySchedules = schedules.filter((s) => s.work_date === todayStr)
       const weeklyHours = schedules.reduce((sum, s) => sum + s.hours, 0)
 
+      setPayrollPeriod(preparationPeriod)
       setStats({
+        periodPendingApprovals: periodApprovals.data.summary?.entry_count ?? periodApprovals.data.count,
+        periodApprovalHours: periodApprovals.data.summary?.total_hours ?? 0,
         activeCount: active,
         pendingApprovals: approvalsRes.data?.count ?? 0,
         scheduledToday: todaySchedules.length,
         weeklyHours,
         totalMembers: usersRes.data?.users.length ?? 0,
-        pendingApprovalHours: approvalsRes.data?.summary?.total_hours ?? 0,
         payrollFinalizedThrough: greatestPayrollEndDate(payrollRes.data?.payroll_batches ?? []),
       })
       setSnapshotError(null)
@@ -294,7 +304,7 @@ function AdminDashboard() {
           </div>
           <div className="hidden shrink-0 items-center gap-2 sm:flex">
             <Link
-              to={withPayrollPeriod('/admin/payroll', payrollPeriod)}
+              to={withPayrollPeriod('/admin/payroll', payrollPeriod)} aria-disabled={!snapshotAt} onClick={event => { if (!snapshotAt) event.preventDefault() }}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
               Prepare Payroll
@@ -312,7 +322,7 @@ function AdminDashboard() {
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2 sm:hidden">
           <Link
-            to={withPayrollPeriod('/admin/payroll', payrollPeriod)}
+            to={withPayrollPeriod('/admin/payroll', payrollPeriod)} aria-disabled={!snapshotAt} onClick={event => { if (!snapshotAt) event.preventDefault() }}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
             Prepare Payroll
@@ -352,14 +362,14 @@ function AdminDashboard() {
               </p>
             </div>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              {stats.pendingApprovals > 0
-                ? `${stats.pendingApprovals} approval${stats.pendingApprovals === 1 ? '' : 's'} covering ${stats.pendingApprovalHours.toFixed(2)} hours still need review. Pending work can remain tracked and excluded when you finalize.`
+              {stats.periodPendingApprovals > 0
+                ? `${stats.periodPendingApprovals} approval${stats.periodPendingApprovals === 1 ? '' : 's'} covering ${stats.periodApprovalHours.toFixed(2)} hours still need review. Pending work can remain tracked and excluded when you finalize.`
                 : 'No approvals are currently waiting. Preview the cutoff to confirm included hours, exclusions, and any blocking payroll data.'}
             </p>
           </div>
           <div className="flex flex-col justify-center gap-3 border-t border-primary/10 bg-primary/5 p-5 sm:flex-row lg:flex-col lg:border-l lg:border-t-0">
-            <Link to={withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals', through_date: payrollPeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/20 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Review approvals</Link>
-            <Link to={withPayrollPeriod('/admin/payroll', payrollPeriod)} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Prepare payroll cutoff</Link>
+            <Link to={withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals' })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/20 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Review approvals</Link>
+            <Link to={withPayrollPeriod('/admin/payroll', payrollPeriod)} aria-disabled={!snapshotAt} onClick={event => { if (!snapshotAt) event.preventDefault() }} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Prepare payroll cutoff</Link>
           </div>
         </div>
       </section>
