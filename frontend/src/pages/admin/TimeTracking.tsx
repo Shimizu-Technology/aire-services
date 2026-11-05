@@ -380,7 +380,7 @@ export default function TimeTracking() {
   const currentPath = `${location.pathname}${location.search}`
   const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
   const routedDate = searchParams.get('date') || searchParams.get('start_date')
-  const routedView = searchParams.get('view') === 'day' ? 'day' : 'week'
+  const routedView = searchParams.get('view') === 'period' && linkedPayrollPeriod(searchParams) ? 'period' : searchParams.get('view') === 'day' ? 'day' : 'week'
   const routedEntryId = /^[1-9]\d*$/.test(searchParams.get('entry_id') || '') ? searchParams.get('entry_id') : null
   const entriesPage = Math.max(1, Math.min(10000, Number.parseInt(searchParams.get('entries_page') || '1', 10) || 1))
   const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
@@ -586,7 +586,10 @@ export default function TimeTracking() {
     try {
       const params: Record<string, string | number> = { per_page: 100, page: entriesPage }
       
-      if (viewMode === 'day') {
+      if (viewMode === 'period' && routedPeriodStart && routedPeriodEnd) {
+        params.start_date = routedPeriodStart
+        params.end_date = routedPeriodEnd
+      } else if (viewMode === 'day') {
         params.date = currentDate
       } else {
         params.week = businessWeekStart(currentDate)
@@ -614,7 +617,7 @@ export default function TimeTracking() {
     } finally {
       if (request === entryRequest.current) setLoading(false)
     }
-  }, [currentDate, viewMode, routedUserId, entryFilters.time_category_id, entriesPage])
+  }, [currentDate, viewMode, routedPeriodStart, routedPeriodEnd, routedUserId, entryFilters.time_category_id, entriesPage])
 
   // Load categories and users
   const loadOptions = useCallback(async () => {
@@ -1316,7 +1319,11 @@ export default function TimeTracking() {
       )}
 
       {/* View Controls */}
-      <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
+      {viewMode === 'period' && routedPeriod ? <section aria-label="Hours for payroll period" className="rounded-2xl border border-neutral-warm bg-white p-4">
+        <h2 className="font-semibold text-primary-dark">{formatDateOnly(routedPeriod.start, { month: 'short', day: 'numeric', year: 'numeric' })} – {formatDateOnly(routedPeriod.end, { month: 'short', day: 'numeric', year: 'numeric' })}</h2>
+        <p className="mt-1 text-sm text-primary-dark">Total: {visibleTotalHours.toFixed(1)} hours</p>
+        <button type="button" className="mt-2 min-h-11 font-medium text-primary underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('view', 'week'); next.set('date', businessDateISO()); next.delete('entries_page'); setSearchParams(next) }}>Return to current week</button>
+      </section> : <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
         {/* Mobile Layout */}
         <div className="flex flex-col gap-4 sm:hidden">
           {/* Top row: Date range and total */}
@@ -1448,6 +1455,8 @@ export default function TimeTracking() {
           </div>
         </div>
       </div>
+
+      }
 
       {/* Denied entries toggle */}
       {deniedCount > 0 && (
@@ -1657,7 +1666,7 @@ export default function TimeTracking() {
               <div className="w-12 h-12 mx-auto mb-3 text-primary-dark">
                 <ClockIcon />
               </div>
-              <p className="text-primary-dark font-medium">No time entries for this {viewMode === 'week' ? 'week' : 'day'}</p>
+              <p className="text-primary-dark font-medium">No time entries for this {viewMode === 'period' ? 'period' : viewMode === 'week' ? 'week' : 'day'}</p>
               <button
                 onClick={() => openNewEntry()}
                 disabled={!optionsReady || routedPrefill === 'true'}
@@ -1672,7 +1681,7 @@ export default function TimeTracking() {
                 <div key={entry.id} id={`time-entry-${entry.id}`} tabIndex={routedEntryId === String(entry.id) ? -1 : undefined} className={`p-3 sm:p-4 ${routedEntryId === String(entry.id) ? 'bg-cyan-50 ring-2 ring-inset ring-cyan-400' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      {!isAdmin && viewMode === 'week' && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
+                      {(viewMode === 'period' || (!isAdmin && viewMode === 'week')) && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
                       {/* Hours + Time + Category Row */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3">

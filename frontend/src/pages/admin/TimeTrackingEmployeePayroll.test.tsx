@@ -75,6 +75,16 @@ describe('My Time employee payment status', () => {
     })
   })
 
+  it('loads the entire linked payroll period in My Time rather than its first week', async () => {
+    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [fixture({ status: 'payment_issued', label: 'Paid', paid_hours: 8, held_hours: 0 })] } })
+    render(<MemoryRouter initialEntries={['/admin/time?tab=entries&view=period&start_date=2025-05-01&end_date=2025-05-15']}><TimeTracking /></MemoryRouter>)
+    await screen.findByLabelText('Payroll payment status')
+    expect(apiMock.getTimeEntries).toHaveBeenCalledWith({ start_date: '2025-05-01', end_date: '2025-05-15', per_page: 100, page: 1 })
+    expect(screen.getByRole('region', { name: 'Hours for payroll period' })).toHaveTextContent('May 1, 2025 – May 15, 2025')
+    fireEvent.click(screen.getByRole('button', { name: 'Return to current week' }))
+    expect(screen.queryByRole('region', { name: 'Hours for payroll period' })).not.toBeInTheDocument()
+  })
+
   it('never infers paid from approval when the status response is missing', async () => {
     open('day')
     const panel = await screen.findByLabelText('Payroll payment status')

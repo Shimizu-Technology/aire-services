@@ -68,13 +68,21 @@ describe('Payroll cutoff notice', () => {
     const dialog = await screen.findByRole('dialog', { name: /hours lock today/i })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveTextContent('ChST (UTC+10)')
-    expect(within(dialog).getByRole('link', { name: 'Review my hours' })).toHaveAttribute('href', '/admin/time?tab=entries')
+    expect(within(dialog).getByRole('link', { name: 'Review my hours' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=entries&view=period')
     await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveFocus())
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByRole('region', { name: 'Payroll cutoff' })).toBeInTheDocument()
     expect(api.acknowledgePayrollCutoff).toHaveBeenCalledOnce()
   })
+  it('links both the banner and popup to the entire locked period', async () => {
+    mount()
+    await screen.findByRole('dialog')
+    const links = screen.getAllByRole('link', { name: 'Review my hours' })
+    expect(links).toHaveLength(2)
+    for (const link of links) expect(link).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=entries&view=period')
+  })
+
   it('honors a server acknowledgement from another device', async () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
     mount()

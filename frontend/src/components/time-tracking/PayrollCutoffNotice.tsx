@@ -5,6 +5,7 @@ import { useAuthContext } from '../../contexts/AuthContext'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import './PayrollCutoffNotice.css'
+import { withPayrollPeriod } from '../../lib/payrollPeriods'
 import { PAUSED_PAYROLL_MESSAGE } from '../../lib/connectedPayroll'
 
 interface Props {
@@ -135,6 +136,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   if (cutoff.stage === 'none') return attentionNotice
   const banner = copy(cutoff, stale || (!validated && !kiosk?.notice))
   const modal = noticeCutoff ? copy(noticeCutoff, stale) : banner
+  const modalPeriod = noticeCutoff?.period || cutoff.period
   const passed = cutoff.stage === 'passed' || cutoff.stage === 'finalizing'
   return <>
     {attentionNotice}
@@ -145,7 +147,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
       {passed ? <p className="mt-2">Later approved hours need the late-hours review process.</p>
         : <p className="mt-2">Review your hours and contact your manager about anything missing. You can keep clocking in and out.</p>}
       {!kiosk && <div className="mt-3 flex flex-wrap items-center gap-4">
-        <Link to="/admin/time?tab=entries">Review my hours</Link>
+        <Link to={withPayrollPeriod('/admin/time', { start: cutoff.period.start_date, end: cutoff.period.end_date }, { tab: 'entries', view: 'period' })}>Review my hours</Link>
         {isAdmin && <Link to="/admin/time?tab=approvals">{pending === null ? 'Review pending approvals' : `${pending} pending approval${pending === 1 ? '' : 's'}`}</Link>}
       </div>}
       {ackError && <p className="mt-2" role="status">Dismissed on this screen. We couldn’t save your acknowledgement; you may see it again on another device.</p>}
@@ -163,7 +165,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
           <button type="button" onClick={dismiss} data-cutoff-ack className="cutoff-primary">Got it</button>
-          {!kiosk && <Link onClick={dismiss} to="/admin/time?tab=entries" className="cutoff-secondary">Review my hours</Link>}
+          {!kiosk && <Link onClick={dismiss} to={withPayrollPeriod('/admin/time', { start: modalPeriod.start_date, end: modalPeriod.end_date }, { tab: 'entries', view: 'period' })} className="cutoff-secondary">Review my hours</Link>}
         </div>
       </div>
     </div>}
