@@ -46,11 +46,20 @@ module Payroll
         end
         [ entry.id, {
           status: status,
-          label: LABELS.fetch(status),
+          label: employee_label(entry, status),
           paid_hours: lifecycle.fetch(:paid_hours),
           held_hours: lifecycle.fetch(:held_hours)
         } ]
       end
+    end
+
+    private
+
+    def employee_label(entry, status)
+      return LABELS.fetch(status) unless status == "held"
+      return "On hold — needs manager approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?)
+
+      LABELS.fetch(status)
     end
   end
 end

@@ -91,6 +91,15 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     expect(status_for(source)).to eq("status" => "held", "label" => "On hold — awaiting payroll", "paid_hours" => 0.0, "held_hours" => 8.0)
   end
 
+  it "explains an approval hold without changing its status or source quantities" do
+    source = entry(approval_status: "pending")
+    batch.payroll_batch_exclusions.create!(source_time_entry_id: source.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, reason: "pending_approval",
+      held_total_hours: 8, held_regular_hours: 8, held_overtime_hours: 0, snapshot: {})
+    expect(status_for(source)).to eq("status" => "held", "label" => "On hold — needs manager approval", "paid_hours" => 0.0, "held_hours" => 8.0)
+    expect(source.reload.approval_status).to eq("pending")
+  end
+
   it "does not invent payment history for uncovered entries inside the existing legacy fence" do
     boundary = Date.current.beginning_of_month
     PayrollLockRollout.configure!(starts_on: boundary, actor: "test", reason: "Synthetic historical test boundary")

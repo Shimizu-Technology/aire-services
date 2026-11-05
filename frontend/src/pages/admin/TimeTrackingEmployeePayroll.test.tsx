@@ -48,6 +48,7 @@ const states: Array<[EmployeePayrollStatus['status'], string, number, number]> =
   ['partially_processed', 'Partly in payroll — not paid yet', 0, 0],
   ['partially_allocated', 'Partly in payroll — not paid yet', 0, 0],
   ['held', 'On hold — awaiting payroll', 0, 8],
+  ['held', 'On hold — needs manager approval', 0, 8],
   ['payment_attested_pending_evidence', 'On hold — payment confirmation pending', 0, 8],
   ['payment_history_unavailable', 'Payment history unavailable', 0, 0],
 ]
