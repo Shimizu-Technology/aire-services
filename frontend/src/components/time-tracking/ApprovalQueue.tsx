@@ -500,7 +500,8 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
         return
       }
 
-      if (result.data?.time_entries?.some(entry => entry.payroll_cutoff_missed) || lateCount) setApprovalNotice(`Approved. Selected entries missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
+      const approvedLate = result.data?.time_entries?.some(entry => entry.payroll_cutoff_missed ?? selectedEntries.find(selected => selected.id === entry.id)?.payroll_cutoff_missed) ?? lateCount > 0
+      if (approvedLate) setApprovalNotice(`Approved. Selected entries missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
       window.dispatchEvent(new Event('aire:approvals-updated'))
       setSelectedIds(new Set())
       await fetchPending(approvalGroupFilter)

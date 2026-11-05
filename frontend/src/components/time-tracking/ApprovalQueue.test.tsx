@@ -436,6 +436,21 @@ describe('Late approval guidance', () => {
     } finally { window.removeEventListener('aire:approvals-updated', event) }
   })
 
+  it('uses fresh bulk response context when an entry moved out of a locked period', async () => {
+    const late = makeEntry({ payroll_cutoff_missed: true })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [late], count: 1 } })
+    apiMock.bulkApproveTimeEntries.mockResolvedValue({ data: { time_entries: [{ ...late, payroll_cutoff_missed: false }], count: 1 } })
+    const updated = vi.fn()
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    try {
+      render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded onUpdate={updated} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (1)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }))
+      await waitFor(() => expect(updated).toHaveBeenCalledOnce())
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('warns in bulk confirmation and still sends exactly the selected entries', async () => {
     const late = makeEntry({ payroll_cutoff_missed: true })
     const current = makeEntry({ id: 2, payroll_cutoff_missed: false })

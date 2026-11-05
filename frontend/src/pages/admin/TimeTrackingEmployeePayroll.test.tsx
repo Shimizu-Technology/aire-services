@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TimeTracking from './TimeTracking'
@@ -84,6 +84,9 @@ describe('My Time employee payment status', () => {
     expect(screen.getByRole('region', { name: 'Hours for payroll period' })).toHaveTextContent('May 1, 2025 – May 15, 2025')
     fireEvent.click(screen.getByRole('button', { name: 'Return to current week' }))
     expect(screen.queryByRole('region', { name: 'Hours for payroll period' })).not.toBeInTheDocument()
+    await waitFor(() => expect(apiMock.getTimeEntries.mock.calls.at(-1)?.[0]).toHaveProperty('week'))
+    expect(apiMock.getTimeEntries.mock.calls.at(-1)?.[0]).not.toHaveProperty('start_date')
+    expect(apiMock.getTimeEntries.mock.calls.at(-1)?.[0]).not.toHaveProperty('end_date')
   })
 
   it('never infers paid from approval when the status response is missing', async () => {
