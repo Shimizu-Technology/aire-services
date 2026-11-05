@@ -51,6 +51,36 @@ RSpec.describe "Approval cutoff display context", type: :request do
     end
   end
 
+  it "does not warn while paused" do
+    source = pending_entry(period.start_date)
+    previous = ENV["CONNECTED_PAYROLL_MODE"]
+    ENV["CONNECTED_PAYROLL_MODE"] = "paused"
+    travel_to(period.cutoff_at + 1.day) do
+      expect(Payroll::EntryCutoffWarnings.call([ source ])).to be_empty
+    end
+  ensure
+    ENV["CONNECTED_PAYROLL_MODE"] = previous
+  end
+
+  it "uses the actual manual lock instant, not the nominal scheduled cutoff" do
+    manual = build(:payroll_calendar_period, lock_mode: "manual")
+    manual.cutoff_enforcement_starts_on = manual.start_date.next_month.beginning_of_month
+    manual.save!
+    source = pending_entry(manual.start_date)
+    travel_to(manual.cutoff_at + 2.days) do
+      expect(Payroll::EntryCutoffWarnings.call([ source ])).to be_empty
+      locked_at = Time.current + 1.hour
+      batch = create(:payroll_batch, start_date: manual.start_date, end_date: manual.end_date,
+        cutoff_at: locked_at, finalized_at: locked_at, finalized_by: admin)
+      AuditLog.record!(action: "payroll_batch.finalized", actor: admin, source: "system", event_category: "payroll",
+        auditable: batch, metadata: { manual_calendar_lock: true, automated_cutoff: false, calendar_lock_reason: "Synthetic manual lock fixture" })
+      manual.update!(status: "finalized", payroll_batch: batch, finalized_at: locked_at)
+      expect(Payroll::EntryCutoffWarnings.call([ source ])).to be_empty
+      travel_to(locked_at)
+      expect(Payroll::EntryCutoffWarnings.call([ source ])).to eq([ source.id ].to_set)
+    end
+  end
+
   it "bulk-reads calendar context with no per-entry queries or writes" do
     sources = Array.new(12) { pending_entry(period.start_date) }
     statements = []

@@ -488,7 +488,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
     const lateCount = selectedEntries.filter(entry => entry.payroll_cutoff_missed).length
     const lateWarning = lateCount ? `\n\n${lateCount} selected entr${lateCount === 1 ? 'y has' : 'ies have'} missed the payroll cutoff.` : ''
     const selectedSummary = summarizeSelectedEntries(selectedEntries)
-    if (!confirm(`Approve ${selectedEntries.length} selected entr${selectedEntries.length === 1 ? 'y' : 'ies'}?\n\nDate range: ${selectedSummary.dateLabel}\nTotal hours: ${selectedSummary.totalHours.toFixed(2)}h${lateWarning}\n\n${LATE_HOURS_NOTICE}`)) return
+    if (!confirm(`Approve ${selectedEntries.length} selected entr${selectedEntries.length === 1 ? 'y' : 'ies'}?\n\nDate range: ${selectedSummary.dateLabel}\nTotal hours: ${selectedSummary.totalHours.toFixed(2)}h${lateWarning}${lateCount > 0 ? `\n\n${LATE_HOURS_NOTICE}` : ''}`)) return
 
     setBulkActionLoading(true)
     setActionError(null)

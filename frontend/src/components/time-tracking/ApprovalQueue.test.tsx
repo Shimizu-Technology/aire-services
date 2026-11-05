@@ -451,6 +451,20 @@ describe('Late approval guidance', () => {
     } finally { vi.unstubAllGlobals() }
   })
 
+  it('does not add a late-hours instruction to an on-time bulk confirmation', async () => {
+    const current = makeEntry({ payroll_cutoff_missed: false })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [current], count: 1 } })
+    const confirmation = vi.fn<(message: string) => boolean>(() => false)
+    vi.stubGlobal('confirm', confirmation)
+    try {
+      render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded onUpdate={vi.fn()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (1)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }))
+      expect(confirmation).toHaveBeenCalledOnce()
+      expect(confirmation.mock.calls[0]?.[0]).not.toContain(LATE_HOURS_NOTICE)
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('warns in bulk confirmation and still sends exactly the selected entries', async () => {
     const late = makeEntry({ payroll_cutoff_missed: true })
     const current = makeEntry({ id: 2, payroll_cutoff_missed: false })
