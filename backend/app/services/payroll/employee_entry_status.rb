@@ -20,7 +20,7 @@ module Payroll
       "partially_prepared" => "Partly prepared — not fully paid",
       "partially_processed" => "Partly in payroll — not paid yet",
       "partially_allocated" => "Partly in payroll — not paid yet",
-      "payment_attested_pending_evidence" => "On hold — payment confirmation pending",
+      "payment_attested_pending_evidence" => "Payment reported — details pending",
       "held" => "On hold — awaiting payroll",
       "payment_history_unavailable" => "Payment history unavailable"
     }.freeze
@@ -33,12 +33,15 @@ module Payroll
       lifecycles = EntryLifecycleResolver.new(entries: @entries).call
       # The existing historical fence identifies older entries without inventing
       # a date boundary or treating a historical commit as issued payment.
+      rollout = PayrollLockRollout.find_by(id: 1)
+      untracked = !ConnectedPayrollMode.enabled? || rollout.nil?
       legacy_ids = @entries.empty? ? [] : LegacyPaidHistoryGuard.legacy_entry_ids(@entries.map(&:id))
       @entries.to_h do |entry|
         lifecycle = lifecycles.fetch(entry.id)
         status = lifecycle.fetch(:status)
         settlements = lifecycle.fetch(:settlements)
-        if (status == "ready_for_cutoff" && legacy_ids.include?(entry.id) && settlements.empty?) ||
+        historical = legacy_ids.include?(entry.id) || (rollout && entry.work_date < rollout.cutoff_enforcement_starts_on)
+        if (status == "ready_for_cutoff" && (untracked || historical) && settlements.empty?) ||
             (status == "committed" && settlements.any? && settlements.all? { |row| row[:legacy_processing] })
           status = "payment_history_unavailable"
         elsif lifecycle.fetch(:held_hours).positive? && settlements.empty? && status.in?(%w[ready_for_cutoff awaiting_approval])
@@ -46,7 +49,7 @@ module Payroll
         end
         [ entry.id, {
           status: status,
-          label: employee_label(entry, status),
+          label: employee_label(entry, status, lifecycle, historical: historical),
           paid_hours: lifecycle.fetch(:paid_hours),
           held_hours: lifecycle.fetch(:held_hours)
         } ]
@@ -55,9 +58,17 @@ module Payroll
 
     private
 
-    def employee_label(entry, status)
+    def employee_label(entry, status, lifecycle, historical:)
+      if status == "payment_attested_pending_evidence" && historical
+        return "Historical payment reported — details unavailable"
+      end
+      return "Payroll correction recorded — no new payment" if lifecycle[:accounting_only]
+      if lifecycle[:paid_hours].positive? && lifecycle[:paid_hours] >= entry.hours.to_f && status.in?(%w[finalized imported committed partially_paid partially_processed partially_allocated])
+        return "Paid hours recorded — payroll update pending"
+      end
+
       return LABELS.fetch(status) unless status == "held"
-      return "On hold — needs manager approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?)
+      return "On hold — needs manager approval" if entry.approval_status == "pending" || entry.overtime_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?)
 
       LABELS.fetch(status)
     end

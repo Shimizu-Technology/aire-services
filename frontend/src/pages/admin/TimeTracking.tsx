@@ -1321,7 +1321,7 @@ export default function TimeTracking() {
       {/* View Controls */}
       {viewMode === 'period' && routedPeriod ? <section aria-label="Hours for payroll period" className="rounded-2xl border border-neutral-warm bg-white p-4">
         <h2 className="font-semibold text-primary-dark">{formatDateOnly(routedPeriod.start, { month: 'short', day: 'numeric', year: 'numeric' })} – {formatDateOnly(routedPeriod.end, { month: 'short', day: 'numeric', year: 'numeric' })}</h2>
-        <p className="mt-1 text-sm text-primary-dark">Total: {visibleTotalHours.toFixed(1)} hours</p>
+        <p className="mt-1 text-sm text-primary-dark">Total: {Number(entryMeta?.summary?.total_hours ?? visibleTotalHours).toFixed(1)} hours</p>
         <button type="button" className="mt-2 min-h-11 font-medium text-primary underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('view', 'week'); next.set('date', businessDateISO()); next.delete('start_date'); next.delete('end_date'); next.delete('entries_page'); setSearchParams(next) }}>Return to current week</button>
       </section> : <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
         {/* Mobile Layout */}
@@ -3258,8 +3258,8 @@ function EmployeePaymentStatus({ status }: { status?: EmployeePayrollStatus | nu
   return (
     <div className="mt-2 space-y-1 break-words text-sm text-primary-dark" aria-label="Payroll payment status">
       <p className="font-medium">{status?.label || 'Payment status unavailable'}</p>
-      {status && <p className="text-xs text-text-muted">Paid hours: {status.paid_hours.toFixed(2)}h</p>}
-      {!!status?.held_hours && <p className="text-xs text-amber-800">Hours on hold: {status.held_hours.toFixed(2)}h</p>}
+      {status && <p className="text-xs text-text-muted">{['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status.status) ? 'Receipt-confirmed paid hours' : 'Paid hours'}: {status.paid_hours.toFixed(2)}h</p>}
+      {!!status?.held_hours && <p className="text-xs text-amber-800">{status.status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status.status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: {status.held_hours.toFixed(2)}h</p>}
     </div>
   )
 }

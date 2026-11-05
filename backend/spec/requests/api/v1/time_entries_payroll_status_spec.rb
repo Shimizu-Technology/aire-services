@@ -9,15 +9,21 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
   let(:headers) { { "Authorization" => "Bearer test_token_#{employee.id}" } }
   let(:batch) { create(:payroll_batch) }
 
+  before do |example|
+    next if example.metadata[:without_rollout]
+
+    PayrollLockRollout.configure!(starts_on: Date.current.beginning_of_month, actor: "test", reason: "Synthetic tracking activation")
+  end
+
   def entry(**attributes)
     create(:time_entry, user: employee, time_category: category, status: "completed",
       entry_method: "clock", clock_source: "legacy", approval_status: "approved", overtime_status: "none", **attributes)
   end
 
-  def receipt(source, status, hours: source.hours, line_key: "work", payroll_batch: batch, **attributes)
+  def receipt(source, status, hours: source.hours, line_key: "work", payroll_batch: batch, source_kind: "current", **attributes)
     row = payroll_batch.payroll_batch_entries.create!(source_time_entry_id: source.id, source_user_id: source.user_id,
       source_user_uuid: source.user.payroll_integration_uuid, source_category_id: source.time_category_id,
-      work_date: source.work_date, week_start: source.work_date.beginning_of_week(:sunday), source_kind: "current",
+      work_date: source.work_date, week_start: source.work_date.beginning_of_week(:sunday), source_kind: source_kind,
       line_key: line_key, total_hours: hours, regular_hours: hours, overtime_hours: 0, snapshot: {})
     PayrollEntryProcessingEvent.create!(payroll_batch: payroll_batch, event_id: SecureRandom.uuid,
       source_time_entry_id: source.id, source_user_uuid: row.source_user_uuid,
@@ -68,7 +74,7 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     source = entry
     Payroll::PaymentAttestationRecorder.new(actor: admin).attest!(entry: source,
       source_user_uuid: employee.payroll_integration_uuid, reason: "Private test evidence pending reconciliation")
-    expect(status_for(source)).to eq("status" => "payment_attested_pending_evidence", "label" => "On hold — payment confirmation pending", "paid_hours" => 0.0, "held_hours" => 8.0)
+    expect(status_for(source)).to eq("status" => "payment_attested_pending_evidence", "label" => "Payment reported — details pending", "paid_hours" => 0.0, "held_hours" => 8.0)
     expect(response.body).not_to include("Private test evidence", "payment_attestation", "attested_at")
   end
 
@@ -107,6 +113,69 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     batch.payroll_batch_processing_events.create!(event_id: SecureRandom.uuid, status: "committed",
       external_system: "cornerstone_payroll_manual", external_pay_period_id: "test-history", occurred_at: Time.current)
     expect(status_for(source)).to include("status" => "payment_history_unavailable", "paid_hours" => 0.0)
+  end
+
+  it "uses neutral history for no-settlement entries while paused or before rollout setup", :without_rollout do
+    source = entry
+    previous = ENV["CONNECTED_PAYROLL_MODE"]
+    ENV["CONNECTED_PAYROLL_MODE"] = "paused"
+    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+    ENV["CONNECTED_PAYROLL_MODE"] = "enabled"
+    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+  ensure
+    ENV["CONNECTED_PAYROLL_MODE"] = previous
+  end
+
+  it "keeps older uncovered entries neutral even without a manual batch" do
+    source = entry(work_date: Date.current.beginning_of_month - 1.day)
+    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+  end
+
+  it "describes historical reports calmly without exposing or implying exact payment evidence" do
+    source = entry(work_date: Date.current.beginning_of_month - 1.day)
+    batch.payroll_batch_processing_events.create!(event_id: SecureRandom.uuid, status: "committed",
+      external_system: "cornerstone_payroll_manual", occurred_at: Time.current)
+    Payroll::PaymentAttestationRecorder.new(actor: admin).attest!(entry: source,
+      source_user_uuid: employee.payroll_integration_uuid, reason: "Private historical payment report")
+    expect(status_for(source)).to include("status" => "payment_attested_pending_evidence", "label" => "Historical payment reported — details unavailable", "paid_hours" => 0.0, "held_hours" => 8.0)
+    expect(response.body).not_to include("Private historical", "payment_reference", "attested_at")
+  end
+
+  it "does not describe paid source hours as unpaid after a negative correction" do
+    source = entry(hours: 6)
+    receipt(source, "payment_issued", hours: 8, occurred_at: 1.minute.ago)
+    later = create(:payroll_batch, start_date: batch.start_date.next_month, end_date: batch.end_date.next_month, cutoff_at: batch.cutoff_at + 1.month, finalized_at: batch.finalized_at + 1.month)
+    receipt(source, "committed", hours: -2, line_key: "correction", source_kind: "correction", payroll_batch: later)
+    expect(status_for(source)).to include("status" => "committed", "label" => "Paid hours recorded — payroll update pending", "paid_hours" => 8.0)
+  end
+
+  it "describes an accounting correction separately from payment, with or without original paid evidence" do
+    source = entry(hours: 6)
+    correction = create(:payroll_batch, start_date: batch.start_date.next_month, end_date: batch.end_date.next_month, cutoff_at: batch.cutoff_at + 1.month, finalized_at: batch.finalized_at + 1.month)
+    metadata = { "accounting_only" => true, "correction_disposition_id" => "9", "original_pay_period_id" => "10", "original_payroll_item_id" => "11",
+      "corrective_pay_period_id" => "44", "corrective_payroll_item_id" => "55" }
+    receipt(source, "committed", hours: -2, source_kind: "correction", payroll_batch: correction,
+      payment_method: nil, payment_reference: nil, external_pay_period_id: "44", external_payroll_item_id: "55", metadata: metadata)
+    expect(status_for(source)).to include("label" => "Payroll correction recorded — no new payment", "paid_hours" => 0.0)
+    receipt(source, "payment_issued", hours: 8, occurred_at: 1.minute.ago)
+    expect(status_for(source)).to include("label" => "Payroll correction recorded — no new payment", "paid_hours" => 8.0)
+  end
+
+  it "explains pending weekly overtime holds as needing approval" do
+    source = entry(overtime_status: "pending")
+    allow(Payroll::WeeklyOvertimeReview).to receive(:call).and_return(source.id => true)
+    batch.payroll_batch_exclusions.create!(source_time_entry_id: source.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, reason: "pending_overtime",
+      held_total_hours: 8, held_regular_hours: 0, held_overtime_hours: 8, snapshot: {})
+    expect(status_for(source)).to include("status" => "held", "label" => "On hold — needs manager approval", "held_hours" => 8.0)
+  end
+
+  it "does not retain held quantities after time is denied" do
+    source = entry(approval_status: "denied")
+    batch.payroll_batch_exclusions.create!(source_time_entry_id: source.id, source_user_id: employee.id,
+      source_user_uuid: employee.payroll_integration_uuid, reason: "pending_approval",
+      held_total_hours: 8, held_regular_hours: 8, held_overtime_hours: 0, snapshot: {})
+    expect(status_for(source)).to include("status" => "not_payable", "label" => "Not in payroll — time denied", "held_hours" => 0.0)
   end
 
   it "shows exact paid and prepared quantities as partial payment" do

@@ -49,8 +49,12 @@ const states: Array<[EmployeePayrollStatus['status'], string, number, number]> =
   ['partially_allocated', 'Partly in payroll — not paid yet', 0, 0],
   ['held', 'On hold — awaiting payroll', 0, 8],
   ['held', 'On hold — needs manager approval', 0, 8],
-  ['payment_attested_pending_evidence', 'On hold — payment confirmation pending', 0, 8],
+  ['payment_attested_pending_evidence', 'Payment reported — details pending', 0, 8],
+  ['payment_attested_pending_evidence', 'Historical payment reported — details unavailable', 0, 8],
+  ['committed', 'Paid hours recorded — payroll update pending', 8, 0],
+  ['committed', 'Payroll correction recorded — no new payment', 0, 0],
   ['payment_history_unavailable', 'Payment history unavailable', 0, 0],
+  ['payment_history_unavailable', 'Payment history unavailable', 0, 8],
 ]
 
 describe('My Time employee payment status', () => {
@@ -67,8 +71,8 @@ describe('My Time employee payment status', () => {
       open(view, { status, label, paid_hours: paid, held_hours: held })
       const panel = await screen.findByLabelText('Payroll payment status')
       expect(within(panel).getByText(label, { exact: true })).toBeVisible()
-      expect(within(panel).getByText(`Paid hours: ${paid.toFixed(2)}h`)).toBeVisible()
-      if (held) expect(within(panel).getByText(`Hours on hold: ${held.toFixed(2)}h`)).toBeVisible()
+      expect(within(panel).getByText(`${['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status) ? 'Receipt-confirmed paid hours' : 'Paid hours'}: ${paid.toFixed(2)}h`)).toBeVisible()
+      if (held) expect(within(panel).getByText(`${status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: ${held.toFixed(2)}h`)).toBeVisible()
       else expect(within(panel).queryByText(/Hours on hold/)).not.toBeInTheDocument()
       if (status !== 'payment_issued') expect(within(panel).queryByText('Paid', { exact: true })).not.toBeInTheDocument()
       // Employee week uses the same wrapping cards as day, with dates visible.
@@ -87,6 +91,13 @@ describe('My Time employee payment status', () => {
     await waitFor(() => expect(apiMock.getTimeEntries.mock.calls.at(-1)?.[0]).toHaveProperty('week'))
     expect(apiMock.getTimeEntries.mock.calls.at(-1)?.[0]).not.toHaveProperty('start_date')
     expect(apiMock.getTimeEntries.mock.calls.at(-1)?.[0]).not.toHaveProperty('end_date')
+  })
+
+  it('shows the whole filtered period total while cards are paginated', async () => {
+    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [fixture()], summary: { total_hours: 24, entry_count: 3 }, pagination: { page: 1, per_page: 1, total_pages: 3, total_count: 3 } } })
+    render(<MemoryRouter initialEntries={['/admin/time?tab=entries&view=period&start_date=2025-05-01&end_date=2025-05-15']}><TimeTracking /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Hours for payroll period' })).toHaveTextContent('Total: 24.0 hours'))
+    expect(screen.queryByText('Total: 8.0 hours')).not.toBeInTheDocument()
   })
 
   it('never infers paid from approval when the status response is missing', async () => {

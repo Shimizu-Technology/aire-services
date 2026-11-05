@@ -97,7 +97,7 @@ module Payroll
               issued_event_id: report.resolved_issued_event_id.to_s }
           end,
           paid_hours: round_hours(settlements.sum { |row| row.fetch(:paid_hours, row[:status] == "payment_issued" ? row[:total_hours] : 0) }),
-          held_hours: held_hours(entry, settlements, attestation, latest_exclusion),
+          held_hours: current_status == "not_payable" ? 0.0 : held_hours(entry, settlements, attestation, latest_exclusion),
           settlements: settlements.map { |settlement| settlement.except(:event) }
         }.compact
       end
