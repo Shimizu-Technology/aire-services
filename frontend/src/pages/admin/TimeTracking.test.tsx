@@ -470,6 +470,13 @@ describe('TimeTracking routed report periods', () => {
     })))
   })
 
+  it('opens the locked-period approval queue with its existing range filters', async () => {
+    render(<MemoryRouter initialEntries={['/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals']}><TimeRouteHarness /></MemoryRouter>)
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-10-16', end_date: '2026-10-31' })))
+    expect(screen.getByDisplayValue('2026-10-16')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('2026-10-31')).toBeInTheDocument()
+  })
+
   it('clears the approval-only cutoff when navigating from approvals to reports', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/time?tab=approvals&start_date=2026-08-01&end_date=2026-08-15&through_date=2026-08-15']}>

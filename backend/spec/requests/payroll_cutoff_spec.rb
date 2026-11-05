@@ -170,6 +170,88 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
     expect(read_cutoff.fetch("stage")).to eq("passed")
   end
 
+  %w[scheduled finalized failed].each do |status|
+    it "expires the #{status} cutoff banner at three days without changing its lock" do
+      if status == "finalized"
+        period.update!(status: status, payroll_batch: create(:payroll_batch), finalized_at: cutoff)
+      elsif status == "failed"
+        period.update!(status: status)
+      end
+      travel_to(cutoff + 3.days - 1.second)
+      expect(read_cutoff.fetch("stage")).to eq(status == "scheduled" ? "finalizing" : "passed")
+      travel_to(cutoff + 3.days)
+      expect(read_cutoff.fetch("stage")).to eq("none")
+      get "/api/v1/payroll_cutoff", headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
+      expect(response.parsed_body.dig("cutoff", "stage")).to eq("none")
+      if status == "failed"
+        expect(response.parsed_body.dig("attention", "cutoff_state")).to eq("attention_required")
+      end
+      post "/api/v1/aire/kiosk/cutoff", params: { kiosk_access_token: AireKioskAccessToken.issue_for(admin) }
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.dig("cutoff", "stage")).to eq("none")
+      expect(period.reload.status).to eq(status)
+      expect(period.cutoff_at).to eq(cutoff)
+    end
+  end
+
+  %w[scheduled manual].each do |mode|
+    it "separates #{mode} preparation from reminders before the warning window" do
+      period.update!(status: "finalized", payroll_batch: create(:payroll_batch), finalized_at: cutoff)
+      starts_on = mode == "manual" ? "2026-10-01" : "2026-11-01"
+      ends_on = mode == "manual" ? "2026-10-15" : "2026-11-15"
+      next_period = create(:payroll_calendar_period, start_date: starts_on, end_date: ends_on,
+        pay_date: "2026-11-29", cutoff_at: guam.local(2026, 11, 22, 17), lock_mode: mode,
+        cutoff_enforcement_starts_on: mode == "manual" ? "2026-10-16" : nil)
+      travel_to(guam.local(2026, 11, 17, 9))
+      get "/api/v1/payroll_cutoff", headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
+      expect(response.parsed_body.fetch("preparation_period")).to include("id" => next_period.id, "start_date" => starts_on)
+      expect(response.parsed_body.dig("cutoff", "stage")).to eq("none")
+      get "/api/v1/payroll_cutoff", headers: headers
+      expect(response.parsed_body).not_to have_key("preparation_period")
+    end
+  end
+
+  %w[failed scheduled].each do |old_status|
+    it "keeps a later reminder and old #{old_status} attention independently" do
+      # Move the old publication far enough back that its reminder expired.
+      period.update!(cutoff_at: guam.local(2026, 10, 23, 17),
+        previous_regular_pay_date: "2026-10-16", status: old_status)
+      later = create(:payroll_calendar_period, start_date: "2026-11-01", end_date: "2026-11-15",
+        pay_date: "2026-11-29", cutoff_at: guam.local(2026, 11, 6, 17), schema_version: "2.0",
+        cutoff_rule: "after_previous_regular_payday", previous_regular_pay_date: "2026-10-30")
+      travel_to(guam.local(2026, 11, 6, 9))
+      expect(read_cutoff).to include("period" => include("id" => later.id), "stage" => "24h")
+      get "/api/v1/payroll_cutoff", headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
+      expect(response.parsed_body.dig("attention", "period", "id")).to eq(period.id)
+      expect(response.parsed_body.dig("attention", "cutoff_state")).to eq("attention_required")
+      post "/api/v1/aire/kiosk/cutoff", params: { kiosk_access_token: AireKioskAccessToken.issue_for(admin) }
+      expect(response.parsed_body.dig("cutoff", "period", "id")).to eq(later.id)
+      expect(response.parsed_body).not_to have_key("attention")
+    end
+  end
+
+  it "shows a later finalized reminder even when an older failed lock remains" do
+    period.update!(cutoff_at: guam.local(2026, 10, 23, 17), previous_regular_pay_date: "2026-10-16", status: "failed")
+    later = create(:payroll_calendar_period, start_date: "2026-11-01", end_date: "2026-11-15",
+      pay_date: "2026-11-29", cutoff_at: guam.local(2026, 11, 6, 17), schema_version: "2.0",
+      cutoff_rule: "after_previous_regular_payday", previous_regular_pay_date: "2026-10-30",
+      status: "finalized", payroll_batch: create(:payroll_batch), finalized_at: guam.local(2026, 11, 6, 17))
+    travel_to(guam.local(2026, 11, 7, 9))
+    expect(read_cutoff).to include("period" => include("id" => later.id), "stage" => "passed")
+  end
+
+  it "keeps failed-lock attention while paused but returns no preparation period" do
+    period.update!(status: "failed")
+    previous = ENV["CONNECTED_PAYROLL_MODE"]
+    ENV["CONNECTED_PAYROLL_MODE"] = "paused"
+    get "/api/v1/payroll_cutoff", headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
+    expect(response.parsed_body.fetch("preparation_period")).to be_nil
+    expect(response.parsed_body.dig("attention", "period", "id")).to eq(period.id)
+    expect(response.parsed_body.dig("cutoff", "stage")).to eq("none")
+  ensure
+    ENV["CONNECTED_PAYROLL_MODE"] = previous
+  end
+
   context "with a legacy scheduled period before activation" do
     let(:period_attributes) do
       { start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-29", cutoff_at: guam.local(2026, 10, 22, 17) }

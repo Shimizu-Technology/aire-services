@@ -4,7 +4,7 @@ import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Frag
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
-import type { TimeEntriesResponse } from '../../lib/api'
+import type { EmployeePayrollStatus, TimeEntriesResponse } from '../../lib/api'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
@@ -45,6 +45,7 @@ interface TimeEntryItem {
   status?: 'clocked_in' | 'on_break' | 'completed'
   approval_status?: 'pending' | 'approved' | 'denied' | null
   overtime_status?: 'none' | 'pending' | 'approved' | 'denied' | null
+  payroll_status?: EmployeePayrollStatus | null
   payroll_lifecycle?: PayrollEntryLifecycle
   quality_flags?: HoursReportEntry['quality_flags']
   attendance_status?: 'early' | 'on_time' | 'late' | null
@@ -379,7 +380,7 @@ export default function TimeTracking() {
   const currentPath = `${location.pathname}${location.search}`
   const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
   const routedDate = searchParams.get('date') || searchParams.get('start_date')
-  const routedView = searchParams.get('view') === 'day' ? 'day' : 'week'
+  const routedView = searchParams.get('view') === 'period' && linkedPayrollPeriod(searchParams) ? 'period' : searchParams.get('view') === 'day' ? 'day' : 'week'
   const routedEntryId = /^[1-9]\d*$/.test(searchParams.get('entry_id') || '') ? searchParams.get('entry_id') : null
   const entriesPage = Math.max(1, Math.min(10000, Number.parseInt(searchParams.get('entries_page') || '1', 10) || 1))
   const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
@@ -585,7 +586,10 @@ export default function TimeTracking() {
     try {
       const params: Record<string, string | number> = { per_page: 100, page: entriesPage }
       
-      if (viewMode === 'day') {
+      if (viewMode === 'period' && routedPeriodStart && routedPeriodEnd) {
+        params.start_date = routedPeriodStart
+        params.end_date = routedPeriodEnd
+      } else if (viewMode === 'day') {
         params.date = currentDate
       } else {
         params.week = businessWeekStart(currentDate)
@@ -613,7 +617,7 @@ export default function TimeTracking() {
     } finally {
       if (request === entryRequest.current) setLoading(false)
     }
-  }, [currentDate, viewMode, routedUserId, entryFilters.time_category_id, entriesPage])
+  }, [currentDate, viewMode, routedPeriodStart, routedPeriodEnd, routedUserId, entryFilters.time_category_id, entriesPage])
 
   // Load categories and users
   const loadOptions = useCallback(async () => {
@@ -1118,6 +1122,9 @@ export default function TimeTracking() {
 
   const deniedCount = entries.filter(e => e.approval_status === 'denied').length
   const visibleTotalHours = sumEntryHours(visibleEntries)
+  const periodTotalHours = entryMeta
+    ? Number(entryMeta.summary.total_hours) - (showDenied ? 0 : Number(entryMeta.summary.denied_hours ?? 0))
+    : visibleTotalHours
 
   const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, payroll_statuses: {} }
   const hoursSummaryRows = hoursReport?.employees ?? []
@@ -1315,7 +1322,11 @@ export default function TimeTracking() {
       )}
 
       {/* View Controls */}
-      <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
+      {viewMode === 'period' && routedPeriod ? <section aria-label="Hours for payroll period" className="rounded-2xl border border-neutral-warm bg-white p-4">
+        <h2 className="font-semibold text-primary-dark">{formatDateOnly(routedPeriod.start, { month: 'short', day: 'numeric', year: 'numeric' })} – {formatDateOnly(routedPeriod.end, { month: 'short', day: 'numeric', year: 'numeric' })}</h2>
+        <p className="mt-1 text-sm text-primary-dark">Total: {periodTotalHours.toFixed(1)} hours</p>
+        <button type="button" className="mt-2 min-h-11 font-medium text-primary underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('view', 'week'); next.set('date', businessDateISO()); next.delete('start_date'); next.delete('end_date'); next.delete('entries_page'); setSearchParams(next) }}>Return to current week</button>
+      </section> : <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
         {/* Mobile Layout */}
         <div className="flex flex-col gap-4 sm:hidden">
           {/* Top row: Date range and total */}
@@ -1448,6 +1459,8 @@ export default function TimeTracking() {
         </div>
       </div>
 
+      }
+
       {/* Denied entries toggle */}
       {deniedCount > 0 && (
         <div className="flex items-center justify-end">
@@ -1492,7 +1505,7 @@ export default function TimeTracking() {
       )}
 
       {entryMeta && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
-        <p>{entryMeta.summary.entry_count} entries · {Number(entryMeta.summary.total_hours).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
+        <p>{entryMeta.summary.entry_count} entries · {(viewMode === 'period' ? periodTotalHours : Number(entryMeta.summary.total_hours)).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
         {entryMeta.pagination.total_pages > 1 && <div className="flex items-center gap-3"><button type="button" disabled={loading || entriesPage <= 1} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage - 1)); setSearchParams(next) }}>Previous entries</button><span>Page {entriesPage} of {entryMeta.pagination.total_pages}</span><button type="button" disabled={loading || entriesPage >= entryMeta.pagination.total_pages} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage + 1)); setSearchParams(next) }}>Next entries</button></div>}
       </div>}
       {linkedEntry && <section aria-label="Linked time entry" className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-sm">
@@ -1527,7 +1540,7 @@ export default function TimeTracking() {
             ))}
           </div>
         </div>
-      ) : viewMode === 'week' ? (
+      ) : viewMode === 'week' && isAdmin ? (
         /* Week View */
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           <div className="overflow-x-auto">
@@ -1649,14 +1662,14 @@ export default function TimeTracking() {
           </div>
         </div>
       ) : (
-        /* Day View */
+        /* Employee week/day list and manager day view */
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm hover:shadow-md transition-shadow duration-300">
           {visibleEntries.length === 0 ? (
             <div className="p-8 text-center">
               <div className="w-12 h-12 mx-auto mb-3 text-primary-dark">
                 <ClockIcon />
               </div>
-              <p className="text-primary-dark font-medium">No time entries for this day</p>
+              <p className="text-primary-dark font-medium">No time entries for this {viewMode === 'period' ? 'period' : viewMode === 'week' ? 'week' : 'day'}</p>
               <button
                 onClick={() => openNewEntry()}
                 disabled={!optionsReady || routedPrefill === 'true'}
@@ -1671,6 +1684,7 @@ export default function TimeTracking() {
                 <div key={entry.id} id={`time-entry-${entry.id}`} tabIndex={routedEntryId === String(entry.id) ? -1 : undefined} className={`p-3 sm:p-4 ${routedEntryId === String(entry.id) ? 'bg-cyan-50 ring-2 ring-inset ring-cyan-400' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
+                      {(viewMode === 'period' || (!isAdmin && viewMode === 'week')) && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
                       {/* Hours + Time + Category Row */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3">
@@ -1708,6 +1722,7 @@ export default function TimeTracking() {
                           </span>
                         )}
                       </div>
+                      {!isAdmin && <EmployeePaymentStatus status={entry.payroll_status} />}
                       {/* Owner */}
                       <p className="mt-1 text-xs sm:text-sm text-primary-dark/80 truncate">
                         by {isAdmin ? <Link to={employeeWorkspaceHref(entry.user.id, { tab: 'hours', returnTo: currentPath, entry: String(entry.id), period: `${entry.work_date.slice(0, 7)}-${Number(entry.work_date.slice(8)) <= 15 ? '01' : '16'}` })} className="underline decoration-primary/30 underline-offset-4">{ownerLabel(entry)}</Link> : ownerLabel(entry)}
@@ -3238,6 +3253,17 @@ function PersonDayModalContent({
           Close
         </button>
       </div>
+    </div>
+  )
+}
+
+function EmployeePaymentStatus({ status }: { status?: EmployeePayrollStatus | null }) {
+  const neutral = status && ['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status.status)
+  return (
+    <div className="mt-2 space-y-1 break-words text-sm text-primary-dark" aria-label="Payroll payment status">
+      <p className="font-medium">{status?.label || 'Payment status unavailable'}</p>
+      {status && (!neutral || status.paid_hours > 0) && <p className="text-xs text-text-muted">Paid hours confirmed: {status.paid_hours.toFixed(2)}h</p>}
+      {!!status?.held_hours && <p className="text-xs text-amber-800">{status.status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status.status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: {status.held_hours.toFixed(2)}h</p>}
     </div>
   )
 }

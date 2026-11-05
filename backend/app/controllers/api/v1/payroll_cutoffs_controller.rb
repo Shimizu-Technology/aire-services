@@ -47,7 +47,10 @@ module Api
         cutoff = ::Payroll::CutoffPresenter.call
         payload = { cutoff: cutoff, connected_payroll: ConnectedPayrollMode.capability }
         payload[:acknowledged] = PayrollCutoffAcknowledgement.exists?(PayrollCutoffAcknowledgement.identity(user, cutoff)) if user
-        payload[:attention] = ::Payroll::CutoffPresenter.attention if include_attention
+        if include_attention
+          payload[:attention] = ::Payroll::CutoffPresenter.attention
+          payload[:preparation_period] = ::Payroll::CutoffPresenter.preparation_period
+        end
         render json: payload
       end
 

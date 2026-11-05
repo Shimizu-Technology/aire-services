@@ -506,7 +506,18 @@ export interface ApprovalReason {
   label: string;
 }
 
+// Safe status returned by the employee time-entry reads. Manager evidence is
+// deliberately a separate type and response contract.
+export interface EmployeePayrollStatus {
+  status: PayrollEntryLifecycleStatus | 'held' | 'payment_history_unavailable';
+  label: string;
+  paid_hours: number;
+  held_hours: number;
+}
+
 export interface TimeEntry {
+  payroll_cutoff_missed?: boolean;
+  payroll_status?: EmployeePayrollStatus | null;
   version?: number;
   id: number;
   work_date: string;
@@ -764,6 +775,7 @@ export interface TimeEntriesResponse {
   };
   summary: {
     total_hours: number;
+    denied_hours?: number;
     total_break_hours: number;
     entry_count: number;
   };
@@ -1246,6 +1258,7 @@ export interface PayrollBatchPayload {
 }
 
 export interface PayrollBatchListItem {
+  purpose?: 'regular' | 'supplemental';
   id: string;
   start_date: string;
   end_date: string;
@@ -1442,7 +1455,7 @@ export interface PayrollCutoffAttention {
   lock_mode: 'manual' | 'scheduled';
   cutoff_state: 'attention_required';
 }
-export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; attention?: PayrollCutoffAttention | null }
+export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null }
 export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
 
 export const api = {

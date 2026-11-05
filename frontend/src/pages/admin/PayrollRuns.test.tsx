@@ -1,3 +1,4 @@
+import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
@@ -314,7 +315,22 @@ describe('PayrollRuns', () => {
     renderPayrollRuns()
 
     expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
-    expect(screen.getByText(/AIRE will include it automatically/)).toBeInTheDocument()
+    expect(screen.getAllByText(LATE_HOURS_NOTICE, { exact: false }).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
+  })
+
+  it.each([false, true])('explains late routing for a calendar preview: %s', async published => {
+    apiMock.previewPayrollBatch.mockResolvedValue({ data: { ...preview, published_calendar_periods: published ? [{ external_pay_period_id: 'period', start_date: preview.start_date, end_date: preview.end_date, cutoff_at: preview.cutoff_at, status: 'scheduled', payroll_batch_id: null }] : [] } })
+    renderPayrollRuns()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
+    const section = (await screen.findByRole('heading', { name: 'Excluded at this cutoff' })).closest('section')!
+    if (published) {
+      expect(section).toHaveTextContent(`For published payroll periods: ${LATE_HOURS_NOTICE}`)
+      expect(section).not.toHaveTextContent('included automatically')
+    } else {
+      expect(section).toHaveTextContent('For batches without a published period, later approved hours are included automatically in the next finalized batch.')
+      expect(section).not.toHaveTextContent('need the late-hours step')
+    }
   })
 
   it('distinguishes historical review from recorded manual payments', async () => {

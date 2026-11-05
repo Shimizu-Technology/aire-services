@@ -96,6 +96,8 @@ module Payroll
               manual_allocation_id: report.resolved_manual_allocation_id.to_s,
               issued_event_id: report.resolved_issued_event_id.to_s }
           end,
+          paid_hours: round_hours(settlements.sum { |row| row.fetch(:paid_hours, row[:status] == "payment_issued" ? row[:total_hours] : 0) }),
+          held_hours: current_status == "not_payable" ? 0.0 : held_hours(entry, settlements, attestation, latest_exclusion),
           settlements: settlements.map { |settlement| settlement.except(:event) }
         }.compact
       end
@@ -129,6 +131,7 @@ module Payroll
         latest_event = PayrollEntryProcessingEvent.latest(events)
 
         {
+          legacy_processing: processing[:external_system] == "cornerstone_payroll_manual",
           batch_id: batch.public_id,
           start_date: batch.start_date.iso8601,
           end_date: batch.end_date.iso8601,
@@ -206,16 +209,48 @@ module Payroll
       end
       if manual.any?
         latest_batch_settlement = settlements.reject { |settlement| settlement.fetch(:batch_id).start_with?("manual-") }.last
-        return latest_batch_settlement.fetch(:status) if latest_batch_settlement
+        return batch_status_for(entry, settlements.reject { |settlement| settlement.fetch(:batch_id).start_with?("manual-") }) if latest_batch_settlement
 
         return "payment_voided"
       end
-      return settlements.last.fetch(:status) if settlements.any?
+      return batch_status_for(entry, settlements) if settlements.any?
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
       return "awaiting_approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?) || (entry.overtime_status == "pending" && @weekly_overtime_reviews.fetch(entry.id, false))
       return "not_payable" if entry.approval_status == "denied" || (entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false))
 
       "ready_for_cutoff"
+    end
+
+    # Source hours can span payroll runs. A later prepared run does not erase
+    # earlier issued coverage. Keep attention and noncash correction states
+    # explicit rather than hiding them behind an aggregate payment label.
+    def batch_status_for(entry, settlements)
+      latest = settlements.last
+      status = latest.fetch(:status)
+      return status if status.in?(%w[payment_voided payment_cancelled payment_failed]) || latest[:accounting_only]
+
+      paid = settlements.sum { |row| row.fetch(:paid_hours, 0).to_d }
+      lines = settlements.flat_map { |row| row.fetch(:payable_lines, [ row ]) }
+      unpaid = lines.select { |row| !row[:accounting_only] && row[:status].in?(%w[finalized imported committed payment_prepared]) }
+        .sum { |row| row[:total_hours].to_d }
+      return "partially_paid" if paid.positive? && (paid < entry.hours.to_d || unpaid.positive?)
+
+      status
+    end
+
+    # Exclusions are retained history. Only their still-unallocated source
+    # quantity remains held; a later allocation must not retain a stale hold.
+    def held_hours(entry, settlements, attestation, exclusion)
+      lines = settlements.flat_map { |row| row.fetch(:payable_lines, [ row ]) }
+      allocated = lines.reject { |row| row[:status] == "payment_voided" }.sum { |row| row[:total_hours].to_d }
+      unallocated = [ entry.hours.to_d - allocated, 0.to_d ].max
+      exclusion_hours = if exclusion && (PayrollBatchExclusion::CARRYOVER_REASONS + [ "pending_payment_attestation" ]).include?(exclusion.reason)
+        exclusion.held_total_hours.to_d
+      else
+        0.to_d
+      end
+      held = [ attestation&.hours.to_d || 0.to_d, exclusion_hours ].max
+      round_hours([ held, unallocated ].min)
     end
 
     def round_hours(value)

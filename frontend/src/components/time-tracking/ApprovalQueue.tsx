@@ -10,6 +10,7 @@ import type {
   TimeEntry,
 } from '../../lib/api'
 import { addDateDays, businessDateISO, businessWeekStart, formatWorkDate } from '../../lib/dateUtils'
+import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
@@ -229,6 +230,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [refreshingFilter, setRefreshingFilter] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [approvalNotice, setApprovalNotice] = useState<string | null>(null)
   const [noteInput, setNoteInput] = useState<{ id: number; note: string } | null>(null)
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null)
@@ -426,6 +428,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
     if (queueUnavailable) return
     setActionLoading(entry.id)
     setActionError(null)
+    setApprovalNotice(null)
     try {
       const isOvertimeOnly = entry.approval_status !== 'pending' && entry.overtime_status === 'pending'
       const result = isOvertimeOnly
@@ -435,6 +438,8 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
       if (result.error) {
         setActionError(result.error)
       } else {
+        if (result.data?.time_entry?.payroll_cutoff_missed ?? entry.payroll_cutoff_missed) setApprovalNotice(`Approved. This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
+        window.dispatchEvent(new Event('aire:approvals-updated'))
         await fetchPending(approvalGroupFilter)
         setNoteInput(null)
         onUpdate?.()
@@ -450,6 +455,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
     if (queueUnavailable) return
     setActionLoading(entry.id)
     setActionError(null)
+    setApprovalNotice(null)
     try {
       const isOvertimeOnly = entry.approval_status !== 'pending' && entry.overtime_status === 'pending'
       const result = isOvertimeOnly
@@ -459,6 +465,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
       if (result.error) {
         setActionError(result.error)
       } else {
+        window.dispatchEvent(new Event('aire:approvals-updated'))
         await fetchPending(approvalGroupFilter)
         setNoteInput(null)
         onUpdate?.()
@@ -478,11 +485,14 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
       return
     }
 
+    const lateCount = selectedEntries.filter(entry => entry.payroll_cutoff_missed).length
+    const lateWarning = lateCount ? `\n\n${lateCount} selected entr${lateCount === 1 ? 'y has' : 'ies have'} missed the payroll cutoff.` : ''
     const selectedSummary = summarizeSelectedEntries(selectedEntries)
-    if (!confirm(`Approve ${selectedEntries.length} selected entr${selectedEntries.length === 1 ? 'y' : 'ies'}?\n\nDate range: ${selectedSummary.dateLabel}\nTotal hours: ${selectedSummary.totalHours.toFixed(2)}h`)) return
+    if (!confirm(`Approve ${selectedEntries.length} selected entr${selectedEntries.length === 1 ? 'y' : 'ies'}?\n\nDate range: ${selectedSummary.dateLabel}\nTotal hours: ${selectedSummary.totalHours.toFixed(2)}h${lateWarning}${lateCount > 0 ? `\n\n${LATE_HOURS_NOTICE}` : ''}`)) return
 
     setBulkActionLoading(true)
     setActionError(null)
+    setApprovalNotice(null)
     try {
       const result = await api.bulkApproveTimeEntries(selectedEntries.map((entry) => entry.id))
       if (result.error) {
@@ -490,6 +500,9 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
         return
       }
 
+      const approvedLate = result.data?.time_entries?.some(entry => entry.payroll_cutoff_missed ?? selectedEntries.find(selected => selected.id === entry.id)?.payroll_cutoff_missed) ?? lateCount > 0
+      if (approvedLate) setApprovalNotice(`Approved. Selected entries missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
+      window.dispatchEvent(new Event('aire:approvals-updated'))
       setSelectedIds(new Set())
       await fetchPending(approvalGroupFilter)
       setNoteInput(null)
@@ -679,6 +692,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
               </div>
             </div>
 
+            {entry.payroll_cutoff_missed && <p className="mt-2 text-sm text-amber-900">This entry missed the payroll cutoff. {LATE_HOURS_NOTICE}</p>}
             {noteInput?.id === entry.id && (
               <div
                 className="mt-3"
@@ -693,18 +707,18 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
               </div>
             )}
 
-            <div className="flex items-center gap-2 mt-3">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:items-center">
               <button
                 onClick={() => handleApprove(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
                 disabled={missingCategory || actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
-                className="flex-1 min-h-[44px] py-2 px-3 bg-primary hover:bg-primary-dark active:bg-primary-dark disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
+                className="min-w-0 flex-1 break-words min-h-[44px] py-2 px-3 bg-primary hover:bg-primary-dark active:bg-primary-dark disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
               >
                 {actionLoading === entry.id ? 'Processing...' : missingCategory ? 'Category required' : 'Approve'}
               </button>
               <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
                 disabled={actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
-                className="flex-1 min-h-[44px] py-2 px-3 bg-white hover:bg-secondary active:bg-secondary-dark disabled:opacity-50 text-red-600 text-sm font-medium rounded-xl transition-colors border border-red-200"
+                className="min-w-0 flex-1 break-words min-h-[44px] py-2 px-3 bg-white hover:bg-secondary active:bg-secondary-dark disabled:opacity-50 text-red-600 text-sm font-medium rounded-xl transition-colors border border-red-200"
               >
                 Deny
               </button>
@@ -957,6 +971,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
           </div>
         </div>
 
+        {approvalNotice && <p role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{approvalNotice}</p>}
         {actionError && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 mb-3 flex items-center justify-between gap-2">
             <p className="text-xs text-red-700">{actionError}</p>

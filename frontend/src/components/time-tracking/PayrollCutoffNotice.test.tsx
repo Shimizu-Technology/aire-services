@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import PayrollCutoffNotice from './PayrollCutoffNotice'
 import { api } from '../../lib/api'
 
@@ -68,13 +69,54 @@ describe('Payroll cutoff notice', () => {
     const dialog = await screen.findByRole('dialog', { name: /hours lock today/i })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveTextContent('ChST (UTC+10)')
-    expect(within(dialog).getByRole('link', { name: 'Review my hours' })).toHaveAttribute('href', '/admin/time?tab=entries')
+    expect(within(dialog).getByRole('link', { name: 'Review my hours' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=entries&view=period')
     await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveFocus())
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByRole('region', { name: 'Payroll cutoff' })).toBeInTheDocument()
     expect(api.acknowledgePayrollCutoff).toHaveBeenCalledOnce()
   })
+  it('links both the banner and popup to the entire locked period', async () => {
+    mount()
+    await screen.findByRole('dialog')
+    const links = screen.getAllByRole('link', { name: 'Review my hours' })
+    expect(links).toHaveLength(2)
+    for (const link of links) expect(link).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=entries&view=period')
+  })
+
+  it('gives managers period-review instructions and a popup approval action', async () => {
+    auth.role = 'admin'
+    mount()
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).not.toHaveTextContent('contact your manager')
+    expect(screen.getByRole('region', { name: 'Payroll cutoff' })).not.toHaveTextContent('contact your manager')
+    expect(dialog).toHaveTextContent('Review this period’s hours and pending approvals before then.')
+    expect(within(dialog).getByRole('link', { name: 'Review pending approvals' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals')
+    expect(within(dialog).getByRole('link', { name: 'Review period hours' })).toBeInTheDocument()
+  })
+
+  it('preserves employee instructions and keeps manager actions private', async () => {
+    mount()
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Review your hours and contact your manager about anything missing before then.')
+    expect(screen.queryByRole('link', { name: 'Review pending approvals' })).not.toBeInTheDocument()
+  })
+
+  it('mounts the overlay outside page spacing and clipping ancestors', async () => {
+    const host = document.createElement('div')
+    host.className = 'space-y-8'
+    document.body.appendChild(host)
+    const view = render(<MemoryRouter><PayrollCutoffNotice /></MemoryRouter>, { container: host })
+    try {
+      const dialog = await screen.findByRole('dialog')
+      expect(dialog.parentElement?.parentElement).toBe(document.body)
+      expect(dialog.closest('.space-y-8')).toBeNull()
+      fireEvent.keyDown(document, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(document.body.style.overflow).not.toBe('hidden')
+    } finally { view.unmount(); host.remove() }
+  })
+
   it('honors a server acknowledgement from another device', async () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
     mount()
@@ -101,8 +143,18 @@ describe('Payroll cutoff notice', () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: { ...cutoff, stage: 'passed' }, acknowledged: false } })
     await act(async () => { window.dispatchEvent(new Event('focus')) })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.getByText(/Later approved hours need the late-hours review process/)).toBeInTheDocument()
+    expect(screen.getByText(LATE_HOURS_NOTICE)).toBeInTheDocument()
   })
+  it('keeps failed-lock attention for admins after the reminder expires', async () => {
+    auth.role = 'admin'
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: { ...cutoff, stage: 'none' }, attention: { period: cutoff.period, lock_mode: 'scheduled', cutoff_state: 'attention_required' } } })
+    mount()
+    expect(await screen.findByRole('region', { name: 'Payroll attention' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Payroll cutoff' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(api.getPendingApprovals).not.toHaveBeenCalled()
+  })
+
   it('does not show anything to employees without a published scheduled period', async () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: { ...cutoff, period: null, stage: 'none' } } })
     mount()
@@ -161,7 +213,20 @@ describe('Payroll cutoff notice', () => {
     vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 1 } })
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
     mount()
-    expect(await screen.findByRole('link', { name: '1 pending approval' })).toHaveAttribute('href', '/admin/time?tab=approvals')
+    expect(await screen.findByRole('link', { name: '1 pending approval' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals')
+    expect(api.getPendingApprovals).toHaveBeenCalledWith({ per_page: 1, start_date: '2026-10-16', end_date: '2026-10-31' })
+  })
+
+  it('refreshes the period-scoped pending count after an approval event', async () => {
+    auth.role = 'admin'
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
+    vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 2 } })
+    mount()
+    await screen.findByRole('link', { name: '2 pending approvals' })
+    vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 1 } })
+    await act(async () => { window.dispatchEvent(new Event('aire:approvals-updated')) })
+    await screen.findByRole('link', { name: '1 pending approval' })
+    expect(api.getPendingApprovals).toHaveBeenLastCalledWith({ per_page: 1, start_date: '2026-10-16', end_date: '2026-10-31' })
   })
 
   it('marks a kiosk notice stale and removes relative date copy when refresh fails', async () => {
@@ -203,15 +268,15 @@ describe('Payroll cutoff notice', () => {
     expect(within(dialog).getByRole('button', { name: 'Close payroll cutoff notice' })).toBeVisible()
   })
 
-  it('shows admins a failed manual lock attention notice without an employee countdown', async () => {
+  it.each(['manual', 'scheduled'] as const)('shows admins %s lock attention without an employee countdown', async lockMode => {
     auth.role = 'admin'
     vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 0 } })
-    const data = { cutoff: { ...cutoff, period: null, stage: 'none' as const }, attention: { period: { id: 8, start_date: '2026-10-01', end_date: '2026-10-15' }, lock_mode: 'manual' as const, cutoff_state: 'attention_required' as const } }
+    const data = { cutoff: { ...cutoff, period: null, stage: 'none' as const }, attention: { period: { id: 8, start_date: '2026-10-01', end_date: '2026-10-15' }, lock_mode: lockMode, cutoff_state: 'attention_required' as const } }
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data })
     mount()
     const notice = await screen.findByRole('region', { name: 'Payroll attention' })
     expect(notice).toHaveTextContent('October 1–15')
-    expect(notice).toHaveTextContent('manual payroll lock did not complete')
+    expect(notice).toHaveTextContent(`${lockMode === 'manual' ? 'manual payroll lock' : 'scheduled payroll finalization'} has not completed`)
     expect(within(notice).getByRole('link', { name: 'Review payroll status' })).toHaveAttribute('href', '/admin/payroll')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.queryByText(/hours lock/)).not.toBeInTheDocument()

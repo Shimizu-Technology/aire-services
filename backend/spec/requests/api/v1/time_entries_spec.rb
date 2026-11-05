@@ -662,6 +662,23 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         expect(ids).not_to include(other_entry.id)
       end
 
+      it "summarizes denied hours across pages without including another employee" do
+        starts_on = Date.new(2026, 5, 1)
+        5.times do |index|
+          create(:time_entry, user: employee, work_date: starts_on + index.days + 1.day,
+            hours: 8, approval_status: index.zero? ? nil : "approved")
+        end
+        create(:time_entry, user: employee, work_date: starts_on, hours: 8, approval_status: "denied")
+        create(:time_entry, user: other_employee, work_date: starts_on, hours: 8, approval_status: "denied")
+
+        [ 1, 2 ].each do |page|
+          get "/api/v1/time_entries", params: { start_date: starts_on.iso8601, end_date: (starts_on + 14.days).iso8601, page: page, per_page: 1 }, headers: auth_headers_for[employee]
+          expect(response).to have_http_status(:ok)
+          expect(json.fetch(:summary)).to include(total_hours: 48.0, denied_hours: 8.0, entry_count: 6)
+          expect(json.fetch(:time_entries).sole.fetch(:approval_status)).not_to eq("denied")
+        end
+      end
+
       it "summarizes every matching entry in a requested week" do
         week_start = Date.new(2026, 5, 10)
         create(
@@ -684,6 +701,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         expect(response).to have_http_status(:ok)
         expect(json.dig(:summary, :entry_count)).to eq(2)
         expect(json.dig(:summary, :total_hours)).to eq(1.6)
+        expect(json.dig(:summary, :denied_hours)).to eq(0.0)
         expect(json[:time_entries].size).to eq(2)
       end
     end
