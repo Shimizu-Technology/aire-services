@@ -41,8 +41,6 @@ module Payroll
         if (status == "ready_for_cutoff" && legacy_ids.include?(entry.id) && settlements.empty?) ||
             (status == "committed" && settlements.any? && settlements.all? { |row| row[:legacy_processing] })
           status = "payment_history_unavailable"
-        elsif status == "payment_issued" && lifecycle.fetch(:paid_hours).to_d < entry.hours.to_d
-          status = "partially_paid"
         elsif lifecycle.fetch(:held_hours).positive? && settlements.empty? && status.in?(%w[ready_for_cutoff awaiting_approval])
           status = "held"
         end

@@ -209,16 +209,33 @@ module Payroll
       end
       if manual.any?
         latest_batch_settlement = settlements.reject { |settlement| settlement.fetch(:batch_id).start_with?("manual-") }.last
-        return latest_batch_settlement.fetch(:status) if latest_batch_settlement
+        return batch_status_for(entry, settlements.reject { |settlement| settlement.fetch(:batch_id).start_with?("manual-") }) if latest_batch_settlement
 
         return "payment_voided"
       end
-      return settlements.last.fetch(:status) if settlements.any?
+      return batch_status_for(entry, settlements) if settlements.any?
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
       return "awaiting_approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?) || (entry.overtime_status == "pending" && @weekly_overtime_reviews.fetch(entry.id, false))
       return "not_payable" if entry.approval_status == "denied" || (entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false))
 
       "ready_for_cutoff"
+    end
+
+    # Source hours can span payroll runs. A later prepared run does not erase
+    # earlier issued coverage. Keep attention and noncash correction states
+    # explicit rather than hiding them behind an aggregate payment label.
+    def batch_status_for(entry, settlements)
+      latest = settlements.last
+      status = latest.fetch(:status)
+      return status if status.in?(%w[payment_voided payment_cancelled payment_failed]) || latest[:accounting_only]
+
+      paid = settlements.sum { |row| row.fetch(:paid_hours, 0).to_d }
+      lines = settlements.flat_map { |row| row.fetch(:payable_lines, [ row ]) }
+      unpaid = lines.select { |row| !row[:accounting_only] && row[:status].in?(%w[finalized imported committed payment_prepared]) }
+        .sum { |row| row[:total_hours].to_d }
+      return "partially_paid" if paid.positive? && (paid < entry.hours.to_d || unpaid.positive?)
+
+      status
     end
 
     # Exclusions are retained history. Only their still-unallocated source

@@ -14,12 +14,12 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
       entry_method: "clock", clock_source: "legacy", approval_status: "approved", overtime_status: "none", **attributes)
   end
 
-  def receipt(source, status, hours: source.hours, line_key: "work", **attributes)
-    row = batch.payroll_batch_entries.create!(source_time_entry_id: source.id, source_user_id: source.user_id,
+  def receipt(source, status, hours: source.hours, line_key: "work", payroll_batch: batch, **attributes)
+    row = payroll_batch.payroll_batch_entries.create!(source_time_entry_id: source.id, source_user_id: source.user_id,
       source_user_uuid: source.user.payroll_integration_uuid, source_category_id: source.time_category_id,
       work_date: source.work_date, week_start: source.work_date.beginning_of_week(:sunday), source_kind: "current",
       line_key: line_key, total_hours: hours, regular_hours: hours, overtime_hours: 0, snapshot: {})
-    PayrollEntryProcessingEvent.create!(payroll_batch: batch, event_id: SecureRandom.uuid,
+    PayrollEntryProcessingEvent.create!(payroll_batch: payroll_batch, event_id: SecureRandom.uuid,
       source_time_entry_id: source.id, source_user_uuid: row.source_user_uuid,
       contract_version: "2.0", source_line_key: row.line_key, source_kind: row.source_kind,
       total_hours: hours, regular_hours: hours, overtime_hours: 0, status: status,
@@ -107,6 +107,22 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     expect(status_for(source)).to include("status" => "partially_paid", "label" => "Partly paid", "paid_hours" => 6.0)
   end
 
+  {
+    "payment_prepared" => [ "partially_paid", "Partly paid" ],
+    "payment_cancelled" => [ "payment_cancelled", "Payment cancelled" ],
+    "payment_voided" => [ "payment_voided", "Payment voided" ],
+    "payment_failed" => [ "payment_failed", "Payment needs attention" ]
+  }.each do |later_state, (expected_status, label)|
+    it "retains paid hours and an honest label when a later batch is #{later_state}" do
+      source = entry
+      receipt(source, "payment_issued", hours: 6)
+      later_batch = create(:payroll_batch, start_date: batch.start_date.next_month, end_date: batch.end_date.next_month,
+        cutoff_at: batch.cutoff_at + 1.month, finalized_at: batch.finalized_at + 1.month)
+      receipt(source, later_state, hours: 2, line_key: "training", payroll_batch: later_batch)
+      expect(status_for(source)).to include("status" => expected_status, "label" => label, "paid_hours" => 6.0)
+    end
+  end
+
   it "does not count already paid lines as held inside a mixed voided settlement" do
     source = entry
     receipt(source, "payment_issued", hours: 6)
@@ -158,7 +174,7 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
   end
 
   it "bulk-resolves only the authorized page with bounded queries as its size grows" do
-    entries = Array.new(12) { entry }
+    entries = Array.new(12) { |index| entry(work_date: Date.current - index.days) }
     entries.each { |source| receipt(source, "payment_prepared") }
     # Warm schema and auth caches before measuring uncached SQL.
     get "/api/v1/time_entries", params: { per_page: 1 }, headers: headers
@@ -179,7 +195,11 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     RSpec.configuration.reporter.message("My Time uncached SQL: 1 entry=#{one.size}, 12 entries=#{many.size}")
     expect(many.size).to be <= one.size + 2
     expect(many.size).to be <= 35
-    expect(Payroll::EmployeeEntryStatus).to receive(:new).with(entries: satisfy { |rows| rows.size == 1 && rows.all? { |row| row.user_id == employee.id } }).and_call_original
+    get "/api/v1/time_entries", params: { per_page: entries.size }, headers: headers
+    second_id = response.parsed_body.fetch("time_entries").second.fetch("id")
+    expect(Payroll::EmployeeEntryStatus).to receive(:new).with(entries: satisfy { |rows| rows.map(&:id) == [ second_id ] && rows.all? { |row| row.user_id == employee.id } }).and_call_original
     get "/api/v1/time_entries", params: { per_page: 1, page: 2 }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.fetch("time_entries").map { |row| row.fetch("id") }).to eq([ second_id ])
   end
 end
