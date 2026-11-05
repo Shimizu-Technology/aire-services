@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import ApprovalQueue from './ApprovalQueue'
 import type { PendingApprovalsSummary, TimeCategory, TimeEntry } from '../../lib/api'
 
@@ -407,4 +408,48 @@ describe('ApprovalQueue review workflow', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
   })
 
+})
+
+
+describe('Late approval guidance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
+  })
+
+  it('warns before and after approving late time without blocking the approval', async () => {
+    const late = makeEntry({ payroll_cutoff_missed: true })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [late], count: 1 } })
+    apiMock.approveTimeEntry.mockResolvedValue({ data: { time_entry: { ...late, approval_status: 'approved' } } })
+    const updated = vi.fn()
+    const event = vi.fn()
+    window.addEventListener('aire:approvals-updated', event)
+    try {
+      render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded onUpdate={updated} />)
+      expect(await screen.findByText(`This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+      await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(late.id, undefined))
+      expect(await screen.findByRole('status')).toHaveTextContent(`Approved. This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
+      await waitFor(() => expect(updated).toHaveBeenCalledOnce())
+      expect(event).toHaveBeenCalledOnce()
+    } finally { window.removeEventListener('aire:approvals-updated', event) }
+  })
+
+  it('warns in bulk confirmation and still sends exactly the selected entries', async () => {
+    const late = makeEntry({ payroll_cutoff_missed: true })
+    const current = makeEntry({ id: 2, payroll_cutoff_missed: false })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [late, current], count: 2 } })
+    apiMock.bulkApproveTimeEntries.mockResolvedValue({ data: { time_entries: [late, current], count: 2 } })
+    const confirmation = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirmation)
+    try {
+      render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (2)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }))
+      expect(confirmation).toHaveBeenCalledWith(expect.stringContaining('1 selected entry has missed the payroll cutoff.'))
+      expect(confirmation).toHaveBeenCalledWith(expect.stringContaining(LATE_HOURS_NOTICE))
+      await waitFor(() => expect(apiMock.bulkApproveTimeEntries).toHaveBeenCalledWith([late.id, current.id]))
+    } finally { vi.unstubAllGlobals() }
+  })
 })

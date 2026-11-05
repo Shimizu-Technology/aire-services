@@ -89,7 +89,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     const stop = startVisibilityAwarePolling(run, 60_000)
     window.addEventListener('focus', run)
     window.addEventListener('aire:clock-action', run)
-    return () => { active = false; requestSequence.current += 1; stop(); window.removeEventListener('focus', run); window.removeEventListener('aire:clock-action', run) }
+    window.addEventListener('aire:approvals-updated', run)
+    return () => { active = false; requestSequence.current += 1; stop(); window.removeEventListener('focus', run); window.removeEventListener('aire:clock-action', run); window.removeEventListener('aire:approvals-updated', run) }
   }, [refresh, sessionKey])
 
   // A kiosk dialog may open only from a verified PIN/action response. Background

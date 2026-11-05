@@ -192,6 +192,18 @@ describe('Payroll cutoff notice', () => {
     expect(api.getPendingApprovals).toHaveBeenCalledWith({ per_page: 1, start_date: '2026-10-16', end_date: '2026-10-31' })
   })
 
+  it('refreshes the period-scoped pending count after an approval event', async () => {
+    auth.role = 'admin'
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
+    vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 2 } })
+    mount()
+    await screen.findByRole('link', { name: '2 pending approvals' })
+    vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 1 } })
+    await act(async () => { window.dispatchEvent(new Event('aire:approvals-updated')) })
+    await screen.findByRole('link', { name: '1 pending approval' })
+    expect(api.getPendingApprovals).toHaveBeenLastCalledWith({ per_page: 1, start_date: '2026-10-16', end_date: '2026-10-31' })
+  })
+
   it('marks a kiosk notice stale and removes relative date copy when refresh fails', async () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ error: 'Offline' })
     render(<MemoryRouter><PayrollCutoffNotice kiosk={{ accessToken: 'access', employeeToken: 'employee', sessionKey: 'a', notice: { cutoff, acknowledged: false } }} /></MemoryRouter>)

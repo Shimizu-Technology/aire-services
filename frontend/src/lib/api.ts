@@ -516,6 +516,7 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
+  payroll_cutoff_missed?: boolean;
   payroll_status?: EmployeePayrollStatus | null;
   version?: number;
   id: number;

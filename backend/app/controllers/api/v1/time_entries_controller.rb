@@ -384,7 +384,8 @@ module Api
         per_page = (params[:per_page] || 250).to_i.clamp(1, 500)
         summary = pending_approvals_summary(filtered_entries)
         total_count = summary[:entry_count]
-        entries = sorted_entries.offset((page - 1) * per_page).limit(per_page)
+        entries = sorted_entries.offset((page - 1) * per_page).limit(per_page).to_a
+        @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call(entries)
 
         render json: {
           pending_entries: entries.map { |e| serialize_time_entry(e) },
@@ -410,6 +411,7 @@ module Api
         entry = with_export_invalidation(@time_entry, approval_change_reason("Time entry approved")) do
           TimeClockService.approve_entry(entry: @time_entry, approved_by: current_user, note: params[:note])
         end
+        @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call([ entry ])
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
@@ -434,6 +436,7 @@ module Api
         entry = with_export_invalidation(@time_entry, approval_change_reason("Overtime approved")) do
           TimeClockService.approve_overtime(entry: @time_entry, approved_by: current_user, note: params[:note])
         end
+        @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call([ entry ])
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
@@ -509,6 +512,7 @@ module Api
           return render json: { error: error_message }, status: :unprocessable_entity
         end
 
+        @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call(updated_entries)
         render json: {
           time_entries: updated_entries.map { |entry| serialize_time_entry(entry) },
           count: updated_entries.length
@@ -991,7 +995,9 @@ module Api
           } : nil,
           created_at: entry.created_at.iso8601,
           updated_at: entry.updated_at.iso8601
-        }
+        }.tap do |data|
+          data[:payroll_cutoff_missed] = @missed_payroll_cutoff_ids.include?(entry.id) if @missed_payroll_cutoff_ids
+        end
       end
 
       def calculate_summary(entries)
