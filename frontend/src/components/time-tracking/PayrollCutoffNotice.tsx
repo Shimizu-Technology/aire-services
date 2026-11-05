@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import { api, type PayrollCutoff, type PayrollCutoffResponse } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
@@ -156,7 +157,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
       </div>}
       {ackError && <p className="mt-2" role="status">Dismissed on this screen. We couldn’t save your acknowledgement; you may see it again on another device.</p>}
     </section>
-    {open && <div className="cutoff-overlay">
+    {open && createPortal(<div className="cutoff-overlay">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="cutoff-dialog-title" aria-describedby="cutoff-dialog-description" tabIndex={-1} className="cutoff-dialog">
         <button type="button" onClick={dismiss} className="cutoff-close" aria-label="Close payroll cutoff notice">Close</button>
         <p className="text-sm font-semibold text-cyan-800">Payroll reminder</p>
@@ -174,6 +175,6 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
           {isAdmin && <Link onClick={dismiss} to={withPayrollPeriod('/admin/time', { start: modalPeriod.start_date, end: modalPeriod.end_date }, { tab: 'approvals' })} className="cutoff-secondary">Review pending approvals</Link>}
         </div>
       </div>
-    </div>}
+    </div>, document.body)}
   </>
 }

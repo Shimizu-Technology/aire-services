@@ -453,3 +453,20 @@ describe('Late approval guidance', () => {
     } finally { vi.unstubAllGlobals() }
   })
 })
+
+
+it('keeps note entry and approval usable with a long entry', async () => {
+  vi.clearAllMocks()
+  localStorage.clear()
+  const source = makeEntry({ description: 'Synthetic long shift description. '.repeat(20) })
+  apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
+  apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [source], count: 1 } })
+  apiMock.approveTimeEntry.mockResolvedValue({ data: { time_entry: { ...source, approval_status: 'approved' } } })
+  render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Add note' }))
+  fireEvent.change(screen.getByPlaceholderText('Add a note (optional)...'), { target: { value: 'Synthetic review note' } })
+  expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Edit entry' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+  await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(source.id, 'Synthetic review note'))
+})

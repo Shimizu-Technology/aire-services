@@ -102,6 +102,21 @@ describe('Payroll cutoff notice', () => {
     expect(screen.queryByRole('link', { name: 'Review pending approvals' })).not.toBeInTheDocument()
   })
 
+  it('mounts the overlay outside page spacing and clipping ancestors', async () => {
+    const host = document.createElement('div')
+    host.className = 'space-y-8'
+    document.body.appendChild(host)
+    const view = render(<MemoryRouter><PayrollCutoffNotice /></MemoryRouter>, { container: host })
+    try {
+      const dialog = await screen.findByRole('dialog')
+      expect(dialog.parentElement?.parentElement).toBe(document.body)
+      expect(dialog.closest('.space-y-8')).toBeNull()
+      fireEvent.keyDown(document, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(document.body.style.overflow).not.toBe('hidden')
+    } finally { view.unmount(); host.remove() }
+  })
+
   it('honors a server acknowledgement from another device', async () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
     mount()
