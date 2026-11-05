@@ -170,6 +170,30 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
     expect(read_cutoff.fetch("stage")).to eq("passed")
   end
 
+  %w[scheduled finalized failed].each do |status|
+    it "expires the #{status} cutoff banner at three days without changing its lock" do
+      if status == "finalized"
+        period.update!(status: status, payroll_batch: create(:payroll_batch), finalized_at: cutoff)
+      elsif status == "failed"
+        period.update!(status: status)
+      end
+      travel_to(cutoff + 3.days - 1.second)
+      expect(read_cutoff.fetch("stage")).to eq(status == "scheduled" ? "finalizing" : "passed")
+      travel_to(cutoff + 3.days)
+      expect(read_cutoff.fetch("stage")).to eq("none")
+      get "/api/v1/payroll_cutoff", headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
+      expect(response.parsed_body.dig("cutoff", "stage")).to eq("none")
+      if status == "failed"
+        expect(response.parsed_body.dig("attention", "cutoff_state")).to eq("attention_required")
+      end
+      post "/api/v1/aire/kiosk/cutoff", params: { kiosk_access_token: AireKioskAccessToken.issue_for(admin) }
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.dig("cutoff", "stage")).to eq("none")
+      expect(period.reload.status).to eq(status)
+      expect(period.cutoff_at).to eq(cutoff)
+    end
+  end
+
   context "with a legacy scheduled period before activation" do
     let(:period_attributes) do
       { start_date: "2026-10-01", end_date: "2026-10-15", pay_date: "2026-10-29", cutoff_at: guam.local(2026, 10, 22, 17) }

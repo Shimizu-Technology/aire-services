@@ -130,6 +130,16 @@ describe('Payroll cutoff notice', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByText(LATE_HOURS_NOTICE)).toBeInTheDocument()
   })
+  it('keeps failed-lock attention for admins after the reminder expires', async () => {
+    auth.role = 'admin'
+    vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: { ...cutoff, stage: 'none' }, attention: { period: cutoff.period, lock_mode: 'scheduled', cutoff_state: 'attention_required' } } })
+    mount()
+    expect(await screen.findByRole('region', { name: 'Payroll attention' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Payroll cutoff' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(api.getPendingApprovals).not.toHaveBeenCalled()
+  })
+
   it('does not show anything to employees without a published scheduled period', async () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: { ...cutoff, period: null, stage: 'none' } } })
     mount()

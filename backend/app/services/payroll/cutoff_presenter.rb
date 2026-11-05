@@ -3,6 +3,7 @@
 module Payroll
   # Deliberately excludes payroll totals, identities, errors and integration credentials.
   class CutoffPresenter
+    NOTICE_RETENTION = 3.days
     def self.period(now:)
       return unless ConnectedPayrollMode.enabled?
       scheduled = PayrollCalendarPeriod.scheduled_locks
@@ -36,6 +37,9 @@ module Payroll
       else
         "none"
       end
+      # Only the reminder expires. The lock and separate admin failure
+      # attention projection retain their existing state and timing.
+      stage = "none" if period && now >= period.cutoff_at + NOTICE_RETENTION
       {
         period: period && { id: period.id, start_date: period.start_date.iso8601, end_date: period.end_date.iso8601 },
         publication_id: period&.publication_id,
