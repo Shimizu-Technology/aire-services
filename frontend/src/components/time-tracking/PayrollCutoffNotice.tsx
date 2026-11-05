@@ -74,8 +74,10 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
       try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ cutoff: result.data.cutoff, connected_payroll: result.data.connected_payroll })) } catch { /* Storage may be unavailable on shared devices. */ }
     }
     else setStale(true)
-    if (isAdmin) {
-      const approvals = await api.getPendingApprovals({ per_page: 1 })
+    const period = result.data?.cutoff.period
+    setPending(null)
+    if (isAdmin && period && result.data?.cutoff.stage !== 'none' && result.data?.connected_payroll?.enabled !== false) {
+      const approvals = await api.getPendingApprovals({ per_page: 1, start_date: period.start_date, end_date: period.end_date })
       if (session === activeSession.current && sequence === requestSequence.current) setPending(approvals.data?.summary?.entry_count ?? approvals.data?.count ?? null)
     }
   }, [accessToken, isAdmin])
@@ -148,7 +150,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
         : <p className="mt-2">{isAdmin ? "Review this period’s hours and pending approvals before the cutoff." : "Review your hours and contact your manager about anything missing."} You can keep clocking in and out.</p>}
       {!kiosk && <div className="mt-3 flex flex-wrap items-center gap-4">
         <Link to={withPayrollPeriod('/admin/time', { start: cutoff.period.start_date, end: cutoff.period.end_date }, { tab: 'entries', view: 'period' })}>{isAdmin ? 'Review period hours' : 'Review my hours'}</Link>
-        {isAdmin && <Link to="/admin/time?tab=approvals">{pending === null ? 'Review pending approvals' : `${pending} pending approval${pending === 1 ? '' : 's'}`}</Link>}
+        {isAdmin && <Link to={withPayrollPeriod('/admin/time', { start: cutoff.period.start_date, end: cutoff.period.end_date }, { tab: 'approvals' })}>{pending === null ? 'Review pending approvals' : `${pending} pending approval${pending === 1 ? '' : 's'}`}</Link>}
       </div>}
       {ackError && <p className="mt-2" role="status">Dismissed on this screen. We couldn’t save your acknowledgement; you may see it again on another device.</p>}
     </section>

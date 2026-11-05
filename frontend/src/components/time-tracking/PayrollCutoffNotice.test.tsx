@@ -187,7 +187,8 @@ describe('Payroll cutoff notice', () => {
     vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 1 } })
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
     mount()
-    expect(await screen.findByRole('link', { name: '1 pending approval' })).toHaveAttribute('href', '/admin/time?tab=approvals')
+    expect(await screen.findByRole('link', { name: '1 pending approval' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals')
+    expect(api.getPendingApprovals).toHaveBeenCalledWith({ per_page: 1, start_date: '2026-10-16', end_date: '2026-10-31' })
   })
 
   it('marks a kiosk notice stale and removes relative date copy when refresh fails', async () => {
