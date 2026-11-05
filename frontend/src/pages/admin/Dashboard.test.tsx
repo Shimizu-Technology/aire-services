@@ -22,7 +22,7 @@ describe('Dashboard unavailable snapshots', () => {
     mocks.getPayrollCutoff.mockResolvedValue({ data: { cutoff: { period: null, stage: 'none' } } })
   })
   it.each(['finalizing', 'passed', 'none'])("keeps the locked period during %s rather than today's period", async stage => {
-    mocks.getPayrollCutoff.mockResolvedValue({ data: { cutoff: { period: { id: 9, start_date: '2026-10-16', end_date: '2026-10-31' }, stage } } })
+    mocks.getPayrollCutoff.mockResolvedValue({ data: { preparation_period: stage === 'finalizing' ? { id: 9, start_date: '2026-10-16', end_date: '2026-10-31' } : null, cutoff: { period: { id: 9, start_date: '2026-10-16', end_date: '2026-10-31' }, stage } } })
     mocks.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: stage === 'finalizing' ? [] : [{ id: 'test', start_date: '2026-10-16', end_date: '2026-10-31', finalized_at: '2026-11-07T07:00:00Z', processing: { status: 'payment_prepared' } }] } })
     open()
     expect(await screen.findByRole('heading', { name: 'Oct 16, 2026–Oct 31, 2026' })).toBeInTheDocument()
@@ -47,6 +47,26 @@ describe('Dashboard unavailable snapshots', () => {
     try {
       open()
       expect(await screen.findByRole('heading', { name: 'Nov 1, 2026–Nov 15, 2026' })).toBeInTheDocument()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('prepares the published period even days before its reminder begins', async () => {
+    mocks.getPayrollCutoff.mockResolvedValue({ data: { preparation_period: { id: 2, start_date: '2026-11-01', end_date: '2026-11-15' }, cutoff: { period: null, stage: 'none' } } })
+    open()
+    expect(await screen.findByRole('heading', { name: 'Nov 1, 2026–Nov 15, 2026' })).toBeInTheDocument()
+    expect(mocks.getPendingApprovals).toHaveBeenCalledWith({ start_date: '2026-11-01', end_date: '2026-11-15', per_page: 1 })
+    expect(screen.getByRole('link', { name: 'Prepare payroll cutoff' })).toHaveAttribute('href', '/admin/payroll?start_date=2026-11-01&end_date=2026-11-15')
+  })
+
+  it('uses today while paused even with a committed old batch and failed attention', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-12-02T00:00:00Z'))
+    mocks.getPayrollCutoff.mockResolvedValue({ data: { connected_payroll: { enabled: false }, attention: { period: { start_date: '2026-10-16', end_date: '2026-10-31' } }, cutoff: { period: null, stage: 'none' } } })
+    mocks.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [{ start_date: '2026-10-16', end_date: '2026-10-31', finalized_at: '2026-11-07T07:00:00Z', processing: { status: 'committed' } }] } })
+    try {
+      open()
+      expect(await screen.findByRole('heading', { name: 'Dec 1, 2026–Dec 15, 2026' })).toBeInTheDocument()
+      expect(mocks.getPendingApprovals).toHaveBeenCalledWith({ start_date: '2026-12-01', end_date: '2026-12-15', per_page: 1 })
     } finally { vi.useRealTimers() }
   })
 

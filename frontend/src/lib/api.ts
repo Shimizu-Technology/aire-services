@@ -1257,6 +1257,7 @@ export interface PayrollBatchPayload {
 }
 
 export interface PayrollBatchListItem {
+  purpose?: 'regular' | 'supplemental';
   id: string;
   start_date: string;
   end_date: string;
@@ -1453,7 +1454,7 @@ export interface PayrollCutoffAttention {
   lock_mode: 'manual' | 'scheduled';
   cutoff_state: 'attention_required';
 }
-export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; attention?: PayrollCutoffAttention | null }
+export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null }
 export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
 
 export const api = {

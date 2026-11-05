@@ -7,10 +7,19 @@ module Payroll
     def self.period(now:)
       return unless ConnectedPayrollMode.enabled?
       scheduled = PayrollCalendarPeriod.scheduled_locks
-      pending = scheduled.where.not(status: "finalized").order(:cutoff_at, :id).first
+      pending_periods = scheduled.where.not(status: "finalized").order(:cutoff_at, :id)
+      pending = pending_periods.where("cutoff_at > ?", now - NOTICE_RETENTION).first
       return pending if pending && pending.cutoff_at <= now + 24.hours
 
-      scheduled.where(status: "finalized", cutoff_at: ..now).order(cutoff_at: :desc, id: :desc).first || pending
+      scheduled.where(status: "finalized", cutoff_at: ..now).order(cutoff_at: :desc, id: :desc).first || pending || pending_periods.first
+    end
+
+    # Preparation is independent of the short-lived employee reminder window.
+    def self.preparation_period
+      return unless ConnectedPayrollMode.enabled?
+
+      period = PayrollCalendarPeriod.where.not(status: "finalized").order(:start_date, :id).first
+      period && { id: period.id, start_date: period.start_date.iso8601, end_date: period.end_date.iso8601 }
     end
 
     def self.call(now: Time.current, period: self.period(now: now))
@@ -53,14 +62,15 @@ module Payroll
     end
 
     # Called only by the authenticated admin response, never staff/kiosk discovery.
-    def self.attention
-      period = PayrollCalendarPeriod.where(status: "failed").order(:cutoff_at, :id).first
+    def self.attention(now: Time.current)
+      overdue = PayrollCalendarPeriod.scheduled_locks.where(status: "scheduled", cutoff_at: ..now)
+      period = PayrollCalendarPeriod.where(status: "failed").or(PayrollCalendarPeriod.where(id: overdue.select(:id))).order(:cutoff_at, :id).first
       return unless period
 
       {
         period: { id: period.id, start_date: period.start_date.iso8601, end_date: period.end_date.iso8601 },
         lock_mode: period.lock_mode,
-        cutoff_state: period.cutoff_state
+        cutoff_state: "attention_required"
       }
     end
   end

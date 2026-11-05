@@ -35,6 +35,15 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     )
   end
 
+  it "identifies regular and supplemental summaries without changing list scope" do
+    regular = create(:payroll_batch)
+    supplemental = create(:payroll_batch, payload: { "purpose" => "supplemental" })
+    get "/api/v1/admin/payroll_batches", headers: admin_headers
+    expect(response).to have_http_status(:ok)
+    purposes = json.fetch(:payroll_batches).to_h { |row| [ row[:id], row[:purpose] ] }
+    expect(purposes).to include(regular.public_id => "regular", supplemental.public_id => "supplemental")
+  end
+
   it "previews inclusions and unresolved work without creating a batch" do
     create_entry
     create_entry(approval_status: "pending")

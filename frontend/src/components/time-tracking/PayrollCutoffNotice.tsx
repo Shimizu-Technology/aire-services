@@ -131,7 +131,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   const attention = isAdmin && validated ? response?.attention : null
   const attentionNotice = attention ? <section aria-label="Payroll attention" className="cutoff-notice mb-4">
     <h2 className="font-semibold">Payroll needs attention</h2>
-    <p className="mt-1">The {periodLabel(attention.period)} {attention.lock_mode === 'manual' ? 'manual payroll lock' : 'scheduled payroll finalization'} did not complete. Review its status with your accountant before retrying.</p>
+    <p className="mt-1">The {periodLabel(attention.period)} {attention.lock_mode === 'manual' ? 'manual payroll lock' : 'scheduled payroll finalization'} has not completed. Review its status with your accountant before retrying.</p>
     <Link to="/admin/payroll" className="mt-2 inline-flex min-h-11 items-center">Review payroll status</Link>
     {stale && <p className="mt-2">Last known payroll status · unable to refresh.</p>}
   </section> : null

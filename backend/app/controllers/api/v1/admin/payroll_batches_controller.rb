@@ -135,6 +135,7 @@ module Api
         def serialize_summary(batch)
           {
             id: batch.public_id,
+            purpose: batch.payload["purpose"] || "regular",
             start_date: batch.start_date.iso8601,
             end_date: batch.end_date.iso8601,
             cutoff_at: batch.cutoff_at.iso8601,
