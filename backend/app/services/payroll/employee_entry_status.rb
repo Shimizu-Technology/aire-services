@@ -41,8 +41,12 @@ module Payroll
         status = lifecycle.fetch(:status)
         settlements = lifecycle.fetch(:settlements)
         historical = legacy_ids.include?(entry.id) || (rollout && entry.work_date < rollout.cutoff_enforcement_starts_on)
-        if (status == "ready_for_cutoff" && (untracked || historical) && settlements.empty?) ||
-            (status == "committed" && settlements.any? && settlements.all? { |row| row[:legacy_processing] })
+        open_shift = entry.status.in?(%w[clocked_in on_break])
+        uncertain_history = (untracked || historical) && (
+          (settlements.empty? && status.in?(%w[ready_for_cutoff awaiting_approval])) ||
+          (lifecycle.fetch(:paid_hours).zero? && status.in?(%w[finalized imported committed]))
+        )
+        if !open_shift && (uncertain_history || (status == "committed" && settlements.any? && settlements.all? { |row| row[:legacy_processing] }))
           status = "payment_history_unavailable"
         elsif lifecycle.fetch(:held_hours).positive? && settlements.empty? && status.in?(%w[ready_for_cutoff awaiting_approval])
           status = "held"
@@ -59,6 +63,7 @@ module Payroll
     private
 
     def employee_label(entry, status, lifecycle, historical:)
+      return "Shift in progress" if entry.status.in?(%w[clocked_in on_break])
       if status == "payment_attested_pending_evidence" && historical
         return "Historical payment reported — details unavailable"
       end
@@ -67,6 +72,9 @@ module Payroll
         return "Paid hours recorded — payroll update pending"
       end
 
+      if status == "payment_history_unavailable" && !historical && lifecycle.fetch(:settlements).empty?
+        return lifecycle.fetch(:status) == "ready_for_cutoff" ? "Approved — payment status not tracked yet" : "Payment status not tracked yet"
+      end
       return LABELS.fetch(status) unless status == "held"
       return "On hold — needs manager approval" if entry.approval_status == "pending" || entry.overtime_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?)
 

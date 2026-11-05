@@ -33,6 +33,7 @@ function open(view: 'day' | 'week', status?: EmployeePayrollStatus) {
 
 const states: Array<[EmployeePayrollStatus['status'], string, number, number]> = [
   ['awaiting_approval', 'Not in payroll — awaiting approval', 0, 0],
+  ['awaiting_approval', 'Shift in progress', 0, 0],
   ['not_payable', 'Not in payroll — time denied', 0, 0],
   ['ready_for_cutoff', 'Approved — not paid yet', 0, 0],
   ['finalized', 'In payroll — not paid yet', 0, 0],
@@ -54,6 +55,9 @@ const states: Array<[EmployeePayrollStatus['status'], string, number, number]> =
   ['committed', 'Paid hours recorded — payroll update pending', 8, 0],
   ['committed', 'Payroll correction recorded — no new payment', 0, 0],
   ['payment_history_unavailable', 'Payment history unavailable', 0, 0],
+  ['payment_history_unavailable', 'Approved — payment status not tracked yet', 0, 0],
+  ['payment_history_unavailable', 'Payment status not tracked yet', 0, 0],
+  ['payment_history_unavailable', 'Payment history unavailable', 2, 0],
   ['payment_history_unavailable', 'Payment history unavailable', 0, 8],
 ]
 
@@ -71,7 +75,12 @@ describe('My Time employee payment status', () => {
       open(view, { status, label, paid_hours: paid, held_hours: held })
       const panel = await screen.findByLabelText('Payroll payment status')
       expect(within(panel).getByText(label, { exact: true })).toBeVisible()
-      expect(within(panel).getByText(`${['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status) ? 'Receipt-confirmed paid hours' : 'Paid hours'}: ${paid.toFixed(2)}h`)).toBeVisible()
+      if (['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status) && paid === 0) {
+        expect(within(panel).queryByText(/Paid hours confirmed/)).not.toBeInTheDocument()
+      } else {
+        expect(within(panel).getByText(`Paid hours confirmed: ${paid.toFixed(2)}h`)).toBeVisible()
+      }
+      expect(within(panel).queryByText(/Receipt-confirmed/)).not.toBeInTheDocument()
       if (held) expect(within(panel).getByText(`${status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: ${held.toFixed(2)}h`)).toBeVisible()
       else expect(within(panel).queryByText(/Hours on hold/)).not.toBeInTheDocument()
       if (status !== 'payment_issued') expect(within(panel).queryByText('Paid', { exact: true })).not.toBeInTheDocument()
@@ -98,6 +107,32 @@ describe('My Time employee payment status', () => {
     render(<MemoryRouter initialEntries={['/admin/time?tab=entries&view=period&start_date=2025-05-01&end_date=2025-05-15']}><TimeTracking /></MemoryRouter>)
     await waitFor(() => expect(screen.getByRole('region', { name: 'Hours for payroll period' })).toHaveTextContent('Total: 24.0 hours'))
     expect(screen.queryByText('Total: 8.0 hours')).not.toBeInTheDocument()
+  })
+
+  it('keeps period totals aligned with the denied toggle', async () => {
+    const approved = Array.from({ length: 5 }, (_, index) => ({ ...fixture(), id: index + 1 }))
+    const denied = { ...fixture(), id: 6, approval_status: 'denied', description: 'Denied shift' }
+    apiMock.getTimeEntries.mockResolvedValue({ data: {
+      time_entries: [...approved, denied],
+      summary: { total_hours: 48, denied_hours: 8, entry_count: 6 },
+      pagination: { current_page: 1, per_page: 100, total_pages: 1, total_count: 6 },
+    } })
+    render(<MemoryRouter initialEntries={['/admin/time?tab=entries&view=period&start_date=2025-05-01&end_date=2025-05-15']}><TimeTracking /></MemoryRouter>)
+    const period = screen.getByRole('region', { name: 'Hours for payroll period' })
+    await waitFor(() => expect(period).toHaveTextContent('Total: 40.0 hours'))
+    expect(screen.queryByText('Denied shift')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '1 denied hidden' }))
+    expect(period).toHaveTextContent('Total: 48.0 hours')
+    expect(screen.getByText('Denied shift')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Showing 1 denied' }))
+    expect(period).toHaveTextContent('Total: 40.0 hours')
+  })
+
+  it('excludes denied hours on other pages from the full period total', async () => {
+    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [fixture()], summary: { total_hours: 48, denied_hours: 8, entry_count: 6 }, pagination: { current_page: 1, per_page: 1, total_pages: 6, total_count: 6 } } })
+    render(<MemoryRouter initialEntries={['/admin/time?tab=entries&view=period&start_date=2025-05-01&end_date=2025-05-15']}><TimeTracking /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Hours for payroll period' })).toHaveTextContent('Total: 40.0 hours'))
+    expect(screen.getByText(/6 entries · 40.00h across this filtered period/)).toBeInTheDocument()
   })
 
   it('never infers paid from approval when the status response is missing', async () => {

@@ -1122,6 +1122,9 @@ export default function TimeTracking() {
 
   const deniedCount = entries.filter(e => e.approval_status === 'denied').length
   const visibleTotalHours = sumEntryHours(visibleEntries)
+  const periodTotalHours = entryMeta
+    ? Number(entryMeta.summary.total_hours) - (showDenied ? 0 : Number(entryMeta.summary.denied_hours ?? 0))
+    : visibleTotalHours
 
   const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, payroll_statuses: {} }
   const hoursSummaryRows = hoursReport?.employees ?? []
@@ -1321,7 +1324,7 @@ export default function TimeTracking() {
       {/* View Controls */}
       {viewMode === 'period' && routedPeriod ? <section aria-label="Hours for payroll period" className="rounded-2xl border border-neutral-warm bg-white p-4">
         <h2 className="font-semibold text-primary-dark">{formatDateOnly(routedPeriod.start, { month: 'short', day: 'numeric', year: 'numeric' })} – {formatDateOnly(routedPeriod.end, { month: 'short', day: 'numeric', year: 'numeric' })}</h2>
-        <p className="mt-1 text-sm text-primary-dark">Total: {Number(entryMeta?.summary?.total_hours ?? visibleTotalHours).toFixed(1)} hours</p>
+        <p className="mt-1 text-sm text-primary-dark">Total: {periodTotalHours.toFixed(1)} hours</p>
         <button type="button" className="mt-2 min-h-11 font-medium text-primary underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('view', 'week'); next.set('date', businessDateISO()); next.delete('start_date'); next.delete('end_date'); next.delete('entries_page'); setSearchParams(next) }}>Return to current week</button>
       </section> : <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
         {/* Mobile Layout */}
@@ -1502,7 +1505,7 @@ export default function TimeTracking() {
       )}
 
       {entryMeta && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
-        <p>{entryMeta.summary.entry_count} entries · {Number(entryMeta.summary.total_hours).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
+        <p>{entryMeta.summary.entry_count} entries · {(viewMode === 'period' ? periodTotalHours : Number(entryMeta.summary.total_hours)).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
         {entryMeta.pagination.total_pages > 1 && <div className="flex items-center gap-3"><button type="button" disabled={loading || entriesPage <= 1} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage - 1)); setSearchParams(next) }}>Previous entries</button><span>Page {entriesPage} of {entryMeta.pagination.total_pages}</span><button type="button" disabled={loading || entriesPage >= entryMeta.pagination.total_pages} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage + 1)); setSearchParams(next) }}>Next entries</button></div>}
       </div>}
       {linkedEntry && <section aria-label="Linked time entry" className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-sm">
@@ -3255,10 +3258,11 @@ function PersonDayModalContent({
 }
 
 function EmployeePaymentStatus({ status }: { status?: EmployeePayrollStatus | null }) {
+  const neutral = status && ['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status.status)
   return (
     <div className="mt-2 space-y-1 break-words text-sm text-primary-dark" aria-label="Payroll payment status">
       <p className="font-medium">{status?.label || 'Payment status unavailable'}</p>
-      {status && <p className="text-xs text-text-muted">{['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status.status) ? 'Receipt-confirmed paid hours' : 'Paid hours'}: {status.paid_hours.toFixed(2)}h</p>}
+      {status && (!neutral || status.paid_hours > 0) && <p className="text-xs text-text-muted">Paid hours confirmed: {status.paid_hours.toFixed(2)}h</p>}
       {!!status?.held_hours && <p className="text-xs text-amber-800">{status.status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status.status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: {status.held_hours.toFixed(2)}h</p>}
     </div>
   )

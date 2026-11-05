@@ -25,6 +25,8 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
       source_user_uuid: source.user.payroll_integration_uuid, source_category_id: source.time_category_id,
       work_date: source.work_date, week_start: source.work_date.beginning_of_week(:sunday), source_kind: source_kind,
       line_key: line_key, total_hours: hours, regular_hours: hours, overtime_hours: 0, snapshot: {})
+    return row if status.nil?
+
     PayrollEntryProcessingEvent.create!(payroll_batch: payroll_batch, event_id: SecureRandom.uuid,
       source_time_entry_id: source.id, source_user_uuid: row.source_user_uuid,
       contract_version: "2.0", source_line_key: row.line_key, source_kind: row.source_kind,
@@ -64,10 +66,70 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     expect(status_for(pending)).to include("status" => "awaiting_approval", "label" => "Not in payroll — awaiting approval", "paid_hours" => 0.0)
   end
 
-  it "shows a historical manual commit neutrally without claiming payment" do
-    source = entry
-    receipt(source, "committed", external_system: "cornerstone_payroll_manual")
-    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable", "paid_hours" => 0.0)
+  %w[paused enabled].each do |mode|
+    it "keeps mixed entry/batch committed history neutral while #{mode}", without_rollout: mode == "paused" do
+      source = entry(work_date: Date.current.beginning_of_month - 1.day)
+      receipt(source, "committed", payment_method: nil, payment_reference: nil)
+      %w[cornerstone_payroll cornerstone_payroll_manual].each_with_index do |system, index|
+        batch.payroll_batch_processing_events.create!(event_id: SecureRandom.uuid, status: "committed",
+          external_system: system, external_pay_period_id: "test-history", occurred_at: Time.current + index.seconds)
+      end
+      previous = ENV["CONNECTED_PAYROLL_MODE"]
+      ENV["CONNECTED_PAYROLL_MODE"] = mode
+      lifecycle = Payroll::EntryLifecycleResolver.new(entries: [ source ]).call.fetch(source.id)
+      expect(lifecycle).to include(status: "committed", paid_hours: 0.0)
+      expect(lifecycle.fetch(:settlements).sole.fetch(:legacy_processing)).to be(false)
+      expect(batch.processing_status.fetch(:external_system)).to eq("cornerstone_payroll_manual")
+      expected = { "status" => "payment_history_unavailable", "label" => "Payment history unavailable", "paid_hours" => 0.0 }
+      expect(status_for(source)).to include(expected)
+      get "/api/v1/time_entries", headers: headers
+      expect(response.parsed_body.fetch("time_entries").sole.fetch("payroll_status")).to include(expected)
+      expect(source.reload.approval_status).to eq("approved")
+    ensure
+      ENV["CONNECTED_PAYROLL_MODE"] = previous
+    end
+  end
+
+  [ nil, "imported" ].each do |state|
+    it "keeps historical #{state || 'finalized'} time neutral without issued payment evidence" do
+      source = entry(work_date: Date.current.beginning_of_month - 1.day)
+      receipt(source, state)
+      expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable", "paid_hours" => 0.0)
+    end
+  end
+
+  it "does not mislabel older manual time with no approval or settlements as unpaid" do
+    source = entry(work_date: Date.current.beginning_of_month - 1.day, entry_method: "manual", approval_status: nil)
+    before = source.attributes
+    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+    expect(Payroll::EntryLifecycleResolver.new(entries: [ source ]).call.fetch(source.id).fetch(:status)).to eq("awaiting_approval")
+    expect(source.reload.attributes).to eq(before)
+  end
+
+  it "keeps current manual time awaiting approval when payment tracking is active" do
+    source = entry(entry_method: "manual", approval_status: nil)
+    expect(status_for(source)).to include("status" => "awaiting_approval", "label" => "Not in payroll — awaiting approval")
+    expect(source.reload.approval_status).to be_nil
+  end
+
+  it "uses neutral wording for unapproved hand-paid time before tracking setup", :without_rollout do
+    source = entry(entry_method: "manual", approval_status: nil)
+    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment status not tracked yet")
+    expect(source.reload.approval_status).to be_nil
+  end
+
+  %w[clocked_in on_break].each do |state|
+    %w[enabled paused].each do |mode|
+      it "labels an #{state} shift in progress while #{mode}" do
+        source = entry(status: state, approval_status: nil, end_time: nil)
+        previous = ENV["CONNECTED_PAYROLL_MODE"]
+        ENV["CONNECTED_PAYROLL_MODE"] = mode
+        expect(status_for(source)).to include("status" => "awaiting_approval", "label" => "Shift in progress", "paid_hours" => 0.0)
+        expect(source.reload).to have_attributes(status: state, approval_status: nil)
+      ensure
+        ENV["CONNECTED_PAYROLL_MODE"] = previous
+      end
+    end
   end
 
   it "keeps a reported historical payment held until exact payment evidence exists" do
@@ -119,9 +181,9 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     source = entry
     previous = ENV["CONNECTED_PAYROLL_MODE"]
     ENV["CONNECTED_PAYROLL_MODE"] = "paused"
-    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Approved — payment status not tracked yet")
     ENV["CONNECTED_PAYROLL_MODE"] = "enabled"
-    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+    expect(status_for(source)).to include("status" => "payment_history_unavailable", "label" => "Approved — payment status not tracked yet")
   ensure
     ENV["CONNECTED_PAYROLL_MODE"] = previous
   end

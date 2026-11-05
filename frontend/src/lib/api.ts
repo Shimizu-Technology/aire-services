@@ -775,6 +775,7 @@ export interface TimeEntriesResponse {
   };
   summary: {
     total_hours: number;
+    denied_hours?: number;
     total_break_hours: number;
     entry_count: number;
   };

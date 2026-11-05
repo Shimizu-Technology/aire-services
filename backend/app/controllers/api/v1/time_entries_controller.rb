@@ -1009,11 +1009,13 @@ module Api
         row = aggregate_scope.pick(
           Arel.sql("COALESCE(SUM(time_entries.hours), 0)"),
           Arel.sql("COALESCE(SUM(time_entries.break_minutes), 0)"),
-          Arel.sql("COUNT(time_entries.id)")
+          Arel.sql("COUNT(time_entries.id)"),
+          Arel.sql("COALESCE(SUM(CASE WHEN time_entries.approval_status = 'denied' THEN time_entries.hours ELSE 0 END), 0)")
         )
-        total_hours, total_break_minutes, entry_count = row || [ 0, 0, 0 ]
+        total_hours, total_break_minutes, entry_count, denied_hours = row || [ 0, 0, 0, 0 ]
         {
           total_hours: total_hours.to_f,
+          denied_hours: denied_hours.to_f,
           total_break_hours: (total_break_minutes.to_i / 60.0).round(2),
           entry_count: entry_count.to_i
         }
