@@ -83,6 +83,24 @@ describe('Payroll cutoff notice', () => {
     for (const link of links) expect(link).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=entries&view=period')
   })
 
+  it('gives managers period-review instructions and a popup approval action', async () => {
+    auth.role = 'admin'
+    mount()
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).not.toHaveTextContent('contact your manager')
+    expect(screen.getByRole('region', { name: 'Payroll cutoff' })).not.toHaveTextContent('contact your manager')
+    expect(dialog).toHaveTextContent('Review this period’s hours and pending approvals before then.')
+    expect(within(dialog).getByRole('link', { name: 'Review pending approvals' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals')
+    expect(within(dialog).getByRole('link', { name: 'Review period hours' })).toBeInTheDocument()
+  })
+
+  it('preserves employee instructions and keeps manager actions private', async () => {
+    mount()
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Review your hours and contact your manager about anything missing before then.')
+    expect(screen.queryByRole('link', { name: 'Review pending approvals' })).not.toBeInTheDocument()
+  })
+
   it('honors a server acknowledgement from another device', async () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
     mount()

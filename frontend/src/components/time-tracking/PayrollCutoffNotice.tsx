@@ -141,13 +141,13 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   return <>
     {attentionNotice}
     <section ref={bannerRef} tabIndex={-1} aria-label="Payroll cutoff" className="cutoff-notice">
-      <h2 className="font-semibold">{kiosk ? banner.title.replace(/^Your /, '') : banner.title}</h2>
+      <h2 className="font-semibold">{kiosk || isAdmin ? banner.title.replace(/^Your /, '') : banner.title}</h2>
       <p className="mt-1">{banner.period} hours · {banner.absolute}</p>
-      {stale && <p className="mt-2 font-semibold">Last known cutoff · unable to refresh. Check with your manager.</p>}
+      {stale && <p className="mt-2 font-semibold">Last known cutoff · unable to refresh. {isAdmin ? 'Check the payroll status with your accountant.' : 'Check with your manager.'}</p>}
       {passed ? <p className="mt-2">Later approved hours need the late-hours review process.</p>
-        : <p className="mt-2">Review your hours and contact your manager about anything missing. You can keep clocking in and out.</p>}
+        : <p className="mt-2">{isAdmin ? "Review this period’s hours and pending approvals before the cutoff." : "Review your hours and contact your manager about anything missing."} You can keep clocking in and out.</p>}
       {!kiosk && <div className="mt-3 flex flex-wrap items-center gap-4">
-        <Link to={withPayrollPeriod('/admin/time', { start: cutoff.period.start_date, end: cutoff.period.end_date }, { tab: 'entries', view: 'period' })}>Review my hours</Link>
+        <Link to={withPayrollPeriod('/admin/time', { start: cutoff.period.start_date, end: cutoff.period.end_date }, { tab: 'entries', view: 'period' })}>{isAdmin ? 'Review period hours' : 'Review my hours'}</Link>
         {isAdmin && <Link to="/admin/time?tab=approvals">{pending === null ? 'Review pending approvals' : `${pending} pending approval${pending === 1 ? '' : 's'}`}</Link>}
       </div>}
       {ackError && <p className="mt-2" role="status">Dismissed on this screen. We couldn’t save your acknowledgement; you may see it again on another device.</p>}
@@ -156,16 +156,17 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="cutoff-dialog-title" aria-describedby="cutoff-dialog-description" tabIndex={-1} className="cutoff-dialog">
         <button type="button" onClick={dismiss} className="cutoff-close" aria-label="Close payroll cutoff notice">Close</button>
         <p className="text-sm font-semibold text-cyan-800">Payroll reminder</p>
-        <h2 id="cutoff-dialog-title" className="mt-2 text-xl font-semibold text-slate-900">{modal.title}</h2>
+        <h2 id="cutoff-dialog-title" className="mt-2 text-xl font-semibold text-slate-900">{isAdmin ? modal.title.replace(/^Your /, '') : modal.title}</h2>
         <div id="cutoff-dialog-description" className="mt-4 space-y-3 text-slate-700">
-          {stale && <p className="font-semibold">Last known cutoff · unable to refresh. Check with your manager.</p>}
+          {stale && <p className="font-semibold">Last known cutoff · unable to refresh. {isAdmin ? 'Check the payroll status with your accountant.' : 'Check with your manager.'}</p>}
           <p>Payroll locks on <strong>{modal.absolute}</strong>.</p>
-          <p>Review your hours and contact your manager about anything missing before then. Hours approved after the cutoff may need a separate payroll run.</p>
+          <p>{isAdmin ? "Review this period’s hours and pending approvals before then." : "Review your hours and contact your manager about anything missing before then."} Hours approved after the cutoff may need a separate payroll run.</p>
           <p>You can keep clocking in and out. “Got it” changes no hours.</p>
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
           <button type="button" onClick={dismiss} data-cutoff-ack className="cutoff-primary">Got it</button>
-          {!kiosk && <Link onClick={dismiss} to={withPayrollPeriod('/admin/time', { start: modalPeriod.start_date, end: modalPeriod.end_date }, { tab: 'entries', view: 'period' })} className="cutoff-secondary">Review my hours</Link>}
+          {!kiosk && <Link onClick={dismiss} to={withPayrollPeriod('/admin/time', { start: modalPeriod.start_date, end: modalPeriod.end_date }, { tab: 'entries', view: 'period' })} className="cutoff-secondary">{isAdmin ? 'Review period hours' : 'Review my hours'}</Link>}
+          {isAdmin && <Link onClick={dismiss} to={withPayrollPeriod('/admin/time', { start: modalPeriod.start_date, end: modalPeriod.end_date }, { tab: 'approvals' })} className="cutoff-secondary">Review pending approvals</Link>}
         </div>
       </div>
     </div>}
