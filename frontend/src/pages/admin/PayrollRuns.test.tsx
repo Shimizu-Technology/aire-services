@@ -1,3 +1,4 @@
+import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
@@ -314,7 +315,8 @@ describe('PayrollRuns', () => {
     renderPayrollRuns()
 
     expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
-    expect(screen.getByText(/AIRE will include it automatically/)).toBeInTheDocument()
+    expect(screen.getAllByText(LATE_HOURS_NOTICE, { exact: false }).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
   })
 
   it('distinguishes historical review from recorded manual payments', async () => {

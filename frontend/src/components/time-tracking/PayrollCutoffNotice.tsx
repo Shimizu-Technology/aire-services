@@ -6,6 +6,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import './PayrollCutoffNotice.css'
 import { withPayrollPeriod } from '../../lib/payrollPeriods'
+import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import { PAUSED_PAYROLL_MESSAGE } from '../../lib/connectedPayroll'
 
 interface Props {
@@ -146,7 +147,7 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
       <h2 className="font-semibold">{kiosk || isAdmin ? banner.title.replace(/^Your /, '') : banner.title}</h2>
       <p className="mt-1">{banner.period} hours · {banner.absolute}</p>
       {stale && <p className="mt-2 font-semibold">Last known cutoff · unable to refresh. {isAdmin ? 'Check the payroll status with your accountant.' : 'Check with your manager.'}</p>}
-      {passed ? <p className="mt-2">Later approved hours need the late-hours review process.</p>
+      {passed ? <p className="mt-2">{LATE_HOURS_NOTICE}</p>
         : <p className="mt-2">{isAdmin ? "Review this period’s hours and pending approvals before the cutoff." : "Review your hours and contact your manager about anything missing."} You can keep clocking in and out.</p>}
       {!kiosk && <div className="mt-3 flex flex-wrap items-center gap-4">
         <Link to={withPayrollPeriod('/admin/time', { start: cutoff.period.start_date, end: cutoff.period.end_date }, { tab: 'entries', view: 'period' })}>{isAdmin ? 'Review period hours' : 'Review my hours'}</Link>
@@ -162,7 +163,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
         <div id="cutoff-dialog-description" className="mt-4 space-y-3 text-slate-700">
           {stale && <p className="font-semibold">Last known cutoff · unable to refresh. {isAdmin ? 'Check the payroll status with your accountant.' : 'Check with your manager.'}</p>}
           <p>Payroll locks on <strong>{modal.absolute}</strong>.</p>
-          <p>{isAdmin ? "Review this period’s hours and pending approvals before then." : "Review your hours and contact your manager about anything missing before then."} Hours approved after the cutoff may need a separate payroll run.</p>
+          <p>{isAdmin ? "Review this period’s hours and pending approvals before then." : "Review your hours and contact your manager about anything missing before then."}</p>
+          <p>{LATE_HOURS_NOTICE}</p>
           <p>You can keep clocking in and out. “Got it” changes no hours.</p>
         </div>
         <div className="mt-6 flex flex-wrap gap-3">

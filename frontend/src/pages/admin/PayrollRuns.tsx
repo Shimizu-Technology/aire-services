@@ -1,3 +1,4 @@
+import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import { PAUSED_PAYROLL_MESSAGE, type ConnectedPayrollCapability } from '../../lib/connectedPayroll'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react'
@@ -53,7 +54,7 @@ const CARRYOVER_STATUS: Record<PayrollCarryoverItem['status'], { label: string; 
   partially_allocated: { label: 'Partially assigned to payroll', detail: 'Some hours are already reserved in payroll. Review the remaining hours in Cornerstone before choosing a destination.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   payment_attested_pending_evidence: { label: 'Payment reported; evidence pending', detail: 'The owner reported these hours paid. They remain held while the payment evidence is reconciled in Cornerstone.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
   awaiting_approval: { label: 'Needs approval', detail: 'Not payable until an authorized reviewer approves it.', className: 'border-amber-200 bg-amber-50 text-amber-800' },
-  ready_for_next_batch: { label: 'Ready for next cutoff', detail: 'Approved after the earlier cutoff. AIRE will include it automatically in the next finalized batch.', className: 'border-cyan-200 bg-cyan-50 text-cyan-800' },
+  ready_for_next_batch: { label: 'Ready for next cutoff', detail: LATE_HOURS_NOTICE, className: 'border-cyan-200 bg-cyan-50 text-cyan-800' },
   awaiting_cornerstone: { label: 'Finalized in AIRE', detail: 'Included in a finalized batch and waiting to be imported into Cornerstone.', className: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
   imported: { label: 'Imported to Cornerstone', detail: 'Cornerstone has added these hours to a draft payroll.', className: 'border-blue-200 bg-blue-50 text-blue-800' },
   committed: { label: 'Payroll committed', detail: 'Cornerstone has committed the payroll containing these hours.', className: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
@@ -348,7 +349,7 @@ function BatchContents({ payload, userId, entryId, returnTo }: { payload: Payrol
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">Tracked, not paid</p>
         <h2 className="mt-1 text-xl font-semibold text-slate-950">Excluded at this cutoff</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">Pending and open work stays attached to its original date. If later approved, AIRE carries it into the next payroll cutoff automatically.</p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">Pending and open work stays attached to its original date. {LATE_HOURS_NOTICE}</p>
         <div className="mt-5 space-y-2">
           {payload.exclusions.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">Nothing is excluded.</p>}
           {payload.exclusions.map((item) => (
@@ -909,7 +910,7 @@ export default function PayrollRuns() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Authoritative payroll record</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Payroll Cutoffs</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{connectionEnabled ? 'Preview exactly which approved hours will be included, then freeze an immutable AIRE batch for Cornerstone Payroll. Pending work stays tracked and carries forward only after approval.' : connection?.enabled === false ? 'Review recorded hours, approvals and finalized history. Use the hours report for manual payroll while the connection is paused.' : 'Review recorded hours, approvals and finalized payroll history while the connection status is being checked.'}</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{connectionEnabled ? `Preview exactly which approved hours will be included, then freeze an immutable AIRE batch for Cornerstone Payroll. ${LATE_HOURS_NOTICE}` : connection?.enabled === false ? 'Review recorded hours, approvals and finalized history. Use the hours report for manual payroll while the connection is paused.' : 'Review recorded hours, approvals and finalized payroll history while the connection status is being checked.'}</p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'approvals', through_date: activePeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>

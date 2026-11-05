@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import PayrollCutoffNotice from './PayrollCutoffNotice'
 import { api } from '../../lib/api'
 
@@ -127,7 +128,7 @@ describe('Payroll cutoff notice', () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: { ...cutoff, stage: 'passed' }, acknowledged: false } })
     await act(async () => { window.dispatchEvent(new Event('focus')) })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.getByText(/Later approved hours need the late-hours review process/)).toBeInTheDocument()
+    expect(screen.getByText(LATE_HOURS_NOTICE)).toBeInTheDocument()
   })
   it('does not show anything to employees without a published scheduled period', async () => {
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff: { ...cutoff, period: null, stage: 'none' } } })
