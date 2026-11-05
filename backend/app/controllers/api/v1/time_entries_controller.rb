@@ -60,6 +60,8 @@ module Api
         total_count = summary[:entry_count]
         @time_entries = @time_entries.offset((page - 1) * per_page).limit(per_page)
 
+        @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: @time_entries.to_a).call
+
         render json: {
           time_entries: @time_entries.map { |entry| serialize_time_entry(entry) },
           pagination: {
@@ -75,6 +77,7 @@ module Api
 
       # GET /api/v1/time_entries/:id
       def show
+        @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: [ @time_entry ]).call
         render json: { time_entry: serialize_time_entry(@time_entry) }
       end
 
@@ -936,6 +939,7 @@ module Api
           status: entry.status,
           admin_override: entry.admin_override,
           attendance_status: entry.attendance_status,
+          payroll_status: @employee_payroll_statuses&.fetch(entry.id, nil),
           approval_status: entry.approval_status,
           overtime_status: entry.overtime_status,
           approval_reasons: approval_reasons_for(entry),

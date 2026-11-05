@@ -4,7 +4,7 @@ import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Frag
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
-import type { TimeEntriesResponse } from '../../lib/api'
+import type { EmployeePayrollStatus, TimeEntriesResponse } from '../../lib/api'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
@@ -45,6 +45,7 @@ interface TimeEntryItem {
   status?: 'clocked_in' | 'on_break' | 'completed'
   approval_status?: 'pending' | 'approved' | 'denied' | null
   overtime_status?: 'none' | 'pending' | 'approved' | 'denied' | null
+  payroll_status?: EmployeePayrollStatus | null
   payroll_lifecycle?: PayrollEntryLifecycle
   quality_flags?: HoursReportEntry['quality_flags']
   attendance_status?: 'early' | 'on_time' | 'late' | null
@@ -1527,7 +1528,7 @@ export default function TimeTracking() {
             ))}
           </div>
         </div>
-      ) : viewMode === 'week' ? (
+      ) : viewMode === 'week' && isAdmin ? (
         /* Week View */
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           <div className="overflow-x-auto">
@@ -1649,14 +1650,14 @@ export default function TimeTracking() {
           </div>
         </div>
       ) : (
-        /* Day View */
+        /* Employee week/day list and manager day view */
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm hover:shadow-md transition-shadow duration-300">
           {visibleEntries.length === 0 ? (
             <div className="p-8 text-center">
               <div className="w-12 h-12 mx-auto mb-3 text-primary-dark">
                 <ClockIcon />
               </div>
-              <p className="text-primary-dark font-medium">No time entries for this day</p>
+              <p className="text-primary-dark font-medium">No time entries for this {viewMode === 'week' ? 'week' : 'day'}</p>
               <button
                 onClick={() => openNewEntry()}
                 disabled={!optionsReady || routedPrefill === 'true'}
@@ -1671,6 +1672,7 @@ export default function TimeTracking() {
                 <div key={entry.id} id={`time-entry-${entry.id}`} tabIndex={routedEntryId === String(entry.id) ? -1 : undefined} className={`p-3 sm:p-4 ${routedEntryId === String(entry.id) ? 'bg-cyan-50 ring-2 ring-inset ring-cyan-400' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
+                      {!isAdmin && viewMode === 'week' && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
                       {/* Hours + Time + Category Row */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3">
@@ -1708,6 +1710,7 @@ export default function TimeTracking() {
                           </span>
                         )}
                       </div>
+                      {!isAdmin && <EmployeePaymentStatus status={entry.payroll_status} />}
                       {/* Owner */}
                       <p className="mt-1 text-xs sm:text-sm text-primary-dark/80 truncate">
                         by {isAdmin ? <Link to={employeeWorkspaceHref(entry.user.id, { tab: 'hours', returnTo: currentPath, entry: String(entry.id), period: `${entry.work_date.slice(0, 7)}-${Number(entry.work_date.slice(8)) <= 15 ? '01' : '16'}` })} className="underline decoration-primary/30 underline-offset-4">{ownerLabel(entry)}</Link> : ownerLabel(entry)}
@@ -3238,6 +3241,16 @@ function PersonDayModalContent({
           Close
         </button>
       </div>
+    </div>
+  )
+}
+
+function EmployeePaymentStatus({ status }: { status?: EmployeePayrollStatus | null }) {
+  return (
+    <div className="mt-2 space-y-1 break-words text-sm text-primary-dark" aria-label="Payroll payment status">
+      <p className="font-medium">{status?.label || 'Payment status unavailable'}</p>
+      {status && <p className="text-xs text-text-muted">Paid hours: {status.paid_hours.toFixed(2)}h</p>}
+      {!!status?.held_hours && <p className="text-xs text-amber-800">Hours on hold: {status.held_hours.toFixed(2)}h</p>}
     </div>
   )
 }

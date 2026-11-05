@@ -506,7 +506,17 @@ export interface ApprovalReason {
   label: string;
 }
 
+// Safe status returned by the employee time-entry reads. Manager evidence is
+// deliberately a separate type and response contract.
+export interface EmployeePayrollStatus {
+  status: PayrollEntryLifecycleStatus | 'held' | 'payment_history_unavailable';
+  label: string;
+  paid_hours: number;
+  held_hours: number;
+}
+
 export interface TimeEntry {
+  payroll_status?: EmployeePayrollStatus | null;
   version?: number;
   id: number;
   work_date: string;
