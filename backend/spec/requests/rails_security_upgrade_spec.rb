@@ -4,7 +4,9 @@ require "rails_helper"
 
 RSpec.describe "Rails security upgrade request boundaries", type: :request do
   let(:client_ip) { "198.51.100.25" }
-  let(:proxy_env) { { "REMOTE_ADDR" => "10.0.0.5" } }
+  # Observed Render staging HTTP peer; this private peer shape must stay trusted
+  # consistently by Rack and Rails. Individual proxy addresses can rotate.
+  let(:proxy_env) { { "REMOTE_ADDR" => "10.209.24.146" } }
 
   it "normalizes headers before every other middleware, including request logging" do
     stack = Rails.application.middleware.map(&:klass)
