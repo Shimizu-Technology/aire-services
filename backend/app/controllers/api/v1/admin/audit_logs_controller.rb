@@ -27,6 +27,10 @@ module Api
           }
         end
 
+        def show
+          render json: serialize(AuditLog.find(params[:id]))
+        end
+
         def export
           require_export_window!
           export_scope = filtered_scope.where("audit_logs.occurred_at <= ?", Time.current)

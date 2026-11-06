@@ -1,26 +1,22 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe Payroll::ScheduledCutoffFinalizer do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:employee) { create(:user, :employee, first_name: "Aire", last_name: "Employee") }
   let(:category) { create(:time_category, name: "Operations") }
-  let(:cutoff) { guam.local(2026, 10, 18, 17) }
-  let!(:period) do
-    create(
-      :payroll_calendar_period,
-      start_date: Date.new(2026, 10, 1),
-      end_date: Date.new(2026, 10, 15),
-      pay_date: Date.new(2026, 10, 25),
-      cutoff_at: cutoff,
-      next_finalization_attempt_at: cutoff
-    )
+  let(:fixture_clock) { database_clock }
+  let(:cutoff) { capture_payroll_cutoff }
+  let(:period) do
+    create(:payroll_calendar_period, **payroll_calendar_at(cutoff))
   end
 
-  def time_entry(entry_method:, approval_status:, work_date: Date.new(2026, 10, 5), created_at: cutoff - 1.day)
+  def time_entry(entry_method:, approval_status:, work_date: payroll_calendar_at(fixture_clock).fetch(:start_date) + 4.days, created_at: fixture_clock - 1.day)
     create(
       :time_entry,
       user: employee,
@@ -37,10 +33,26 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     )
   end
 
+  def revision_cutoff_period(cutoff_at)
+    create(:payroll_calendar_period, **payroll_calendar_at(cutoff_at))
+  end
+
+  def entry_for_revision_cutoff
+    local_today = database_clock.to_date
+    start_date, = payroll_dates_before(local_today + 7.days)
+    time_entry(
+      entry_method: "clock",
+      approval_status: nil,
+      work_date: start_date + 4.days,
+      created_at: Time.current - 1.day
+    )
+  end
+
   it "independently finalizes a due period and records every held manual entry" do
     included = time_entry(entry_method: "clock", approval_status: nil)
-    held = time_entry(entry_method: "manual", approval_status: "pending", work_date: Date.new(2026, 10, 6))
+    held = time_entry(entry_method: "manual", approval_status: "pending", work_date: payroll_calendar_at(fixture_clock).fetch(:start_date) + 5.days)
 
+    period
     travel_to(cutoff + 2.minutes) do
       result = described_class.call_due
       period.reload
@@ -59,9 +71,35 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     end
   end
 
+  it "rolls back all frozen rows on failure inside an outer transaction and retries cleanly" do
+    time_entry(entry_method: "clock", approval_status: nil)
+    time_entry(entry_method: "manual", approval_status: "pending")
+    period
+    allow_any_instance_of(described_class).to receive(:record_success_audit!).and_raise("Synthetic audit failure after outbox creation")
+    travel_to(cutoff + 2.minutes) do
+      ActiveRecord::Base.transaction do
+        expect(described_class.new(period_id: period.id).call).to include(status: "failed")
+      end
+    end
+
+    expect(period.reload.status).to eq("failed")
+    expect(period.cutoff_state).to eq("attention_required")
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchExclusion.count, PayrollOutboxEvent.count ]).to eq([ 0, 0, 0, 0 ])
+    expect(AuditLog.find_by!(action: "payroll_calendar_period.finalization_failed", auditable: period).outcome).to eq("failed")
+    allow_any_instance_of(described_class).to receive(:record_success_audit!).and_call_original
+    retry_at = period.next_finalization_attempt_at + 1.second
+    travel_to(retry_at) do
+      ActiveRecord::Base.transaction do
+        expect(described_class.new(period_id: period.id).call).to include(status: "finalized")
+      end
+    end
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchExclusion.count, PayrollOutboxEvent.count ]).to eq([ 1, 1, 1, 1 ])
+  end
+
   it "is idempotent when workers repeat or overlap" do
     time_entry(entry_method: "clock", approval_status: nil)
 
+    period
     travel_to(cutoff + 2.minutes) do
       first = described_class.new(period_id: period.id).call
       second = described_class.new(period_id: period.id).call
@@ -78,10 +116,11 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     late = time_entry(
       entry_method: "clock",
       approval_status: nil,
-      work_date: Date.new(2026, 10, 7),
+      work_date: payroll_calendar_at(fixture_clock).fetch(:start_date) + 6.days,
       created_at: cutoff + 30.minutes
     )
 
+    period
     travel_to(cutoff + 3.hours) do
       described_class.call_due
       batch = period.reload.payroll_batch
@@ -91,9 +130,78 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     end
   end
 
+  context "with a cutoff from the database revision ledger" do
+    let(:entry) { entry_for_revision_cutoff }
+    let(:cutoff_revision) { PayrollTimeEntryRevision.where(source_time_entry_id: entry.id).order(:id).last }
+    # Capture the original revision before the example edits/deletes source.
+    # Materialize only this calendar so no overlapping fixture is created.
+    let!(:period) { revision_cutoff_period(cutoff_revision.recorded_at) }
+
+    it "creates only the period for the actual database revision cutoff" do
+      expect(PayrollCalendarPeriod.pluck(:id)).to eq([ period.id ])
+      expect(period.cutoff_at).to eq(cutoff_revision.recorded_at)
+    end
+
+    it "uses the time ledger at the cutoff when an entry is edited before delayed finalization" do
+      entry.update_columns(hours: 12, updated_at: Time.current)
+
+      travel_to(cutoff_revision.recorded_at + 2.minutes) do
+        result = described_class.new(period_id: period.id).call
+        Payroll::SettlementCaseCoordinator.sync_finalized_periods!
+
+        expect(result.fetch(:status)).to eq("finalized")
+        expect(period.reload.payroll_batch.payroll_batch_entries.sole.total_hours).to eq(8)
+        expect(period.payroll_batch.payroll_batch_entries.sole.snapshot).to include("hours" => 8.0)
+        expect(PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)).to have_attributes(
+          origin_reason: "changed_after_cutoff",
+          held_total_hours: 4
+        )
+      end
+    end
+
+    it "uses the time ledger at the cutoff when an entry is deleted before delayed finalization" do
+      entry.destroy!
+
+      travel_to(cutoff_revision.recorded_at + 2.minutes) do
+        result = described_class.new(period_id: period.id).call
+        Payroll::SettlementCaseCoordinator.sync_finalized_periods!
+
+        expect(result.fetch(:status)).to eq("finalized")
+        expect(period.reload.payroll_batch.payroll_batch_entries.sole).to have_attributes(
+          source_time_entry_id: entry.id,
+          total_hours: 8
+        )
+        expect(PayrollSettlementCase.find_by!(source_time_entry_id: entry.id)).to have_attributes(
+          origin_reason: "deleted_after_cutoff",
+          held_total_hours: 8
+        )
+      end
+    end
+
+    it "keeps deleted post-cutoff time visible as held for the following payroll" do
+      late = time_entry(
+        entry_method: "clock",
+        approval_status: nil,
+        work_date: period.start_date + 5.days,
+        created_at: cutoff_revision.recorded_at + 1.minute
+      )
+      late.destroy!
+
+      travel_to(cutoff_revision.recorded_at + 2.minutes) do
+        result = described_class.new(period_id: period.id).call
+
+        expect(result.fetch(:status)).to eq("finalized")
+        expect(period.reload.payroll_batch.payroll_batch_entries.pluck(:source_time_entry_id)).to eq([ entry.id ])
+        expect(period.payroll_batch.payroll_batch_exclusions.find_by!(source_time_entry_id: late.id))
+          .to have_attributes(reason: "created_after_cutoff", held_total_hours: 8)
+      end
+    end
+  end
+
   it "persists a visible failure and retries with backoff" do
     allow(Payroll::BatchFinalizer).to receive(:new).and_raise("database unavailable")
 
+    period
     travel_to(cutoff + 2.minutes) do
       result = described_class.call_due
       period.reload
@@ -112,6 +220,7 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     allow(Payroll::SettlementCaseCoordinator).to receive(:sync_finalized_periods!).and_raise("old reconciliation failed")
     allow(Rails.error).to receive(:report)
 
+    period
     travel_to(cutoff + 2.minutes) do
       result = described_class.new(period_id: period.id).call
 
@@ -126,6 +235,7 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     allow(Payroll::SettlementCaseCoordinator).to receive(:sync_finalized_periods!).and_raise("old reconciliation failed")
     allow(Rails.error).to receive(:report)
 
+    period
     travel_to(cutoff + 2.minutes) do
       result = described_class.call_due
 
@@ -135,10 +245,11 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
   end
 
   it "blocks out-of-order automated finalization without retrying or pulling future carryovers backward" do
+    later_dates = payroll_calendar_for(next_payroll_start(payroll_calendar_at(fixture_clock).fetch(:start_date)))
     later_batch = PayrollBatch.create!(
       public_id: "AIRE-PAY-LATER-BATCH",
-      start_date: Date.new(2026, 10, 16),
-      end_date: Date.new(2026, 10, 31),
+      start_date: later_dates.fetch(:start_date),
+      end_date: later_dates.fetch(:end_date),
       cutoff_at: cutoff + 15.days,
       finalized_at: cutoff + 15.days,
       checksum: "b" * 64
@@ -146,7 +257,7 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     later_entry = time_entry(
       entry_method: "clock",
       approval_status: nil,
-      work_date: Date.new(2026, 10, 20),
+      work_date: later_dates.fetch(:start_date) + 4.days,
       created_at: cutoff + 10.days
     )
     later_batch.payroll_batch_exclusions.create!(
@@ -158,6 +269,7 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
       snapshot: { work_date: later_entry.work_date.iso8601 }
     )
 
+    period
     travel_to(cutoff + 20.days) do
       result = described_class.new(period_id: period.id, now: Time.current).call
       period.reload
@@ -181,6 +293,7 @@ RSpec.describe Payroll::ScheduledCutoffFinalizer do
     allow(ENV).to receive(:fetch).and_call_original
     allow(ENV).to receive(:fetch).with("PAYROLL_RETRY_ALERT_THRESHOLD", "5").and_return("5")
 
+    period
     travel_to(cutoff + 2.minutes) do
       described_class.call_due
     end

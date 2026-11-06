@@ -1,11 +1,15 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
+import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
+import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
+import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
+import type { EmployeePayrollStatus, TimeEntriesResponse } from '../../lib/api'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
 import { Skeleton, SkeletonTimeEntry } from '../../components/ui/Skeleton'
-import { FadeIn } from '../../components/ui/FadeIn'
-import { formatDateISO } from '../../lib/dateUtils'
+import { addDateDays, businessDateISO, businessWeekStart, formatDateOnly } from '../../lib/dateUtils'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
@@ -26,6 +30,7 @@ interface TimeCategory {
 }
 
 interface TimeEntryItem {
+  version?: number
   id: number
   work_date: string
   start_time: string | null
@@ -40,6 +45,7 @@ interface TimeEntryItem {
   status?: 'clocked_in' | 'on_break' | 'completed'
   approval_status?: 'pending' | 'approved' | 'denied' | null
   overtime_status?: 'none' | 'pending' | 'approved' | 'denied' | null
+  payroll_status?: EmployeePayrollStatus | null
   payroll_lifecycle?: PayrollEntryLifecycle
   quality_flags?: HoursReportEntry['quality_flags']
   attendance_status?: 'early' | 'on_time' | 'late' | null
@@ -137,31 +143,28 @@ const ChevronRightIcon = () => (
 
 // Helper functions
 function formatDate(dateString: string): string {
-  return new Date(dateString + 'T00:00:00').toLocaleDateString('en-US', {
+  return formatDateOnly(dateString, {
     weekday: 'short',
     month: 'short',
     day: 'numeric'
   })
 }
 
-function getWeekDates(date: Date): Date[] {
-  const start = new Date(date)
-  const day = start.getDay()
-  start.setDate(start.getDate() - day) // Start on Sunday
-  
-  const dates: Date[] = []
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(start)
-    d.setDate(start.getDate() + i)
-    dates.push(d)
-  }
-  return dates
+function formatRecordedDate(timestamp: string): string {
+  if (typeof timestamp !== 'string' || !isIsoDate(timestamp.slice(0, 10))) return 'Date unknown'
+  const recorded = new Date(timestamp)
+  if (!Number.isFinite(recorded.getTime())) return 'Date unknown'
+  return recorded.toLocaleDateString('en-US', {
+    timeZone: 'Pacific/Guam',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
-function isSameDay(date1: Date, date2: Date): boolean {
-  return date1.getFullYear() === date2.getFullYear() &&
-         date1.getMonth() === date2.getMonth() &&
-         date1.getDate() === date2.getDate()
+function getWeekDates(date: string): string[] {
+  const start = businessWeekStart(date)
+  return Array.from({ length: 7 }, (_, index) => addDateDays(start, index))
 }
 
 function sumEntryHours(entries: TimeEntryItem[]): number {
@@ -172,19 +175,8 @@ function formatHours(value: number): string {
   return Number(value).toFixed(2)
 }
 
-function guamToday(): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Pacific/Guam',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date())
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value])) as Record<string, string>
-  return `${values.year}-${values.month}-${values.day}`
-}
-
 function reportPresetRange(preset: 'current_period' | 'previous_period' | 'this_month' | 'last_month' | 'year_to_date'): PayrollPeriod {
-  const today = guamToday()
+  const today = businessDateISO()
   const [year, month, day] = today.split('-').map(Number)
   const iso = (valueYear: number, valueMonth: number, valueDay: number) =>
     `${valueYear}-${String(valueMonth).padStart(2, '0')}-${String(valueDay).padStart(2, '0')}`
@@ -264,6 +256,7 @@ function linkedEmployeeStatus(searchParams: URLSearchParams): ReportEmployeeStat
 function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem[] {
   const serialize = (employee: HoursReportEmployee, entry: HoursReportEntry): TimeEntryItem => ({
     id: entry.id,
+    version: entry.version,
     work_date: entry.work_date,
     start_time: entry.start_time,
     end_time: entry.end_time,
@@ -307,18 +300,28 @@ const PAYROLL_STATUS_STYLE: Record<PayrollEntryLifecycleStatus, string> = {
   payment_prepared: 'border-violet-200 bg-violet-50 text-violet-800',
   payment_issued: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   payment_failed: 'border-red-200 bg-red-50 text-red-800',
+  payment_cancelled: 'border-amber-200 bg-amber-50 text-amber-800',
   payment_voided: 'border-red-200 bg-red-50 text-red-800',
+  partially_paid: 'border-amber-200 bg-amber-50 text-amber-800',
+  partially_prepared: 'border-violet-200 bg-violet-50 text-violet-800',
+  partially_processed: 'border-blue-200 bg-blue-50 text-blue-800',
+  partially_allocated: 'border-amber-200 bg-amber-50 text-amber-800',
+  payment_attested_pending_evidence: 'border-amber-300 bg-amber-50 text-amber-900',
+
 }
 
 function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycle }) {
   if (!lifecycle) return <span className="text-xs text-text-muted">Not tracked</span>
-  const details = [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null].filter(Boolean).join(' · ')
-  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{lifecycle.label}</span>
+  const accounting = lifecycle.accounting_only && lifecycle.status === 'committed'
+  const details = accounting ? ACCOUNTING_CORRECTION_NOTE : [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
+    lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
+  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycle.label}</span>
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
   const entries = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])]
-  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_voided', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+  const priority: PayrollEntryLifecycleStatus[] = ['payment_failed', 'payment_cancelled', 'payment_voided', 'payment_attested_pending_evidence', 'partially_allocated', 'partially_paid', 'partially_prepared', 'partially_processed', 'awaiting_approval', 'ready_for_cutoff', 'finalized', 'imported', 'committed', 'payment_prepared', 'payment_issued', 'not_payable']
+
   return priority.map((status) => entries.find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle).find(Boolean)
 }
 
@@ -353,6 +356,7 @@ function EmploymentStatusBadge({ employee }: { employee: HoursReportEmployee }) 
 const QUALITY_FLAG_LABELS: Record<NonNullable<TimeEntryItem['quality_flags']>[number], string> = {
   missing_category: 'Missing category',
   missing_description: 'Missing note',
+  overnight_allocation_review: 'Overnight break placement needs review',
   long_shift: 'Long shift',
   overlap: 'Overlapping time',
 }
@@ -372,7 +376,35 @@ function EntryQualityFlags({ flags = [] }: { flags?: TimeEntryItem['quality_flag
 
 export default function TimeTracking() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const { userRole, isClerkEnabled } = useAuthContext()
+  const location = useLocation()
+  const currentPath = `${location.pathname}${location.search}`
+  const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
+  const routedDate = searchParams.get('date') || searchParams.get('start_date')
+  const routedView = searchParams.get('view') === 'period' && linkedPayrollPeriod(searchParams) ? 'period' : searchParams.get('view') === 'day' ? 'day' : 'week'
+  const routedEntryId = /^[1-9]\d*$/.test(searchParams.get('entry_id') || '') ? searchParams.get('entry_id') : null
+  const entriesPage = Math.max(1, Math.min(10000, Number.parseInt(searchParams.get('entries_page') || '1', 10) || 1))
+  const [entryMeta, setEntryMeta] = useState<Pick<TimeEntriesResponse, 'pagination' | 'summary'> | null>(null)
+  const entryRequest = useRef(0)
+  const linkedEntryRequest = useRef(0)
+  const deletedLinkedEntryIds = useRef(new Set<string>())
+  const [entryRefreshRevision, setEntryRefreshRevision] = useState(0)
+  // Mutations request a fresh read in the current route, rather than retaining
+  // a load callback for the employee/date that was open when the write began.
+  const refreshEntryViews = useCallback(() => setEntryRefreshRevision(revision => revision + 1), [])
+  const [linkedEntryState, setLinkedEntryState] = useState<{ scope: string; entry: TimeEntryItem | null; loading: boolean; error: string | null } | null>(null)
+  const [linkedEntryRetry, setLinkedEntryRetry] = useState(0)
+  const routedPrefill = searchParams.get('prefill')
+  const routedScheduleId = searchParams.get('schedule_id') || ''
+  const routedPrefillOwner = searchParams.get('user_id') || ''
+  const clearShiftPrefill = useEffectEvent((workDate: string) => {
+    const next = new URLSearchParams(searchParams)
+    for (const key of ['prefill', 'schedule_id', 'date', 'start_time', 'end_time', 'notes']) next.delete(key)
+    next.set('date', workDate)
+    next.set('view', 'day')
+    next.delete('entries_page')
+    setSearchParams(next, { replace: true })
+  })
+  const { userRole, isClerkEnabled, currentUser: authenticatedUser, isSignedIn } = useAuthContext()
   const authSaysAdmin = !isClerkEnabled || userRole === 'admin'
   const routedPeriod = linkedPayrollPeriod(searchParams)
   const routedPeriodStart = routedPeriod?.start
@@ -381,6 +413,14 @@ export default function TimeTracking() {
   const routedOvertimeStatus = linkedOvertimeStatus(searchParams)
   const routedCategoryFilter = linkedCategoryFilter(searchParams)
   const routedEmployeeStatus = linkedEmployeeStatus(searchParams)
+  const routedUserId = (() => {
+    const value = searchParams.get('user_id') || ''
+    return /^\d+$/.test(value) ? value.replace(/^0+(?=\d)/, '') : ''
+  })()
+  const routedApprovalGroup = (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter
+  const routedRole = (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee'
+  const routedClockSource = (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy'
+  const routedEntryMethod = (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual'
   const initialLinkedPeriod = routedPeriod
   const [entries, setEntries] = useState<TimeEntryItem[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -388,42 +428,60 @@ export default function TimeTracking() {
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [pendingApprovalSummary, setPendingApprovalSummary] = useState<PendingApprovalsSummary | null>(null)
+  const pendingSummaryRequestSequence = useRef(0)
   const [isAdmin, setIsAdmin] = useState(authSaysAdmin)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+  const [optionsReady, setOptionsReady] = useState(false)
+  const [optionsError, setOptionsError] = useState<string | null>(null)
+  const [prefillError, setPrefillError] = useState<string | null>(null)
+  const [prefillRetry, setPrefillRetry] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
   const [activeTab, setActiveTab] = useState<TimeTab>(() => timeTabFromSearchParams(searchParams))
   
   // View mode: 'day' or 'week'
-  const [viewMode, setViewMode] = useState<'day' | 'week'>('week')
-  const [currentDate, setCurrentDate] = useState(new Date())
+  const viewMode = routedView
+  const currentDate = useMemo(() => isIsoDate(routedDate) ? routedDate : businessDateISO(), [routedDate])
+  const setViewMode = (mode: 'day' | 'week') => { const next = new URLSearchParams(searchParams); next.set('view', mode); next.delete('entries_page'); setSearchParams(next) }
+  const setCurrentDate = (date: string) => { const next = new URLSearchParams(searchParams); next.set('date', date); next.delete('entries_page'); next.delete('entry_id'); setSearchParams(next) }
   
   // Entries filters (for Time Entries tab)
   const [entryFilters, setEntryFilters] = useState({
-    user_id: '',
+    user_id: routedUserId,
     time_category_id: '',
   })
   const [showDenied, setShowDenied] = useState(false)
   
   // Report filters
   const [reportFilters, setReportFilters] = useState(() => ({
-    start_date: initialLinkedPeriod?.start ?? formatDateISO(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-    end_date: initialLinkedPeriod?.end ?? formatDateISO(new Date()),
-    user_id: /^\d+$/.test(searchParams.get('user_id') || '') ? searchParams.get('user_id')! : '',
+    start_date: initialLinkedPeriod?.start ?? `${businessDateISO().slice(0, 7)}-01`,
+    end_date: initialLinkedPeriod?.end ?? businessDateISO(),
+    user_id: routedUserId,
     time_category_id: routedCategoryFilter || (/^\d+$/.test(searchParams.get('time_category_id') || '') ? searchParams.get('time_category_id')! : ''),
-    approval_group: (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter,
+    approval_group: routedApprovalGroup,
     employee_status: routedEmployeeStatus,
-    role: (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee',
-    clock_source: (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy',
-    entry_method: (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual',
+    role: routedRole,
+    clock_source: routedClockSource,
+    entry_method: routedEntryMethod,
     approval_status: routedApprovalStatus,
     overtime_status: routedOvertimeStatus,
   }))
+  // A refresh may retain a previously authorized read only within this exact
+  // record, employee, report-period and authenticated-account scope. Keyed
+  // rendering hides the old snapshot immediately when any scope changes.
+  const linkedScopeUserId = activeTab === 'reports' ? reportFilters.user_id : routedUserId
+  const linkedScopeStart = activeTab === 'reports' ? reportFilters.start_date : routedPeriodStart
+  const linkedScopeEnd = activeTab === 'reports' ? reportFilters.end_date : routedPeriodEnd
+  const linkedEntryScope = JSON.stringify([routedEntryId, routedUserId, linkedScopeUserId, routedPeriodStart, routedPeriodEnd, linkedScopeStart, linkedScopeEnd, authenticatedUser?.id, userRole, isClerkEnabled, isSignedIn])
+  const linkedEntry = linkedEntryState?.scope === linkedEntryScope ? linkedEntryState.entry : null
+  const linkedEntryError = linkedEntryState?.scope === linkedEntryScope ? linkedEntryState.error : null
+  const linkedEntryLoading = !!routedEntryId && (linkedEntryState?.scope !== linkedEntryScope || linkedEntryState.loading)
   const lastUrlSyncedReportFilters = useRef(reportFilters)
   const [reportData, setReportData] = useState<TimeEntryItem[]>([])
   const [hoursReport, setHoursReport] = useState<HoursReportResponse | null>(null)
   const [selectedReportEmployee, setSelectedReportEmployee] = useState<HoursReportEmployee | null>(null)
+  const [reportError, setReportError] = useState<string | null>(null)
   const handleCloseEmployeeReportDrawer = useCallback(() => {
     setSelectedReportEmployee(null)
   }, [])
@@ -437,10 +495,11 @@ export default function TimeTracking() {
 
   // Modal state
   const [showModal, setShowModal] = useState(false)
+  const createDialogRef = useRef<HTMLDivElement>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<TimeEntryItem | null>(null)
   const [formData, setFormData] = useState({
-    work_date: formatDateISO(new Date()),
+    work_date: businessDateISO(),
     start_time: '08:00',
     end_time: '17:00',
     description: '',
@@ -485,26 +544,60 @@ export default function TimeTracking() {
     return name
   }
 
+  useEffect(() => {
+    const request = ++linkedEntryRequest.current
+    if (!routedEntryId) { setLinkedEntryState(null); return }
+    setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: current?.scope === linkedEntryScope ? current.entry : null, loading: true, error: null }))
+    const fail = (message: string, clearEntry = false) => {
+      if (request !== linkedEntryRequest.current) return
+      setLinkedEntryState(current => ({ scope: linkedEntryScope, entry: !clearEntry && !deletedLinkedEntryIds.current.has(routedEntryId) && current?.scope === linkedEntryScope ? current.entry : null, loading: false, error: message }))
+    }
+    void api.getTimeEntry(Number(routedEntryId)).then(response => {
+      if (request !== linkedEntryRequest.current) return
+      const entry = response.data?.time_entry as unknown as TimeEntryItem | undefined
+      if (!entry || response.error) {
+        fail(response.error || 'The original entry is unavailable. Its retained payroll evidence remains in the employee review.', [401, 403, 404].includes(response.status || 0))
+        return
+      }
+      if (deletedLinkedEntryIds.current.has(routedEntryId)) {
+        fail('The linked entry was deleted. Its retained payroll evidence remains in the employee review.', true)
+        return
+      }
+      if (!entry.user || !Number.isSafeInteger(entry.user.id) || entry.user.id <= 0 || String(entry.id) !== routedEntryId || (routedUserId && String(entry.user?.id) !== routedUserId) || (linkedScopeUserId && String(entry.user?.id) !== linkedScopeUserId)) {
+        fail('The linked entry does not match the selected employee. Return to the employee review.', true)
+        return
+      }
+      if (isIsoDate(linkedScopeStart) && isIsoDate(linkedScopeEnd) && (!isIsoDate(entry.work_date) || entry.work_date < linkedScopeStart || entry.work_date > linkedScopeEnd)) {
+        fail('The linked entry is outside the selected review period. Return to the employee review.', true)
+        return
+      }
+      setLinkedEntryState({ scope: linkedEntryScope, entry, loading: false, error: null })
+    }).catch(() => fail('The linked entry could not be loaded. Retry or return to the employee review.'))
+    return () => { linkedEntryRequest.current += 1 }
+  }, [routedEntryId, routedUserId, linkedScopeUserId, linkedScopeStart, linkedScopeEnd, linkedEntryScope, entryRefreshRevision, linkedEntryRetry])
+
   // Load time entries
   const loadEntries = useCallback(async () => {
+    const request = ++entryRequest.current
     setLoading(true)
     setError(null)
+    setEntryMeta(null)
 
     try {
-      const params: Record<string, string | number> = { per_page: 500 }
+      const params: Record<string, string | number> = { per_page: 100, page: entriesPage }
       
-      if (viewMode === 'day') {
-        params.date = formatDateISO(currentDate)
+      if (viewMode === 'period' && routedPeriodStart && routedPeriodEnd) {
+        params.start_date = routedPeriodStart
+        params.end_date = routedPeriodEnd
+      } else if (viewMode === 'day') {
+        params.date = currentDate
       } else {
-        // Get week start (Sunday)
-        const weekStart = new Date(currentDate)
-        weekStart.setDate(currentDate.getDate() - currentDate.getDay())
-        params.week = formatDateISO(weekStart)
+        params.week = businessWeekStart(currentDate)
       }
 
       // Apply filters
-      if (entryFilters.user_id) {
-        params.user_id = parseInt(entryFilters.user_id)
+      if (routedUserId) {
+        params.user_id = parseInt(routedUserId)
       }
       if (entryFilters.time_category_id) {
         params.time_category_id = parseInt(entryFilters.time_category_id)
@@ -512,26 +605,35 @@ export default function TimeTracking() {
 
       const response = await api.getTimeEntries(params as unknown as Parameters<typeof api.getTimeEntries>[0])
       
+      if (request !== entryRequest.current) return
       if (response.data) {
+        setEntryMeta(response.data.pagination && response.data.summary ? { pagination: response.data.pagination, summary: response.data.summary } : null)
         setEntries(response.data.time_entries as unknown as TimeEntryItem[])
       } else {
         setError(response.error || 'Failed to load time entries')
       }
     } catch {
-      setError('Failed to load time entries')
+      if (request === entryRequest.current) setError('Failed to load time entries')
     } finally {
-      setLoading(false)
+      if (request === entryRequest.current) setLoading(false)
     }
-  }, [currentDate, viewMode, entryFilters])
+  }, [currentDate, viewMode, routedPeriodStart, routedPeriodEnd, routedUserId, entryFilters.time_category_id, entriesPage])
 
   // Load categories and users
   const loadOptions = useCallback(async () => {
+    setOptionsReady(false)
+    setOptionsError(null)
     try {
       const [catResponse, userResponse, currentUserResponse] = await Promise.all([
         api.getTimeCategories(),
         api.getUsers(),
         api.getCurrentUser()
       ])
+
+      if (!catResponse.data || !currentUserResponse.data || (currentUserResponse.data.user.is_admin && !userResponse.data)) {
+        setOptionsError(catResponse.error || currentUserResponse.error || userResponse.error || 'Unable to load people and work categories.')
+        return
+      }
 
       if (catResponse.data) {
         setCategories(catResponse.data.time_categories as unknown as TimeCategory[])
@@ -555,8 +657,9 @@ export default function TimeTracking() {
         setIsAdmin(currentUserResponse.data.user.is_admin)
         setCurrentUserId(currentUserResponse.data.user.id)
       }
+      setOptionsReady(true)
     } catch {
-      console.error('Failed to load options')
+      setOptionsError('Unable to load people and work categories. Please try again.')
     }
   }, [])
 
@@ -580,6 +683,7 @@ export default function TimeTracking() {
   }, [isAdmin])
 
   const loadPendingApprovalSummary = useCallback(async () => {
+    const requestSequence = ++pendingSummaryRequestSequence.current
     if (!isAdmin) {
       setPendingApprovalSummary(null)
       return
@@ -587,6 +691,7 @@ export default function TimeTracking() {
 
     try {
       const response = await api.getPendingApprovals({ page: 1, per_page: 1 })
+      if (requestSequence !== pendingSummaryRequestSequence.current) return
       if (response.data) {
         setPendingApprovalSummary(response.data.summary ?? null)
       }
@@ -599,6 +704,7 @@ export default function TimeTracking() {
   const loadReport = useCallback(async () => {
     const requestSequence = ++reportRequestSequence.current
     setReportLoading(true)
+    setReportError(null)
     try {
       const response = await api.getHoursReport({
         start_date: reportFilters.start_date,
@@ -618,7 +724,10 @@ export default function TimeTracking() {
       if (requestSequence !== reportRequestSequence.current) return
 
       if (response.error) {
-        setError(response.error)
+        setHoursReport(null)
+        setReportData([])
+        setSelectedReportEmployee(null)
+        setReportError(response.error)
         return
       }
 
@@ -628,7 +737,12 @@ export default function TimeTracking() {
         setReportData(reportEntriesForDetailTable(response.data))
       }
     } catch {
-      if (requestSequence === reportRequestSequence.current) console.error('Failed to load report')
+      if (requestSequence === reportRequestSequence.current) {
+        setHoursReport(null)
+        setReportData([])
+        setSelectedReportEmployee(null)
+        setReportError('Failed to load hours report')
+      }
     } finally {
       if (requestSequence === reportRequestSequence.current) setReportLoading(false)
     }
@@ -644,6 +758,20 @@ export default function TimeTracking() {
   }, [searchParams])
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setEntryFilters(current => current.user_id === routedUserId ? current : { ...current, user_id: routedUserId }), 0)
+    return () => window.clearTimeout(timer)
+  }, [routedUserId])
+
+  useEffect(() => {
+    const rawUserId = searchParams.get('user_id')
+    if (!rawUserId || !routedUserId || rawUserId === routedUserId) return
+
+    const next = new URLSearchParams(searchParams)
+    next.set('user_id', routedUserId)
+    setSearchParams(next, { replace: true })
+  }, [routedUserId, searchParams, setSearchParams])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       setReportFilters((current) => {
         const startDate = routedPeriodStart ?? current.start_date
@@ -655,6 +783,11 @@ export default function TimeTracking() {
           && current.overtime_status === routedOvertimeStatus
           && current.time_category_id === routedCategoryFilter
           && current.employee_status === routedEmployeeStatus
+          && current.user_id === routedUserId
+          && current.approval_group === routedApprovalGroup
+          && current.role === routedRole
+          && current.clock_source === routedClockSource
+          && current.entry_method === routedEntryMethod
         ) return current
         return {
           ...current,
@@ -664,11 +797,16 @@ export default function TimeTracking() {
           overtime_status: routedOvertimeStatus,
           time_category_id: routedCategoryFilter,
           employee_status: routedEmployeeStatus,
+          user_id: routedUserId,
+          approval_group: routedApprovalGroup,
+          role: routedRole,
+          clock_source: routedClockSource,
+          entry_method: routedEntryMethod,
         }
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [routedApprovalStatus, routedCategoryFilter, routedEmployeeStatus, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart])
+  }, [routedApprovalGroup, routedApprovalStatus, routedCategoryFilter, routedClockSource, routedEmployeeStatus, routedEntryMethod, routedOvertimeStatus, routedPeriodEnd, routedPeriodStart, routedRole, routedUserId])
 
   useEffect(() => {
     if (lastUrlSyncedReportFilters.current === reportFilters) return
@@ -702,8 +840,9 @@ export default function TimeTracking() {
   }, [activeTab, reportFilters, searchParams, setSearchParams])
 
   useEffect(() => {
-    loadEntries()
-  }, [loadEntries])
+    void loadEntries()
+    return () => { entryRequest.current += 1 }
+  }, [loadEntries, entryRefreshRevision])
 
   useEffect(() => {
     loadOptions()
@@ -721,14 +860,19 @@ export default function TimeTracking() {
     }
 
     void loadPendingApprovalSummary()
-    return startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
-  }, [isAdmin, loadPendingApprovalSummary])
+    const stopPolling = startVisibilityAwarePolling(loadPendingApprovalSummary, 60_000)
+    return () => {
+      stopPolling()
+      pendingSummaryRequestSequence.current += 1
+    }
+  }, [isAdmin, loadPendingApprovalSummary, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab === 'reports') {
       loadReport()
     }
-  }, [activeTab, loadReport])
+    return () => { reportRequestSequence.current += 1 }
+  }, [activeTab, loadReport, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab !== 'reports') {
@@ -736,66 +880,74 @@ export default function TimeTracking() {
     }
   }, [activeTab])
 
-  // Handle prefill from schedule
+  // Load the exact shift after identity and category options are available.
+  // Retain the link on failure so Retry and refresh can recover it.
   useEffect(() => {
-    const prefill = searchParams.get('prefill')
-    if (prefill === 'true') {
-      const date = searchParams.get('date') || formatDateISO(new Date())
-      const startTime = searchParams.get('start_time') || '08:00'
-      const endTime = searchParams.get('end_time') || '17:00'
-      const notes = searchParams.get('notes') || ''
-      
-      // Open modal with pre-filled data
-      setEditingEntry(null)
-      setFormData({
-        work_date: date,
-        start_time: startTime,
-        end_time: endTime,
-        description: notes,
-        time_category_id: initialCategoryForOwner(currentUserId),
-            user_id: currentUserId?.toString() || '',
-        break_minutes: null
-      })
-      setShowModal(true)
-      
-      // Clear the URL params
-      setSearchParams({})
-    }
-  }, [searchParams, setSearchParams, currentUserId, initialCategoryForOwner])
+    if (routedPrefill !== 'true' || !optionsReady) return
+    let cancelled = false
+    const scheduleId = routedScheduleId
+    const expectedOwner = routedPrefillOwner
+    setPrefillError(null)
 
-  // Navigation
-  const goToToday = () => setCurrentDate(new Date())
-  
-  const goToPrevious = () => {
-    const newDate = new Date(currentDate)
-    if (viewMode === 'day') {
-      newDate.setDate(newDate.getDate() - 1)
-    } else {
-      newDate.setDate(newDate.getDate() - 7)
+    const initialize = async () => {
+      if (!/^[1-9]\d*$/.test(scheduleId) || !/^[1-9]\d*$/.test(expectedOwner)) {
+        setPrefillError('This shift link is incomplete. Open Log Time from Schedule again.')
+        return
+      }
+      try {
+        const response = await api.getSchedule(Number(scheduleId))
+        if (cancelled) return
+        if (response.error || !response.data) {
+          setPrefillError(response.error || 'Unable to load the scheduled shift.')
+          return
+        }
+        const shift = response.data.schedule
+        const owner = users.find((user) => user.id === shift.user_id)
+        if (String(shift.user_id) !== expectedOwner || (!isAdmin && shift.user_id !== currentUserId)) {
+          setPrefillError('The shift employee has changed or is unavailable to your account. Open Schedule again.')
+          return
+        }
+        if (isAdmin && !owner) {
+          setPrefillError('The scheduled employee is unavailable. Review their access in Team before logging time.')
+          return
+        }
+        setEditingEntry(null)
+        setFormData({
+          work_date: shift.work_date,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+          description: [`Scheduled shift: ${shift.formatted_time_range}`, shift.notes].filter(Boolean).join(' — '),
+          time_category_id: initialCategoryForOwner(shift.user_id),
+          user_id: String(shift.user_id),
+          break_minutes: null,
+        })
+        setShowModal(true)
+        clearShiftPrefill(shift.work_date)
+      } catch {
+        if (!cancelled) setPrefillError('Unable to load the scheduled shift. Please try again.')
+      }
     }
-    setCurrentDate(newDate)
-  }
+    void initialize()
+    return () => { cancelled = true }
+  }, [routedPrefill, routedScheduleId, routedPrefillOwner, optionsReady, users, isAdmin, currentUserId, initialCategoryForOwner, prefillRetry])
 
-  const goToNext = () => {
-    const newDate = new Date(currentDate)
-    if (viewMode === 'day') {
-      newDate.setDate(newDate.getDate() + 1)
-    } else {
-      newDate.setDate(newDate.getDate() + 7)
-    }
-    setCurrentDate(newDate)
-  }
+  // Calendar navigation operates on date-only values, never device timestamps.
+  const goToToday = () => setCurrentDate(businessDateISO())
+  const goToPrevious = () => setCurrentDate(addDateDays(currentDate, viewMode === 'day' ? -1 : -7))
+  const goToNext = () => setCurrentDate(addDateDays(currentDate, viewMode === 'day' ? 1 : 7))
 
   // Modal handlers
-  const openNewEntry = (date?: Date, prefillStart?: string, prefillEnd?: string, prefillNotes?: string) => {
+  const openNewEntry = (date?: string, prefillStart?: string, prefillEnd?: string, prefillNotes?: string, ownerId?: number | null) => {
+    if (!optionsReady || searchParams.get('prefill') === 'true') return
+    const selectedOwner = ownerId ?? (isAdmin && entryFilters.user_id ? Number(entryFilters.user_id) : currentUserId)
     setEditingEntry(null)
     setFormData({
-      work_date: formatDateISO(date || currentDate),
+      work_date: date || currentDate,
       start_time: prefillStart || '08:00',
       end_time: prefillEnd || '17:00',
       description: prefillNotes || '',
-      time_category_id: initialCategoryForOwner(currentUserId),
-        user_id: currentUserId?.toString() || '',
+      time_category_id: initialCategoryForOwner(selectedOwner),
+      user_id: selectedOwner?.toString() || '',
       break_minutes: null
     })
     setShowModal(true)
@@ -836,6 +988,7 @@ export default function TimeTracking() {
   }
 
   const closeCreateModal = () => {
+    if (saving) return
     setShowModal(false)
     const ctx = returnToPersonDay.current
     if (ctx) {
@@ -848,6 +1001,8 @@ export default function TimeTracking() {
       }
     }
   }
+
+  useDialogFocus(showModal, createDialogRef, () => { if (!saving) closeCreateModal() })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -883,8 +1038,7 @@ export default function TimeTracking() {
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
       returnToPersonDay.current = null
       setShowModal(false)
-      await loadEntries()
-      await loadPendingApprovalSummary()
+      refreshEntryViews()
     } catch {
       setError('Failed to save time entry')
     } finally {
@@ -895,6 +1049,13 @@ export default function TimeTracking() {
   const canDeleteEntry = (entry: TimeEntryItem): boolean => {
     if (isAdmin) return true
     return currentUserId === entry.user.id
+  }
+
+  const clearDeletedLinkedEntry = (id: number | undefined) => {
+    if (id === undefined) return
+    deletedLinkedEntryIds.current.add(String(id))
+    linkedEntryRequest.current += 1
+    setLinkedEntryState(current => current?.entry && current.entry.id === id ? { ...current, entry: null } : current)
   }
 
   const handleDelete = async (entry: TimeEntryItem) => {
@@ -916,25 +1077,23 @@ export default function TimeTracking() {
         setError(response.error)
         return
       }
+      clearDeletedLinkedEntry(entry.id)
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
       returnToPersonDay.current = null
       setShowModal(false)
       setEditingEntry(null)
-      await loadEntries()
-      await loadPendingApprovalSummary()
+      refreshEntryViews()
     } catch {
       setError('Failed to delete time entry')
     }
   }
 
-  const refreshEntriesAfterEdit = async () => {
+  const refreshEntriesAfterEdit = () => {
     reopenPersonDayAfterLoad.current = returnToPersonDay.current
     returnToPersonDay.current = null
     setShowEditModal(false)
     setEditingEntry(null)
-    await loadEntries()
-    if (activeTab === 'reports') await loadReport()
-    await loadPendingApprovalSummary()
+    refreshEntryViews()
   }
 
   // Get week dates for week view
@@ -955,7 +1114,7 @@ export default function TimeTracking() {
 
   // Calculate hours per day
   const hoursPerDay = weekDates.reduce((acc, date) => {
-    const dateStr = formatDateISO(date)
+    const dateStr = date
     const dayEntries = entriesByDate[dateStr] || []
     acc[dateStr] = sumEntryHours(dayEntries)
     return acc
@@ -963,6 +1122,9 @@ export default function TimeTracking() {
 
   const deniedCount = entries.filter(e => e.approval_status === 'denied').length
   const visibleTotalHours = sumEntryHours(visibleEntries)
+  const periodTotalHours = entryMeta
+    ? Number(entryMeta.summary.total_hours) - (showDenied ? 0 : Number(entryMeta.summary.denied_hours ?? 0))
+    : visibleTotalHours
 
   const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, payroll_statuses: {} }
   const hoursSummaryRows = hoursReport?.employees ?? []
@@ -980,6 +1142,19 @@ export default function TimeTracking() {
   const workspacePeriod = activeTab === 'reports'
     ? { start: reportFilters.start_date, end: reportFilters.end_date }
     : routedPeriod ?? currentPayrollPeriod()
+  const reportLinkedEntryId = linkedEntry && String(linkedEntry.id) === routedEntryId
+    && (!reportFilters.user_id || String(linkedEntry.user.id) === reportFilters.user_id)
+    && isIsoDate(linkedEntry.work_date) && isIsoDate(reportFilters.start_date) && isIsoDate(reportFilters.end_date)
+    && linkedEntry.work_date >= reportFilters.start_date && linkedEntry.work_date <= reportFilters.end_date
+    ? routedEntryId : null
+  const reportPayrollHref = withPayrollPeriod('/admin/payroll', {
+    start: reportFilters.start_date,
+    end: reportFilters.end_date,
+  }, {
+    ...(/^[1-9]\d*$/.test(reportFilters.user_id) ? { user_id: reportFilters.user_id } : {}),
+    ...(reportLinkedEntryId ? { entry_id: reportLinkedEntryId } : {}),
+    ...(returnTo ? { return_to: returnTo } : {}),
+  })
 
   const selectWorkspaceSection = (section: TimeTab) => {
     setActiveTab(section)
@@ -1043,6 +1218,8 @@ export default function TimeTracking() {
 
   return (
     <div className="space-y-6">
+      <PayrollCutoffNotice />
+      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
       <TimePayrollWorkspaceHeader
         activeSection={activeTab}
         isAdmin={isAdmin}
@@ -1053,7 +1230,8 @@ export default function TimeTracking() {
         action={activeTab === 'entries' ? (
           <button
             onClick={() => openNewEntry()}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
+            disabled={!optionsReady || searchParams.get('prefill') === 'true'}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-60 hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
           >
             <PlusIcon />
             <span>Log Time</span>
@@ -1061,13 +1239,20 @@ export default function TimeTracking() {
         ) : undefined}
       />
 
+      {linkedEntryLoading && <p role="status" className="text-sm text-text-muted">{linkedEntry ? 'Refreshing linked time entry… Keeping the last loaded review context.' : 'Loading linked time entry…'}</p>}
+      {linkedEntryError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+        <p>{linkedEntryError}</p>
+        {linkedEntry && <p className="mt-1">The last loaded review context is retained. Details may have changed; retry to load the current record.</p>}
+        <button type="button" disabled={linkedEntryLoading} className="mt-2 min-h-11 underline disabled:opacity-40" onClick={() => setLinkedEntryRetry(revision => revision + 1)}>Retry linked entry</button>
+      </div>}
+
       {activeTab === 'entries' && (
         <>
           {/* Clock In/Out Card - full width, horizontal on desktop */}
-          <ClockInOutCard onStatusChange={() => {
-            void loadEntries()
-            void loadPendingApprovalSummary()
-          }} />
+          <ClockInOutCard
+            onStatusChange={refreshEntryViews}
+            showDisabledNotice={!isAdmin || (currentUserId !== null && routedUserId === String(currentUserId))}
+          />
 
           {isAdmin && <WhosWorking />}
         </>
@@ -1075,6 +1260,7 @@ export default function TimeTracking() {
 
       {activeTab === 'approvals' && isAdmin && (
         <ApprovalQueue
+          isAdmin={isAdmin}
           approvalGroups={approvalGroups}
           approvalGroupsLoaded={approvalGroupsLoaded}
           initialDateFilter={routedThroughDate
@@ -1082,10 +1268,7 @@ export default function TimeTracking() {
             : routedPeriod
               ? { mode: 'range', startDate: routedPeriod.start, endDate: routedPeriod.end }
               : undefined}
-          onUpdate={() => {
-            void loadEntries()
-            void loadPendingApprovalSummary()
-          }}
+          onUpdate={refreshEntryViews}
           canDeleteEntry={canDeleteEntry}
         />
       )}
@@ -1101,12 +1284,12 @@ export default function TimeTracking() {
               <label className="block text-sm text-text-muted mb-1">Employee</label>
               <select
                 value={entryFilters.user_id}
-                onChange={(e) => setEntryFilters({ ...entryFilters, user_id: e.target.value })}
+                onChange={(e) => { const next = new URLSearchParams(searchParams); next.delete('entries_page'); next.delete('entry_id'); if (e.target.value) next.set('user_id', e.target.value); else next.delete('user_id'); setSearchParams(next, { replace: true }) }}
                 className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
               >
                 <option value="">All Employees</option>
                 {users.map(user => (
-                  <option key={user.id} value={user.id}>{user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
+                  <option key={user.id} value={user.id}>{user.full_name || user.display_name || user.email?.split('@')[0] || 'Team member'}{user.employment_status === 'terminated' ? ' (terminated)' : user.employment_status === 'inactive' ? ' (inactive)' : ''}</option>
                 ))}
               </select>
             </div>
@@ -1114,7 +1297,7 @@ export default function TimeTracking() {
               <label className="block text-sm text-text-muted mb-1">Category</label>
               <select
                 value={entryFilters.time_category_id}
-                onChange={(e) => setEntryFilters({ ...entryFilters, time_category_id: e.target.value })}
+                onChange={(e) => { setEntryFilters({ ...entryFilters, time_category_id: e.target.value }); const next = new URLSearchParams(searchParams); next.delete('entries_page'); setSearchParams(next) }}
                 className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm"
               >
                 <option value="">All Categories</option>
@@ -1129,7 +1312,7 @@ export default function TimeTracking() {
           {/* Clear filters button */}
           {(entryFilters.user_id || entryFilters.time_category_id) && (
             <button
-              onClick={() => setEntryFilters({ user_id: '', time_category_id: '' })}
+              onClick={() => { setEntryFilters({ user_id: '', time_category_id: '' }); const next = new URLSearchParams(searchParams); next.delete('user_id'); setSearchParams(next, { replace: true }) }}
               className="mt-3 text-sm text-primary hover:text-primary-dark font-medium"
             >
               Clear all filters
@@ -1139,15 +1322,19 @@ export default function TimeTracking() {
       )}
 
       {/* View Controls */}
-      <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
+      {viewMode === 'period' && routedPeriod ? <section aria-label="Hours for payroll period" className="rounded-2xl border border-neutral-warm bg-white p-4">
+        <h2 className="font-semibold text-primary-dark">{formatDateOnly(routedPeriod.start, { month: 'short', day: 'numeric', year: 'numeric' })} – {formatDateOnly(routedPeriod.end, { month: 'short', day: 'numeric', year: 'numeric' })}</h2>
+        <p className="mt-1 text-sm text-primary-dark">Total: {periodTotalHours.toFixed(1)} hours</p>
+        <button type="button" className="mt-2 min-h-11 font-medium text-primary underline" onClick={() => { const next = new URLSearchParams(searchParams); next.set('view', 'week'); next.set('date', businessDateISO()); next.delete('start_date'); next.delete('end_date'); next.delete('entries_page'); setSearchParams(next) }}>Return to current week</button>
+      </section> : <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
         {/* Mobile Layout */}
         <div className="flex flex-col gap-4 sm:hidden">
           {/* Top row: Date range and total */}
           <div className="text-center">
             <div className="font-semibold text-primary-dark">
               {viewMode === 'day'
-                ? currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-                : `${weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                ? formatDateOnly(currentDate, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                : `${formatDateOnly(weekDates[0], { month: 'short', day: 'numeric' })} - ${formatDateOnly(weekDates[6], { month: 'short', day: 'numeric', year: 'numeric' })}`
               }
             </div>
             <div className="text-sm text-primary-dark">
@@ -1188,7 +1375,7 @@ export default function TimeTracking() {
               <button
                 onClick={goToToday}
                 className={`px-2 py-1 text-sm font-medium rounded-lg ${
-                  isSameDay(currentDate, new Date())
+                  currentDate === businessDateISO()
                     ? 'bg-primary text-white'
                     : 'text-primary-dark hover:bg-neutral-warm'
                 }`}
@@ -1242,7 +1429,7 @@ export default function TimeTracking() {
             <button
               onClick={goToToday}
               className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                isSameDay(currentDate, new Date())
+                currentDate === businessDateISO()
                   ? 'bg-primary text-white'
                   : 'text-primary-dark hover:text-primary hover:bg-neutral-warm'
               }`}
@@ -1261,8 +1448,8 @@ export default function TimeTracking() {
           <div className="text-right">
             <div className="font-semibold text-primary-dark">
               {viewMode === 'day'
-                ? currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-                : `${weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                ? formatDateOnly(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+                : `${formatDateOnly(weekDates[0], { month: 'short', day: 'numeric' })} - ${formatDateOnly(weekDates[6], { month: 'short', day: 'numeric', year: 'numeric' })}`
               }
             </div>
             <div className="text-sm text-primary-dark">
@@ -1271,6 +1458,8 @@ export default function TimeTracking() {
           </div>
         </div>
       </div>
+
+      }
 
       {/* Denied entries toggle */}
       {deniedCount > 0 && (
@@ -1296,14 +1485,37 @@ export default function TimeTracking() {
       )}
 
       {/* Error Display */}
+      {optionsError && searchParams.get('prefill') !== 'true' && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+        <p>{optionsError}</p>
+        <button type="button" onClick={() => void loadOptions()} className="mt-2 min-h-11 underline">Retry people and categories</button>
+      </div>}
+      {searchParams.get('prefill') === 'true' && (
+        <div role={prefillError || optionsError ? 'alert' : 'status'} className="rounded-xl border border-slate-200 bg-white p-4">
+          <p>{prefillError || optionsError || 'Loading the scheduled shift and employee…'}</p>
+          {(prefillError || optionsError) && (
+            <button type="button" onClick={() => { if (!optionsReady) void loadOptions(); else setPrefillRetry((value) => value + 1) }} className="mt-2 min-h-11 text-primary underline">Retry scheduled shift</button>
+          )}
+        </div>
+      )}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-800">
           {error}
+          <button type="button" onClick={() => void loadEntries()} className="ml-3 min-h-11 underline">Retry time entries</button>
         </div>
       )}
 
+      {entryMeta && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+        <p>{entryMeta.summary.entry_count} entries · {(viewMode === 'period' ? periodTotalHours : Number(entryMeta.summary.total_hours)).toFixed(2)}h across this filtered {viewMode}. {entryMeta.pagination.total_pages > 1 && 'Calendar and entry cards show this page only.'}</p>
+        {entryMeta.pagination.total_pages > 1 && <div className="flex items-center gap-3"><button type="button" disabled={loading || entriesPage <= 1} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage - 1)); setSearchParams(next) }}>Previous entries</button><span>Page {entriesPage} of {entryMeta.pagination.total_pages}</span><button type="button" disabled={loading || entriesPage >= entryMeta.pagination.total_pages} className="min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('entries_page', String(entriesPage + 1)); setSearchParams(next) }}>Next entries</button></div>}
+      </div>}
+      {linkedEntry && <section aria-label="Linked time entry" className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-sm">
+        <p className="font-semibold">Entry #{linkedEntry.id} · {formatDate(linkedEntry.work_date)} · {ownerLabel(linkedEntry)}</p>
+        <p className="mt-1">{Number(linkedEntry.hours).toFixed(2)}h · {linkedEntry.time_category?.name || 'No category'} · {linkedEntry.approval_status || 'Standard approval'}</p>
+        <p className="mt-1 break-words">{linkedEntry.description || 'No description recorded.'}</p>
+        <button type="button" disabled={linkedEntryLoading || !!linkedEntryError} className="mt-2 min-h-11 underline disabled:opacity-40" onClick={() => { const next = new URLSearchParams(searchParams); next.set('date', linkedEntry.work_date); next.set('view', 'day'); next.delete('entries_page'); setSearchParams(next) }}>Show this work day</button>
+      </section>}
       {/* Loading Skeleton */}
-      {loading ? (
+      {error ? null : loading ? (
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           {/* Header skeleton */}
           <div className="p-4 border-b border-neutral-warm">
@@ -1328,16 +1540,15 @@ export default function TimeTracking() {
             ))}
           </div>
         </div>
-      ) : viewMode === 'week' ? (
+      ) : viewMode === 'week' && isAdmin ? (
         /* Week View */
-        <FadeIn>
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           <div className="overflow-x-auto">
             {/* Week Header */}
             <div className="grid min-w-[980px] grid-cols-7 border-b border-neutral-warm lg:min-w-full">
               {weekDates.map((date, idx) => {
-                const dateStr = formatDateISO(date)
-                const isToday = isSameDay(date, new Date())
+                const dateStr = date
+                const isToday = date === businessDateISO()
                 const dayHours = hoursPerDay[dateStr] || 0
                 
                 return (
@@ -1348,10 +1559,10 @@ export default function TimeTracking() {
                     }`}
                   >
                     <div className={`text-xs font-semibold uppercase ${isToday ? 'text-primary' : 'text-primary-dark'}`}>
-                      {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                      {formatDateOnly(date, { weekday: 'short' })}
                     </div>
                     <div className={`text-base sm:text-lg font-bold ${isToday ? 'text-primary' : 'text-primary-dark'}`}>
-                      {date.getDate()}
+                      {Number(date.slice(8, 10))}
                     </div>
                     <div className={`text-xs font-semibold ${isToday ? 'text-primary' : (dayHours > 0 ? 'text-primary' : 'text-primary-dark')}`}>
                       {dayHours.toFixed(1)}h
@@ -1364,9 +1575,9 @@ export default function TimeTracking() {
             {/* Week Entries */}
             <div className="grid min-h-[280px] grid-cols-7 min-w-[980px] sm:min-h-[320px] lg:min-w-full">
               {weekDates.map((date, idx) => {
-                const dateStr = formatDateISO(date)
+                const dateStr = date
                 const dayEntries = entriesByDate[dateStr] || []
-                const isToday = isSameDay(date, new Date())
+                const isToday = date === businessDateISO()
 
                 const groupedByUser = dayEntries.reduce((acc, entry) => {
                   const uid = entry.user.id
@@ -1433,12 +1644,13 @@ export default function TimeTracking() {
                           lastEnd={lastEnd}
                           hasPending={hasPending}
                           hasDenied={hasDenied}
-                          onClick={() => setPersonDayModal({ entries: userEntries, name, date: formatDateISO(date) })}
+                          onClick={() => setPersonDayModal({ entries: userEntries, name, date })}
                         />
                       )
                     })}
                     <button
                       onClick={() => openNewEntry(date)}
+                      disabled={!optionsReady || routedPrefill === 'true'}
                     className="w-full rounded p-1.5 text-xs font-medium text-primary-dark transition-colors hover:bg-neutral-warm hover:text-primary sm:p-2"
                   >
                     + Add
@@ -1449,19 +1661,18 @@ export default function TimeTracking() {
             </div>
           </div>
         </div>
-        </FadeIn>
       ) : (
-        /* Day View */
-        <FadeIn>
+        /* Employee week/day list and manager day view */
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm hover:shadow-md transition-shadow duration-300">
           {visibleEntries.length === 0 ? (
             <div className="p-8 text-center">
               <div className="w-12 h-12 mx-auto mb-3 text-primary-dark">
                 <ClockIcon />
               </div>
-              <p className="text-primary-dark font-medium">No time entries for this day</p>
+              <p className="text-primary-dark font-medium">No time entries for this {viewMode === 'period' ? 'period' : viewMode === 'week' ? 'week' : 'day'}</p>
               <button
                 onClick={() => openNewEntry()}
+                disabled={!optionsReady || routedPrefill === 'true'}
                 className="mt-4 text-primary hover:text-primary-dark font-semibold"
               >
                 Log your first entry
@@ -1470,9 +1681,10 @@ export default function TimeTracking() {
           ) : (
             <div className="divide-y divide-neutral-warm">
               {visibleEntries.map(entry => (
-                <div key={entry.id} className="p-3 sm:p-4">
+                <div key={entry.id} id={`time-entry-${entry.id}`} tabIndex={routedEntryId === String(entry.id) ? -1 : undefined} className={`p-3 sm:p-4 ${routedEntryId === String(entry.id) ? 'bg-cyan-50 ring-2 ring-inset ring-cyan-400' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
+                      {(viewMode === 'period' || (!isAdmin && viewMode === 'week')) && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
                       {/* Hours + Time + Category Row */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3">
@@ -1510,9 +1722,10 @@ export default function TimeTracking() {
                           </span>
                         )}
                       </div>
+                      {!isAdmin && <EmployeePaymentStatus status={entry.payroll_status} />}
                       {/* Owner */}
                       <p className="mt-1 text-xs sm:text-sm text-primary-dark/80 truncate">
-                        by {ownerLabel(entry)}
+                        by {isAdmin ? <Link to={employeeWorkspaceHref(entry.user.id, { tab: 'hours', returnTo: currentPath, entry: String(entry.id), period: `${entry.work_date.slice(0, 7)}-${Number(entry.work_date.slice(8)) <= 15 ? '01' : '16'}` })} className="underline decoration-primary/30 underline-offset-4">{ownerLabel(entry)}</Link> : ownerLabel(entry)}
                       </p>
                       {/* Description */}
                       {entry.description && (
@@ -1555,7 +1768,6 @@ export default function TimeTracking() {
             </div>
           )}
         </div>
-        </FadeIn>
       )}
 
       {/* Person Day Modal - shows all entries for one person on one day */}
@@ -1586,21 +1798,12 @@ export default function TimeTracking() {
                 openEditEntry(entry)
               }}
               onAddEntry={() => {
+                if (!optionsReady || routedPrefill === 'true') return
                 const e = personDayModal.entries[0]
                 const userId = e ? e.user.id : currentUserId
                 returnToPersonDay.current = { name: personDayModal.name, date: personDayModal.date, userId: userId || 0 }
                 setPersonDayModal(null)
-                setEditingEntry(null)
-                setFormData({
-                  work_date: personDayModal.date,
-                  start_time: '08:00',
-                  end_time: '17:00',
-                  description: '',
-                  time_category_id: initialCategoryForOwner(userId || null),
-                  user_id: userId?.toString() || '',
-                  break_minutes: null
-                })
-                setShowModal(true)
+                openNewEntry(personDayModal.date, undefined, undefined, undefined, userId)
               }}
               onDeleteEntry={async (entry) => {
                 await handleDelete(entry)
@@ -1637,9 +1840,10 @@ export default function TimeTracking() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ duration: 0.25, delay: 0.1 }}
-            className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            ref={createDialogRef} role="dialog" aria-modal="true" aria-labelledby="time-create-title" tabIndex={-1}
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90dvh] overflow-y-auto">
             <div className="p-6">
-              <h2 className="text-xl font-bold text-primary-dark mb-1">Log Time</h2>
+              <h2 id="time-create-title" className="text-xl font-bold text-primary-dark mb-1">Log Time</h2>
               <p className="mb-4 text-sm leading-6 text-primary-dark/70">
                 Manual time is saved for review and must be explicitly approved before it can be included in payroll.
               </p>
@@ -1697,10 +1901,11 @@ export default function TimeTracking() {
                 {/* Entry Owner (admin create only) */}
                 {isAdmin && (
                   <div>
-                    <label className="block text-sm font-medium text-primary-dark mb-1">
+                    <label htmlFor="time-entry-owner" className="block text-sm font-medium text-primary-dark mb-1">
                       Entry Owner
                     </label>
                     <select
+                      id="time-entry-owner"
                       value={formData.user_id}
                       onChange={(e) => {
                         const userId = e.target.value ? Number(e.target.value) : null
@@ -1773,7 +1978,7 @@ export default function TimeTracking() {
                   <label className="block text-sm font-medium text-primary-dark mb-1">
                     Work category *
                   </label>
-                  <select
+                  <select aria-label="Work category"
                     value={formData.time_category_id}
                     onChange={(e) => setFormData({ ...formData, time_category_id: e.target.value })}
                     className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -1849,7 +2054,7 @@ export default function TimeTracking() {
               </p>
             </div>
             <Link
-              to={withPayrollPeriod('/admin/payroll', { start: reportFilters.start_date, end: reportFilters.end_date })}
+              to={reportPayrollHref}
               className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               Prepare payroll cutoff
@@ -1886,7 +2091,7 @@ export default function TimeTracking() {
                     const period = reportPresetRange(preset)
                     setReportFilters((current) => ({ ...current, start_date: period.start, end_date: period.end }))
                   }}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                  className="rounded-full border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary-dark transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {label}
                 </button>
@@ -1986,6 +2191,15 @@ export default function TimeTracking() {
             </div>
           </div>
 
+          {reportError && (
+            <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-900">
+              <div className="font-semibold">Unable to load the hours report</div>
+              <p className="mt-1 text-sm leading-6">{reportError}</p>
+            </div>
+          )}
+
+          {!reportError && (
+          <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
             <ReportMetric label="Total Hours" value={reportLoading ? '…' : formatHours(reportSummary.total_hours)} emphasize />
             <ReportMetric label="Regular" value={reportLoading ? '…' : formatHours(reportSummary.regular_hours)} />
@@ -2007,7 +2221,10 @@ export default function TimeTracking() {
               </div>
               <p className="mt-1 text-sm leading-relaxed">
                 {!hoursReport.ready
-                  ? `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before finalizing the cutoff.`
+                  ? [
+                    reportSummary.allocation_hold_count ? 'Overnight time or break placement needs administrator review. These hours and their affected workweeks are held from payroll until the intervals can be confirmed.' : null,
+                    reportSummary.uncategorized_count > 0 ? `${reportSummary.uncategorized_count} approved ${reportSummary.uncategorized_count === 1 ? 'entry is' : 'entries are'} missing a work category. Correct ${reportSummary.uncategorized_count === 1 ? 'it' : 'them'} before finalizing the cutoff.` : null,
+                  ].filter(Boolean).join(' ')
                   : excludedEntryCount > 0
                     ? [
                       reportSummary.pending_count > 0 ? `${reportSummary.pending_count} pending` : null,
@@ -2018,7 +2235,7 @@ export default function TimeTracking() {
                     ].filter(Boolean).join(', ') + '. These entries remain tracked but are not included in this cutoff; later approvals carry into the next cutoff.'
                     : 'All included hours have work categories. No pending, denied, or open entries were found for this period.'}
               </p>
-              {!hoursReport.ready && (
+              {!hoursReport.ready && reportSummary.uncategorized_count > 0 && (
                 <button type="button" onClick={() => setReportFilters({ ...reportFilters, time_category_id: 'uncategorized' })} className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-800 transition hover:bg-red-100">
                   Show entries missing categories
                 </button>
@@ -2052,15 +2269,21 @@ export default function TimeTracking() {
                 <div>
                   <h3 id="payroll-lifecycle-summary" className="font-semibold text-primary-dark">Payroll lifecycle</h3>
                   <p className="mt-0.5 text-xs text-text-muted">Entry-level status from AIRE cutoff through Cornerstone payment.</p>
+                  <p className="mt-0.5 text-xs text-text-muted">Accounting corrections are recorded entries, not payments.</p>
                 </div>
-                <Link to="/admin/payroll" className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
+                <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
+
                 <ReportMetric label="Ready / awaiting" value={String((reportSummary.payroll_statuses?.ready_for_cutoff || 0) + (reportSummary.payroll_statuses?.awaiting_approval || 0))} />
                 <ReportMetric label="In payroll" value={String((reportSummary.payroll_statuses?.finalized || 0) + (reportSummary.payroll_statuses?.imported || 0) + (reportSummary.payroll_statuses?.committed || 0))} />
+                <ReportMetric label="Partial progress" value={String((reportSummary.payroll_statuses?.partially_processed || 0) + (reportSummary.payroll_statuses?.partially_prepared || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Payment prepared" value={String(reportSummary.payroll_statuses?.payment_prepared || 0)} />
+                <ReportMetric label="Partially settled" value={String((reportSummary.payroll_statuses?.partially_allocated || 0) + (reportSummary.payroll_statuses?.partially_paid || 0))} />
                 <ReportMetric label="Paid" value={String(reportSummary.payroll_statuses?.payment_issued || 0)} emphasize />
-                <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) > 0 ? 'warning' : 'normal'} />
+                <ReportMetric label="Accounting corrections" value={String(reportSummary.payroll_statuses?.accounting_correction_committed || 0)} />
+                <ReportMetric label="Check evidence pending" value={String(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0)} tone={(reportSummary.payroll_statuses?.payment_attested_pending_evidence || 0) > 0 ? 'warning' : 'normal'} />
+                <ReportMetric label="Needs attention" value={String((reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0))} tone={(reportSummary.payroll_statuses?.payment_failed || 0) + (reportSummary.payroll_statuses?.payment_voided || 0) + (reportSummary.payroll_statuses?.payment_cancelled || 0) > 0 ? 'warning' : 'normal'} />
                 <ReportMetric label="Not payable" value={String(reportSummary.payroll_statuses?.not_payable || 0)} />
               </div>
             </section>
@@ -2075,7 +2298,7 @@ export default function TimeTracking() {
           <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
             <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              <p className="mt-0.5 text-xs text-text-muted">Operational review view. Click an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
+              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
             </div>
             <div className="divide-y divide-neutral-warm sm:hidden">
               {reportLoading ? (
@@ -2150,7 +2373,21 @@ export default function TimeTracking() {
                   ) : hoursSummaryRows.map((employee) => (
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
                       <td className="px-4 py-3 text-sm font-semibold text-primary-dark">
-                        <div className="flex flex-wrap items-center gap-2"><span>{employee.full_name}</span><EmploymentStatusBadge employee={employee} /></div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            aria-label={`Review hours for ${employee.full_name}`}
+                            aria-haspopup="dialog"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedReportEmployee(employee)
+                            }}
+                            className="min-h-11 rounded-lg px-2 py-1 text-left font-semibold text-primary transition hover:bg-cyan-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                          >
+                            {employee.full_name}
+                          </button>
+                          <EmploymentStatusBadge employee={employee} />
+                        </div>
                         <div className="mt-1 text-xs font-normal text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)}–${formatDate(employee.last_work_date)}` : ''}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
@@ -2215,6 +2452,8 @@ export default function TimeTracking() {
             loading={reportLoading}
             onEdit={openEditEntry}
           />
+          </>
+          )}
           <EmployeeReportDrawer employee={selectedReportEmployee} onClose={handleCloseEmployeeReportDrawer} />
         </div>
       )}
@@ -2230,10 +2469,11 @@ export default function TimeTracking() {
         categories={editingEntry && isAdmin
           ? categories.filter((category) => users.find((user) => user.id === editingEntry.user.id)?.time_category_ids?.includes(category.id))
           : categories}
+        isAdmin={isAdmin}
         canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
         onClose={closeEditModal}
         onSaved={refreshEntriesAfterEdit}
-        onDeleted={refreshEntriesAfterEdit}
+        onDeleted={() => { clearDeletedLinkedEntry(editingEntry?.id); refreshEntriesAfterEdit() }}
         onError={setError}
       />
     </div>
@@ -2384,7 +2624,7 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
             <p className="mt-1 text-xs text-text-muted">Every time entry remains traceable from approval through payment.</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {Object.entries(employee.payroll_statuses || {}).filter(([, count]) => Number(count) > 0).map(([status, count]) => {
-                const lifecycle = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])].find((entry) => entry.payroll_lifecycle?.status === status)?.payroll_lifecycle
+                const lifecycle = [...employee.days.flatMap((day) => day.entries), ...(employee.excluded_entries || [])].find((entry) => status === 'accounting_correction_committed' ? entry.payroll_lifecycle?.accounting_only && entry.payroll_lifecycle.status === 'committed' : entry.payroll_lifecycle?.status === status && !entry.payroll_lifecycle.accounting_only)?.payroll_lifecycle
                 return lifecycle ? <span key={status} className="inline-flex items-center gap-1.5"><PayrollLifecycleBadge lifecycle={lifecycle} /><span className="text-xs text-text-muted">{count}</span></span> : null
               })}
             </div>
@@ -2449,12 +2689,41 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
                         <div className="mt-1 text-xs text-text-muted">{entry.time_category?.name || 'Uncategorized'} · {entry.entry_method} · {entry.clock_source || 'legacy'}</div>
                         <EntryQualityFlags flags={entry.quality_flags} />
                         <div className="mt-2"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></div>
+                        {entry.payroll_lifecycle?.status === 'payment_attested_pending_evidence' && (
+                          <p className="mt-2 text-xs leading-5 text-amber-900">
+                            {Number(entry.payroll_lifecycle.payment_attested_hours || 0).toFixed(2)}h held from future payroll based on an owner payment statement. Check number, amount, and delivery date still need to be matched; this is not a verified paid record.
+                            {entry.payroll_lifecycle.payment_attestation_source_changed && ' The AIRE entry changed after the statement and needs review.'}
+                          </p>
+                        )}
+                        {entry.payroll_lifecycle?.resolved_payment_report && (
+                          <details className="mt-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-text-muted">
+                            <summary className="cursor-pointer font-medium text-primary-dark">Matched payment report</summary>
+                            <p className="mt-2">Reported {formatRecordedDate(entry.payroll_lifecycle.resolved_payment_report.attested_at)} · matched to issued evidence {formatRecordedDate(entry.payroll_lifecycle.resolved_payment_report.resolved_at)}</p>
+                            <p className="mt-1 whitespace-pre-wrap">{entry.payroll_lifecycle.resolved_payment_report.reason}</p>
+                            <p className="mt-1 whitespace-pre-wrap">{entry.payroll_lifecycle.resolved_payment_report.resolution_reason}</p>
+                            <p className="mt-1">Original report retained. Current payment status is shown above.</p>
+                          </details>
+                        )}
+                        {entry.payroll_lifecycle && (entry.payroll_lifecycle.manually_paid_hours || entry.payroll_lifecycle.manually_committed_hours) ? (
+                          <p className="mt-2 text-xs text-text-muted">
+                            {[
+                              entry.payroll_lifecycle.manually_paid_hours
+                                ? `${Number(entry.payroll_lifecycle.manually_paid_hours).toFixed(2)}h paid by recorded Cornerstone payment`
+                                : null,
+                              entry.payroll_lifecycle.manually_committed_hours
+                                ? `${Number(entry.payroll_lifecycle.manually_committed_hours).toFixed(2)}h committed, not yet paid`
+                                : null,
+                            ].filter(Boolean).join(' · ')}
+                          </p>
+                        ) : null}
                         {entry.payroll_lifecycle && entry.payroll_lifecycle.settlements.length > 0 && (
                           <div className="mt-2 space-y-1 border-t border-slate-100 pt-2 text-xs text-text-muted">
                             {entry.payroll_lifecycle.settlements.map((settlement) => (
                               <p key={`${entry.id}-${settlement.batch_id}`}>
                                 {formatDate(settlement.start_date)}–{formatDate(settlement.end_date)} · {settlement.total_hours.toFixed(2)}h · {settlement.label}
-                                {settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
+                                {settlement.status.startsWith('partially_') ? ` · ${settlement.paid_hours.toFixed(2)}h paid · ${settlement.outstanding_hours.toFixed(2)}h outstanding` : ''}
+                                {settlement.accounting_only ? ` · ${ACCOUNTING_CORRECTION_NOTE} Corrective period ${settlement.external_pay_period_id || 'not linked'} / item ${settlement.external_payroll_item_id || 'not linked'}` : settlement.payment_reference ? ` · ${settlement.payment_method || 'payment'} ${settlement.payment_reference}` : ''}
+                                {settlement.status === 'payment_issued' ? ` · ${settlement.payment_effective_on ? `paid ${formatDate(settlement.payment_effective_on)}` : 'payment date not recorded'}` : ''}
                               </p>
                             ))}
                           </div>
@@ -2543,7 +2812,51 @@ function DetailedEntriesTable({
         <h3 className="font-semibold text-primary-dark">Detailed Entries</h3>
         <p className="text-xs text-text-muted mt-0.5">Grouped by employee per day — click to expand</p>
       </div>
-      <div className="overflow-x-auto">
+      <div className="divide-y divide-neutral-warm sm:hidden" role="region" aria-label="Detailed entries on mobile">
+        {loading ? <p className="px-4 py-8 text-center text-text-muted">Loading...</p>
+          : groupList.length === 0 ? <p className="px-4 py-8 text-center text-text-muted">No entries found</p>
+          : groupList.slice(0, visibleGroupCount).map(([key, group]) => {
+            const expanded = expandedKeys.has(key)
+            const multiple = group.entries.length > 1
+            const detailId = `mobile-entry-group-${key}`
+            const totalHours = group.entries.reduce((total, entry) => total + entry.hours, 0)
+            const totalBreaks = group.entries.reduce((total, entry) => total + (entry.break_minutes || 0), 0)
+            const categories = [...new Set(group.entries.map(entry => entry.time_category?.name || 'Uncategorized'))]
+            const sources = [...new Set(group.entries.map(entry => entry.clock_source || 'legacy'))]
+            return <article key={key} aria-label={`Entries for ${group.name} on ${formatDate(group.date)}`} className="min-w-0 space-y-3 p-4">
+              {multiple ? <button type="button" aria-expanded={expanded} aria-controls={detailId} aria-label={`Review ${group.entries.length} entries for ${group.name} on ${formatDate(group.date)}`} onClick={() => toggle(key)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+                <span className="min-w-0"><span className="block break-words font-semibold text-primary-dark">{group.name}</span><span className="text-xs text-text-muted">{formatDate(group.date)} · {group.entries.length} entries</span></span>
+                <span className="shrink-0 text-xs font-semibold text-primary">{expanded ? 'Collapse' : 'Review'}</span>
+              </button> : <div><h4 className="break-words font-semibold text-primary-dark">{group.name}</h4><p className="text-xs text-text-muted">{formatDate(group.date)}</p></div>}
+              <dl className="grid min-w-0 grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-sm">
+                <div><dt className="text-xs text-text-muted">Recorded hours</dt><dd className="font-semibold text-primary">{totalHours.toFixed(2)}h</dd></div>
+                <div><dt className="text-xs text-text-muted">Recorded breaks</dt><dd>{totalBreaks}m</dd></div>
+                <div className="min-w-0"><dt className="text-xs text-text-muted">Categories</dt><dd className="break-words">{categories.join(', ')}</dd></div>
+                <div className="min-w-0"><dt className="text-xs text-text-muted">Sources</dt><dd className="break-words uppercase">{sources.join(', ')}</dd></div>
+              </dl>
+              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700">{status === 'standard' ? 'Standard approval' : `${status} approval`}</span>)}</div>
+              <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter(entry => entry.payroll_lifecycle).map(entry => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map(lifecycle => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
+              <div id={detailId} hidden={multiple && !expanded} className="space-y-3">
+                {group.entries.map(entry => <div key={entry.id} className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2"><p className="font-semibold text-primary-dark">{entry.hours.toFixed(2)}h</p><p className="text-xs text-text-muted">{entry.formatted_start_time && entry.formatted_end_time ? `${entry.formatted_start_time} – ${entry.formatted_end_time}` : 'Time not recorded'}</p></div>
+                  <dl className="grid min-w-0 grid-cols-2 gap-3 text-xs">
+                    <div className="min-w-0"><dt className="text-text-muted">Category</dt><dd className="break-words font-medium">{entry.time_category?.name || 'Uncategorized'}</dd></div>
+                    <div className="min-w-0"><dt className="text-text-muted">Source / method</dt><dd className="break-words uppercase">{entry.clock_source || 'legacy'}{entry.entry_method ? ` · ${entry.entry_method}` : ''}</dd></div>
+                    <div><dt className="text-text-muted">Approval</dt><dd className="capitalize">{entry.approval_status || 'Standard approval'}{entry.overtime_status && entry.overtime_status !== 'none' ? ` · OT ${entry.overtime_status}` : ''}</dd></div>
+                    <div><dt className="text-text-muted">Breaks</dt><dd>{entry.break_minutes || 0}m</dd></div>
+                  </dl>
+                  {entry.description && <p className="whitespace-pre-wrap break-words text-sm text-text-muted">{entry.description}</p>}
+                  <EntryQualityFlags flags={entry.quality_flags} />
+                  <PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} />
+                  {entry.payroll_lifecycle && (entry.payroll_lifecycle.payment_reference || entry.payroll_lifecycle.payment_effective_on || entry.payroll_lifecycle.accounting_only) && <p className="break-words text-xs text-text-muted">{entry.payroll_lifecycle.accounting_only ? ACCOUNTING_CORRECTION_NOTE : [entry.payroll_lifecycle.payment_method?.replaceAll('_', ' '), entry.payroll_lifecycle.payment_reference ? `Reference ${entry.payroll_lifecycle.payment_reference}` : null, entry.payroll_lifecycle.payment_effective_on ? `Paid ${formatDate(entry.payroll_lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')}</p>}
+                  {(entry.breaks || []).map((item, index) => <p key={index} className="break-words text-xs text-text-muted">Break {item.start_time || '—'}–{item.end_time || '—'} · {item.duration_minutes ?? '—'}m</p>)}
+                  {isAdmin && <button type="button" aria-label={`Edit time entry ${entry.id} for ${group.name}`} onClick={() => onEdit(entry)} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">Edit</button>}
+                </div>)}
+              </div>
+            </article>
+          })}
+      </div>
+      <div className="hidden overflow-x-auto sm:block">
         <table className="w-full">
           <thead className="bg-neutral-warm/50">
             <tr>
@@ -2652,6 +2965,7 @@ function DetailedEntriesTable({
             )}
           </tbody>
         </table>
+      </div>
         {groupList.length > visibleGroupCount && (
           <div className="border-t border-neutral-warm px-4 py-4 text-center">
             <button type="button" onClick={() => setVisibleGroupCount((count) => Math.min(count + 100, groupList.length))} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-cyan-50">
@@ -2660,7 +2974,6 @@ function DetailedEntriesTable({
             <div className="mt-2 text-xs text-text-muted">Showing {visibleGroupCount} of {groupList.length}</div>
           </div>
         )}
-      </div>
     </div>
   )
 }
@@ -2940,6 +3253,17 @@ function PersonDayModalContent({
           Close
         </button>
       </div>
+    </div>
+  )
+}
+
+function EmployeePaymentStatus({ status }: { status?: EmployeePayrollStatus | null }) {
+  const neutral = status && ['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status.status)
+  return (
+    <div className="mt-2 space-y-1 break-words text-sm text-primary-dark" aria-label="Payroll payment status">
+      <p className="font-medium">{status?.label || 'Payment status unavailable'}</p>
+      {status && (!neutral || status.paid_hours > 0) && <p className="text-xs text-text-muted">Paid hours confirmed: {status.paid_hours.toFixed(2)}h</p>}
+      {!!status?.held_hours && <p className="text-xs text-amber-800">{status.status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status.status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: {status.held_hours.toFixed(2)}h</p>}
     </div>
   )
 }

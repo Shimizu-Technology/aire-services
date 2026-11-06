@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class PayrollSettlementCase < ApplicationRecord
-  ORIGIN_REASONS = (PayrollBatchExclusion::REASONS + %w[changed_after_cutoff deleted_after_cutoff]).uniq.freeze
+  ORIGIN_REASONS = (PayrollBatchExclusion::REASONS + %w[changed_after_cutoff deleted_after_cutoff manual_reservation_released legacy_history_review]).uniq.freeze
   DESTINATION_KINDS = %w[unassigned regular supplemental not_payable].freeze
   STATUSES = %w[open scheduled in_payroll settled not_payable superseded].freeze
   ACTIVE_STATUSES = %w[open scheduled in_payroll].freeze
@@ -24,7 +24,7 @@ class PayrollSettlementCase < ApplicationRecord
              inverse_of: :included_payroll_settlement_cases,
              optional: true
   belongs_to :assigned_to, class_name: "User", optional: true
-  has_many :payroll_settlement_case_events, dependent: :restrict_with_error
+  has_many :payroll_settlement_case_events, -> { order(:occurred_at, :id) }, dependent: :restrict_with_error
 
   validates :public_id, :source_time_entry_id, :source_time_entry_version, :source_user_id, :origin_reason,
             :original_work_date, :destination_kind, :owner_role, :action_due_on, :status,

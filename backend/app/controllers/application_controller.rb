@@ -1,4 +1,7 @@
 class ApplicationController < ActionController::API
+  rescue_from StagingOutboundPolicy::Blocked do |error|
+    render json: { error: error.message, staging: true }, status: :service_unavailable
+  end
   around_action :with_request_context
 
   private

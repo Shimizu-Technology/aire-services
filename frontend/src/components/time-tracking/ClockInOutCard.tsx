@@ -6,6 +6,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 
 interface ClockInOutCardProps {
   onStatusChange?: () => void
+  showDisabledNotice?: boolean
 }
 
 const ENABLE_CLOCK_OUT_DESCRIPTION = false
@@ -46,7 +47,7 @@ function requestCurrentLocation(): Promise<ClockLocationPayload> {
   })
 }
 
-export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) {
+export default function ClockInOutCard({ onStatusChange, showDisabledNotice = true }: ClockInOutCardProps) {
   const [status, setStatus] = useState<ClockStatus | null>(null)
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | ''>('')
@@ -234,6 +235,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         await fetchStatus()
       } else {
         await fetchStatus()
+        window.dispatchEvent(new Event('aire:clock-action'))
         onStatusChange?.()
       }
     } catch (caughtError) {
@@ -273,6 +275,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         await fetchStatus()
       } else {
         await fetchStatus()
+        window.dispatchEvent(new Event('aire:clock-action'))
         onStatusChange?.()
       }
     } catch (caughtError) {
@@ -295,6 +298,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   }
 
   if (status && !status.time_tracking_enabled) {
+    if (!showDisabledNotice) return null
     return (
       <div className="rounded-2xl border border-neutral-warm bg-white p-5 shadow-sm">
         <div className="flex items-start gap-3">
@@ -335,6 +339,11 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
   return (
     <div className={`rounded-2xl border shadow-sm transition-all duration-300 hover:shadow-md overflow-hidden bg-white ${borderColor}`}>
       <div className={`h-1 ${stripeColor}`} />
+      {(status?.review_alerts?.daily_threshold_exceeded || status?.review_alerts?.weekly_threshold_exceeded) && (
+        <p className="border-b border-neutral-warm bg-secondary/60 px-5 py-3 text-sm text-text-muted">
+          Recorded hours passed a review threshold. This is an informational alert; overtime pay starts only after 40 hours in a Sunday–Saturday week.
+        </p>
+      )}
 
       {/* ─── Mobile / Tablet layout (stacked) ─── */}
       <div className="p-5 md:hidden">
@@ -420,6 +429,11 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
         {!isClockedIn && !status?.schedule && <NoScheduleMsg />}
         {!isClockedIn && blockedReason === 'too_early' && <TooEarlyMsg isAdmin={isAdmin} minutesUntil={status?.minutes_until} />}
         {!isClockedIn && blockedReason === 'shift_ended' && <ShiftEndedMsg isAdmin={isAdmin} />}
+        {!isClockedIn && blockedReason === 'inactive_employee' && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Employee is inactive
+          </div>
+        )}
 
         {!isClockedIn && categories.length > 0 && (
           <div className="mb-4 p-3.5 bg-secondary/40 rounded-xl border border-neutral-warm/50">
@@ -458,7 +472,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
                   setError(null)
                   try {
                     const result = await api.switchCategory(catId)
-                    if (result?.error) { setError(result.error) } else { await fetchStatus(); onStatusChange?.() }
+                    if (result?.error) { setError(result.error) } else { await fetchStatus(); window.dispatchEvent(new Event('aire:clock-action')); onStatusChange?.() }
                   } catch { setError('Switch failed.') }
                   finally { setActionLoading(false) }
                 }}
@@ -530,7 +544,8 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
                 {blockedReason === 'shift_ended' && 'Shift has ended'}
                 {blockedReason === 'categories_missing' && 'Work categories need to be assigned'}
                 {blockedReason === 'no_schedule' && 'No shift scheduled today'}
-                {isAdmin && ' — admin override available'}
+                {blockedReason === 'inactive_employee' && 'Employee is inactive'}
+                {isAdminOverridable && ' — admin override available'}
               </span>
             </div>
           )}
@@ -652,7 +667,7 @@ export default function ClockInOutCard({ onStatusChange }: ClockInOutCardProps) 
                 setError(null)
                 try {
                   const result = await api.switchCategory(catId)
-                  if (result?.error) { setError(result.error) } else { await fetchStatus(); onStatusChange?.() }
+                  if (result?.error) { setError(result.error) } else { await fetchStatus(); window.dispatchEvent(new Event('aire:clock-action')); onStatusChange?.() }
                 } catch { setError('Switch failed.') }
                 finally { setActionLoading(false) }
               }}

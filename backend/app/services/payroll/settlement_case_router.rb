@@ -16,19 +16,29 @@ module Payroll
     end
 
     def call
+      settlement_case.with_lock { route! }
+    end
+
+    private
+
+    def route!
       raise RoutingError, "This settlement case is already closed" unless settlement_case.status.in?(PayrollSettlementCase::ACTIVE_STATUSES)
+      if settlement_case.included_payroll_batch_id.present? || settlement_case.status == "in_payroll"
+        raise RoutingError, "This source is already reserved in payroll; reconcile its existing obligation before routing"
+      end
       raise RoutingError, "destination_kind must be regular, supplemental, or not_payable" unless destination_kind.in?(%w[regular supplemental not_payable])
       raise RoutingError, "A routing reason is required" if reason.blank?
 
       attributes, target_period = destination_attributes
       assignee = assigned_to
       previous_destination = settlement_case.destination_kind
+      event_type = destination_kind == "not_payable" ? "marked_not_payable" : (previous_destination == "unassigned" ? "routed" : "rerouted")
       Payroll::SettlementCaseCoordinator.transition!(
         settlement_case,
         **attributes,
         assigned_to: assignee,
         resolution_note: reason,
-        event_type: destination_kind == "not_payable" ? "marked_not_payable" : (previous_destination == "unassigned" ? "routed" : "rerouted"),
+        event_type: event_type,
         actor: actor,
         metadata: {
           previous_destination_kind: previous_destination,
@@ -39,9 +49,17 @@ module Payroll
           reason: reason
         }.compact
       )
+      event = settlement_case.payroll_settlement_case_events.reorder(:id).last
+      employee_name = User.find_by(id: settlement_case.source_user_id)&.full_name || settlement_case.source_snapshot["employee_name"]
+      AuditLog.record!(
+        action: "payroll_settlement_case.#{event_type}", actor: actor, auditable: settlement_case,
+        subject_name: employee_name, event_category: "payroll", source: "integration", occurred_at: event.occurred_at,
+        metadata: event.metadata.merge("event_id" => event.event_id, "event_type" => event_type,
+          "settlement_case_id" => settlement_case.public_id, "source_time_entry_id" => settlement_case.source_time_entry_id.to_s,
+          "source_user_uuid" => settlement_case.source_user_uuid, "employee_name" => employee_name)
+      )
+      settlement_case
     end
-
-    private
 
     attr_reader :settlement_case, :destination_kind, :target_external_pay_period_id,
                 :action_due_on, :assigned_to_id, :reason, :actor
@@ -52,8 +70,8 @@ module Payroll
         period = PayrollCalendarPeriod.find_by!(external_pay_period_id: target_external_pay_period_id)
         retryable = period.status == "failed" && period.next_finalization_attempt_at.present?
         eligible = period.status == "scheduled" || retryable
-        unless eligible && period.start_date > settlement_case.origin_payroll_batch.end_date
-          raise RoutingError, "Choose a future, unfinalized regular payroll period"
+        unless eligible && period.start_date > settlement_case.origin_payroll_batch.end_date && (period.manual_lock? || period.cutoff_at > Time.current)
+          raise RoutingError, "Choose a future, unfinalized regular payroll period whose cutoff has not passed"
         end
         [
           {
@@ -90,7 +108,7 @@ module Payroll
             destination_kind: "not_payable",
             target_payroll_calendar_period: nil,
             target_external_pay_period_id: nil,
-            action_due_on: action_due_on || Date.current,
+            action_due_on: action_due_on || BusinessDate.today,
             included_payroll_batch: nil,
             resolved_at: Time.current
           },

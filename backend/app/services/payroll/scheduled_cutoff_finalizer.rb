@@ -4,8 +4,12 @@ module Payroll
   class ScheduledCutoffFinalizer
     include RetrySchedule
 
+    BATCH_AUTHORIZATION = Object.new.freeze
+    private_constant :BATCH_AUTHORIZATION
+
     class << self
       def call_due(now: Time.current)
+        return [] unless ConnectedPayrollMode.enabled?
         reconcile_settlement_cases_safely
         PayrollCalendarPeriod.due_at(now).order(:cutoff_at, :id).pluck(:id).map do |period_id|
           new(period_id: period_id, now: now, reconcile_settlement_cases: false).call
@@ -35,6 +39,7 @@ module Payroll
     end
 
     def call
+      return { period_id: period_id, status: "paused" } unless ConnectedPayrollMode.enabled?
       self.class.reconcile_settlement_cases_safely if reconcile_settlement_cases
       batch = finalize_transaction!
       { period_id: period_id, status: batch ? "finalized" : "skipped", payroll_batch_id: batch&.public_id }
@@ -48,18 +53,18 @@ module Payroll
     attr_reader :reconcile_settlement_cases
 
     def finalize_transaction!
-      PayrollCalendarPeriod.transaction do
+      PayrollCalendarPeriod.transaction(requires_new: true) do
         period = PayrollCalendarPeriod.lock("FOR UPDATE SKIP LOCKED").find_by(id: period_id)
         return nil unless period
         return period.payroll_batch if period.status == "finalized"
+        return nil unless eligible_mode?(period)
         return nil unless due?(period)
 
         batch = BatchFinalizer.new(
           start_date: period.start_date,
           end_date: period.end_date,
-          actor: nil,
-          cutoff_at: period.cutoff_at.iso8601,
-          automated_cutoff: true,
+          **batch_options(period),
+          calendar_authorization: BATCH_AUTHORIZATION,
           calendar_period: period
         ).call
         period.update!(
@@ -75,6 +80,22 @@ module Payroll
         record_success_audit!(period, batch)
         batch
       end
+    end
+
+    def eligible_mode?(period)
+      period.scheduled_lock_enforced?
+    end
+
+    def batch_options(period)
+      { actor: nil, cutoff_at: period.cutoff_at.iso8601(6), automated_cutoff: true }
+    end
+
+    def audit_actor
+      nil
+    end
+
+    def audit_metadata
+      {}
     end
 
     def due?(period)
@@ -95,7 +116,7 @@ module Payroll
           schema_version: "1.0",
           event_id: event_id,
           event_type: "payroll_batch.finalized",
-          occurred_at: batch.finalized_at.iso8601,
+          occurred_at: batch.contract_finalized_at,
           source: "aire_services",
           payroll_period: period.as_contract_json(now: now),
           payroll_batch: {
@@ -104,8 +125,8 @@ module Payroll
             schema_version: batch.schema_version,
             start_date: batch.start_date.iso8601,
             end_date: batch.end_date.iso8601,
-            cutoff_at: batch.cutoff_at.iso8601,
-            finalized_at: batch.finalized_at.iso8601,
+            cutoff_at: batch.contract_cutoff_at,
+            finalized_at: batch.contract_finalized_at,
             summary: batch.summary,
             issues: batch.issues
           }
@@ -116,12 +137,15 @@ module Payroll
     def record_success_audit!(period, batch)
       AuditLog.record!(
         action: "payroll_calendar_period.finalized",
-        actor: nil,
-        actor_kind: "system",
-        source: "system",
+        actor: audit_actor,
+        actor_kind: audit_actor ? "user" : "system",
+        source: audit_actor ? "integration" : "system",
         event_category: "payroll",
         auditable: period,
         metadata: {
+          **audit_metadata,
+          lock_mode: period.lock_mode,
+          snapshot_cutoff_at: batch.contract_cutoff_at,
           external_pay_period_id: period.external_pay_period_id,
           schedule_version: period.schedule_version,
           cutoff_at: period.cutoff_at.iso8601,
@@ -142,7 +166,10 @@ module Payroll
 
         attempts = period.finalization_attempts + 1
         external_period_id = period.external_pay_period_id
-        retryable = !error.is_a?(BatchFinalizer::OutOfOrderFinalizationError)
+        retryable = !error.is_a?(BatchFinalizer::OutOfOrderFinalizationError) &&
+          !error.is_a?(BatchBuilder::PolicyUnavailableError) &&
+          !error.is_a?(TimeEntryRevisionLedger::CoverageError) &&
+          !error.is_a?(ManualAllocationLedger::CoverageError)
         period.update!(
           status: "failed",
           finalization_attempts: attempts,
@@ -152,13 +179,14 @@ module Payroll
         )
         AuditLog.record!(
           action: "payroll_calendar_period.finalization_failed",
-          actor: nil,
-          actor_kind: "system",
-          source: "system",
+          actor: audit_actor,
+          actor_kind: audit_actor ? "user" : "system",
+          source: audit_actor ? "integration" : "system",
           event_category: "payroll",
           outcome: "failed",
           auditable: period,
           metadata: {
+            **audit_metadata,
             external_pay_period_id: period.external_pay_period_id,
             schedule_version: period.schedule_version,
             cutoff_at: period.cutoff_at.iso8601,

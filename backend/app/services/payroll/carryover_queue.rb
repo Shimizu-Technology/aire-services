@@ -3,10 +3,13 @@
 module Payroll
   class CarryoverQueue
     MAX_ITEMS = 250
+    # Denials belong in this read projection so later approval and explicit
+    # routing remain visible. They are not automatic carryover candidates.
+    QUEUE_REASONS = (PayrollBatchExclusion::CARRYOVER_REASONS + %w[denied_approval denied_overtime]).freeze
 
     def call
       carryover_entry_ids = PayrollBatchExclusion
-        .where(reason: PayrollBatchExclusion::CARRYOVER_REASONS)
+        .where(reason: QUEUE_REASONS)
         .select(:source_time_entry_id)
       latest_exclusion_ids = PayrollBatchExclusion
         .where(source_time_entry_id: carryover_entry_ids)
@@ -39,10 +42,14 @@ module Payroll
         summary: {
           awaiting_approval_count: 0,
           ready_for_next_batch_count: 0,
+          needs_review_count: 0,
           in_payroll_count: 0,
           not_payable_count: 0,
           unassigned_case_count: 0,
-          supplemental_case_count: 0
+          supplemental_case_count: 0,
+          unresolved_count: 0,
+          paid_count: 0,
+          accounting_recorded_count: 0
         },
         truncated: false
       }
@@ -56,7 +63,9 @@ module Payroll
       exclusions = exclusion_ids.filter_map { |id| exclusions_by_id[id] }
       entry_ids = exclusions.map(&:source_time_entry_id)
       current_entries = TimeEntry.includes(:user, :time_category).where(id: entry_ids).index_by(&:id)
-      later_entries = PayrollBatchEntry
+      @weekly_overtime_reviews = WeeklyOvertimeReview.call(current_entries.values)
+      @lifecycles = EntryLifecycleResolver.new(entries: current_entries.values, weekly_overtime_reviews: @weekly_overtime_reviews).call
+      later_entries = PayrollBatchEntry.effective
         .includes(payroll_batch: :payroll_batch_processing_events)
         .where(source_time_entry_id: entry_ids)
         .to_a
@@ -67,11 +76,16 @@ module Payroll
         .to_a
         .group_by { |event| [ event.payroll_batch_id, event.source_time_entry_id ] }
       settlement_cases = PayrollSettlementCase
-        .includes(:target_payroll_calendar_period, :assigned_to, :payroll_settlement_case_events)
+        .includes(:target_payroll_calendar_period, :assigned_to, { payroll_settlement_case_events: :actor },
+          origin_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ],
+          included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ])
         .where(source_time_entry_id: entry_ids)
         .order(:id)
         .to_a
         .group_by(&:source_time_entry_id)
+
+      @held_entry_ids = PayrollPaymentAttestation.pending_evidence.where(time_entry_id: entry_ids).pluck(:time_entry_id)
+      @manual_allocations = PayrollManualAllocation.active.where(time_entry_id: entry_ids).to_a.group_by(&:time_entry_id)
 
       exclusions.filter_map do |exclusion|
         serialize(
@@ -79,19 +93,29 @@ module Payroll
           current_entries[exclusion.source_time_entry_id],
           later_entries[exclusion.source_time_entry_id] || [],
           processing_events,
-          settlement_cases.fetch(exclusion.source_time_entry_id, []).last
+          current_case(settlement_cases.fetch(exclusion.source_time_entry_id, []))
         )
       end
+    end
+
+    def current_case(cases)
+      # History can append a superseded case after a still-active origin.
+      # Keep its current authority visible; only use closed history if none is active.
+      cases.reverse.find { |item| item.status.in?(PayrollSettlementCase::ACTIVE_STATUSES) } || cases.last
     end
 
     def summary_for(items)
       {
         awaiting_approval_count: items.count { |item| item[:status] == "awaiting_approval" },
         ready_for_next_batch_count: items.count { |item| item[:status] == "ready_for_next_batch" },
-        in_payroll_count: items.count { |item| item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided]) },
+        needs_review_count: items.count { |item| item[:status] == "needs_review" || (item[:completion].nil? && (item[:status] == "payment_issued" || item.dig(:payroll_lifecycle, :accounting_only))) },
+        in_payroll_count: items.count { |item| item[:completion].nil? && item[:status].in?(%w[finalized awaiting_cornerstone imported committed payment_prepared payment_issued payment_failed payment_voided payment_cancelled partially_paid partially_prepared partially_processed partially_allocated payment_attested_pending_evidence scheduled_supplemental]) },
         not_payable_count: items.count { |item| item[:status] == "not_payable" },
         unassigned_case_count: items.count { |item| item.dig(:settlement_case, :destination_kind) == "unassigned" },
-        supplemental_case_count: items.count { |item| item.dig(:settlement_case, :destination_kind) == "supplemental" }
+        supplemental_case_count: items.count { |item| item[:completion].nil? && item.dig(:settlement_case, :destination_kind) == "supplemental" },
+        unresolved_count: items.count { |item| item[:status] != "not_payable" && item[:completion].nil? },
+        paid_count: items.count { |item| item[:completion] == "paid" },
+        accounting_recorded_count: items.count { |item| item[:completion] == "accounting_recorded" }
       }
     end
 
@@ -100,12 +124,32 @@ module Payroll
         .select { |row| row.payroll_batch.cutoff_at > exclusion.payroll_batch.cutoff_at }
         .max_by { |row| [ row.payroll_batch.cutoff_at, row.id ] }
       batch = included_row&.payroll_batch
+      included_rows = batch ? settlement_rows.select { |row| row.payroll_batch_id == batch.id } : []
       entry_events = batch ? processing_events.fetch([ batch.id, exclusion.source_time_entry_id ], []) : []
-      processing = entry_processing_status(entry_events) || batch&.processing_status
+      processing = if batch
+        batch_processing = batch.processing_status
+        if entry_events.any? || batch_processing
+          EntryProcessingSummary.new(
+            rows: included_rows,
+            events: entry_events,
+            batch_processing: batch_processing
+          ).call
+        end
+      end
       snapshot = exclusion.snapshot || {}
       return if settlement_case&.status.in?(%w[settled superseded])
 
-      status = status_for(exclusion, entry, batch, processing, settlement_case)
+      completion = if settlement_case && batch&.id == settlement_case.included_payroll_batch_id
+        SettlementCaseCompletion.new(settlement_case: settlement_case, entry: entry,
+          held: @held_entry_ids.include?(entry&.id)).call
+      elsif !settlement_case && !batch && manual_payment_confirmed?(entry)
+        "paid"
+      end
+      status = case completion
+      when "paid" then "payment_issued"
+      when "accounting_recorded" then "committed"
+      else status_for(exclusion, entry, batch, processing, settlement_case)
+      end
 
       {
         source_time_entry_id: exclusion.source_time_entry_id.to_s,
@@ -121,6 +165,8 @@ module Payroll
         held_total_hours: exclusion.held_total_hours.to_f,
         current_total_hours: entry&.hours&.to_f,
         status: status,
+        completion: completion,
+        payroll_lifecycle: @lifecycles[entry&.id],
         included_batch: batch && {
           id: batch.public_id,
           start_date: batch.start_date.iso8601,
@@ -136,12 +182,54 @@ module Payroll
           target_pay_date: settlement_case.target_payroll_calendar_period&.pay_date&.iso8601,
           owner_role: settlement_case.owner_role,
           assigned_to: settlement_case.assigned_to&.full_name,
-          action_due_on: settlement_case.action_due_on.iso8601
+          action_due_on: settlement_case.action_due_on.iso8601,
+          resolution_note: settlement_case.resolution_note,
+          decision: closed_decision(settlement_case)
         }.compact
       }
     end
 
+    def closed_decision(settlement_case)
+      return unless settlement_case.status == "not_payable"
+
+      event = settlement_case.payroll_settlement_case_events
+        .select { |candidate| candidate.event_type == "marked_not_payable" && candidate.to_status == "not_payable" }
+        .max_by { |candidate| [ candidate.occurred_at, candidate.id ] }
+      return unless event
+
+      {
+        event_id: event.event_id,
+        event_type: event.event_type,
+        occurred_at: event.occurred_at.iso8601,
+        reason: event.metadata["reason"],
+        actor: event.actor && { name: event.actor.full_name, payroll_integration_id: event.actor_payroll_integration_uuid }
+      }.compact
+    end
+
+    def manual_payment_confirmed?(entry)
+      return false unless entry&.counts_toward_hours? && !@held_entry_ids.include?(entry.id)
+      rows = @manual_allocations.fetch(entry.id, [])
+      return false unless rows.any? && rows.all? do |row|
+        row.status == "issued" && row.user_id == entry.user_id && row.source_user_uuid == entry.user.payroll_integration_uuid &&
+          row.source_time_entry_version == entry.lock_version && row.work_date == entry.work_date &&
+          row.time_category_id.present? && row.time_category_id == entry.time_category_id &&
+          row.external_pay_period_id.present? && row.external_payroll_item_id.present? && row.payment_effective_on.present? &&
+          row.payment_method.in?(%w[paper_check direct_deposit]) && row.payment_reference.present?
+      end
+      split = WeeklyOvertimeAllocator.call(TimeEntry.where(user_id: entry.user_id, work_date: (entry.work_date.beginning_of_week(:sunday) - 1)..(entry.work_date.end_of_week(:sunday) + 7))
+        .order(:work_date, :id).select(&:counts_toward_hours?))[entry.id]
+      split && rows.sum(&:total_hours) == entry.hours.to_d && rows.sum(&:regular_hours) == split[:regular_hours].to_d &&
+        rows.sum(&:overtime_hours) == split[:overtime_hours].to_d &&
+        (!split[:overtime_hours].to_d.positive? || entry.overtime_status.in?(%w[approved none]))
+    end
+
     def status_for(exclusion, entry, batch, processing, settlement_case)
+      lifecycle = @lifecycles[entry&.id]
+      # Manual reservations and owner evidence holds remain authoritative even
+      # when the historical exclusion has no later batch or settlement case.
+      if lifecycle && (lifecycle[:payment_attested_hours] || lifecycle.fetch(:settlements).any? { |row| row.fetch(:batch_id).start_with?("manual-") })
+        return lifecycle.fetch(:status) == "finalized" ? "awaiting_cornerstone" : lifecycle.fetch(:status)
+      end
       return "not_payable" if settlement_case&.status == "not_payable"
       if settlement_case&.destination_kind == "supplemental" && settlement_case.status == "in_payroll"
         settlement_status = settlement_case.payroll_settlement_case_events
@@ -151,11 +239,24 @@ module Payroll
         return settlement_status if settlement_status
       end
       return processing&.fetch(:status, nil) || "awaiting_cornerstone" if batch
-      return "not_payable" if entry.nil? || exclusion.reason.in?(%w[denied_approval denied_overtime])
+      return "not_payable" if entry.nil?
+      if exclusion.reason == "denied_overtime" && entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false)
+        return "not_payable"
+      end
       return "awaiting_approval" if entry.status.in?(%w[clocked_in on_break])
-      return "awaiting_approval" if entry.approval_status == "pending" || entry.overtime_status == "pending"
-      return "not_payable" if entry.approval_status == "denied" || entry.overtime_status == "denied"
-      return "ready_for_next_batch" if entry.status == "completed" && entry.approval_status.in?([ nil, "approved" ])
+      return "awaiting_approval" if entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?) || (entry.overtime_status == "pending" && @weekly_overtime_reviews.fetch(entry.id, false))
+      return "not_payable" if entry.approval_status == "denied" || (entry.overtime_status == "denied" && @weekly_overtime_reviews.fetch(entry.id, false))
+      # A supplemental destination is a named Cornerstone run, not a target
+      # regular calendar. Its routing cannot promise automatic batch inclusion.
+      return "scheduled_supplemental" if settlement_case&.destination_kind == "supplemental" && settlement_case.status == "scheduled"
+      if entry.counts_toward_hours?
+        # Historical denials are not automatic carryover reasons. An operator
+        # must reconcile its payment history and explicitly choose a destination.
+        if exclusion.reason.in?(%w[denied_approval denied_overtime]) && (!settlement_case || settlement_case.destination_kind == "unassigned")
+          return "needs_review"
+        end
+        return "ready_for_next_batch"
+      end
 
       "awaiting_approval"
     end
@@ -167,23 +268,6 @@ module Payroll
       snapshot["time_category"]
     end
 
-    def entry_processing_status(events)
-      event = events.max_by do |candidate|
-          [ candidate.occurred_at, PayrollEntryProcessingEvent::STATUS_RANK.fetch(candidate.status), candidate.id ]
-        end
-      return unless event
-
-      {
-        status: event.status,
-        occurred_at: event.occurred_at.iso8601,
-        external_system: event.external_system,
-        external_pay_period_id: event.external_pay_period_id,
-        external_payroll_item_id: event.external_payroll_item_id,
-        payment_method: event.payment_method,
-        payment_reference: event.payment_reference
-      }.compact
-    end
-
     def first_excluded_batch_id(exclusion)
       exclusion.first_excluded_batch_public_id.presence || exclusion.payroll_batch.public_id
     end
@@ -191,14 +275,20 @@ module Payroll
     def status_rank(status)
       {
         "ready_for_next_batch" => 0,
+        "needs_review" => 0,
         "awaiting_approval" => 1,
         "payment_failed" => 2,
         "payment_voided" => 2,
+        "payment_cancelled" => 2,
         "awaiting_cornerstone" => 3,
+        "scheduled_supplemental" => 3,
         "imported" => 4,
         "committed" => 5,
         "payment_prepared" => 6,
         "payment_issued" => 7,
+        "partially_processed" => 8,
+        "partially_prepared" => 8,
+        "partially_paid" => 8,
         "not_payable" => 10
       }.fetch(status, 8)
     end

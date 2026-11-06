@@ -1,7 +1,13 @@
+import type { ConnectedPayrollCapability } from './connectedPayroll'
 // AIRE Services API client
 import type { PublicContactInfoSettings } from './businessInfo'
+import { apiUrl } from './apiBase'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+export interface InvitationEmailOutcome {
+  invitation_email_sent?: boolean | null;
+  invitation_email_captured?: boolean;
+  invitation_email_queued?: boolean;
+}
 
 interface ApiResponse<T> {
   data?: T;
@@ -10,6 +16,7 @@ interface ApiResponse<T> {
   status?: number;
   code?: string;
   export_references?: string[];
+  approved_leave?: ApprovedLeaveAvailability[];
 }
 
 let getAuthToken: (() => Promise<string | null>) | null = null;
@@ -40,7 +47,7 @@ async function fetchApi<T>(
       }
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(apiUrl(endpoint), {
       ...options,
       headers,
     });
@@ -94,6 +101,7 @@ async function fetchApi<T>(
         status: response.status,
         code: data.code,
         export_references: data.export_references,
+        approved_leave: data.approved_leave,
       };
     }
 
@@ -133,7 +141,7 @@ async function fetchDownload(endpoint: string): Promise<DownloadResponse> {
       if (token) headers.Authorization = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, { headers });
+    const response = await fetch(apiUrl(endpoint), { headers });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       return {
@@ -173,7 +181,7 @@ async function fetchApiUpload<T>(
       if (token) headers.Authorization = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(apiUrl(endpoint), {
       ...options,
       method: options.method || 'POST',
       headers,
@@ -498,7 +506,19 @@ export interface ApprovalReason {
   label: string;
 }
 
+// Safe status returned by the employee time-entry reads. Manager evidence is
+// deliberately a separate type and response contract.
+export interface EmployeePayrollStatus {
+  status: PayrollEntryLifecycleStatus | 'held' | 'payment_history_unavailable';
+  label: string;
+  paid_hours: number;
+  held_hours: number;
+}
+
 export interface TimeEntry {
+  payroll_cutoff_missed?: boolean;
+  payroll_status?: EmployeePayrollStatus | null;
+  version?: number;
   id: number;
   work_date: string;
   start_time: string | null;
@@ -579,6 +599,10 @@ export interface ClockSession {
 }
 
 export interface ClockStatus {
+  review_alerts?: {
+    daily_threshold_exceeded: boolean;
+    weekly_threshold_exceeded: boolean;
+  };
   clocked_in: boolean;
   status: 'clocked_in' | 'on_break' | 'completed' | null;
   entry_id: number | null;
@@ -602,7 +626,7 @@ export interface ClockStatus {
   } | null;
   can_clock_in: boolean;
   time_tracking_enabled: boolean;
-  clock_in_blocked_reason: 'already_clocked_in' | 'time_tracking_disabled' | 'categories_missing' | 'no_schedule' | 'too_early' | 'shift_ended' | null;
+  clock_in_blocked_reason: 'already_clocked_in' | 'time_tracking_disabled' | 'categories_missing' | 'no_schedule' | 'too_early' | 'shift_ended' | 'inactive_employee' | null;
   minutes_until?: number;
   clock_in_location_required?: boolean;
   clock_in_location_name?: string | null;
@@ -751,6 +775,7 @@ export interface TimeEntriesResponse {
   };
   summary: {
     total_hours: number;
+    denied_hours?: number;
     total_break_hours: number;
     entry_count: number;
   };
@@ -798,6 +823,7 @@ export interface PendingApprovalsResponse {
 
 export interface HoursReportEntry {
   id: number;
+  version?: number;
   work_date: string;
   start_time: string | null;
   end_time: string | null;
@@ -817,7 +843,7 @@ export interface HoursReportEntry {
   time_category: { id: number; key?: string | null; name: string } | null;
   breaks: Array<{ id: number; start_time: string | null; end_time: string | null; duration_minutes: number | null }>;
   payroll_lifecycle?: PayrollEntryLifecycle;
-  quality_flags: Array<'missing_category' | 'missing_description' | 'long_shift' | 'overlap'>;
+  quality_flags: Array<'missing_category' | 'missing_description' | 'long_shift' | 'overlap' | 'overnight_allocation_review'>;
 }
 
 export type PayrollEntryLifecycleStatus =
@@ -830,9 +856,50 @@ export type PayrollEntryLifecycleStatus =
   | 'payment_prepared'
   | 'payment_issued'
   | 'payment_failed'
-  | 'payment_voided';
+  | 'payment_cancelled'
+  | 'payment_voided'
+  | 'partially_paid'
+  | 'partially_prepared'
+  | 'partially_processed'
+  | 'partially_allocated'
+  | 'payment_attested_pending_evidence';
+
+export type HoursReportPayrollStatuses = Partial<Record<PayrollEntryLifecycleStatus | 'accounting_correction_committed', number>>;
+
+export interface AccountingCorrectionContext {
+  accounting_only: true;
+  correction_disposition_id: string;
+  original_pay_period_id: string;
+  original_payroll_item_id: string;
+  corrective_pay_period_id: string;
+  corrective_payroll_item_id: string;
+}
+
+export interface PayrollPayableLine {
+  accounting_only?: boolean;
+  accounting_correction?: AccountingCorrectionContext;
+  accounting_correction_hours?: number;
+  accounting_correction_line_count?: number;
+  source_time_entry_id: string;
+  source_line_key: string;
+  source_kind: string;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  status: PayrollEntryLifecycleStatus;
+  occurred_at?: string | null;
+  external_pay_period_id?: string | null;
+  external_payroll_item_id?: string | null;
+  payment_method?: string | null;
+  payment_reference?: string | null;
+}
+
 
 export interface PayrollEntrySettlement {
+  accounting_only?: boolean;
+  accounting_correction?: AccountingCorrectionContext;
+  accounting_correction_hours?: number;
+  accounting_correction_line_count?: number;
   batch_id: string;
   start_date: string;
   end_date: string;
@@ -843,19 +910,45 @@ export interface PayrollEntrySettlement {
   total_hours: number;
   regular_hours: number;
   overtime_hours: number;
+  paid_hours: number;
+  prepared_hours: number;
+  failed_hours: number;
+  voided_hours: number;
+  outstanding_hours: number;
+  payable_lines: PayrollPayableLine[];
   external_pay_period_id?: string | null;
   external_payroll_item_id?: string | null;
   payment_method?: string | null;
   payment_reference?: string | null;
+  payment_effective_on?: string | null;
 }
 
 export interface PayrollEntryLifecycle {
+  accounting_only?: boolean;
+  accounting_correction?: AccountingCorrectionContext;
+  accounting_correction_hours?: number;
+  accounting_correction_line_count?: number;
   status: PayrollEntryLifecycleStatus;
   label: string;
   payment_method?: string | null;
   payment_reference?: string | null;
+  payment_effective_on?: string | null;
   occurred_at?: string | null;
   latest_excluded_batch_id?: string | null;
+  manually_committed_hours?: number;
+  manually_paid_hours?: number;
+  payment_attested_hours?: number;
+  payment_attested_at?: string;
+  payment_attestation_source_changed?: boolean;
+  resolved_payment_report?: {
+    id: string;
+    attested_at: string;
+    reason: string;
+    resolved_at: string;
+    resolution_reason: string;
+    manual_allocation_id: string;
+    issued_event_id: string;
+  };
   settlements: PayrollEntrySettlement[];
 }
 
@@ -933,9 +1026,10 @@ export interface HoursReportEmployee {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
+    allocation_hold_count?: number;
   };
   quality: HoursReportQuality;
-  payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
+  payroll_statuses?: HoursReportPayrollStatuses;
   days: HoursReportDay[];
   excluded_entries?: HoursReportEntry[];
   categories: HoursReportCategory[];
@@ -978,7 +1072,8 @@ export interface HoursReportResponse {
     denied_overtime_count: number;
     open_clock_count: number;
     uncategorized_count: number;
-    payroll_statuses?: Partial<Record<PayrollEntryLifecycleStatus, number>>;
+    allocation_hold_count?: number;
+    payroll_statuses?: HoursReportPayrollStatuses;
   };
   breakdowns: {
     by_category: HoursReportCategory[];
@@ -1075,6 +1170,7 @@ export interface PayrollBatchSummary {
 }
 
 export interface PayrollBatchIssues {
+  payment_attestation_pending_count?: number;
   missing_category_count: number;
   negative_adjustment_count: number;
   pending_approval_count: number;
@@ -1124,6 +1220,7 @@ export interface PayrollBatchExclusion {
 }
 
 export interface PayrollBatchPayload {
+  connected_payroll?: ConnectedPayrollCapability;
   schema_version: string;
   source: string;
   batch_id: string;
@@ -1138,6 +1235,15 @@ export interface PayrollBatchPayload {
   preview?: boolean;
   can_finalize?: boolean;
   requires_negative_adjustment_acknowledgement?: boolean;
+  finalization_blocked_reason?: string | null;
+  published_calendar_periods?: Array<{
+    external_pay_period_id: string;
+    start_date: string;
+    end_date: string;
+    cutoff_at: string;
+    status: 'scheduled' | 'failed' | 'finalized';
+    payroll_batch_id?: string | null;
+  }>;
   negative_adjustment_acknowledgement?: string;
   export?: {
     id: string;
@@ -1152,6 +1258,7 @@ export interface PayrollBatchPayload {
 }
 
 export interface PayrollBatchListItem {
+  purpose?: 'regular' | 'supplemental';
   id: string;
   start_date: string;
   end_date: string;
@@ -1159,7 +1266,7 @@ export interface PayrollBatchListItem {
   finalized_at: string;
   finalized_by: { id: number; name: string } | null;
   checksum: string;
-  processing: PayrollBatchProcessingStatus | null;
+  processing: PayrollBatchProcessingStatus | PayrollEntryProcessingStatus | null;
   summary: PayrollBatchSummary;
   issues: PayrollBatchIssues;
 }
@@ -1172,8 +1279,17 @@ export interface PayrollBatchProcessingStatus {
 }
 
 export interface PayrollEntryProcessingStatus extends Omit<PayrollBatchProcessingStatus, 'status' | 'external_pay_period_id'> {
-  status: 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided';
+  accounting_only?: boolean;
+  accounting_correction_hours?: number;
+  accounting_correction_line_count?: number;
+  status: 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_cancelled' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed';
   external_pay_period_id?: string | null;
+  paid_hours?: number;
+  prepared_hours?: number;
+  failed_hours?: number;
+  voided_hours?: number;
+  outstanding_hours?: number;
+  lines?: PayrollPayableLine[];
 }
 
 export interface ManualPayrollProcessingInput {
@@ -1185,6 +1301,20 @@ export interface ManualPayrollProcessingInput {
 }
 
 export interface PayrollCarryoverItem {
+  settlement_case?: {
+    id: string;
+    status: string;
+    destination_kind: string;
+    resolution_note?: string | null;
+    decision?: {
+      event_id: string;
+      event_type: string;
+      occurred_at: string;
+      reason?: string;
+      actor?: { name: string; payroll_integration_id?: string };
+    };
+  } | null;
+  completion?: 'paid' | 'accounting_recorded' | null;
   source_time_entry_id: string;
   source_user_id: string;
   source_user_uuid?: string | null;
@@ -1197,7 +1327,8 @@ export interface PayrollCarryoverItem {
   exclusion_reason: string;
   held_total_hours: number;
   current_total_hours: number | null;
-  status: 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_voided' | 'not_payable';
+  payroll_lifecycle?: PayrollEntryLifecycle;
+  status: 'scheduled_supplemental' | 'needs_review' | 'partially_allocated' | 'payment_attested_pending_evidence' | 'awaiting_approval' | 'ready_for_next_batch' | 'awaiting_cornerstone' | 'imported' | 'committed' | 'payment_prepared' | 'payment_issued' | 'payment_failed' | 'payment_cancelled' | 'payment_voided' | 'partially_paid' | 'partially_prepared' | 'partially_processed' | 'not_payable';
   included_batch: {
     id: string;
     start_date: string;
@@ -1211,8 +1342,12 @@ export interface PayrollCarryoverQueue {
   summary: {
     awaiting_approval_count: number;
     ready_for_next_batch_count: number;
+    needs_review_count?: number;
     in_payroll_count: number;
     not_payable_count: number;
+    unresolved_count?: number;
+    paid_count?: number;
+    accounting_recorded_count?: number;
   };
   truncated: boolean;
 }
@@ -1241,6 +1376,7 @@ export interface PayrollAccountLink {
 // Schedule Types
 
 export interface Schedule {
+  approved_leave_conflict?: boolean;
   id: number;
   user_id: number;
   user: {
@@ -1265,7 +1401,15 @@ export interface Schedule {
   updated_at: string;
 }
 
+export interface ApprovedLeaveAvailability {
+  id: number;
+  user_id: number;
+  start_date: string;
+  end_date: string;
+}
+
 export interface SchedulesResponse {
+  approved_leave: ApprovedLeaveAvailability[];
   schedules: Schedule[];
   users: Array<{
     id: number;
@@ -1296,7 +1440,32 @@ export interface ScheduleTimePresetsResponse {
 // API methods
 // ---------------------------------------------------------------------------
 
+export interface PayrollCutoff {
+  period: { id: number; start_date: string; end_date: string } | null;
+  publication_id: string | null;
+  version: number | null;
+  now: string;
+  cutoff_at: string | null;
+  seconds_remaining: number | null;
+  time_zone: string;
+  stage: 'none' | '24h' | '4h' | 'passed' | 'finalizing';
+}
+export interface PayrollCutoffAttention {
+  period: NonNullable<PayrollCutoff['period']>;
+  lock_mode: 'manual' | 'scheduled';
+  cutoff_state: 'attention_required';
+}
+export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null }
+export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
+
 export const api = {
+  getPayrollCutoff: (kioskAccessToken?: string, kioskToken?: string) => kioskAccessToken !== undefined
+    ? fetchApi<PayrollCutoffResponse>('/api/v1/aire/kiosk/cutoff', { method: 'POST', body: JSON.stringify({ kiosk_access_token: kioskAccessToken, ...(kioskToken ? { kiosk_token: kioskToken } : {}) }) }, false)
+    : fetchApi<PayrollCutoffResponse>('/api/v1/payroll_cutoff'),
+  acknowledgePayrollCutoff: (identity: PayrollCutoffIdentity, kiosk?: { accessToken: string; employeeToken: string }) =>
+    fetchApi<{ acknowledged: boolean }>(kiosk ? '/api/v1/aire/kiosk/cutoff/acknowledge' : '/api/v1/payroll_cutoff/acknowledge', {
+      method: 'POST', body: JSON.stringify({ ...identity, ...(kiosk ? { kiosk_access_token: kiosk.accessToken, kiosk_token: kiosk.employeeToken } : {}) }),
+    }, !kiosk),
   // Auth
   getCurrentUser: () =>
     fetchApi<{ user: CurrentUser }>('/api/v1/auth/me', {
@@ -1405,7 +1574,7 @@ export const api = {
     kiosk_pin?: string;
     time_category_ids?: number[];
   }) =>
-    fetchApi<{ user: AdminUser; invitation_email_sent: boolean | null; kiosk_pin: string | null }>('/api/v1/admin/users', {
+    fetchApi<InvitationEmailOutcome & { user: AdminUser; kiosk_pin: string | null }>('/api/v1/admin/users', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -1439,7 +1608,7 @@ export const api = {
     send_invitation?: boolean;
     time_category_ids?: number[];
   }) =>
-    fetchApi<{ user: AdminUser; invitation_email_sent?: boolean | null; kiosk_pin?: string | null }>(`/api/v1/admin/users/${id}`, {
+    fetchApi<InvitationEmailOutcome & { user: AdminUser; kiosk_pin?: string | null }>(`/api/v1/admin/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
@@ -1472,7 +1641,7 @@ export const api = {
     }),
 
   resendInvite: (id: number) =>
-    fetchApi<{ message: string }>(`/api/v1/admin/users/${id}/resend_invite`, {
+    fetchApi<InvitationEmailOutcome & { message: string }>(`/api/v1/admin/users/${id}/resend_invite`, {
       method: 'POST',
     }),
 
@@ -1510,6 +1679,8 @@ export const api = {
     return fetchApi<TimeEntriesResponse>(`/api/v1/time_entries${query ? `?${query}` : ''}`);
   },
 
+  getTimeEntry: (id: number) => fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}`),
+
   createTimeEntry: (data: {
     work_date: string;
     start_time: string;
@@ -1525,6 +1696,9 @@ export const api = {
     }),
 
   updateTimeEntry: (id: number, data: Partial<{
+    review_action: 'end_clock' | 'resubmit_denied';
+    expected_version: number;
+    stop_date: string;
     work_date: string;
     start_time: string;
     end_time: string;
@@ -1775,6 +1949,8 @@ export const api = {
     }),
 
   // Activity history
+  getAuditLog: (id: number) => fetchApi<AuditLogEntry>(`/api/v1/admin/audit_logs/${id}`),
+
   getAuditLogs: (filters: AuditLogFilters = {}) => {
     const searchParams = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
@@ -1795,7 +1971,7 @@ export const api = {
 
   // Finalized payroll batches
   getPayrollBatches: () =>
-    fetchApi<{ payroll_batches: PayrollBatchListItem[]; total_count: number; truncated: boolean }>('/api/v1/admin/payroll_batches'),
+    fetchApi<{ connected_payroll?: ConnectedPayrollCapability; payroll_batches: PayrollBatchListItem[]; total_count: number; truncated: boolean }>('/api/v1/admin/payroll_batches'),
 
   getPayrollCarryovers: () =>
     fetchApi<PayrollCarryoverQueue>('/api/v1/admin/payroll_batches/carryovers'),
@@ -1803,10 +1979,10 @@ export const api = {
   getPayrollBatch: (id: string) =>
     fetchApi<PayrollBatchDetail>(`/api/v1/admin/payroll_batches/${encodeURIComponent(id)}`),
 
-  previewPayrollBatch: (startDate: string, endDate: string, cutoffAt?: string) =>
+  previewPayrollBatch: (startDate: string, endDate: string, cutoffAt?: string, manualProcessing = false) =>
     fetchApi<PayrollBatchPayload>('/api/v1/admin/payroll_batches/preview', {
       method: 'POST',
-      body: JSON.stringify({ start_date: startDate, end_date: endDate, cutoff_at: cutoffAt }),
+      body: JSON.stringify({ start_date: startDate, end_date: endDate, cutoff_at: cutoffAt, manual_processing: manualProcessing }),
     }),
 
   finalizePayrollBatch: (payload: {
@@ -1839,6 +2015,9 @@ export const api = {
     return fetchApi<SchedulesResponse>(`/api/v1/schedules${query ? `?${query}` : ''}`);
   },
 
+  getSchedule: (id: number) =>
+    fetchApi<{ schedule: Schedule }>(`/api/v1/schedules/${id}`),
+
   getMySchedule: () =>
     fetchApi<{ schedules: Schedule[] }>('/api/v1/schedules/my_schedule'),
 
@@ -1848,6 +2027,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes?: string;
+    acknowledge_leave_conflict?: boolean;
+    leave_conflict_reason?: string;
+    acknowledged_leave_ids?: number[];
   }) =>
     fetchApi<{ schedule: Schedule }>('/api/v1/schedules', {
       method: 'POST',
@@ -1860,6 +2042,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes?: string;
+    acknowledge_leave_conflict?: boolean;
+    leave_conflict_reason?: string;
+    acknowledged_leave_ids?: number[];
   }>) =>
     fetchApi<{ schedules: Schedule[] }>('/api/v1/schedules/bulk_create', {
       method: 'POST',
@@ -1872,6 +2057,9 @@ export const api = {
     start_time: string;
     end_time: string;
     notes: string;
+    acknowledge_leave_conflict: boolean;
+    leave_conflict_reason: string;
+    acknowledged_leave_ids: number[];
   }>) =>
     fetchApi<{ schedule: Schedule }>(`/api/v1/schedules/${id}`, {
       method: 'PATCH',

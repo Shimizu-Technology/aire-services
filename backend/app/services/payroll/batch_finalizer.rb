@@ -7,16 +7,17 @@ module Payroll
 
     class FinalizationError < StandardError; end
     class ExistingBatchError < FinalizationError; end
+    class PublishedCalendarError < FinalizationError; end
     class OutOfOrderFinalizationError < FinalizationError; end
 
     attr_reader :start_date, :end_date, :actor, :acknowledge_negative_adjustments, :negative_adjustment_note,
                 :manual_processing, :cutoff_at, :processed_at, :external_pay_period_id, :processing_note,
-                :acknowledge_missing_categories, :automated_cutoff, :calendar_period
+                :acknowledge_missing_categories, :automated_cutoff, :calendar_period, :manual_calendar_lock
 
     def initialize(start_date:, end_date:, actor:, acknowledge_negative_adjustments: false, negative_adjustment_note: nil,
                    manual_processing: false, cutoff_at: nil, processed_at: nil, external_pay_period_id: nil,
                    processing_note: nil, acknowledge_missing_categories: false, automated_cutoff: false,
-                   calendar_period: nil)
+                   calendar_period: nil, manual_calendar_lock: false, calendar_authorization: nil, calendar_lock_reason: nil, manual_batch_reference: nil, excluded_source_entry_ids: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @actor = actor
@@ -25,6 +26,9 @@ module Payroll
       @manual_processing = ActiveModel::Type::Boolean.new.cast(manual_processing)
       @automated_cutoff = ActiveModel::Type::Boolean.new.cast(automated_cutoff)
       @calendar_period = calendar_period
+      @manual_calendar_lock = manual_calendar_lock
+      @calendar_lock_reason = calendar_lock_reason.to_s.strip
+      @calendar_authorization = calendar_authorization
       @cutoff_at = if @manual_processing
         parse_manual_time!(cutoff_at, "cutoff_at")
       elsif cutoff_at.present?
@@ -33,6 +37,8 @@ module Payroll
       @processed_at = parse_manual_time!(processed_at, "processed_at") if @manual_processing
       @external_pay_period_id = external_pay_period_id.to_s.strip
       @processing_note = processing_note.to_s.strip
+      @excluded_source_entry_ids = excluded_source_entry_ids if @manual_processing
+      @manual_batch_reference = manual_batch_reference if @manual_processing
       @acknowledge_missing_categories = ActiveModel::Type::Boolean.new.cast(acknowledge_missing_categories)
       raise ArgumentError, "end_date must be on or after start_date" if @end_date < @start_date
       if (@end_date - @start_date).to_i > BatchBuilder::MAX_RANGE_DAYS
@@ -43,30 +49,44 @@ module Payroll
     end
 
     def call
+      ConnectedPayrollMode.require_enabled! if calendar_period
       source_ledger_locked_at = nil
       outcome = "failed"
       batch = PayrollBatch.transaction do
         configure_lock_timeout!
+        lock_publication_for_manual_finalization!
         lock_finalization!
+        validate_calendar_authority!
+        reject_published_calendar! unless authorized_calendar?
         lock_source_ledger!
         source_ledger_locked_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        cutoff = cutoff_at || Time.current
+        cutoff = if manual_calendar_lock
+          ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()").utc
+        else
+          cutoff_at || Time.current
+        end
         reference = build_reference(cutoff)
-        reject_out_of_order_automated_batch!(cutoff)
+        reject_out_of_order_automated_batch!
         reject_overlapping_batch!
+        LegacyPaidHistoryGuard.check! unless manual_processing || calendar_period
+        reject_out_of_order_manual_processing! if manual_processing
         SettlementCaseCoordinator.prepare_for_period!(calendar_period) if calendar_period
         result = BatchBuilder.new(
           start_date: start_date,
           end_date: end_date,
           cutoff_at: cutoff,
           batch_reference: reference,
-          calendar_period: calendar_period
+          calendar_period: calendar_period,
+          manual_processing: manual_processing,
+          excluded_source_entry_ids: @excluded_source_entry_ids
         ).call
         validate_result!(result)
+        validate_manual_snapshot!(result) if manual_processing
         payload = finalized_payload(result.fetch(:payload))
         checksum = CanonicalPayload.checksum(payload)
         batch = PayrollBatch.create!(
           public_id: reference,
+          allocation_contract_version: result.fetch(:payload)[:allocation_contract_version],
           start_date: result.fetch(:start_date),
           end_date: result.fetch(:end_date),
           cutoff_at: cutoff,
@@ -81,6 +101,7 @@ module Payroll
         result.fetch(:exclusions).each do |row|
           batch.payroll_batch_exclusions.create!(row.except(:work_date))
         end
+        calendar_period.payroll_batch = batch if calendar_period
         SettlementCaseCoordinator.finalize_period!(period: calendar_period, batch: batch, actor: actor) if calendar_period
         record_manual_processing!(batch) if manual_processing
         AuditLog.record!(
@@ -100,6 +121,8 @@ module Payroll
             negative_adjustment_note: negative_adjustment_note.presence,
             manual_processing: manual_processing,
             automated_cutoff: automated_cutoff,
+            manual_calendar_lock: manual_calendar_lock,
+            calendar_lock_reason: @calendar_lock_reason.presence,
             processing_note: processing_note.presence,
             external_pay_period_id: external_pay_period_id.presence,
             processed_at: processed_at&.iso8601
@@ -158,6 +181,48 @@ module Payroll
       ActiveRecord::Base.connection.execute("SET LOCAL lock_timeout = #{quoted_timeout}")
     end
 
+    # Publication owns its advisory lock before taking period rows. Scheduled
+    # finalization already owns a period row before the batch lock, so it must
+    # never request this publication lock. Unlinked manual batches take both
+    # advisories in publication -> batch order and do not lock calendar rows.
+    def lock_publication_for_manual_finalization!
+      return if authorized_calendar?
+
+      ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{CalendarPeriodPublisher::ADVISORY_LOCK_KEY})")
+    end
+
+    def authorized_calendar?
+      calendar_period && @calendar_authorization.equal?(ScheduledCutoffFinalizer.const_get(:BATCH_AUTHORIZATION, false))
+    end
+
+    def validate_calendar_authority!
+      if manual_calendar_lock && !calendar_period
+        raise PublishedCalendarError, "Manual calendar lock requires an authorized published calendar"
+      end
+      if calendar_period && !authorized_calendar?
+        raise PublishedCalendarError, "Published calendars must use their cockpit Lock or scheduled finalizer"
+      end
+      return unless authorized_calendar?
+
+      valid = calendar_period.persisted? && calendar_period.status != "finalized" &&
+        calendar_period.start_date == start_date && calendar_period.end_date == end_date && !manual_processing
+      valid &&= if calendar_period.manual_lock?
+        manual_calendar_lock && !automated_cutoff && actor.is_a?(User) && actor.persisted? &&
+          @calendar_lock_reason.present? && cutoff_at.nil?
+      else
+        automated_cutoff && !manual_calendar_lock && cutoff_at == calendar_period.cutoff_at && cutoff_at <= Time.current
+      end
+      raise PublishedCalendarError, "Calendar lock mode, range or cutoff does not authorize this finalization" unless valid
+    end
+
+    def reject_published_calendar!
+      period = PayrollCalendarPeriod.overlapping(start_date, end_date).order(:start_date, :id).first
+      return unless period
+
+      raise PublishedCalendarError,
+            "This range overlaps published payroll calendar #{period.external_pay_period_id}. Use its Lock action in Cornerstone Payroll or view its finalized batch."
+    end
+
     def lock_finalization!
       ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{ADVISORY_LOCK_KEY})")
     end
@@ -168,9 +233,9 @@ module Payroll
     # User/category labels remain readable without blocking their writers; the
     # category IDs are already snapshotted on TimeEntry.
     def lock_source_ledger!
-      ActiveRecord::Base.connection.execute(
-        "LOCK TABLE time_entries, time_entry_breaks IN SHARE MODE"
-      )
+      tables = %w[time_entries time_entry_breaks]
+      tables << "payroll_time_entry_revisions" if ActiveRecord::Base.connection.data_source_exists?("payroll_time_entry_revisions")
+      ActiveRecord::Base.connection.execute("LOCK TABLE #{tables.join(', ')} IN SHARE MODE")
     end
 
     def record_source_ledger_blocking_window(started_at, outcome)
@@ -196,20 +261,39 @@ module Payroll
     end
 
     def reject_overlapping_batch!
-      overlap = PayrollBatch.where("start_date <= ? AND end_date >= ?", end_date, start_date).first
+      overlap = PayrollBatch.regular.where("start_date <= ? AND end_date >= ?", end_date, start_date).first
       return unless overlap
 
       raise ExistingBatchError, "Payroll batch #{overlap.public_id} already covers part of this period"
     end
 
-    def reject_out_of_order_automated_batch!(cutoff)
+    def reject_out_of_order_automated_batch!
       return unless automated_cutoff
 
-      later_batch = PayrollBatch.where("cutoff_at > ?", cutoff).order(:cutoff_at, :id).first
+      # Payroll order is the work period, not the snapshot instant: an earlier
+      # manual calendar may legitimately be locked after this scheduled cutoff.
+      later_batch = PayrollBatch.regular.where("start_date > ?", end_date).order(:start_date, :id).first
       return unless later_batch
 
       raise OutOfOrderFinalizationError,
             "A later payroll batch (#{later_batch.public_id}) is already finalized. Review this older period before retrying."
+    end
+
+    def reject_out_of_order_manual_processing!
+      later = PayrollBatch.regular.where("end_date >= ? OR cutoff_at > ?", start_date, cutoff_at).first
+      return unless later
+
+      raise OutOfOrderFinalizationError, "Record already processed periods in work-date and cutoff order; review #{later.public_id} first"
+    end
+
+    def validate_manual_snapshot!(result)
+      unless result.fetch(:rows).all? { |row| row.fetch(:work_date).between?(start_date, end_date) }
+        raise FinalizationError, "Record already processed cannot include work outside the selected range; reconcile this entry's split periods separately"
+      end
+      ids = result.fetch(:rows).map { |row| row.fetch(:source_time_entry_id) }
+      return unless TimeEntry.where(id: ids).where("updated_at > ?", cutoff_at).exists?
+
+      raise FinalizationError, "Entries changed after the paid snapshot. Report already paid pending evidence and reconcile exact paycheck hours before recording this range; current hours cannot reconstruct historical payment."
     end
 
     def validate_result!(result)
@@ -220,7 +304,7 @@ module Payroll
         end
       end
       return unless issues.fetch(:negative_adjustment_count).positive?
-      return if automated_cutoff
+      return if automated_cutoff || manual_calendar_lock
       return if acknowledge_negative_adjustments && negative_adjustment_note.present?
 
       raise FinalizationError, "Negative payroll corrections require acknowledgement and an explanatory note"
@@ -274,13 +358,13 @@ module Payroll
     end
 
     def requires_negative_adjustment_review(payload)
-      return unless automated_cutoff && payload.dig(:issues, :negative_adjustment_count).to_i.positive?
+      return unless (automated_cutoff || manual_calendar_lock) && payload.dig(:issues, :negative_adjustment_count).to_i.positive?
 
       true
     end
 
     def build_reference(cutoff)
-      "AIRE-PAY-#{cutoff.strftime('%Y%m%d')}-#{SecureRandom.hex(6).upcase}"
+      @manual_batch_reference || "AIRE-PAY-#{cutoff.strftime('%Y%m%d')}-#{SecureRandom.hex(6).upcase}"
     end
   end
 end

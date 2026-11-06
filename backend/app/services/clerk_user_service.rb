@@ -18,6 +18,7 @@ class ClerkUserService
   end
 
   def update!(clerk_user_id:, first_name: UNCHANGED, last_name: UNCHANGED)
+    StagingOutboundPolicy.clerk_target!(id: clerk_user_id)
     updates = {}
 
     unless first_name.equal?(UNCHANGED)

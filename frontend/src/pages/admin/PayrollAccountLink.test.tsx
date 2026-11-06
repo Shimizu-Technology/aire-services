@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import PayrollAccountLink from './PayrollAccountLink'
 
@@ -124,4 +125,28 @@ describe('PayrollAccountLink', () => {
     expect(await screen.findByText('Dafne Admin')).toBeInTheDocument()
     expect(screen.queryByText('Chels Admin')).not.toBeInTheDocument()
   })
+})
+
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.resetModules() })
+it.each(['https://payroll.example.com/return?source_id=3', 'https://PAYROLL-STAGING.example.test/return?source_id=3'])('rejects copied or mixed-case staging consent return URLs %s', async returnUrl => {
+  vi.stubEnv('VITE_DEPLOYMENT_ENV', 'staging')
+  vi.stubEnv('VITE_STAGING_PAYROLL_FRONTEND_ORIGIN', 'https://payroll-staging.example.test')
+  const { default: StagingLink } = await import('./PayrollAccountLink')
+  apiMock.getPayrollAccountLinkSession.mockResolvedValue({ data: { account_link_session: { ...session, return_url: returnUrl } } })
+  render(<MemoryRouter initialEntries={['/admin/payroll-link?token=synthetic']}><StagingLink /></MemoryRouter>)
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid staging connection destination')
+  expect(screen.queryByRole('link', { name: 'Cancel' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Connect and return/i })).toBeNull()
+})
+it('rejects a production authorization response while retaining the valid staging consent screen', async () => {
+  vi.stubEnv('VITE_DEPLOYMENT_ENV', 'staging')
+  vi.stubEnv('VITE_STAGING_PAYROLL_FRONTEND_ORIGIN', 'https://payroll-staging.example.test')
+  const { default: StagingLink } = await import('./PayrollAccountLink')
+  apiMock.getPayrollAccountLinkSession.mockResolvedValue({ data: { account_link_session: { ...session, return_url: 'https://payroll-staging.example.test/return?source_id=3' } } })
+  apiMock.authorizePayrollAccountLink.mockResolvedValue({ data: { redirect_url: 'https://payroll.example.com/return?token=synthetic' } })
+  render(<MemoryRouter initialEntries={['/admin/payroll-link?token=synthetic']}><StagingLink /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: /Connect and return/i }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid staging connection destination')
+  expect(screen.getByRole('button', { name: /Connect and return/i })).toBeEnabled()
+  expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', 'https://payroll-staging.example.test/return?source_id=3&aire_link=cancelled')
 })

@@ -31,17 +31,26 @@ module Api
 
         # Send the email
         begin
-          ContactMailer.contact_form_email(
+          attributes = {
             name: name,
             email: email,
             phone: phone,
             subject: subject,
             message: message
-          ).deliver_now
+          }
+          result = if StagingOutboundPolicy.staging?
+            ContactMailer.deliver_contact_form(**attributes)
+          else
+            ContactMailer.contact_form_email(**attributes).deliver_now
+          end
 
-          render json: { success: true, message: "Your message has been sent successfully!" }, status: :ok
+          if StagingOutboundPolicy.staging? && result["staging_captured"]
+            render json: { success: true, captured: true, sent: false, message: "Your message was captured in staging; no email was sent." }, status: :ok
+          else
+            render json: { success: true, message: "Your message has been sent successfully!" }, status: :ok
+          end
         rescue => e
-          Rails.logger.error "Contact form email failed: #{e.message}"
+          Rails.logger.error "Contact form email failed: #{StagingOutboundPolicy.staging? ? "#{e.class}; content redacted" : e.message}"
           render json: { error: "Failed to send message. Please try again later." }, status: :internal_server_error
         end
       end

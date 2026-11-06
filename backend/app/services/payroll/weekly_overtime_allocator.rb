@@ -2,26 +2,36 @@
 
 module Payroll
   class WeeklyOvertimeAllocator
-    STATUTORY_DAILY_THRESHOLD = 8.0
     STATUTORY_WEEKLY_THRESHOLD = 40.0
     BUSINESS_TIMEZONE = TimeClockService::BUSINESS_TIMEZONE
+    POLICY = {
+      schema_version: "2.0",
+      calculation: "weekly_only",
+      weekly_threshold_hours: STATUTORY_WEEKLY_THRESHOLD,
+      workweek_start: "sunday",
+      time_zone: "Pacific/Guam"
+    }.transform_values(&:freeze).freeze
 
-    def self.call(
-      entries,
-      daily_threshold: configured_threshold("overtime_daily_threshold_hours", STATUTORY_DAILY_THRESHOLD),
-      weekly_threshold: configured_threshold("overtime_weekly_threshold_hours", STATUTORY_WEEKLY_THRESHOLD)
-    )
+    # Review-alert settings never change the payable overtime policy.
+    def self.configured_policy
+      POLICY.deep_dup
+    end
+
+    def self.supported_policy?(policy)
+      policy.respond_to?(:stringify_keys) && policy.stringify_keys == POLICY.stringify_keys
+    end
+
+    def self.legacy_call(entries)
       allocations = {}
       entries.group_by { |entry| entry.work_date.beginning_of_week(:sunday) }.each_value do |week_entries|
-        weekly_cumulative = 0.0
-        daily_cumulative = Hash.new(0.0)
+        weekly_cumulative = 0.to_d
+        daily_cumulative = Hash.new(0.to_d)
         week_entries.sort_by { |entry| sort_key(entry) }.each do |entry|
-          hours = entry.hours.to_f
+          hours = entry.hours.to_d
           worked_today = daily_cumulative[entry.work_date]
-          daily_regular_capacity = [ daily_threshold - worked_today, 0.0 ].max
-          weekly_regular_capacity = [ weekly_threshold - weekly_cumulative, 0.0 ].max
-          regular = [ hours, daily_regular_capacity, weekly_regular_capacity ].min
-          overtime = [ hours - regular, 0.0 ].max
+          weekly_regular_capacity = [ STATUTORY_WEEKLY_THRESHOLD.to_d - weekly_cumulative, 0.to_d ].max
+          regular = [ hours, weekly_regular_capacity ].min
+          overtime = [ hours - regular, 0.to_d ].max
           allocations[entry.id] = {
             regular_hours: round_hours(regular),
             overtime_hours: round_hours(overtime),
@@ -37,11 +47,22 @@ module Payroll
       allocations
     end
 
-    def self.configured_threshold(key, fallback)
-      value = Setting.get(key).to_f
-      value.positive? ? value : fallback
+    CONTRACT_VERSION = "guam_intervals_v1"
+
+    def self.call(entries, contract: CONTRACT_VERSION)
+      return legacy_call(entries) unless contract == CONTRACT_VERSION
+
+      PayableIntervals.allocate(entries)
     end
-    private_class_method :configured_threshold
+
+    def self.weeks(entry)
+      interval = PayableIntervals.bounds(entry)
+      return [ entry.work_date.beginning_of_week(:sunday) ] unless interval
+
+      first = interval.first.to_date.beginning_of_week(:sunday)
+      last = (interval.last - 0.000001).to_date.beginning_of_week(:sunday)
+      first.step(last, 7).to_a
+    end
 
     def self.sort_key(entry)
       seconds = entry.start_time&.in_time_zone(BUSINESS_TIMEZONE)&.seconds_since_midnight || 0

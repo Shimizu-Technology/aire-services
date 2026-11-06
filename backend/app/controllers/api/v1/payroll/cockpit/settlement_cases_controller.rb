@@ -15,7 +15,7 @@ module Api
               .includes(
                 :assigned_to,
                 :target_payroll_calendar_period,
-                :included_payroll_batch,
+                included_payroll_batch: [ :payroll_batch_entries, :payroll_entry_processing_events ],
                 origin_payroll_batch: :payroll_calendar_period,
                 payroll_settlement_case_events: :actor
               )
@@ -23,8 +23,14 @@ module Api
             scope = scope.where(status: params[:status]) if params[:status].present?
             if params[:external_pay_period_id].present?
               period = PayrollCalendarPeriod.find_by!(external_pay_period_id: params[:external_pay_period_id])
+              # Manual release history has no origin calendar. Its unassigned
+              # unresolved cases must still be visible in the connected settlement workspace.
+              legacy_review = scope.where(origin_payroll_batch_id: ::Payroll::LegacyPaidHistoryGuard.legacy_batches.select(:id),
+                status: PayrollSettlementCase::ACTIVE_STATUSES, destination_kind: %w[unassigned supplemental],
+                origin_reason: %w[legacy_history_review changed_after_cutoff deleted_after_cutoff])
+                .where("original_work_date < ?", period.start_date)
               scope = scope.where(origin_payroll_batch_id: period.payroll_batch_id)
-                .or(scope.where(target_payroll_calendar_period_id: period.id))
+                .or(scope.where(target_payroll_calendar_period_id: period.id)).or(legacy_review)
             end
             queue_summary = summary(scope)
             page = pagination_for(scope, maximum: 250)
@@ -51,6 +57,9 @@ module Api
               replay: ->(_current_case, metadata) { { command_result: metadata } },
               response: ->(current_case, _body) { { settlement_case: serialize(current_case) } }
             ) do |locked_case, reason|
+              if PayrollManualAllocation.active.exists?(time_entry_id: locked_case.source_time_entry_id)
+                raise ::Payroll::SettlementCaseRouter::RoutingError, "This source is reserved in manual payroll; reconcile its existing obligation before routing"
+              end
               routed = ::Payroll::SettlementCaseRouter.new(
                 settlement_case: locked_case,
                 destination_kind: command_params[:destination_kind],
@@ -110,7 +119,7 @@ module Api
               scheduled: counts.fetch("scheduled", 0),
               in_payroll: counts.fetch("in_payroll", 0),
               settled: counts.fetch("settled", 0),
-              attention_due: aggregate_scope.active.where(action_due_on: ..Date.current).count
+              attention_due: aggregate_scope.active.where(action_due_on: ..BusinessDate.today).count
             }
           end
         end

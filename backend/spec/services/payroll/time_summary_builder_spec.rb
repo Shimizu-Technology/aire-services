@@ -4,7 +4,7 @@ require "rails_helper"
 
 RSpec.describe Payroll::TimeSummaryBuilder do
   describe "#call" do
-    it "applies daily overtime independently without pooling thresholds across employees" do
+    it "keeps long days regular without pooling weekly thresholds across employees" do
       first_user = create(:user, first_name: "Alex", last_name: "CFI")
       second_user = create(:user, first_name: "Bailey", last_name: "CFI")
       category = create(:time_category, name: "Flight Instruction", key: "aire_flight_instruction")
@@ -12,7 +12,7 @@ RSpec.describe Payroll::TimeSummaryBuilder do
 
       [ first_user, second_user ].each_with_index do |user, user_index|
         3.times do |day_index|
-          create(:time_entry,
+          create(:time_entry, approval_status: "approved",
             user: user,
             time_category: category,
             work_date: Date.new(2026, 5, 18 + user_index + day_index),
@@ -25,9 +25,9 @@ RSpec.describe Payroll::TimeSummaryBuilder do
 
       expect(payload[:schema_version]).to eq("1.0")
       expect(payload.dig(:summary, :countable_hours)).to eq(60.0)
-      expect(payload.dig(:summary, :regular_hours)).to eq(48.0)
-      expect(payload.dig(:summary, :overtime_hours)).to eq(12.0)
-      expect(payload.fetch(:employees)).to all(include(regular_hours: 24.0, overtime_hours: 6.0))
+      expect(payload.dig(:summary, :regular_hours)).to eq(60.0)
+      expect(payload.dig(:summary, :overtime_hours)).to eq(0.0)
+      expect(payload.fetch(:employees)).to all(include(regular_hours: 30.0, overtime_hours: 0.0))
       expect(payload.fetch(:employees)).to all(satisfy do |employee|
         employee.fetch(:days).map { |day| day.fetch(:work_date) } ==
           (Date.new(2026, 5, 18)..Date.new(2026, 5, 24)).map(&:iso8601)
@@ -38,7 +38,7 @@ RSpec.describe Payroll::TimeSummaryBuilder do
       user = create(:user, first_name: "Alex", last_name: "CFI")
       category = create(:time_category, name: "Flight Instruction", key: "aire_flight_instruction")
       zone = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
-      create(:time_entry,
+      create(:time_entry, approval_status: "approved",
         user: user,
         time_category: category,
         work_date: Date.new(2026, 5, 20),
@@ -64,7 +64,7 @@ RSpec.describe Payroll::TimeSummaryBuilder do
       zone = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
 
       (Date.new(2026, 5, 18)..Date.new(2026, 5, 22)).each do |work_date|
-        create(:time_entry,
+        create(:time_entry, approval_status: "approved",
           user: user,
           time_category: category,
           work_date: work_date,
@@ -77,12 +77,12 @@ RSpec.describe Payroll::TimeSummaryBuilder do
 
       expect(employee).to include(
         total_hours: 20.0,
-        regular_hours: 8.0,
-        overtime_hours: 12.0
+        regular_hours: 10.0,
+        overtime_hours: 10.0
       )
       expect(payload.dig(:summary, :countable_hours)).to eq(20.0)
-      expect(payload.dig(:summary, :regular_hours)).to eq(8.0)
-      expect(payload.dig(:summary, :overtime_hours)).to eq(12.0)
+      expect(payload.dig(:summary, :regular_hours)).to eq(10.0)
+      expect(payload.dig(:summary, :overtime_hours)).to eq(10.0)
     end
 
     it "exports category-level regular and overtime hours for payroll imports" do
@@ -91,13 +91,13 @@ RSpec.describe Payroll::TimeSummaryBuilder do
       ground = create(:time_category, name: "Ground School", key: "aire_ground_school", hourly_rate_cents: 4_500)
       zone = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
 
-      create(:time_entry,
+      create(:time_entry, approval_status: "approved",
         user: user,
         time_category: flight,
         work_date: Date.new(2026, 5, 18),
         start_time: zone.local(2000, 1, 1, 0, 0, 0),
         end_time: zone.local(2000, 1, 1, 23, 0, 0))
-      create(:time_entry,
+      create(:time_entry, approval_status: "approved",
         user: user,
         time_category: ground,
         work_date: Date.new(2026, 5, 19),
@@ -111,17 +111,30 @@ RSpec.describe Payroll::TimeSummaryBuilder do
 
       expect(employee).to include(
         total_hours: 43.0,
-        regular_hours: 16.0,
-        overtime_hours: 27.0
+        regular_hours: 40.0,
+        overtime_hours: 3.0
       )
       expect(ground_bucket).to include(
         hours: 20.0,
         total_hours: 20.0,
-        regular_hours: 8.0,
-        overtime_hours: 12.0
+        regular_hours: 17.0,
+        overtime_hours: 3.0
       )
-      expect(payload.dig(:summary, :regular_hours)).to eq(16.0)
-      expect(payload.dig(:summary, :overtime_hours)).to eq(27.0)
+      expect(payload.dig(:summary, :regular_hours)).to eq(40.0)
+      expect(payload.dig(:summary, :overtime_hours)).to eq(3.0)
+    end
+
+    it "excludes unapproved manual legacy time consistently with batch and manual reconciliation" do
+      user = create(:user)
+      category = create(:time_category)
+      legacy = create(:time_entry, user: user, time_category: category, work_date: Date.new(2026, 5, 20),
+                                  entry_method: "manual", approval_status: nil)
+      clock = create(:time_entry, user: user, time_category: category, work_date: Date.new(2026, 5, 21),
+                                 entry_method: "clock", approval_status: nil)
+      row = described_class.new(start_date: "2026-05-18", end_date: "2026-05-24").call.fetch(:employees).first
+      expect(row).to include(total_hours: 8.0, regular_hours: 8.0, overtime_hours: 0.0)
+      expect(row.fetch(:days).flat_map { |day| day[:entry_ids] }).to eq([ clock.id ])
+      expect(legacy.counts_toward_hours?).to be(false)
     end
 
     it "keeps pending work tracked without treating it as an included-hour blocker" do

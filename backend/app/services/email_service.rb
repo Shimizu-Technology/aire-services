@@ -10,25 +10,34 @@ class EmailService
       sign_up_url = ENV.fetch("FRONTEND_URL", "http://localhost:5173")
       from_email = ENV.fetch("MAILER_FROM_EMAIL", "noreply@example.com")
 
-      response = Resend::Emails.send({
+      response = StagingMailTransport.deliver({
         from: from_email,
         to: user.email,
         subject: "You've been invited to AIRE Services Guam",
         html: invitation_html(user: user, invited_by: invited_by, sign_up_url: sign_up_url)
       })
 
-      Rails.logger.info "Resend API response for #{CGI.escapeHTML(user.email.to_s)}: #{response.inspect}"
+      if StagingOutboundPolicy.staging? && response["staging_captured"]
+        Rails.logger.info "[InviteEmail] STAGING captured invitation user_id=#{user.id}; no email was sent"
+        return :captured
+      end
+
+      Rails.logger.info "Resend API response for #{CGI.escapeHTML(user.email.to_s)}: #{response.inspect}" unless StagingOutboundPolicy.staging?
       true
     rescue StandardError => e
-      Rails.logger.error "Failed to send invitation email to #{CGI.escapeHTML(user.email.to_s)}: #{e.class} - #{e.message}"
-      Rails.logger.error e.backtrace.first(5).join("\n") if e.backtrace
+      if StagingOutboundPolicy.staging?
+        Rails.logger.error "[InviteEmail] Failed user_id=#{user.id}: #{e.class}; content redacted"
+      else
+        Rails.logger.error "Failed to send invitation email to #{CGI.escapeHTML(user.email.to_s)}: #{e.class} - #{e.message}"
+        Rails.logger.error e.backtrace.first(5).join("\n") if e.backtrace
+      end
       false
     end
 
     private
 
     def resend_configured?
-      if ENV["RESEND_API_KEY"].blank?
+      if !StagingOutboundPolicy.staging? && ENV["RESEND_API_KEY"].blank?
         Rails.logger.warn "RESEND_API_KEY not configured, skipping email"
         return false
       end

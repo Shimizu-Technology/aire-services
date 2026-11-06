@@ -65,6 +65,17 @@ describe('ClockInOutCard geofence messaging', () => {
     })
   })
 
+  it('shows review alerts without disabling the clock or calling them payable overtime', async () => {
+    const normal = await apiMock.getClockStatus()
+    apiMock.getClockStatus.mockResolvedValue({
+      data: { ...normal.data, review_alerts: { daily_threshold_exceeded: true, weekly_threshold_exceeded: false } },
+    })
+    render(<ClockInOutCard />)
+    expect(await screen.findByText(/Recorded hours passed a review threshold/)).toBeInTheDocument()
+    expect(screen.getByText(/overtime pay starts only after 40 hours/)).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /clock in/i })[0]).toBeEnabled()
+  })
+
   it('shows the geolocation permission error instead of a generic failure', async () => {
     const getCurrentPosition = vi.fn((_success, error) => {
       error({
@@ -103,5 +114,41 @@ describe('ClockInOutCard geofence messaging', () => {
 
     expect(await screen.findByText('Time tracking is not enabled')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /clock in/i })).not.toBeInTheDocument()
+  })
+
+  it('explains when an inactive employee cannot clock in', async () => {
+    apiMock.getClockStatus.mockResolvedValueOnce({
+      data: {
+        clocked_in: false,
+        time_tracking_enabled: true,
+        can_clock_in: false,
+        is_admin: false,
+        schedule: null,
+        clock_in_blocked_reason: 'inactive_employee',
+      },
+    })
+
+    render(<ClockInOutCard />)
+
+    expect((await screen.findAllByText('Employee is inactive')).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/admin override available/i)).not.toBeInTheDocument()
+  })
+
+  it('does not advertise an admin override when work categories are missing', async () => {
+    apiMock.getClockStatus.mockResolvedValueOnce({
+      data: {
+        clocked_in: false,
+        time_tracking_enabled: true,
+        can_clock_in: false,
+        is_admin: true,
+        schedule: null,
+        clock_in_blocked_reason: 'categories_missing',
+      },
+    })
+
+    render(<ClockInOutCard />)
+
+    expect(await screen.findByText('Work categories need to be assigned')).toBeInTheDocument()
+    expect(screen.queryByText(/admin override available/i)).not.toBeInTheDocument()
   })
 })

@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import Users from './Users'
 import type { AdminTimeCategory, AdminUser, ApprovalGroupOption } from '../../lib/api'
 
@@ -154,7 +155,7 @@ describe('Users filters', () => {
   })
 
   it('narrows the users table by search and filters', async () => {
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
 
     expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
     expect(screen.getByText('Blake Ops')).toBeInTheDocument()
@@ -194,7 +195,7 @@ describe('Users filters', () => {
 
   it('creates a personal account without collecting a duplicate name', async () => {
     apiMock.inviteUser.mockResolvedValueOnce({ data: { user: makeUser({}), invitation_email_sent: null, kiosk_pin: null } })
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
     await screen.findByText('Alice Pilot')
 
     fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
@@ -223,7 +224,7 @@ describe('Users filters', () => {
     apiMock.inviteUser.mockResolvedValueOnce({
       data: { user: makeUser({ personal_access_enabled: false, profile_source: 'local' }), invitation_email_sent: null, kiosk_pin: '481205' },
     })
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
     await screen.findByText('Alice Pilot')
 
     fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
@@ -247,7 +248,7 @@ describe('Users filters', () => {
   })
 
   it('allows a personal account that does not track hours', async () => {
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
     await screen.findByText('Alice Pilot')
 
     fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
@@ -264,8 +265,82 @@ describe('Users filters', () => {
     expect(await screen.findByText('Team member added')).toBeInTheDocument()
   })
 
+  it.each([
+    [{ invitation_email_sent: false, invitation_email_captured: true }, 'Captured in staging (not sent)'],
+    [{ invitation_email_queued: true }, 'Invitation queued'],
+    [{ invitation_email_sent: true }, 'Invitation submitted to the email provider'],
+    [{ invitation_email_sent: false }, 'Invitation email failed'],
+  ])('reports the actual invitation outcome when creating a user: %j', async (outcome, message) => {
+    apiMock.inviteUser.mockResolvedValueOnce({ data: { user: makeUser({}), ...outcome, kiosk_pin: null } })
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Alice Pilot')
+    fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
+    fireEvent.change(screen.getByLabelText(/^email/i), { target: { value: 'invitee@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    fireEvent.click(screen.getByLabelText(/tracks work hours/i))
+    fireEvent.click(screen.getByRole('button', { name: /add and send invite/i }))
+    expect(await screen.findByText(new RegExp(message.replace(/[()]/g, '\\$&')))).toBeInTheDocument()
+    if ('invitation_email_captured' in outcome) expect(screen.queryByText(/could not be sent/i)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [{ invitation_email_sent: false, invitation_email_captured: true, message: 'Invitation captured in staging; no email was sent.' }, 'Captured in staging (not sent)'],
+    [{ message: 'Invitation email resent to invitee@example.test' }, 'Invitation submitted to the email provider'],
+  ])('reports the actual resend outcome: %j', async (outcome, message) => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
+    apiMock.resendInvite.mockResolvedValueOnce({ data: outcome })
+    render(<MemoryRouter initialEntries={['/?status=pending']}><Users /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Resend invite' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(message)
+  })
+
+  it('retains the resend failure rather than claiming submission', async () => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
+    apiMock.resendInvite.mockResolvedValueOnce({ error: 'Synthetic invitation failure' })
+    render(<MemoryRouter initialEntries={['/?status=pending']}><Users /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Resend invite' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Synthetic invitation failure')
+    expect(screen.queryByText(/Invitation submitted/)).not.toBeInTheDocument()
+  })
+
+  it('offers the compact invitation resend and reports capture on a phone card', async () => {
+    const originalWidth = window.innerWidth
+    const originalScroll = HTMLElement.prototype.scrollIntoView
+    const scrollIntoView = vi.fn()
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    try {
+      apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
+      apiMock.resendInvite.mockResolvedValueOnce({ data: { invitation_email_sent: false, invitation_email_captured: true, message: 'Invitation captured in staging; no email was sent.' } })
+      render(<MemoryRouter initialEntries={['/?status=pending']}><Users /></MemoryRouter>)
+      const card = (await screen.findByText('Test User')).closest('article')!
+      fireEvent.click(within(card).getByRole('button', { name: 'Resend invite' }))
+      expect(await screen.findByRole('status')).toHaveTextContent('Captured in staging (not sent)')
+      expect(apiMock.resendInvite).toHaveBeenCalledWith(1)
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' }))
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScroll
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    }
+  })
+
+  it.each([
+    [{ invitation_email_sent: false, invitation_email_captured: true }, 'Captured in staging (not sent)'],
+    [{ invitation_email_sent: true }, 'Invitation submitted to the email provider'],
+    [{ invitation_email_sent: false }, 'Invitation email failed'],
+  ])('reports the outcome when an edit requests an invitation: %j', async (outcome, message) => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
+    apiMock.updateUser.mockResolvedValueOnce({ data: { user: makeUser({}), ...outcome } })
+    render(<MemoryRouter initialEntries={['/?status=pending']}><Users /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByLabelText('Send invitation when these changes are saved'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(message)
+    expect(apiMock.updateUser).toHaveBeenCalledWith(1, expect.objectContaining({ send_invitation: true }))
+  })
+
   it('keeps time tracking and kiosk access enabled when changing a user to kiosk-only', async () => {
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
 
     const aliceName = await screen.findByText('Alice Pilot')
     const aliceRow = aliceName.closest('tr')
@@ -293,7 +368,11 @@ describe('Users filters', () => {
     }))
   })
 
+  afterEach(() => vi.useRealTimers())
+
   it('uses the termination workflow and explains that history is preserved', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-22T15:30:00Z'))
     const terminated = makeUser({
       id: 1,
       full_name: 'Alice Pilot',
@@ -304,7 +383,7 @@ describe('Users filters', () => {
       terminated_at: '2026-09-22T00:00:00Z',
     })
     apiMock.terminateUser.mockResolvedValueOnce({ data: { user: terminated } })
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
 
     fireEvent.change(await screen.findByLabelText(/status/i), { target: { value: 'all' } })
     const aliceName = await screen.findByText('Alice Pilot')
@@ -314,6 +393,8 @@ describe('Users filters', () => {
     const dialog = screen.getByRole('dialog', { name: /terminate alice pilot/i })
     expect(within(dialog).getByText(/time entries, schedules, payroll trail, and historical reports stay intact/i)).toBeInTheDocument()
     await waitFor(() => expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveFocus())
+    expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveValue('2026-09-23')
+    expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveAttribute('max', '2026-09-23')
     fireEvent.change(within(dialog).getByLabelText(/last day of employment/i), { target: { value: '2026-09-21' } })
     fireEvent.change(within(dialog).getByLabelText(/internal note/i), { target: { value: 'Employment ended' } })
     fireEvent.click(within(dialog).getByRole('button', { name: /confirm termination/i }))
@@ -346,7 +427,7 @@ describe('Users filters', () => {
     })
     apiMock.getAdminUsers.mockResolvedValueOnce({ data: { users: [terminated] } })
     apiMock.reactivateUser.mockResolvedValueOnce({ data: { user: reactivated } })
-    render(<Users />)
+    render(<MemoryRouter><Users /></MemoryRouter>)
 
     fireEvent.change(await screen.findByLabelText(/status/i), { target: { value: 'all' } })
     const aliceName = await screen.findByText('Alice Pilot')
@@ -358,4 +439,45 @@ describe('Users filters', () => {
     expect(updatedAliceRow).not.toBeNull()
     expect(within(updatedAliceRow!).getByText('Active')).toBeInTheDocument()
   })
+
+  it('reports directory errors with retry rather than a false empty team', async () => {
+    apiMock.getAdminUsers.mockResolvedValueOnce({ error: 'Directory temporarily unavailable' })
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Directory temporarily unavailable')
+    expect(screen.queryByText('No team members yet.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Total Team Members')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await screen.findByText('Alice Pilot')
+  })
+
+  it('restores directory filters from the URL and links the employee with that return context', async () => {
+    render(<MemoryRouter initialEntries={['/admin/users?search=Alice&status=active']}><Users /></MemoryRouter>)
+    const link = await screen.findByRole('link', { name: 'Alice Pilot' })
+    expect(link).toHaveAttribute('href', expect.stringContaining('return_to=%2Fadmin%2Fusers%3Fsearch%3DAlice%26status%3Dactive'))
+    expect(screen.getByPlaceholderText('Name, email, title, category...')).toHaveValue('Alice')
+    expect(screen.queryByText('Blake Ops')).not.toBeInTheDocument()
+  })
+
+  it('closes the create dialog on Escape and returns focus to its trigger', async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Alice Pilot')
+    const trigger = screen.getByRole('button', { name: 'Add team member' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    await screen.findByRole('dialog', { name: 'Add team member' })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('removes the edit deep link on close and preserves directory filters', async () => {
+    function Address() { return <output aria-label="Directory address">{useLocation().search}</output> }
+    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=1&search=Alice']}><Users /><Address /></MemoryRouter>)
+    const dialog = await screen.findByRole('dialog', { name: /edit alice pilot/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Directory address')).toHaveTextContent('?search=Alice')
+    expect(screen.getByLabelText('Directory address')).not.toHaveTextContent('edit_user_id')
+  })
+
 })

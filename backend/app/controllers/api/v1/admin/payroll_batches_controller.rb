@@ -5,16 +5,23 @@ module Api
     module Admin
       class PayrollBatchesController < BaseController
         before_action :require_admin!
+        before_action :require_connected_payroll!, only: :create
         before_action :find_batch, only: %i[show export]
 
         def index
           total_count = PayrollBatch.count
           batches = PayrollBatch
-            .includes(:finalized_by, :payroll_batch_processing_events)
+            .includes(
+              :finalized_by,
+              :payroll_batch_processing_events,
+              :payroll_batch_entries,
+              :payroll_entry_processing_events
+            )
             .order(finalized_at: :desc)
             .limit(100)
             .to_a
           render json: {
+            connected_payroll: ConnectedPayrollMode.capability,
             payroll_batches: batches.map { |batch| serialize_summary(batch) },
             total_count: total_count,
             truncated: total_count > batches.length
@@ -30,11 +37,27 @@ module Api
           result = ::Payroll::BatchBuilder.new(
             start_date: params[:start_date],
             end_date: params[:end_date],
-            cutoff_at: cutoff_at || Time.current
+            cutoff_at: cutoff_at || Time.current,
+            manual_processing: ActiveModel::Type::Boolean.new.cast(params[:manual_processing])
           ).call
+          periods = PayrollCalendarPeriod.overlapping(result.fetch(:start_date), result.fetch(:end_date))
+            .includes(:payroll_batch).order(:start_date, :id).to_a
+          rollout = PayrollLockRollout.find_by(id: 1) if periods.any?
+          legacy_blocked = ::Payroll::LegacyPaidHistoryGuard.blocked?
           render json: result.fetch(:payload).merge(
             preview: true,
-            can_finalize: result.dig(:issues, :missing_category_count).zero?,
+            connected_payroll: ConnectedPayrollMode.capability,
+            can_finalize: ConnectedPayrollMode.enabled? && periods.empty? && !legacy_blocked && result.dig(:issues, :missing_category_count).zero?,
+            published_calendar_periods: periods.map { |period| period.as_contract_json(rollout: rollout, next_scheduled_cutoff_at: nil).slice(
+              :external_pay_period_id, :start_date, :end_date, :cutoff_at, :status, :payroll_batch_id
+            ) },
+            finalization_blocked_reason: if !ConnectedPayrollMode.enabled?
+              ConnectedPayrollMode::MESSAGE
+                                         elsif periods.any?
+              "This range overlaps a published payroll calendar. Use its Lock action in Cornerstone Payroll or view its finalized batch."
+                                         elsif legacy_blocked
+              ::Payroll::LegacyPaidHistoryGuard::MESSAGE
+                                         end,
             requires_negative_adjustment_acknowledgement: result.dig(:issues, :negative_adjustment_count).positive?
           )
         rescue ArgumentError => e
@@ -82,6 +105,16 @@ module Api
 
         private
 
+        def require_connected_payroll!
+          return if ConnectedPayrollMode.enabled?
+
+          # Availability refusal is not a domain action; leave all ledgers and
+          # the generic mutation audit untouched, like the integration guard.
+          Current.domain_audit_recorded = true
+          response.headers["Retry-After"] = "60"
+          render json: { error: ConnectedPayrollMode::MESSAGE, connected_payroll: ConnectedPayrollMode.capability }, status: :service_unavailable
+        end
+
         def parse_preview_cutoff
           return if params[:cutoff_at].blank?
 
@@ -102,13 +135,14 @@ module Api
         def serialize_summary(batch)
           {
             id: batch.public_id,
+            purpose: batch.payload["purpose"] || "regular",
             start_date: batch.start_date.iso8601,
             end_date: batch.end_date.iso8601,
             cutoff_at: batch.cutoff_at.iso8601,
             finalized_at: batch.finalized_at.iso8601,
             finalized_by: batch.finalized_by && { id: batch.finalized_by.id, name: batch.finalized_by.full_name },
             checksum: batch.checksum,
-            processing: batch.processing_status,
+            processing: batch.processing_summary,
             summary: batch.summary,
             issues: batch.issues
           }

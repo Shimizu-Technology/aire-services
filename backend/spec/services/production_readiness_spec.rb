@@ -20,6 +20,7 @@ RSpec.describe ProductionReadiness do
   end
   let(:env) do
     {
+      "CONNECTED_PAYROLL_MODE" => "enabled",
       "RAILS_ENV" => "production",
       "ACTIVE_JOB_QUEUE_ADAPTER" => "solid_queue",
       "SOLID_QUEUE_IN_PUMA" => "true",
@@ -131,6 +132,19 @@ RSpec.describe ProductionReadiness do
 
   before do
     allow(ActiveRecord::Migration).to receive(:check_all_pending!).and_return(nil)
+  end
+
+  it "reports paused mode without querying Payroll health or treating held outbox events as failed readiness" do
+    env["CONNECTED_PAYROLL_MODE"] = "paused"
+    expect(readiness).not_to receive(:cornerstone_ready?)
+    expect(readiness).not_to receive(:no_stale_outbox_events?)
+    evidence = readiness.run(live: true).as_json
+    expect(evidence.fetch(:connected_payroll)).to include(mode: "paused", enabled: false)
+    skipped = evidence.fetch(:checks).select { |check| check[:detail].start_with?("skipped:") }
+    expect(skipped.map { |check| check[:name] }).to contain_exactly(
+      "the Cornerstone payroll API health endpoint is reachable",
+      "no payroll event has remained undelivered past the retry window"
+    )
   end
 
   it "passes effective configuration and every safe live dependency probe" do

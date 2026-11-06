@@ -72,6 +72,27 @@ RSpec.describe "AIRE kiosk", type: :request do
     expect(entry.status).to eq("clocked_in")
   end
 
+  it "commits clock in and out even when the optional cutoff presenter is broken" do
+    token = AireKioskToken.issue_for(employee)
+    allow(::Payroll::CutoffPresenter).to receive(:call).and_raise(StandardError, "warning unavailable")
+
+    post "/api/v1/aire/kiosk/clock_in",
+         params: { kiosk_access_token: kiosk_access_token, kiosk_token: token, time_category_id: time_category.id }
+    expect(response).to have_http_status(:created)
+    entry = employee.time_entries.order(:id).last
+    expect(entry.status).to eq("clocked_in")
+
+    travel 2.minutes
+    post "/api/v1/aire/kiosk/clock_out", params: { kiosk_access_token: kiosk_access_token, kiosk_token: token }
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload.status).to eq("completed")
+    expect(response.parsed_body).not_to have_key("cutoff_warning")
+
+    post "/api/v1/aire/kiosk/cutoff", params: { kiosk_access_token: kiosk_access_token, kiosk_token: token }
+    expect(response).to have_http_status(:internal_server_error)
+    expect(entry.reload.status).to eq("completed")
+  end
+
   it "fails closed if unified kiosk access is revoked after verification" do
     post "/api/v1/aire/kiosk/verify", params: { pin: employee_pin, kiosk_access_token: kiosk_access_token }
     token = JSON.parse(response.body).fetch("kiosk_token")

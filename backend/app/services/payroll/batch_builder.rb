@@ -7,30 +7,58 @@ module Payroll
     MAX_RANGE_DAYS = 62
     PAIR_QUERY_BATCH_SIZE = 500
     SOURCE = "aire_services"
+    class PolicyUnavailableError < ArgumentError; end
 
     attr_reader :start_date, :end_date, :cutoff_at, :batch_reference, :calendar_period
 
-    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil)
+    def initialize(start_date:, end_date:, cutoff_at: Time.current, batch_reference: "PREVIEW", calendar_period: nil, source_entry_ids: nil, manual_processing: false, excluded_source_entry_ids: nil)
       @start_date = parse_date!(start_date, "start_date")
       @end_date = parse_date!(end_date, "end_date")
       @cutoff_at = cutoff_at
       @batch_reference = batch_reference
       @calendar_period = calendar_period
+      @manual_processing = manual_processing
+      @excluded_source_entry_ids = Array(excluded_source_entry_ids).to_set
+      # Supplemental claims use live source state and the whole affected week,
+      # but export only the explicitly selected entries. Scheduled cutoffs keep
+      # their revision-ledger and named-destination semantics.
+      @source_entry_ids = source_entry_ids&.map(&:to_i)&.to_set
+      raise ArgumentError, "selected source entries require live context" if @source_entry_ids && calendar_period
+      if calendar_period && !WeeklyOvertimeAllocator.supported_policy?(calendar_period.overtime_policy)
+        raise PolicyUnavailableError, "This calendar has no supported frozen overtime policy; weekly-only policy review is required; republish it before cutoff or arrange an operator-reviewed correction"
+      end
+      @revision_ledger = TimeEntryRevisionLedger.new(cutoff_at: cutoff_at) if calendar_period
+      @revision_ledger&.require_coverage!
       raise ArgumentError, "end_date must be on or after start_date" if @end_date < @start_date
       raise ArgumentError, "date range may not exceed #{MAX_RANGE_DAYS} days" if (@end_date - @start_date).to_i > MAX_RANGE_DAYS
     end
 
     def call
-      latest_batch = PayrollBatch.order(cutoff_at: :desc, id: :desc).first
+      latest_batch = PayrollBatch.regular.order(cutoff_at: :desc, id: :desc).first
       seed_entries, deleted_entry_ids = settlement_seed_entries(latest_batch)
       candidate_entry_ids = seed_entries.map(&:id) + deleted_entry_ids
       prior_rows = prior_rows_for_entry_ids(candidate_entry_ids)
       prior_rows, prior_by_entry, deleted_prior_rows, affected_pairs = expand_prior_rows(seed_entries, prior_rows)
       context_entries = context_entries_for(affected_pairs)
       allocations = overtime_allocations(context_entries)
+      @legacy_allocations = AffectedOvertimeReview.allocations(context_entries, legacy: true)
       settlement_ids = settlement_entry_ids(seed_entries, prior_rows, affected_pairs)
+      settlement_ids &= seed_entries.map(&:id).to_set if @manual_processing
+      settlement_ids -= @excluded_source_entry_ids
+      settlement_ids &= @source_entry_ids if @source_entry_ids
+      if calendar_period
+        # Even employee/week expansion may not bypass explicit legacy routing.
+        legacy_ids = LegacyPaidHistoryGuard.legacy_entry_ids(settlement_ids.to_a).to_set
+        targeted_ids = PayrollSettlementCase.active.where(target_payroll_calendar_period: calendar_period)
+          .pluck(:source_time_entry_id).to_set
+        settlement_ids -= legacy_ids - targeted_ids
+      end
       preload_first_exclusion_references(settlement_ids)
-      current_by_id = context_entries.index_by(&:id)
+      preload_manual_allocations(settlement_ids)
+      preload_payment_attestations(settlement_ids)
+      # Held/denied entries still need exclusion rows, but must not pull a
+      # previously paid workweek back through today's overtime allocator.
+      current_by_id = (context_entries + seed_entries).index_by(&:id)
       rows = []
       exclusions = []
       blocking = { missing_category_count: 0 }
@@ -39,12 +67,46 @@ module Payroll
         entry_prior_rows = prior_by_entry.fetch(entry_id, [])
 
         if entry
-          target, entry_exclusions = target_for(entry, allocations.fetch(entry.id, {}))
-          exclusions.concat(entry_exclusions)
-          if target[:total_hours].positive?
-            blocking[:missing_category_count] += 1 if entry.time_category_id.nil?
+          # This is calculation context for an earlier manual payroll, not its
+          # source work. Keep its review and exclusions at its own destination.
+          next if deferred_later_manual_dimension?(entry.work_date)
+
+          allocation = allocations.fetch(entry.id, {})
+          reviewed_current = entry.allocation_contract_version == allocation_contract_version &&
+            entry.overtime_allocation_signature == AffectedOvertimeReview.signature(entry, allocation)
+          legacy_history = allocation_contract_version && !reviewed_current &&
+            entry_prior_rows.any? { |row| row.payroll_batch.allocation_contract_version.nil? } &&
+            allocation_differs_from_history?(entry, allocation, entry_prior_rows)
+          if allocation[:hold_reason] || legacy_history
+            snapshot = entry_snapshot(entry).merge("allocation_hold" => allocation[:hold_reason] || "legacy_allocation_requires_review")
+            exclusions << exclusion_for(entry, "pending_approval", entry.hours, entry.hours, 0, snapshot)
+            next # A chronology hold must not reverse immutable paid evidence.
           end
-          rows.concat(settlement_rows_for(entry, target, entry_prior_rows))
+          target, entry_exclusions = target_for(entry, allocation)
+          exclusions.concat(entry_exclusions)
+          # Retain prior paid/exported classification until the replacement
+          # allocation is authorized. A pending OT reclassification must not
+          # export only its negative REG leg and temporarily reverse wages.
+          reviewed_replacement_pending = entry_exclusions.any? { |row| row[:reason].in?(%w[pending_approval approved_after_cutoff pending_overtime denied_overtime overtime_approved_after_cutoff created_after_cutoff]) }
+          represented = entry_prior_rows.any? || manually_allocated_hours(entry.id)[:total_hours].positive?
+          next if represented && reviewed_replacement_pending
+
+          if target[:total_hours] > manually_allocated_hours(entry.id)[:total_hours]
+            blocking[:missing_category_count] += 1 if resolved_time_category(entry).nil?
+          end
+          if allocation[:segments] && base_approved?(entry) && payable_at_cutoff?(entry) && !@payment_attestations_by_entry.key?(entry.id)
+            segments = payable_segments(entry, allocation, entry_prior_rows)
+            targets = segments.to_h do |segment|
+              ot = target[:overtime_hours].positive? ? segment[:overtime_hours].to_d : 0.to_d
+              hours = { regular_hours: segment[:regular_hours].to_d, overtime_hours: ot,
+                        total_hours: segment[:regular_hours].to_d + ot }
+              [ dimension_key(resolved_time_category(entry)&.id, entry.user_id, segment[:work_date]),
+                { hours: hours, work_date: segment[:work_date] } ]
+            end
+            rows.concat(settlement_rows_for(entry, target, entry_prior_rows, targets: targets))
+          else
+            rows.concat(settlement_rows_for(entry, target, entry_prior_rows))
+          end
         else
           rows.concat(deleted_rows_for(entry_id, entry_prior_rows))
         end
@@ -54,6 +116,8 @@ module Payroll
       exclusions.sort_by! { |row| [ row[:source_user_id], row[:work_date], row[:source_time_entry_id], row[:reason] ] }
       negative_rows = rows.select { |row| row[:regular_hours].negative? || row[:overtime_hours].negative? }
       issues = blocking.merge(
+        allocation_review_count: exclusions.count { |row| row[:snapshot]["allocation_hold"].present? },
+        payment_attestation_pending_count: @payment_attestations_by_entry.size,
         negative_adjustment_count: negative_rows.size,
         pending_approval_count: exclusions.count { |row| row[:reason].in?(%w[pending_approval approved_after_cutoff created_after_cutoff]) },
         denied_approval_count: exclusions.count { |row| row[:reason] == "denied_approval" },
@@ -61,6 +125,7 @@ module Payroll
         pending_overtime_count: exclusions.count { |row| row[:reason].in?(%w[pending_overtime overtime_approved_after_cutoff]) },
         denied_overtime_count: exclusions.count { |row| row[:reason] == "denied_overtime" }
       )
+      issues.delete(:allocation_review_count) unless allocation_contract_version
       payload = payload_for(rows, exclusions, issues)
 
       {
@@ -87,18 +152,56 @@ module Payroll
     end
 
     def settlement_seed_entries(latest_batch)
-      nominal = staff_entries.where(work_date: start_date..end_date).to_a
-      return [ nominal, [] ] unless latest_batch
+      return [ staff_entries.where(id: @source_entry_ids.to_a).includes(:time_entry_breaks).to_a, [] ] if @source_entry_ids
 
+      nominal = if revision_ledger?
+        frozen_entries = revision_ledger.entries_in_range(start_date..end_date)
+        late_entries = revision_ledger.entries_created_after_cutoff_in_range(start_date..end_date)
+        frozen_entries + late_entries
+      else
+        staff_entries.where(work_date: (start_date - 1)..end_date).includes(:time_entry_breaks).to_a.select { |entry| PayableIntervals.overlaps?(entry, start_date..end_date) }
+      end
+      # Recording an already-paid range must never also attest unrelated
+      # historical/carryover work against that range's Cornerstone run.
+      if @manual_processing
+        represented = PayrollBatchEntry.effective.where(source_time_entry_id: nominal.map(&:id)).pluck(:source_time_entry_id).to_set
+        nominal.reject! { |entry| entry.work_date < start_date && represented.include?(entry.id) }
+        return [ nominal, [] ]
+      end
+      # Published calendars admit historical work through named settlement
+      # cases. Live manual-review seeds must not bypass that routing or replace
+      # the source revision frozen at the calendar cutoff.
+      manual_corrections = calendar_period ? [] : manually_allocated_entries_changed_since_payment(latest_batch)
+      retracted = calendar_period ? [] : retracted_attestation_entries(latest_batch)
+      return [ (nominal + manual_corrections + retracted).uniq(&:id), [] ] unless latest_batch
+
+      # A later review of an already finalized date range must not reinterpret
+      # unchanged paid entries under today's overtime/category rules. Seed only
+      # new or changed entries; related old entries are pulled in below when a
+      # real source change affects their employee/week.
+      represented_dates = PayrollBatchEntry.effective.where(source_time_entry_id: nominal.map(&:id))
+        .distinct.pluck(:source_time_entry_id, :work_date).to_set
+      represented_ids = represented_dates.map(&:first).to_set
+      nominal.reject! do |entry|
+        represented_ids.include?(entry.id) && entry.updated_at <= latest_batch.cutoff_at &&
+          PayableIntervals.segments(entry).select { |s| s[:work_date].between?(start_date, end_date) }.all? do |segment|
+            represented_dates.include?([ entry.id, segment[:work_date] ])
+          end
+      end
       if calendar_period
         targeted_ids = PayrollSettlementCase
           .active
           .where(target_payroll_calendar_period: calendar_period)
           .distinct
           .pluck(:source_time_entry_id)
-        carryovers = staff_entries.where(id: targeted_ids).to_a
+        @targeted_settlement_entry_ids = targeted_ids.to_set
+        carryovers = if revision_ledger?
+          revision_ledger.entries_for_ids(targeted_ids)
+        else
+          staff_entries.where(id: targeted_ids).to_a
+        end
         existing_ids = carryovers.map(&:id)
-        return [ (nominal + carryovers).uniq(&:id), targeted_ids - existing_ids ]
+        return [ (nominal + carryovers + manual_corrections + retracted).uniq(&:id), targeted_ids - existing_ids ]
       end
 
       latest_cutoff = latest_batch.cutoff_at
@@ -108,7 +211,7 @@ module Payroll
         .where("time_entries.work_date < ? AND time_entries.updated_at > ?", start_date, latest_cutoff)
         .to_a
       changed_prior = staff_entries
-        .where(id: PayrollBatchEntry.select(:source_time_entry_id))
+        .where(id: PayrollBatchEntry.effective.select(:source_time_entry_id))
         .where("time_entries.updated_at > ?", latest_cutoff)
         .to_a
       deleted_entry_ids = AuditLog
@@ -117,7 +220,34 @@ module Payroll
         .distinct
         .pluck(:auditable_id)
 
-      [ (nominal + carryovers + historical + changed_prior).uniq(&:id), deleted_entry_ids ]
+      [ (nominal + carryovers + historical + changed_prior + manual_corrections + retracted).uniq(&:id), deleted_entry_ids ]
+    end
+
+    def retracted_attestation_entries(latest_batch)
+      latest_cutoff = latest_batch&.cutoff_at || Time.at(0)
+      staff_entries.where(id: PayrollPaymentAttestation
+        .where(status: "retracted")
+        .where("retracted_at > ?", latest_cutoff)
+        .select(:time_entry_id)).to_a
+    end
+
+    def manually_allocated_entries_changed_since_payment(latest_batch)
+      latest_cutoff = latest_batch&.cutoff_at || Time.at(0)
+      staff_entries.where("time_entries.work_date < ?", start_date)
+        .where(<<~SQL, latest_cutoff: latest_cutoff)
+          EXISTS (
+            SELECT 1 FROM payroll_manual_allocations allocations
+            WHERE allocations.time_entry_id = time_entries.id
+              AND (
+                allocations.updated_at > :latest_cutoff
+                OR (
+                  allocations.status IN ('committed', 'issued')
+                  AND time_entries.updated_at > :latest_cutoff
+                )
+              )
+          )
+        SQL
+        .to_a
     end
 
     def unresolved_carryover_ids(latest_batch)
@@ -132,7 +262,11 @@ module Payroll
     end
 
     def deleted_prior_rows(prior_by_entry)
-      existing_ids = TimeEntry.where(id: prior_by_entry.keys).pluck(:id).to_set
+      existing_ids = if revision_ledger?
+        revision_ledger.entries_for_ids(prior_by_entry.keys).map(&:id).to_set
+      else
+        TimeEntry.where(id: prior_by_entry.keys).pluck(:id).to_set
+      end
       prior_by_entry.filter_map do |entry_id, rows|
         next if existing_ids.include?(entry_id)
         next if prior_totals(rows).values.all?(&:zero?)
@@ -145,12 +279,12 @@ module Payroll
       ids = entry_ids.compact.uniq
       return [] if ids.empty?
 
-      PayrollBatchEntry.includes(:payroll_batch).where(source_time_entry_id: ids).to_a
+      PayrollBatchEntry.effective.includes(:payroll_batch).where(source_time_entry_id: ids).to_a
     end
 
     def prior_rows_for_pairs(pairs)
       pair_batches(pairs).flat_map do |pair_batch|
-        PayrollBatchEntry
+        PayrollBatchEntry.effective
           .joins(pair_join_sql(pair_batch, user_column: "source_user_id") do
             <<~SQL
               ON affected_pairs.source_user_id = payroll_batch_entries.source_user_id
@@ -183,7 +317,11 @@ module Payroll
     def affected_employee_weeks(seed_entries, deleted_rows, prior_by_entry)
       prior_pairs = prior_by_entry.values.flatten.map { |row| [ row.source_user_id, row.week_start ] }
       Set.new(
-        seed_entries.map { |entry| [ entry.user_id, entry.work_date.beginning_of_week(:sunday) ] } +
+        seed_entries.flat_map do |entry|
+          next [] unless payable_at_cutoff?(entry) || prior_by_entry.key?(entry.id)
+
+          WeeklyOvertimeAllocator.weeks(entry).map { |week| [ entry.user_id, week ] }
+        end +
         deleted_rows.map { |row| [ row.source_user_id, row.week_start ] } +
         prior_pairs
       )
@@ -192,12 +330,23 @@ module Payroll
     def context_entries_for(pairs)
       return [] if pairs.empty?
 
+      if revision_ledger?
+        frozen_entries = revision_ledger.entries_for_pairs(pairs)
+        late_entries = revision_ledger.entries_created_after_cutoff_for_pairs(pairs)
+        return (frozen_entries + late_entries).uniq(&:id)
+          .sort_by { |entry| [ entry.work_date, entry.start_time, entry.created_at, entry.id ] }
+      end
+
+      current_context_entries_for(pairs)
+    end
+
+    def current_context_entries_for(pairs, scope: TimeEntry.all)
       pair_batches(pairs).flat_map do |pair_batch|
-        TimeEntry
+        scope
           .joins(pair_join_sql(pair_batch, user_column: "user_id") do
             <<~SQL
               ON affected_pairs.user_id = time_entries.user_id
-             AND time_entries.work_date BETWEEN affected_pairs.week_start AND affected_pairs.week_start + 6
+             AND time_entries.work_date BETWEEN affected_pairs.week_start - 1 AND affected_pairs.week_start + 6
             SQL
           end)
           .includes(:user, :time_category, :time_entry_breaks)
@@ -207,10 +356,18 @@ module Payroll
         .sort_by { |entry| [ entry.work_date, entry.start_time, entry.created_at, entry.id ] }
     end
 
+    def revision_ledger?
+      @revision_ledger.present?
+    end
+
+    def revision_ledger
+      @revision_ledger
+    end
+
     def overtime_allocations(entries)
       entries.group_by(&:user_id).each_with_object({}) do |(_user_id, user_entries), memo|
         payable = user_entries.select { |entry| payable_at_cutoff?(entry) }
-        memo.merge!(WeeklyOvertimeAllocator.call(payable))
+        memo.merge!(WeeklyOvertimeAllocator.call(payable, contract: allocation_contract_version))
       end
     end
 
@@ -244,6 +401,26 @@ module Payroll
       prior_rows.each do |row|
         ids << row.source_time_entry_id if affected_pairs.include?([ row.source_user_id, row.week_start ])
       end
+      # A newly approved entry can change the weekly overtime split of an
+      # earlier, manually paid entry without touching that entry's updated_at.
+      # Recompute those paid entries in the same affected employee/weeks so
+      # the final batch surfaces the difference instead of hiding it.
+      pair_batches(affected_pairs).each do |pair_batch|
+        TimeEntry
+          .where(id: PayrollManualAllocation.active.select(:time_entry_id))
+          .joins(pair_join_sql(pair_batch, user_column: "user_id") do
+            <<~SQL
+              ON affected_pairs.user_id = time_entries.user_id
+             AND time_entries.work_date BETWEEN affected_pairs.week_start - 1 AND affected_pairs.week_start + 6
+            SQL
+          end)
+          .includes(:time_entry_breaks)
+          .distinct.each do |entry|
+            next unless WeeklyOvertimeAllocator.weeks(entry).any? { |week| affected_pairs.include?([ entry.user_id, week ]) }
+
+            ids << entry.id
+          end
+      end
       ids
     end
 
@@ -252,6 +429,12 @@ module Payroll
       overtime = round_hours(allocation[:overtime_hours])
       snapshot = entry_snapshot(entry)
       held_regular, held_overtime = held_hours(entry, regular, overtime)
+
+      # A payment attestation prevents a duplicate import, but deliberately
+      # does not count as a settled payroll payment or an approval decision.
+      if @payment_attestations_by_entry.key?(entry.id)
+        return [ zero_hours, [ exclusion_for(entry, "pending_payment_attestation", entry.hours, held_regular, held_overtime, snapshot) ] ]
+      end
 
       if entry.created_at > cutoff_at
         return [ zero_hours, [ exclusion_for(entry, "created_after_cutoff", entry.hours, held_regular, held_overtime, snapshot) ] ]
@@ -270,7 +453,8 @@ module Payroll
       end
       return [ zero_hours, [] ] unless base_approved?(entry)
 
-      overtime_reason = if entry.overtime_status == "pending"
+      review_matches = AffectedOvertimeReview.approval_valid?(entry, allocation, legacy_allocation: @legacy_allocations[entry.id])
+      overtime_reason = if !review_matches && entry.overtime_status != "denied"
         "pending_overtime"
       elsif entry.overtime_status == "denied"
         "denied_overtime"
@@ -311,8 +495,39 @@ module Payroll
       sum_hours(rows)
     end
 
+    def preload_manual_allocations(entry_ids)
+      allocations = if calendar_period
+        ManualAllocationLedger.active_at(cutoff_at, entry_ids: entry_ids.to_a)
+      else
+        PayrollManualAllocation.active.where(time_entry_id: entry_ids.to_a).to_a
+      end
+      ActiveRecord::Associations::Preloader.new(records: allocations, associations: [ :user, :time_category ]).call
+      @manual_allocations_by_entry = allocations.group_by(&:time_entry_id)
+    end
+
+    def preload_payment_attestations(entry_ids)
+      attestations = calendar_period ? PayrollPaymentAttestation.blocking_at(cutoff_at) : PayrollPaymentAttestation.pending_evidence
+      @payment_attestations_by_entry = attestations
+        .where(time_entry_id: entry_ids.to_a).order(:id)
+        .index_by(&:time_entry_id)
+    end
+
+    def manually_allocated_hours(entry_id)
+      # A delayed cutoff keeps its original report exclusion even when the
+      # report was resolved later. Do not subtract the later issued allocation
+      # from that zero-hour held target and invent a negative wage correction.
+      return zero_hours if @payment_attestations_by_entry&.key?(entry_id)
+
+      allocations = @manual_allocations_by_entry.fetch(entry_id, [])
+      {
+        total_hours: round_hours(allocations.sum(&:total_hours)),
+        regular_hours: round_hours(allocations.sum(&:regular_hours)),
+        overtime_hours: round_hours(allocations.sum(&:overtime_hours))
+      }
+    end
+
     def prior_balances(rows)
-      rows.group_by { |row| dimension_key(row.source_category_id) }.transform_values do |dimension_rows|
+      rows.group_by { |row| dimension_key(row.source_category_id, row.source_user_id, row.work_date) }.transform_values do |dimension_rows|
         {
           totals: sum_hours(dimension_rows),
           latest: dimension_rows.max_by { |row| [ row.payroll_batch.cutoff_at, row.id ] }
@@ -336,35 +551,95 @@ module Payroll
       delta.values.all?(&:zero?)
     end
 
-    def settlement_rows_for(entry, target, prior_rows)
-      balances = prior_balances(prior_rows)
-      current_key = dimension_key(entry.time_category_id)
+    def payable_segments(entry, allocation, prior_rows)
+      return allocation[:segments] if @source_entry_ids
+      return allocation[:segments].select { |segment| segment[:work_date] <= end_date } unless calendar_period&.cutoff_enforcement_starts_on
+
+      # A new overnight entry belongs to each calendar only for that calendar's
+      # payable dates. Represented entries still need their complete target:
+      # dropping a later segment would turn its frozen balance into a reversal,
+      # and source edits/deletions must retain their real correction deltas.
+      represented = prior_rows + manual_prior_rows_for(entry)
+      earlier_claim = represented.any? { |row| row.work_date < start_date }
+      later_claim = represented.any? { |row| row.work_date > end_date }
+      routed = @targeted_settlement_entry_ids&.include?(entry.id)
+      allocation[:segments].select do |segment|
+        date = segment[:work_date]
+        date.between?(start_date, end_date) ||
+          (date < start_date && (earlier_claim || routed)) || (date > end_date && later_claim)
+      end
+    end
+
+    def newer_claim_outside_period?(work_date, prior_rows)
+      calendar_period && !work_date.between?(start_date, end_date) &&
+        prior_rows.any? { |row| row.payroll_batch.cutoff_at > cutoff_at }
+    end
+
+    def deferred_later_manual_dimension?(work_date)
+      calendar_period&.manual_lock? && calendar_period.cutoff_enforcement_starts_on.present? && work_date > end_date
+    end
+
+    def settlement_rows_for(entry, target, prior_rows, targets: nil)
+      balances = prior_balances(prior_rows + manual_prior_rows_for(entry))
+      current_key = dimension_key(resolved_time_category(entry)&.id, entry.user_id, entry.work_date)
+      normalize_inferred_legacy_category!(entry, balances, current_key)
+      targets ||= { current_key => { hours: target, work_date: entry.work_date } }
       keys = balances.keys.to_set
-      keys << current_key if target.values.any?(&:nonzero?)
+      targets.each { |key, value| keys << key if value[:hours].values.any?(&:nonzero?) }
       has_prior = balances.values.any? { |balance| balance.fetch(:totals).values.any?(&:nonzero?) }
 
       keys.filter_map do |key|
-        desired = key == current_key ? target : zero_hours
+        work_date = targets.dig(key, :work_date) || balances.fetch(key).fetch(:latest).work_date
+        # A delayed scheduled snapshot cannot reinterpret an earlier calendar
+        # that was manually locked at a newer instant. Still subtract all its
+        # claims; the current calendar keeps its original revision cutoff.
+        # Later work remains owned by its named settlement destination. Keep
+        # the full week in the allocator, but never consume its signed delta
+        # merely because the accountant locks an earlier manual period late.
+        next if deferred_later_manual_dimension?(work_date) || newer_claim_outside_period?(work_date, prior_rows)
+
+        desired = targets.dig(key, :hours) || zero_hours
         prior = balances.dig(key, :totals) || zero_hours
         delta = subtract(desired, prior)
         next if zero_delta?(delta)
 
-        if key == current_key
-          row_for_current_dimension(entry, delta, has_prior, current_key)
+        if targets.key?(key)
+          row_for_current_dimension(entry, delta, has_prior, key, work_date: targets.fetch(key).fetch(:work_date))
         else
           row_for_prior_dimension(entry, delta, balances.fetch(key).fetch(:latest), key)
         end
       end
     end
 
-    def row_for_current_dimension(entry, delta, has_prior, line_key)
+    def normalize_inferred_legacy_category!(entry, balances, current_key)
+      legacy_key = dimension_key(nil, entry.user_id, entry.work_date)
+      return unless entry.time_category_id.nil? && current_key != legacy_key && balances.key?(legacy_key)
+
+      legacy = balances.delete(legacy_key)
+      current = balances[current_key]
+      balances[current_key] = if current
+        {
+          totals: current.fetch(:totals).to_h do |key, value|
+            [ key, round_hours(value + legacy.fetch(:totals).fetch(key)) ]
+          end,
+          latest: [ current.fetch(:latest), legacy.fetch(:latest) ].max_by do |row|
+            [ row.payroll_batch.cutoff_at, row.id ]
+          end
+        }
+      else
+        legacy
+      end
+    end
+
+    def row_for_current_dimension(entry, delta, has_prior, line_key, work_date: entry.work_date)
+      category = resolved_time_category(entry)
       {
         source_time_entry_id: entry.id,
         source_user_id: entry.user_id,
         source_user_uuid: entry.user.payroll_integration_uuid,
-        source_category_id: entry.time_category_id,
-        work_date: entry.work_date,
-        week_start: entry.work_date.beginning_of_week(:sunday),
+        source_category_id: category&.id,
+        work_date: work_date,
+        week_start: work_date.beginning_of_week(:sunday),
         total_hours: delta[:total_hours],
         regular_hours: delta[:regular_hours],
         overtime_hours: delta[:overtime_hours],
@@ -396,6 +671,9 @@ module Payroll
 
     def deleted_rows_for(entry_id, prior_rows)
       prior_balances(prior_rows).filter_map do |line_key, balance|
+        next if deferred_later_manual_dimension?(balance.fetch(:latest).work_date) ||
+          newer_claim_outside_period?(balance.fetch(:latest).work_date, prior_rows)
+
         prior = balance.fetch(:totals)
         next if prior.values.all?(&:zero?)
 
@@ -434,13 +712,46 @@ module Payroll
 
     def source_kind(entry, has_prior)
       return "correction" if has_prior
+      return "carryover" if @source_entry_ids
       return "carryover" if entry.work_date < start_date
 
       "current"
     end
 
-    def dimension_key(category_id)
-      "category:#{category_id || 'none'}"
+    def dimension_key(category_id, user_id, work_date)
+      "category:#{category_id || 'none'}|user:#{user_id}|date:#{work_date.iso8601}"
+    end
+
+    def manual_prior_rows_for(entry)
+      return [] if @payment_attestations_by_entry&.key?(entry.id)
+
+      allocations = (@manual_allocations_by_entry || {}).fetch(entry.id, [])
+      allocations.map do |allocation|
+        PayrollBatchEntry.new(
+          payroll_batch: PayrollBatch.new(cutoff_at: allocation.created_at),
+          source_time_entry_id: entry.id,
+          source_user_id: allocation.user_id,
+          source_user_uuid: allocation.source_user_uuid,
+          source_category_id: entry.time_category_id.nil? ? resolved_time_category(entry)&.id : allocation.time_category_id,
+          work_date: allocation.work_date,
+          week_start: allocation.work_date.beginning_of_week(:sunday),
+          total_hours: allocation.total_hours,
+          regular_hours: allocation.regular_hours,
+          overtime_hours: allocation.overtime_hours,
+          id: allocation.id,
+          snapshot: {
+            "user_uuid" => allocation.source_user_uuid,
+            "employee_name" => allocation.user.full_name,
+            "employee_email" => allocation.user.email,
+            "time_category" => allocation.time_category_id && {
+              "id" => allocation.time_category_id,
+              "key" => allocation.time_category&.key,
+              "name" => allocation.time_category&.name
+            },
+            "manual_allocation_id" => allocation.id
+          }
+        )
+      end
     end
 
     def exclusion_for(entry, reason, total, regular, overtime, snapshot)
@@ -474,8 +785,11 @@ module Payroll
     end
 
     def entry_snapshot(entry)
+      category = resolved_time_category(entry)
       {
         "id" => entry.id,
+        "version" => entry.lock_version,
+        "payable_content_checksum" => PayableContent.checksum(entry),
         "user_id" => entry.user_id,
         "user_uuid" => entry.user.payroll_integration_uuid,
         "employee_name" => entry.user.full_name,
@@ -489,13 +803,43 @@ module Payroll
         "approved_at" => entry.approved_at&.iso8601,
         "overtime_status" => entry.overtime_status,
         "overtime_approved_at" => entry.overtime_approved_at&.iso8601,
-        "time_category" => entry.time_category && {
-          "id" => entry.time_category.id,
-          "key" => entry.time_category.key,
-          "name" => entry.time_category.name
+        "time_category" => category && {
+          "id" => category.id,
+          "key" => category.key,
+          "name" => category.name
         },
         "updated_at" => entry.updated_at.iso8601
-      }
+      }.tap do |snapshot|
+        snapshot["time_category_inferred_from_sole_assignment"] = true if entry.time_category_id.nil? && category.present?
+      end
+    end
+
+    def resolved_time_category(entry)
+      return entry.time_category if entry.time_category_id.present?
+      return nil if revision_ledger?
+
+      @sole_categories_by_user ||= {}
+      @sole_categories_by_user.fetch(entry.user_id) do
+        assigned = entry.user.assigned_time_categories.where(is_active: true).to_a
+        @sole_categories_by_user[entry.user_id] = assigned.one? ? assigned.first : nil
+      end
+    end
+
+    def allocation_differs_from_history?(entry, allocation, prior_rows)
+      return false unless allocation[:segments]
+
+      desired = allocation[:segments].to_h do |segment|
+        [ dimension_key(resolved_time_category(entry)&.id, entry.user_id, segment[:work_date]),
+          [ round_hours(segment[:regular_hours]), round_hours(segment[:overtime_hours]) ] ]
+      end
+      prior = prior_balances(prior_rows).transform_values do |balance|
+        [ balance[:totals][:regular_hours], balance[:totals][:overtime_hours] ]
+      end
+      desired != prior
+    end
+
+    def allocation_contract_version
+      WeeklyOvertimeAllocator::CONTRACT_VERSION
     end
 
     def payload_for(rows, exclusions, issues)
@@ -526,22 +870,25 @@ module Payroll
 
       {
         schema_version: PayrollBatch::SCHEMA_VERSION,
+        allocation_contract_version: allocation_contract_version,
         source: SOURCE,
         batch_id: batch_reference,
         start_date: start_date.iso8601,
         end_date: end_date.iso8601,
-        cutoff_at: cutoff_at.iso8601,
-        generated_at: cutoff_at.iso8601,
+        cutoff_at: calendar_period&.manual_lock? ? cutoff_at.iso8601(6) : cutoff_at.iso8601,
+        generated_at: calendar_period&.manual_lock? ? cutoff_at.iso8601(6) : cutoff_at.iso8601,
+        overtime_policy: calendar_period&.overtime_policy,
         employees: employees,
         exclusions: exclusions.map { |row| serialize_exclusion(row) },
         issues: issues,
         summary: summary
-      }
+      }.tap { |payload| payload.delete(:allocation_contract_version) unless allocation_contract_version }
     end
 
     def serialize_row(row)
       {
         source_time_entry_id: row[:source_time_entry_id].to_s,
+        source_time_entry_version: row[:snapshot]["version"],
         line_key: row[:line_key],
         source_kind: row[:source_kind],
         original_work_date: row[:work_date].iso8601,
@@ -563,6 +910,7 @@ module Payroll
         email: row[:snapshot]["employee_email"],
         category: row[:snapshot]["time_category"],
         reason: row[:reason],
+        allocation_review_reason: row[:snapshot]["allocation_hold"],
         original_work_date: row[:work_date].iso8601,
         held_total_hours: number(row[:held_total_hours]),
         held_regular_hours: number(row[:held_regular_hours]),

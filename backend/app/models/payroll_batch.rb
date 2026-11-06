@@ -7,7 +7,7 @@ class PayrollBatch < ApplicationRecord
   has_many :payroll_batch_entries, dependent: :restrict_with_error
   has_many :payroll_batch_exclusions, dependent: :restrict_with_error
   has_many :payroll_batch_processing_events, dependent: :restrict_with_error
-  has_many :payroll_entry_processing_events, dependent: :restrict_with_error
+  has_many :payroll_entry_processing_events, -> { includes(:payroll_obligation_correction) }, dependent: :restrict_with_error
   has_many :origin_payroll_settlement_cases,
            class_name: "PayrollSettlementCase",
            foreign_key: :origin_payroll_batch_id,
@@ -25,8 +25,22 @@ class PayrollBatch < ApplicationRecord
   validates :schema_version, inclusion: { in: [ SCHEMA_VERSION ] }
   validate :end_date_on_or_after_start_date
 
+  scope :regular, -> { where("COALESCE(payload->>'purpose', 'regular') = 'regular'") }
+
+  def late_hours_canceled?
+    PayrollLateHoursRetirement.exists?(payroll_batch_id: id, status: "canceled")
+  end
+
   def readonly?
     persisted?
+  end
+
+  def contract_cutoff_at
+    payroll_calendar_period&.manual_lock? ? cutoff_at.iso8601(6) : cutoff_at.iso8601
+  end
+
+  def contract_finalized_at
+    payroll_calendar_period&.manual_lock? ? finalized_at.iso8601(6) : finalized_at.iso8601
   end
 
   def export_payload
@@ -38,8 +52,11 @@ class PayrollBatch < ApplicationRecord
         "checksum_algorithm" => "SHA-256",
         "checksum_scope" => "payload_without_export",
         "readiness_status" => "finalized",
-        "cutoff_at" => cutoff_at.iso8601,
-        "finalized_at" => finalized_at.iso8601
+        "cutoff_at" => contract_cutoff_at,
+        "finalized_at" => contract_finalized_at,
+        "finalized_at_precise" => finalized_at.iso8601(6),
+        "prior_overtime_policy" => Payroll::PriorOvertimePolicyEvidence.new(batch: self).call,
+        "integration" => Payroll::IntegrationProfile.call
       }
     )
   end
@@ -62,6 +79,18 @@ class PayrollBatch < ApplicationRecord
       external_system: event.external_system,
       external_pay_period_id: event.external_pay_period_id
     }
+  end
+
+  def processing_summary
+    batch_processing = processing_status
+    entry_events = payroll_entry_processing_events.to_a
+    return batch_processing if entry_events.empty?
+
+    Payroll::EntryProcessingSummary.new(
+      rows: payroll_batch_entries.to_a,
+      events: entry_events,
+      batch_processing: batch_processing
+    ).call
   end
 
   private

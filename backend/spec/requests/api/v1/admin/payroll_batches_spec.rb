@@ -35,6 +35,15 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     )
   end
 
+  it "identifies regular and supplemental summaries without changing list scope" do
+    regular = create(:payroll_batch)
+    supplemental = create(:payroll_batch, payload: { "purpose" => "supplemental" })
+    get "/api/v1/admin/payroll_batches", headers: admin_headers
+    expect(response).to have_http_status(:ok)
+    purposes = json.fetch(:payroll_batches).to_h { |row| [ row[:id], row[:purpose] ] }
+    expect(purposes).to include(regular.public_id => "regular", supplemental.public_id => "supplemental")
+  end
+
   it "previews inclusions and unresolved work without creating a batch" do
     create_entry
     create_entry(approval_status: "pending")
@@ -49,6 +58,34 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     expect(json.dig(:summary, :exclusion_count)).to eq(1)
     expect(json.dig(:issues, :pending_approval_count)).to eq(1)
     expect(PayrollBatch.count).to eq(0)
+  end
+
+  it "guides previews to the published calendar and rejects both direct manual paths without side effects" do
+    create_entry
+    period = create(:payroll_calendar_period, start_date: Date.new(2026, 8, 1), end_date: Date.new(2026, 8, 15),
+                    pay_date: Date.new(2026, 8, 25), cutoff_at: Time.iso8601("2026-08-18T17:00:00+10:00"))
+    original = period.attributes.deep_dup
+    dates = { start_date: "2026-08-10", end_date: "2026-08-20" }
+    expect(PayrollCalendarPeriod).not_to receive(:next_scheduled_cutoff_at)
+    post "/api/v1/admin/payroll_batches/preview", params: dates, headers: admin_headers
+    expect(response).to have_http_status(:ok)
+    expect(json[:can_finalize]).to be(false)
+    expect(json[:finalization_blocked_reason]).to include("published payroll calendar", "Lock")
+    expect(json.fetch(:published_calendar_periods).first).to include(
+      external_pay_period_id: period.external_pay_period_id, start_date: "2026-08-01", end_date: "2026-08-15", status: "scheduled")
+
+    [ {}, { manual_processing: true, cutoff_at: "2026-08-18T17:00:00+10:00", processed_at: "2026-08-18T17:01:00+10:00",
+            external_pay_period_id: "historical-run", processing_note: "Historical processing confirmation" } ].each do |options|
+      post "/api/v1/admin/payroll_batches", params: dates.merge(options), headers: admin_headers
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to include("published payroll calendar", "Lock")
+      expect(PayrollBatch.count).to eq(0)
+      expect(PayrollBatchEntry.count).to eq(0)
+      expect(PayrollBatchProcessingEvent.count).to eq(0)
+      expect(PayrollOutboxEvent.count).to eq(0)
+      expect(AuditLog.where(action: "payroll_batch.finalized")).to be_empty
+      expect(period.reload.attributes).to eq(original)
+    end
   end
 
   it "keeps non-blocking exclusions finalizable in both preview and create" do
@@ -90,9 +127,11 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
   it "recreates and records a manually processed historical snapshot while preserving late approvals" do
     guam = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
     included = create_entry
-    included.update_columns(time_category_id: nil, created_at: guam.local(2026, 8, 15, 12), approved_at: guam.local(2026, 8, 30, 12))
     late = create_entry
     late.update_columns(created_at: guam.local(2026, 8, 15, 12), approved_at: guam.local(2026, 8, 31, 13, 7))
+    # Sibling creation refreshes weekly review metadata. Establish the intended
+    # unchanged historical source only after the complete fixture is seeded.
+    included.update_columns(time_category_id: nil, created_at: guam.local(2026, 8, 15, 12), updated_at: guam.local(2026, 8, 30, 12), approved_at: guam.local(2026, 8, 30, 12))
     cutoff_at = guam.local(2026, 8, 31, 13, 6).iso8601
     processed_at = guam.local(2026, 8, 31, 13, 18, 5).iso8601
 
@@ -119,6 +158,7 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
                acknowledge_missing_categories: true
              },
              headers: admin_headers
+        expect(response).to have_http_status(:created), response.body
       end.to change(PayrollBatchProcessingEvent, :count).by(1)
         .and change { AuditLog.where(action: "payroll_batch.manually_processed").count }.by(1)
     end
@@ -268,6 +308,56 @@ RSpec.describe "Api::V1::Admin::PayrollBatches", type: :request do
     ])
     expect(csv.first).not_to include("effective_rate_cents")
     expect(csv.drop(1)).to all(satisfy { |row| row.length == expected_header.length })
+  end
+
+  it "summarizes exact payable-line receipts for the admin payroll ledger" do
+    create_entry
+    create_entry
+    post "/api/v1/admin/payroll_batches",
+         params: { start_date: "2026-08-01", end_date: "2026-08-15" },
+         headers: admin_headers
+
+    batch = PayrollBatch.find_by!(public_id: json.fetch(:id))
+    batch.payroll_batch_processing_events.create!(
+      event_id: "cornerstone-commit-admin-ledger",
+      status: "committed",
+      occurred_at: Time.current,
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: "42"
+    )
+    batch.payroll_batch_entries.order(:id).each_with_index do |row, index|
+      batch.payroll_entry_processing_events.create!(
+        event_id: "cornerstone-line-admin-ledger-#{index}",
+        source_time_entry_id: row.source_time_entry_id,
+        source_user_uuid: row.source_user_uuid,
+        contract_version: "2.0",
+        source_line_key: row.line_key,
+        source_kind: row.source_kind,
+        total_hours: row.total_hours,
+        regular_hours: row.regular_hours,
+        overtime_hours: row.overtime_hours,
+        status: index.zero? ? "payment_issued" : "committed",
+        external_system: "cornerstone_payroll",
+        external_pay_period_id: "42",
+        payment_method: index.zero? ? "paper_check" : nil,
+        payment_reference: index.zero? ? "5001" : nil,
+        occurred_at: Time.current + index.seconds
+      )
+    end
+
+    get "/api/v1/admin/payroll_batches", headers: admin_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:payroll_batches, 0, :processing)).to include(
+      status: "partially_paid",
+      paid_hours: 8.0,
+      outstanding_hours: 8.0,
+      external_pay_period_id: "42"
+    )
+    expect(json.dig(:payroll_batches, 0, :processing, :lines).map { |line| [ line[:source_time_entry_id], line[:status] ] }).to contain_exactly(
+      [ batch.payroll_batch_entries.order(:id).first.source_time_entry_id.to_s, "payment_issued" ],
+      [ batch.payroll_batch_entries.order(:id).last.source_time_entry_id.to_s, "committed" ]
+    )
   end
 
   it "rejects non-admin access and invalid date ranges" do

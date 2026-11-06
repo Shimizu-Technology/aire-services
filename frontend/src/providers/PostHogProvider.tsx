@@ -1,3 +1,4 @@
+import { isStaging } from '../lib/staging'
 import { useEffect } from 'react'
 import posthog from 'posthog-js'
 import { PostHogProvider as PHProvider, usePostHog } from 'posthog-js/react'
@@ -5,7 +6,7 @@ import { useLocation } from 'react-router-dom'
 
 const POSTHOG_KEY = import.meta.env.VITE_PUBLIC_POSTHOG_KEY
 const POSTHOG_HOST = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
-const isPostHogEnabled = Boolean(POSTHOG_KEY && POSTHOG_KEY !== 'YOUR_POSTHOG_KEY')
+const isPostHogEnabled = Boolean(!isStaging && POSTHOG_KEY && POSTHOG_KEY !== 'YOUR_POSTHOG_KEY')
 
 // Initialize PostHog
 if (isPostHogEnabled && typeof window !== 'undefined') {

@@ -23,6 +23,7 @@ module Api
               ),
               finalized_batch: batch && serialize_batch(batch),
               processing_history: batch ? serialize_processing_history(batch) : [],
+              entry_processing_history: batch ? serialize_entry_processing_history(batch) : [],
               carryovers: ::Payroll::CarryoverQueue.new.call.fetch(:summary)
             }
           end
@@ -36,12 +37,16 @@ module Api
               replay: ->(_current_period, metadata) { serialize_finalization_replay(metadata) },
               status: :accepted
             ) do |locked_period, reason|
-              if locked_period.cutoff_at > Time.current
+              if !locked_period.manual_lock? && locked_period.cutoff_at > Time.current
                 raise ::Payroll::CockpitCommand::InvalidCommandError,
                       "This payroll period cannot be finalized before its cutoff"
               end
 
-              result = ::Payroll::ScheduledCutoffFinalizer.new(period_id: locked_period.id, now: Time.current).call
+              result = if locked_period.manual_lock?
+                ::Payroll::ManualCalendarFinalizer.new(period_id: locked_period.id, actor: payroll_actor, reason: reason).call
+              else
+                ::Payroll::ScheduledCutoffFinalizer.new(period_id: locked_period.id, now: Time.current).call
+              end
               locked_period.reload
               AuditLog.record!(
                 action: "payroll_cockpit.finalization_requested",
@@ -81,7 +86,7 @@ module Api
               id: batch.public_id,
               checksum: batch.checksum,
               schema_version: batch.schema_version,
-              finalized_at: batch.finalized_at&.iso8601,
+              finalized_at: batch.contract_finalized_at,
               summary: batch.summary,
               issues: batch.issues,
               processing: batch.processing_status
@@ -96,6 +101,23 @@ module Api
                 occurred_at: event.occurred_at.iso8601,
                 external_system: event.external_system,
                 external_pay_period_id: event.external_pay_period_id
+              }.compact
+            end
+          end
+
+          def serialize_entry_processing_history(batch)
+            batch.payroll_entry_processing_events.order(:occurred_at, :id).map do |event|
+              {
+                event_id: event.event_id,
+                status: event.status,
+                occurred_at: event.occurred_at.iso8601,
+                external_system: event.external_system,
+                external_payroll_item_id: event.external_payroll_item_id,
+                source_time_entry_id: event.source_time_entry_id.to_s,
+                source_line_key: event.source_line_key,
+                total_hours: event.total_hours&.to_s,
+                payment_method: event.payment_method,
+                payment_reference: event.payment_reference
               }.compact
             end
           end

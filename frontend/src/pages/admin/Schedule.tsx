@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { FadeUp } from '../../components/ui/MotionComponents'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
+import { isIsoDate } from '../../lib/payrollPeriods'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
-import { formatDateISO } from '../../lib/dateUtils'
-import type { Schedule as ScheduleType, ScheduleTimePreset } from '../../lib/api'
+import { useAuthContext } from '../../contexts/AuthContext'
+import { formatDateISO, formatDateInTimeZoneISO } from '../../lib/dateUtils'
+import type { Schedule as ScheduleType, ScheduleTimePreset, ApprovedLeaveAvailability } from '../../lib/api'
 
 interface UserOption {
   id: number
@@ -24,6 +28,11 @@ const DEFAULT_PRESETS = [
 ]
 
 type ViewMode = 'grid' | 'list'
+
+// Date-only calendar values retain the Guam business date in any browser timezone.
+function businessToday() {
+  return new Date(`${formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')}T00:00:00`)
+}
 
 // Helper functions
 function getWeekStart(date: Date): Date {
@@ -55,13 +64,33 @@ export default function Schedule() {
   useEffect(() => { document.title = 'Schedule | AIRE Ops' }, [])
 
   const navigate = useNavigate()
+  const location = useLocation()
+  const [query, setQuery] = useSearchParams()
+  const routedWeek = query.get('week_start') || query.get('start_date')
+  const selectedUser = /^[1-9]\d*$/.test(query.get('user_id') || '') ? query.get('user_id') : null
+  const currentPath = `${location.pathname}${location.search}`
+  const returnTo = query.has('return_to') ? safeAdminReturn(query.get('return_to')) : null
+  const { userRole, isClerkEnabled, currentUser } = useAuthContext()
+  const canManage = !isClerkEnabled || userRole === 'admin'
   const [schedules, setSchedules] = useState<ScheduleType[]>([])
+  const [approvedLeave, setApprovedLeave] = useState<ApprovedLeaveAvailability[]>([])
   const [users, setUsers] = useState<UserOption[]>([])
   const [timePresets, setTimePresets] = useState<Array<{ label: string; start_time: string; end_time: string }>>(DEFAULT_PRESETS)
   const [loading, setLoading] = useState(true)
-  const [currentWeekStart, setCurrentWeekStart] = useState(() => getWeekStart(new Date()))
+  const scheduleRequest = useRef(0)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const currentWeekStart = useMemo(() => getWeekStart(isIsoDate(routedWeek) ? new Date(`${routedWeek}T00:00:00`) : businessToday()), [routedWeek])
+  const setCurrentWeekStart = (date: Date) => { const next = new URLSearchParams(query); next.set('week_start', formatDateISO(date)); setQuery(next) }
   const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [teamFilter, setTeamFilter] = useState('')
+  const [compactView, setCompactView] = useState(() => window.innerWidth < 640)
+  const effectiveViewMode = compactView ? 'list' : viewMode
+  useEffect(() => {
+    const update = () => setCompactView(window.innerWidth < 640)
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+  const teamFilter = query.get('team') || ''
+  const setTeamFilter = (value: string) => { const next = new URLSearchParams(query); if (value) next.set('team', value); else next.delete('team'); setQuery(next, { replace: true }) }
   
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -74,34 +103,54 @@ export default function Schedule() {
     end_time: '17:00',
     notes: '',
   })
+  const [shiftLeave, setShiftLeave] = useState<ApprovedLeaveAvailability[]>([])
+  const [leaveLoading, setLeaveLoading] = useState(false)
+  const [leaveError, setLeaveError] = useState<string | null>(null)
+  const [leaveConfirmed, setLeaveConfirmed] = useState(false)
+  const [leaveReason, setLeaveReason] = useState('')
+  const [leaveRetry, setLeaveRetry] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeDialog = useCallback(() => { if (!saving) setShowModal(false) }, [saving])
+  useDialogFocus(showModal, dialogRef, closeDialog)
+
   const weekDates = getWeekDates(currentWeekStart)
   const normalizedTeamFilter = teamFilter.trim().toLowerCase()
+  const selectedUsers = selectedUser ? users.filter(user => String(user.id) === selectedUser) : users
   const visibleUsers = normalizedTeamFilter
-    ? users.filter((user) => {
+    ? selectedUsers.filter((user) => {
         const label = `${user.display_name || ''} ${user.full_name || ''} ${user.email}`.toLowerCase()
         return label.includes(normalizedTeamFilter)
       })
-    : users
+    : selectedUsers
   const visibleUserIds = new Set(visibleUsers.map((user) => user.id))
   const visibleSchedules = schedules.filter((schedule) => visibleUserIds.has(schedule.user_id))
 
   const loadSchedules = useCallback(async () => {
+    const request = ++scheduleRequest.current
     setLoading(true)
+    setLoadError(null)
     try {
       const response = await api.getSchedules({
         week: formatDateISO(currentWeekStart),
       })
+      if (request !== scheduleRequest.current) return
+      if (response.error || !response.data) {
+        setLoadError(response.error || 'Unable to load schedules')
+        return
+      }
       if (response.data) {
+        setApprovedLeave(response.data.approved_leave || [])
         setSchedules(response.data.schedules)
         setUsers(response.data.users)
       }
     } catch (err) {
       console.error('Failed to load schedules:', err)
+      if (request === scheduleRequest.current) setLoadError('Unable to load schedules. Please try again.')
     } finally {
-      setLoading(false)
+      if (request === scheduleRequest.current) setLoading(false)
     }
   }, [currentWeekStart])
 
@@ -128,6 +177,35 @@ export default function Schedule() {
     loadPresets()
   }, [loadPresets])
 
+  // Check the actual form date, including dates outside the displayed week.
+  // Discard late responses when an operator changes employee or date.
+  useEffect(() => {
+    if (!showModal || !formData.user_id || !isIsoDate(formData.work_date)) return
+    let active = true
+    setLeaveLoading(true)
+    setLeaveError(null)
+    setShiftLeave([])
+    api.getSchedules({ user_id: formData.user_id, start_date: formData.work_date, end_date: formData.work_date })
+      .then(response => {
+        if (!active) return
+        if (response.error || !response.data) {
+          setLeaveError('Approved leave could not be checked. Retry before saving this shift.')
+        } else {
+          setShiftLeave(response.data.approved_leave || [])
+        }
+      })
+      .catch(() => { if (active) setLeaveError('Approved leave could not be checked. Retry before saving this shift.') })
+      .finally(() => { if (active) setLeaveLoading(false) })
+    return () => { active = false }
+  }, [showModal, formData.user_id, formData.work_date, leaveRetry])
+
+  useEffect(() => {
+    setLeaveConfirmed(false)
+  }, [showModal, formData.user_id, formData.work_date, formData.start_time, formData.end_time])
+
+  const leaveOn = (userId: number, date: string) => approvedLeave.some(leave => leave.user_id === userId && leave.start_date <= date && leave.end_date >= date)
+  const visibleLeave = approvedLeave.filter(leave => visibleUserIds.has(leave.user_id))
+
   // Navigation
   const goToPrevWeek = () => {
     const newStart = new Date(currentWeekStart)
@@ -142,7 +220,7 @@ export default function Schedule() {
   }
 
   const goToCurrentWeek = () => {
-    setCurrentWeekStart(getWeekStart(new Date()))
+    setCurrentWeekStart(getWeekStart(businessToday()))
   }
 
   // Get schedules for a specific user and date
@@ -166,8 +244,9 @@ export default function Schedule() {
 
   // Open modal to add new schedule
   const openAddModal = (userId: number, date: string) => {
+    if (!canManage) return
     setEditingSchedule(null)
-    setSelectedCell({ userId, date })
+    setSelectedCell(userId ? { userId, date } : null)
     setFormData({
       user_id: userId,
       work_date: date,
@@ -175,12 +254,15 @@ export default function Schedule() {
       end_time: '17:00',
       notes: '',
     })
+    setLeaveReason('')
+    setLeaveConfirmed(false)
     setShowModal(true)
     setError(null)
   }
 
   // Open modal to edit existing schedule
   const openEditModal = (schedule: ScheduleType) => {
+    if (!canManage) return
     setEditingSchedule(schedule)
     setSelectedCell(null)
     setFormData({
@@ -190,6 +272,8 @@ export default function Schedule() {
       end_time: schedule.end_time,
       notes: schedule.notes || '',
     })
+    setLeaveReason('')
+    setLeaveConfirmed(false)
     setShowModal(true)
     setError(null)
   }
@@ -205,22 +289,27 @@ export default function Schedule() {
 
   // Save schedule
   const handleSave = async () => {
+    if (!canManage || leaveLoading || leaveError) return
+    if (shiftLeave.length > 0 && (!leaveConfirmed || !leaveReason.trim())) return
+    if (!formData.user_id || !formData.work_date) {
+      setError('Choose an employee and work date.')
+      return
+    }
     setSaving(true)
     setError(null)
 
     try {
-      if (editingSchedule) {
-        const response = await api.updateSchedule(editingSchedule.id, formData)
-        if (response.error) {
-          setError(response.error)
-          return
+      const payload = { ...formData, acknowledge_leave_conflict: leaveConfirmed, leave_conflict_reason: leaveReason.trim(), acknowledged_leave_ids: shiftLeave.map(leave => leave.id) }
+      const response = editingSchedule
+        ? await api.updateSchedule(editingSchedule.id, payload)
+        : await api.createSchedule(payload)
+      if (response.error) {
+        setError(response.error)
+        if (response.code === 'leave_conflict_acknowledgement_required') {
+          setShiftLeave(response.approved_leave || [])
+          setLeaveConfirmed(false)
         }
-      } else {
-        const response = await api.createSchedule(formData)
-        if (response.error) {
-          setError(response.error)
-          return
-        }
+        return
       }
       setShowModal(false)
       loadSchedules()
@@ -233,11 +322,15 @@ export default function Schedule() {
 
   // Delete schedule
   const handleDelete = async () => {
-    if (!editingSchedule) return
+    if (!editingSchedule || !canManage) return
     if (!confirm('Are you sure you want to delete this shift?')) return
 
     try {
-      await api.deleteSchedule(editingSchedule.id)
+      const response = await api.deleteSchedule(editingSchedule.id)
+      if (response.error) {
+        setError(response.error)
+        return
+      }
       setShowModal(false)
       loadSchedules()
     } catch {
@@ -247,9 +340,12 @@ export default function Schedule() {
 
   // Log shift as time entry - navigate to time tracking with pre-filled data
   const handleLogShift = (schedule: ScheduleType) => {
-    // Navigate to time tracking with start/end times from schedule
-    const notes = `Scheduled shift: ${schedule.formatted_time_range}`
-    navigate(`/admin/time?prefill=true&date=${schedule.work_date}&start_time=${schedule.start_time}&end_time=${schedule.end_time}&notes=${encodeURIComponent(notes)}`)
+    const params = new URLSearchParams({
+      prefill: 'true',
+      schedule_id: String(schedule.id),
+      user_id: String(schedule.user_id),
+    })
+    navigate(`/admin/time?${params}`)
   }
 
   // Get user display name (first name or email prefix)
@@ -281,6 +377,14 @@ export default function Schedule() {
 
   return (
     <div className="space-y-6">
+      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
+      {selectedUser && <div className="flex flex-wrap items-center gap-3 text-sm"><span>Showing one employee’s schedule</span><button type="button" className="min-h-11 underline" onClick={() => { const next = new URLSearchParams(query); next.delete('user_id'); setQuery(next) }}>Show all employees</button></div>}
+      {loadError && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+          <p>{loadError}</p>
+          <button type="button" onClick={loadSchedules} className="mt-2 min-h-11 underline">Retry loading schedules</button>
+        </div>
+      )}
       {/* Header */}
       <FadeUp>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -297,12 +401,13 @@ export default function Schedule() {
             className="w-full rounded-xl border border-neutral-warm px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 sm:w-64"
           />
 
+        {canManage && <button type="button" disabled={loading || !!loadError} onClick={() => openAddModal(0, formatDateISO(currentWeekStart))} className="min-h-11 rounded-xl bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50">Add shift</button>}
         {/* View Mode Toggle */}
         <div className="flex items-center gap-1 bg-neutral-warm rounded-lg p-1">
           <button
             onClick={() => setViewMode('list')}
             className={`px-4 py-2.5 sm:py-2 text-sm font-medium rounded-md transition-colors min-h-[44px] sm:min-h-0 ${
-              viewMode === 'list'
+              effectiveViewMode === 'list'
                 ? 'bg-white text-primary shadow-sm'
                 : 'text-text-muted hover:text-primary-dark'
             }`}
@@ -311,13 +416,13 @@ export default function Schedule() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
               </svg>
-              <span className="hidden sm:inline">List</span>
+              <span>List</span>
             </span>
           </button>
           <button
             onClick={() => setViewMode('grid')}
-            className={`px-4 py-2.5 sm:py-2 text-sm font-medium rounded-md transition-colors min-h-[44px] sm:min-h-0 ${
-              viewMode === 'grid'
+            className={`hidden px-4 py-2.5 sm:block sm:py-2 text-sm font-medium rounded-md transition-colors min-h-[44px] sm:min-h-0 ${
+              effectiveViewMode === 'grid'
                 ? 'bg-white text-primary shadow-sm'
                 : 'text-text-muted hover:text-primary-dark'
             }`}
@@ -326,7 +431,7 @@ export default function Schedule() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
               </svg>
-              <span className="hidden sm:inline">Grid</span>
+              <span>Grid</span>
             </span>
           </button>
         </div>
@@ -334,7 +439,7 @@ export default function Schedule() {
       </div>
       </FadeUp>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {!loadError && !loading && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
           <div className="text-sm text-text-muted">Scheduled Hours</div>
           <div className="mt-2 text-3xl font-bold text-primary-dark">{getTotalWeeklyHours().toFixed(1)}h</div>
@@ -355,7 +460,7 @@ export default function Schedule() {
           <div className="mt-2 text-3xl font-bold text-primary">{avgHoursPerScheduledStaff.toFixed(1)}h</div>
           <div className="mt-2 text-sm text-text-muted">Useful for spotting overloaded or underused staffing weeks</div>
         </div>
-      </div>
+      </div>}
 
       {/* Week Navigation */}
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-3 sm:p-4 hover:shadow-md transition-shadow duration-300">
@@ -381,7 +486,7 @@ export default function Schedule() {
               >
                 Go to current week
               </button>
-              {visibleSchedules.length > 0 && (
+              {!loading && !loadError && visibleSchedules.length > 0 && (
                 <span className="text-xs sm:text-sm text-text-muted">
                   {getTotalWeeklyHours().toFixed(1)}h scheduled
                 </span>
@@ -401,12 +506,20 @@ export default function Schedule() {
         </div>
       </div>
 
+      {!loading && !loadError && visibleLeave.length > 0 && <section aria-label="Approved leave this week" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
+        <h2 className="font-semibold">Approved leave this week</h2>
+        <p className="mt-1 text-sm">Check availability before assigning shifts. Conflicting shifts need a deliberate confirmation and scheduling reason.</p>
+        <ul className="mt-2 space-y-1 text-sm">
+          {visibleLeave.map(leave => <li key={leave.id}>{getUserDisplayName(getUserById(leave.user_id))}: {formatDayHeader(new Date(`${leave.start_date}T00:00:00`))} – {formatDayHeader(new Date(`${leave.end_date}T00:00:00`))}</li>)}
+        </ul>
+      </section>}
+
       {/* Content based on view mode */}
-      {loading ? (
+      {loadError ? null : loading ? (
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-12 text-center">
           <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
         </div>
-      ) : viewMode === 'list' ? (
+      ) : effectiveViewMode === 'list' ? (
         /* List View */
         <div className="space-y-4">
           {visibleSchedules.length === 0 ? (
@@ -417,17 +530,12 @@ export default function Schedule() {
                 </svg>
               </div>
               <p className="text-text-muted mb-4">No shifts scheduled this week</p>
-              <button
-                onClick={() => setViewMode('grid')}
-                className="text-primary hover:text-primary-dark font-medium"
-              >
-                Switch to Grid View to add shifts
-              </button>
+
             </div>
           ) : (
             Array.from(getSchedulesByDate().entries()).map(([dateStr, daySchedules]) => {
               const date = new Date(dateStr + 'T00:00:00')
-              const isToday = dateStr === formatDateISO(new Date())
+              const isToday = dateStr === formatDateISO(businessToday())
               
               return (
                 <div key={dateStr} className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
@@ -458,13 +566,14 @@ export default function Schedule() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="font-medium text-primary-dark truncate">
-                                  {getUserDisplayName(user)}
+                                  {canManage && user ? <Link className="underline decoration-primary/30 underline-offset-4 hover:decoration-primary" to={employeeWorkspaceHref(user.id, { tab: 'schedule', returnTo: currentPath, startDate: formatDateISO(currentWeekStart), endDate: formatDateISO(weekDates[6]) })}>{getUserDisplayName(user)}</Link> : getUserDisplayName(user)}
                                 </p>
                                 <p className="text-sm text-text-muted">
                                   {schedule.formatted_time_range}
                                   <span className="font-semibold text-primary-dark ml-2">({schedule.hours.toFixed(1)}h)</span>
                                   {schedule.notes && <span className="ml-2 text-primary hidden sm:inline">• {schedule.notes}</span>}
                                 </p>
+                                {leaveOn(schedule.user_id, schedule.work_date) && <p className="mt-1 text-sm font-medium text-amber-800">Approved leave overlaps this shift</p>}
                                 {schedule.notes && (
                                   <p className="text-sm text-primary sm:hidden mt-0.5">{schedule.notes}</p>
                                 )}
@@ -473,7 +582,7 @@ export default function Schedule() {
                             
                             {/* Actions - larger touch targets on mobile */}
                             <div className="flex items-center gap-2 sm:gap-3 ml-13 sm:ml-0">
-                              <button
+                              {(canManage || currentUser?.id === schedule.user_id) && <button
                                 onClick={() => handleLogShift(schedule)}
                                 className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 bg-primary/10 hover:bg-primary/20 text-primary text-sm font-medium rounded-lg transition-colors min-h-[44px] sm:min-h-0"
                                 title="Log this shift as a time entry"
@@ -482,8 +591,9 @@ export default function Schedule() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 <span>Log Time</span>
-                              </button>
-                              <button
+                              </button>}
+                              {canManage && <button
+                                aria-label="Edit shift"
                                 onClick={() => openEditModal(schedule)}
                                 className="inline-flex items-center justify-center p-2.5 sm:p-2 text-text-muted hover:text-primary-dark hover:bg-neutral-warm rounded-lg transition-colors min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
                                 title="Edit shift"
@@ -491,7 +601,7 @@ export default function Schedule() {
                                 <svg className="w-5 h-5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" aria-hidden="true" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                 </svg>
-                              </button>
+                              </button>}
                             </div>
                           </div>
                         </div>
@@ -519,7 +629,7 @@ export default function Schedule() {
                       Employee
                     </th>
                     {weekDates.map((date, idx) => {
-                      const isToday = formatDateISO(date) === formatDateISO(new Date())
+                      const isToday = formatDateISO(date) === formatDateISO(businessToday())
                       const isWeekend = idx === 0 || idx === 6
                       return (
                         <th
@@ -542,13 +652,13 @@ export default function Schedule() {
                     <tr key={user.id} className="hover:bg-secondary/20 transition-colors">
                       <td className="px-4 py-3">
                         <div className="font-medium text-primary-dark text-sm">
-                          {getUserDisplayName(user)}
+                          {canManage && user ? <Link className="underline decoration-primary/30 underline-offset-4 hover:decoration-primary" to={employeeWorkspaceHref(user.id, { tab: 'schedule', returnTo: currentPath, startDate: formatDateISO(currentWeekStart), endDate: formatDateISO(weekDates[6]) })}>{getUserDisplayName(user)}</Link> : getUserDisplayName(user)}
                         </div>
                       </td>
                       {weekDates.map((date, idx) => {
                         const dateStr = formatDateISO(date)
                         const cellSchedules = getSchedulesForCell(user.id, date)
-                        const isToday = dateStr === formatDateISO(new Date())
+                        const isToday = dateStr === formatDateISO(businessToday())
                         const isWeekend = idx === 0 || idx === 6
                         
                         return (
@@ -559,25 +669,26 @@ export default function Schedule() {
                             }`}
                           >
                             <div className="space-y-1">
+                              {leaveOn(user.id, dateStr) && <p className="text-xs font-medium text-amber-800">Approved leave</p>}
                               {/* Existing shifts */}
                               {cellSchedules.map(schedule => (
                                 <button
                                   key={schedule.id}
+                                  disabled={!canManage}
                                   onClick={() => openEditModal(schedule)}
                                   className="w-full px-2 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium rounded transition-colors"
                                 >
                                   {schedule.formatted_time_range.replace(' AM', 'a').replace(' PM', 'p').replace(' - ', '-')}
                                 </button>
                               ))}
-                              {/* Always show Add button */}
-                              <button
+                              {canManage && <button
                                 onClick={() => openAddModal(user.id, dateStr)}
                                 className={`w-full px-2 py-1.5 border-2 border-dashed border-neutral-warm hover:border-primary hover:bg-primary/5 text-text-muted hover:text-primary text-xs rounded transition-colors ${
                                   cellSchedules.length > 0 ? 'opacity-60 hover:opacity-100' : ''
                                 }`}
                               >
                                 + Add
-                              </button>
+                              </button>}
                             </div>
                           </td>
                         )
@@ -606,7 +717,7 @@ export default function Schedule() {
           transition={{ duration: 0.2 }}
           className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setShowModal(false)
+            if (e.target === e.currentTarget) closeDialog()
           }}
         >
           <motion.div
@@ -614,9 +725,10 @@ export default function Schedule() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ duration: 0.25, delay: 0.1 }}
-            className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+            ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="schedule-dialog-title" tabIndex={-1}
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90dvh] overflow-y-auto">
             <div className="p-6">
-              <h2 className="text-xl font-bold text-primary-dark mb-4">
+              <h2 id="schedule-dialog-title" className="text-xl font-bold text-primary-dark mb-4">
                 {editingSchedule ? 'Edit Shift' : 'Add Shift'}
               </h2>
 
@@ -629,15 +741,16 @@ export default function Schedule() {
               <div className="space-y-4">
                 {/* Employee (read-only when adding from cell) */}
                 <div>
-                  <label className="block text-sm font-medium text-primary-dark mb-1">
+                  <label htmlFor="shift-employee" className="block text-sm font-medium text-primary-dark mb-1">
                     Employee
                   </label>
-                  <select
+                  <select id="shift-employee"
                     value={formData.user_id}
                     onChange={(e) => setFormData({ ...formData, user_id: parseInt(e.target.value) })}
                     className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                     disabled={!!selectedCell}
                   >
+                    <option value={0}>Choose employee</option>
                     {users.map(user => (
                       <option key={user.id} value={user.id}>
                         {getUserDisplayName(user)}
@@ -648,16 +761,33 @@ export default function Schedule() {
 
                 {/* Date */}
                 <div>
-                  <label className="block text-sm font-medium text-primary-dark mb-1">
+                  <label htmlFor="shift-date" className="block text-sm font-medium text-primary-dark mb-1">
                     Date
                   </label>
                   <input
-                    type="date"
+                    id="shift-date" type="date"
                     value={formData.work_date}
                     onChange={(e) => setFormData({ ...formData, work_date: e.target.value })}
                     className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
+
+                {formData.user_id > 0 && <div>
+                  {leaveLoading && <p role="status" className="text-sm text-text-muted">Checking approved leave…</p>}
+                  {leaveError && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                    <p>{leaveError}</p>
+                    <button type="button" onClick={() => setLeaveRetry(value => value + 1)} className="mt-2 min-h-11 font-semibold underline">Retry leave check</button>
+                  </div>}
+                  {!leaveLoading && !leaveError && shiftLeave.length > 0 && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                    <p className="font-semibold">Approved leave overlaps this shift</p>
+                    <p className="mt-1">This employee has approved leave on the selected date. Confirm the scheduling decision before saving. Their leave stays approved.</p>
+                    <ul className="mt-2 space-y-1">{shiftLeave.map(leave => <li key={leave.id}>{formatDayHeader(new Date(`${leave.start_date}T00:00:00`))} – {formatDayHeader(new Date(`${leave.end_date}T00:00:00`))}</li>)}</ul>
+                    <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={leaveConfirmed} onChange={event => setLeaveConfirmed(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" /> <span>I have checked this conflict and want to save this shift.</span></label>
+                    <label htmlFor="shift-leave-reason" className="mt-3 block font-medium">Scheduling reason</label>
+                    <textarea id="shift-leave-reason" value={leaveReason} onChange={event => setLeaveReason(event.target.value)} maxLength={1000} rows={2} className="mt-1 w-full rounded-lg border border-amber-300 bg-white p-2 text-primary-dark focus:ring-2 focus:ring-primary" aria-describedby="shift-leave-reason-help" />
+                    <p id="shift-leave-reason-help" className="mt-1">Record the scheduling decision, without medical or personal leave details. This does not cancel leave or override protected leave rights.</p>
+                  </div>}
+                </div>}
 
                 {/* Quick Presets */}
                 <div>
@@ -685,22 +815,22 @@ export default function Schedule() {
                 {/* Custom Times */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-primary-dark mb-1">
+                    <label htmlFor="shift-start" className="block text-sm font-medium text-primary-dark mb-1">
                       Start Time
                     </label>
                     <input
-                      type="time"
+                      id="shift-start" type="time"
                       value={formData.start_time}
                       onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
                       className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-primary-dark mb-1">
+                    <label htmlFor="shift-end" className="block text-sm font-medium text-primary-dark mb-1">
                       End Time
                     </label>
                     <input
-                      type="time"
+                      id="shift-end" type="time"
                       value={formData.end_time}
                       onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                       className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -710,11 +840,11 @@ export default function Schedule() {
 
                 {/* Notes */}
                 <div>
-                  <label className="block text-sm font-medium text-primary-dark mb-1">
+                  <label htmlFor="shift-notes" className="block text-sm font-medium text-primary-dark mb-1">
                     Notes (optional)
                   </label>
                   <input
-                    type="text"
+                    id="shift-notes" type="text"
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     placeholder="e.g., Remote, Training, etc."
@@ -739,7 +869,8 @@ export default function Schedule() {
                 <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={() => setShowModal(false)}
+                    onClick={closeDialog}
+                    disabled={saving}
                     className="px-4 py-2 text-primary-dark font-medium hover:bg-neutral-warm rounded-lg transition-colors"
                   >
                     Cancel
@@ -747,7 +878,7 @@ export default function Schedule() {
                   <button
                     type="button"
                     onClick={handleSave}
-                    disabled={saving}
+                    disabled={saving || leaveLoading || !!leaveError || (shiftLeave.length > 0 && (!leaveConfirmed || !leaveReason.trim()))}
                     className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50 font-medium"
                   >
                     {saving ? 'Saving...' : 'Save'}

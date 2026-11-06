@@ -122,40 +122,42 @@ module Api
         review_result = nil
         error_response = nil
 
-        @leave_request.with_lock do
-          if @leave_request.user_id == current_user.id
-            error_response = {
-              error: "Admins cannot approve or decline their own leave requests",
-              status: :unprocessable_entity
-            }
-            next
-          end
+        @leave_request.user.with_lock do
+          @leave_request.with_lock do
+            if @leave_request.user_id == current_user.id
+              error_response = {
+                error: "Admins cannot approve or decline their own leave requests",
+                status: :unprocessable_entity
+              }
+              next
+            end
 
-          unless @leave_request.pending?
-            error_response = {
-              error: "Only pending leave requests can be reviewed",
-              status: :unprocessable_entity
-            }
-            next
-          end
+            unless @leave_request.pending?
+              error_response = {
+                error: "Only pending leave requests can be reviewed",
+                status: :unprocessable_entity
+              }
+              next
+            end
 
-          @leave_request.update!(
-            status: status,
-            reviewed_by: current_user,
-            reviewed_at: Time.current,
-            review_note: params[:review_note].presence,
-            cancelled_by: nil,
-            cancelled_at: nil
-          )
-          AuditLog.record!(
-            action: "leave_request.#{status}",
-            auditable: @leave_request,
-            actor: current_user,
-            event_category: "leave",
-            outcome: status == "declined" ? "denied" : "succeeded",
-            metadata: { review_note: params[:review_note].to_s.strip.presence }.compact
-          )
-          review_result = @leave_request
+            @leave_request.update!(
+              status: status,
+              reviewed_by: current_user,
+              reviewed_at: Time.current,
+              review_note: params[:review_note].presence,
+              cancelled_by: nil,
+              cancelled_at: nil
+            )
+            AuditLog.record!(
+              action: "leave_request.#{status}",
+              auditable: @leave_request,
+              actor: current_user,
+              event_category: "leave",
+              outcome: status == "declined" ? "denied" : "succeeded",
+              metadata: { review_note: params[:review_note].to_s.strip.presence }.compact
+            )
+            review_result = @leave_request
+          end
         end
 
         if error_response

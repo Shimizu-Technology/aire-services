@@ -60,6 +60,8 @@ module Api
         total_count = summary[:entry_count]
         @time_entries = @time_entries.offset((page - 1) * per_page).limit(per_page)
 
+        @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: @time_entries.to_a).call
+
         render json: {
           time_entries: @time_entries.map { |entry| serialize_time_entry(entry) },
           pagination: {
@@ -75,6 +77,7 @@ module Api
 
       # GET /api/v1/time_entries/:id
       def show
+        @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: [ @time_entry ]).call
         render json: { time_entry: serialize_time_entry(@time_entry) }
       end
 
@@ -127,6 +130,8 @@ module Api
           return render json: { error: "You can only edit your own time entries" }, status: :forbidden
         end
 
+        return perform_review_correction if params.dig(:time_entry, :review_action).present?
+
         return unless require_correction_reason_for_payroll_entry!
 
         old_values = {
@@ -136,13 +141,16 @@ module Api
           time_category_id: @time_entry.time_category_id,
           overtime_status: @time_entry.overtime_status,
           start_time: @time_entry.formatted_start_time,
+          clock_in_at: @time_entry.clock_in_at&.iso8601(6),
+          clock_out_at: @time_entry.clock_out_at&.iso8601(6),
           end_time: @time_entry.formatted_end_time,
           break_minutes: @time_entry.break_minutes.to_i,
           breaks: audit_break_rows(@time_entry.time_entry_breaks.order(:start_time, :id))
         }
 
         update_params = time_entry_params.except(:user_id, :breaks).to_h.symbolize_keys
-        if update_params.key?(:time_category_id) || @time_entry.time_category_id.nil?
+        update_params.delete(:time_category_id) if @time_entry.active? && update_params[:time_category_id].blank?
+        if update_params.key?(:time_category_id) || (!@time_entry.active? && @time_entry.time_category_id.nil?)
           selected_category = resolve_required_category(@time_entry.user, update_params[:time_category_id])
           return if performed?
           update_params[:time_category_id] = selected_category.id
@@ -169,59 +177,67 @@ module Api
         saved = false
         break_replace_error = nil
         @time_entry.transaction do
-          saved = @time_entry.update(update_params)
-          if saved && break_update
-            break_replace_error = replace_break_records(@time_entry, break_update[:breaks])
-            raise ActiveRecord::Rollback if break_replace_error
-          end
-          raise ActiveRecord::Rollback unless saved
+          ::Payroll::AffectedOvertimeReview.around(@time_entry, force: true) do
+            saved = @time_entry.update(update_params)
+            if saved && break_update
+              break_replace_error = if break_update[:retain_ids]
+                update_retained_break_records(@time_entry, break_update[:breaks])
+              else
+                replace_break_records(@time_entry, break_update[:breaks])
+              end
+              raise ActiveRecord::Rollback if break_replace_error
+            end
+            raise ActiveRecord::Rollback unless saved
 
-          if @time_entry.status == "completed" &&
-             (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
-            new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
-            overtime_attrs = { overtime_status: new_overtime }
+            if @time_entry.status == "completed" &&
+               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
+              new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
+              overtime_attrs = { overtime_status: new_overtime }
 
-            if !current_user.admin? || old_values[:overtime_status].in?([ "approved", "denied" ])
-              overtime_attrs[:overtime_approved_by] = nil
-              overtime_attrs[:overtime_approved_at] = nil
-              overtime_attrs[:overtime_note] = nil
+              if !current_user.admin? || old_values[:overtime_status].in?([ "approved", "denied" ])
+                overtime_attrs[:overtime_approved_by] = nil
+                overtime_attrs[:overtime_approved_at] = nil
+                overtime_attrs[:overtime_note] = nil
+              end
+
+              @time_entry.update!(overtime_attrs)
             end
 
-            @time_entry.update!(overtime_attrs)
-          end
-
-          new_values = {
-            hours: @time_entry.hours.to_f,
-            work_date: @time_entry.work_date.iso8601,
-            description: @time_entry.description,
-            time_category_id: @time_entry.time_category_id,
-            overtime_status: @time_entry.overtime_status,
-            start_time: @time_entry.formatted_start_time,
-            end_time: @time_entry.formatted_end_time,
-            break_minutes: @time_entry.break_minutes.to_i,
-            breaks: audit_break_rows(@time_entry.time_entry_breaks.reload.sort_by { |entry_break| [ entry_break.start_time, entry_break.id ] })
-          }
-
-          changes = old_values.each_with_object({}) do |(key, old_val), hash|
-            new_val = new_values[key]
-            hash[key] = { from: old_val, to: new_val } if old_val != new_val
-          end
-
-          AuditLog.record!(
-            action: "time_entry.updated",
-            auditable: @time_entry,
-            actor: current_user,
-            event_category: "time_tracking",
-            changes: changes.presence,
-            metadata: {
+            new_values = {
               hours: @time_entry.hours.to_f,
               work_date: @time_entry.work_date.iso8601,
-              correction_reason: correction_reason,
-              finalized_payroll_batch_ids: finalized_payroll_batches.map(&:public_id).presence
-            }.compact
-          )
+              description: @time_entry.description,
+              time_category_id: @time_entry.time_category_id,
+              overtime_status: @time_entry.overtime_status,
+              start_time: @time_entry.formatted_start_time,
+              clock_in_at: @time_entry.clock_in_at&.iso8601(6),
+              clock_out_at: @time_entry.clock_out_at&.iso8601(6),
+              end_time: @time_entry.formatted_end_time,
+              break_minutes: @time_entry.break_minutes.to_i,
+              breaks: audit_break_rows(@time_entry.time_entry_breaks.reload.sort_by { |entry_break| [ entry_break.start_time, entry_break.id ] })
+            }
 
-          invalidate_payroll_exports!
+            changes = old_values.each_with_object({}) do |(key, old_val), hash|
+              new_val = new_values[key]
+              hash[key] = { from: old_val, to: new_val } if old_val != new_val
+            end
+
+            AuditLog.record!(
+              action: "time_entry.updated",
+              auditable: @time_entry,
+              actor: current_user,
+              event_category: "time_tracking",
+              changes: changes.presence,
+              metadata: {
+                hours: @time_entry.hours.to_f,
+                work_date: @time_entry.work_date.iso8601,
+                correction_reason: correction_reason,
+                finalized_payroll_batch_ids: finalized_payroll_batches.map(&:public_id).presence
+              }.compact
+            )
+
+            invalidate_payroll_exports!
+          end
         end
 
         if break_replace_error
@@ -368,7 +384,8 @@ module Api
         per_page = (params[:per_page] || 250).to_i.clamp(1, 500)
         summary = pending_approvals_summary(filtered_entries)
         total_count = summary[:entry_count]
-        entries = sorted_entries.offset((page - 1) * per_page).limit(per_page)
+        entries = sorted_entries.offset((page - 1) * per_page).limit(per_page).to_a
+        @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call(entries)
 
         render json: {
           pending_entries: entries.map { |e| serialize_time_entry(e) },
@@ -394,6 +411,7 @@ module Api
         entry = with_export_invalidation(@time_entry, approval_change_reason("Time entry approved")) do
           TimeClockService.approve_entry(entry: @time_entry, approved_by: current_user, note: params[:note])
         end
+        @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call([ entry ])
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
@@ -418,6 +436,7 @@ module Api
         entry = with_export_invalidation(@time_entry, approval_change_reason("Overtime approved")) do
           TimeClockService.approve_overtime(entry: @time_entry, approved_by: current_user, note: params[:note])
         end
+        @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call([ entry ])
         render json: { time_entry: serialize_time_entry(entry) }
       rescue TimeClockService::AuthorizationError => e
         render json: { error: e.message }, status: :forbidden
@@ -455,32 +474,37 @@ module Api
         updated_entries = []
         error_message = nil
         ActiveRecord::Base.transaction do
-          entries_by_id = TimeEntry.where(id: entry_ids).lock.index_by(&:id)
+          # Bulk review uses the same employee-before-entry lock order as
+          # individual approval and clock writes, across every selected owner.
+          User.where(id: TimeEntry.where(id: entry_ids).select(:user_id)).order(:id).lock.load
+          entries_by_id = TimeEntry.where(id: entry_ids).order(:id).lock.index_by(&:id)
           missing_ids = entry_ids - entries_by_id.keys
           if missing_ids.any?
             error_message = "One or more selected entries could not be found"
             raise ActiveRecord::Rollback
           end
 
-          entry_ids.each do |entry_id|
-            entry = entries_by_id.fetch(entry_id)
-            unless entry.approval_status == "pending" || entry.overtime_status == "pending"
-              error_message = "One or more selected entries are no longer pending approval"
-              raise ActiveRecord::Rollback
-            end
+          ::Payroll::AffectedOvertimeReview.around_entries(entries_by_id.values, force: true) do
+            entry_ids.each do |entry_id|
+              entry = entries_by_id.fetch(entry_id)
+              unless entry.approval_status == "pending" || entry.overtime_status == "pending"
+                error_message = "One or more selected entries are no longer pending approval"
+                raise ActiveRecord::Rollback
+              end
 
-            approval_changes = []
-            if entry.approval_status == "pending"
-              entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note)
-              approval_changes << "Time entry approved"
-            end
-            if entry.overtime_status == "pending"
-              entry = TimeClockService.approve_overtime(entry: entry, approved_by: current_user, note: note)
-              approval_changes << "Overtime approved"
-            end
-            invalidate_exports_for_entry!(entry, approval_change_reason(approval_changes.join(" and "), note))
+              approval_changes = []
+              if entry.approval_status == "pending"
+                entry = TimeClockService.approve_entry(entry: entry, approved_by: current_user, note: note)
+                approval_changes << "Time entry approved"
+              end
+              if entry.overtime_status == "pending"
+                entry = TimeClockService.approve_overtime(entry: entry, approved_by: current_user, note: note)
+                approval_changes << "Overtime approved"
+              end
+              invalidate_exports_for_entry!(entry, approval_change_reason(approval_changes.join(" and "), note))
 
-            updated_entries << eager_reload(entry)
+              updated_entries << eager_reload(entry)
+            end
           end
         end
 
@@ -488,6 +512,7 @@ module Api
           return render json: { error: error_message }, status: :unprocessable_entity
         end
 
+        @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call(updated_entries)
         render json: {
           time_entries: updated_entries.map { |entry| serialize_time_entry(entry) },
           count: updated_entries.length
@@ -525,6 +550,20 @@ module Api
 
       def approval_change_reason(action, note = params[:note])
         note.present? ? "#{action}; note: #{note.to_s.strip}" : action
+      end
+
+      def perform_review_correction
+        return render json: { error: "Only admins can submit this correction" }, status: :forbidden unless current_user.admin?
+
+        attributes = params.require(:time_entry).permit(:review_action, :expected_version, :stop_date, :end_time, :time_category_id, :description).to_h
+        TimeEntryReviewCorrection.call(entry: @time_entry, actor: current_user,
+                                       action: attributes.delete("review_action"), attributes: attributes,
+                                       reason: correction_reason)
+        render json: { time_entry: serialize_time_entry(@time_entry) }
+      rescue TimeEntryReviewCorrection::StaleEntryError => e
+        render json: { error: e.message, code: "stale_entry" }, status: :conflict
+      rescue TimeEntryReviewCorrection::CorrectionError => e
+        render json: { error: e.message }, status: :unprocessable_entity
       end
 
       def require_correction_reason_for_payroll_entry!
@@ -626,8 +665,12 @@ module Api
         return unless entry.clock_entry?
 
         target_work_date = raw_params[:work_date].presence || params_hash[:work_date].presence || entry.work_date
+        # Date corrections relocate the whole shift; the audit and revision ledger
+        # retain the original actual punches. Explicit endpoint edits take precedence.
+        day_delta = (Date.parse(target_work_date.to_s) - entry.work_date).to_i
         start_value = raw_params[:start_time].presence || params_hash[:start_time]
-        corrected_start = clock_time_on_work_date(start_value, target_work_date) if start_value.present?
+        start_to_resolve = start_value.presence || (entry.start_time if day_delta.nonzero?)
+        corrected_start = clock_time_on_work_date(start_to_resolve, target_work_date) if start_to_resolve.present?
 
         if corrected_start
           if entry.active? && corrected_start > Time.current
@@ -635,12 +678,12 @@ module Api
           end
 
           first_break = entry.time_entry_breaks.order(:start_time).first
-          if first_break && corrected_start >= first_break.start_time
+          if first_break && corrected_start >= first_break.start_time.advance(days: day_delta)
             return render json: { error: "Clock-in time must be before the first break" }, status: :unprocessable_entity
           end
 
           params_hash[:start_time] = corrected_start
-          params_hash[:clock_in_at] = corrected_start
+          params_hash[:clock_in_at] = start_value.present? ? corrected_start : entry.clock_in_at&.advance(days: day_delta)
         end
 
         if entry.active?
@@ -648,27 +691,32 @@ module Api
           params_hash.delete(:hours)
         else
           end_value = raw_params[:end_time].presence || params_hash[:end_time]
-          return unless end_value.present?
+          end_to_resolve = end_value.presence || (entry.end_time if day_delta.nonzero?)
+          return unless end_to_resolve.present?
 
-          start_reference = corrected_start || entry.start_time
-          corrected_end = clock_time_on_work_date(end_value, target_work_date, after: start_reference)
+          start_reference = corrected_start || clock_time_on_work_date(entry.start_time, target_work_date)
+          corrected_end = clock_time_on_work_date(end_to_resolve, target_work_date, after: start_reference)
 
-          if corrected_end > Time.current
+          actual_end = end_value.present? ? corrected_end : entry.clock_out_at&.advance(days: day_delta)
+          if corrected_end > Time.current || (actual_end && actual_end > Time.current)
             return render json: { error: "Clock-out time cannot be in the future" }, status: :unprocessable_entity
           end
 
           params_hash[:end_time] = corrected_end
-          params_hash[:clock_out_at] = corrected_end
+          params_hash[:clock_out_at] = actual_end
         end
+      rescue ArgumentError
+        render json: { error: "Clock times are invalid" }, status: :unprocessable_entity
       end
 
       def clock_time_on_work_date(value, work_date, after: nil)
-        local_time = value.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
-        date = Date.parse(work_date.to_s)
-        tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
-        corrected = tz.local(date.year, date.month, date.day, local_time.hour, local_time.min, 0)
-        corrected += 1.day if after.present? && corrected <= after
-        corrected
+        return Time.iso8601(value) if iso_timestamp_with_zone?(value)
+
+        time_on_work_date(value, Date.parse(work_date.to_s), after: after)
+      end
+
+      def iso_timestamp_with_zone?(value)
+        value.is_a?(String) && value.match?(/\A\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})\z/)
       end
 
       def raw_time_entry_params
@@ -677,7 +725,28 @@ module Api
 
       def build_break_update(entry, update_params)
         raw_breaks = params.require(:time_entry)[:breaks]
-        return nil if raw_breaks.nil?
+        if raw_breaks.nil?
+          if entry.time_entry_breaks.exists?
+            submitted_minutes = update_params[:break_minutes].nil? ? nil : update_params[:break_minutes].to_i
+            if update_params.key?(:break_minutes) && submitted_minutes != entry.break_minutes
+              render json: { error: "Edit or remove the detailed breaks to change their total duration" }, status: :unprocessable_entity
+              return nil
+            end
+            day_delta = (Date.parse((update_params[:work_date].presence || entry.work_date).to_s) - entry.work_date).to_i
+            if day_delta.nonzero?
+              shifted = entry.time_entry_breaks.map do |row|
+                { id: row.id, start_time: row.start_time.advance(days: day_delta),
+                  end_time: row.end_time&.advance(days: day_delta), duration_minutes: row.duration_minutes }
+              end
+              validate_retained_breaks(entry, update_params, rows: shifted)
+              return nil if performed?
+
+              return { breaks: shifted, total_minutes: entry.break_minutes, retain_ids: true }
+            end
+            validate_retained_breaks(entry, update_params)
+          end
+          return nil
+        end
 
         raw_break_rows = Array(raw_breaks).filter { |raw_break| raw_break.respond_to?(:to_h) || raw_break.respond_to?(:to_unsafe_h) }
         return nil if raw_break_rows.empty? && !entry.time_entry_breaks.exists?
@@ -729,11 +798,32 @@ module Api
         nil
       end
 
+      def validate_retained_breaks(entry, update_params, rows: entry.time_entry_breaks)
+        return if (update_params.keys & %i[work_date start_time end_time]).empty?
+
+        work_date = Date.parse((update_params[:work_date].presence || entry.work_date).to_s)
+        starts_at = time_on_work_date(update_params[:start_time].presence || entry.start_time, work_date)
+        ends_at = entry.active? ? Time.current : time_on_work_date(update_params[:end_time].presence || entry.end_time, work_date, after: starts_at)
+        invalid_break = rows.any? do |row|
+          (!entry.active? && row[:end_time].nil?) || row[:start_time] < starts_at || row[:start_time] > ends_at ||
+            (row[:end_time] && row[:end_time] > ends_at)
+        end
+        if invalid_break
+          render json: { error: "Breaks must fall within the entry start and end time" }, status: :unprocessable_entity
+        end
+      rescue Date::Error, ArgumentError
+        render json: { error: "Break times are invalid" }, status: :unprocessable_entity
+      end
+
       def time_on_work_date(value, work_date, after: nil)
-        if value.respond_to?(:in_time_zone)
+        return Time.iso8601(value) if iso_timestamp_with_zone?(value)
+
+        seconds = 0
+        if !value.is_a?(String) && value.respond_to?(:in_time_zone)
           local = value.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)
           hour = local.hour
           minute = local.min
+          seconds = local.sec + local.subsec
         else
           match = value.to_s.match(/\A(\d{1,2}):(\d{2})\z/)
           raise ArgumentError, "Invalid time" unless match
@@ -744,9 +834,19 @@ module Api
         end
 
         tz = ActiveSupport::TimeZone[TimeClockService::BUSINESS_TIMEZONE]
-        resolved = tz.local(work_date.year, work_date.month, work_date.day, hour, minute, 0)
+        resolved = tz.local(work_date.year, work_date.month, work_date.day, hour, minute, seconds)
         resolved += 1.day if after.present? && resolved <= after
         resolved
+      end
+
+      def update_retained_break_records(entry, break_rows)
+        break_rows.each do |row|
+          entry_break = entry.time_entry_breaks.find(row.fetch(:id))
+          unless entry_break.update(row.slice(:start_time, :end_time))
+            return entry_break.errors.full_messages.to_sentence
+          end
+        end
+        nil
       end
 
       def replace_break_records(entry, break_rows)
@@ -761,8 +861,8 @@ module Api
       def audit_break_rows(breaks)
         breaks.map do |entry_break|
           {
-            start_time: entry_break.start_time&.iso8601,
-            end_time: entry_break.end_time&.iso8601,
+            start_time: entry_break.start_time&.iso8601(6),
+            end_time: entry_break.end_time&.iso8601(6),
             duration_minutes: entry_break.duration_minutes.to_i
           }
         end
@@ -828,12 +928,14 @@ module Api
         tz = TimeClockService::BUSINESS_TIMEZONE
         {
           id: entry.id,
+          version: entry.lock_version,
           work_date: entry.work_date.iso8601,
           start_time: entry.start_time&.in_time_zone(tz)&.strftime("%H:%M"),
           end_time: entry.end_time&.in_time_zone(tz)&.strftime("%H:%M"),
           formatted_start_time: entry.formatted_start_time,
           formatted_end_time: entry.formatted_end_time,
           hours: entry.hours.to_f,
+          needs_administrator_correction: entry.needs_administrator_correction?,
           break_minutes: entry.break_minutes,
           description: entry.description,
           entry_method: entry.entry_method,
@@ -841,11 +943,12 @@ module Api
           status: entry.status,
           admin_override: entry.admin_override,
           attendance_status: entry.attendance_status,
+          payroll_status: @employee_payroll_statuses&.fetch(entry.id, nil),
           approval_status: entry.approval_status,
           overtime_status: entry.overtime_status,
           approval_reasons: approval_reasons_for(entry),
-          clock_in_at: entry.clock_in_at&.iso8601,
-          clock_out_at: entry.clock_out_at&.iso8601,
+          clock_in_at: entry.clock_in_at&.iso8601(6),
+          clock_out_at: entry.clock_out_at&.iso8601(6),
           approved_by: entry.approved_by ? {
             id: entry.approved_by.id,
             full_name: entry.approved_by.full_name
@@ -866,8 +969,8 @@ module Api
           breaks: entry.time_entry_breaks.sort_by(&:start_time).map { |b|
             {
               id: b.id,
-              start_time: b.start_time.iso8601,
-              end_time: b.end_time&.iso8601,
+              start_time: b.start_time.iso8601(6),
+              end_time: b.end_time&.iso8601(6),
               duration_minutes: b.duration_minutes,
               active: b.active?
             }
@@ -892,7 +995,9 @@ module Api
           } : nil,
           created_at: entry.created_at.iso8601,
           updated_at: entry.updated_at.iso8601
-        }
+        }.tap do |data|
+          data[:payroll_cutoff_missed] = @missed_payroll_cutoff_ids.include?(entry.id) if @missed_payroll_cutoff_ids
+        end
       end
 
       def calculate_summary(entries)
@@ -904,11 +1009,13 @@ module Api
         row = aggregate_scope.pick(
           Arel.sql("COALESCE(SUM(time_entries.hours), 0)"),
           Arel.sql("COALESCE(SUM(time_entries.break_minutes), 0)"),
-          Arel.sql("COUNT(time_entries.id)")
+          Arel.sql("COUNT(time_entries.id)"),
+          Arel.sql("COALESCE(SUM(CASE WHEN time_entries.approval_status = 'denied' THEN time_entries.hours ELSE 0 END), 0)")
         )
-        total_hours, total_break_minutes, entry_count = row || [ 0, 0, 0 ]
+        total_hours, total_break_minutes, entry_count, denied_hours = row || [ 0, 0, 0, 0 ]
         {
           total_hours: total_hours.to_f,
+          denied_hours: denied_hours.to_f,
           total_break_hours: (total_break_minutes.to_i / 60.0).round(2),
           entry_count: entry_count.to_i
         }
@@ -1178,6 +1285,9 @@ module Api
 
       def approval_reasons_for(entry)
         reasons = []
+        if entry.needs_administrator_correction?
+          reasons << { key: "administrator_correction", label: "Needs administrator correction: clock spans 24 hours or more" }
+        end
         note = entry.approval_note.to_s.downcase
 
         if entry.approval_status == "pending"

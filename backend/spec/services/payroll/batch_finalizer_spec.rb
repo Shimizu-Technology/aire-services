@@ -37,6 +37,13 @@ RSpec.describe Payroll::BatchFinalizer do
     ).call
   end
 
+  it "refuses the manual calendar flag without an authorized published calendar" do
+    expect do
+      finalize(start_date: "2026-08-01", end_date: "2026-08-15", manual_calendar_lock: true)
+    end.to raise_error(described_class::PublishedCalendarError, /requires.*published calendar/i)
+    expect(PayrollBatch.count).to eq(0)
+  end
+
   it "finalizes only approved work while preserving pending, denied, and open records as exclusions" do
     travel_to(guam.local(2026, 5, 16, 9)) do
       included = create_entry(date: Date.new(2026, 5, 5))
@@ -115,6 +122,9 @@ RSpec.describe Payroll::BatchFinalizer do
 
     travel_to(guam.local(2026, 5, 25, 9)) do
       pending.update!(approval_status: "approved", approved_by: admin, approved_at: Time.current)
+      friday = employee.time_entries.find_by!(work_date: Date.new(2026, 5, 9))
+      expect(friday.reload.overtime_status).to eq("pending")
+      TimeClockService.approve_overtime(entry: friday, approved_by: admin)
       next_batch = finalize(
         start_date: "2026-05-11",
         end_date: "2026-05-24",
@@ -143,7 +153,7 @@ RSpec.describe Payroll::BatchFinalizer do
     end
   end
 
-  it "holds daily overtime until it is explicitly approved" do
+  it "does not hold legacy daily-only review flags when the week is below forty" do
     travel_to(guam.local(2026, 5, 16, 9)) do
       create_entry(date: Date.new(2026, 5, 5), hours: 8)
       overtime_entry = create_entry(
@@ -159,13 +169,40 @@ RSpec.describe Payroll::BatchFinalizer do
 
       batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
 
-      expect(batch.summary).to include("regular_hours" => 8.0, "overtime_hours" => 0.0)
-      exclusion = batch.payroll_batch_exclusions.find_by!(source_time_entry_id: overtime_entry.id)
-      expect(exclusion).to have_attributes(
-        reason: "pending_overtime",
-        held_regular_hours: 0,
-        held_overtime_hours: 6
-      )
+      expect(batch.summary).to include("regular_hours" => 14.0, "overtime_hours" => 0.0)
+      expect(batch.payroll_batch_exclusions.where(source_time_entry_id: overtime_entry.id)).not_to exist
+      expect(overtime_entry.reload.overtime_status).to eq("pending")
+    end
+  end
+
+  it "holds only genuine weekly overtime while including regular hours" do
+    travel_to(guam.local(2026, 5, 16, 9)) do
+      (Date.new(2026, 5, 3)..Date.new(2026, 5, 6)).each { |date| create_entry(date: date) }
+      target = create_entry(date: Date.new(2026, 5, 7), hours: 10,
+                            approval_status: "approved", overtime_status: "pending")
+      batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+      expect(batch.summary).to include("regular_hours" => 40.0, "overtime_hours" => 0.0)
+      expect(batch.payroll_batch_entries.find_by!(source_time_entry_id: target.id))
+        .to have_attributes(regular_hours: 8, overtime_hours: 0)
+      expect(batch.payroll_batch_exclusions.find_by!(source_time_entry_id: target.id))
+        .to have_attributes(reason: "pending_overtime", held_regular_hours: 0, held_overtime_hours: 2)
+    end
+  end
+
+  it "recomputes a later entry when backdated approved time changes its weekly split" do
+    travel_to(guam.local(2026, 5, 16, 9)) do
+      (Date.new(2026, 5, 4)..Date.new(2026, 5, 6)).each { |date| create_entry(date: date) }
+      target = create_entry(date: Date.new(2026, 5, 7), hours: 10, overtime_status: "none")
+      backdated = create_entry(date: Date.new(2026, 5, 3), hours: 10, approval_status: "pending")
+      expect(TimeClockService.check_overtime_status(employee, target)).to eq("none")
+      TimeClockService.approve_entry(entry: backdated, approved_by: admin)
+      expect(backdated.reload.overtime_status).to eq("none")
+      expect(TimeClockService.check_overtime_status(employee, target)).to eq("pending")
+      batch = finalize(start_date: "2026-05-01", end_date: "2026-05-15")
+      row = batch.payroll_batch_entries.find_by!(source_time_entry_id: target.id)
+      expect(row).to have_attributes(regular_hours: 6, overtime_hours: 0)
+      expect(target.reload.overtime_status).to eq("pending")
+      expect(batch.summary).to include("regular_hours" => 40.0, "overtime_hours" => 0.0)
     end
   end
 
@@ -179,9 +216,17 @@ RSpec.describe Payroll::BatchFinalizer do
     travel_to(guam.local(2026, 6, 1, 9)) do
       entry.update!(end_time: entry.end_time - 2.hours)
 
+      [ {}, { acknowledge_negative_adjustments: true },
+        { negative_adjustment_note: "A note alone does not acknowledge the correction" } ].each do |options|
+        expect do
+          finalize(start_date: "2026-05-16", end_date: "2026-05-31", **options)
+        end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /Negative payroll corrections/)
+      end
+
       expect do
-        finalize(start_date: "2026-05-16", end_date: "2026-05-31")
-      end.to raise_error(Payroll::BatchFinalizer::FinalizationError, /Negative payroll corrections/)
+        finalize(start_date: "2026-05-16", end_date: "2026-05-31", manual_calendar_lock: true)
+      end.to raise_error(described_class::PublishedCalendarError, /requires.*published calendar/i)
+      expect(PayrollBatch.count).to eq(1)
 
       batch = finalize(
         start_date: "2026-05-16",
@@ -287,6 +332,7 @@ RSpec.describe Payroll::BatchFinalizer do
     travel_to(guam.local(2026, 5, 11, 9)) do
       moved = create_entry(date: Date.new(2026, 5, 3))
       (Date.new(2026, 5, 4)..Date.new(2026, 5, 8)).each { |date| last_entry = create_entry(date: date) }
+      TimeClockService.approve_overtime(entry: last_entry, approved_by: admin)
       finalize(start_date: "2026-05-01", end_date: "2026-05-10")
     end
 
@@ -456,8 +502,8 @@ RSpec.describe Payroll::BatchFinalizer do
   it "maps a real PostgreSQL source-ledger lock timeout to the retryable payroll error" do
     database_config = ActiveRecord::Base.connection_db_config.configuration_hash
     locker = PG.connect(
-      host: database_config[:host],
-      port: database_config[:port],
+      host: database_config[:host].presence || ENV["PGHOST"],
+      port: database_config[:port].presence || ENV["PGPORT"],
       user: database_config[:username],
       password: database_config[:password],
       dbname: database_config.fetch(:database)

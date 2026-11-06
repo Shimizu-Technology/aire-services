@@ -10,7 +10,7 @@ class UserMailer < ApplicationMailer
 
     from_email = ENV.fetch("MAILER_FROM_EMAIL", "noreply@example.com")
 
-    Resend::Emails.send({
+    StagingMailTransport.deliver({
       from: from_email,
       to: @user.email,
       subject: "You've been invited to AIRE Services Guam",

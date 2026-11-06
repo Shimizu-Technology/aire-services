@@ -1,3 +1,4 @@
+import type { PayrollBatchListItem, PayrollCutoffResponse } from './api'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -6,6 +7,7 @@ import {
   greatestPayrollEndDate,
   isIsoDate,
   payrollPeriodFromSearchParams,
+  payrollPreparationPeriod,
   withPayrollPeriod,
 } from './payrollPeriods'
 
@@ -45,5 +47,27 @@ describe('payroll period utilities', () => {
       { end_date: '2026-08-31' },
     ])).toBe('2026-08-31')
     expect(greatestPayrollEndDate([])).toBeNull()
+  })
+})
+
+
+describe('preparation selection is separate from reminders', () => {
+  const current = { start: '2026-12-01', end: '2026-12-15' }
+  const old = { id: 1, start_date: '2026-10-16', end_date: '2026-10-31' }
+  const upcoming = { id: 2, start_date: '2026-11-01', end_date: '2026-11-15' }
+  const batch = (purpose: 'regular' | 'supplemental', status = 'committed', period = old) => ({ ...period, id: 'batch', purpose, finalized_at: '2026-12-01T00:00:00Z', processing: { status } }) as PayrollBatchListItem
+  const notice = (extra: object) => ({ cutoff: { period: old, stage: 'none' }, ...extra }) as PayrollCutoffResponse
+  it('uses the earliest preparation publication before the reminder window', () => {
+    expect(payrollPreparationPeriod(notice({ preparation_period: upcoming }), [batch('regular', 'payment_issued')], current)).toEqual({ start: upcoming.start_date, end: upcoming.end_date })
+  })
+  it('ignores stale batches, preparation and failure attention while paused', () => {
+    expect(payrollPreparationPeriod(notice({ connected_payroll: { enabled: false }, preparation_period: upcoming, attention: { period: old } }), [batch('regular')], current)).toEqual(current)
+  })
+  it('does not use the reminder period as preparation', () => {
+    expect(payrollPreparationPeriod(notice({}), [], current)).toEqual(current)
+  })
+  it('ignores a recently finalized supplemental batch and uses unfinished regular work', () => {
+    expect(payrollPreparationPeriod(undefined, [batch('supplemental'), { ...batch('regular', 'imported', upcoming), finalized_at: '2026-11-20T00:00:00Z' }], current)).toEqual({ start: upcoming.start_date, end: upcoming.end_date })
+    expect(payrollPreparationPeriod(undefined, [batch('supplemental')], current)).toEqual(current)
   })
 })

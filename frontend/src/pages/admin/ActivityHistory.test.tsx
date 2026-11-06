@@ -8,6 +8,7 @@ import ActivityHistory from './ActivityHistory'
 
 const apiMock = vi.hoisted(() => ({
   getAuditLogs: vi.fn(),
+  getAuditLog: vi.fn(),
   downloadAuditLogs: vi.fn(),
 }))
 
@@ -42,6 +43,7 @@ function RouteHarness() {
     <>
       <button type="button" onClick={() => navigate('/admin/activity?subject_type=TimeEntry&subject_id=44')}>Open entry history</button>
       <button type="button" onClick={() => navigate('/admin/activity?event_category=payroll&search=2026-08-16+through+2026-08-31')}>Open payroll history</button>
+      <button onClick={() => navigate('/admin/activity?subject_type=User&subject_id=7&event_id=206')}>Open next exact event</button>
       <ActivityHistory />
     </>
   )
@@ -49,6 +51,8 @@ function RouteHarness() {
 
 describe('ActivityHistory', () => {
   beforeEach(() => {
+    apiMock.getAuditLog.mockReset()
+    apiMock.getAuditLog.mockResolvedValue({ data: event })
     apiMock.getAuditLogs.mockReset()
     apiMock.downloadAuditLogs.mockReset()
     apiMock.getAuditLogs.mockResolvedValue({
@@ -165,4 +169,42 @@ describe('ActivityHistory', () => {
   it('uses the current Guam calendar date for the default export boundary', () => {
     expect(formatDateInTimeZoneISO(new Date('2026-08-30T14:30:00Z'), 'Pacific/Guam')).toBe('2026-08-31')
   })
+
+ it('loads the exact linked event beyond the list page and preserves the employee return', async () => {
+   const linked = { ...event, id: 205, summary: 'Older employee profile event', subject: { type: 'User', id: 7, name: 'Alice' } }
+   apiMock.getAuditLog.mockResolvedValue({ data: linked })
+   renderPage('/admin/activity?subject_type=User&subject_id=7&event_id=205&return_to=%2Fadmin%2Fusers%2F7%3Ftab%3Dactivity')
+   expect(await screen.findByText(linked.summary)).toBeInTheDocument()
+   expect(apiMock.getAuditLog).toHaveBeenCalledWith(205)
+   expect(screen.getByRole('link', { name: 'Back to employee' })).toHaveAttribute('href', '/admin/users/7?tab=activity')
+   await waitFor(() => expect(apiMock.getAuditLogs).toHaveBeenCalled())
+   expect(screen.getByText('Event details')).toBeInTheDocument()
+ })
+
+ it('refuses a linked event with the wrong employee subject', async () => {
+   apiMock.getAuditLog.mockResolvedValue({ data: { ...event, id: 205, subject: { type: 'User', id: 8, name: 'Other person' } } })
+   renderPage('/admin/activity?subject_type=User&subject_id=7&event_id=205')
+   expect(await screen.findByText('The linked event does not match this record.')).toBeInTheDocument()
+   expect(screen.queryByText('Event details')).not.toBeInTheDocument()
+ })
+
+ it('discards an earlier exact event response after another event is opened', async () => {
+   let resolveFirst: (value: { data: typeof event }) => void = () => undefined
+   apiMock.getAuditLog.mockImplementation((id: number) => id === 205 ? new Promise((resolve) => { resolveFirst = resolve }) : Promise.resolve({ data: { ...event, id: 206, summary: 'Next event evidence', subject: { type: 'User', id: 7, name: 'Alice' } } }))
+   render(<MemoryRouter initialEntries={['/admin/activity?subject_type=User&subject_id=7&event_id=205']}><RouteHarness /></MemoryRouter>)
+   await waitFor(() => expect(apiMock.getAuditLog).toHaveBeenCalledWith(205))
+   fireEvent.click(screen.getByRole('button', { name: 'Open next exact event' }))
+   expect(await screen.findByText('Next event evidence')).toBeInTheDocument()
+   resolveFirst({ data: { ...event, id: 205, summary: 'Stale event evidence', subject: { type: 'User', id: 7, name: 'Alice' } } })
+   await waitFor(() => expect(screen.queryByText('Stale event evidence')).not.toBeInTheDocument())
+ })
+
+ it.each(['Show all', 'Clear 1 filter'])('preserves the employee return when using %s', async (button) => {
+   renderPage('/admin/activity?subject_type=User&subject_id=7&return_to=%2Fadmin%2Fusers%2F7%3Ftab%3Dactivity')
+   await screen.findByText(event.summary)
+   fireEvent.click(screen.getByRole('button', { name: button }))
+   expect(screen.getByRole('link', { name: 'Back to employee' })).toHaveAttribute('href', '/admin/users/7?tab=activity')
+   await waitFor(() => expect(screen.queryByText(/Showing history for/)).not.toBeInTheDocument())
+ })
+
 })

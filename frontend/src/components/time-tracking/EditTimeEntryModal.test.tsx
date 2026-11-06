@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditTimeEntryModal from './EditTimeEntryModal'
 
@@ -13,14 +12,8 @@ vi.mock('../../lib/api', () => ({
   api: apiMock,
 }))
 
-vi.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, ...props }: { children: ReactNode }) => <div {...props}>{children}</div>,
-  },
-  AnimatePresence: ({ children }: { children: ReactNode }) => <>{children}</>,
-}))
-
-describe('EditTimeEntryModal break editing', () => {
+describe('EditTimeEntryModal', () => {
+  afterEach(() => vi.restoreAllMocks())
   beforeEach(() => {
     apiMock.updateTimeEntry.mockReset()
     apiMock.deleteTimeEntry.mockReset()
@@ -63,10 +56,10 @@ describe('EditTimeEntryModal break editing', () => {
     expect(timeInputs.map((input) => (input as HTMLInputElement).value)).toEqual(
       expect.arrayContaining(['12:00', '12:30']),
     )
-    expect(screen.getByText(/return this entry to the approval queue/i)).toBeInTheDocument()
+    expect(screen.getByText(/Every change, including notes, returns this entry to the approval queue/i)).toBeInTheDocument()
   })
 
-  it('does not submit an empty detailed breaks array for entries with only aggregate break minutes', async () => {
+  it('does not submit untouched detailed or aggregate breaks when editing notes', async () => {
     const onSaved = vi.fn()
 
     render(
@@ -93,11 +86,12 @@ describe('EditTimeEntryModal break editing', () => {
       />,
     )
 
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'New note' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
 
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalled())
     expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('breaks')
-    expect(apiMock.updateTimeEntry.mock.calls[0][1]).toMatchObject({ break_minutes: 30 })
+    expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('break_minutes')
   })
 
   it('collects and resubmits a correction reason for an entry already exported to payroll', async () => {
@@ -134,6 +128,7 @@ describe('EditTimeEntryModal break editing', () => {
       />,
     )
 
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Exported note changed' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
 
     const reason = await screen.findByLabelText(/correction reason/i)
@@ -180,7 +175,7 @@ describe('EditTimeEntryModal break editing', () => {
     expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
   })
 
-  it('automatically selects the only assigned category while repairing a legacy entry', async () => {
+  it('preserves an unselected category until the operator explicitly chooses it', async () => {
     render(
       <EditTimeEntryModal
         isOpen
@@ -205,7 +200,8 @@ describe('EditTimeEntryModal break editing', () => {
       />,
     )
 
-    expect(screen.getByRole('combobox')).toHaveValue('1')
+    expect(screen.getByRole('combobox')).toHaveValue('')
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '1' } })
     fireEvent.click(screen.getByRole('button', { name: /update/i }))
 
     await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(
@@ -213,5 +209,170 @@ describe('EditTimeEntryModal break editing', () => {
       expect.objectContaining({ time_category_id: 1 }),
       undefined,
     ))
+  })
+
+  const activeEntry = {
+    id: 6, version: 3, work_date: '2026-11-01', start_time: '08:00', end_time: null,
+    break_minutes: null, description: null, entry_method: 'clock' as const, status: 'clocked_in' as const,
+    user: { id: 1, email: 'alice@example.com' }, time_category: null,
+  }
+  const renderReviewEditor = (entry = activeEntry, isAdmin = true) => render(
+    <EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'CFI' }]} canDelete isAdmin={isAdmin}
+      onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />,
+  )
+
+  it('keeps a missing category unselected during a notes-only active edit', async () => {
+    renderReviewEditor()
+    expect(screen.getByRole('combobox')).toHaveValue('')
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Awaiting confirmation' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalled())
+    expect(apiMock.updateTimeEntry.mock.calls[0][1]).toMatchObject({ description: 'Awaiting confirmation' })
+    expect(apiMock.updateTimeEntry.mock.calls[0][1].time_category_id).toBeUndefined()
+    expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('review_action')
+    expect(apiMock.updateTimeEntry.mock.calls[0][1]).not.toHaveProperty('end_time')
+  })
+
+  it('requires an explicit stop time, category and reason for historical closure', async () => {
+    renderReviewEditor()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'End this clock' }))
+    const endInput = screen.getByLabelText('Clock-out time (Guam) *')
+    expect(endInput).toHaveValue('')
+    fireEvent.change(endInput, { target: { value: '12:00' } })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Correction reason *'), { target: { value: 'Actual stop confirmed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'End clock and submit' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(6, {
+      review_action: 'end_clock', expected_version: 3, stop_date: '2026-11-01', end_time: '12:00',
+      time_category_id: 1, description: '',
+    }, 'Actual stop confirmed'))
+  })
+
+  it('does not expose the admin clock transition to employees', () => {
+    renderReviewEditor(activeEntry, false)
+    expect(screen.queryByRole('checkbox', { name: 'End this clock' })).not.toBeInTheDocument()
+  })
+
+  it('requires a reload before submitting a correction with no entry version', async () => {
+    render(<EditTimeEntryModal isOpen isAdmin entry={{ ...activeEntry, version: undefined, status: 'completed', entry_method: 'manual',
+      end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
+      categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Submit denied time for review' }))
+    fireEvent.change(screen.getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
+    expect(await screen.findByText('Reload this entry before submitting the correction')).toBeVisible()
+    expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
+  })
+
+  it('submits denied time for review without changing the saved facts', async () => {
+    render(<EditTimeEntryModal isOpen isAdmin entry={{ ...activeEntry, status: 'completed', entry_method: 'manual',
+      end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
+      categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('End Time *'), { target: { value: '18:00' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Submit denied time for review' }))
+    expect(screen.getByLabelText('End Time *')).toHaveValue('12:00')
+    expect(screen.getByLabelText('End Time *')).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Correction reason *'), { target: { value: 'Request separate review' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(6,
+      { review_action: 'resubmit_denied', expected_version: 3 }, 'Request separate review'))
+  })
+
+
+  it('renders a visible named dialog immediately outside a hidden transformed ancestor', () => {
+    const host = document.createElement('div')
+    host.style.opacity = '0'
+    host.style.transform = 'translateY(20px)'
+    document.body.append(host)
+    render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete isAdmin
+      onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />, { container: host })
+    const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
+    expect(dialog).toBeVisible()
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(host).not.toContainElement(dialog)
+    expect(dialog.parentElement?.parentElement).toBe(document.body)
+    expect(dialog.style.opacity).not.toBe('0')
+    expect(dialog.parentElement?.style.opacity).not.toBe('0')
+  })
+
+  it('traps keyboard focus, closes with Escape and restores focus and scroll', () => {
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 100, 30)] as unknown as DOMRectList)
+    const trigger = document.createElement('button')
+    document.body.append(trigger)
+    trigger.focus()
+    const previousOverflow = document.body.style.overflow
+    const onClose = vi.fn()
+    const view = render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete isAdmin
+      onClose={onClose} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+    const first = screen.getByRole('link', { name: 'View complete activity history' })
+    const last = screen.getByRole('button', { name: 'Update' })
+    expect(first).toHaveFocus()
+    expect(document.body.style.overflow).toBe('hidden')
+    last.focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(first).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(last).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+    view.unmount()
+    expect(trigger).toHaveFocus()
+    expect(document.body.style.overflow).toBe(previousOverflow)
+    trigger.remove()
+  })
+
+})
+
+
+describe('precise clock editor payloads', () => {
+  const precise = {
+    id: 99, version: 1, work_date: '2026-10-20', start_time: '08:00', end_time: '16:00',
+    hours: 7.48, break_minutes: 30, description: 'Original', approval_status: 'approved' as const,
+    entry_method: 'clock' as const, status: 'completed' as const,
+    clock_in_at: '2026-10-19T22:00:59.123456Z', clock_out_at: '2026-10-20T07:00:45.987654Z',
+    user: { id: 2, email: 'precision@example.test' }, time_category: { id: 1, name: 'Ground' },
+    breaks: [{ id: 55, start_time: '2026-10-20T02:00:23.123456Z', end_time: '2026-10-20T02:30:29.654321Z', duration_minutes: 30 }],
+  }
+  beforeEach(() => { apiMock.updateTimeEntry.mockReset(); apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: {} } }) })
+  function show(entry = precise) {
+    render(<EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'Ground' }]} canDelete={false} isAdmin
+      onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+  }
+  it.each(['Added note', ''])('sends only the changed note, including explicit blank %j', async (description) => {
+    show()
+    expect(screen.getByText('7.48h')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: description } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description }, undefined))
+  })
+  it('omits precise punches and live breaks for active saves', async () => {
+    show({ ...precise, status: 'on_break', end_time: null, clock_out_at: null } as unknown as typeof precise)
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Live note' } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { description: 'Live note' }, undefined))
+  })
+  it('requires detailed breaks to be edited rather than overriding their aggregate', () => {
+    show()
+    expect(screen.getByRole('button', { name: 'None' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '1h' })).toBeDisabled()
+  })
+  it('closes an unchanged save without sending an empty patch', async () => {
+    show()
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
+  })
+  it('sends an intentional endpoint change without the nominal end or breaks', async () => {
+    show()
+    fireEvent.change(screen.getByLabelText(/Start Time/), { target: { value: '08:05' } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { start_time: '08:05' }, undefined))
+  })
+  it('keeps unedited break endpoint precision when editing another break endpoint', async () => {
+    show()
+    fireEvent.change(screen.getByLabelText('End', { exact: true }), { target: { value: '12:40' } })
+    fireEvent.click(screen.getByRole('button', { name: /update/i }))
+    await waitFor(() => expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(99, { breaks: [{
+      id: 55, start_time: precise.breaks[0].start_time, end_time: '12:40',
+    }] }, undefined))
   })
 })

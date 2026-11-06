@@ -12,6 +12,10 @@ class PayrollBatchEntry < ApplicationRecord
   validates :line_key, uniqueness: { scope: [ :payroll_batch_id, :source_time_entry_id ] }
   validates :source_kind, inclusion: { in: SOURCE_KINDS }
 
+  # Retain every frozen row for audit. Only retired, never-applied claims cease
+  # to represent wages in the live ledger.
+  scope :effective, -> { where.not(payroll_batch_id: PayrollLateHoursRetirement.where(status: "canceled").where.not(payroll_batch_id: nil).select(:payroll_batch_id)) }
+
   def readonly?
     persisted?
   end

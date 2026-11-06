@@ -12,6 +12,7 @@ module Payroll
 
     def call
       rows, exclusions, summary, issues = snapshot_records
+      attested_ids = PayrollPaymentAttestation.pending_evidence.where(time_entry_id: entry_ids).pluck(:time_entry_id).to_set
       rows_by_entry = rows.group_by { |row| source_entry_id(row) }
       exclusions_by_entry = exclusions.group_by { |row| source_entry_id(row) }
       missing_category_ids = rows.filter_map do |row|
@@ -28,8 +29,8 @@ module Payroll
         [
           entry.id,
           {
-            payable_now: included,
-            payroll_disposition: disposition(included, reasons, missing_category_ids.include?(entry.id)),
+            payable_now: included && !attested_ids.include?(entry.id),
+            payroll_disposition: attested_ids.include?(entry.id) ? "payment_attested_pending_evidence" : disposition(included, reasons, missing_category_ids.include?(entry.id)),
             payroll_exclusion_reasons: reasons,
             included_hours: included_hours
           }
@@ -37,9 +38,9 @@ module Payroll
       end
 
       Result.new(
-        readiness: readiness(summary, issues, rows_by_entry, exclusions),
+        readiness: readiness(summary, issues, rows_by_entry, exclusions, attested_ids),
         entry_states: entry_states,
-        exception_entry_ids: (exclusions_by_entry.keys + missing_category_ids).uniq
+        exception_entry_ids: (exclusions_by_entry.keys + missing_category_ids + attested_ids.to_a).uniq
       )
     end
 
@@ -50,14 +51,16 @@ module Payroll
     def snapshot_records
       return persisted_snapshot if period.payroll_batch
 
-      preview = Rails.cache.fetch(preview_cache_key, expires_in: PREVIEW_CACHE_TTL) do
+      build_preview = lambda do
         BatchBuilder.new(
           start_date: period.start_date,
           end_date: period.end_date,
-          cutoff_at: period.cutoff_at,
-          batch_reference: "COCKPIT-PREVIEW"
+          cutoff_at: period.manual_lock? ? Time.current : period.cutoff_at,
+          batch_reference: "COCKPIT-PREVIEW",
+          calendar_period: period
         ).call.slice(:rows, :exclusions, :summary, :issues)
       end
+      preview = period.manual_lock? ? build_preview.call : Rails.cache.fetch(preview_cache_key, expires_in: PREVIEW_CACHE_TTL) { build_preview.call }
       scoped_snapshot(preview.fetch(:rows), preview.fetch(:exclusions), preview.fetch(:summary), preview.fetch(:issues))
     end
 
@@ -109,6 +112,9 @@ module Payroll
         aggregate_version(TimeEntryBreak.where(time_entry_id: relevant_entry_ids)),
         aggregate_version(TimeCategory.where(id: relevant_category_ids)),
         aggregate_version(User.where(id: relevant_user_ids)),
+        aggregate_version(PayrollPaymentAttestation.where(time_entry_id: relevant_entry_ids)),
+        aggregate_version(PayrollManualAllocation.where(time_entry_id: relevant_entry_ids)),
+        aggregate_version(PayrollSettlementCase.where(target_payroll_calendar_period: period)),
         latest_batch&.cache_key_with_version,
         relevant_deletion_version
       ]
@@ -118,6 +124,7 @@ module Payroll
       @relevant_entry_ids ||= begin
         staff = TimeEntry.joins(:user).merge(User.staff)
         ids = staff.where(work_date: period.start_date..period.end_date).pluck(:id)
+        ids.concat(PayrollSettlementCase.active.where(target_payroll_calendar_period: period).pluck(:source_time_entry_id))
         if latest_batch
           ids.concat(
             latest_batch.payroll_batch_exclusions
@@ -127,7 +134,7 @@ module Payroll
           ids.concat(staff.where("time_entries.work_date < ? AND time_entries.updated_at > ?", period.start_date, latest_batch.cutoff_at).pluck(:id))
           ids.concat(
             staff
-              .where(id: PayrollBatchEntry.select(:source_time_entry_id))
+              .where(id: PayrollBatchEntry.effective.select(:source_time_entry_id))
               .where("time_entries.updated_at > ?", latest_batch.cutoff_at)
               .pluck(:id)
           )
@@ -145,7 +152,7 @@ module Payroll
     end
 
     def latest_batch
-      @latest_batch ||= PayrollBatch.order(cutoff_at: :desc, id: :desc).first
+      @latest_batch ||= PayrollBatch.regular.order(cutoff_at: :desc, id: :desc).first
     end
 
     def relevant_deletion_version
@@ -166,17 +173,21 @@ module Payroll
       @entry_ids ||= entries.map(&:id)
     end
 
-    def readiness(summary, issues, rows_by_entry, exclusions)
+    def readiness(summary, issues, rows_by_entry, exclusions, attested_ids)
       entry_ids = entries.map(&:id).to_set
-      eligible_entry_ids = rows_by_entry.keys.select { |id| entry_ids.include?(id) }
-      held_entry_ids = exclusions.map { |row| source_entry_id(row) }.uniq
+      eligible_entry_ids = rows_by_entry.keys.select { |id| entry_ids.include?(id) && !attested_ids.include?(id) }
+      held_exclusions = exclusions.reject { |row| attested_ids.include?(source_entry_id(row)) }
+      held_entry_ids = held_exclusions.map { |row| source_entry_id(row) }.uniq
+      attested_entries = entries.select { |entry| attested_ids.include?(entry.id) }
       {
         total_entries: entries.length,
         total_hours: round_hours(entries.sum { |entry| entry.hours.to_d }),
         eligible_entries: eligible_entry_ids.length,
         eligible_hours: round_hours(value(summary, :total_hours).to_d),
         held_entries: held_entry_ids.length,
-        held_hours: round_hours(exclusions.sum { |row| value(row, :held_total_hours).to_d }),
+        held_hours: round_hours(held_exclusions.sum { |row| value(row, :held_total_hours).to_d }),
+        payment_attested_pending_evidence_entries: attested_entries.length,
+        payment_attested_pending_evidence_hours: round_hours(attested_entries.sum { |entry| entry.hours.to_d }),
         pending_approvals: entries.count { |entry| entry.approval_status == "pending" },
         denied_entries: entries.count { |entry| entry.approval_status == "denied" },
         missing_punches: entries.count { |entry| entry.status.in?(%w[clocked_in on_break]) || entry.end_time.blank? },

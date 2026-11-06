@@ -1,3 +1,4 @@
+import { isStaging } from '../../lib/staging'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
@@ -59,7 +60,7 @@ const normalizeApprovalGroupKey = (value: string) => (
     .replace(/_+/g, '_')
 )
 
-const GOOGLE_MAPS_BROWSER_KEY = import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY
+const GOOGLE_MAPS_BROWSER_KEY = isStaging ? '' : import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY
 const IS_TEST = import.meta.env.MODE === 'test'
 
 const createPlaceSessionToken = () => {
@@ -832,7 +833,7 @@ export default function Settings() {
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Time clock rules</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Review-alert thresholds and how early staff may clock in before a scheduled shift. Payroll reports still apply the statutory 40-hour weekly rule.
+                  Informational review alerts and how early staff may clock in before a scheduled shift. Payroll overtime starts only after 40 hours in a Sunday–Saturday week in Guam. These alerts do not change pay or require overtime approval.
                 </p>
               </div>
               <form onSubmit={handleSaveThresholds} className="space-y-5 px-5 py-5">
@@ -841,7 +842,7 @@ export default function Settings() {
                 )}
                 <div className="grid gap-5 sm:grid-cols-3">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Daily overtime review alert after (hours)</label>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Daily hours review alert after (hours)</label>
                     <input
                       type="number"
                       step="0.25"
@@ -853,7 +854,7 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Weekly overtime review alert after (hours)</label>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Weekly hours review alert after (hours)</label>
                     <input
                       type="number"
                       step="0.25"
@@ -1021,10 +1022,17 @@ export default function Settings() {
                         <div>
                           <p className="text-sm font-semibold text-slate-900">Map preview</p>
                           <p className="mt-1 text-sm text-slate-500">
-                            Confirm the pin is on the AIRE office and then save the rule.
+                            {isStaging ? 'Map previews are disabled in staging. Saved coordinates remain available below.' : 'Confirm the pin is on the AIRE office and then save the rule.'}
                           </p>
                         </div>
-                        {hasPreviewCoordinates && mapIframeSrc ? (
+                        {isStaging ? (
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                            {hasPreviewCoordinates ? <>
+                              <p><span className="font-semibold text-slate-800">Latitude:</span> {thresholdDraft.clock_in_location_latitude}</p>
+                              <p className="mt-1"><span className="font-semibold text-slate-800">Longitude:</span> {thresholdDraft.clock_in_location_longitude}</p>
+                            </> : <p>No saved coordinates.</p>}
+                          </div>
+                        ) : hasPreviewCoordinates && mapIframeSrc ? (
                           <>
                             <div className="overflow-hidden rounded-2xl border border-slate-200">
                               {GOOGLE_MAPS_BROWSER_KEY ? (

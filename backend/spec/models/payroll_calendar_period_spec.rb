@@ -45,7 +45,6 @@ RSpec.describe PayrollCalendarPeriod, type: :model do
     expect(described_class.due_at(now)).not_to include(blocked)
   end
 
-
   it "enforces the exact T-7 calendar date in Pacific/Guam" do
     guam = ActiveSupport::TimeZone["Pacific/Guam"]
     attributes = {
@@ -69,5 +68,25 @@ RSpec.describe PayrollCalendarPeriod, type: :model do
       expect(period).not_to be_valid
       expect(period.errors[:cutoff_at]).to include("must fall seven calendar days before the pay date in Pacific/Guam")
     end
+  end
+
+  it "validates a version 2 cutoff against the previous regular payday" do
+    guam = ActiveSupport::TimeZone["Pacific/Guam"]
+    attributes = {
+      schema_version: "2.0",
+      cutoff_rule: "after_previous_regular_payday",
+      cutoff_days: 7,
+      previous_regular_pay_date: Date.new(2026, 10, 10),
+      start_date: Date.new(2026, 10, 1),
+      end_date: Date.new(2026, 10, 15),
+      pay_date: Date.new(2026, 10, 25)
+    }
+
+    exact = build(:payroll_calendar_period, **attributes, cutoff_at: guam.local(2026, 10, 17, 17))
+    wrong = build(:payroll_calendar_period, **attributes, cutoff_at: guam.local(2026, 10, 18, 17))
+
+    expect(exact).to be_valid
+    expect(wrong).not_to be_valid
+    expect(wrong.errors[:cutoff_at]).to include("does not match the published cutoff policy")
   end
 end

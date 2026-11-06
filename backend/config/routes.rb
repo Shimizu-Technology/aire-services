@@ -10,11 +10,18 @@ Rails.application.routes.draw do
       post "auth/me", to: "auth#me"
       post "auth/kiosk_pin", to: "auth#update_kiosk_pin"
 
+      resources :staging_images, only: [ :show ], path: "staging-images"
+
       # Public marketing/contact
       post "contact", to: "contact#create"
       resource :contact_settings, only: [ :show ]
       resources :team_members, only: [ :index ]
       resources :site_media, only: [ :index ], path: "site-media"
+
+      get "payroll_cutoff", to: "payroll_cutoffs#show"
+      post "payroll_cutoff/acknowledge", to: "payroll_cutoffs#acknowledge"
+      post "aire/kiosk/cutoff", to: "payroll_cutoffs#kiosk"
+      post "aire/kiosk/cutoff/acknowledge", to: "payroll_cutoffs#kiosk_acknowledge"
 
       # Public kiosk endpoints
       namespace :aire do
@@ -36,14 +43,30 @@ Rails.application.routes.draw do
         resources :batches, only: [ :index, :show ] do
           member do
             post :processing_events
+            post :obligation_events
           end
         end
 
         namespace :cockpit do
-          resources :employees, only: [ :index ]
+          resources :employees, only: [ :index, :show ] do
+            resources :periods, only: [ :index, :show ], controller: :employee_periods
+          end
+          resources :history_entries, only: [ :index ]
+          resources :manual_allocations, only: [ :index, :create ] do
+            member do
+              post :issue
+              post :cancel_payment
+              post :void
+            end
+          end
+          resources :payment_attestations, only: [ :index, :create ] do
+            post :retract, on: :member
+            post :resolve, on: :member
+          end
+
           resources :exceptions, only: [ :index ]
           resource :manual_review, only: [ :show ]
-          resources :time_entries, only: [ :index ] do
+          resources :time_entries, only: [ :index, :show ] do
             member do
               post :approval
               post :overtime_approval
@@ -57,6 +80,9 @@ Rails.application.routes.draw do
             end
           end
           resources :periods, only: [ :show ], param: :id do
+            post "late_hours/:source_command_id/recover", to: "late_hours#recover"
+            post "late_hours/:source_command_id/cancel", to: "late_hours#cancel"
+            resource :late_hours, only: [ :show, :create ], controller: :late_hours
             member do
               post :finalize
             end
@@ -103,7 +129,7 @@ Rails.application.routes.draw do
       end
 
       namespace :admin do
-        resources :audit_logs, only: [ :index ] do
+        resources :audit_logs, only: [ :index, :show ] do
           collection do
             get :export
           end
@@ -123,6 +149,7 @@ Rails.application.routes.draw do
         get "settings/place_details", to: "settings#place_details"
         resource :settings, only: [ :show, :update ]
         resources :users, only: [ :index, :show, :create, :update, :destroy ] do
+          resources :periods, only: [ :index, :show ], controller: :employee_periods
           member do
             post :resend_invite
             post :reset_kiosk_pin

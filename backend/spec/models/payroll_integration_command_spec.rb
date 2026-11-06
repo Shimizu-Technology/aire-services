@@ -47,6 +47,20 @@ RSpec.describe PayrollIntegrationCommand, type: :model do
     end
   end
 
+  it "allows a bounded paired resolution receipt while retaining its privacy guard" do
+    attributes = command_attributes
+    attributes[:actor_payroll_integration_uuid] = attributes.fetch(:actor).payroll_integration_uuid
+    attributes[:action] = "payroll_payment_attestation.resolve"
+    bounded = described_class.new(attributes.merge(result_metadata: { receipt: "x" * 3.kilobytes }))
+    oversized = described_class.new(attributes.merge(result_metadata: { receipt: "x" * 6.kilobytes }))
+    personal = described_class.new(attributes.merge(result_metadata: { payment_attestation: { reason: "private report" } }))
+
+    expect(bounded).to be_valid
+    expect(oversized).not_to be_valid
+    expect(personal).not_to be_valid
+    expect(personal.errors[:result_metadata]).to include("contains payroll or personal data")
+  end
+
   it "retains a pseudonymous actor reference without blocking user deletion" do
     create(:user, :admin)
     actor = create(:user, :admin)

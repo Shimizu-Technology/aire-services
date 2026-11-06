@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../../../support/payroll_clock_helpers"
 
 RSpec.describe "Payroll cockpit API", type: :request do
   include ActiveSupport::Testing::TimeHelpers
+  include PayrollClockHelpers
 
   let(:secret) { "cornerstone-cockpit-secret" }
   let(:admin) { create(:user, :admin, is_active: true, personal_access_enabled: true) }
@@ -22,6 +24,10 @@ RSpec.describe "Payroll cockpit API", type: :request do
       "X-Aire-Delegation-Token" => delegation.issued_token,
       "Content-Type" => "application/json"
     }
+  end
+  let(:settlement_headers) do
+    grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management])
+    headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
   end
 
   around do |example|
@@ -57,6 +63,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
       "/api/v1/payroll/cockpit/exceptions?external_pay_period_id=missing",
       "/api/v1/payroll/cockpit/time_entries?external_pay_period_id=missing",
       "/api/v1/payroll/cockpit/manual_review?start_date=2026-10-01&end_date=2026-10-15",
+      "/api/v1/payroll/cockpit/manual_allocations?external_pay_period_id=67",
       "/api/v1/payroll/cockpit/periods/missing"
     ]
 
@@ -66,6 +73,122 @@ RSpec.describe "Payroll cockpit API", type: :request do
       end.to change { AuditLog.where(action: "payroll_cockpit.authorization_denied").count }.by(1)
       expect(response).to have_http_status(:unauthorized)
     end
+  end
+
+  it "requires settlement management delegation to read payment allocations" do
+    get "/api/v1/payroll/cockpit/manual_allocations", params: { external_pay_period_id: "67" }, headers: headers
+    expect(response).to have_http_status(:forbidden)
+
+    settlement_grant = PayrollIntegrationGrant.issue!(user: admin, capabilities: %w[settlement_case_management])
+    allowed_headers = headers.merge("X-Aire-Delegation-Token" => settlement_grant.issued_token)
+    get "/api/v1/payroll/cockpit/manual_allocations", params: { external_pay_period_id: "67" }, headers: allowed_headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:manual_allocations)).to eq([])
+  end
+
+  it "requires settlement management delegation to read manual payroll reviews" do
+    path = "/api/v1/payroll/cockpit/manual_review"
+    params = { start_date: "2026-10-01", end_date: "2026-10-15" }
+
+    get path, params: params, headers: headers
+    expect(response).to have_http_status(:forbidden)
+
+    get path, params: params, headers: settlement_headers
+    expect(response).to have_http_status(:ok)
+  end
+
+  it "returns an explicit reconciliation conflict instead of claiming a due cutoff twice" do
+    dates = payroll_calendar_at(database_clock)
+    entry = create_entry(work_date: dates.fetch(:start_date) + 2.days, approval_status: "approved", approved_at: database_clock)
+    due = create(:payroll_calendar_period, **payroll_calendar_at(capture_payroll_cutoff))
+    post "/api/v1/payroll/cockpit/manual_allocations", params: {
+      source_time_entry_id: entry.id, source_user_uuid: employee.payroll_integration_uuid,
+      command_id: SecureRandom.uuid, expected_version: entry.lock_version,
+      regular_hours: 8, overtime_hours: 0, external_pay_period_id: "manual-after-due",
+      external_payroll_item_id: "manual-after-due-item", pay_date: database_clock.to_date.iso8601,
+      reason: "Synthetic manual commitment competing with delayed cutoff"
+    }.to_json, headers: settlement_headers
+    expect(response).to have_http_status(:conflict)
+    expect(json).to include(review_required: true)
+    expect(json.fetch(:error)).to include(due.external_pay_period_id, "reconcile")
+    expect(PayrollManualAllocation.count).to eq(0)
+    expect(PayrollIntegrationCommand.count).to eq(0)
+  end
+
+  it "replays the original allocation acknowledgement after its payment state changes" do
+    entry = create_entry(approval_status: "approved", approved_at: Time.current, hours: 8)
+    path = "/api/v1/payroll/cockpit/manual_allocations"
+    payload = {
+      source_time_entry_id: entry.id, source_user_uuid: employee.payroll_integration_uuid,
+      command_id: SecureRandom.uuid, expected_version: entry.lock_version,
+      regular_hours: 8, overtime_hours: 0, external_pay_period_id: "67",
+      external_payroll_item_id: "91", pay_date: Date.current.iso8601,
+      reason: "Verified these hours against the historical check"
+    }
+    actor_headers = settlement_headers
+    post path, params: payload.to_json, headers: actor_headers
+    expect(response).to have_http_status(:created)
+    original = json.fetch(:manual_allocation)
+    allocation = PayrollManualAllocation.find(original.fetch(:id))
+
+    post "#{path}/#{allocation.id}/issue", params: {
+      command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
+      occurred_at: Time.current.iso8601, payment_effective_on: Date.current.iso8601,
+      payment_method: "check", payment_reference: "SYNTHETIC-91",
+      reason: "Verified physical check delivery evidence"
+    }.to_json, headers: actor_headers
+    expect(response).to have_http_status(:ok)
+    expect(allocation.reload.status).to eq("issued")
+
+    expect { post path, params: payload.to_json, headers: actor_headers }
+      .not_to change(PayrollManualAllocationEvent, :count)
+    expect(response).to have_http_status(:created)
+    expect(json.fetch(:manual_allocation)).to eq(original.slice(:id, :version, :status))
+    expect(json.dig(:command, :replayed)).to be(true)
+
+    post path, params: payload.merge(regular_hours: 7).to_json, headers: actor_headers
+    expect(response).to have_http_status(:conflict)
+    expect(PayrollManualAllocation.count).to eq(1)
+  end
+
+  it "replays the original attestation acknowledgement after retraction" do
+    entry = create_entry(approval_status: "approved", approved_at: Time.current, hours: 8)
+    path = "/api/v1/payroll/cockpit/payment_attestations"
+    payload = {
+      source_time_entry_id: entry.id, source_user_uuid: employee.payroll_integration_uuid,
+      command_id: SecureRandom.uuid, expected_version: entry.lock_version,
+      reason: "Owner reported payment; physical check evidence is being located"
+    }
+    actor_headers = settlement_headers
+    post path, params: payload.to_json, headers: actor_headers
+    expect(response).to have_http_status(:created)
+    original = json.fetch(:payment_attestation)
+    attestation = PayrollPaymentAttestation.find(original.fetch(:id))
+
+    post "#{path}/#{attestation.id}/retract", params: {
+      command_id: SecureRandom.uuid, expected_version: attestation.lock_version,
+      reason: "Owner corrected the statement after reviewing check evidence"
+    }.to_json, headers: actor_headers
+    expect(response).to have_http_status(:ok)
+    expect(attestation.reload.status).to eq("retracted")
+
+    expect { post path, params: payload.to_json, headers: actor_headers }
+      .not_to change(PayrollPaymentAttestationEvent, :count)
+    expect(response).to have_http_status(:created)
+    expect(json.fetch(:payment_attestation)).to eq(original.slice(:id, :version, :status))
+    expect(json.dig(:command, :replayed)).to be(true)
+    receipt = PayrollIntegrationCommand.find_by!(command_id: payload.fetch(:command_id))
+    expect(receipt.result_metadata.keys).to contain_exactly("payment_attestation_id", "result_version", "status")
+  end
+
+  it "returns an explicit review requirement for a calendar without frozen policy" do
+    period.update_columns(overtime_policy: {})
+    get "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}", headers: headers
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json).to include(review_required: true)
+    expect(json.fetch(:error)).to include("frozen overtime policy")
   end
 
   it "returns only payroll-appropriate employee identity fields with bounded pagination" do
@@ -84,6 +207,71 @@ RSpec.describe "Payroll cockpit API", type: :request do
     )
     expect(json.fetch(:employees).first).not_to have_key(:phone)
     expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
+  end
+
+  it "rejects an employee page beyond the database offset range as a client error" do
+    get "/api/v1/payroll/cockpit/employees", params: { page: 2**63, per_page: 100 }, headers: headers
+
+    expect(response).to have_http_status(:bad_request)
+    expect(json.fetch(:error)).to include("pagination range")
+    expect(json).not_to have_key(:employees)
+  end
+
+  it "returns one payroll employee identity for mapping verification" do
+    employee.assigned_time_categories << category
+
+    get "/api/v1/payroll/cockpit/employees/#{employee.id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:employee)).to include(
+      id: employee.id.to_s,
+      payroll_integration_id: employee.payroll_integration_uuid,
+      full_name: "Ari Worker",
+      email: employee.email,
+      active: true,
+      time_categories: [ include(key: "operations") ]
+    )
+  end
+
+  it "returns not found for an unknown mapping identity" do
+    get "/api/v1/payroll/cockpit/employees/999999", headers: headers
+
+    expect(response).to have_http_status(:not_found)
+  end
+
+  it "reports long days below forty as regular in live source detail" do
+    entry = create(:time_entry, user: employee, time_category: category,
+                               work_date: Date.current, status: "completed", entry_method: "manual",
+                               approval_status: "approved", approved_at: Time.current,
+                               end_time: ActiveSupport::TimeZone["Pacific/Guam"].local(2000, 1, 1, 23))
+    Setting.set("overtime_daily_threshold_hours", "6")
+    Setting.set("overtime_weekly_threshold_hours", "10")
+    get "/api/v1/payroll/cockpit/time_entries/#{entry.id}", headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_entry)).to include(hours: 14.0, regular_hours: 14.0, overtime_hours: 0.0)
+    expect(json.dig(:time_entry, :overtime_policy)).to eq(Payroll::WeeklyOvertimeAllocator.configured_policy)
+  end
+
+  it "reads one current source identity without requiring a published calendar" do
+    entry = create(:time_entry, user: employee, time_category: category,
+                  work_date: Date.current, status: "completed", entry_method: "manual",
+                  approval_status: "approved", approved_at: Time.current)
+    expect(PayrollCalendarPeriod.count).to eq(0)
+    get "/api/v1/payroll/cockpit/time_entries/#{entry.id}", headers: headers
+
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:time_entry)).to include(
+      id: entry.id.to_s, version: entry.lock_version, work_date: entry.work_date.iso8601,
+      hours: 8.0, regular_hours: 8.0, overtime_hours: 0.0, source_state: "current",
+      employee: { id: employee.id.to_s, payroll_integration_id: employee.payroll_integration_uuid, name: employee.full_name },
+      category: { id: category.id.to_s, key: category.key, name: category.name }
+    )
+    expect(AuditLog.where(action: "payroll_cockpit.read", source: "integration")).to exist
+  end
+
+  it "returns not found for a missing source entry through the bounded read" do
+    get "/api/v1/payroll/cockpit/time_entries/999999", headers: headers
+    expect(response).to have_http_status(:not_found)
   end
 
   it "ignores a blank employee active filter" do
@@ -154,12 +342,44 @@ RSpec.describe "Payroll cockpit API", type: :request do
   end
 
   it "summarizes readiness and exposes the immutable batch and processing history" do
-    create_entry(entry_method: "clock", approval_status: nil, hours: 8)
+    entry = create_entry(entry_method: "clock", approval_status: nil, hours: 8)
+
+    travel_to(period.cutoff_at + 1.minute) do
+      result = Payroll::ScheduledCutoffFinalizer.new(period_id: period.id, now: Time.current).call
+      expect(result.fetch(:status)).to eq("finalized")
+    end
+    batch = period.reload.payroll_batch
+    batch_entry = batch.payroll_batch_entries.find_by!(source_time_entry_id: entry.id)
+    batch.payroll_batch_processing_events.create!(
+      event_id: "cornerstone-imported-cockpit",
+      status: "imported",
+      occurred_at: period.cutoff_at + 2.minutes,
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: period.external_pay_period_id
+    )
+    entry_event = batch.payroll_entry_processing_events.create!(
+      event_id: "cornerstone-check-issued-cockpit",
+      source_time_entry_id: entry.id,
+      source_user_uuid: employee.payroll_integration_uuid,
+      contract_version: "2.0",
+      source_line_key: batch_entry.line_key,
+      source_kind: batch_entry.source_kind,
+      total_hours: batch_entry.total_hours,
+      regular_hours: batch_entry.regular_hours,
+      overtime_hours: batch_entry.overtime_hours,
+      status: "payment_issued",
+      external_system: "cornerstone_payroll",
+      external_pay_period_id: period.external_pay_period_id,
+      external_payroll_item_id: "payroll-item-88",
+      payment_method: "paper_check",
+      payment_reference: "5001",
+      occurred_at: period.cutoff_at + 3.minutes
+    )
 
     get "/api/v1/payroll/cockpit/periods/#{period.external_pay_period_id}", headers: headers
 
     expect(response).to have_http_status(:ok)
-    expect(json.dig(:payroll_period, :version)).to eq(0)
+    expect(json.dig(:payroll_period, :version)).to eq(1)
     expect(json.fetch(:readiness)).to include(
       total_entries: 1,
       eligible_entries: 1,
@@ -167,6 +387,22 @@ RSpec.describe "Payroll cockpit API", type: :request do
       held_entries: 0,
       held_hours: 0.0,
       pending_approvals: 0
+    )
+    expect(json.fetch(:processing_history)).to include(
+      include(status: "imported", external_system: "cornerstone_payroll")
+    )
+    expect(json.fetch(:entry_processing_history)).to include(
+      include(
+        event_id: entry_event.event_id,
+        status: "payment_issued",
+        occurred_at: entry_event.occurred_at.iso8601,
+        source_time_entry_id: entry.id.to_s,
+        source_line_key: batch_entry.line_key,
+        total_hours: batch_entry.total_hours.to_s,
+        external_payroll_item_id: "payroll-item-88",
+        payment_method: "paper_check",
+        payment_reference: "5001"
+      )
     )
   end
 
@@ -200,7 +436,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
     travel_to(manual_end.end_of_day) do
       get "/api/v1/payroll/cockpit/manual_review",
           params: { start_date: manual_start.iso8601, end_date: manual_end.iso8601 },
-          headers: headers
+          headers: settlement_headers
     end
 
     expect(response).to have_http_status(:ok)
@@ -214,7 +450,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
   it "validates manual-review dates" do
     get "/api/v1/payroll/cockpit/manual_review",
         params: { start_date: "not-a-date", end_date: period.end_date.iso8601 },
-        headers: headers
+        headers: settlement_headers
 
     expect(response).to have_http_status(:unprocessable_entity)
     expect(json.fetch(:error)).to include("start_date must be a valid ISO 8601 date")
@@ -736,6 +972,68 @@ RSpec.describe "Payroll cockpit API", type: :request do
     expect(response).to have_http_status(:unprocessable_entity)
   end
 
+  it "locks a manual calendar before nominal cutoff with reason, actor and precise immutable instant" do
+    cutoff = database_clock + 2.days
+    manual = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15",
+      pay_date: cutoff.in_time_zone("Pacific/Guam").to_date + 7.days, cutoff_at: cutoff,
+      lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+    payload = { command_id: SecureRandom.uuid, expected_version: manual.lock_version, reason: "Reviewed manual lock" }
+    path = "/api/v1/payroll/cockpit/periods/#{manual.external_pay_period_id}/finalize"
+    post path, params: payload.merge(reason: "").to_json, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(manual.reload.status).to eq("scheduled")
+    post path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(json.dig(:payroll_period, :lock_mode)).to eq("manual")
+    expect(json.dig(:payroll_period, :locked_at)).to eq(manual.reload.payroll_batch.cutoff_at.iso8601(6))
+    expect(json.dig(:payroll_period, :cutoff_at)).to eq(cutoff.in_time_zone("Pacific/Guam").iso8601)
+    expect(manual.payroll_batch.cutoff_at).to be < cutoff
+    expect(manual.payroll_batch.finalized_by).to eq(admin)
+    audit = AuditLog.find_by!(action: "payroll_calendar_period.finalized", auditable: manual)
+    expect(audit.user).to eq(admin)
+    expect(audit.metadata["reason"]).to eq(payload[:reason])
+    batch_id = manual.payroll_batch_id
+    post path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(json.dig(:command, :replayed)).to be(true)
+    expect(manual.reload.payroll_batch_id).to eq(batch_id)
+    expect(manual.payroll_outbox_events.count).to eq(1)
+  end
+
+  it "rolls back a failed manual Lock inside the command transaction and retries without partial frozen evidence" do
+    cutoff = database_clock + 2.days
+    manual = create(:payroll_calendar_period, start_date: "2026-10-01", end_date: "2026-10-15",
+      pay_date: cutoff.in_time_zone("Pacific/Guam").to_date + 7.days, cutoff_at: cutoff,
+      lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+    date = manual.start_date + 2.days
+    [ "approved", "pending" ].each do |approval|
+      create(:time_entry, user: employee, time_category: category, work_date: date,
+        start_time: date.in_time_zone("Pacific/Guam") + 8.hours, end_time: date.in_time_zone("Pacific/Guam") + 10.hours,
+        entry_method: "manual", approval_status: approval, approved_at: approval == "approved" ? Time.current : nil,
+        overtime_status: "none")
+    end
+    path = "/api/v1/payroll/cockpit/periods/#{manual.external_pay_period_id}/finalize"
+    allow_any_instance_of(Payroll::ManualCalendarFinalizer).to receive(:record_success_audit!).and_raise("Synthetic audit failure after outbox creation")
+
+    post path, params: { command_id: SecureRandom.uuid, expected_version: manual.lock_version, reason: "Reviewed manual lock" }.to_json, headers: headers
+
+    expect(response).to have_http_status(:accepted)
+    expect(json.dig(:result, :status)).to eq("failed")
+    expect(manual.reload.status).to eq("failed")
+    expect(manual.cutoff_state).to eq("attention_required")
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchExclusion.count, PayrollOutboxEvent.count ]).to eq([ 0, 0, 0, 0 ])
+    expect(AuditLog.where(action: "payroll_calendar_period.finalized", auditable: manual)).not_to exist
+    expect(AuditLog.find_by!(action: "payroll_calendar_period.finalization_failed", auditable: manual).outcome).to eq("failed")
+    expect(AuditLog.find_by!(action: "payroll_cockpit.finalization_requested", auditable: manual).outcome).to eq("failed")
+
+    allow_any_instance_of(Payroll::ManualCalendarFinalizer).to receive(:record_success_audit!).and_call_original
+    post path, params: { command_id: SecureRandom.uuid, expected_version: manual.lock_version, reason: "Retry reviewed manual lock" }.to_json, headers: headers
+    expect(response).to have_http_status(:accepted)
+    expect(json.dig(:result, :status)).to eq("finalized")
+    expect(manual.reload.status).to eq("finalized")
+    expect([ PayrollBatch.count, PayrollBatchEntry.count, PayrollBatchExclusion.count, PayrollOutboxEvent.count ]).to eq([ 1, 1, 1, 1 ])
+  end
+
   it "allows an administrator to trigger a due finalization idempotently" do
     cutoff = period.cutoff_at
     create_entry(entry_method: "clock", approval_status: nil)
@@ -892,10 +1190,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
     target = create(
       :payroll_calendar_period,
       external_pay_period_id: "nonretryable-target",
-      start_date: Date.new(2026, 11, 1),
-      end_date: Date.new(2026, 11, 15),
-      pay_date: Date.new(2026, 11, 25),
-      cutoff_at: ActiveSupport::TimeZone["Pacific/Guam"].local(2026, 11, 18, 17),
+      **payroll_calendar_for(future_payroll_month),
       status: "failed",
       next_finalization_attempt_at: nil,
       last_finalization_error: "Requires operator review"
@@ -1102,7 +1397,7 @@ RSpec.describe "Payroll cockpit API", type: :request do
          headers: headers.merge("X-Aire-Delegation-Token" => grant.issued_token)
 
     expect(response).to have_http_status(:ok)
-    expect(entry.reload).to have_attributes(hours: 10.0, approval_status: "pending", overtime_status: "pending")
+    expect(entry.reload).to have_attributes(hours: 10.0, approval_status: "pending", overtime_status: "none")
   end
 
   it "rolls back the entry and break replacement when correction auditing fails" do
@@ -1209,5 +1504,178 @@ RSpec.describe "Payroll cockpit API", type: :request do
       end
     end.to raise_error(ActiveRecord::StatementInvalid, /append-only/)
     expect(PayrollIntegrationCommand.exists?(receipt.id)).to be(true)
+  end
+  it "replays exact cancellation after replacement while rejecting stale versions, identities and insufficient delegation" do
+    entry = create_entry(approval_status: "approved", approved_at: Time.current, hours: 8)
+    recorder = Payroll::ManualAllocationRecorder.new(actor: admin)
+    allocation = recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+      regular_hours: 8, overtime_hours: 0, external_pay_period_id: "67", external_payroll_item_id: "91",
+      pay_date: Date.current.iso8601, reason: "Verified original payroll source allocation")
+    recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "OLD-91",
+      payment_effective_on: Date.current.iso8601, occurred_at: (Time.current - 2.seconds).iso8601, reason: "Verified original check delivery")
+    path = "/api/v1/payroll/cockpit/manual_allocations/#{allocation.id}/cancel_payment"
+    payload = { command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
+      payment_method: "paper_check", payment_reference: "OLD-91", payment_effective_on: Date.current.iso8601,
+      occurred_at: (Time.current - 1.second).floor.iso8601(6).sub(".000000", ".123456"), cancellation_evidence_reference: "BANK-STOP-91",
+      reason: "Bank verified stop payment on this original check" }
+    post path, params: payload.to_json, headers: headers
+    expect(response).to have_http_status(:forbidden)
+    actor_headers = settlement_headers
+    post path, params: payload.to_json, headers: actor_headers
+    expect(response).to have_http_status(:ok)
+    expect(json.dig(:integration, :capabilities)).to include("payment_cancellation_v1")
+    expect(json.dig(:integration, :source_instance_id)).to eq(Payroll::IntegrationProfile.source_instance_id)
+    acknowledgement = json.fetch(:manual_allocation)
+    command_result = json.fetch(:command_result)
+    expect(json.dig(:command, :id)).to eq(payload[:command_id])
+    expect(acknowledgement).to include(status: "committed", version: allocation.lock_version + 1,
+      source_time_entry_id: entry.id.to_s, source_user_uuid: employee.payroll_integration_uuid,
+      regular_hours: 8.0, overtime_hours: 0.0, external_pay_period_id: "67", external_payroll_item_id: "91")
+    expect(acknowledgement.fetch(:cancelled_payment)).to include(event_type: "payment_cancelled",
+      occurred_at: Time.iso8601(payload[:occurred_at]).utc.iso8601(6), payment_method: "paper_check", payment_reference: "OLD-91",
+      payment_effective_on: payload[:payment_effective_on], cancellation_evidence_reference: "BANK-STOP-91", reason: payload[:reason])
+    receipt = PayrollIntegrationCommand.find_by!(command_id: payload[:command_id])
+    retained = acknowledgement.deep_stringify_keys.deep_dup
+    retained.fetch("cancelled_payment").delete("reason")
+    expect(receipt.result_metadata.fetch("manual_allocation")).to eq(retained)
+    expect(JSON.generate(receipt.result_metadata).bytesize).to be < 2.kilobytes
+    expect(allocation.reload.status).to eq("committed")
+    issue_payload = { command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
+      payment_method: "paper_check", payment_reference: "NEW-91", payment_effective_on: Date.current.iso8601,
+      occurred_at: Time.current.iso8601, reason: "Verified replacement physical check delivery" }
+    post path.sub("cancel_payment", "issue"), params: issue_payload.merge(expected_version: payload[:expected_version]).to_json, headers: actor_headers
+    expect(response).to have_http_status(:conflict)
+    post path.sub("cancel_payment", "issue"), params: issue_payload.to_json, headers: actor_headers
+    expect(response).to have_http_status(:ok)
+    expect(allocation.reload.payment_reference).to eq("NEW-91")
+    expect { post path, params: payload.to_json, headers: actor_headers }.not_to change(PayrollManualAllocationEvent, :count)
+    expect(response).to have_http_status(:ok)
+    expect(json.fetch(:manual_allocation)).to eq(acknowledgement)
+    expect(json.fetch(:command_result)).to eq(command_result)
+    expect(json.dig(:command, :id)).to eq(payload[:command_id])
+    expect(json.dig(:command, :replayed)).to be(true)
+    post path, params: payload.merge(reason: "Changed cancellation reason violates exact replay").to_json, headers: actor_headers
+    expect(response).to have_http_status(:conflict)
+    entry.update_columns(user_id: create(:user, :employee).id)
+    post path, params: payload.merge(command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
+      payment_reference: "NEW-91").to_json, headers: actor_headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(allocation.reload.status).to eq("issued")
+  end
+  describe "immutable manual issuance receipt" do
+    let(:entry) { create_entry(approval_status: "approved", approved_at: Time.current, hours: 8) }
+    let(:recorder) { Payroll::ManualAllocationRecorder.new(actor: admin) }
+    let(:allocation) do
+      recorder.commit!(entry: entry, source_user_uuid: employee.payroll_integration_uuid,
+        regular_hours: 8, overtime_hours: 0, external_pay_period_id: "67", external_payroll_item_id: "91",
+        pay_date: Date.current.iso8601, reason: "Verified original payroll source allocation")
+    end
+    let(:path) { "/api/v1/payroll/cockpit/manual_allocations/#{allocation.id}/issue" }
+    let(:payload) do
+      { command_id: SecureRandom.uuid, expected_version: allocation.lock_version,
+        payment_method: "paper_check", payment_reference: "ISSUE-91", payment_effective_on: Date.current.iso8601,
+        occurred_at: (Time.current - 2.seconds).floor.iso8601(6).sub(".000000", ".123456"),
+        reason: "Verified physical original check delivery" }
+    end
+
+    def cancel_issued_allocation
+      recorder.cancel_payment!(allocation: allocation.reload, payment_method: "paper_check", payment_reference: "ISSUE-91",
+        payment_effective_on: payload[:payment_effective_on], occurred_at: (Time.current - 1.second).iso8601(6),
+        cancellation_evidence_reference: "BANK-STOP-91", reason: "Bank verified cancellation of original check")
+    end
+
+    it "returns the locked issue receipt when payment is cancelled before the fresh response reload" do
+      expected_version = payload[:expected_version] + 1
+      allow_any_instance_of(Payroll::CockpitCommand).to receive(:call).and_wrap_original do |original, &block|
+        result = original.call(&block)
+        cancel_issued_allocation
+        result
+      end
+      post path, params: payload.to_json, headers: settlement_headers
+      expect(response).to have_http_status(:ok)
+      expect(allocation.reload.status).to eq("committed")
+      expect(json.fetch(:manual_allocation)).to include(status: "issued", version: expected_version,
+        payment_reference: "ISSUE-91", issued_at: Time.iso8601(payload[:occurred_at]).utc.iso8601(6))
+      expect(json.dig(:manual_allocation, :issued_payment, :event_type)).to eq("issued")
+    end
+
+    it "returns the immutable issue tuple on replay after cancellation" do
+      actor_headers = settlement_headers
+      issued_version = payload[:expected_version] + 1
+      post path, params: payload.to_json, headers: actor_headers
+      expect(response).to have_http_status(:ok)
+      cancel_issued_allocation
+      expect { post path, params: payload.to_json, headers: actor_headers }.not_to change(PayrollManualAllocationEvent, :count)
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:command, :replayed)).to be(true)
+      expect(json.fetch(:manual_allocation)).to include(id: allocation.id.to_s, version: issued_version, status: "issued",
+        source_time_entry_id: entry.id.to_s, source_user_uuid: employee.payroll_integration_uuid,
+        regular_hours: 8.0, overtime_hours: 0.0, external_pay_period_id: "67", external_payroll_item_id: "91",
+        payment_method: "paper_check", payment_reference: "ISSUE-91", payment_effective_on: payload[:payment_effective_on])
+    end
+
+    it "replays the exact issued tuple after cancellation and replacement without another event" do
+      actor_headers = settlement_headers
+      post path, params: payload.to_json, headers: actor_headers
+      expect(response).to have_http_status(:ok)
+      acknowledgement = json.fetch(:manual_allocation)
+      integration = json.fetch(:integration)
+      expect(integration).to eq(Payroll::IntegrationProfile.call.deep_symbolize_keys)
+      expect(acknowledgement).to include(id: allocation.id.to_s, version: payload[:expected_version] + 1,
+        source_time_entry_id: entry.id.to_s, source_time_entry_version: entry.lock_version,
+        source_user_uuid: employee.payroll_integration_uuid, work_date: entry.work_date.iso8601,
+        pay_date: allocation.pay_date.iso8601, regular_hours: 8.0, overtime_hours: 0.0, total_hours: 8.0,
+        external_pay_period_id: "67", external_payroll_item_id: "91", status: "issued",
+        payment_method: "paper_check", payment_reference: "ISSUE-91", payment_effective_on: payload[:payment_effective_on])
+      event = allocation.payroll_manual_allocation_events.find_by!(event_type: "issued")
+      expect(acknowledgement.fetch(:issued_payment)).to eq(event_id: event.id.to_s, event_type: "issued",
+        occurred_at: event.occurred_at.iso8601(6), payment_method: "paper_check", payment_reference: "ISSUE-91",
+        payment_effective_on: payload[:payment_effective_on], reason: payload[:reason])
+      receipt = PayrollIntegrationCommand.find_by!(command_id: payload[:command_id])
+      expect(json.fetch(:command_result)).to include(expected_version: payload[:expected_version],
+        result_version: acknowledgement.fetch(:version), status: "issued", manual_allocation_id: allocation.id)
+      expect(acknowledgement.fetch(:version)).to be > json.dig(:command_result, :expected_version)
+      retained = acknowledgement.deep_stringify_keys.deep_dup
+      retained.fetch("issued_payment").delete("reason")
+      expect(receipt.result_metadata.fetch("manual_allocation")).to eq(retained)
+      expect(JSON.generate(receipt.result_metadata)).not_to include(employee.full_name, payload[:reason])
+      expect(JSON.generate(receipt.result_metadata).bytesize).to be < 3.kilobytes
+      cancel_issued_allocation
+      recorder.issue!(allocation: allocation, payment_method: "paper_check", payment_reference: "REPLACEMENT-91",
+        payment_effective_on: Date.current.iso8601, occurred_at: Time.current.iso8601(6), reason: "Verified replacement check delivery")
+      expect { post path, params: payload.to_json, headers: actor_headers }.not_to change(PayrollManualAllocationEvent, :count)
+      expect(response).to have_http_status(:ok)
+      expect(json.fetch(:manual_allocation)).to eq(acknowledgement)
+      expect(json.fetch(:integration)).to eq(integration)
+      expect(json.dig(:command, :id)).to eq(payload[:command_id])
+      expect(json.dig(:command, :replayed)).to be(true)
+      expect(allocation.reload.payment_reference).to eq("REPLACEMENT-91")
+      post path, params: payload.merge(payment_reference: "OTHER-91").to_json, headers: actor_headers
+      expect(response).to have_http_status(:conflict)
+    end
+
+    it "rejects insufficient delegation and stale issuance before recording proof" do
+      post path, params: payload.to_json, headers: headers
+      expect(response).to have_http_status(:forbidden)
+      expect(allocation.reload.status).to eq("committed")
+      post path, params: payload.merge(expected_version: payload[:expected_version] + 1).to_json, headers: settlement_headers
+      expect(response).to have_http_status(:conflict)
+      expect(allocation.reload.payroll_manual_allocation_events.where(event_type: "issued")).to be_empty
+      expect(PayrollIntegrationCommand.exists?(command_id: payload[:command_id])).to be(false)
+    end
+
+    it "retains legacy minimal replay without fabricating historical issue proof" do
+      command = Payroll::CockpitCommand.new(command_id: payload[:command_id], action: "payroll_manual_allocation.issue",
+        actor: admin, target: allocation, expected_version: payload[:expected_version], payload: payload)
+      command.call do |locked|
+        recorder.issue!(allocation: locked, **payload.slice(:payment_method, :payment_reference, :payment_effective_on, :occurred_at, :reason))
+        [ {}, :ok, { manual_allocation_id: locked.id, result_version: locked.lock_version, status: locked.status } ]
+      end
+      cancel_issued_allocation
+      post path, params: payload.to_json, headers: settlement_headers
+      expect(response).to have_http_status(:ok)
+      expect(json.fetch(:manual_allocation)).to eq(id: allocation.id.to_s, version: payload[:expected_version] + 1, status: "issued")
+      expect(json.dig(:command, :replayed)).to be(true)
+    end
   end
 end

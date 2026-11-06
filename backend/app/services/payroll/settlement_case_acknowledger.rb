@@ -4,7 +4,7 @@ module Payroll
   class SettlementCaseAcknowledger
     EVENT_TYPES = %w[
       imported committed payment_prepared payment_issued payment_failed payment_voided
-      payment_returned settled
+      payment_returned payment_cancelled settled
     ].freeze
     TRANSITIONS = {
       nil => %w[imported],
@@ -29,6 +29,9 @@ module Payroll
     end
 
     def call
+      if settlement_case.included_payroll_batch_id.present?
+        raise AcknowledgementError, "Acknowledge this supplemental payroll on its exact frozen batch lines"
+      end
       raise AcknowledgementError, "event_type is not supported" unless event_type.in?(EVENT_TYPES)
       if settlement_case.destination_kind == "unassigned" || settlement_case.status.in?(%w[not_payable superseded])
         raise AcknowledgementError, "Route this case to a payroll before acknowledging processing"
@@ -67,7 +70,7 @@ module Payroll
     def latest_processing_event
       settlement_case.payroll_settlement_case_events
         .where(event_type: EVENT_TYPES)
-        .order(id: :desc)
+        .reorder(id: :desc)
         .first
     end
 

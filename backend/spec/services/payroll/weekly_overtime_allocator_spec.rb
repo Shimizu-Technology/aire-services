@@ -16,72 +16,47 @@ RSpec.describe Payroll::WeeklyOvertimeAllocator do
     )
   end
 
-  it "allocates hours above the configured daily threshold as overtime" do
+  it "keeps long days and multiple same-day entries regular below forty weekly hours" do
     date = Date.new(2026, 9, 14)
-
     allocations = described_class.call([
       entry(id: 1, date: date, hour: 8, hours: 8),
       entry(id: 2, date: date, hour: 16, hours: 6)
     ])
-
     expect(allocations.fetch(1)).to include(regular_hours: 8.0, overtime_hours: 0.0)
-    expect(allocations.fetch(2)).to include(
-      regular_hours: 0.0,
-      overtime_hours: 6.0,
-      daily_cumulative_before: 8.0,
-      daily_cumulative_after: 14.0
+    expect(allocations.fetch(2)).to include(regular_hours: 6.0, overtime_hours: 0.0)
+  end
+
+  it "allocates only the portion beyond forty and resets on Sunday" do
+    sunday = Date.new(2026, 9, 13)
+    entries = 4.times.map { |i| entry(id: i + 1, date: sunday + i, hour: 8, hours: 10) }
+    entries << entry(id: 5, date: sunday + 6, hour: 8, hours: 0.25)
+    entries << entry(id: 6, date: sunday + 7, hour: 8, hours: 12)
+    allocations = described_class.call(entries.reverse)
+    expect(allocations.fetch(4)).to include(regular_hours: 10.0, overtime_hours: 0.0)
+    expect(allocations.fetch(5)).to include(regular_hours: 0.0, overtime_hours: 0.25)
+    expect(allocations.fetch(6)).to include(regular_hours: 12.0, overtime_hours: 0.0)
+  end
+
+  it "does not let review-alert settings change payable overtime or frozen policy" do
+    Setting.set("overtime_daily_threshold_hours", "6")
+    Setting.set("overtime_weekly_threshold_hours", "10")
+    date = Date.new(2026, 9, 14)
+    allocation = described_class.call([ entry(id: 1, date: date, hour: 8, hours: 14) ]).fetch(1)
+    expect(allocation).to include(regular_hours: 14.0, overtime_hours: 0.0)
+    expect(described_class.configured_policy).to eq(
+      schema_version: "2.0", calculation: "weekly_only", weekly_threshold_hours: 40.0,
+      workweek_start: "sunday", time_zone: "Pacific/Guam"
     )
   end
 
-  it "allocates the portion of one entry beyond eight daily hours" do
+  it "uses decimal accumulation at the forty-hour boundary" do
     date = Date.new(2026, 9, 14)
-
-    allocation = described_class.call([
-      entry(id: 1, date: date, hour: 8, hours: 10)
-    ]).fetch(1)
-
-    expect(allocation).to include(regular_hours: 8.0, overtime_hours: 2.0)
-  end
-
-  it "still allocates hours beyond forty in a workweek as overtime" do
-    sunday = Date.new(2026, 9, 13)
-    entries = 6.times.map do |offset|
-      entry(id: offset + 1, date: sunday + offset.days, hour: 8, hours: 8)
-    end
-
-    allocations = described_class.call(entries)
-
-    expect(allocations.fetch(5)).to include(regular_hours: 8.0, overtime_hours: 0.0)
-    expect(allocations.fetch(6)).to include(regular_hours: 0.0, overtime_hours: 8.0)
-  end
-
-  it "uses configured daily and weekly thresholds without counting an hour twice" do
-    sunday = Date.new(2026, 9, 13)
-    entries = [
-      entry(id: 1, date: sunday, hour: 8, hours: 7),
-      entry(id: 2, date: sunday, hour: 15, hours: 3),
-      entry(id: 3, date: sunday + 1.day, hour: 8, hours: 5)
-    ]
-
-    allocations = described_class.call(entries, daily_threshold: 8, weekly_threshold: 12)
-
-    expect(allocations.fetch(2)).to include(regular_hours: 1.0, overtime_hours: 2.0)
-    expect(allocations.fetch(3)).to include(regular_hours: 2.0, overtime_hours: 3.0)
-    expect(allocations.values.sum { |row| row.fetch(:regular_hours) }).to eq(10.0)
-    expect(allocations.values.sum { |row| row.fetch(:overtime_hours) }).to eq(5.0)
-  end
-
-  it "uses overtime thresholds saved in settings when overrides are omitted" do
-    sunday = Date.new(2026, 9, 13)
-    Setting.set("overtime_daily_threshold_hours", "6")
-    Setting.set("overtime_weekly_threshold_hours", "10")
-
     allocations = described_class.call([
-      entry(id: 1, date: sunday, hour: 8, hours: 7),
-      entry(id: 2, date: sunday + 1.day, hour: 8, hours: 6)
+      entry(id: 1, date: date, hour: 0, hours: 19.99),
+      entry(id: 2, date: date + 1, hour: 0, hours: 20.01),
+      entry(id: 3, date: date + 2, hour: 0, hours: 0.01)
     ])
-
-    expect(allocations.fetch(1)).to include(regular_hours: 6.0, overtime_hours: 1.0)
-    expect(allocations.fetch(2)).to include(regular_hours: 3.0, overtime_hours: 3.0)
+    expect(allocations.fetch(2)).to include(regular_hours: 20.01, overtime_hours: 0.0)
+    expect(allocations.fetch(3)).to include(regular_hours: 0.0, overtime_hours: 0.01)
   end
 end

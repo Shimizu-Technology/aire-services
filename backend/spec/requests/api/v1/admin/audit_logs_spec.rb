@@ -48,6 +48,26 @@ RSpec.describe "Api::V1::Admin::AuditLogs", type: :request do
     expect(json.dig(:audit_logs, 0, :details, :review_note)).to eq("Verified")
   end
 
+  it "returns the exact older event independently of list pagination" do
+    event = AuditLog.find_by!(action: "time_entry.approved")
+    get "/api/v1/admin/audit_logs/#{event.id}", headers: auth_headers_for[admin]
+
+    expect(response).to have_http_status(:ok)
+    expect(json).to include(id: event.id, action: "time_entry.approved")
+    expect(json.dig(:details, :review_note)).to eq("Verified")
+  end
+
+  it "protects individual event evidence from non-admin access" do
+    event = AuditLog.find_by!(action: "time_entry.approved")
+    get "/api/v1/admin/audit_logs/#{event.id}", headers: auth_headers_for[employee]
+    expect(response).to have_http_status(:forbidden)
+  end
+
+  it "returns not found for a missing event without substituting a recent event" do
+    get "/api/v1/admin/audit_logs/999999999", headers: auth_headers_for[admin]
+    expect(response).to have_http_status(:not_found)
+  end
+
   it "matches human-readable searches to underscored actions and compact record types" do
     get "/api/v1/admin/audit_logs", params: { search: "time entry" }, headers: auth_headers_for[admin]
 

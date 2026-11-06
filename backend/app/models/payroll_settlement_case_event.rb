@@ -3,7 +3,7 @@
 class PayrollSettlementCaseEvent < ApplicationRecord
   EVENT_TYPES = %w[
     opened routed rerouted corrected approval_changed included imported committed
-    payment_prepared payment_issued payment_failed payment_voided payment_returned settled
+    payment_prepared payment_issued payment_failed payment_voided payment_returned payment_cancelled settled
     marked_not_payable superseded
   ].freeze
 

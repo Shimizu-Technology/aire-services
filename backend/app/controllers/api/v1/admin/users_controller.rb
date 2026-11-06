@@ -110,7 +110,8 @@ module Api
 
           render json: {
             user: serialize_user(@user),
-            invitation_email_sent: email_sent,
+            invitation_email_sent: email_sent == :captured ? false : email_sent,
+            **(email_sent == :captured ? { invitation_email_captured: true } : {}),
             kiosk_pin: access_configuration&.generated_pin
           }, status: :created
         end
@@ -154,6 +155,7 @@ module Api
 
                   permitted = payload.fetch(:local_attributes)
                   clerk_attributes = payload.fetch(:clerk_attributes)
+                  StagingOutboundPolicy.clerk_target!(id: @user.clerk_id) if clerk_attributes.present?
                   previous_state = snapshot_local_user_state(@user) if clerk_attributes.present?
 
                   @user.assign_attributes(permitted)
@@ -169,6 +171,8 @@ module Api
                 end
               end
             end
+          rescue StagingOutboundPolicy::Blocked => e
+            return render json: { error: e.message, staging: true }, status: :service_unavailable
           rescue UserAccessConfiguration::ConfigurationError => e
             return render json: { error: e.message }, status: :unprocessable_entity
           rescue ActiveRecord::RecordInvalid => e
@@ -180,7 +184,7 @@ module Api
           if clerk_attributes.present?
             begin
               ClerkUserService.update_user!(clerk_user_id: @user.clerk_id, **clerk_attributes)
-            rescue ClerkUserService::Error => e
+            rescue ClerkUserService::Error, StagingOutboundPolicy::Blocked => e
               begin
                 restore_local_user_state!(@user, previous_state)
               rescue StandardError => rollback_error
@@ -190,7 +194,8 @@ module Api
                 return render json: { error: "Clerk sync failed after saving local changes, and automatic rollback could not be completed. Manual intervention is required." }, status: :internal_server_error
               end
 
-              return render json: { error: e.message }, status: :unprocessable_entity
+              status = e.is_a?(StagingOutboundPolicy::Blocked) ? :service_unavailable : :unprocessable_entity
+              return render json: { error: e.message }, status: status
             end
           end
 
@@ -201,7 +206,8 @@ module Api
 
           render json: {
             user: serialize_user(@user.reload),
-            invitation_email_sent: invitation_email_sent,
+            invitation_email_sent: invitation_email_sent == :captured ? false : invitation_email_sent,
+            **(invitation_email_sent == :captured ? { invitation_email_captured: true } : {}),
             kiosk_pin: access_configuration&.generated_pin
           }
         end
@@ -221,6 +227,11 @@ module Api
 
           @user.destroy!
           head :no_content
+        rescue ActiveRecord::RecordNotDestroyed => e
+          render json: {
+            error: "This is not an unused profile and cannot be permanently deleted. Terminate the employee instead so their history stays available.",
+            blockers: e.record.errors.full_messages
+          }, status: :unprocessable_entity
         end
 
         def terminate
@@ -300,6 +311,10 @@ module Api
           end
 
           email_sent = send_invitation_email(@user)
+
+          if email_sent == :captured
+            return render json: { message: "Invitation captured in staging; no email was sent.", invitation_email_sent: false, invitation_email_captured: true }
+          end
 
           unless email_sent
             Rails.cache.delete(cache_key)
@@ -393,6 +408,7 @@ module Api
             public_team_sort_order: user.public_team_sort_order,
             public_team_photo_position_x: user.public_team_photo_position_x,
             public_team_photo_position_y: user.public_team_photo_position_y,
+            **(StagingOutboundPolicy.staging? ? { staging_artifact_blocked: attachment_url(user.public_team_photo).nil? } : {}),
             public_team_photo_url: attachment_url(user.public_team_photo),
             public_team_photo_thumb_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 160, nil ]),
             public_team_photo_card_url: attachment_variant_url(user.public_team_photo, resize_to_limit: [ 640, nil ]),
@@ -472,7 +488,10 @@ module Api
 
         def send_invitation_email(user)
           sent = EmailService.send_invitation_email(user: user, invited_by: current_user)
-          if sent
+          if StagingOutboundPolicy.staging?
+            outcome = sent == :captured ? "captured" : sent ? "sent" : "failed"
+            Rails.logger.info "[InviteEmail] STAGING #{outcome} user_id=#{user.id}; content redacted"
+          elsif sent
             Rails.logger.info "Invitation email sent to #{user.email}"
           else
             Rails.logger.warn "Invitation email could not be sent to #{user.email}"

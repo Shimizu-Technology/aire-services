@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { useDialogFocus } from '../../lib/useDialogFocus'
+import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
 import { api } from '../../lib/api'
+import { invitationOutcomeMessage } from '../../lib/invitationOutcome'
 import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
-import { formatDateISO, formatDateTime } from '../../lib/dateUtils'
+import { formatDateInTimeZoneISO, formatDateTime } from '../../lib/dateUtils'
 import { initialsForName } from '../../lib/initials'
 import { FadeUp } from '../../components/ui/MotionComponents'
 
@@ -67,16 +71,39 @@ export default function Users() {
     document.title = 'Users | AIRE Ops'
   }, [])
 
+  const location = useLocation()
+  const [query, setQuery] = useSearchParams()
+  const [compact, setCompact] = useState(window.innerWidth < 768)
+  useEffect(() => {
+    const resized = () => setCompact(window.innerWidth < 768)
+    window.addEventListener('resize', resized)
+    return () => window.removeEventListener('resize', resized)
+  }, [])
+  const setFilter = (key: string, value: string) => setQuery((previous) => {
+    const next = new URLSearchParams(previous)
+    next.set(key, value)
+    return next
+  }, { replace: true })
+  const [loadError, setLoadError] = useState('')
+  const [loadedAt, setLoadedAt] = useState<string | null>(null)
+  const [loadRetry, setLoadRetry] = useState(0)
+  const handledEdit = useRef<string | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [allCategories, setAllCategories] = useState<AdminTimeCategory[]>([])
   const [approvalGroupOptions, setApprovalGroupOptions] = useState<ApprovalGroupOption[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [roleFilter, setRoleFilter] = useState<'all' | AdminUser['role']>('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive' | 'terminated'>('active')
-  const [departmentFilter, setDepartmentFilter] = useState<'all' | 'unassigned' | ApprovalGroup>('all')
-  const [kioskFilter, setKioskFilter] = useState<'all' | 'pin_ready' | 'no_pin' | 'locked'>('all')
-  const [publicTeamFilter, setPublicTeamFilter] = useState<'all' | 'visible' | 'hidden'>('all')
+  const searchTerm = query.get('search') || ''
+  const setSearchTerm = (value: string) => setFilter('search', value)
+  const roleFilter = (['all', 'admin', 'employee'].includes(query.get('role') || '') ? query.get('role') : 'all') as 'all' | AdminUser['role']
+  const setRoleFilter = (value: string) => setFilter('role', value)
+  const statusFilter = (['all', 'active', 'pending', 'inactive', 'terminated'].includes(query.get('status') || '') ? query.get('status') : 'active') as 'all' | 'active' | 'pending' | 'inactive' | 'terminated'
+  const setStatusFilter = (value: string) => setFilter('status', value)
+  const departmentFilter = (query.get('department') || 'all') as 'all' | 'unassigned' | ApprovalGroup
+  const setDepartmentFilter = (value: string) => setFilter('department', value)
+  const kioskFilter = (['all', 'pin_ready', 'no_pin', 'locked'].includes(query.get('kiosk') || '') ? query.get('kiosk') : 'all') as 'all' | 'pin_ready' | 'no_pin' | 'locked'
+  const setKioskFilter = (value: string) => setFilter('kiosk', value)
+  const publicTeamFilter = (['all', 'visible', 'hidden'].includes(query.get('public') || '') ? query.get('public') : 'all') as 'all' | 'visible' | 'hidden'
+  const setPublicTeamFilter = (value: string) => setFilter('public', value)
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createStep, setCreateStep] = useState<1 | 2>(1)
@@ -127,9 +154,14 @@ export default function Users() {
   const [savingPin, setSavingPin] = useState(false)
 
   const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
+  const [invitationNotice, setInvitationNotice] = useState('')
+  const invitationNoticeRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (invitationNotice) invitationNoticeRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [invitationNotice])
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [terminationUser, setTerminationUser] = useState<AdminUser | null>(null)
-  const [terminationEffectiveOn, setTerminationEffectiveOn] = useState(formatDateISO(new Date()))
+  const [terminationEffectiveOn, setTerminationEffectiveOn] = useState(formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
   const [terminationReason, setTerminationReason] = useState('')
   const [terminationError, setTerminationError] = useState('')
   const [savingTermination, setSavingTermination] = useState(false)
@@ -148,68 +180,22 @@ export default function Users() {
   }, [])
 
   useEffect(() => {
-    if (showCreateModal && createModalRef.current) {
-      const first = createModalRef.current.querySelector<HTMLElement>('input, select, textarea')
-      if (first) setTimeout(() => first.focus(), 0)
-    }
-  }, [showCreateModal])
-
-  useEffect(() => {
-    if (editingUser && editModalRef.current) {
-      const first = editModalRef.current.querySelector<HTMLElement>('input, select, textarea')
-      if (first) setTimeout(() => first.focus(), 0)
-    }
-  }, [editingUser])
-
-  useEffect(() => {
-    if (pinModalUser && pinModalRef.current) {
-      const first = pinModalRef.current.querySelector<HTMLElement>('input, button')
-      if (first) setTimeout(() => first.focus(), 0)
-    }
-  }, [pinModalUser])
-
-  useEffect(() => {
-    const dialog = terminationDialogRef.current
-    if (!terminationUser || !dialog) return
-
-    const firstField = dialog.querySelector<HTMLElement>('[data-termination-autofocus]')
-    if (firstField) window.setTimeout(() => firstField.focus(), 0)
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        closeTerminationModal()
-        return
-      }
-      if (event.key !== 'Tab') return
-
-      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-      )).filter((element) => element.offsetParent !== null)
-      if (focusable.length === 0) return
-
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    dialog.addEventListener('keydown', handleKeyDown)
-    return () => dialog.removeEventListener('keydown', handleKeyDown)
-  }, [closeTerminationModal, terminationUser])
+    if (!terminationUser) return
+    const timer = window.setTimeout(() => terminationDialogRef.current?.querySelector<HTMLElement>('[data-termination-autofocus]')?.focus(), 0)
+    return () => window.clearTimeout(timer)
+  }, [terminationUser])
 
   const applyFetchedData = useCallback((
     usersRes: Awaited<ReturnType<typeof api.getAdminUsers>>,
     catsRes: Awaited<ReturnType<typeof api.getAdminTimeCategories>>,
     settingsRes: Awaited<ReturnType<typeof api.getAdminAppSettings>>,
   ) => {
-    if (usersRes.data) setUsers(usersRes.data.users.filter((u) => u.role === 'admin' || u.role === 'employee'))
-    else if (usersRes.error) console.error('Failed to refresh users:', usersRes.error)
+    if (usersRes.data) {
+      setUsers(usersRes.data.users.filter((u) => u.role === 'admin' || u.role === 'employee'))
+      setLoadedAt(new Date().toISOString())
+    }
+    const failures = [usersRes.error, catsRes.error, settingsRes.error].filter(Boolean)
+    setLoadError(failures.length ? `Team data is unavailable: ${failures.join('; ')}. Last successful information is retained.` : '')
     if (catsRes.data) setAllCategories(catsRes.data.time_categories)
     else if (catsRes.error) console.error('Failed to refresh categories:', catsRes.error)
     if (settingsRes.data) setApprovalGroupOptions(settingsRes.data.approval_groups)
@@ -227,21 +213,25 @@ export default function Users() {
           api.getAdminAppSettings(),
         ])
         if (!cancelled) applyFetchedData(usersRes, catsRes, settingsRes)
+      } catch (reason) {
+        if (!cancelled) setLoadError(reason instanceof Error ? reason.message : 'Unable to load Team data')
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
     initialLoad()
     return () => { cancelled = true }
-  }, [applyFetchedData])
+  }, [applyFetchedData, loadRetry])
 
   const refreshData = useCallback(async () => {
-    const [usersRes, catsRes, settingsRes] = await Promise.all([
-      api.getAdminUsers(),
-      api.getAdminTimeCategories(),
-      api.getAdminAppSettings(),
-    ])
-    applyFetchedData(usersRes, catsRes, settingsRes)
+    try {
+      const [usersRes, catsRes, settingsRes] = await Promise.all([
+        api.getAdminUsers(), api.getAdminTimeCategories(), api.getAdminAppSettings(),
+      ])
+      applyFetchedData(usersRes, catsRes, settingsRes)
+    } catch (reason) {
+      setLoadError(reason instanceof Error ? reason.message : 'Unable to refresh Team data. Last successful information is retained.')
+    }
   }, [applyFetchedData])
 
   const editPublicTeamPhotoPreviewUrl = useMemo(
@@ -328,12 +318,9 @@ export default function Users() {
   }, [departmentFilter, kioskFilter, normalizedSearchTerm, publicTeamFilter, roleFilter, statusFilter, users])
 
   const resetFilters = () => {
-    setSearchTerm('')
-    setRoleFilter('all')
-    setStatusFilter('active')
-    setDepartmentFilter('all')
-    setKioskFilter('all')
-    setPublicTeamFilter('all')
+    const next = new URLSearchParams(query)
+    for (const key of ['search', 'role', 'status', 'department', 'kiosk', 'public']) next.delete(key)
+    setQuery(next, { replace: true })
   }
 
   const patchLocalUser = useCallback((userId: number, updater: (user: AdminUser) => AdminUser) => {
@@ -384,6 +371,8 @@ export default function Users() {
   }
 
   const closeEditModal = () => {
+    setQuery((previous) => { const next = new URLSearchParams(previous); next.delete('edit_user_id'); return next }, { replace: true })
+    handledEdit.current = null
     setEditingUser(null)
     setEditFirstName('')
     setEditLastName('')
@@ -462,13 +451,8 @@ export default function Users() {
       if (response.error) {
         setCreateError(response.error)
       } else {
-        const sent = response.data?.invitation_email_sent
         const inviteNote = createPersonalAccess
-          ? sent === false
-            ? 'The account was created, but the invitation email could not be sent. You can resend it from the user list.'
-            : sendInvitationEmail
-              ? 'Their invitation is on the way.'
-              : 'You can send their invitation later from the user list.'
+          ? invitationOutcomeMessage(response.data, sendInvitationEmail)
           : 'They can use the kiosk immediately with the PIN below.'
         setCreateSuccess({ message: inviteNote, pin: response.data?.kiosk_pin })
         void refreshData()
@@ -479,6 +463,13 @@ export default function Users() {
       setCreating(false)
     }
   }
+
+  useEffect(() => {
+    const editId = query.get('edit_user_id')
+    if (!editId || handledEdit.current === editId) return
+    const selected = users.find((person) => String(person.id) === editId)
+    if (selected) { handledEdit.current = editId; loadEditState(selected) }
+  }, [query, users, loadEditState])
 
   const openEditUser = (user: AdminUser) => loadEditState(user)
 
@@ -592,6 +583,7 @@ export default function Users() {
         setEditError(res.error)
       } else {
         let savedUser = res.data?.user
+        if (payload.send_invitation) setInvitationNotice(`Profile saved. ${invitationOutcomeMessage(res.data, true)}`)
 
         if (editPublicTeamPhotoFile) {
           const photoResponse = await api.updateUserPublicTeamPhoto(targetUserId, editPublicTeamPhotoFile)
@@ -645,7 +637,7 @@ export default function Users() {
   const openTerminationModal = (user: AdminUser, trigger: HTMLButtonElement) => {
     terminationTriggerRef.current = trigger
     setTerminationUser(user)
-    setTerminationEffectiveOn(formatDateISO(new Date()))
+    setTerminationEffectiveOn(formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
     setTerminationReason('')
     setTerminationError('')
   }
@@ -692,13 +684,14 @@ export default function Users() {
   }
 
   const handleResendInvite = async (user: AdminUser) => {
+    setInvitationNotice('')
     setResendingIds((prev) => new Set(prev).add(user.id))
     try {
       const response = await api.resendInvite(user.id)
-      if (response.error) alert(response.error)
-      else alert(`Invitation re-sent to ${user.email}`)
+      if (response.error) setInvitationNotice(response.error)
+      else setInvitationNotice(invitationOutcomeMessage(response.data, true, Boolean(response.data?.message)))
     } catch {
-      alert('Failed to resend invite')
+      setInvitationNotice('Invitation email failed. Please try again.')
     } finally {
       setResendingIds((prev) => {
         const next = new Set(prev)
@@ -778,12 +771,19 @@ export default function Users() {
     )
   }
 
+  useDialogFocus(showCreateModal, createModalRef, () => {
+    if (!creating) { setShowCreateModal(false); resetCreateForm() }
+  })
+  useDialogFocus(Boolean(editingUser) && !terminationUser, editModalRef, () => { if (!savingEdit) closeEditModal() })
+  useDialogFocus(Boolean(pinModalUser), pinModalRef, () => { if (!savingPin) closePinModal() })
+  useDialogFocus(Boolean(terminationUser), terminationDialogRef, () => { if (!savingTermination) closeTerminationModal() })
+
   return (
     <div className="space-y-6">
       <FadeUp>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Team Access</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Team</h1>
             <p className="mt-1 text-sm text-slate-600">
               Manage staff roles, work categories, and kiosk PIN access for AIRE Ops.
             </p>
@@ -797,7 +797,9 @@ export default function Users() {
         </div>
       </FadeUp>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      {query.get('return_to') && <Link className="text-sm font-semibold text-cyan-800 hover:underline" to={safeAdminReturn(query.get('return_to'))}>Back to employee</Link>}
+      {loadError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p>{loadError}</p>{loadedAt && <p className="mt-1 text-xs">Last refreshed {formatDateTime(loadedAt)}</p>}<button className="mt-3 rounded-lg border border-amber-400 px-3 py-2 font-semibold" onClick={() => setLoadRetry((value) => value + 1)}>Retry</button></div>}
+      {loadedAt && <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-sm text-slate-500">Total Team Members</div>
           <div className="mt-2 text-3xl font-bold text-slate-900">{users.length}</div>
@@ -816,6 +818,7 @@ export default function Users() {
         </div>
       </div>
 
+      }
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -831,8 +834,11 @@ export default function Users() {
           </div>
         </div>
 
+        {invitationNotice && <p ref={invitationNoticeRef} role="status" className="mx-5 my-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">{invitationNotice}</p>}
         {loading ? (
           <div className="px-5 py-10 text-center text-sm text-slate-500">Loading team members...</div>
+        ) : loadError && !loadedAt ? (
+          <p className="px-5 py-10 text-sm text-slate-600">Team members could not be loaded.</p>
         ) : users.length === 0 ? (
           <div className="px-5 py-10 text-center text-sm text-slate-500">No team members yet.</div>
         ) : (
@@ -931,7 +937,9 @@ export default function Users() {
             {filteredUsers.length === 0 ? (
               <div className="px-5 py-10 text-center text-sm text-slate-500">No team members match those filters.</div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+              {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{user.staff_title || user.role}</p>{renderStatusBadge(user)}</div></div><p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.is_active && user.is_pending && user.email && <button className="min-h-11 text-sm font-semibold text-cyan-800" onClick={() => handleResendInvite(user)} disabled={resendingIds.has(user.id)}>{resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}</button>}{user.time_tracking_enabled && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
+              {!compact && <div className="overflow-x-auto">
                 <table className="w-full min-w-[1200px]">
                   <thead className="bg-slate-50">
                     <tr>
@@ -952,7 +960,7 @@ export default function Users() {
                       <div className="flex items-start gap-3">
                         <TeamMemberAvatar user={user} />
                         <div className="min-w-0">
-                          <div className="font-medium text-slate-900">{user.full_name || user.display_name}</div>
+                          <Link className="font-medium text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link>
                           {user.staff_title && <div className="mt-1 text-sm text-slate-500">{user.staff_title}</div>}
                           {user.is_intern && (
                             <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
@@ -1081,7 +1089,8 @@ export default function Users() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </div>}
+              </>
             )}
           </>
         )}
@@ -1089,7 +1098,7 @@ export default function Users() {
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6" role="presentation">
-          <div ref={createModalRef} role="dialog" aria-modal="true" aria-labelledby="create-user-title" className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+          <div ref={createModalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="create-user-title" className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
             {createSuccess ? (
               <div className="p-6 sm:p-8">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
@@ -1222,7 +1231,7 @@ export default function Users() {
 
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div ref={editModalRef} role="dialog" aria-modal="true" aria-labelledby="edit-user-title" className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl sm:p-6">
+          <div ref={editModalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="edit-user-title" className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 id="edit-user-title" className="text-xl font-semibold text-slate-900">
@@ -1274,7 +1283,7 @@ export default function Users() {
                     <>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Email <span className="text-rose-600">*</span></label>
                       <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} disabled={!canEditEmail} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
-                      <p className="mt-2 text-xs text-slate-500">{editingUser.has_clerk_account ? 'This activated account’s email and name are managed by Clerk.' : 'This email will receive the invitation.'}</p>
+                      <p className="mt-2 text-xs text-slate-500">{editingUser.has_clerk_account ? 'This activated account’s email and name are managed by Clerk.' : 'Invitation email address.'}</p>
                       {(editingUser.is_pending || (!editingUser.personal_access_enabled && !editingUser.has_clerk_account)) && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"><input type="checkbox" checked={editSendInvitation} onChange={(event) => setEditSendInvitation(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="text-sm text-slate-700">Send invitation when these changes are saved</span></label>}
                     </>
                   ) : (
@@ -1346,6 +1355,9 @@ export default function Users() {
                 </p>
               </div>
 
+              <details className="rounded-2xl border border-slate-200 p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-900">Public website profile</summary>
+                <p className="mt-2 text-xs text-slate-500">Website visibility, public name and photo are separate from employee access and time tracking.</p>
               <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
                 <label className="flex cursor-pointer items-start gap-3">
                   <input
@@ -1539,6 +1551,7 @@ export default function Users() {
                   </div>
                 )}
               </div>
+              </details>
 
               {editTimeTracking ? (
                 <section className="rounded-2xl border border-slate-200 p-4 sm:p-5">
@@ -1623,7 +1636,7 @@ export default function Users() {
 
       {terminationUser && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/65 p-4" role="presentation">
-          <div ref={terminationDialogRef} role="dialog" aria-modal="true" aria-labelledby="termination-modal-title" className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-7">
+          <div ref={terminationDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="termination-modal-title" className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-7">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-600">Preserve employment history</p>
@@ -1640,7 +1653,7 @@ export default function Users() {
             <div className="mt-6 space-y-4">
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Last day of employment</span>
-                <input data-termination-autofocus type="date" value={terminationEffectiveOn} max={formatDateISO(new Date())} onChange={(event) => setTerminationEffectiveOn(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                <input data-termination-autofocus type="date" value={terminationEffectiveOn} max={formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')} onChange={(event) => setTerminationEffectiveOn(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
               </label>
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Internal note <span className="font-normal text-slate-400">(optional)</span></span>
@@ -1666,7 +1679,7 @@ export default function Users() {
 
       {pinModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div ref={pinModalRef} role="dialog" aria-modal="true" aria-labelledby="pin-modal-title" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+          <div ref={pinModalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="pin-modal-title" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 id="pin-modal-title" className="text-xl font-semibold text-slate-900">Reset kiosk PIN</h2>

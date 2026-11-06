@@ -127,3 +127,39 @@ export function formatDateInTimeZoneISO(date: Date, timeZone: string): string {
   const value = (type: string) => parts.find((part) => part.type === type)?.value
   return `${value('year')}-${value('month')}-${value('day')}`
 }
+
+/** Business instants always use Guam, regardless of the device/server zone. */
+export const BUSINESS_TIME_ZONE = 'Pacific/Guam'
+
+export function businessDateISO(now: Date = new Date()): string {
+  return formatDateInTimeZoneISO(now, BUSINESS_TIME_ZONE)
+}
+
+// A date-only value is a calendar label, not an instant. Use UTC solely as an
+// arithmetic/formatting container so host offsets and DST cannot change it.
+function dateOnly(date: string): Date {
+  return new Date(`${date}T00:00:00Z`)
+}
+
+export function addDateDays(date: string, days: number): string {
+  const value = dateOnly(date)
+  value.setUTCDate(value.getUTCDate() + days)
+  return value.toISOString().slice(0, 10)
+}
+
+export function businessWeekStart(date: string = businessDateISO()): string {
+  return addDateDays(date, -dateOnly(date).getUTCDay())
+}
+
+export function formatDateOnly(date: string, options: Intl.DateTimeFormatOptions): string {
+  return dateOnly(date).toLocaleDateString('en-US', { ...options, timeZone: 'UTC' })
+}
+
+export function formatBusinessTime(instant: string | Date): string {
+  return new Date(instant).toLocaleTimeString('en-US', {
+    timeZone: BUSINESS_TIME_ZONE,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}

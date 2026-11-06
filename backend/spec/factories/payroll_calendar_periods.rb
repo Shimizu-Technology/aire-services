@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../support/payroll_clock_helpers"
+
 FactoryBot.define do
   factory :payroll_calendar_period do
     transient do
@@ -7,7 +9,7 @@ FactoryBot.define do
     end
 
     sequence(:external_pay_period_id) { |number| "cornerstone-period-#{number}" }
-    start_date { Date.new(2026, 10, 1).next_month(period_number - 1) }
+    start_date { PayrollClockHelpers.future_payroll_month.next_month(period_number - 1) }
     end_date { start_date.change(day: 15) }
     pay_date { start_date.next_month.change(day: 10) }
     cutoff_at { ActiveSupport::TimeZone["Pacific/Guam"].local(pay_date.year, pay_date.month, pay_date.day, 17) - 7.days }

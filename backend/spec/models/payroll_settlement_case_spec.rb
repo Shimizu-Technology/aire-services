@@ -3,6 +3,31 @@
 require "rails_helper"
 
 RSpec.describe PayrollSettlementCase do
+  it "reads audit history chronologically with insertion order breaking timestamp ties" do
+    settlement_case = create(:payroll_settlement_case)
+    opened_at = Time.iso8601("2026-10-24T08:00:00Z")
+    create_event = lambda do |type, time|
+      settlement_case.payroll_settlement_case_events.create!(
+        event_id: SecureRandom.uuid, event_type: type, to_status: type == "opened" ? "open" : "scheduled", occurred_at: time
+      )
+    end
+    changed = create_event.call("approval_changed", opened_at + 1.minute)
+    opened = create_event.call("opened", opened_at)
+    routed = create_event.call("routed", opened_at)
+    expected_ids = [ opened.id, routed.id, changed.id ]
+
+    aggregate_failures do
+      expect(settlement_case.payroll_settlement_case_events.reload.map(&:id)).to eq(expected_ids)
+      expect(settlement_case.payroll_settlement_case_events.pluck(:id)).to eq(expected_ids)
+      preloaded = described_class.includes(:payroll_settlement_case_events).find(settlement_case.id)
+      expect(preloaded.payroll_settlement_case_events.map(&:id)).to eq(expected_ids)
+      expect(Payroll::SettlementCaseSerializer.new(preloaded, source_time_entry: nil).as_json.fetch(:events)
+        .map { |event| event.fetch(:event_id) }).to eq([ opened.event_id, routed.event_id, changed.event_id ])
+      expect(PayrollSettlementCaseEvent.where(id: expected_ids).order(:id).pluck(:occurred_at))
+        .to eq([ changed.occurred_at, opened.occurred_at, routed.occurred_at ])
+    end
+  end
+
   it "requires a named period for regular routing and a named run for supplemental routing" do
     settlement_case = build(:payroll_settlement_case, destination_kind: "regular", status: "scheduled")
     expect(settlement_case).not_to be_valid

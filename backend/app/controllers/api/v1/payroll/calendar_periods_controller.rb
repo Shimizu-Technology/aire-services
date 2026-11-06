@@ -10,10 +10,13 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :period_not_found
 
         def index
-          periods = PayrollCalendarPeriod.order(start_date: :desc).limit(100)
+          periods = PayrollCalendarPeriod.includes(:payroll_batch).order(start_date: :desc).limit(100)
+          rollout = PayrollLockRollout.find_by(id: 1)
+          next_cutoff = PayrollCalendarPeriod.next_scheduled_cutoff_at(rollout: rollout)
           render json: {
+            next_scheduled_cutoff_at: next_cutoff,
             schema_version: ::Payroll::CalendarPeriodPublisher::SCHEMA_VERSION,
-            payroll_calendar_periods: periods.map(&:as_contract_json)
+            payroll_calendar_periods: periods.map { |period| period.as_contract_json(rollout: rollout, next_scheduled_cutoff_at: next_cutoff) }
           }
         end
 
@@ -39,6 +42,8 @@ module Api
             payroll_calendar_period: result.period.as_contract_json,
             idempotent: result.idempotent
           }, status: result.created ? :created : :ok
+        rescue PayrollLockRollout::NotConfiguredError => e
+          render json: { error: e.message }, status: :service_unavailable
         rescue ArgumentError, ActiveRecord::RecordInvalid => e
           message = e.respond_to?(:record) ? e.record.errors.full_messages.join(", ") : e.message
           render json: { error: message }, status: :unprocessable_entity
@@ -57,16 +62,30 @@ module Api
         end
 
         def calendar_params
+          if params[:overtime_policy].present?
+            raise ArgumentError, "overtime_policy must be an object" unless params[:overtime_policy].respond_to?(:keys)
+
+            allowed = ::Payroll::WeeklyOvertimeAllocator.configured_policy.keys.map(&:to_s)
+            if (params[:overtime_policy].keys - allowed).any?
+              raise ArgumentError, "overtime_policy contains unsupported fields"
+            end
+          end
           params.permit(
             :schema_version,
+            :lock_mode,
+            :cutoff_enforcement_starts_on,
             :start_date,
             :end_date,
             :pay_date,
             :cutoff_at,
             :time_zone,
             :cutoff_days_before,
+            :cutoff_rule,
+            :cutoff_days,
+            :previous_regular_pay_date,
             :schedule_version,
-            :publication_id
+            :publication_id,
+            overtime_policy: %i[schema_version calculation weekly_threshold_hours workweek_start time_zone]
           )
         end
       end

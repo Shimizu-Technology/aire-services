@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import WhosWorking from './WhosWorking'
@@ -62,6 +62,16 @@ describe('WhosWorking refresh strategy', () => {
     vi.useRealTimers()
   })
 
+  it('shows an 08:00 Guam punch regardless of the device timezone', async () => {
+    mocks.getWhosWorking.mockResolvedValue({ data: { workers: [{
+      user: { id: 7, display_name: 'Guam Worker', full_name: 'Guam Worker', email: 'guam@example.test' },
+      status: 'clocked_in', clock_in_at: '2026-10-24T22:00:00Z',
+      total_hours_today: 1, breaks: [],
+    }] } })
+    render(<WhosWorking alwaysShow />)
+    expect(await screen.findByText('In since 8:00 AM')).toBeInTheDocument()
+  })
+
   it('uses cable events while connected and restores polling after disconnect', async () => {
     render(<WhosWorking alwaysShow />)
 
@@ -80,4 +90,13 @@ describe('WhosWorking refresh strategy', () => {
     await act(() => vi.advanceTimersByTimeAsync(60_000))
     expect(mocks.getWhosWorking).toHaveBeenCalledTimes(3)
   })
+  it('shows returned failures and can retry instead of claiming nobody is working', async () => {
+    mocks.getWhosWorking.mockResolvedValueOnce({ error: 'Unavailable' })
+    render(<WhosWorking alwaysShow />)
+    await screen.findByText('Unable to load team status')
+    expect(screen.queryByText('No one is working or scheduled today')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await screen.findByText('No one is working or scheduled today')
+  })
+
 })

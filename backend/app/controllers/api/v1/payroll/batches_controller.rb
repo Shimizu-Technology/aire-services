@@ -10,7 +10,7 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :batch_not_found
 
         def index
-          scope = PayrollBatch.order(finalized_at: :desc)
+          scope = PayrollBatch.regular.includes(:payroll_calendar_period).order(finalized_at: :desc)
           scope = scope.where(start_date: Date.iso8601(params[:start_date])) if params[:start_date].present?
           scope = scope.where(end_date: Date.iso8601(params[:end_date])) if params[:end_date].present?
           batches = scope.limit(100).to_a
@@ -35,8 +35,8 @@ module Api
                 id: batch.public_id,
                 start_date: batch.start_date.iso8601,
                 end_date: batch.end_date.iso8601,
-                cutoff_at: batch.cutoff_at.iso8601,
-                finalized_at: batch.finalized_at.iso8601,
+                cutoff_at: batch.contract_cutoff_at,
+                finalized_at: batch.contract_finalized_at,
                 checksum: batch.checksum,
                 summary: batch.summary
               }
@@ -48,6 +48,8 @@ module Api
 
         def show
           batch = PayrollBatch.find_by!(public_id: params[:id])
+          return render json: { error: "This supplemental claim was canceled before application", status: "canceled" }, status: :gone if batch.late_hours_canceled?
+
           AuditLog.record!(
             action: "payroll_batch.retrieved",
             actor: nil,
@@ -60,6 +62,10 @@ module Api
           render json: batch.export_payload
         end
 
+        def obligation_events
+          processing_events
+        end
+
         def processing_events
           batch = PayrollBatch.find_by!(public_id: params[:id])
           permitted = params.permit(
@@ -70,10 +76,18 @@ module Api
             :external_pay_period_id,
             :external_payroll_item_id,
             :source_time_entry_id,
+            :contract_version,
+            :source_line_key,
+            :source_kind,
+            :total_hours,
+            :regular_hours,
+            :overtime_hours,
             :source_user_uuid,
             :payment_method,
             :payment_reference,
-            metadata: {}
+            :payment_effective_on,
+            metadata: {},
+            obligation_correction: {}
           )
           occurred_at = begin
             Time.iso8601(permitted.fetch(:occurred_at))
@@ -81,9 +95,15 @@ module Api
             return render json: { error: e.message }, status: :unprocessable_entity
           end
           metadata = permitted[:metadata]&.to_h || {}
+          if action_name == "obligation_events" && permitted[:source_time_entry_id].blank?
+            return render json: { error: "Obligation receipts require an exact frozen line" }, status: :unprocessable_entity
+          end
 
           if permitted[:source_time_entry_id].present?
             return record_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata)
+          end
+          if batch.payload["purpose"] == "supplemental"
+            return render json: { error: "Supplemental payroll requires exact frozen line receipts" }, status: :unprocessable_entity
           end
 
           event = PayrollBatchProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
@@ -136,8 +156,36 @@ module Api
         private
 
         def record_entry_processing_event(batch, permitted, occurred_at:, metadata:)
-          source_time_entry_id = Integer(permitted.fetch(:source_time_entry_id), 10)
-          batch_entry = batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)
+          return record_frozen_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata) unless batch.payload["purpose"] == "supplemental"
+
+          PayrollBatch.transaction do
+            connection = ActiveRecord::Base.connection
+            connection.execute("SET LOCAL lock_timeout = '5s'")
+            connection.execute("SELECT pg_advisory_xact_lock(#{::Payroll::BatchFinalizer::ADVISORY_LOCK_KEY})")
+            if batch.late_hours_canceled?
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "This supplemental claim was canceled before application"
+            end
+            record_frozen_entry_processing_event(batch, permitted, occurred_at: occurred_at, metadata: metadata)
+          end
+        rescue ::Payroll::EntryProcessingSummary::LineConflictError, ActiveRecord::LockWaitTimeout => e
+          render json: { error: e.message }, status: :conflict
+        end
+
+        def record_frozen_entry_processing_event(batch, permitted, occurred_at:, metadata:)
+          if batch.payload["purpose"] == "supplemental"
+            unless permitted[:external_system] == "cornerstone_payroll" &&
+                permitted[:contract_version] == PayrollEntryProcessingEvent::LINE_CONTRACT_VERSION &&
+                permitted[:source_user_uuid].present? && permitted[:external_payroll_item_id].present?
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Supplemental receipts require the named payroll and exact frozen line contract"
+            end
+            if permitted[:status] == "payment_issued" &&
+                (!permitted[:payment_method].in?(%w[paper_check direct_deposit]) || permitted[:payment_reference].blank?)
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Supplemental issuance requires exact payment evidence"
+            end
+          end
+          source_time_entry_id = parse_source_time_entry_id(permitted.fetch(:source_time_entry_id))
+          line_attributes = payable_line_attributes!(batch, source_time_entry_id, permitted)
+          batch_entry = line_attributes.delete(:batch_entry) || batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id)
           source_user_uuid = permitted[:source_user_uuid].to_s.strip.downcase.presence
           if source_user_uuid.present? && batch_entry.source_user_uuid.present? &&
              source_user_uuid != batch_entry.source_user_uuid.to_s
@@ -145,10 +193,36 @@ module Api
           end
 
           event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
+          metadata = entry_processing_metadata(permitted, metadata, existing: event)
           created = false
           unless event
             begin
-              PayrollEntryProcessingEvent.transaction do
+              PayrollEntryProcessingEvent.transaction(requires_new: true) do
+                # Every receipt for this exact frozen line shares its lock, so
+                # cancellation cannot race a replacement's issue receipt.
+                ::Payroll::AffectedOvertimeReview.lock_users!([
+                  batch_entry.source_user_id,
+                  TimeEntry.where(id: source_time_entry_id).pick(:user_id)
+                ])
+                batch_entry.lock!
+                event = PayrollEntryProcessingEvent.find_by(event_id: permitted.fetch(:event_id))
+                next if event
+
+                validate_supplemental_owner!(batch, batch_entry, permitted) if batch.payload["purpose"] == "supplemental"
+                correction = ::Payroll::ObligationCorrectionRecorder.call!(row: batch_entry, attributes: permitted, occurred_at: occurred_at)
+                if receipt_endpoint_mismatch?(correction)
+                  raise ::Payroll::EntryProcessingSummary::LineConflictError, "Validated obligation receipts require the dedicated obligation endpoint"
+                end
+                ::Payroll::PaymentCancellationValidator.call!(
+                  batch_entry: batch_entry, attributes: permitted, occurred_at: occurred_at,
+                  metadata: metadata, source_user_uuid: source_user_uuid
+                ) if permitted[:status] == "payment_cancelled"
+                if permitted[:status].in?(%w[payment_prepared payment_issued])
+                  ::Payroll::PaymentCancellationValidator.validate_replacement!(
+                    batch_entry: batch_entry, attributes: permitted, occurred_at: occurred_at,
+                    source_user_uuid: source_user_uuid
+                  )
+                end
                 event = PayrollEntryProcessingEvent.create!(
                   event_id: permitted.fetch(:event_id),
                   payroll_batch: batch,
@@ -159,6 +233,8 @@ module Api
                   external_system: permitted.fetch(:external_system),
                   external_pay_period_id: permitted[:external_pay_period_id],
                   external_payroll_item_id: permitted[:external_payroll_item_id],
+                  **line_attributes,
+                  payroll_obligation_correction: correction,
                   payment_method: permitted[:payment_method],
                   payment_reference: permitted[:payment_reference],
                   metadata: metadata
@@ -179,14 +255,36 @@ module Api
                     external_system: event.external_system,
                     external_pay_period_id: event.external_pay_period_id,
                     external_payroll_item_id: event.external_payroll_item_id,
+                    obligation_correction_binding_id: event.payroll_obligation_correction_id,
+                    contract_version: event.contract_version,
+                    source_line_key: event.source_line_key,
+                    source_kind: event.source_kind,
+                    total_hours: event.total_hours,
+                    regular_hours: event.regular_hours,
+                    overtime_hours: event.overtime_hours,
                     payment_method: event.payment_method,
                     payment_reference: event.payment_reference
                   }.compact
                 )
+                created = true
               end
-              created = true
             rescue ActiveRecord::RecordNotUnique
               event = PayrollEntryProcessingEvent.find_by!(event_id: permitted.fetch(:event_id))
+            end
+          end
+
+          binding = event.payroll_obligation_correction
+          if receipt_endpoint_mismatch?(binding)
+            raise ::Payroll::EntryProcessingSummary::LineConflictError, "Receipt endpoint does not match its immutable binding"
+          end
+          if binding && event.status == "committed" && permitted[:obligation_correction].blank?
+            raise ::Payroll::EntryProcessingSummary::LineConflictError, "Correction commit replay requires its original typed command"
+          end
+          if permitted[:obligation_correction].present?
+            command = permitted[:obligation_correction].to_h.deep_stringify_keys
+            digest = ::Payroll::ObligationCorrectionRecorder.digest_for(attributes: permitted, occurred_at: occurred_at)
+            unless binding && binding.command == command && binding.request_digest == digest
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Correction replay differs from its immutable binding"
             end
           end
 
@@ -202,9 +300,15 @@ module Api
             return render json: { error: "Event ID already belongs to a different processing event" }, status: :conflict
           end
 
-          render json: { entry_processing: serialize_entry_processing_event(event) }, status: created ? :created : :ok
-        rescue ArgumentError
-          render json: { error: "source_time_entry_id must be an integer" }, status: :unprocessable_entity
+          body = { entry_processing: serialize_entry_processing_event(event) }
+          body[:replayed] = !created if batch.payload["purpose"] == "supplemental"
+          body[:obligation_correction] = event.payroll_obligation_correction.receipt if event.payroll_obligation_correction
+          body[:integration] = ::Payroll::IntegrationProfile.call if event.line_contract? || event.status == "payment_cancelled"
+          render json: body, status: created ? :created : :ok
+        rescue ArgumentError => e
+          render json: { error: e.message }, status: :unprocessable_entity
+        rescue ::Payroll::EntryProcessingSummary::LineConflictError => e
+          render json: { error: e.message }, status: :conflict
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Payroll batch entry not found" }, status: :not_found
         end
@@ -218,6 +322,26 @@ module Api
             event.metadata == metadata
         end
 
+        def receipt_endpoint_mismatch?(binding)
+          (action_name == "obligation_events") != binding.present?
+        end
+
+        def validate_supplemental_owner!(batch, row, permitted)
+          if permitted[:obligation_correction].present?
+            command = permitted[:obligation_correction]
+            assertion = command[:financial_assertion] if command.respond_to?(:key?)
+            unless assertion.respond_to?(:key?) && assertion[:root_pay_period_id] == batch.payload["target_external_pay_period_id"]
+              raise ::Payroll::EntryProcessingSummary::LineConflictError, "Correction root does not match the original supplemental payroll"
+            end
+            return # The typed recorder validates the immutable predecessor/successor chain under the row lock.
+          end
+          owner = PayrollObligationCorrection.where(payroll_batch_entry: row).order(:id).last
+          expected_period = owner&.successor_pay_period_id || batch.payload["target_external_pay_period_id"]
+          unless permitted[:external_pay_period_id] == expected_period && (!owner || permitted[:external_payroll_item_id] == owner.successor_payroll_item_id)
+            raise ::Payroll::EntryProcessingSummary::LineConflictError, "Supplemental receipts require the named payroll or its validated current corrective owner"
+          end
+        end
+
         def same_entry_processing_event?(event, batch, permitted, occurred_at:, metadata:, source_time_entry_id:, source_user_uuid:)
           event.payroll_batch_id == batch.id &&
             event.source_time_entry_id == source_time_entry_id &&
@@ -226,10 +350,41 @@ module Api
             event.external_system == permitted[:external_system] &&
             event.external_pay_period_id.to_s == permitted[:external_pay_period_id].to_s &&
             event.external_payroll_item_id.to_s == permitted[:external_payroll_item_id].to_s &&
+            event.contract_version.to_s == permitted[:contract_version].to_s &&
+            event.source_line_key.to_s == permitted[:source_line_key].to_s &&
+            event.source_kind.to_s == permitted[:source_kind].to_s &&
+            decimal_string(event.total_hours) == decimal_string(permitted[:total_hours]) &&
+            decimal_string(event.regular_hours) == decimal_string(permitted[:regular_hours]) &&
+            decimal_string(event.overtime_hours) == decimal_string(permitted[:overtime_hours]) &&
             event.payment_method.to_s == permitted[:payment_method].to_s &&
             event.payment_reference.to_s == permitted[:payment_reference].to_s &&
             normalized_entry_processing_time(event.occurred_at) == normalized_entry_processing_time(occurred_at) &&
-            event.metadata == metadata
+            comparable_entry_metadata(event.metadata, event.status) == comparable_entry_metadata(metadata, event.status)
+        end
+
+        def comparable_entry_metadata(metadata, status)
+          status == "payment_cancelled" ? metadata.except("original_payment_effective_on_known", "original_payment_effective_on") : metadata
+        end
+
+        def entry_processing_metadata(permitted, metadata, existing:)
+          metadata = comparable_entry_metadata(metadata, permitted[:status])
+          return metadata unless permitted.key?(:payment_effective_on)
+          # Older ordinary receipts ignored this transport field. Replaying
+          # their saved payload must preserve the unknown immutable date.
+          if existing && existing.status != "payment_cancelled" && existing.metadata["payment_effective_on"].blank? &&
+             metadata["payment_effective_on"].blank?
+            return metadata
+          end
+          value = permitted[:payment_effective_on]
+          if value.present? && (!value.is_a?(String) || Date.iso8601(value).iso8601 != value)
+            raise ArgumentError, "Payment date must use YYYY-MM-DD"
+          end
+          if metadata.key?("payment_effective_on") && metadata["payment_effective_on"].to_s != value.to_s
+            raise ArgumentError, "Payment date transport conflicts with receipt metadata"
+          end
+          metadata.merge("payment_effective_on" => value.presence)
+        rescue Date::Error
+          raise ArgumentError, "Payment date must use YYYY-MM-DD"
         end
 
         def serialize_entry_processing_event(event)
@@ -238,13 +393,20 @@ module Api
             source_time_entry_id: event.source_time_entry_id.to_s,
             source_user_uuid: event.source_user_uuid,
             status: event.status,
-            occurred_at: event.occurred_at.iso8601,
+            occurred_at: event.occurred_at.iso8601(event.line_contract? || event.status == "payment_cancelled" ? 6 : 0),
             external_system: event.external_system,
             external_pay_period_id: event.external_pay_period_id,
             external_payroll_item_id: event.external_payroll_item_id,
+            contract_version: event.contract_version,
+            source_line_key: event.source_line_key,
+            source_kind: event.source_kind,
+            total_hours: event.total_hours&.to_s,
+            regular_hours: event.regular_hours&.to_s,
+            overtime_hours: event.overtime_hours&.to_s,
             payment_method: event.payment_method,
-            payment_reference: event.payment_reference
-          }.compact
+            payment_reference: event.payment_reference,
+            metadata: event.metadata
+          }.compact.merge(payment_effective_on: event.metadata["payment_effective_on"])
         end
 
         def normalized_processing_time(value)
@@ -255,6 +417,64 @@ module Api
         def normalized_entry_processing_time(value)
           precision = PayrollEntryProcessingEvent.columns_hash.fetch("occurred_at").precision || 6
           value.to_time.utc.floor(precision)
+        end
+
+        def parse_source_time_entry_id(value)
+          Integer(value, 10)
+        rescue ArgumentError, TypeError
+          raise ArgumentError, "source_time_entry_id must be an integer"
+        end
+
+        def payable_line_attributes!(batch, source_time_entry_id, permitted)
+          version = permitted[:contract_version].presence
+          line_values = permitted.values_at(:source_line_key, :source_kind, :total_hours, :regular_hours, :overtime_hours)
+          if version.nil?
+            raise ArgumentError, "contract_version is required for payable-line fields" if line_values.any?(&:present?)
+            return {}
+          end
+          unless version == PayrollEntryProcessingEvent::LINE_CONTRACT_VERSION
+            raise ArgumentError, "Unsupported entry processing contract version"
+          end
+
+          line_key = permitted.fetch(:source_line_key).to_s
+          raise ArgumentError, "source_line_key is required" if line_key.blank?
+          batch_entry = batch.payroll_batch_entries.find_by!(source_time_entry_id: source_time_entry_id, line_key: line_key)
+          attributes = {
+            contract_version: version,
+            source_line_key: line_key,
+            source_kind: permitted.fetch(:source_kind).to_s,
+            total_hours: parse_hours(permitted.fetch(:total_hours)),
+            regular_hours: parse_hours(permitted.fetch(:regular_hours)),
+            overtime_hours: parse_hours(permitted.fetch(:overtime_hours))
+          }
+          expected = {
+            source_kind: batch_entry.source_kind,
+            total_hours: batch_entry.total_hours,
+            regular_hours: batch_entry.regular_hours,
+            overtime_hours: batch_entry.overtime_hours
+          }
+          unless attributes.slice(*expected.keys) == expected
+            raise ::Payroll::EntryProcessingSummary::LineConflictError,
+                  "Payable-line hours or source kind do not match the finalized AIRE batch"
+          end
+
+          attributes.merge(batch_entry: batch_entry)
+        rescue KeyError
+          raise ArgumentError, "Complete payable-line identity and hours are required"
+        end
+
+        def parse_hours(value)
+          BigDecimal(value.to_s).round(2)
+        rescue ArgumentError
+          raise ArgumentError, "Payable-line hours must be numbers"
+        end
+
+        def decimal_string(value)
+          return "" if value.blank?
+
+          BigDecimal(value.to_s).round(2).to_s("F")
+        rescue ArgumentError
+          value.to_s
         end
 
         def batch_not_found

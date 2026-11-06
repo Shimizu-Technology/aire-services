@@ -1,11 +1,13 @@
+import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import { useState, useEffect, useCallback } from 'react'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
+import { businessDateISO, businessWeekStart } from '../../lib/dateUtils'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeEntry } from '../../lib/api'
-import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, withPayrollPeriod } from '../../lib/payrollPeriods'
+import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, payrollPreparationPeriod, withPayrollPeriod } from '../../lib/payrollPeriods'
 
 const actionLinks = [
   {
@@ -45,14 +47,8 @@ const actionLinks = [
   },
 ]
 
-function formatDateISO(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
 function formatWeekStart(date: Date): string {
-  const d = new Date(date)
-  d.setDate(d.getDate() - d.getDay())
-  return formatDateISO(d)
+  return businessWeekStart(businessDateISO(date))
 }
 
 export default function Dashboard() {
@@ -66,11 +62,11 @@ export default function Dashboard() {
 }
 
 function EmployeeDashboard() {
-  const [mySchedule, setMySchedule] = useState<{ work_date: string; formatted_start_time: string; formatted_end_time: string; hours: number; notes?: string | null }[]>([])
+  const [mySchedule, setMySchedule] = useState<{ work_date: string; formatted_start_time: string; formatted_end_time: string; hours: number; notes?: string | null; approved_leave_conflict?: boolean }[]>([])
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([])
   const [loadingTodayEntries, setLoadingTodayEntries] = useState(true)
 
-  const todayStr = formatDateISO(new Date())
+  const todayStr = businessDateISO()
   const loadDashboardData = useCallback(async () => {
     try {
       const [scheduleRes, entriesRes] = await Promise.all([
@@ -93,6 +89,7 @@ function EmployeeDashboard() {
 
   return (
     <div className="space-y-6">
+      <PayrollCutoffNotice />
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">AIRE Ops</p>
         <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">My Dashboard</h1>
@@ -152,7 +149,7 @@ function EmployeeDashboard() {
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-4">
           <h2 className="text-lg font-semibold text-slate-900">My Upcoming Schedule</h2>
-          <p className="mt-0.5 text-sm text-slate-500">Your shifts for the next two weeks.</p>
+          <p className="mt-0.5 text-sm text-slate-500">Your upcoming shifts.</p>
         </div>
         <div className="divide-y divide-slate-100">
           {mySchedule.length === 0 ? (
@@ -167,6 +164,7 @@ function EmployeeDashboard() {
                       {new Date(s.work_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                       {isToday && <span className="ml-2 rounded-full bg-cyan-100 px-2 py-0.5 text-xs font-medium text-cyan-700">Today</span>}
                     </p>
+                    {s.approved_leave_conflict && <p className="mt-1 text-sm font-medium text-amber-800">Approved leave overlaps this shift. Check with your scheduler.</p>}
                     {s.notes && <p className="mt-0.5 text-xs text-slate-500">{s.notes}</p>}
                   </div>
                   <div className="text-right">
@@ -223,58 +221,81 @@ function EmployeeDashboard() {
 }
 
 function AdminDashboard() {
-  const payrollPeriod = currentPayrollPeriod()
+  const [payrollPeriod, setPayrollPeriod] = useState(currentPayrollPeriod)
+  const [snapshotError, setSnapshotError] = useState<string | null>(null)
+  const [snapshotAt, setSnapshotAt] = useState<Date | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
   const [stats, setStats] = useState({
     activeCount: 0,
     pendingApprovals: 0,
     scheduledToday: 0,
     weeklyHours: 0,
     totalMembers: 0,
-    pendingApprovalHours: 0,
+    periodPendingApprovals: 0,
+    periodApprovalHours: 0,
     payrollFinalizedThrough: null as string | null,
   })
 
   const loadStats = useCallback(async () => {
+    setStatsLoading(true)
     try {
-      const [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes] = await Promise.all([
+      const [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes, cutoffRes] = await Promise.all([
         api.getWhosWorking(),
         api.getPendingApprovals(),
         api.getSchedules({ week: formatWeekStart(new Date()) }),
         api.getUsers(),
         api.getPayrollBatches(),
+        api.getPayrollCutoff(),
       ])
 
+      const failure = [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes, cutoffRes].find((result) => result.error || !result.data)
+      if (failure) {
+        setSnapshotError(failure.error || 'Dashboard snapshot unavailable')
+        return
+      }
+      const preparationPeriod = payrollPreparationPeriod(cutoffRes.data, payrollRes.data?.payroll_batches ?? [])
+      const periodApprovals = await api.getPendingApprovals({ start_date: preparationPeriod.start, end_date: preparationPeriod.end, per_page: 1 })
+      if (periodApprovals.error || !periodApprovals.data) {
+        setSnapshotError(periodApprovals.error || 'Payroll-period approvals unavailable')
+        return
+      }
       const workers = workersRes.data?.workers ?? []
       const active = workers.filter(
         (w) => w.status === 'clocked_in' || w.status === 'on_break',
       ).length
 
-      const todayStr = formatDateISO(new Date())
+      const todayStr = businessDateISO()
       const schedules = schedulesRes.data?.schedules ?? []
       const todaySchedules = schedules.filter((s) => s.work_date === todayStr)
       const weeklyHours = schedules.reduce((sum, s) => sum + s.hours, 0)
 
+      setPayrollPeriod(preparationPeriod)
       setStats({
+        periodPendingApprovals: periodApprovals.data.summary?.entry_count ?? periodApprovals.data.count,
+        periodApprovalHours: periodApprovals.data.summary?.total_hours ?? 0,
         activeCount: active,
         pendingApprovals: approvalsRes.data?.count ?? 0,
         scheduledToday: todaySchedules.length,
         weeklyHours,
         totalMembers: usersRes.data?.users.length ?? 0,
-        pendingApprovalHours: approvalsRes.data?.summary?.total_hours ?? 0,
         payrollFinalizedThrough: greatestPayrollEndDate(payrollRes.data?.payroll_batches ?? []),
       })
+      setSnapshotError(null)
+      setSnapshotAt(new Date())
     } catch {
-      // Dashboard stats are best-effort
+      setSnapshotError('Dashboard snapshot unavailable')
+    } finally {
+      setStatsLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- data-fetch pattern; setState is in async callback
     loadStats()
   }, [loadStats])
 
   return (
     <div className="space-y-8">
+      <PayrollCutoffNotice />
       <div>
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -283,7 +304,7 @@ function AdminDashboard() {
           </div>
           <div className="hidden shrink-0 items-center gap-2 sm:flex">
             <Link
-              to={withPayrollPeriod('/admin/payroll', payrollPeriod)}
+              to={withPayrollPeriod('/admin/payroll', payrollPeriod)} aria-disabled={!snapshotAt} onClick={event => { if (!snapshotAt) event.preventDefault() }}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
               Prepare Payroll
@@ -301,7 +322,7 @@ function AdminDashboard() {
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2 sm:hidden">
           <Link
-            to={withPayrollPeriod('/admin/payroll', payrollPeriod)}
+            to={withPayrollPeriod('/admin/payroll', payrollPeriod)} aria-disabled={!snapshotAt} onClick={event => { if (!snapshotAt) event.preventDefault() }}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
             Prepare Payroll
@@ -315,6 +336,12 @@ function AdminDashboard() {
         </div>
       </div>
 
+      {snapshotError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+        <p>{snapshotError}. {snapshotAt ? `Showing the last successful snapshot from ${snapshotAt.toLocaleTimeString()}. Refresh before making payroll decisions.` : 'Counts and payroll readiness are unavailable.'}</p>
+        <button type="button" disabled={statsLoading} onClick={loadStats} className="mt-2 min-h-11 underline disabled:opacity-50">Retry dashboard snapshot</button>
+      </div>}
+      {!snapshotAt && !snapshotError && <p role="status">Loading dashboard snapshot…</p>}
+      {snapshotAt && <>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Active Right Now" value={stats.activeCount.toString()} sublabel="Staff currently clocked in or on break" accent />
         <StatCard label="Pending Approvals" value={stats.pendingApprovals.toString()} sublabel="Manual entries or overtime waiting on admin review" accent />
@@ -335,18 +362,19 @@ function AdminDashboard() {
               </p>
             </div>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              {stats.pendingApprovals > 0
-                ? `${stats.pendingApprovals} approval${stats.pendingApprovals === 1 ? '' : 's'} covering ${stats.pendingApprovalHours.toFixed(2)} hours still need review. Pending work can remain tracked and excluded when you finalize.`
+              {stats.periodPendingApprovals > 0
+                ? `${stats.periodPendingApprovals} approval${stats.periodPendingApprovals === 1 ? '' : 's'} covering ${stats.periodApprovalHours.toFixed(2)} hours still need review. Pending work can remain tracked and excluded when you finalize.`
                 : 'No approvals are currently waiting. Preview the cutoff to confirm included hours, exclusions, and any blocking payroll data.'}
             </p>
           </div>
           <div className="flex flex-col justify-center gap-3 border-t border-primary/10 bg-primary/5 p-5 sm:flex-row lg:flex-col lg:border-l lg:border-t-0">
-            <Link to={withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals', through_date: payrollPeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/20 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Review approvals</Link>
-            <Link to={withPayrollPeriod('/admin/payroll', payrollPeriod)} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Prepare payroll cutoff</Link>
+            <Link to={withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals' })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/20 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Review approvals</Link>
+            <Link to={withPayrollPeriod('/admin/payroll', payrollPeriod)} aria-disabled={!snapshotAt} onClick={event => { if (!snapshotAt) event.preventDefault() }} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Prepare payroll cutoff</Link>
           </div>
         </div>
       </section>
 
+      </>}
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
@@ -355,6 +383,7 @@ function AdminDashboard() {
           </div>
           <button
             onClick={loadStats}
+            disabled={statsLoading}
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
           >
             Refresh snapshot
@@ -389,7 +418,7 @@ function AdminDashboard() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      {snapshotAt && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">Current Team Snapshot</p>
         <div className="mt-3 grid grid-cols-2 gap-6 sm:grid-cols-4">
           <div>
@@ -401,7 +430,7 @@ function AdminDashboard() {
             <p className="mt-1 text-2xl font-bold text-slate-900">{stats.pendingApprovals}</p>
           </div>
         </div>
-      </section>
+      </section>}
     </div>
   )
 }

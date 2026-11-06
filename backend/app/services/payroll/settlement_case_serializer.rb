@@ -81,6 +81,24 @@ module Payroll
     end
 
     def processing_status
+      batch = settlement_case.included_payroll_batch
+      if batch&.payload&.fetch("purpose", nil) == "supplemental"
+        rows = batch.payroll_batch_entries.select { |row| row.source_time_entry_id == settlement_case.source_time_entry_id }
+        events = batch.payroll_entry_processing_events.select { |event| event.source_time_entry_id == settlement_case.source_time_entry_id }
+        return EntryProcessingSummary.new(rows: rows, events: events).call
+      end
+      if batch && settlement_case.origin_reason.in?(%w[changed_after_cutoff deleted_after_cutoff])
+        rows = batch.payroll_batch_entries.select do |row|
+          row.source_time_entry_id == settlement_case.source_time_entry_id && row.source_user_id == settlement_case.source_user_id && row.source_user_uuid == settlement_case.source_user_uuid &&
+            row.snapshot.is_a?(Hash) && row.snapshot["version"] == settlement_case.source_time_entry_version
+        end
+        events = batch.payroll_entry_processing_events.select { |candidate| candidate.source_time_entry_id == settlement_case.source_time_entry_id }
+        summary = EntryProcessingSummary.new(rows: rows, events: events).call
+        if rows.one? && summary[:accounting_only]
+          line = summary.fetch(:lines).first
+          return line.slice(:status, :occurred_at, :external_pay_period_id, :external_payroll_item_id, :accounting_only, :accounting_correction, :label)
+        end
+      end
       event = settlement_case.payroll_settlement_case_events
         .select { |candidate| candidate.event_type.in?(SettlementCaseAcknowledger::EVENT_TYPES) }
         .max_by { |candidate| [ candidate.occurred_at, candidate.id ] }

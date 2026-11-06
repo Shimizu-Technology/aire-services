@@ -7,14 +7,27 @@ module Payroll
 
     class << self
       def prepare_for_period!(period)
+        LegacyHistoryCaseReview.call
         route_open_cases_to_period!(period)
       end
 
       def sync_finalized_periods!
+        begin
+          ManualBatchCorrectionReview.call
+          LegacyHistoryCaseReview.call
+        rescue StandardError => e
+          manual_review_error = e
+          Rails.logger.error("Manual batch correction review failed: #{e.class}: #{e.message}")
+          Rails.error.report(e, handled: true, severity: :error, context: { operation: "manual_batch_correction_review" })
+        end
         reconciliation_scope.includes(:payroll_batch).find_each do |period|
           begin
             record_missing_exclusion_cases!(period)
+            record_post_cutoff_deletions!(period)
             record_post_cutoff_entries!(period)
+            # A genuinely uncovered reservation still fails closed, but must
+            # not skip other reconciliation work for this frozen calendar.
+            ManualReservationRelease.record_for_period!(period: period, batch: period.payroll_batch)
             PayrollSettlementReconciliation.create_or_find_by!(payroll_calendar_period: period) do |marker|
               marker.reconciled_at = Time.current
             end
@@ -22,6 +35,7 @@ module Payroll
             report_reconciliation_failure(period, e)
           end
         end
+        raise manual_review_error if manual_review_error
       end
 
       def finalize_period!(period:, batch:, actor:)
@@ -63,6 +77,8 @@ module Payroll
           end
         end
 
+        ManualReservationRelease.record_for_period!(period: period, batch: batch, actor: actor)
+
         batch.payroll_batch_exclusions.order(:id).each do |exclusion|
           superseded = targeted.find { |settlement_case| settlement_case.source_time_entry_id == exclusion.source_time_entry_id }
           create_for_exclusion!(period: period, batch: batch, exclusion: exclusion, actor: actor, supersedes_case: superseded)
@@ -78,18 +94,68 @@ module Payroll
           .where("payroll_batches.end_date < ?", period.start_date)
           .lock
           .find_each do |settlement_case|
+            routing_event = settlement_case.payroll_settlement_case_events.where(event_type: %w[routed rerouted]).reorder(:id).last
+            opening_event = settlement_case.payroll_settlement_case_events.where(event_type: "opened").reorder(:id).last
+            next if !routing_event && opening_event&.metadata&.fetch("requires_explicit_routing", false)
+            next if routing_event&.metadata&.fetch("requires_explicit_routing", false)
+
             route_to_period!(settlement_case, period: period, actor: nil, reason: "Next published regular payroll")
           end
       end
 
+      def reopen_attestation_cases!(attestation:, actor:, reason:)
+        entry = TimeEntry.find_by(id: attestation.time_entry_id)
+        if entry
+          relevant_periods_for(entry, previous_work_date: attestation.work_date).each do |period|
+            next if PayrollSettlementCase.exists?(origin_payroll_batch: period.payroll_batch, source_time_entry_id: entry.id)
+            next if period.payroll_batch.payroll_batch_entries.exists?(source_time_entry_id: entry.id)
+
+            held_case = create_case!(
+              period: period, origin_batch: period.payroll_batch, source_time_entry_id: entry.id,
+              source_time_entry_version: entry.lock_version, source_user_id: entry.user_id,
+              source_user_uuid: entry.user&.payroll_integration_uuid, reason: "pending_payment_attestation",
+              work_date: attestation.work_date, held_hours: entry.hours.to_d, source_snapshot: snapshot_for(entry), actor: actor
+            )
+            if held_case.status == "open" && held_case.origin_reason == "pending_payment_attestation"
+              supersede_attestation_case!(held_case, attestation, actor)
+            end
+          end
+        end
+        PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id)
+          .lock.find_each do |settlement_case|
+          closing_event = settlement_case.payroll_settlement_case_events.reorder(:id).last
+          next unless closing_event&.event_type == "superseded" &&
+            closing_event.metadata["payment_attestation_id"].to_s == attestation.id.to_s
+          next if PayrollSettlementCase.active.exists?(
+            origin_payroll_batch: settlement_case.origin_payroll_batch,
+            source_time_entry_id: attestation.time_entry_id
+          )
+
+          require_explicit_attestation_review!(settlement_case, attestation, actor, reason)
+        end
+      end
+
+      def resolve_attestation_cases!(attestation:, actor:)
+        recorder = ManualAllocationRecorder.new(actor: actor)
+        PayrollSettlementCase.where(status: "superseded", source_time_entry_id: attestation.time_entry_id).lock.each do |settlement_case|
+          closing = settlement_case.payroll_settlement_case_events.reorder(:id).last
+          next unless closing&.event_type == "superseded" &&
+            closing.metadata["payment_attestation_id"].to_s == attestation.id.to_s
+
+          recorder.settle_reported_payment_case!(attestation: attestation, settlement_case: settlement_case)
+        end
+      end
+
       def record_entry!(entry, previous_work_date: nil, actor: nil, actor_id: nil)
+        return if PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: entry.id)
+
         resolved_actor = actor || User.find_by(id: actor_id) || Current.user
         relevant_periods_for(entry, previous_work_date: previous_work_date).each do |period|
-          next unless entry.created_at > period.cutoff_at || entry.updated_at > period.cutoff_at
+          next unless entry.created_at > period.snapshot_cutoff_at || entry.updated_at > period.snapshot_cutoff_at
           next if PayrollSettlementCase.active.exists?(origin_payroll_batch: period.payroll_batch, source_time_entry_id: entry.id)
 
           represented = period.payroll_batch.payroll_batch_entries.where(source_time_entry_id: entry.id).sum(:total_hours)
-          reason = entry.created_at > period.cutoff_at && represented.zero? ? "created_after_cutoff" : "changed_after_cutoff"
+          reason = entry.created_at > period.snapshot_cutoff_at && represented.zero? ? "created_after_cutoff" : "changed_after_cutoff"
           held_hours = if reason == "changed_after_cutoff"
             current_payable_hours = if entry.work_date.in?(period.start_date..period.end_date) && entry.counts_toward_hours?
               entry.hours.to_d
@@ -200,17 +266,94 @@ module Payroll
           .joins(:user)
           .merge(User.staff)
           .where(work_date: period.start_date..period.end_date)
-          .where("time_entries.created_at > :cutoff OR time_entries.updated_at > :cutoff", cutoff: period.cutoff_at)
+          .where("time_entries.created_at > :cutoff OR time_entries.updated_at > :cutoff", cutoff: period.snapshot_cutoff_at)
           .includes(:user, :time_category)
           .find_each { |entry| record_entry!(entry) }
       end
 
+      def record_post_cutoff_deletions!(period)
+        represented_ids = period.payroll_batch.payroll_batch_entries.select(:source_time_entry_id)
+        PayrollTimeEntryRevision
+          .where(deleted: true, source_time_entry_id: represented_ids)
+          .where("recorded_at > ?", period.snapshot_cutoff_at)
+          .order(:source_time_entry_id, :recorded_at, :id)
+          .find_each do |revision|
+            next if PayrollSettlementCase.exists?(
+              origin_payroll_batch: period.payroll_batch,
+              source_time_entry_id: revision.source_time_entry_id,
+              origin_reason: "deleted_after_cutoff"
+            )
+
+            prior_rows = period.payroll_batch.payroll_batch_entries
+              .where(source_time_entry_id: revision.source_time_entry_id)
+            represented = prior_rows.sum(:total_hours).abs
+            next if represented.zero?
+
+            previous_case = PayrollSettlementCase.active.find_by(
+              origin_payroll_batch: period.payroll_batch,
+              source_time_entry_id: revision.source_time_entry_id
+            )
+            if previous_case
+              transition!(
+                previous_case,
+                status: "superseded",
+                resolved_at: revision.recorded_at,
+                event_type: "superseded",
+                actor: nil,
+                occurred_at: revision.recorded_at,
+                metadata: { reason: "source_time_entry_deleted" }
+              )
+            end
+            prior_snapshot = prior_rows.order(:id).last&.snapshot || {}
+            create_case!(
+              period: period,
+              origin_batch: period.payroll_batch,
+              source_time_entry_id: revision.source_time_entry_id,
+              source_time_entry_version: revision.source_version,
+              source_user_id: revision.source_user_id,
+              source_user_uuid: prior_snapshot["user_uuid"] || revision.snapshot.dig("user", "payroll_integration_uuid"),
+              reason: "deleted_after_cutoff",
+              work_date: revision.source_work_date,
+              held_hours: represented,
+              source_snapshot: prior_snapshot.merge("deleted_after_cutoff" => true),
+              actor: nil,
+              supersedes_case: previous_case
+            )
+          end
+      end
+
+      def require_explicit_attestation_review!(settlement_case, attestation, actor, reason)
+        # Releasing an evidence hold is not a payment decision or permission
+        # to reuse its old target. The administrator must review the current
+        # source and explicitly choose an unlocked destination.
+        current_entry = TimeEntry.find_by(id: attestation.time_entry_id)
+        transition!(
+          settlement_case,
+          status: "open", destination_kind: "unassigned",
+          target_payroll_calendar_period: nil, target_external_pay_period_id: nil,
+          included_payroll_batch: nil, resolved_at: nil, assigned_to: actor,
+          action_due_on: attestation.retracted_at.in_time_zone("Pacific/Guam").to_date,
+          resolution_note: "Review current source identity, hours and approvals before routing. #{reason}",
+          event_type: "rerouted", actor: actor, occurred_at: attestation.retracted_at,
+          metadata: {
+            reason: "payment_attestation_retracted", retraction_reason: reason,
+            payment_attestation_id: attestation.id, requires_explicit_routing: true,
+            source_review_required: true,
+            attested_source_time_entry_version: attestation.source_time_entry_version,
+            current_source_time_entry_version: current_entry&.lock_version,
+            current_source_user_uuid: current_entry&.user&.payroll_integration_uuid
+          }
+        )
+      end
+
       def create_for_exclusion!(period:, batch:, exclusion:, actor:, supersedes_case: nil)
+        return if exclusion.reason != "pending_payment_attestation" && PayrollPaymentAttestation.pending_evidence.exists?(time_entry_id: exclusion.source_time_entry_id)
+
         existing = PayrollSettlementCase.find_by(origin_payroll_batch_exclusion: exclusion)
         return existing if existing
 
         snapshot = exclusion.snapshot || {}
-        create_case!(
+        settlement_case = create_case!(
           period: period,
           origin_batch: batch,
           exclusion: exclusion,
@@ -225,8 +368,23 @@ module Payroll
           source_snapshot: snapshot,
           actor: actor
         )
+        attestation = PayrollPaymentAttestation.blocking_at(period.snapshot_cutoff_at).order(id: :desc).find_by(time_entry_id: exclusion.source_time_entry_id)
+        if attestation&.status == "pending_evidence"
+          supersede_attestation_case!(settlement_case, attestation, actor)
+        elsif attestation&.status == "retracted"
+          require_explicit_attestation_review!(settlement_case, attestation, attestation.retracted_by, attestation.retraction_reason)
+        elsif attestation&.status == "resolved"
+          ManualAllocationRecorder.new(actor: attestation.resolved_by).settle_reported_payment_case!(
+            attestation: attestation, settlement_case: settlement_case)
+        end
+        settlement_case
       rescue ActiveRecord::RecordNotUnique
         PayrollSettlementCase.find_by!(origin_payroll_batch_exclusion: exclusion)
+      end
+
+      def supersede_attestation_case!(settlement_case, attestation, actor)
+        transition!(settlement_case, status: "superseded", resolved_at: Time.current, event_type: "superseded", actor: actor,
+                    metadata: { reason: "owner_payment_attestation_pending_evidence", payment_attestation_id: attestation.id })
       end
 
       def create_case!(period:, origin_batch:, source_time_entry_id:, source_time_entry_version:, source_user_id:, source_user_uuid:, reason:, work_date:,
@@ -277,7 +435,7 @@ module Payroll
       end
 
       def reconciliation_scope
-        lookback_start = Date.current - reconciliation_lookback_days.days
+        lookback_start = BusinessDate.today - reconciliation_lookback_days.days
         PayrollCalendarPeriod
           .where(status: "finalized")
           .left_outer_joins(:payroll_settlement_reconciliation)
@@ -335,7 +493,7 @@ module Payroll
             .where("start_date <= ? AND end_date >= ?", date, date)
             .pluck(:id)
         end
-        represented_batch_ids = PayrollBatchEntry.where(source_time_entry_id: entry.id).pluck(:payroll_batch_id)
+        represented_batch_ids = PayrollBatchEntry.effective.where(source_time_entry_id: entry.id).pluck(:payroll_batch_id)
         represented_batch_ids.concat(PayrollBatchExclusion.where(source_time_entry_id: entry.id).pluck(:payroll_batch_id))
         period_ids.concat(PayrollCalendarPeriod.where(status: "finalized", payroll_batch_id: represented_batch_ids).pluck(:id))
         PayrollCalendarPeriod

@@ -1,7 +1,7 @@
 source "https://rubygems.org"
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
-gem "rails", "~> 8.1.1"
+gem "rails", "~> 8.1.4", ">= 8.1.4.1"
 # Use postgresql as the database for Active Record
 gem "pg", "~> 1.1"
 # Use the Puma web server [https://github.com/puma/puma]
@@ -75,4 +75,12 @@ group :development, :test do
   gem "faker"
 end
 
+group :test do
+  # Verify the content people receive, including embedded-font PDF text.
+  gem "pdf-reader", "~> 2.15", require: false
+end
+
 gem "roo", "~> 3.0"
+
+# Re-mark stored PDFs at the staging artifact boundary.
+gem "combine_pdf"

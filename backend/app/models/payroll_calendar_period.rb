@@ -3,7 +3,14 @@
 class PayrollCalendarPeriod < ApplicationRecord
   BUSINESS_TIME_ZONE = "Pacific/Guam"
   CUTOFF_DAYS_BEFORE = 7
+  CUTOFF_RULES = %w[before_pay_date after_previous_regular_payday].freeze
+  SCHEMA_VERSIONS = %w[1.0 2.0].freeze
+  LOCK_MODES = %w[manual scheduled].freeze
   STATUSES = %w[scheduled failed finalized].freeze
+  UNLOADED_LOCK_ROLLOUT = Object.new.freeze
+  private_constant :UNLOADED_LOCK_ROLLOUT
+
+  scope :overlapping, ->(start_date, end_date) { where("start_date <= ? AND end_date >= ?", end_date, start_date) }
 
   belongs_to :payroll_batch, optional: true
   has_many :payroll_calendar_period_revisions, dependent: :restrict_with_error
@@ -23,42 +30,78 @@ class PayrollCalendarPeriod < ApplicationRecord
   validates :request_checksum, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :time_zone, inclusion: { in: [ BUSINESS_TIME_ZONE ] }
   validates :cutoff_days_before, numericality: { equal_to: CUTOFF_DAYS_BEFORE }
+  validates :schema_version, inclusion: { in: SCHEMA_VERSIONS }
+  validates :cutoff_rule, inclusion: { in: CUTOFF_RULES }
+  validates :cutoff_days, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 31 }
   validates :schedule_version, numericality: { only_integer: true, greater_than: 0 }
+  validates :lock_mode, inclusion: { in: LOCK_MODES }
   validates :status, inclusion: { in: STATUSES }
   validates :finalization_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validate :semimonthly_period
   validate :pay_date_after_period
   validate :cutoff_matches_policy
   validate :finalized_state_is_complete
+  validate :valid_overtime_policy
+
+  attr_accessor :allow_weekly_overtime_policy_upgrade
+
+  before_validation :capture_overtime_policy, on: :create
+
+  scope :scheduled_locks, lambda { |config = PayrollLockRollout.find_by(id: 1)|
+    scheduled = where(lock_mode: "scheduled")
+    config ? scheduled.where("start_date >= ?", config.cutoff_enforcement_starts_on) : scheduled
+  }
+
+  def self.next_scheduled_cutoff_at(rollout: UNLOADED_LOCK_ROLLOUT)
+    rollout = PayrollLockRollout.find_by(id: 1) if rollout.equal?(UNLOADED_LOCK_ROLLOUT)
+    scheduled_locks(rollout).where.not(status: "finalized").minimum(:cutoff_at)&.in_time_zone(BUSINESS_TIME_ZONE)&.iso8601
+  end
+
+  def scheduled_lock_enforced?(rollout: UNLOADED_LOCK_ROLLOUT)
+    return false if manual_lock?
+
+    rollout = PayrollLockRollout.find_by(id: 1) if rollout.equal?(UNLOADED_LOCK_ROLLOUT)
+    rollout.nil? || start_date >= rollout.cutoff_enforcement_starts_on
+  end
+
+  def manual_lock?
+    lock_mode == "manual"
+  end
+
+  # The nominal policy cutoff is retained; manual frozen evidence has its own instant.
+  def snapshot_cutoff_at
+    payroll_batch&.cutoff_at || cutoff_at
+  end
 
   scope :due_at, lambda { |time|
-    scheduled = where(status: "scheduled", cutoff_at: ..time)
-    retryable_failure = where(status: "failed", cutoff_at: ..time, next_finalization_attempt_at: ..time)
+    scheduled = scheduled_locks.where(status: "scheduled", cutoff_at: ..time)
+    retryable_failure = scheduled_locks.where(status: "failed", cutoff_at: ..time, next_finalization_attempt_at: ..time)
     scheduled.or(retryable_failure)
   }
 
-  def cutoff_state(now: Time.current)
+  def cutoff_state(now: Time.current, rollout: UNLOADED_LOCK_ROLLOUT)
     return "finalized" if status == "finalized"
     return "attention_required" if status == "failed"
+    return "manual" if manual_lock?
+    return "attention_required" unless scheduled_lock_enforced?(rollout: rollout)
     return "due" if cutoff_at <= now
 
     "upcoming"
   end
 
-  def as_contract_json(now: Time.current)
-    {
+  def as_contract_json(now: Time.current, rollout: UNLOADED_LOCK_ROLLOUT, next_scheduled_cutoff_at: self.class.next_scheduled_cutoff_at(rollout: rollout))
+    fields = {
       external_pay_period_id: external_pay_period_id,
       start_date: start_date.iso8601,
       end_date: end_date.iso8601,
       pay_date: pay_date.iso8601,
       cutoff_at: cutoff_at.in_time_zone(time_zone).iso8601,
       time_zone: time_zone,
-      cutoff_days_before: cutoff_days_before,
       version: lock_version,
       schedule_version: schedule_version,
       publication_id: publication_id,
       status: status,
-      cutoff_state: cutoff_state(now: now),
+      cutoff_state: cutoff_state(now: now, rollout: rollout),
       payroll_batch_id: payroll_batch&.public_id,
       finalized_at: finalized_at&.in_time_zone(time_zone)&.iso8601,
       finalization_attempts: finalization_attempts,
@@ -66,9 +109,45 @@ class PayrollCalendarPeriod < ApplicationRecord
       next_finalization_attempt_at: next_finalization_attempt_at&.in_time_zone(time_zone)&.iso8601,
       last_finalization_error: last_finalization_error
     }.compact
+    fields[:locked_at] = payroll_batch.cutoff_at.iso8601(6) if manual_lock? && status == "finalized"
+    fields[:lock_mode] = lock_mode
+    fields[:cutoff_enforcement_starts_on] = cutoff_enforcement_starts_on&.iso8601
+    fields[:next_scheduled_cutoff_at] = next_scheduled_cutoff_at
+    fields[:overtime_policy] = overtime_policy if overtime_policy.present?
+    if schema_version == "1.0"
+      fields[:cutoff_days_before] = cutoff_days_before
+    else
+      fields[:cutoff_rule] = cutoff_rule
+      fields[:cutoff_days] = cutoff_days
+      fields[:previous_regular_pay_date] = previous_regular_pay_date&.iso8601 if previous_regular_pay_date
+    end
+    fields[:schema_version] = schema_version
+    fields
   end
 
   private
+
+  def capture_overtime_policy
+    return if overtime_policy.present?
+
+    self.overtime_policy = Payroll::WeeklyOvertimeAllocator.configured_policy.stringify_keys
+  end
+
+  def valid_overtime_policy
+    if persisted? && will_save_change_to_overtime_policy?
+      allowed_upgrade = allow_weekly_overtime_policy_upgrade && status != "finalized" && finalized_at.nil? && payroll_batch_id.nil? &&
+        cutoff_at > Time.current && !Payroll::WeeklyOvertimeAllocator.supported_policy?(overtime_policy_in_database) &&
+        Payroll::WeeklyOvertimeAllocator.supported_policy?(overtime_policy)
+      errors.add(:overtime_policy, "cannot change after the calendar is published") unless allowed_upgrade
+    end
+    return if overtime_policy.blank? # Existing calendars require an explicit operator policy decision.
+
+    return if persisted? && !will_save_change_to_overtime_policy? # Preserve immutable legacy history.
+
+    unless Payroll::WeeklyOvertimeAllocator.supported_policy?(overtime_policy)
+      errors.add(:overtime_policy, "must use the weekly-only 40-hour Sunday–Saturday Guam policy")
+    end
+  end
 
   def semimonthly_period
     return if start_date.blank? || end_date.blank?
@@ -87,12 +166,25 @@ class PayrollCalendarPeriod < ApplicationRecord
   def cutoff_matches_policy
     return if cutoff_at.blank? || pay_date.blank? || time_zone.blank?
     return unless time_zone == BUSINESS_TIME_ZONE
-    return unless cutoff_days_before == CUTOFF_DAYS_BEFORE
-
     local_cutoff_date = cutoff_at.in_time_zone(time_zone).to_date
-    return if local_cutoff_date == pay_date - cutoff_days_before
-
-    errors.add(:cutoff_at, "must fall seven calendar days before the pay date in Pacific/Guam")
+    if schema_version == "1.0"
+      if cutoff_rule != "before_pay_date" || cutoff_days != 7 || previous_regular_pay_date.present?
+        errors.add(:base, "version 1.0 requires the original seven-day cutoff policy")
+      end
+      errors.add(:cutoff_at, "must fall seven calendar days before the pay date in Pacific/Guam") unless local_cutoff_date == pay_date - 7
+    elsif schema_version == "2.0"
+      basis = cutoff_rule == "after_previous_regular_payday" ? previous_regular_pay_date : pay_date
+      if cutoff_rule == "after_previous_regular_payday" && (basis.nil? || basis >= pay_date)
+        errors.add(:previous_regular_pay_date, "must precede the target pay date")
+      elsif cutoff_rule == "before_pay_date" && previous_regular_pay_date.present?
+        errors.add(:previous_regular_pay_date, "must be blank for a pay-date cutoff")
+      elsif basis && cutoff_days && local_cutoff_date != (cutoff_rule == "after_previous_regular_payday" ? basis + cutoff_days : basis - cutoff_days)
+        errors.add(:cutoff_at, "does not match the published cutoff policy")
+      end
+      if cutoff_rule == "after_previous_regular_payday" && cutoff_at.in_time_zone(time_zone).to_date >= pay_date
+        errors.add(:cutoff_at, "must precede the target pay date")
+      end
+    end
   end
 
   def finalized_state_is_complete

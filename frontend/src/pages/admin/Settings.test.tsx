@@ -6,6 +6,9 @@ import Settings from './Settings'
 import { defaultPublicContactSettings } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
 
+const stagingMock = vi.hoisted(() => ({ enabled: false }))
+vi.mock('../../lib/staging', () => ({ get isStaging() { return stagingMock.enabled } }))
+
 const apiMock = vi.hoisted(() => ({
   getAdminTimeCategories: vi.fn(),
   getAdminAppSettings: vi.fn(),
@@ -34,6 +37,7 @@ vi.mock('../../components/ui/MotionComponents', () => ({
 
 describe('Admin Settings contact settings', () => {
   beforeEach(() => {
+    stagingMock.enabled = false
     apiMock.getAdminTimeCategories.mockReset()
     apiMock.getAdminAppSettings.mockReset()
     apiMock.getAdminContactSettings.mockReset()
@@ -120,6 +124,16 @@ describe('Admin Settings contact settings', () => {
         },
       },
     })
+  })
+
+  it('explains disabled staging maps and retains saved coordinates without an external preview', async () => {
+    stagingMock.enabled = true
+    render(<Settings />)
+    expect(await screen.findByText(/Map previews are disabled in staging/)).toBeInTheDocument()
+    expect(screen.getByText('13.46913')).toBeInTheDocument()
+    expect(screen.getByText('144.79901')).toBeInTheDocument()
+    expect(screen.queryByTitle('Clock-in location preview')).toBeNull()
+    expect(screen.queryByText(/Search for an address or use your current location to preview/)).toBeNull()
   })
 
   it('loads and updates contact settings', async () => {
