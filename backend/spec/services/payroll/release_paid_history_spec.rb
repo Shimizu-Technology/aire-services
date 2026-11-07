@@ -1,8 +1,13 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/database_clock_helpers"
 
 RSpec.describe Payroll::ReleasePaidHistory, type: :request do
+  include DatabaseClockHelpers
+
+  prepend_before { shift_database_clock_to(Time.find_zone!("Pacific/Guam").local(2026, 11, 6, 12)) }
+
   include ActiveSupport::Testing::TimeHelpers
 
   let(:admin) { create(:user, :admin) }

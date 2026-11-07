@@ -94,6 +94,30 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
     expect(settlement_case.reload).to have_attributes(status: "in_payroll", included_payroll_batch_id: batch.id)
   end
 
+  it "routes hours approved before the next calendar exists when that calendar is published" do
+    held = entry(period: source_period)
+    origin = origin_period(external_id: "approved-first-origin")
+    travel_to(origin.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
+    end
+    travel_to(origin.cutoff_at + 2.minutes) do
+      TimeClockService.approve_entry(entry: held, approved_by: create(:user, :admin), note: "Approved before the next calendar")
+    end
+    settlement_case = PayrollSettlementCase.find_by!(source_time_entry_id: held.id)
+    expect(settlement_case.reload).to have_attributes(status: "open", destination_kind: "unassigned")
+
+    target = following_period(origin, external_id: "approved-first-target")
+    travel_to(origin.cutoff_at + 3.minutes) { described_class.route_open_cases_to_period!(target) }
+    expect(settlement_case.reload).to have_attributes(status: "scheduled", target_payroll_calendar_period_id: target.id)
+
+    travel_to(target.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: target.id).call.fetch(:status)).to eq("finalized")
+    end
+    batch = target.reload.payroll_batch
+    expect(batch.payroll_batch_entries.where(source_time_entry_id: held.id).count).to eq(1)
+    expect(settlement_case.reload).to have_attributes(status: "in_payroll", included_payroll_batch_id: batch.id)
+  end
+
   it "keeps hours still unapproved at the next cutoff held for a later payroll" do
     held = entry(period: source_period)
     origin = origin_period(external_id: "unapproved-origin")
@@ -112,7 +136,9 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
     expect(PayrollSettlementCase.where(source_time_entry_id: held.id, status: "superseded").count).to eq(1)
     active = PayrollSettlementCase.active.where(source_time_entry_id: held.id)
     expect(active.count).to eq(1)
-    expect(active.first).to have_attributes(origin_reason: "pending_approval", origin_payroll_batch_id: batch.id)
+    expect(active.first).to have_attributes(
+      status: "open", destination_kind: "unassigned", origin_reason: "pending_approval", origin_payroll_batch_id: batch.id
+    )
   end
 
   it "still reconciles finalized calendars if a legacy manual snapshot cannot be reviewed" do

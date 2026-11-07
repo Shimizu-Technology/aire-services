@@ -330,6 +330,7 @@ describe('PayrollRuns', () => {
     } else {
       expect(section).toHaveTextContent('For batches without a published period, later approved hours are included automatically in the next finalized batch.')
       expect(section).not.toHaveTextContent('next scheduled payroll')
+      expect(section).not.toHaveTextContent('need the late-hours step')
     }
   })
 
