@@ -7,6 +7,12 @@
 # same offset; a spec's own travel_to still works and returns to this clock.
 # It relies on transactional fixtures: the rewritten functions roll back.
 module DatabaseClockHelpers
+  # Clear any travel_to stubs before RSpec restores Time.now. If Rails unstubs
+  # later, it re-installs the RSpec stub and the shifted clock leaks onward.
+  def self.included(group)
+    group.after { travel_back }
+  end
+
   CLOCK_FUNCTIONS = %w[
     capture_payroll_break_revision
     capture_payroll_manual_allocation_revision
@@ -16,10 +22,17 @@ module DatabaseClockHelpers
 
   def shift_database_clock_to(instant)
     connection = ActiveRecord::Base.connection
+    unless connection.transaction_open?
+      raise "shift_database_clock_to needs a transactional example so the trigger rewrite rolls back"
+    end
+
+    # Rewrite from the original bodies so a second shift in one example is safe.
+    @original_clock_functions ||= CLOCK_FUNCTIONS.to_h do |name|
+      [ name, connection.select_value("SELECT pg_get_functiondef('public.#{name}'::regproc)") ]
+    end
     offset = connection.select_value("SELECT EXTRACT(EPOCH FROM clock_timestamp())").to_f - instant.to_f
     shifted = ->(clock) { "(#{clock} - make_interval(secs => #{offset}))" }
-    CLOCK_FUNCTIONS.each do |name|
-      definition = connection.select_value("SELECT pg_get_functiondef('public.#{name}'::regproc)")
+    @original_clock_functions.each_value do |definition|
       connection.execute(definition
         .gsub(/\bclock_timestamp\(\)/i, shifted.call("pg_catalog.clock_timestamp()"))
         .gsub(/\bCURRENT_TIMESTAMP\b/i, shifted.call("CURRENT_TIMESTAMP")))
