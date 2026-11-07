@@ -67,6 +67,54 @@ RSpec.describe Payroll::SettlementCaseCoordinator do
     expect(history.reload.pluck(:event_type)).to eq(%w[opened routed approval_changed])
   end
 
+  it "carries hours held with no next calendar into the next published payroll once approved" do
+    held = entry(period: source_period)
+    origin = origin_period(external_id: "held-origin")
+
+    travel_to(origin.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
+    end
+    settlement_case = PayrollSettlementCase.find_by!(source_time_entry_id: held.id)
+    expect(settlement_case).to have_attributes(status: "open", destination_kind: "unassigned", origin_reason: "pending_approval")
+
+    target = following_period(origin, external_id: "held-target")
+    travel_to(origin.cutoff_at + 2.minutes) do
+      described_class.route_open_cases_to_period!(target)
+      TimeClockService.approve_entry(entry: held, approved_by: create(:user, :admin), note: "Verified after cutoff")
+    end
+    expect(settlement_case.reload).to have_attributes(
+      status: "scheduled", destination_kind: "regular", target_payroll_calendar_period_id: target.id
+    )
+
+    travel_to(target.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: target.id).call.fetch(:status)).to eq("finalized")
+    end
+    batch = target.reload.payroll_batch
+    expect(batch.payroll_batch_entries.where(source_time_entry_id: held.id).count).to eq(1)
+    expect(settlement_case.reload).to have_attributes(status: "in_payroll", included_payroll_batch_id: batch.id)
+  end
+
+  it "keeps hours still unapproved at the next cutoff held for a later payroll" do
+    held = entry(period: source_period)
+    origin = origin_period(external_id: "unapproved-origin")
+    travel_to(origin.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: origin.id).call.fetch(:status)).to eq("finalized")
+    end
+    target = following_period(origin, external_id: "unapproved-target")
+    travel_to(origin.cutoff_at + 2.minutes) { described_class.route_open_cases_to_period!(target) }
+
+    travel_to(target.cutoff_at + 1.minute) do
+      expect(Payroll::ScheduledCutoffFinalizer.new(period_id: target.id).call.fetch(:status)).to eq("finalized")
+    end
+
+    batch = target.reload.payroll_batch
+    expect(batch.payroll_batch_entries.where(source_time_entry_id: held.id)).to be_empty
+    expect(PayrollSettlementCase.where(source_time_entry_id: held.id, status: "superseded").count).to eq(1)
+    active = PayrollSettlementCase.active.where(source_time_entry_id: held.id)
+    expect(active.count).to eq(1)
+    expect(active.first).to have_attributes(origin_reason: "pending_approval", origin_payroll_batch_id: batch.id)
+  end
+
   it "still reconciles finalized calendars if a legacy manual snapshot cannot be reviewed" do
     entry(period: source_period)
     origin = origin_period
