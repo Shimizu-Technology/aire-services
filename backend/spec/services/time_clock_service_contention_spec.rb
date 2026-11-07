@@ -33,6 +33,14 @@ RSpec.describe "TimeClockService payroll-finalization contention", type: :servic
     entry_ids = entries.pluck(:id)
     AuditLog.where(auditable_type: "TimeEntry", auditable_id: entry_ids).delete_all
     entries.delete_all
+    # Committed source revisions would otherwise outlive this file and make the
+    # revision ledger report a coverage gap in later specs with earlier cutoffs.
+    PayrollTimeEntryRevision.transaction do
+      connection = PayrollTimeEntryRevision.connection
+      connection.execute("ALTER TABLE payroll_time_entry_revisions DISABLE TRIGGER payroll_time_entry_revisions_append_only")
+      PayrollTimeEntryRevision.where(source_user_id: user.id).delete_all
+      connection.execute("ALTER TABLE payroll_time_entry_revisions ENABLE TRIGGER payroll_time_entry_revisions_append_only")
+    end
     UserTimeCategory.where(user_id: user.id).delete_all
     User.where(id: user.id).destroy_all
     TimeCategory.where(id: Array(@owned_time_category_ids)).find_each do |category|

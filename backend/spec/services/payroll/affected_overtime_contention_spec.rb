@@ -32,6 +32,20 @@ RSpec.describe "Affected overtime concurrency" do
     end
   end
 
+  # Committed source revisions would otherwise outlive this file and make the
+  # revision ledger report a coverage gap in later specs with earlier cutoffs.
+  def clear_fixture_revisions(user_ids)
+    raise "test fixture teardown only" unless Rails.env.test?
+
+    PayrollTimeEntryRevision.transaction do
+      connection = PayrollTimeEntryRevision.connection
+      raise "wrong test database" unless connection.select_value("SELECT current_database()") == ApplicationRecord.connection_db_config.database
+      connection.execute("ALTER TABLE payroll_time_entry_revisions DISABLE TRIGGER payroll_time_entry_revisions_append_only")
+      PayrollTimeEntryRevision.where(source_user_id: user_ids).delete_all
+      connection.execute("ALTER TABLE payroll_time_entry_revisions ENABLE TRIGGER payroll_time_entry_revisions_append_only")
+    end
+  end
+
   it "serializes clock-out and an earlier approval into one review allocation" do
     zone = ActiveSupport::TimeZone["Pacific/Guam"]
     sunday = Date.new(2026, 10, 18)
@@ -82,6 +96,7 @@ RSpec.describe "Affected overtime concurrency" do
     if user
       clear_fixture_audits(TimeEntry.where(user: user).pluck(:id))
       TimeEntry.where(user: user).delete_all
+      clear_fixture_revisions([ user.id ])
       Schedule.where(user: user).delete_all
       User.where(id: user.id).destroy_all
     end
@@ -132,6 +147,7 @@ RSpec.describe "Affected overtime concurrency" do
     threads&.each { |thread| thread.kill if thread.alive? }
     clear_fixture_audits([ entry.id ]) if entry
     TimeEntry.where(user_id: user&.id).delete_all if user
+    clear_fixture_revisions([ user.id ]) if user
     user&.destroy!
     category&.destroy!
   end

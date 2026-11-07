@@ -9,7 +9,7 @@ RSpec.describe "Installation payroll lock rollout", :lock_rollout do
   include DatabaseClockHelpers
   include PayrollClockHelpers
 
-  prepend_before { shift_database_clock_to(Time.find_zone!("Pacific/Guam").local(2026, 11, 6, 12)) }
+  around { |example| with_shifted_database_clock(Time.find_zone!("Pacific/Guam").local(2026, 11, 6, 12)) { example.run } }
 
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:actor) { create(:user, :admin) }

@@ -7,7 +7,7 @@ require_relative "../../support/database_clock_helpers"
 RSpec.describe "Late manual calendar lock ordering" do
   include DatabaseClockHelpers
 
-  prepend_before { shift_database_clock_to(Time.find_zone!("Pacific/Guam").local(2026, 11, 6, 12)) }
+  around { |example| with_shifted_database_clock(Time.find_zone!("Pacific/Guam").local(2026, 11, 6, 12)) { example.run } }
 
   include ActiveSupport::Testing::TimeHelpers
   let(:guam) { ActiveSupport::TimeZone['Pacific/Guam'] }
