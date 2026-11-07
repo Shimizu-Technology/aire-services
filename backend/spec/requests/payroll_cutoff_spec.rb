@@ -1,8 +1,13 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../support/database_clock_helpers"
 
 RSpec.describe "Payroll cutoff warnings", type: :request do
+  include DatabaseClockHelpers
+
+  around { |example| with_shifted_database_clock(Time.find_zone!("Pacific/Guam").local(2026, 11, 6, 18)) { example.run } }
+
   include ActiveSupport::Testing::TimeHelpers
 
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }

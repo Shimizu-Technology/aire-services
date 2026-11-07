@@ -1,9 +1,14 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require_relative "../../support/database_clock_helpers"
 
 # The first two regressions reproduce review-388-143/aire_review_probes_spec.rb.
 RSpec.describe "Late manual calendar lock ordering" do
+  include DatabaseClockHelpers
+
+  around { |example| with_shifted_database_clock(Time.find_zone!("Pacific/Guam").local(2026, 11, 6, 12)) { example.run } }
+
   include ActiveSupport::Testing::TimeHelpers
   let(:guam) { ActiveSupport::TimeZone['Pacific/Guam'] }
   let(:actor) { create(:user, :admin) }

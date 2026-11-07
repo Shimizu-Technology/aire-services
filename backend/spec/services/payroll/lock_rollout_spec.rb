@@ -1,11 +1,15 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../support/database_clock_helpers"
 require_relative "../../support/payroll_clock_helpers"
 
 RSpec.describe "Installation payroll lock rollout", :lock_rollout do
   include ActiveSupport::Testing::TimeHelpers
+  include DatabaseClockHelpers
   include PayrollClockHelpers
+
+  around { |example| with_shifted_database_clock(Time.find_zone!("Pacific/Guam").local(2026, 11, 6, 12)) { example.run } }
 
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:actor) { create(:user, :admin) }
