@@ -144,7 +144,7 @@ describe('Payroll cutoff notice', () => {
     await act(async () => { window.dispatchEvent(new Event('focus')) })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByText(LATE_HOURS_NOTICE)).toBeInTheDocument()
-    expect(screen.getByText(/added to the next scheduled payroll automatically\. Overtime still needs its own approval\./)).toBeInTheDocument()
+    expect(screen.getByText(/added to the next scheduled payroll automatically\. Overtime requires separate approval\./)).toBeInTheDocument()
   })
   it('keeps failed-lock attention for admins after the reminder expires', async () => {
     auth.role = 'admin'
