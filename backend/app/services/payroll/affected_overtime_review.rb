@@ -104,11 +104,16 @@ module Payroll
     end
 
     def self.allocation_for(entry)
-      pairs = pairs_for([ entry ])
+      allocations_for([ entry ])[entry.id]
+    end
+
+    def self.allocations_for(entries)
+      return {} if entries.empty?
+
+      pairs = pairs_for(entries)
       candidates = context_for_pairs(pairs)
       context_pairs = pairs_for(candidates)
-      rows = (context_pairs - pairs).empty? ? candidates : context_for_pairs(context_pairs)
-      allocations(rows)[entry.id]
+      allocations((context_pairs - pairs).empty? ? candidates : context_for_pairs(context_pairs))
     end
 
     def self.allocations(rows, legacy: false)

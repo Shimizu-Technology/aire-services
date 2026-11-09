@@ -14,7 +14,7 @@ RSpec.describe Payroll::CutoffApprovalReminder do
 
   before do
     Setting.set("payroll_cutoff_reminder_emails", "approver@example.test, second@example.test")
-    allow(StagingMailTransport).to receive(:deliver) { |payload| delivered << payload }
+    allow(StagingMailTransport).to receive(:deliver) { |payload, **| delivered << payload }
   end
 
   def entry(approval: "pending", overtime: "none", date: period.start_date)
@@ -48,6 +48,21 @@ RSpec.describe Payroll::CutoffApprovalReminder do
     expect(delivered.size).to eq(2)
   end
 
+  it "gives each day's reminder a stable key so a retry cannot resend it" do
+    entry
+    keys = []
+    allow(StagingMailTransport).to receive(:deliver) { |_payload, options:| keys << options.fetch(:idempotency_key) }
+
+    allow(AuditLog).to receive(:record!).and_raise(RuntimeError, "audit write failed")
+    expect(at(2, 9).sole[:status]).to eq("failed")
+    allow(AuditLog).to receive(:record!).and_call_original
+    expect(at(2, 10).sole[:status]).to eq("sent")
+    expect(at(1, 9).sole[:status]).to eq("sent")
+
+    expect(keys.first).to eq(keys.second)
+    expect(keys.last).not_to eq(keys.first)
+  end
+
   it "sends nothing when every entry is approved" do
     entry(approval: "approved", overtime: "approved")
 
@@ -77,7 +92,7 @@ RSpec.describe Payroll::CutoffApprovalReminder do
     allow(StagingMailTransport).to receive(:deliver).and_raise(RuntimeError, "mail down")
     expect(at(2, 9).sole[:status]).to eq("failed")
 
-    allow(StagingMailTransport).to receive(:deliver) { |payload| delivered << payload }
+    allow(StagingMailTransport).to receive(:deliver) { |payload, **| delivered << payload }
     expect(at(2, 10).sole[:status]).to eq("sent")
   end
 end

@@ -39,6 +39,17 @@ RSpec.describe "Approval cutoff display context", type: :request do
       expect(entry.reload).to have_attributes(approval_status: "approved", overtime_status: "pending")
     end
 
+    it "does not approve overtime that only appeared when the time was approved" do
+      entry.update_columns(overtime_status: "none")
+      allow(TimeClockService).to receive(:approve_entry).and_wrap_original do |original, **args|
+        original.call(**args).tap { |approved| approved.update_columns(overtime_status: "pending") }
+      end
+
+      post_approve(entry, include_overtime: true)
+
+      expect(entry.reload).to have_attributes(approval_status: "approved", overtime_status: "pending")
+    end
+
     it "approves nothing if the overtime step fails" do
       allow(TimeClockService).to receive(:approve_overtime).and_raise(TimeClockService::ClockError, "Confirm worked time")
 
@@ -49,8 +60,7 @@ RSpec.describe "Approval cutoff display context", type: :request do
     end
 
     it "shows the overtime hours waiting on an entry in the queue" do
-      allow(Payroll::AffectedOvertimeReview).to receive(:allocation_for).and_call_original
-      allow(Payroll::AffectedOvertimeReview).to receive(:allocation_for).with(entry).and_return({ regular_hours: 7.0, overtime_hours: 1.14 })
+      allow(Payroll::AffectedOvertimeReview).to receive(:allocations_for).and_return({ entry.id => { regular_hours: 7.0, overtime_hours: 1.14 } })
 
       get "/api/v1/time_entries/pending_approvals", headers: headers
 

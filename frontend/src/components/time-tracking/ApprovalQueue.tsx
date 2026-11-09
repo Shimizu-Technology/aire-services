@@ -446,6 +446,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
 
       if (result.error) {
         setActionError(result.error)
+        await fetchPending(approvalGroupFilter)
       } else {
         if (result.data?.time_entry?.payroll_cutoff_missed ?? entry.payroll_cutoff_missed) setApprovalNotice(`Approved. This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
         window.dispatchEvent(new Event('aire:approvals-updated'))

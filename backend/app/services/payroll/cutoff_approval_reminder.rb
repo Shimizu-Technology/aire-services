@@ -39,10 +39,8 @@ module Payroll
         next result("no_recipients") if recipients.empty?
 
         StagingMailTransport.deliver(
-          from: ENV.fetch("MAILER_FROM_EMAIL", "noreply@example.com"),
-          to: recipients,
-          subject: subject(rows),
-          html: html(rows)
+          { from: ENV.fetch("MAILER_FROM_EMAIL", "noreply@example.com"), to: recipients, subject: subject(rows), html: html(rows) },
+          options: { idempotency_key: "payroll-cutoff-reminder-#{period.id}-#{local_cutoff.to_date}-#{days_before}" }
         )
         AuditLog.record!(action: ACTION, actor: nil, actor_kind: "system", source: "system", auditable: period, event_category: "payroll",
           metadata: { days_before: days_before, entry_count: rows.sum { |row| row[:entries] }, recipient_count: recipients.size })
