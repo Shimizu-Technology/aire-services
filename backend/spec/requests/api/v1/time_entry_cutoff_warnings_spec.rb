@@ -59,13 +59,29 @@ RSpec.describe "Approval cutoff display context", type: :request do
       expect(entry.reload).to have_attributes(approval_status: "pending", overtime_status: "pending")
     end
 
-    it "shows the overtime hours waiting on an entry in the queue" do
-      allow(Payroll::AffectedOvertimeReview).to receive(:allocations_for).and_return({ entry.id => { regular_hours: 7.0, overtime_hours: 1.14 } })
+    it "still approves the time when the week holds its overtime for review" do
+      allow(Payroll::AffectedOvertimeReview).to receive(:allocation_for).and_return({ hold_reason: "overnight_break_review", overtime_hours: 0 })
+
+      post_approve(entry, include_overtime: true)
+
+      expect(response).to have_http_status(:ok)
+      expect(entry.reload).to have_attributes(approval_status: "approved", overtime_status: "pending")
+    end
+
+    it "shows the real overtime on entries whose time is still waiting" do
+      guam = ActiveSupport::TimeZone["Pacific/Guam"]
+      week_start = Date.new(2026, 10, 25)
+      entries = (0..4).map do |offset|
+        create(:time_entry, user: employee, time_category: category, work_date: week_start + offset + 1, status: "completed", entry_method: "manual",
+          start_time: guam.local(2000, 1, 1, 8), end_time: guam.local(2000, 1, 1, 17), hours: 9, break_minutes: 0, approval_status: "pending", overtime_status: offset.zero? ? "none" : "pending")
+      end
 
       get "/api/v1/time_entries/pending_approvals", headers: headers
 
-      row = response.parsed_body.fetch("pending_entries").find { |candidate| candidate.fetch("id") == entry.id }
-      expect(row.fetch("pending_overtime_hours")).to eq(1.14)
+      rows = response.parsed_body.fetch("pending_entries").index_by { |row| row.fetch("id") }
+      expect(rows.fetch(entries.last.id).fetch("pending_overtime_hours")).to eq(9.0 * 5 - 40)
+      expect(rows.fetch(entries.second.id).fetch("pending_overtime_hours")).to eq(0)
+      expect(rows.fetch(entries.first.id)).not_to have_key("pending_overtime_hours")
     end
   end
 

@@ -387,7 +387,7 @@ module Api
         entries = sorted_entries.offset((page - 1) * per_page).limit(per_page).to_a
         @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call(entries)
         pending_overtime = entries.select { |entry| entry.overtime_status == "pending" }
-        allocations = ::Payroll::AffectedOvertimeReview.allocations_for(pending_overtime)
+        allocations = ::Payroll::AffectedOvertimeReview.projected_allocations_for(pending_overtime)
         @pending_overtime_hours = pending_overtime.to_h { |entry| [ entry.id, allocations[entry.id].to_h.fetch(:overtime_hours, 0).to_f ] }
 
         render json: {
@@ -416,7 +416,7 @@ module Api
         action = include_overtime ? "Time entry and overtime approved" : "Time entry approved"
         entry = with_export_invalidation(@time_entry, approval_change_reason(action)) do
           approved = TimeClockService.approve_entry(entry: @time_entry, approved_by: current_user, note: params[:note])
-          if include_overtime
+          if include_overtime && overtime_ready_for_approval?(approved)
             TimeClockService.approve_overtime(entry: approved, approved_by: current_user, note: params[:note])
           else
             approved
@@ -557,6 +557,13 @@ module Api
           changed_by: current_user,
           reason: reason
         )
+      end
+
+      # A week with an unresolved break or overnight placement holds its overtime;
+      # the time can still be approved and the overtime stays visibly waiting.
+      def overtime_ready_for_approval?(entry)
+        allocation = ::Payroll::AffectedOvertimeReview.allocation_for(entry)
+        allocation.present? && allocation[:hold_reason].blank?
       end
 
       def approval_change_reason(action, note = params[:note])

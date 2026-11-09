@@ -212,6 +212,17 @@ describe('ApprovalQueue review workflow', () => {
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeVisible()
   })
 
+  it('approves only the time when the overtime hours could not be shown', async () => {
+    const entry = makeEntry({ id: 75, overtime_status: 'pending' })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.approveTimeEntry.mockResolvedValue({ data: {} })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+
+    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(75, undefined))
+  })
+
   it('names the overtime when only the overtime is waiting', async () => {
     const entry = makeEntry({ id: 73, approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 4.77 })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })

@@ -440,7 +440,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
       const isOvertimeOnly = entry.approval_status !== 'pending' && entry.overtime_status === 'pending'
       const result = isOvertimeOnly
         ? await api.approveOvertime(entry.id, note)
-        : entry.overtime_status === 'pending'
+        : entry.overtime_status === 'pending' && entry.pending_overtime_hours !== undefined
           ? await api.approveTimeEntry(entry.id, note, { includeOvertime: true })
           : await api.approveTimeEntry(entry.id, note)
 
