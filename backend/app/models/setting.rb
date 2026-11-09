@@ -112,6 +112,10 @@ class Setting < ApplicationRecord
     normalize_emails(get("contact_email"))
   end
 
+  def self.payroll_cutoff_reminder_emails
+    normalize_emails(get("payroll_cutoff_reminder_emails"))
+  end
+
   def self.set_contact_notification_emails!(emails)
     set(
       "contact_email",

@@ -104,12 +104,35 @@ module Payroll
     end
 
     def self.allocation_for(entry)
-      pairs = pairs_for([ entry ])
+      allocations_for([ entry ])[entry.id]
+    end
+
+    def self.allocations_for(entries)
+      allocations(context_rows_for(entries))
+    end
+
+    # What each week would pay if the time still waiting were approved, so an
+    # approver can see the overtime before deciding.
+    def self.projected_allocations_for(entries)
+      context_rows_for(entries).group_by(&:user_id).each_with_object({}) do |(_id, rows), result|
+        result.merge!(WeeklyOvertimeAllocator.call(rows.select { |row| row.counts_toward_hours? || awaiting_time_approval?(row) }))
+      end
+    end
+
+    def self.awaiting_time_approval?(row)
+      row.status == "completed" && row.approval_status == "pending"
+    end
+    private_class_method :awaiting_time_approval?
+
+    def self.context_rows_for(entries)
+      return [] if entries.empty?
+
+      pairs = pairs_for(entries)
       candidates = context_for_pairs(pairs)
       context_pairs = pairs_for(candidates)
-      rows = (context_pairs - pairs).empty? ? candidates : context_for_pairs(context_pairs)
-      allocations(rows)[entry.id]
+      (context_pairs - pairs).empty? ? candidates : context_for_pairs(context_pairs)
     end
+    private_class_method :context_rows_for
 
     def self.allocations(rows, legacy: false)
       rows.group_by(&:user_id).each_with_object({}) do |(_id, entries), result|

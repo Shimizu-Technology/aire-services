@@ -18,7 +18,9 @@ RSpec.describe "Guam payable intervals and affected overtime review" do
   let(:zone) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:sunday) do
     if RSpec.current_example.metadata[:database_clock]
-      database_clock.to_date.beginning_of_week(:sunday) - 7
+      last_sunday = database_clock.to_date.beginning_of_week(:sunday) - 7
+      # A weekend split across two pay periods would move Sunday to the next one.
+      last_sunday.day.in?([ 1, 16 ]) ? last_sunday - 7 : last_sunday
     else
       Date.new(2026, 10, 18)
     end

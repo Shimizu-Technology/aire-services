@@ -197,6 +197,13 @@ function summaryCountForApprovalGroup(summary: PendingApprovalsSummary | null, k
   return summary?.counts_by_approval_group?.find((row) => row.key === key)?.count
 }
 
+
+function approveLabel(entry: TimeEntry) {
+  const hours = entry.overtime_status === 'pending' ? entry.pending_overtime_hours ?? 0 : 0
+  if (hours <= 0) return 'Approve'
+  return entry.approval_status === 'pending' ? `Approve time + ${hours.toFixed(2)} OT` : `Approve ${hours.toFixed(2)} OT`
+}
+
 export default function ApprovalQueue({ isAdmin = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
@@ -433,10 +440,13 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
       const isOvertimeOnly = entry.approval_status !== 'pending' && entry.overtime_status === 'pending'
       const result = isOvertimeOnly
         ? await api.approveOvertime(entry.id, note)
-        : await api.approveTimeEntry(entry.id, note)
+        : entry.overtime_status === 'pending' && entry.pending_overtime_hours !== undefined
+          ? await api.approveTimeEntry(entry.id, note, { includeOvertime: true })
+          : await api.approveTimeEntry(entry.id, note)
 
       if (result.error) {
         setActionError(result.error)
+        await fetchPending(approvalGroupFilter)
       } else {
         if (result.data?.time_entry?.payroll_cutoff_missed ?? entry.payroll_cutoff_missed) setApprovalNotice(`Approved. This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)
         window.dispatchEvent(new Event('aire:approvals-updated'))
@@ -446,6 +456,34 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
       }
     } catch {
       setActionError('Failed to approve entry. Please try again.')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleDenyOvertime = async (entry: TimeEntry) => {
+    if (queueUnavailable) return
+    const reason = noteInput?.id === entry.id ? noteInput.note.trim() : ''
+    if (!reason) {
+      setNoteInput({ id: entry.id, note: '' })
+      setActionError('Add a reason in the note box, then click Deny OT again.')
+      return
+    }
+    setActionLoading(entry.id)
+    setActionError(null)
+    setApprovalNotice(null)
+    try {
+      const result = await api.denyOvertime(entry.id, reason)
+      if (result.error) {
+        setActionError(result.error)
+      } else {
+        window.dispatchEvent(new Event('aire:approvals-updated'))
+        await fetchPending(approvalGroupFilter)
+        setNoteInput(null)
+        onUpdate?.()
+      }
+    } catch {
+      setActionError('Failed to deny overtime. Please try again.')
     } finally {
       setActionLoading(null)
     }
@@ -713,7 +751,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
                 disabled={missingCategory || actionLoading === entry.id || (!isPendingApproval && !isPendingOvertime)}
                 className="min-w-0 flex-1 break-words min-h-[44px] py-2 px-3 bg-primary hover:bg-primary-dark active:bg-primary-dark disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
               >
-                {actionLoading === entry.id ? 'Processing...' : missingCategory ? 'Category required' : 'Approve'}
+                {actionLoading === entry.id ? 'Processing...' : missingCategory ? 'Category required' : approveLabel(entry)}
               </button>
               <button
                 onClick={() => handleDeny(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
@@ -722,6 +760,15 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
               >
                 Deny
               </button>
+              {isPendingApproval && isPendingOvertime && (
+                <button
+                  onClick={() => handleDenyOvertime(entry)}
+                  disabled={actionLoading === entry.id}
+                  className="min-h-[44px] py-2 px-3 bg-white hover:bg-secondary disabled:opacity-50 border border-neutral-warm text-text-muted text-sm rounded-xl transition-colors"
+                >
+                  Deny OT
+                </button>
+              )}
               <button
                 onClick={() => setEditingEntry(entry)}
                 className="min-h-[44px] min-w-[44px] py-2 px-3 bg-white hover:bg-secondary border border-neutral-warm text-text-muted text-sm rounded-xl transition-colors flex items-center justify-center"

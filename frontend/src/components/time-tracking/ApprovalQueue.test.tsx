@@ -192,6 +192,66 @@ describe('ApprovalQueue review workflow', () => {
     expect(apiMock.approveTimeEntry).toHaveBeenCalledTimes(1)
   })
 
+  it('approves time and overtime with one button that names the overtime', async () => {
+    const entry = makeEntry({ id: 71, overtime_status: 'pending', pending_overtime_hours: 1.14 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.approveTimeEntry.mockResolvedValue({ data: {} })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve time + 1.14 OT' }))
+
+    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(71, undefined, { includeOvertime: true }))
+    expect(apiMock.approveOvertime).not.toHaveBeenCalled()
+  })
+
+  it('keeps the plain label when the entry has no real overtime hours', async () => {
+    const entry = makeEntry({ id: 72, overtime_status: 'pending', pending_overtime_hours: 0 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeVisible()
+  })
+
+  it('approves only the time when the overtime hours could not be shown', async () => {
+    const entry = makeEntry({ id: 75, overtime_status: 'pending' })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.approveTimeEntry.mockResolvedValue({ data: {} })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+
+    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(75, undefined))
+  })
+
+  it('names the overtime when only the overtime is waiting', async () => {
+    const entry = makeEntry({ id: 73, approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 4.77 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.approveOvertime.mockResolvedValue({ data: {} })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve 4.77 OT' }))
+
+    await waitFor(() => expect(apiMock.approveOvertime).toHaveBeenCalledWith(73, undefined))
+    expect(screen.queryByRole('button', { name: 'Deny OT' })).not.toBeInTheDocument()
+  })
+
+  it('asks for a reason before denying only the overtime', async () => {
+    const entry = makeEntry({ id: 74, overtime_status: 'pending', pending_overtime_hours: 2 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [entry], count: 1 } })
+    apiMock.denyOvertime.mockResolvedValue({ data: {} })
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Deny OT' }))
+    expect(await screen.findByText(/Add a reason in the note box/)).toBeVisible()
+    expect(apiMock.denyOvertime).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByPlaceholderText('Add a note (optional)...'), { target: { value: 'Hours were not worked' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Deny OT' }))
+
+    await waitFor(() => expect(apiMock.denyOvertime).toHaveBeenCalledWith(74, 'Hours were not worked'))
+    expect(apiMock.denyTimeEntry).not.toHaveBeenCalled()
+  })
+
   it('keeps reversed-range inputs correctable without stale approvals and resumes the selected scope', async () => {
     const target = makeEntry({ id: 48, work_date: '2026-09-23' })
     let approved = false

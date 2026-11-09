@@ -14,6 +14,10 @@ production:
     class: PayrollCutoffFinalizationJob
     queue: payroll
     schedule: every minute
+  send_payroll_cutoff_approval_reminders:
+    class: PayrollCutoffApprovalReminderJob
+    queue: payroll
+    schedule: every hour at minute 7
   deliver_payroll_outbox_events:
     class: PayrollOutboxDeliveryJob
     queue: payroll
