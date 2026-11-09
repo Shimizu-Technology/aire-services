@@ -413,7 +413,7 @@ module Api
       def approve
         # Only overtime the approver could see; approval can newly flag more.
         include_overtime = ActiveModel::Type::Boolean.new.cast(params[:include_overtime]) && @time_entry.overtime_status == "pending"
-        action = include_overtime ? "Time entry and overtime approved" : "Time entry approved"
+        action = include_overtime ? "Time entry approved; waiting overtime included when ready" : "Time entry approved"
         entry = with_export_invalidation(@time_entry, approval_change_reason(action)) do
           approved = TimeClockService.approve_entry(entry: @time_entry, approved_by: current_user, note: params[:note])
           if include_overtime && overtime_ready_for_approval?(approved)
