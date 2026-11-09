@@ -386,6 +386,9 @@ module Api
         total_count = summary[:entry_count]
         entries = sorted_entries.offset((page - 1) * per_page).limit(per_page).to_a
         @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call(entries)
+        @pending_overtime_hours = entries.select { |entry| entry.overtime_status == "pending" }.to_h do |entry|
+          [ entry.id, ::Payroll::AffectedOvertimeReview.allocation_for(entry).to_h.fetch(:overtime_hours, 0).to_f ]
+        end
 
         render json: {
           pending_entries: entries.map { |e| serialize_time_entry(e) },
@@ -408,8 +411,15 @@ module Api
 
       # POST /api/v1/time_entries/:id/approve
       def approve
-        entry = with_export_invalidation(@time_entry, approval_change_reason("Time entry approved")) do
-          TimeClockService.approve_entry(entry: @time_entry, approved_by: current_user, note: params[:note])
+        include_overtime = ActiveModel::Type::Boolean.new.cast(params[:include_overtime])
+        action = include_overtime ? "Time entry and overtime approved" : "Time entry approved"
+        entry = with_export_invalidation(@time_entry, approval_change_reason(action)) do
+          approved = TimeClockService.approve_entry(entry: @time_entry, approved_by: current_user, note: params[:note])
+          if include_overtime && approved.overtime_status == "pending"
+            TimeClockService.approve_overtime(entry: approved, approved_by: current_user, note: params[:note])
+          else
+            approved
+          end
         end
         @missed_payroll_cutoff_ids = ::Payroll::EntryCutoffWarnings.call([ entry ])
         render json: { time_entry: serialize_time_entry(entry) }
@@ -997,6 +1007,7 @@ module Api
           updated_at: entry.updated_at.iso8601
         }.tap do |data|
           data[:payroll_cutoff_missed] = @missed_payroll_cutoff_ids.include?(entry.id) if @missed_payroll_cutoff_ids
+          data[:pending_overtime_hours] = @pending_overtime_hours[entry.id] if @pending_overtime_hours&.key?(entry.id)
         end
       end
 

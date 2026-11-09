@@ -535,6 +535,7 @@ export interface TimeEntry {
   attendance_status: 'early' | 'on_time' | 'late' | null;
   approval_status: 'pending' | 'approved' | 'denied' | null;
   overtime_status: 'none' | 'pending' | 'approved' | 'denied' | null;
+  pending_overtime_hours?: number;
   approval_reasons?: ApprovalReason[];
   clock_in_at: string | null;
   clock_out_at: string | null;
@@ -1791,10 +1792,10 @@ export const api = {
   getWhosWorking: () =>
     fetchApi<{ workers: WorkerStatus[] }>('/api/v1/time_entries/whos_working'),
 
-  approveTimeEntry: (id: number, note?: string) =>
+  approveTimeEntry: (id: number, note?: string, options?: { includeOvertime: boolean }) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ note }),
+      body: JSON.stringify(options?.includeOvertime ? { note, include_overtime: true } : { note }),
     }),
 
   bulkApproveTimeEntries: (entryIds: number[], note?: string) =>
