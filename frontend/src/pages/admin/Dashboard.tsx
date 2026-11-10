@@ -381,7 +381,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
             </div>
             <p className="mt-3 text-sm leading-6 text-slate-600">
               {stats.periodPendingApprovals > 0
-                ? `${stats.periodPendingApprovals} approval${stats.periodPendingApprovals === 1 ? '' : 's'} covering ${stats.periodApprovalHours.toFixed(2)} hours still need review. Pending work can remain tracked and excluded when you finalize.`
+                ? `${stats.periodPendingApprovals} approval${stats.periodPendingApprovals === 1 ? '' : 's'} covering ${stats.periodApprovalHours.toFixed(2)} hours still need review.${canManagePayroll ? ' Pending work can remain tracked and excluded when you finalize.' : ' Anything still pending at the cutoff is left out of that payroll.'}`
                 : canManagePayroll
                   ? 'No approvals are currently waiting. Preview the cutoff to confirm included hours, exclusions, and any blocking payroll data.'
                   : 'No approvals are currently waiting for this pay period.'}
