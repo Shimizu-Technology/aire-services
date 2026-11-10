@@ -163,12 +163,16 @@ RSpec.describe "Role-based access", type: :request do
     end
 
     it "refuses a manager everywhere with 403 and changes nothing" do
+      [ manager, worker ].each(&:reload)
+      counts = -> { [ Setting.count, Setting.maximum(:updated_at), Schedule.count, PayrollBatch.count, User.count ] }
+      before = counts.call
       admin_only_requests.each do |verb, path|
         public_send(verb, path, params: { enabled_for_all: true, enabled: true, role: "admin" }, headers: headers_for(manager))
         expect(response).to have_http_status(:forbidden), "#{verb.upcase} #{path} returned #{response.status}"
       end
       expect(worker.reload).to have_attributes(role: "employee", my_pay_enabled: false, is_active: true)
       expect(Setting.my_pay_enabled_for_all?).to be(false)
+      expect(counts.call).to eq(before)
     end
 
     it "refuses an employee everywhere with 403" do

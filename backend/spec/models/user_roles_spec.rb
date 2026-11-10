@@ -9,26 +9,28 @@ RSpec.describe User, "roles and capabilities", type: :model do
   let(:employee) { build_stubbed(:user, :employee) }
 
   # The capability matrix Leon decided on Nov 10, 2026.
-  EXPECTED = {
-    manage_settings: %w[owner admin],
-    manage_users: %w[owner admin],
-    manage_payroll: %w[owner admin],
-    manage_schedules: %w[owner admin],
-    manage_site: %w[owner admin],
-    view_activity: %w[owner admin],
-    preview_pay: %w[owner admin],
-    manage_my_pay_access: %w[owner admin],
-    approve_time: %w[owner admin manager],
-    manage_team_time: %w[owner admin manager],
-    approve_leave: %w[owner admin manager],
-    unlock_kiosk: %w[owner admin manager],
-    export_hours_reports: %w[owner admin manager],
-    send_pay_statements: %w[owner admin manager]
-  }.freeze
+  let(:expected) do
+    {
+      manage_settings: %w[owner admin],
+      manage_users: %w[owner admin],
+      manage_payroll: %w[owner admin],
+      manage_schedules: %w[owner admin],
+      manage_site: %w[owner admin],
+      view_activity: %w[owner admin],
+      preview_pay: %w[owner admin],
+      manage_my_pay_access: %w[owner admin],
+      approve_time: %w[owner admin manager],
+      manage_team_time: %w[owner admin manager],
+      approve_leave: %w[owner admin manager],
+      unlock_kiosk: %w[owner admin manager],
+      export_hours_reports: %w[owner admin manager],
+      send_pay_statements: %w[owner admin manager]
+    }.freeze
+  end
 
   it "grants each capability to exactly the expected roles, through both the hash and the predicate" do
-    expect(described_class::ROLE_CAPABILITIES.keys).to match_array(EXPECTED.keys)
-    EXPECTED.each do |capability, roles|
+    expect(described_class::ROLE_CAPABILITIES.keys).to match_array(expected.keys)
+    expected.each do |capability, roles|
       described_class::ROLES.each do |role|
         user = build_stubbed(:user, role: role)
         expect(user.capability?(capability)).to eq(roles.include?(role)), "#{role} #{capability}"

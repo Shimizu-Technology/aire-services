@@ -126,7 +126,7 @@ module Api
           @leave_request.with_lock do
             if @leave_request.user_id == current_user.id
               error_response = {
-                error: "Admins cannot approve or decline their own leave requests",
+                error: "You cannot approve or decline your own leave request",
                 status: :unprocessable_entity
               }
               next
