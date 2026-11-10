@@ -37,6 +37,8 @@ export interface MyPayEarning {
   label: string
   hours: string | null
   rate: string | null
+  /** How the stub prints `rate` when there are no hours: "salary" is per year, "contractor" is a flat fee. */
+  pay_basis?: 'salary' | 'contractor' | null
   amount: string
   /** Year to date for this row, as the paper stub prints it; null where the stub prints a dash. */
   ytd?: string | null

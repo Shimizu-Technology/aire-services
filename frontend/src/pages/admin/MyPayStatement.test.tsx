@@ -183,6 +183,16 @@ describe('My Pay statement detail', () => {
     expect(label).toHaveClass('whitespace-pre-line', 'break-words')
   })
 
+  it('shows a salaried row with its annual salary, as the stub prints it', async () => {
+    api.statement.mockResolvedValue({
+      worker: { employment_type: 'salary', contractor: false },
+      statement: detail({ earnings: [ { label: 'Salary', hours: null, rate: '52000.00', pay_basis: 'salary', amount: '2000.00', ytd: '2000.00', kind: 'regular' } ] }),
+    })
+    renderPage()
+
+    expect(await screen.findByText('$52,000.00/yr salary')).toBeVisible()
+  })
+
   it('explains a voided check has no stub instead of offering a download that fails', async () => {
     api.statement.mockResolvedValue({
       worker: { employment_type: 'hourly', contractor: false },

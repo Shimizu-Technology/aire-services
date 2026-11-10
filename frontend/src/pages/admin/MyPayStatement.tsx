@@ -51,6 +51,9 @@ function Section({ title, description, children }: { title: string; description?
 const labelClass = 'whitespace-pre-line break-words font-medium text-slate-900'
 
 function earningDetail(line: MyPayEarning, contractor: boolean): string | null {
+  // Salary and flat-fee rows have no hours; show the rate the paper stub prints.
+  if (!line.hours && line.rate && line.pay_basis === 'salary') return `${formatMoney(line.rate)}/yr salary`
+  if (!line.hours && line.rate && line.pay_basis === 'contractor') return `${formatMoney(line.rate)} contract fee`
   if (!line.hours) return null
   const hours = formatHours(line.hours)
   if (!line.rate) return hours

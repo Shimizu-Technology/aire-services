@@ -142,6 +142,21 @@ RSpec.describe "My Pay", type: :request do
       expect(cornerstone_requests).to eq([ "/api/v1/integrations/time_payroll/workers/#{admin.payroll_integration_uuid}/statements" ])
     end
 
+    it "passes a salary row's pay basis and drops unknown ones" do
+      original = method(:detail)
+      define_singleton_method(:detail) do |id|
+        original.call(id).merge(earnings: [
+          { label: "Salary", hours: nil, rate: "52000.00", pay_basis: "salary", amount: "2000.00", ytd: "2000.00", kind: "regular" },
+          { label: "Bonus", hours: nil, rate: nil, pay_basis: "weird", amount: "50.00", ytd: "50.00", kind: "bonus" }
+        ])
+      end
+
+      get "/api/v1/my_pay/42", headers: { "Authorization" => "Bearer test_token_#{worker.id}" }
+
+      earnings = response.parsed_body.fetch("statement", response.parsed_body).fetch("earnings")
+      expect(earnings.map { |row| row["pay_basis"] }).to eq([ "salary", nil ])
+    end
+
     it "dates a reissued check by its own check date, like the printed stub" do
       reissued = method(:summary)
       define_singleton_method(:summary) { |id| reissued.call(id).merge(id == 42 ? { check_date: "2026-11-18" } : {}) }

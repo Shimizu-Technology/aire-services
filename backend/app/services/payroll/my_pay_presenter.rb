@@ -15,6 +15,8 @@ module Payroll
     DATE = /\A\d{4}-\d{2}-\d{2}\z/
     OVERTIME_WORDING = /over\s*-?\s*time|\bOT\b|over\s*40/i
     CONTRACTOR_EARNING_LABEL = "Contract hours"
+    # How the printed stub shows a row's rate: an annual salary or a flat contract fee.
+    PAY_BASES = %w[salary contractor].freeze
     # Earning labels can carry the stub's work-date note on a second line.
     LABEL_LIMIT = 240
 
@@ -103,7 +105,8 @@ module Payroll
       kind = EARNING_KINDS.include?(line["kind"]) ? line["kind"] : "other"
       label = text(line["label"], limit: LABEL_LIMIT) || kind.humanize
       # ytd is nil where the paper stub prints a dash for that row.
-      { label: label, hours: quantity(line["hours"]), rate: quantity(line["rate"]), amount: amount, ytd: money(line["ytd"]), kind: kind }
+      row = { label: label, hours: quantity(line["hours"]), rate: quantity(line["rate"]), amount: amount, ytd: money(line["ytd"]), kind: kind }
+      PAY_BASES.include?(line["pay_basis"]) ? row.merge(pay_basis: line["pay_basis"]) : row
     end
 
     # Contractors are paid their contract rate for every hour, so their pay is
