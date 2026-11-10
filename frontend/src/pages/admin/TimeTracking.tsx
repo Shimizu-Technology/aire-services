@@ -1219,7 +1219,7 @@ export default function TimeTracking() {
   return (
     <div className="space-y-6">
       <PayrollCutoffNotice />
-      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
+      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">{returnTo.startsWith('/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}</Link>}
       <TimePayrollWorkspaceHeader
         activeSection={activeTab}
         isAdmin={isAdmin}
@@ -3257,11 +3257,33 @@ function PersonDayModalContent({
   )
 }
 
+function paycheckLead(status: EmployeePayrollStatus['status']): string {
+  if (status === 'payment_issued' || status === 'partially_paid') return 'Paid on'
+  if (status === 'payment_voided') return 'Voided check:'
+  if (status === 'payment_cancelled') return 'Payment cancelled:'
+  return 'Included on'
+}
+
 function EmployeePaymentStatus({ status }: { status?: EmployeePayrollStatus | null }) {
   const neutral = status && ['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status.status)
+  const paychecks = status?.paychecks?.filter((paycheck) => /^[1-9]\d{0,17}$/.test(paycheck.statement_id)) ?? []
   return (
     <div className="mt-2 space-y-1 break-words text-sm text-primary-dark" aria-label="Payroll payment status">
       <p className="font-medium">{status?.label || 'Payment status unavailable'}</p>
+      {status && paychecks.length > 0 && (
+        <p className="text-sm">
+          {paycheckLead(status.status)}{' '}
+          {paychecks.map((paycheck, index) => (
+            <span key={paycheck.statement_id}>
+              {index > 0 && ', '}
+              <Link to={`/admin/pay/${paycheck.statement_id}`} className="font-semibold text-cyan-800 underline decoration-cyan-800/30 underline-offset-4 hover:decoration-cyan-800">
+                {paycheck.pay_date ? `${formatDateOnly(paycheck.pay_date, { month: 'short', day: 'numeric' })} check` : 'your paycheck'}
+              </Link>
+            </span>
+          ))}
+        </p>
+      )}
+      {status?.note && <p className="text-sm text-amber-900">{status.note}</p>}
       {status && (!neutral || status.paid_hours > 0) && <p className="text-xs text-text-muted">Paid hours confirmed: {status.paid_hours.toFixed(2)}h</p>}
       {!!status?.held_hours && <p className="text-xs text-amber-800">{status.status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status.status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: {status.held_hours.toFixed(2)}h</p>}
     </div>

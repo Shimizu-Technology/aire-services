@@ -1,0 +1,363 @@
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, ChevronRight, Download } from 'lucide-react'
+import { useAuthContext } from '../../contexts/AuthContext'
+import { MyPayErrorState, StatementDetailSkeleton, StatusBadge } from '../../components/my-pay/MyPayParts'
+import { formatDateOnly } from '../../lib/dateUtils'
+import {
+  MyPayError,
+  formatHours,
+  formatMoney,
+  formatPayDate,
+  formatPeriod,
+  myPayApi,
+  paymentMethodLabel,
+  paymentStatus,
+  runPurposeLabel,
+  type MyPayEarning,
+  type MyPayHoursLine,
+  type MyPayStatementDetail,
+  type MyPayWithholding,
+  type MyPayWorker,
+} from '../../lib/myPayApi'
+
+type LoadState =
+  | { status: 'loading' }
+  | { status: 'error'; error: MyPayError }
+  | { status: 'ready'; worker: MyPayWorker; statement: MyPayStatementDetail }
+
+const rateFormat = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 })
+
+function sum(lines: { amount: string }[]): string {
+  const cents = lines.reduce((total, line) => total + Math.round(Number(line.amount) * 100), 0)
+  return (cents / 100).toFixed(2)
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId()
+  return (
+    <section aria-labelledby={id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <h2 id={id} className="border-b border-slate-100 px-4 py-3 text-base font-semibold text-slate-900 sm:px-5">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function earningDetail(line: MyPayEarning, contractor: boolean): string | null {
+  if (!line.hours) return null
+  const hours = formatHours(line.hours)
+  if (!line.rate) return hours
+  return `${hours} × ${rateFormat.format(Number(line.rate))}${contractor ? '/hr contract rate' : '/hr'}`
+}
+
+function EarningsSection({ earnings, gross, contractor }: { earnings: MyPayEarning[]; gross: string | null; contractor: boolean }) {
+  return (
+    <Section title={contractor ? 'Contract pay' : 'Earnings'}>
+      {earnings.length === 0 ? (
+        <p className="px-4 py-4 text-sm text-slate-600 sm:px-5">No line items were included on this statement.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {earnings.map((line, index) => {
+            const detail = earningDetail(line, contractor)
+            return (
+              <li key={`${line.label}-${index}`} className="flex items-start justify-between gap-4 px-4 py-3 sm:px-5">
+                <div className="min-w-0">
+                  <p className="font-medium text-slate-900">{line.label}</p>
+                  {detail && <p className="mt-0.5 text-sm tabular-nums text-slate-600">{detail}</p>}
+                </div>
+                <p className="shrink-0 font-semibold tabular-nums text-slate-900">{formatMoney(line.amount)}</p>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <div className="flex items-center justify-between gap-4 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
+        <p className="font-semibold text-slate-900">{contractor ? 'Total before deductions' : 'Gross pay'}</p>
+        <p className="font-bold tabular-nums text-slate-950">{formatMoney(gross)}</p>
+      </div>
+    </Section>
+  )
+}
+
+function WithholdingSection({ title, lines, emptyText }: { title: string; lines: MyPayWithholding[]; emptyText: string }) {
+  return (
+    <Section title={title}>
+      {lines.length === 0 ? (
+        <p className="px-4 py-4 text-sm text-slate-600 sm:px-5">{emptyText}</p>
+      ) : (
+        <>
+          <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_8rem_8rem] gap-x-4 border-b border-slate-100 px-5 pt-2 pb-1.5 text-xs font-medium text-slate-500 sm:grid">
+            <span />
+            <span className="text-right">This check</span>
+            <span className="text-right">Year to date</span>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {lines.map((line, index) => (
+              <li key={`${line.label}-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_8rem] sm:px-5">
+                <p className="font-medium text-slate-900">{line.label}</p>
+                <p className="text-right font-semibold tabular-nums text-slate-900">{formatMoney(line.amount)}</p>
+                <p className="col-span-2 text-sm tabular-nums text-slate-600 sm:col-span-1 sm:text-right">
+                  <span className="sm:sr-only">Year to date: </span>{formatMoney(line.ytd)}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_8rem] sm:px-5">
+            <p className="font-semibold text-slate-900">Total {title.toLowerCase()}</p>
+            <p className="text-right font-bold tabular-nums text-slate-950">{formatMoney(sum(lines))}</p>
+          </div>
+        </>
+      )}
+    </Section>
+  )
+}
+
+function hoursBreakdown(line: MyPayHoursLine): string | null {
+  if (!line.overtime_hours || Number(line.overtime_hours) === 0) return null
+  return `${formatHours(line.regular_hours)} regular · ${formatHours(line.overtime_hours)} overtime`
+}
+
+function HoursSection({ lines, statementId, contractor }: { lines: MyPayHoursLine[]; statementId: string; contractor: boolean }) {
+  return (
+    <Section title="Hours on this check">
+      {lines.length === 0 ? (
+        <p className="px-4 py-4 text-sm text-slate-600 sm:px-5">This {contractor ? 'payment' : 'paycheck'} doesn&apos;t list individual time entries.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {lines.map((line, index) => {
+            const workedOn = line.work_date ? formatDateOnly(line.work_date, { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date not recorded'
+            const breakdown = contractor ? null : hoursBreakdown(line)
+            const href = line.time_entry_id && line.work_date
+              ? `/admin/time?${new URLSearchParams({ date: line.work_date, view: 'day', entry_id: String(line.time_entry_id), return_to: `/admin/pay/${statementId}` })}`
+              : null
+            const content = (
+              <>
+                <div className="min-w-0">
+                  <p className="font-medium text-slate-900">{workedOn}</p>
+                  <p className="mt-0.5 text-sm text-slate-600">
+                    {line.category || 'Work'}
+                    {breakdown && <span className="tabular-nums"> · {breakdown}</span>}
+                  </p>
+                  {line.prior_period && (
+                    <p className="mt-1.5 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
+                      {line.work_date ? `Worked ${formatDateOnly(line.work_date, { month: 'short', day: 'numeric' })} · paid on this check` : 'Earlier hours · paid on this check'}
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <p className="font-semibold tabular-nums text-slate-900">{formatHours(line.total_hours)}</p>
+                  {href && <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />}
+                </div>
+              </>
+            )
+            return (
+              <li key={`${line.time_entry_id ?? 'line'}-${index}`}>
+                {href ? (
+                  <Link
+                    to={href}
+                    aria-label={`Open ${workedOn} time entry in My Time, ${formatHours(line.total_hours)}`}
+                    className="flex items-start justify-between gap-4 px-4 py-3 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cyan-600 sm:px-5"
+                  >
+                    {content}
+                  </Link>
+                ) : (
+                  <div className="flex items-start justify-between gap-4 px-4 py-3 sm:px-5">{content}</div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </Section>
+  )
+}
+
+function DownloadButton({ statementId, payDate }: { statementId: string; payDate: string | null }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const download = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const { blob, filename } = await myPayApi.pdf(statementId)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename || `AIRE-pay-statement-${payDate || statementId}.pdf`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 30_000)
+    } catch (caught) {
+      setError(caught instanceof MyPayError ? caught.message : 'The PDF could not be downloaded. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={download}
+        disabled={busy}
+        aria-busy={busy}
+        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] duration-100 hover:bg-primary-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:opacity-70 motion-reduce:transition-none sm:w-auto"
+      >
+        <Download className="h-4 w-4" aria-hidden="true" />
+        {busy ? 'Preparing PDF…' : 'Download PDF stub'}
+      </button>
+      {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+export default function MyPayStatement() {
+  const { id = '' } = useParams()
+  const { currentUser, isClerkEnabled } = useAuthContext()
+  const enabled = Boolean(currentUser?.my_pay_enabled)
+  const [attempt, setAttempt] = useState(0)
+  // Results are keyed by statement and attempt, so a new ID or a retry shows
+  // the skeleton without resetting state inside the effect.
+  const requestKey = `${id}:${attempt}`
+  const [result, setResult] = useState<{ key: string; state: LoadState } | null>(null)
+  const state: LoadState = result?.key === requestKey ? result.state : { status: 'loading' }
+
+  const retry = useCallback(() => setAttempt((value) => value + 1), [])
+
+  useEffect(() => {
+    if (!enabled) return
+    const controller = new AbortController()
+    myPayApi.statement(id, controller.signal)
+      .then((data) => setResult({ key: requestKey, state: { status: 'ready', worker: data.worker, statement: data.statement } }))
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setResult({ key: requestKey, state: { status: 'error', error: error instanceof MyPayError ? error : new MyPayError('Pay history is temporarily unavailable. Please try again in a few minutes.', 'network') } })
+      })
+    return () => controller.abort()
+  }, [enabled, id, requestKey])
+
+  const back = (
+    <Link to="/admin/pay" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-semibold text-cyan-700 hover:text-cyan-900 focus-visible:outline-2 focus-visible:outline-cyan-600">
+      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+      All pay
+    </Link>
+  )
+
+  if (!enabled && (currentUser || !isClerkEnabled)) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        {back}
+        <p className="mt-3 rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">My Pay isn&apos;t available for your account yet.</p>
+      </div>
+    )
+  }
+
+  if (state.status !== 'ready') {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4" aria-busy={state.status === 'loading'}>
+        {back}
+        {state.status === 'loading' ? (
+          <>
+            <h1 className="sr-only">Loading paycheck</h1>
+            <StatementDetailSkeleton />
+          </>
+        ) : (
+          <>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Paycheck</h1>
+            <MyPayErrorState error={state.error} onRetry={retry} />
+          </>
+        )}
+      </div>
+    )
+  }
+
+  const { statement, worker } = state
+  const contractor = worker.contractor
+  const status = paymentStatus(statement.payment)
+  const purpose = runPurposeLabel(statement.run_purpose)
+  const kind = contractor ? 'Payment statement' : 'Paycheck'
+  const payDate = formatPayDate(statement.pay_date)
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      {back}
+
+      <section aria-labelledby="my-pay-statement-title" className="rounded-2xl border border-primary/15 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 id="my-pay-statement-title" className="text-sm font-semibold text-slate-600">
+            {kind} · <span className="text-slate-900">{payDate}</span>
+          </h1>
+          <StatusBadge {...status} />
+        </div>
+        <p className="mt-4 text-sm font-medium text-slate-500">{contractor ? 'Total payment' : 'Net pay'}</p>
+        <p className="font-display text-4xl font-bold tracking-tight tabular-nums text-slate-950 sm:text-5xl">{formatMoney(statement.net_pay)}</p>
+        <p className="mt-2 text-sm text-slate-600">
+          {formatPeriod(statement.period_start, statement.period_end)}
+          {purpose && ` · ${purpose}`}
+          {statement.total_hours && ` · ${formatHours(statement.total_hours)}`}
+        </p>
+        <dl className={`mt-5 grid gap-3 border-t border-slate-100 pt-4 text-sm ${contractor ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          <div>
+            <dt className="text-slate-500">{contractor ? 'Before deductions' : 'Gross'}</dt>
+            <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{formatMoney(statement.gross_pay)}</dd>
+          </div>
+          {!contractor && (
+            <div>
+              <dt className="text-slate-500">Taxes</dt>
+              <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{formatMoney(sum(statement.taxes))}</dd>
+            </div>
+          )}
+          <div>
+            <dt className="text-slate-500">Deductions</dt>
+            <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{formatMoney(sum(statement.deductions))}</dd>
+          </div>
+        </dl>
+        <div className="mt-5">
+          <DownloadButton statementId={statement.id} payDate={statement.pay_date} />
+        </div>
+      </section>
+
+      <EarningsSection earnings={statement.earnings} gross={statement.gross_pay} contractor={contractor} />
+      {!contractor && <WithholdingSection title="Taxes" lines={statement.taxes} emptyText="No taxes were withheld from this check." />}
+      <WithholdingSection title="Deductions" lines={statement.deductions} emptyText={`No deductions were taken from this ${contractor ? 'payment' : 'check'}.`} />
+
+      <Section title="Year to date">
+        <dl className="grid grid-cols-2 gap-4 px-4 py-4 sm:px-5">
+          <div>
+            <dt className="text-sm text-slate-500">{contractor ? 'Paid before deductions' : 'Gross pay'}</dt>
+            <dd className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900">{formatMoney(statement.ytd.gross)}</dd>
+          </div>
+          <div>
+            <dt className="text-sm text-slate-500">{contractor ? 'Total paid' : 'Net pay'}</dt>
+            <dd className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900">{formatMoney(statement.ytd.net)}</dd>
+          </div>
+        </dl>
+      </Section>
+
+      <HoursSection lines={statement.hours_on_check} statementId={statement.id} contractor={contractor} />
+
+      <Section title="Payment">
+        <dl className="divide-y divide-slate-100 text-sm">
+          <div className="flex justify-between gap-4 px-4 py-3 sm:px-5">
+            <dt className="text-slate-500">Status</dt>
+            <dd className="font-semibold text-slate-900">{status.label}</dd>
+          </div>
+          <div className="flex justify-between gap-4 px-4 py-3 sm:px-5">
+            <dt className="text-slate-500">Method</dt>
+            <dd className="text-right font-medium text-slate-900">{paymentMethodLabel(statement.payment.method, statement.payment.check_number_last4)}</dd>
+          </div>
+          {statement.payment.issued_on && (
+            <div className="flex justify-between gap-4 px-4 py-3 sm:px-5">
+              <dt className="text-slate-500">{statement.payment.method === 'direct_deposit' ? 'Deposited on' : 'Issued on'}</dt>
+              <dd className="font-medium text-slate-900">{formatPayDate(statement.payment.issued_on)}</dd>
+            </div>
+          )}
+        </dl>
+      </Section>
+
+      <p className="px-1 pb-4 text-xs text-slate-500">
+        Your paper stub is the official record of this {contractor ? 'payment' : 'paycheck'}. Questions about your pay? Ask an AIRE administrator.
+      </p>
+    </div>
+  )
+}

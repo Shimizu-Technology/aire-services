@@ -12,6 +12,7 @@ import {
   PanelLeftOpen,
   Settings,
   UserRound,
+  Wallet,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -44,6 +45,13 @@ const employeeNavigation = [
     icon: CalendarDays,
   },
 ]
+
+// Shown only when My Pay is enabled for the signed-in user (pilot gate).
+const myPayNavigation = {
+  name: 'My Pay',
+  href: '/admin/pay',
+  icon: Wallet,
+}
 
 const adminNavigation = [
   {
@@ -98,9 +106,11 @@ export default function AdminLayout() {
   const { userRole, isClerkEnabled, currentUser, refreshCurrentUser } = useAuthContext()
 
   const isAdmin = !isClerkEnabled || userRole === 'admin'
+  const myPayEnabled = Boolean(currentUser?.my_pay_enabled)
   const navigation = useMemo(() => {
-    return isAdmin ? adminNavigation : employeeNavigation
-  }, [isAdmin])
+    if (isAdmin) return myPayEnabled ? [adminNavigation[0], myPayNavigation, ...adminNavigation.slice(1)] : adminNavigation
+    return myPayEnabled ? [...employeeNavigation.slice(0, 2), myPayNavigation, ...employeeNavigation.slice(2)] : employeeNavigation
+  }, [isAdmin, myPayEnabled])
   const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)
   // Required PIN setup takes precedence over the navigation dialog.
   const navigationOpen = mobileOpen && !needsKioskPinSetup

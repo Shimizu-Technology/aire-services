@@ -245,6 +245,7 @@ export interface CurrentUser {
   kiosk_pin_configured: boolean;
   kiosk_pin_last_rotated_at?: string | null;
   needs_kiosk_pin_setup: boolean;
+  my_pay_enabled?: boolean;
   created_at: string;
 }
 
@@ -513,6 +514,9 @@ export interface EmployeePayrollStatus {
   label: string;
   paid_hours: number;
   held_hours: number;
+  // Present only on the worker's own entries when My Pay is enabled for them.
+  paychecks?: { statement_id: string; pay_date: string | null }[];
+  note?: string;
 }
 
 export interface TimeEntry {

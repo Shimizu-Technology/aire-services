@@ -187,3 +187,25 @@ describe('AdminLayout kiosk PIN setup', () => {
     expect(screen.queryByText('User menu')).not.toBeInTheDocument()
   })
 })
+
+describe('AdminLayout My Pay navigation', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    Object.defineProperty(window, 'innerWidth', { value: 1280, writable: true, configurable: true })
+    authMock.value.isClerkEnabled = true
+  })
+
+  it.each(['employee', 'admin'] as const)('shows My Pay to an enabled %s', (role) => {
+    authMock.value.userRole = role
+    authMock.value.currentUser = { full_name: 'Pilot Worker', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
+    renderLayout()
+    expect(screen.getByRole('link', { name: 'My Pay' })).toHaveAttribute('href', '/admin/pay')
+  })
+
+  it.each(['employee', 'admin'] as const)('hides My Pay from a %s outside the pilot', (role) => {
+    authMock.value.userRole = role
+    authMock.value.currentUser = { full_name: 'Other Worker', needs_kiosk_pin_setup: false, my_pay_enabled: false } as typeof authMock.value.currentUser
+    renderLayout()
+    expect(screen.queryByRole('link', { name: 'My Pay' })).not.toBeInTheDocument()
+  })
+})

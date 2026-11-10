@@ -142,6 +142,24 @@ describe('My Time employee payment status', () => {
     expect(within(panel).queryByText('Paid', { exact: true })).not.toBeInTheDocument()
   })
 
+  it('links paid time to the paycheck that paid it in My Pay', async () => {
+    open('day', { status: 'payment_issued', label: 'Paid', paid_hours: 8, held_hours: 0, paychecks: [{ statement_id: '41', pay_date: '2025-05-15' }] })
+    const panel = await screen.findByLabelText('Payroll payment status')
+    expect(panel).toHaveTextContent('Paid on May 15 check')
+    expect(within(panel).getByRole('link', { name: 'May 15 check' })).toHaveAttribute('href', '/admin/pay/41')
+  })
+
+  it('explains late hours in plain language and never links an untrusted paycheck reference', async () => {
+    open('day', {
+      status: 'held', label: 'On hold — awaiting payroll', paid_hours: 0, held_hours: 8,
+      note: 'Approved after the Nov 7 cutoff — moves to the next payroll (expected Nov 22)',
+      paychecks: [{ statement_id: '../admin', pay_date: null }],
+    })
+    const panel = await screen.findByLabelText('Payroll payment status')
+    expect(within(panel).getByText('Approved after the Nov 7 cutoff — moves to the next payroll (expected Nov 22)')).toBeVisible()
+    expect(within(panel).queryByRole('link')).not.toBeInTheDocument()
+  })
+
   it('keeps status visible when switching between employee week and day', async () => {
     open('week', { status: 'payment_prepared', label: 'Check prepared — not paid yet', paid_hours: 0, held_hours: 0 })
     expect(await screen.findByText('Check prepared — not paid yet')).toBeVisible()
