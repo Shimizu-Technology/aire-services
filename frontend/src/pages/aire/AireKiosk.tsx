@@ -6,6 +6,7 @@ import { SignInButton } from '@clerk/clerk-react'
 import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockStatus, type TimeCategory } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor } from '../../lib/roles'
+import KioskPayStubRequest from '../../components/pay-stubs/KioskPayStubRequest'
 
 type KioskAction = 'clock_in' | 'clock_out' | 'start_break' | 'end_break' | 'switch_category'
 
@@ -72,6 +73,7 @@ export default function AireKiosk() {
   const [success, setSuccess] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
   const [unlocking, setUnlocking] = useState(false)
+  const [requestingStub, setRequestingStub] = useState(false)
   const [kioskAccessSession, setKioskAccessSession] = useState<StoredKioskAccessSession | null>(() => {
     if (typeof window === 'undefined') return null
     const raw = window.sessionStorage.getItem(KIOSK_ACCESS_STORAGE_KEY)
@@ -117,6 +119,7 @@ export default function AireKiosk() {
     setActionLoading(null)
     setError(null)
     setSuccess(null)
+    setRequestingStub(false)
   }, [])
 
   const clearExpiredKioskAccessSession = useCallback(() => {
@@ -524,7 +527,15 @@ export default function AireKiosk() {
             )}
           </div>
 
-          {!employee ? (
+          {employee && kioskToken && requestingStub ? (
+            <KioskPayStubRequest
+              kioskAccessToken={kioskAccessToken || ''}
+              kioskToken={kioskToken}
+              onActivity={bumpIdleTimer}
+              onCancel={() => { bumpIdleTimer(); setRequestingStub(false) }}
+              onSent={(message) => { setRequestingStub(false); setSuccess(message) }}
+            />
+          ) : !employee ? (
             <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-400">
               {kioskUnlocked ? 'Verify a PIN to get started.' : 'Unlock the kiosk first, then verify a PIN to get started.'}
             </div>
@@ -563,7 +574,7 @@ export default function AireKiosk() {
             </div>
           )}
 
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+          {!requestingStub && <div className="mt-8 grid gap-3 sm:grid-cols-2">
             {primaryActions.map(({ action, enabled, className }) => (
               <button
                 key={action}
@@ -576,7 +587,18 @@ export default function AireKiosk() {
                 {actionLoading === action ? `${formatActionLabel(action)}...` : formatActionLabel(action)}
               </button>
             ))}
-          </div>
+          </div>}
+
+          {employee && kioskToken && !requestingStub && (
+            <button
+              type="button"
+              onClick={() => { bumpIdleTimer(); setError(null); setSuccess(null); setRequestingStub(true) }}
+              disabled={!!actionLoading || loading}
+              className="mt-3 w-full rounded-2xl border border-slate-700 px-5 py-3.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Request my pay stub
+            </button>
+          )}
 
           {error && (
             <p className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>

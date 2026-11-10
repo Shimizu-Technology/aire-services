@@ -6,6 +6,11 @@ import AireKiosk from './AireKiosk'
 const authMock = vi.hoisted(() => ({ isClerkEnabled: true, isSignedIn: true, userRole: 'admin' as 'owner' | 'admin' | 'manager' | 'employee' | null }))
 const mocks = vi.hoisted(() => ({ createAdminKioskSession: vi.fn(), getPayrollCutoff: vi.fn(), aireKioskVerify: vi.fn(), aireKioskClockIn: vi.fn(), aireKioskClockOut: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: mocks }))
+const stubMocks = vi.hoisted(() => ({ choices: vi.fn(), request: vi.fn() }))
+vi.mock('../../lib/payStubsApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/payStubsApi')>()
+  return { ...actual, kioskPayStubsApi: stubMocks }
+})
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => authMock }))
 vi.mock('@clerk/clerk-react', () => ({ SignInButton: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: ({ kiosk }: { kiosk: { notice: unknown } }) => <div data-testid="warning">{kiosk.notice ? 'notice' : 'none'}</div> }))
@@ -73,4 +78,20 @@ it('lets a signed-in manager unlock the kiosk', () => {
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   expect(screen.queryByText(/only managers and admins can open this kiosk/i)).not.toBeInTheDocument()
   expect(screen.getAllByRole('button', { name: /unlock/i }).length).toBeGreaterThan(0)
+})
+
+it('lets a verified employee request a pay stub and confirms it went to the office', async () => {
+  mocks.getPayrollCutoff.mockResolvedValue({ data: null })
+  stubMocks.choices.mockResolvedValue({ pay_dates: [], years: [2026], pay_dates_available: true, on_file_email_hint: 'a•••@example.com' })
+  stubMocks.request.mockResolvedValue({ message: 'Your request was sent to the office.' })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  expect(screen.queryByRole('button', { name: 'Request my pay stub' })).not.toBeInTheDocument()
+  for (const digit of '1234') fireEvent.click(screen.getByRole('button', { name: digit }))
+  fireEvent.click(screen.getByRole('button', { name: 'Verify PIN' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Request my pay stub' }))
+  expect(screen.queryByRole('button', { name: 'Clock In' })).not.toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('button', { name: 'Send request to the office' }))
+  expect(await screen.findByText('Your request was sent to the office.')).toBeInTheDocument()
+  expect(stubMocks.request).toHaveBeenCalledWith('access', 'employee-token', { scope: 'latest', statementId: undefined, year: undefined })
+  expect(screen.getByRole('button', { name: 'Clock In' })).toBeInTheDocument()
 })

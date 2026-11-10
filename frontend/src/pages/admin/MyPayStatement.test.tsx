@@ -11,6 +11,11 @@ vi.mock('../../lib/myPayApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/myPayApi')>()
   return { ...actual, myPayApi: { ...actual.myPayApi, statement: api.statement, pdf: api.pdf } }
 })
+const emailApi = vi.hoisted(() => ({ email: vi.fn() }))
+vi.mock('../../lib/payStubsApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/payStubsApi')>()
+  return { ...actual, myPayEmailApi: emailApi }
+})
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ isClerkEnabled: true, currentUser: { id: 7, my_pay_enabled: true } }) }))
 
 function detail(overrides: Partial<MyPayStatementDetail> = {}): MyPayStatementDetail {
@@ -311,5 +316,25 @@ describe('My Pay statement detail', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('$1,372.00')).toBeVisible()
     expect(api.statement).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('Email me this stub', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('emails a link to the worker and says where it went', async () => {
+    api.statement.mockResolvedValue({ worker: { employment_type: 'hourly', contractor: false }, statement: detail() })
+    emailApi.email.mockResolvedValue({ sent_to: 'm•••@example.com', expires_at: '2026-11-17T00:00:00Z', email_status: 'sent' })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Email me this stub' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('We emailed a secure link to m•••@example.com. It works for 7 days.')
+    expect(emailApi.email).toHaveBeenCalledWith('42')
+  })
+
+  it('is not offered for a voided check', async () => {
+    api.statement.mockResolvedValue({ worker: { employment_type: 'hourly', contractor: false }, statement: detail({ payment: { method: 'paper_check', status: 'voided', issued_on: null, check_number_last4: null } }) })
+    renderPage()
+    await screen.findByText(/was voided/)
+    expect(screen.queryByRole('button', { name: 'Email me this stub' })).not.toBeInTheDocument()
   })
 })

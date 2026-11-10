@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, ChevronRight, Download } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Download, Mail } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { MyPayErrorState, StatementDetailSkeleton, StatusBadge } from '../../components/my-pay/MyPayParts'
 import { formatDateOnly } from '../../lib/dateUtils'
-import { useMyPayScope } from '../../lib/myPayScope'
+import { useMyPayScope, type MyPayScope } from '../../lib/myPayScope'
 import {
   MyPayError,
   formatHours,
@@ -20,6 +20,7 @@ import {
   type MyPayWithholding,
   type MyPayWorker,
 } from '../../lib/myPayApi'
+import { PayStubError } from '../../lib/payStubsApi'
 
 type LoadState =
   | { status: 'loading' }
@@ -302,6 +303,38 @@ function DownloadButton({ statementId, payDate }: { statementId: string; payDate
   )
 }
 
+function EmailStubButton({ statementId, emailStub }: { statementId: string; emailStub: NonNullable<MyPayScope['emailStub']> }) {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const send = async () => {
+    setBusy(true)
+    setResult(null)
+    try {
+      const sent = await emailStub(statementId)
+      setResult({ tone: 'success', text: `We emailed a secure link to ${sent.sent_to || 'your email on file'}. It works for 7 days.` })
+    } catch (caught) {
+      setResult({ tone: 'error', text: caught instanceof PayStubError ? caught.message : 'The email could not be sent. Please try again.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={send}
+        disabled={busy}
+        aria-busy={busy}
+        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm transition-[background-color,transform] duration-100 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:opacity-70 motion-reduce:transition-none sm:w-auto"
+      >
+        <Mail className="h-4 w-4" aria-hidden="true" />
+        {busy ? 'Sending…' : 'Email me this stub'}
+      </button>
+      {result && <p role={result.tone === 'error' ? 'alert' : 'status'} className={`mt-2 text-sm ${result.tone === 'error' ? 'text-red-700' : 'text-emerald-800'}`}>{result.text}</p>}
+    </div>
+  )
+}
+
 export default function MyPayStatement() {
   const { id = '' } = useParams()
   const { currentUser, isClerkEnabled } = useAuthContext()
@@ -394,7 +427,12 @@ export default function MyPayStatement() {
         <div className="mt-5">
           {statement.payment?.status === 'voided'
             ? <p className="text-sm text-slate-600">This {contractor ? 'payment' : 'check'} was voided, so there&apos;s no stub to download.</p>
-            : <DownloadButton statementId={statement.id} payDate={statement.pay_date} />}
+            : (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                <DownloadButton statementId={statement.id} payDate={statement.pay_date} />
+                {scope.emailStub && <EmailStubButton statementId={statement.id} emailStub={scope.emailStub} />}
+              </div>
+            )}
         </div>
       </section>
 

@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
 import { myPayApi, myPayPreviewApi, type MyPayHoursLine, type MyPaySource } from './myPayApi'
+import { myPayEmailApi } from './payStubsApi'
 import type { CurrentUser } from './api'
 
 // What a My Pay screen reads and where its links go. The worker's own My Pay
@@ -13,6 +14,8 @@ export interface MyPayScope {
   timeHref: string
   timeLabel: string
   entryHref: (line: MyPayHoursLine, statementId: string) => string | null
+  /** "Email me this stub": only the worker's own My Pay, never the admin preview. */
+  emailStub?: (statementId: string) => Promise<{ sent_to: string | null; expires_at: string }>
 }
 
 function entryQuery(line: MyPayHoursLine, returnTo: string, extra: Record<string, string> = {}): URLSearchParams | null {
@@ -31,6 +34,7 @@ export const ownMyPayScope: MyPayScope = {
     const query = entryQuery(line, `/admin/pay/${statementId}`)
     return query ? `/admin/time?${query}` : null
   },
+  emailStub: myPayEmailApi.email,
 }
 
 export const MY_PAY_PREVIEW_PATH = '/admin/pay-preview'

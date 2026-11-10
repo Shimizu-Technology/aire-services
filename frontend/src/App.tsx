@@ -27,6 +27,8 @@ const PayrollAccountLink = lazy(() => import('./pages/admin/PayrollAccountLink')
 const MyPay = lazy(() => import('./pages/admin/MyPay'))
 const MyPayStatement = lazy(() => import('./pages/admin/MyPayStatement'))
 const MyPayPreview = lazy(() => import('./pages/admin/MyPayPreview'))
+const PayStubs = lazy(() => import('./pages/admin/PayStubs'))
+const PayStubLink = lazy(() => import('./pages/aire/PayStubLink'))
 
 function AdminLoadingFallback() {
   return (
@@ -67,6 +69,8 @@ function App() {
         </Route>
 
         <Route path="/kiosk" element={<AireKiosk />} />
+        {/* Public page behind an emailed pay stub link; the token is in the URL fragment. */}
+        <Route path="/stubs" element={<Suspense fallback={null}><PayStubLink /></Suspense>} />
 
         <Route
           path="/admin"
@@ -85,6 +89,8 @@ function App() {
           <Route path="pay-preview" element={<ProtectedRoute requiredCapability="preview_pay"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="picker" /></Suspense></ProtectedRoute>} />
           <Route path="pay-preview/:userId" element={<ProtectedRoute requiredCapability="preview_pay"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="list" /></Suspense></ProtectedRoute>} />
           <Route path="pay-preview/:userId/:id" element={<ProtectedRoute requiredCapability="preview_pay"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="statement" /></Suspense></ProtectedRoute>} />
+          {/* Sending pay stubs: owners, admins and managers (checked again by the API). */}
+          <Route path="pay-stubs" element={<ProtectedRoute requiredCapability="send_pay_statements"><Suspense fallback={<AdminLoadingFallback />}><PayStubs /></Suspense></ProtectedRoute>} />
           <Route
             path="media"
             element={

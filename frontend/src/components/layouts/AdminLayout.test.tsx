@@ -47,6 +47,7 @@ function renderLayout(initialEntry = '/admin') {
           <Route path="/admin/payroll" element={<div>Payroll content</div>} />
           <Route path="/admin/pay" element={<div>My Pay content</div>} />
           <Route path="/admin/pay/:id" element={<div>Paycheck content</div>} />
+          <Route path="/admin/pay-stubs" element={<div>Pay stubs content</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -215,6 +216,7 @@ describe('AdminLayout My Pay navigation', () => {
     ['/admin/pay', 'My Pay'],
     ['/admin/pay/42', 'My Pay'],
     ['/admin/payroll', 'Time & Payroll'],
+    ['/admin/pay-stubs', 'Pay stubs'],
   ])('highlights only the matching menu item on %s', (path, active) => {
     authMock.value.userRole = 'admin'
     authMock.value.currentUser = { full_name: 'Pilot Admin', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
@@ -238,9 +240,9 @@ describe('AdminLayout navigation by role', () => {
   }
 
   it.each([
-    ['owner', ['Dashboard', 'My Pay', 'Time & Payroll', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
-    ['admin', ['Dashboard', 'My Pay', 'Time & Payroll', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
-    ['manager', ['Dashboard', 'Time & Payroll', 'My Pay', 'Schedule']],
+    ['owner', ['Dashboard', 'My Pay', 'Time & Payroll', 'Pay stubs', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
+    ['admin', ['Dashboard', 'My Pay', 'Time & Payroll', 'Pay stubs', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
+    ['manager', ['Dashboard', 'Time & Payroll', 'Pay stubs', 'My Pay', 'Schedule']],
     ['employee', ['My Dashboard', 'My Time', 'My Pay', 'Schedule']],
   ] as const)('gives a %s exactly their menu', (role, expected) => {
     authMock.value.userRole = role
