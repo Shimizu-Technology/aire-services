@@ -5,7 +5,7 @@ module Api
     module Admin
       class KioskSessionsController < BaseController
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:unlock_kiosk) }
 
         def create
           issued_at = Time.current

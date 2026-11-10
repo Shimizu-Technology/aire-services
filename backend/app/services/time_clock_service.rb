@@ -292,7 +292,8 @@ class TimeClockService
         active_break_started_at: active_break_record&.start_time,
         breaks: breaks_list,
         session: session,
-        is_admin: user.admin?,
+        is_admin: user.administrator?,
+        can_override_clock: user.can_manage_team_time?,
         clock_source: entry&.clock_source,
         time_category: entry&.time_category ? {
           id: entry.time_category.id,
@@ -319,7 +320,7 @@ class TimeClockService
 
     # ── Admin: Approve Entry ──
     def approve_entry(entry:, approved_by:, note: nil)
-      raise AuthorizationError, "Only admins can approve entries" unless approved_by.admin?
+      raise AuthorizationError, "Only managers and admins can approve entries" unless approved_by.can_approve_time?
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
       entry.with_lock do
@@ -348,7 +349,7 @@ class TimeClockService
     # Note: approved_by/approved_at store the acting admin for both approvals
     # and denials. The approval_status field distinguishes the action taken.
     def deny_entry(entry:, denied_by:, note: nil)
-      raise AuthorizationError, "Only admins can deny entries" unless denied_by.admin?
+      raise AuthorizationError, "Only managers and admins can deny entries" unless denied_by.can_approve_time?
       raise ClockError, "A denial reason is required" if note.to_s.strip.blank?
 
       entry.with_lock do
@@ -368,7 +369,7 @@ class TimeClockService
 
     # ── Admin: Approve Overtime ──
     def approve_overtime(entry:, approved_by:, note: nil)
-      raise AuthorizationError, "Only admins can approve overtime" unless approved_by.admin?
+      raise AuthorizationError, "Only managers and admins can approve overtime" unless approved_by.can_approve_time?
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
       entry.with_lock do
@@ -398,7 +399,7 @@ class TimeClockService
 
     # ── Admin: Deny Overtime ──
     def deny_overtime(entry:, denied_by:, note: nil)
-      raise AuthorizationError, "Only admins can deny overtime" unless denied_by.admin?
+      raise AuthorizationError, "Only managers and admins can deny overtime" unless denied_by.can_approve_time?
       raise ClockError, "An overtime denial reason is required" if note.to_s.strip.blank?
 
       entry.with_lock do
@@ -429,7 +430,7 @@ class TimeClockService
     end
 
     def with_clock_in_user_lock(user)
-      if user.admin?
+      if user.administrator?
         User.with_admin_access_lock do
           user.lock!
           yield
@@ -527,7 +528,7 @@ class TimeClockService
         auditable: entry,
         actor: effective_actor,
         event_category: "time_tracking",
-        source: source == "kiosk" ? "kiosk" : (effective_actor&.admin? ? "admin" : "web"),
+        source: source == "kiosk" ? "kiosk" : (effective_actor&.supervisor? ? "admin" : "web"),
         metadata: {
           employee_id: user.id,
           employee_name: user.full_name,
@@ -606,7 +607,7 @@ class TimeClockService
     end
 
     def unscheduled_entry_requires_approval?(user:, schedule:)
-      schedule.nil? && !user.admin?
+      schedule.nil? && !user.supervisor?
     end
 
     def build_approval_note(existing_note, new_note)

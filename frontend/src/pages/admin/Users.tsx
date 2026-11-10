@@ -10,6 +10,10 @@ import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption }
 import { formatDateInTimeZoneISO, formatDateTime } from '../../lib/dateUtils'
 import { initialsForName } from '../../lib/initials'
 import { FadeUp } from '../../components/ui/MotionComponents'
+import RolePicker from '../../components/team/RolePicker'
+import MyPaySwitch from '../../components/team/MyPaySwitch'
+import { isUserRole, ROLE_DETAILS, roleLabel, roleRequiresPersonalAccess, rolesAssignableToNewPerson, USER_ROLES, type UserRole } from '../../lib/roles'
+import { useCapabilities } from '../../lib/useCapabilities'
 
 const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
 const maxPublicTeamPhotoSize = 15 * 1024 * 1024
@@ -74,7 +78,10 @@ export default function Users() {
   }, [])
 
   const location = useLocation()
-  const { currentUser } = useAuthContext()
+  const { currentUser, userRole, isClerkEnabled } = useAuthContext()
+  const capabilities = useCapabilities()
+  const canManageMyPay = capabilities.manage_my_pay_access
+  const createRoleOptions = rolesAssignableToNewPerson(isClerkEnabled ? userRole : 'owner')
   const [query, setQuery] = useSearchParams()
   const [compact, setCompact] = useState(window.innerWidth < 768)
   useEffect(() => {
@@ -97,7 +104,7 @@ export default function Users() {
   const [loading, setLoading] = useState(true)
   const searchTerm = query.get('search') || ''
   const setSearchTerm = (value: string) => setFilter('search', value)
-  const roleFilter = (['all', 'admin', 'employee'].includes(query.get('role') || '') ? query.get('role') : 'all') as 'all' | AdminUser['role']
+  const roleFilter: 'all' | UserRole = isUserRole(query.get('role')) ? query.get('role') as UserRole : 'all'
   const setRoleFilter = (value: string) => setFilter('role', value)
   const statusFilter = (['all', 'active', 'pending', 'inactive', 'terminated'].includes(query.get('status') || '') ? query.get('status') : 'active') as 'all' | 'active' | 'pending' | 'inactive' | 'terminated'
   const setStatusFilter = (value: string) => setFilter('status', value)
@@ -117,7 +124,7 @@ export default function Users() {
   const [createFirstName, setCreateFirstName] = useState('')
   const [createLastName, setCreateLastName] = useState('')
   const [createEmail, setCreateEmail] = useState('')
-  const [createRole, setCreateRole] = useState<'admin' | 'employee'>('employee')
+  const [createRole, setCreateRole] = useState<UserRole>('employee')
   const [createIsIntern, setCreateIsIntern] = useState(false)
   const [createStaffTitle, setCreateStaffTitle] = useState('')
   const [createApprovalGroups, setCreateApprovalGroups] = useState<Set<ApprovalGroup>>(new Set())
@@ -130,7 +137,7 @@ export default function Users() {
   const [editFirstName, setEditFirstName] = useState('')
   const [editLastName, setEditLastName] = useState('')
   const [editEmail, setEditEmail] = useState('')
-  const [editRole, setEditRole] = useState<'admin' | 'employee'>('employee')
+  const [editRole, setEditRole] = useState<UserRole>('employee')
   const [editIsIntern, setEditIsIntern] = useState(false)
   const [editStaffTitle, setEditStaffTitle] = useState('')
   const [editApprovalGroups, setEditApprovalGroups] = useState<Set<ApprovalGroup>>(new Set())
@@ -155,6 +162,12 @@ export default function Users() {
   const [pinResult, setPinResult] = useState('')
   const [pinError, setPinError] = useState('')
   const [savingPin, setSavingPin] = useState(false)
+
+  const [myPayForEveryone, setMyPayForEveryone] = useState<boolean | null>(null)
+  const [savingMyPayForEveryone, setSavingMyPayForEveryone] = useState(false)
+  const [confirmMyPayForEveryone, setConfirmMyPayForEveryone] = useState(false)
+  const [myPaySavingIds, setMyPaySavingIds] = useState<Set<number>>(new Set())
+  const [myPayError, setMyPayError] = useState('')
 
   const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
   const [invitationNotice, setInvitationNotice] = useState('')
@@ -194,7 +207,7 @@ export default function Users() {
     settingsRes: Awaited<ReturnType<typeof api.getAdminAppSettings>>,
   ) => {
     if (usersRes.data) {
-      setUsers(usersRes.data.users.filter((u) => u.role === 'admin' || u.role === 'employee'))
+      setUsers(usersRes.data.users.filter((u) => isUserRole(u.role)))
       setLoadedAt(new Date().toISOString())
     }
     const failures = [usersRes.error, catsRes.error, settingsRes.error].filter(Boolean)
@@ -226,6 +239,59 @@ export default function Users() {
     return () => { cancelled = true }
   }, [applyFetchedData, loadRetry])
 
+  useEffect(() => {
+    if (!canManageMyPay) return
+    let cancelled = false
+    api.getMyPayAccess().then((response) => {
+      if (cancelled) return
+      if (response.data) setMyPayForEveryone(response.data.enabled_for_all)
+      else setMyPayError(response.error || 'My Pay access could not be loaded.')
+    })
+    return () => { cancelled = true }
+  }, [canManageMyPay, loadRetry])
+
+  const toggleMyPayForEveryone = async (enabled: boolean) => {
+    setConfirmMyPayForEveryone(false)
+    setSavingMyPayForEveryone(true)
+    setMyPayError('')
+    const response = await api.setMyPayForEveryone(enabled)
+    if (response.data) setMyPayForEveryone(response.data.enabled_for_all)
+    else setMyPayError(response.error || 'My Pay could not be changed for everyone. Nothing was changed.')
+    setSavingMyPayForEveryone(false)
+  }
+
+  const toggleUserMyPay = async (user: AdminUser, enabled: boolean) => {
+    setMyPaySavingIds((previous) => new Set(previous).add(user.id))
+    setMyPayError('')
+    const response = await api.setUserMyPay(user.id, enabled)
+    if (response.data) {
+      const saved = response.data.my_pay_enabled
+      setUsers((previous) => previous.map((row) => (row.id === user.id ? { ...row, my_pay_enabled: saved } : row)))
+    } else {
+      setMyPayError(response.error || `My Pay could not be changed for ${user.full_name || user.display_name}. Nothing was changed.`)
+    }
+    setMyPaySavingIds((previous) => { const next = new Set(previous); next.delete(user.id); return next })
+  }
+
+  const renderMyPaySwitch = (user: AdminUser) => {
+    const name = user.full_name || user.display_name
+    if (myPayForEveryone) {
+      return <span className="text-xs font-medium text-cyan-800">On for everyone</span>
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <MyPaySwitch
+          checked={Boolean(user.my_pay_enabled)}
+          onChange={(checked) => void toggleUserMyPay(user, checked)}
+          label={`My Pay for ${name}`}
+          disabled={!user.is_active || myPayForEveryone === null}
+          busy={myPaySavingIds.has(user.id)}
+        />
+        <span className="text-xs text-slate-600">{user.my_pay_enabled ? 'On' : 'Off'}</span>
+      </span>
+    )
+  }
+
   const refreshData = useCallback(async () => {
     try {
       const [usersRes, catsRes, settingsRes] = await Promise.all([
@@ -256,7 +322,12 @@ export default function Users() {
 
   const activeCategories = allCategories.filter((c) => c.is_active)
   const createUsesClerkProfile = createPersonalAccess
-  const canEditEmail = Boolean(editPersonalAccess && (editingUser?.is_pending || !editingUser?.has_clerk_account))
+  // Only an owner can change an owner's or admin's sign-in, kiosk and invite details.
+  const editAccessLocked = editingUser?.can_change_access === false
+  const canEditEmail = Boolean(editPersonalAccess && !editAccessLocked && (editingUser?.is_pending || !editingUser?.has_clerk_account))
+  // Owners, admins and managers always sign in personally, and only an owner
+  // can take sign-in away from an owner or admin.
+  const editLocksPersonalAccess = roleRequiresPersonalAccess(editRole) || editAccessLocked
   const routedUsersCount = users.filter((user) => (user.approval_group_keys?.length ?? (user.approval_group ? 1 : 0)) > 0).length
   const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
   const normalizedSearchTerm = searchTerm.trim().toLowerCase()
@@ -574,6 +645,14 @@ export default function Users() {
         payload.public_team_sort_order = nextPublicTeamSortOrder
       }
 
+      if (editAccessLocked) {
+        delete payload.personal_access_enabled
+        delete payload.time_tracking_enabled
+        delete payload.kiosk_enabled
+        delete payload.kiosk_pin
+        delete payload.send_invitation
+      }
+
       if (editPersonalAccess) {
         if (canEditEmail) payload.email = nextEmail
       } else {
@@ -819,8 +898,9 @@ export default function Users() {
           <div className="mt-2 text-3xl font-bold text-slate-900">{users.length}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-sm text-slate-500">Admins</div>
-          <div className="mt-2 text-3xl font-bold text-cyan-700">{users.filter((u) => u.role === 'admin').length}</div>
+          <div className="text-sm text-slate-500">Owners &amp; Admins</div>
+          <div className="mt-2 text-3xl font-bold text-cyan-700">{users.filter((u) => u.role === 'owner' || u.role === 'admin').length}</div>
+          <div className="mt-1 text-xs text-slate-500">{users.filter((u) => u.role === 'manager').length} managers</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-sm text-slate-500">Assigned Departments</div>
@@ -833,6 +913,40 @@ export default function Users() {
       </div>
 
       }
+      {canManageMyPay && loadedAt && (
+        <section aria-labelledby="my-pay-access-title" className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 id="my-pay-access-title" className="text-sm font-semibold text-slate-900">My Pay</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {myPayForEveryone === null
+                ? 'Loading who can see their own pay statements…'
+                : myPayForEveryone
+                  ? 'Every active team member can see their own pay statements.'
+                  : `${users.filter((user) => user.is_active && user.my_pay_enabled).length} of ${users.filter((user) => user.is_active).length} active team members can see their own pay statements. Turn it on per person in the list below.`}
+            </p>
+            {myPayError && <p role="alert" className="mt-2 text-sm font-medium text-rose-700">{myPayError}</p>}
+            {confirmMyPayForEveryone && (
+              <div role="group" aria-label="Confirm My Pay for everyone" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                <p>Everyone active, {users.filter((user) => user.is_active).length} people, will see their own pay statements right away.</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void toggleMyPayForEveryone(true)} className="min-h-11 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800">Turn on for everyone</button>
+                  <button type="button" onClick={() => setConfirmMyPayForEveryone(false)} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 pt-3 sm:border-0 sm:pt-0">
+            <span className="text-sm font-medium text-slate-800">On for everyone</span>
+            <MyPaySwitch
+              checked={Boolean(myPayForEveryone)}
+              onChange={(checked) => { if (checked) setConfirmMyPayForEveryone(true); else void toggleMyPayForEveryone(false) }}
+              label="My Pay on for everyone"
+              disabled={myPayForEveryone === null}
+              busy={savingMyPayForEveryone}
+            />
+          </div>
+        </section>
+      )}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -876,8 +990,7 @@ export default function Users() {
                     className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                   >
                     <option value="all">All roles</option>
-                    <option value="admin">Admins</option>
-                    <option value="employee">Employees</option>
+                    {USER_ROLES.map((role) => <option key={role} value={role}>{ROLE_DETAILS[role].plural}</option>)}
                   </select>
                 </label>
                 <label className="block">
@@ -952,13 +1065,14 @@ export default function Users() {
               <div className="px-5 py-10 text-center text-sm text-slate-500">No team members match those filters.</div>
             ) : (
               <>
-              {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{user.staff_title || user.role}</p>{renderStatusBadge(user)}</div></div><p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.is_active && user.is_pending && user.email && <button className="min-h-11 text-sm font-semibold text-cyan-800" onClick={() => handleResendInvite(user)} disabled={resendingIds.has(user.id)}>{resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}</button>}{user.time_tracking_enabled && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
+              {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{[roleLabel(user.role), user.staff_title].filter(Boolean).join(' · ')}</p>{renderStatusBadge(user)}</div></div>{canManageMyPay && <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-2"><span className="text-sm font-medium text-slate-700">My Pay on</span>{renderMyPaySwitch(user)}</div>}<p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.is_active && user.is_pending && user.email && user.can_change_access !== false && <button className="min-h-11 text-sm font-semibold text-cyan-800" onClick={() => handleResendInvite(user)} disabled={resendingIds.has(user.id)}>{resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}</button>}{user.time_tracking_enabled && user.can_change_access !== false && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
               {!compact && <div className="overflow-x-auto">
                 <table className="w-full min-w-[1200px]">
                   <thead className="bg-slate-50">
                     <tr>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Team Member</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</th>
+                      {canManageMyPay && <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">My Pay</th>}
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Public Team</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Department</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Work Categories</th>
@@ -988,10 +1102,11 @@ export default function Users() {
                     </td>
                     <td className="px-5 py-4">
                       <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
-                        {user.role === 'admin' ? 'Admin' : 'Employee'}
+                        {roleLabel(user.role)}
                       </span>
                       <div className="mt-1 text-xs text-slate-500">{user.personal_access_enabled ? 'Personal access' : 'Kiosk-only access'}</div>
                     </td>
+                    {canManageMyPay && <td className="px-5 py-4">{renderMyPaySwitch(user)}</td>}
                     <td className="px-5 py-4">
                       {user.public_team_enabled ? (
                         <div className="space-y-1">
@@ -1067,7 +1182,7 @@ export default function Users() {
                         >
                           Edit
                         </button>
-                        {user.time_tracking_enabled && (
+                        {user.time_tracking_enabled && user.can_change_access !== false && (
                           <button
                             type="button"
                             onClick={() => openPinModal(user)}
@@ -1076,7 +1191,7 @@ export default function Users() {
                             {user.kiosk_pin_configured ? 'Reset PIN' : 'Set kiosk PIN'}
                           </button>
                         )}
-                        {user.is_active && user.is_pending && user.email && (
+                        {user.is_active && user.is_pending && user.email && user.can_change_access !== false && (
                           <button
                             type="button"
                             onClick={() => handleResendInvite(user)}
@@ -1086,7 +1201,7 @@ export default function Users() {
                             {resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}
                           </button>
                         )}
-                        {user.can_delete_permanently && (
+                        {user.can_delete_permanently && user.can_change_access !== false && (
                           <button
                             type="button"
                             onClick={() => handleDelete(user)}
@@ -1150,18 +1265,14 @@ export default function Users() {
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-6 sm:px-7">
                   {createStep === 1 ? (
                     <>
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Role</label>
-                        <select value={createRole} onChange={(event) => {
-                          const role = event.target.value as 'admin' | 'employee'
+                      <RolePicker
+                        value={createRole}
+                        options={createRoleOptions}
+                        onChange={(role) => {
                           setCreateRole(role)
-                          if (role === 'admin') setCreatePersonalAccess(true)
-                        }} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
-                          <option value="employee">Employee</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                        {createRole === 'admin' && <p className="mt-2 text-xs text-slate-500">Admins always need personal sign-in.</p>}
-                      </div>
+                          if (roleRequiresPersonalAccess(role)) setCreatePersonalAccess(true)
+                        }}
+                      />
 
                       <fieldset>
                         <legend className="text-sm font-medium text-slate-700">How will this person access AIRE Ops?</legend>
@@ -1171,8 +1282,8 @@ export default function Users() {
                             <span className="block text-sm font-semibold text-slate-900">Personal account</span>
                             <span className="mt-1 block text-xs leading-5 text-slate-600">They sign in with email. Clerk supplies their name after activation.</span>
                           </label>
-                          <label className={`rounded-2xl border p-4 transition ${createRole === 'admin' ? 'cursor-not-allowed bg-slate-50 opacity-50' : 'cursor-pointer'} ${!createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
-                            <input type="radio" name="create-access" checked={!createPersonalAccess} disabled={createRole === 'admin'} onChange={() => { setCreateRole('employee'); setCreatePersonalAccess(false); setSendInvitationEmail(false); setCreateTimeTracking(true) }} className="sr-only" />
+                          <label className={`rounded-2xl border p-4 transition ${roleRequiresPersonalAccess(createRole) ? 'cursor-not-allowed bg-slate-50 opacity-50' : 'cursor-pointer'} ${!createPersonalAccess ? 'border-cyan-500 bg-cyan-50/70 ring-2 ring-cyan-100' : 'border-slate-200 hover:border-slate-300'}`}>
+                            <input type="radio" name="create-access" checked={!createPersonalAccess} disabled={roleRequiresPersonalAccess(createRole)} onChange={() => { setCreateRole('employee'); setCreatePersonalAccess(false); setSendInvitationEmail(false); setCreateTimeTracking(true) }} className="sr-only" />
                             <span className="block text-sm font-semibold text-slate-900">Kiosk only</span>
                             <span className="mt-1 block text-xs leading-5 text-slate-600">No email or account. AIRE stores their name and they clock in with a PIN.</span>
                           </label>
@@ -1266,8 +1377,8 @@ export default function Users() {
                 <p className="mt-1 text-xs leading-5 text-slate-500">Change capabilities without replacing the employee record or losing time history.</p>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className={`flex items-start gap-3 rounded-xl border bg-white p-4 ${editRole === 'admin' ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
-                    <input type="checkbox" checked={editPersonalAccess} disabled={editRole === 'admin'} onChange={(event) => {
+                  <label className={`flex items-start gap-3 rounded-xl border bg-white p-4 ${editLocksPersonalAccess ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
+                    <input type="checkbox" checked={editPersonalAccess} disabled={editLocksPersonalAccess} onChange={(event) => {
                       setEditPersonalAccess(event.target.checked)
                       if (event.target.checked && editingUser && !editingUser.personal_access_enabled) setEditSendInvitation(!editingUser.has_clerk_account)
                       if (!event.target.checked) {
@@ -1277,7 +1388,7 @@ export default function Users() {
                     <span><span className="block text-sm font-medium text-slate-900">Personal sign-in</span><span className="mt-1 block text-xs leading-5 text-slate-500">Email account managed by Clerk.</span></span>
                   </label>
                   <label className={`flex items-start gap-3 rounded-xl border bg-white p-4 ${!editPersonalAccess ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
-                    <input type="checkbox" checked={editTimeTracking} disabled={!editPersonalAccess} onChange={(event) => setEditTimeTracking(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                    <input type="checkbox" checked={editTimeTracking} disabled={!editPersonalAccess || editAccessLocked} onChange={(event) => setEditTimeTracking(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
                     <span><span className="block text-sm font-medium text-slate-900">Tracks work hours</span><span className="mt-1 block text-xs leading-5 text-slate-500">Includes kiosk access and requires at least one work category.</span></span>
                   </label>
                 </div>
@@ -1298,7 +1409,7 @@ export default function Users() {
                       <label className="mb-2 block text-sm font-medium text-slate-700">Email <span className="text-rose-600">*</span></label>
                       <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} disabled={!canEditEmail} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
                       <p className="mt-2 text-xs text-slate-500">{editingUser.has_clerk_account ? 'This activated account’s email and name are managed by Clerk.' : 'Invitation email address.'}</p>
-                      {(editingUser.is_pending || (!editingUser.personal_access_enabled && !editingUser.has_clerk_account)) && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"><input type="checkbox" checked={editSendInvitation} onChange={(event) => setEditSendInvitation(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="text-sm text-slate-700">Send invitation when these changes are saved</span></label>}
+                      {!editAccessLocked && (editingUser.is_pending || (!editingUser.personal_access_enabled && !editingUser.has_clerk_account)) && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"><input type="checkbox" checked={editSendInvitation} onChange={(event) => setEditSendInvitation(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="text-sm text-slate-700">Send invitation when these changes are saved</span></label>}
                     </>
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2">
@@ -1310,21 +1421,21 @@ export default function Users() {
               </section>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Role</label>
-                  <select
+                <div className="sm:col-span-2">
+                  <RolePicker
                     value={editRole}
-                    onChange={(event) => {
-                      const role = event.target.value as 'admin' | 'employee'
+                    options={editingUser.assignable_roles ?? []}
+                    lockedReason={editingUser.id === currentUser?.id
+                      ? 'You can’t change your own role.'
+                      : 'Only an owner can change an owner’s or admin’s role.'}
+                    onChange={(role) => {
                       setEditRole(role)
-                      if (role === 'admin') setEditPersonalAccess(true)
+                      if (roleRequiresPersonalAccess(role)) setEditPersonalAccess(true)
                     }}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  >
-                    <option value="employee">Employee</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+                  />
+                </div>
+                <div>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
                     <input
                       type="checkbox"
                       checked={editIsIntern}
@@ -1594,7 +1705,7 @@ export default function Users() {
                   </div>
                   <div className="mt-4">
                     <label className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-                    <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editingUser.kiosk_pin_configured ? 'Keep current PIN' : editPersonalAccess ? 'Set one now instead' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                    <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} disabled={editAccessLocked} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editAccessLocked ? 'Only an owner can change this PIN' : editingUser.kiosk_pin_configured ? 'Keep current PIN' : editPersonalAccess ? 'Set one now instead' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
                     <p className="mt-2 text-xs text-slate-500">{editingUser.kiosk_pin_configured ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}. Leave blank to keep it.` : editPersonalAccess ? 'Leave blank and they will choose their PIN after their next sign-in.' : 'Leave blank to generate a secure six-digit PIN that is shown once after saving.'}</p>
                   </div>
                 </section>
@@ -1621,7 +1732,7 @@ export default function Users() {
               )}
 
               <div className="flex justify-end gap-3 pt-2">
-                <button
+                {editingUser.can_change_access !== false && <button
                   type="button"
                   onClick={(event) => {
                     if (editingUser.is_active) openTerminationModal(editingUser, event.currentTarget)
@@ -1631,7 +1742,7 @@ export default function Users() {
                   className={`rounded-xl border px-4 py-3 text-sm font-medium transition disabled:opacity-50 ${editingUser.is_active ? 'border-rose-200 text-rose-700 hover:bg-rose-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}`}
                 >
                   {editingUser.is_active ? 'Terminate employment' : 'Reactivate user'}
-                </button>
+                </button>}
                 <button type="button" onClick={closeEditModal} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
                   Cancel
                 </button>

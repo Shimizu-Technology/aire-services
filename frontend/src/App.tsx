@@ -81,14 +81,14 @@ function App() {
           <Route path="schedule" element={<Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense>} />
           <Route path="pay" element={<Suspense fallback={<AdminLoadingFallback />}><MyPay /></Suspense>} />
           <Route path="pay/:id" element={<Suspense fallback={<AdminLoadingFallback />}><MyPayStatement /></Suspense>} />
-          {/* Read-only My Pay preview: admins on the preview allowlist only (checked again by the API). */}
-          <Route path="pay-preview" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="picker" /></Suspense></ProtectedRoute>} />
-          <Route path="pay-preview/:userId" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="list" /></Suspense></ProtectedRoute>} />
-          <Route path="pay-preview/:userId/:id" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="statement" /></Suspense></ProtectedRoute>} />
+          {/* Read-only My Pay preview: owners and admins only (checked again by the API). */}
+          <Route path="pay-preview" element={<ProtectedRoute requiredCapability="preview_pay"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="picker" /></Suspense></ProtectedRoute>} />
+          <Route path="pay-preview/:userId" element={<ProtectedRoute requiredCapability="preview_pay"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="list" /></Suspense></ProtectedRoute>} />
+          <Route path="pay-preview/:userId/:id" element={<ProtectedRoute requiredCapability="preview_pay"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="statement" /></Suspense></ProtectedRoute>} />
           <Route
             path="media"
             element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredCapability="manage_site">
                 <Suspense fallback={<AdminLoadingFallback />}><Media /></Suspense>
               </ProtectedRoute>
             }
@@ -96,7 +96,7 @@ function App() {
           <Route
             path="payroll"
             element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredCapability="manage_payroll">
                 <Suspense fallback={<AdminLoadingFallback />}><PayrollRuns /></Suspense>
               </ProtectedRoute>
             }
@@ -104,7 +104,7 @@ function App() {
           <Route
             path="payroll-link"
             element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredCapability="manage_payroll">
                 <Suspense fallback={<AdminLoadingFallback />}><PayrollAccountLink /></Suspense>
               </ProtectedRoute>
             }
@@ -112,7 +112,7 @@ function App() {
           <Route
             path="activity"
             element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredCapability="view_activity">
                 <Suspense fallback={<AdminLoadingFallback />}><ActivityHistory /></Suspense>
               </ProtectedRoute>
             }
@@ -120,16 +120,16 @@ function App() {
           <Route
             path="settings"
             element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredCapability="manage_settings">
                 <Suspense fallback={<AdminLoadingFallback />}><Settings /></Suspense>
               </ProtectedRoute>
             }
           />
-          <Route path="users/:id" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<AdminLoadingFallback />}><EmployeeWorkspace /></Suspense></ProtectedRoute>} />
+          <Route path="users/:id" element={<ProtectedRoute requiredCapability="manage_users"><Suspense fallback={<AdminLoadingFallback />}><EmployeeWorkspace /></Suspense></ProtectedRoute>} />
           <Route
             path="users"
             element={
-              <ProtectedRoute requiredRole="admin">
+              <ProtectedRoute requiredCapability="manage_users">
                 <Suspense fallback={<AdminLoadingFallback />}><Users /></Suspense>
               </ProtectedRoute>
             }

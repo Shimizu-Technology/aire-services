@@ -1,13 +1,15 @@
 import { useMemo } from 'react'
 import { useAuth, useUser, RedirectToSignIn } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import { capabilitiesFor, type Capability } from '../../lib/roles'
 
 interface ClerkProtectedContentProps {
   children: React.ReactNode
-  requiredRole?: 'admin' | 'employee' | 'staff'
+  requiredRole?: 'staff'
+  requiredCapability?: Capability
 }
 
-export default function ClerkProtectedContent({ children, requiredRole }: ClerkProtectedContentProps) {
+export default function ClerkProtectedContent({ children, requiredRole, requiredCapability }: ClerkProtectedContentProps) {
   const { isLoaded, isSignedIn } = useAuth()
   const { user: clerkUser } = useUser()
   const {
@@ -30,17 +32,11 @@ export default function ClerkProtectedContent({ children, requiredRole }: ClerkP
 
     if (!userRole) return 'access_denied' as const
 
-    if (requiredRole) {
-      const hasAccess =
-        requiredRole === 'staff' ? isStaff :
-        requiredRole === 'admin' ? userRole === 'admin' :
-        userRole === requiredRole
-
-      if (!hasAccess) return 'access_denied' as const
-    }
+    if (requiredRole === 'staff' && !isStaff) return 'access_denied' as const
+    if (requiredCapability && !capabilitiesFor(userRole)[requiredCapability]) return 'access_denied' as const
 
     return 'authorized' as const
-  }, [isLoaded, isSignedIn, authLoading, authError, isAuthServiceUnavailable, userRole, requiredRole, isStaff])
+  }, [isLoaded, isSignedIn, authLoading, authError, isAuthServiceUnavailable, userRole, requiredRole, requiredCapability, isStaff])
 
   if (!isLoaded || authStatus === 'loading') {
     return (
@@ -94,7 +90,7 @@ export default function ClerkProtectedContent({ children, requiredRole }: ClerkP
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
           <p className="text-gray-600 mb-6">
             {authError || "You don't have permission to access this area."}
-            {!authError && requiredRole && ` This page requires ${requiredRole} access.`}
+            {!authError && requiredCapability && ' Ask an owner or admin if you need it.'}
           </p>
           <p className="text-sm text-gray-500">
             Signed in as: {clerkUser?.primaryEmailAddress?.emailAddress}

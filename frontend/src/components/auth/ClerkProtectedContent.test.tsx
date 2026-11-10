@@ -13,7 +13,7 @@ const authMock = vi.hoisted(() => ({
     primaryEmailAddress: { emailAddress: 'staff@example.com' },
   },
   app: {
-    userRole: 'admin' as 'admin' | 'employee' | null,
+    userRole: 'admin' as 'owner' | 'admin' | 'manager' | 'employee' | null,
     isLoading: false,
     isStaff: true,
     authError: null as string | null,
@@ -47,7 +47,7 @@ describe('ClerkProtectedContent', () => {
   it('shows a retryable service message when staff verification is unavailable', () => {
     authMock.app.isAuthServiceUnavailable = true
 
-    render(<ClerkProtectedContent requiredRole="admin"><div>Admin content</div></ClerkProtectedContent>)
+    render(<ClerkProtectedContent requiredCapability="manage_settings"><div>Admin content</div></ClerkProtectedContent>)
 
     expect(screen.getByRole('heading', { name: /aire is temporarily unavailable/i })).toBeInTheDocument()
     expect(screen.queryByText('Access Denied')).not.toBeInTheDocument()
@@ -62,7 +62,7 @@ describe('ClerkProtectedContent', () => {
     authMock.app.isStaff = false
     authMock.app.authError = 'This account does not have staff access'
 
-    render(<ClerkProtectedContent requiredRole="admin"><div>Admin content</div></ClerkProtectedContent>)
+    render(<ClerkProtectedContent requiredCapability="manage_settings"><div>Admin content</div></ClerkProtectedContent>)
 
     expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
     expect(screen.getByText('This account does not have staff access')).toBeInTheDocument()
@@ -70,8 +70,27 @@ describe('ClerkProtectedContent', () => {
   })
 
   it('renders protected content after the user is verified', () => {
-    render(<ClerkProtectedContent requiredRole="admin"><div>Admin content</div></ClerkProtectedContent>)
+    render(<ClerkProtectedContent requiredCapability="manage_settings"><div>Admin content</div></ClerkProtectedContent>)
 
     expect(screen.getByText('Admin content')).toBeInTheDocument()
+  })
+
+  it('lets owners into every admin page', () => {
+    authMock.app.userRole = 'owner'
+    render(<ClerkProtectedContent requiredCapability="manage_users"><div>Team</div></ClerkProtectedContent>)
+
+    expect(screen.getByText('Team')).toBeInTheDocument()
+  })
+
+  it('keeps managers out of admin-only pages but lets them into the day-to-day ones', () => {
+    authMock.app.userRole = 'manager'
+    const { unmount } = render(<ClerkProtectedContent requiredCapability="manage_payroll"><div>Payroll</div></ClerkProtectedContent>)
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByText('Payroll')).not.toBeInTheDocument()
+    unmount()
+
+    render(<ClerkProtectedContent requiredCapability="approve_time"><div>Approvals</div></ClerkProtectedContent>)
+    expect(screen.getByText('Approvals')).toBeInTheDocument()
   })
 })

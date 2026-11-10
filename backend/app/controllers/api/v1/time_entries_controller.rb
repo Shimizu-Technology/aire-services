@@ -10,11 +10,11 @@ module Api
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
-      before_action :require_admin!, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve ]
+      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve ]
 
       # GET /api/v1/time_entries
       def index
-        @time_entries = current_user.admin? ? TimeEntry.all : TimeEntry.for_user(current_user)
+        @time_entries = current_user.can_manage_team_time? ? TimeEntry.all : TimeEntry.for_user(current_user)
         @time_entries = @time_entries.eager_load(
           { user: [ :user_approval_groups, :assigned_time_categories ] },
           :time_category,
@@ -24,7 +24,7 @@ module Api
           :time_entry_breaks
         )
 
-        if params[:user_id].present? && current_user.admin?
+        if params[:user_id].present? && current_user.can_manage_team_time?
           @time_entries = @time_entries.where(user_id: params[:user_id])
         end
 
@@ -92,7 +92,7 @@ module Api
         @time_entry.time_category = selected_category
         @time_entry.entry_method = "manual"
 
-        @time_entry.admin_override = true if current_user.admin? && entry_owner.id != current_user.id
+        @time_entry.admin_override = true if current_user.can_manage_team_time? && entry_owner.id != current_user.id
         # Manual time always needs a separate, explicit approval action. This
         # keeps data entry distinct from authorization even when an admin logs
         # the shift on an employee's behalf.
@@ -164,13 +164,13 @@ module Api
         update_params[:break_minutes] = break_update[:total_minutes] if break_update
 
         @time_entry.assign_attributes(update_params)
-        if !current_user.admin? || payroll_relevant_changes?(@time_entry, break_update)
+        if !current_user.can_manage_team_time? || payroll_relevant_changes?(@time_entry, break_update)
           update_params[:approval_status] = "pending"
           update_params[:approved_by] = nil
           update_params[:approved_at] = nil
           update_params[:approval_note] = append_review_note(
             @time_entry.approval_note,
-            actor_kind: current_user.admin? ? :admin : :employee
+            actor_kind: current_user.can_manage_team_time? ? :admin : :employee
           )
         end
 
@@ -194,7 +194,7 @@ module Api
               new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
               overtime_attrs = { overtime_status: new_overtime }
 
-              if !current_user.admin? || old_values[:overtime_status].in?([ "approved", "denied" ])
+              if !current_user.can_manage_team_time? || old_values[:overtime_status].in?([ "approved", "denied" ])
                 overtime_attrs[:overtime_approved_by] = nil
                 overtime_attrs[:overtime_approved_at] = nil
                 overtime_attrs[:overtime_note] = nil
@@ -287,10 +287,10 @@ module Api
 
       # POST /api/v1/time_entries/clock_in
       def clock_in
-        if current_user.admin? && params[:user_id].present?
+        if current_user.can_manage_team_time? && params[:user_id].present?
           admin_override = current_user
           target_user = User.staff.find(params[:user_id])
-        elsif current_user.admin? && params[:admin_override].present?
+        elsif current_user.can_manage_team_time? && params[:admin_override].present?
           admin_override = current_user
           target_user = current_user
         else
@@ -314,7 +314,7 @@ module Api
       # POST /api/v1/time_entries/clock_out
       def clock_out
         target_user = resolve_clock_target_user
-        admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
+        admin_override = (current_user.can_manage_team_time? && target_user.id != current_user.id) ? current_user : nil
         permitted = params.permit(:corrected_end_time, :description)
         entry = TimeClockService.clock_out(
           user: target_user,
@@ -330,7 +330,7 @@ module Api
       # POST /api/v1/time_entries/start_break
       def start_break
         target_user = resolve_clock_target_user
-        admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
+        admin_override = (current_user.can_manage_team_time? && target_user.id != current_user.id) ? current_user : nil
         entry = TimeClockService.start_break(user: target_user, admin_override_by: admin_override)
         render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
       rescue TimeClockService::ClockError => e
@@ -340,7 +340,7 @@ module Api
       # POST /api/v1/time_entries/end_break
       def end_break
         target_user = resolve_clock_target_user
-        admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
+        admin_override = (current_user.can_manage_team_time? && target_user.id != current_user.id) ? current_user : nil
         entry = TimeClockService.end_break(user: target_user, admin_override_by: admin_override)
         render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
       rescue TimeClockService::ClockError => e
@@ -350,7 +350,7 @@ module Api
       # POST /api/v1/time_entries/switch_category
       def switch_category
         target_user = resolve_clock_target_user
-        admin_override = (current_user.admin? && target_user.id != current_user.id) ? current_user : nil
+        admin_override = (current_user.can_manage_team_time? && target_user.id != current_user.id) ? current_user : nil
         source = resolved_clock_source(target_user: target_user, admin_override: admin_override)
         entry = TimeClockService.switch_category(
           user: target_user,
@@ -372,7 +372,7 @@ module Api
 
       # GET /api/v1/time_entries/pending_approvals
       def pending_approvals
-        return render json: { error: "Admin access required" }, status: :forbidden unless current_user.admin?
+        return render json: { error: "Manager or admin access required" }, status: :forbidden unless current_user.can_approve_time?
 
         filters = pending_approval_filter_params
         return if performed?
@@ -536,7 +536,7 @@ module Api
 
       # GET /api/v1/time_entries/whos_working
       def whos_working
-        return render json: { error: "Admin access required" }, status: :forbidden unless current_user.admin?
+        return render json: { error: "Manager or admin access required" }, status: :forbidden unless current_user.can_manage_team_time?
 
         render json: { workers: WhosWorkingQuery.call }
       end
@@ -571,7 +571,7 @@ module Api
       end
 
       def perform_review_correction
-        return render json: { error: "Only admins can submit this correction" }, status: :forbidden unless current_user.admin?
+        return render json: { error: "Only managers and admins can submit this correction" }, status: :forbidden unless current_user.can_manage_team_time?
 
         attributes = params.require(:time_entry).permit(:review_action, :expected_version, :stop_date, :end_time, :time_category_id, :description).to_h
         TimeEntryReviewCorrection.call(entry: @time_entry, actor: current_user,
@@ -631,7 +631,7 @@ module Api
       end
 
       def resolve_clock_target_user
-        if current_user.admin? && params[:user_id].present?
+        if current_user.can_manage_team_time? && params[:user_id].present?
           User.staff.find(params[:user_id])
         else
           current_user
@@ -645,7 +645,7 @@ module Api
       end
 
       def set_time_entry
-        scope = current_user.admin? ? TimeEntry : current_user.time_entries
+        scope = current_user.can_manage_team_time? ? TimeEntry : current_user.time_entries
         @time_entry = scope.find(params[:id])
       rescue ActiveRecord::RecordNotFound
         render json: { error: "Time entry not found" }, status: :not_found
@@ -908,8 +908,8 @@ module Api
         requested_user_id = time_entry_params[:user_id]
         return current_user if requested_user_id.blank?
 
-        unless current_user.admin?
-          render json: { error: "Only admins can create entries for other users" }, status: :forbidden
+        unless current_user.can_manage_team_time?
+          render json: { error: "Only managers and admins can create entries for other users" }, status: :forbidden
           return nil
         end
 

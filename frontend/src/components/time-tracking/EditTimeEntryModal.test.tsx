@@ -216,8 +216,8 @@ describe('EditTimeEntryModal', () => {
     break_minutes: null, description: null, entry_method: 'clock' as const, status: 'clocked_in' as const,
     user: { id: 1, email: 'alice@example.com' }, time_category: null,
   }
-  const renderReviewEditor = (entry = activeEntry, isAdmin = true) => render(
-    <EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'CFI' }]} canDelete isAdmin={isAdmin}
+  const renderReviewEditor = (entry = activeEntry, canManageTeamTime = true) => render(
+    <EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'CFI' }]} canDelete canManageTeamTime={canManageTeamTime}
       onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />,
   )
 
@@ -254,7 +254,7 @@ describe('EditTimeEntryModal', () => {
   })
 
   it('requires a reload before submitting a correction with no entry version', async () => {
-    render(<EditTimeEntryModal isOpen isAdmin entry={{ ...activeEntry, version: undefined, status: 'completed', entry_method: 'manual',
+    render(<EditTimeEntryModal isOpen canManageTeamTime entry={{ ...activeEntry, version: undefined, status: 'completed', entry_method: 'manual',
       end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
       categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
     fireEvent.click(screen.getByRole('checkbox', { name: 'Submit denied time for review' }))
@@ -265,7 +265,7 @@ describe('EditTimeEntryModal', () => {
   })
 
   it('submits denied time for review without changing the saved facts', async () => {
-    render(<EditTimeEntryModal isOpen isAdmin entry={{ ...activeEntry, status: 'completed', entry_method: 'manual',
+    render(<EditTimeEntryModal isOpen canManageTeamTime entry={{ ...activeEntry, status: 'completed', entry_method: 'manual',
       end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
       categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('End Time *'), { target: { value: '18:00' } })
@@ -284,7 +284,7 @@ describe('EditTimeEntryModal', () => {
     host.style.opacity = '0'
     host.style.transform = 'translateY(20px)'
     document.body.append(host)
-    render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete isAdmin
+    render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete canManageTeamTime
       onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />, { container: host })
     const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
     expect(dialog).toBeVisible()
@@ -302,7 +302,7 @@ describe('EditTimeEntryModal', () => {
     trigger.focus()
     const previousOverflow = document.body.style.overflow
     const onClose = vi.fn()
-    const view = render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete isAdmin
+    const view = render(<EditTimeEntryModal isOpen entry={activeEntry} categories={[]} canDelete canManageTeamTime
       onClose={onClose} onSaved={vi.fn()} onDeleted={vi.fn()} />)
     const first = screen.getByRole('link', { name: 'View complete activity history' })
     const last = screen.getByRole('button', { name: 'Update' })
@@ -335,7 +335,7 @@ describe('precise clock editor payloads', () => {
   }
   beforeEach(() => { apiMock.updateTimeEntry.mockReset(); apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: {} } }) })
   function show(entry = precise) {
-    render(<EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'Ground' }]} canDelete={false} isAdmin
+    render(<EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'Ground' }]} canDelete={false} canManageTeamTime
       onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
   }
   it.each(['Added note', ''])('sends only the changed note, including explicit blank %j', async (description) => {

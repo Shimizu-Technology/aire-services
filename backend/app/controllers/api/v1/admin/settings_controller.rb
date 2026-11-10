@@ -17,7 +17,7 @@ module Api
         ].freeze
 
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:manage_settings) }
 
         def show
           render json: {

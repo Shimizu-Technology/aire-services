@@ -7,6 +7,7 @@ import { MyPayError, myPayPreviewApi, type MyPayPreviewWorker } from '../../lib/
 import { MY_PAY_PREVIEW_PATH, MyPayScopeContext, previewMyPayScope } from '../../lib/myPayScope'
 import MyPay from './MyPay'
 import MyPayStatement from './MyPayStatement'
+import { roleLabel } from '../../lib/roles'
 
 // Read-only "preview as a worker" for the admins on the preview allowlist. The
 // list and detail are the worker's own My Pay screens, given that worker's
@@ -61,7 +62,7 @@ function WorkerRow({ worker }: { worker: MyPayPreviewWorker }) {
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="break-words font-semibold text-slate-900">{worker.name}</span>
-            {worker.role === 'admin' && <span className="text-xs font-medium text-slate-500">Admin</span>}
+            {worker.role !== 'employee' && <span className="text-xs font-medium text-slate-500">{roleLabel(worker.role)}</span>}
           </p>
           <p className={`mt-0.5 text-sm ${worker.sent_to_payroll ? 'text-emerald-800' : 'text-slate-500'}`}>
             {worker.sent_to_payroll ? 'Hours sent to payroll' : 'No hours sent to payroll yet'}

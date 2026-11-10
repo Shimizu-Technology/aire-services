@@ -20,13 +20,16 @@ const apiMock = vi.hoisted(() => ({
   resetKioskPin: vi.fn(),
   updateUserPublicTeamPhoto: vi.fn(),
   removeUserPublicTeamPhoto: vi.fn(),
+  getMyPayAccess: vi.fn(),
+  setMyPayForEveryone: vi.fn(),
+  setUserMyPay: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
   api: apiMock,
 }))
 
-const auth = vi.hoisted(() => ({ value: { isClerkEnabled: true, currentUser: null as { id: number; my_pay_preview_enabled?: boolean } | null } }))
+const auth = vi.hoisted(() => ({ value: { isClerkEnabled: true, userRole: 'admin' as 'owner' | 'admin' | 'manager' | 'employee' | null, currentUser: null as { id: number; my_pay_preview_enabled?: boolean } | null } }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => auth.value }))
 
 vi.mock('../../components/ui/MotionComponents', () => ({
@@ -155,17 +158,21 @@ describe('Users filters', () => {
     apiMock.updateUser.mockResolvedValue({ data: { user: makeUser({}) } })
     apiMock.terminateUser.mockResolvedValue({ data: { user: makeUser({ is_active: false, employment_status: 'terminated' }) } })
     apiMock.reactivateUser.mockResolvedValue({ data: { user: makeUser({}) } })
-    auth.value = { isClerkEnabled: true, currentUser: null }
+    apiMock.getMyPayAccess.mockReset()
+    apiMock.setMyPayForEveryone.mockReset()
+    apiMock.setUserMyPay.mockReset()
+    apiMock.getMyPayAccess.mockResolvedValue({ data: { enabled_for_all: false, enabled_user_ids: [] } })
+    auth.value = { isClerkEnabled: true, userRole: 'admin', currentUser: null }
   })
 
   it('offers Preview My Pay only to admins on the preview allowlist', async () => {
-    auth.value = { isClerkEnabled: true, currentUser: { id: 3, my_pay_preview_enabled: false } }
+    auth.value = { isClerkEnabled: true, userRole: 'admin', currentUser: { id: 3, my_pay_preview_enabled: false } }
     const { unmount } = render(<MemoryRouter><Users /></MemoryRouter>)
     expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Preview My Pay' })).not.toBeInTheDocument()
     unmount()
 
-    auth.value = { isClerkEnabled: true, currentUser: { id: 1, my_pay_preview_enabled: true } }
+    auth.value = { isClerkEnabled: true, userRole: 'admin', currentUser: { id: 1, my_pay_preview_enabled: true } }
     render(<MemoryRouter><Users /></MemoryRouter>)
     expect(await screen.findByRole('link', { name: 'Preview My Pay' })).toHaveAttribute('href', '/admin/pay-preview')
   })
@@ -496,4 +503,132 @@ describe('Users filters', () => {
     expect(screen.getByLabelText('Directory address')).not.toHaveTextContent('edit_user_id')
   })
 
+})
+
+describe('Users roles and My Pay', () => {
+  const owner = makeUser({ id: 10, full_name: 'Leon Owner', display_name: 'Leon Owner', email: 'leon@aire.test', role: 'owner', assignable_roles: [], can_change_access: false })
+  const manager = makeUser({ id: 11, full_name: 'Roke Manager', display_name: 'Roke Manager', email: 'roke@aire.test', role: 'manager', assignable_roles: ['manager', 'employee'], can_change_access: true })
+  const worker = makeUser({ id: 12, full_name: 'Ana Worker', display_name: 'Ana Worker', email: 'ana@aire.test', role: 'employee', assignable_roles: ['manager', 'employee'], can_change_access: true, my_pay_enabled: false })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Object.defineProperty(window, 'innerWidth', { value: 1280, writable: true, configurable: true })
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [owner, manager, worker] } })
+    apiMock.getAdminTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
+    apiMock.getAdminAppSettings.mockResolvedValue({ data: { settings: {}, approval_groups: approvalGroups } })
+    apiMock.getMyPayAccess.mockResolvedValue({ data: { enabled_for_all: false, enabled_user_ids: [] } })
+    apiMock.setUserMyPay.mockResolvedValue({ data: { user_id: 12, my_pay_enabled: true, my_pay_active: true } })
+    apiMock.setMyPayForEveryone.mockResolvedValue({ data: { enabled_for_all: true, enabled_user_ids: [] } })
+    apiMock.updateUser.mockResolvedValue({ data: { user: worker } })
+    auth.value = { isClerkEnabled: true, userRole: 'admin', currentUser: { id: 99 } }
+  })
+
+  function rowFor(name: string) {
+    return screen.getByText(name).closest('tr') as HTMLElement
+  }
+
+  it('lists owners and managers with their role', async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Leon Owner')
+    expect(within(rowFor('Leon Owner')).getByText('Owner')).toBeInTheDocument()
+    expect(within(rowFor('Roke Manager')).getByText('Manager')).toBeInTheDocument()
+  })
+
+  it('offers an admin only Manager and Employee for a new team member', async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Leon Owner')
+    fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
+    const dialog = screen.getByRole('dialog', { name: /add team member/i })
+    const roles = within(dialog).getAllByRole('radio').filter((radio) => radio.getAttribute('name') !== 'create-access')
+    expect(roles.map((radio) => (radio as HTMLInputElement).value)).toEqual(['manager', 'employee'])
+    expect(within(dialog).getByText(/Approves and corrects team time and leave/)).toBeInTheDocument()
+  })
+
+  it('offers an owner all four roles for a new team member', async () => {
+    auth.value = { isClerkEnabled: true, userRole: 'owner', currentUser: { id: 10 } }
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Leon Owner')
+    fireEvent.click(screen.getByRole('button', { name: /add team member/i }))
+    const dialog = screen.getByRole('dialog', { name: /add team member/i })
+    const roles = within(dialog).getAllByRole('radio').filter((radio) => radio.getAttribute('name') !== 'create-access')
+    expect(roles.map((radio) => (radio as HTMLInputElement).value)).toEqual(['owner', 'admin', 'manager', 'employee'])
+
+    fireEvent.click(within(dialog).getByRole('radio', { name: /^Admin/ }))
+    expect(within(dialog).getByRole('radio', { name: /kiosk only/i })).toBeDisabled()
+  })
+
+  it('moves an employee to manager with the picker', async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Ana Worker')
+    fireEvent.click(within(rowFor('Ana Worker')).getByRole('button', { name: /^edit$/i }))
+    const dialog = screen.getByRole('dialog', { name: /edit ana worker/i })
+    fireEvent.click(within(dialog).getByRole('radio', { name: /^Manager/ }))
+    expect(within(dialog).getByRole('checkbox', { name: /^personal sign-in/i })).toBeDisabled()
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }))
+    await waitFor(() => expect(apiMock.updateUser).toHaveBeenCalledWith(12, expect.objectContaining({ role: 'manager' })))
+  })
+
+  it("keeps an admin from changing an owner's role or access", async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Leon Owner')
+    fireEvent.click(within(rowFor('Leon Owner')).getByRole('button', { name: /^edit$/i }))
+    const dialog = screen.getByRole('dialog', { name: /edit leon owner/i })
+    expect(within(dialog).queryByRole('radio', { name: /^Owner/ })).not.toBeInTheDocument()
+    expect(within(dialog).getByText('Only an owner can change an owner’s or admin’s role.')).toBeInTheDocument()
+    expect(within(dialog).getByRole('checkbox', { name: /^personal sign-in/i })).toBeDisabled()
+    expect(within(dialog).queryByRole('button', { name: /terminate employment/i })).not.toBeInTheDocument()
+  })
+
+  it("saves an owner's profile without touching their sign-in, kiosk or PIN", async () => {
+    const pendingOwner = { ...owner, time_tracking_enabled: true }
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [pendingOwner, manager, worker] } })
+    apiMock.updateUser.mockResolvedValue({ data: { user: pendingOwner } })
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Leon Owner')
+    const row = rowFor('Leon Owner')
+    expect(within(row).queryByRole('button', { name: /pin/i })).not.toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button', { name: /^edit$/i }))
+    const dialog = screen.getByRole('dialog', { name: /edit leon owner/i })
+    expect(within(dialog).getByRole('checkbox', { name: /^tracks work hours/i })).toBeDisabled()
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }))
+    await waitFor(() => expect(apiMock.updateUser).toHaveBeenCalled())
+    const payload = apiMock.updateUser.mock.calls[0][1]
+    for (const key of ['email', 'personal_access_enabled', 'time_tracking_enabled', 'kiosk_enabled', 'kiosk_pin', 'send_invitation']) {
+      expect(payload).not.toHaveProperty(key)
+    }
+  })
+
+  it('turns one person’s My Pay on from the list', async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Ana Worker')
+    const toggle = await within(rowFor('Ana Worker')).findByRole('switch', { name: 'My Pay for Ana Worker' })
+    await waitFor(() => expect(toggle).toBeEnabled())
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(toggle)
+    await waitFor(() => expect(apiMock.setUserMyPay).toHaveBeenCalledWith(12, true))
+    await waitFor(() => expect(within(rowFor('Ana Worker')).getByRole('switch', { name: 'My Pay for Ana Worker' })).toHaveAttribute('aria-checked', 'true'))
+  })
+
+  it('asks before turning My Pay on for everyone', async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Ana Worker')
+    const everyone = await screen.findByRole('switch', { name: 'My Pay on for everyone' })
+    await waitFor(() => expect(everyone).toBeEnabled())
+    fireEvent.click(everyone)
+    expect(apiMock.setMyPayForEveryone).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on for everyone' }))
+    await waitFor(() => expect(apiMock.setMyPayForEveryone).toHaveBeenCalledWith(true))
+    expect(await within(rowFor('Ana Worker')).findByText('On for everyone')).toBeInTheDocument()
+  })
+
+  it('reports a failed switch without pretending it changed', async () => {
+    apiMock.setUserMyPay.mockResolvedValueOnce({ error: 'Only owners and admins can change My Pay access' })
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Ana Worker')
+    const toggle = await within(rowFor('Ana Worker')).findByRole('switch', { name: 'My Pay for Ana Worker' })
+    await waitFor(() => expect(toggle).toBeEnabled())
+    fireEvent.click(toggle)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only owners and admins can change My Pay access')
+    expect(within(rowFor('Ana Worker')).getByRole('switch', { name: 'My Pay for Ana Worker' })).toHaveAttribute('aria-checked', 'false')
+  })
 })

@@ -5,7 +5,7 @@ module Api
     module Admin
       class TimeCategoriesController < BaseController
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:manage_settings) }
         before_action :set_category, only: [ :show, :update, :destroy ]
 
         # GET /api/v1/admin/time_categories

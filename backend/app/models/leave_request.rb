@@ -23,7 +23,7 @@ class LeaveRequest < ApplicationRecord
   end
 
   def reviewable_by?(acting_user)
-    pending? && acting_user.admin? && user_id != acting_user.id
+    pending? && acting_user.can_approve_leave? && user_id != acting_user.id
   end
 
   def cancelable_by?(acting_user)

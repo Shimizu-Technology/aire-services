@@ -7,11 +7,13 @@ module Api
       before_action :require_staff!
 
       # GET /api/v1/users
-      # Returns list of staff users (for assignment dropdowns)
+      # Returns list of staff users (for assignment dropdowns) and the
+      # department labels managers need to filter the approval queue.
       def index
         users = User.staff.includes(:user_approval_groups, :user_time_categories).order(:first_name, :last_name)
 
         render json: {
+          approval_groups: Setting.approval_groups,
           users: users.map do |user|
             {
               id: user.id,

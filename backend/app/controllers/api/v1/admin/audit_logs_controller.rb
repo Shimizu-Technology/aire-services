@@ -11,7 +11,7 @@ module Api
         EXPORT_MAX_WINDOW_DAYS = 366
         BUSINESS_TIME_ZONE = ActiveSupport::TimeZone["Guam"]
 
-        before_action :require_admin!
+        before_action -> { require_capability!(:view_activity) }
 
         def index
           scope = filtered_scope

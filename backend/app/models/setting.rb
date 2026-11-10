@@ -112,39 +112,20 @@ class Setting < ApplicationRecord
     normalize_emails(get("contact_email"))
   end
 
-  # My Pay pilot gate. "my_pay_enabled_user_ids" is a comma-separated AIRE user
-  # ID allowlist; "my_pay_enabled_for_all" = "true" opens it to every active
-  # staff member. Both are absent (hidden for everyone) by default.
-  def self.my_pay_enabled_user_ids
-    user_id_list("my_pay_enabled_user_ids")
+  # My Pay gate. Each person has a "My Pay on" switch (users.my_pay_enabled);
+  # "my_pay_enabled_for_all" = "true" opens it to every active staff member.
+  # Both are managed by owners and admins on the Team page.
+  MY_PAY_FOR_ALL_KEY = "my_pay_enabled_for_all"
+
+  def self.my_pay_enabled_for_all?
+    get(MY_PAY_FOR_ALL_KEY) == "true"
   end
 
   def self.my_pay_enabled_for?(user)
     return false unless user&.staff? && user.is_active?
 
-    get("my_pay_enabled_for_all") == "true" || my_pay_enabled_user_ids.include?(user.id)
+    my_pay_enabled_for_all? || user.my_pay_enabled?
   end
-
-  # Admins who may preview any worker's My Pay, read-only. Being an admin is
-  # not enough: the user must be named in "my_pay_preview_user_ids", which is
-  # absent (no one) by default and independent of the worker pilot gate.
-  def self.my_pay_preview_user_ids
-    user_id_list("my_pay_preview_user_ids")
-  end
-
-  def self.my_pay_preview_allowed?(user)
-    return false unless user&.admin? && user.is_active?
-
-    my_pay_preview_user_ids.include?(user.id)
-  end
-
-  def self.user_id_list(key)
-    get(key).to_s.split(",").filter_map do |value|
-      id = value.strip
-      id.to_i if id.match?(/\A[1-9]\d*\z/)
-    end.uniq
-  end
-  private_class_method :user_id_list
 
   def self.payroll_cutoff_reminder_emails
     normalize_emails(get("payroll_cutoff_reminder_emails"))

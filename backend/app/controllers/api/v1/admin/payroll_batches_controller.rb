@@ -4,7 +4,7 @@ module Api
   module V1
     module Admin
       class PayrollBatchesController < BaseController
-        before_action :require_admin!
+        before_action -> { require_capability!(:manage_payroll) }
         before_action :require_connected_payroll!, only: :create
         before_action :find_batch, only: %i[show export]
 

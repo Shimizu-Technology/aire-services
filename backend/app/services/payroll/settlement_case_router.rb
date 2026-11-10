@@ -122,7 +122,7 @@ module Payroll
     def assigned_to
       return settlement_case.assigned_to unless assigned_to_id
 
-      user = User.admins.where(is_active: true, personal_access_enabled: true).find_by(id: assigned_to_id)
+      user = User.administrators.where(is_active: true, personal_access_enabled: true).find_by(id: assigned_to_id)
       raise RoutingError, "The case owner must be an active AIRE administrator" unless user
 
       user

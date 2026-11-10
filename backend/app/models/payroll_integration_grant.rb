@@ -54,7 +54,7 @@ class PayrollIntegrationGrant < ApplicationRecord
   end
 
   def user_is_administrator
-    errors.add(:user, "must be an AIRE administrator") unless user&.admin?
+    errors.add(:user, "must be an AIRE administrator") unless user&.can_manage_payroll?
   end
 
   def set_default_expiry

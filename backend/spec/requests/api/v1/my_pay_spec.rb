@@ -94,7 +94,8 @@ RSpec.describe "My Pay", type: :request do
     allow(Payroll::WorkerStatementsClient).to receive(:new).and_wrap_original do |original, **|
       original.call(env: cornerstone_env, http: method(:fake_cornerstone))
     end
-    Setting.set("my_pay_enabled_user_ids", "#{worker.id},#{other_worker.id}")
+    worker.update!(my_pay_enabled: true)
+    other_worker.update!(my_pay_enabled: true)
   end
 
   describe "access" do
@@ -104,8 +105,8 @@ RSpec.describe "My Pay", type: :request do
       expect(cornerstone_requests).to be_empty
     end
 
-    it "is hidden for users outside the pilot allowlist" do
-      Setting.set("my_pay_enabled_user_ids", other_worker.id.to_s)
+    it "is hidden for users whose My Pay switch is off" do
+      worker.update!(my_pay_enabled: false)
       get "/api/v1/my_pay", headers: headers
       expect(response).to have_http_status(:forbidden)
       expect(response.parsed_body).to include("code" => "my_pay_not_enabled")
@@ -114,14 +115,15 @@ RSpec.describe "My Pay", type: :request do
       expect(cornerstone_requests).to be_empty
     end
 
-    it "is hidden by default when no pilot Setting exists" do
-      Setting.where(key: "my_pay_enabled_user_ids").delete_all
-      get "/api/v1/my_pay", headers: headers
+    it "is hidden by default for a new person" do
+      newcomer = create(:user, :employee)
+      expect(newcomer.my_pay_enabled).to be(false)
+      get "/api/v1/my_pay", headers: { "Authorization" => "Bearer test_token_#{newcomer.id}" }
       expect(response).to have_http_status(:forbidden)
     end
 
     it "opens to every active staff member with the enable-for-everyone switch" do
-      Setting.set("my_pay_enabled_user_ids", "")
+      worker.update!(my_pay_enabled: false)
       Setting.set("my_pay_enabled_for_all", "true")
       get "/api/v1/auth/me", headers: headers
       expect(response.parsed_body.dig("user", "my_pay_enabled")).to be(true)
@@ -133,9 +135,9 @@ RSpec.describe "My Pay", type: :request do
       expect(response).not_to have_http_status(:ok)
     end
 
-    it "lets an allowlisted admin see only their own pay" do
+    it "lets an admin whose switch is on see only their own pay" do
       workers[admin.payroll_integration_uuid] = { employment_type: "salary", contractor: false, display_name: "Admin", ids: [ 7 ] }
-      Setting.set("my_pay_enabled_user_ids", admin.id.to_s)
+      admin.update!(my_pay_enabled: true)
       get "/api/v1/my_pay", headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body.fetch("statements").map { |row| row["id"] }).to eq([ "7" ])

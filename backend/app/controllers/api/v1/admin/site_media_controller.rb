@@ -8,7 +8,7 @@ module Api
         include MediaUploadValidation
 
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:manage_site) }
         before_action :set_site_media, only: [ :show, :update, :destroy ]
         rescue_from MediaUploadValidation::InvalidMediaUpload, with: :invalid_media_upload
 

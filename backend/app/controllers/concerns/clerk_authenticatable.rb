@@ -86,14 +86,18 @@ module ClerkAuthenticatable
     @current_user
   end
 
-  def require_admin!
+  # Gate an action on a User::ROLE_CAPABILITIES key, e.g.
+  # require_capability!(:approve_time). Owner/admin-only capabilities keep the
+  # long-standing "Admin access required" denial.
+  def require_capability!(capability)
     authenticate_user! unless @current_user
     return if performed?
+    return if @current_user&.capability?(capability)
 
-    unless @current_user&.admin?
-      AuditLog.record_security_event!(action: "authorization.admin_denied", actor: @current_user, outcome: "denied", metadata: { path: request.path })
-      render_forbidden("Admin access required")
-    end
+    supervisor_capability = User::ROLE_CAPABILITIES.fetch(capability).include?("manager")
+    action = supervisor_capability ? "authorization.supervisor_denied" : "authorization.admin_denied"
+    AuditLog.record_security_event!(action: action, actor: @current_user, outcome: "denied", metadata: { path: request.path, capability: capability.to_s })
+    render_forbidden(supervisor_capability ? "Manager or admin access required" : "Admin access required")
   end
 
   def require_staff!
@@ -162,7 +166,7 @@ module ClerkAuthenticatable
         email: user_email,
         first_name: first_name,
         last_name: last_name,
-        role: "admin",
+        role: "owner",
         personal_access_enabled: true,
         profile_source: "clerk",
         time_tracking_enabled: false

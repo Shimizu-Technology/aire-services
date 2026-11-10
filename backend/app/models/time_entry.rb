@@ -80,7 +80,7 @@ class TimeEntry < ApplicationRecord
   }
 
   def editable_by?(acting_user)
-    acting_user.admin? || user_id == acting_user.id
+    acting_user.can_manage_team_time? || user_id == acting_user.id
   end
 
   def deletable_by?(acting_user)

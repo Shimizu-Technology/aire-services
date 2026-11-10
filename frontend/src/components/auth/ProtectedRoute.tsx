@@ -1,15 +1,18 @@
 import { lazy, Suspense } from 'react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import type { Capability } from '../../lib/roles'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
-  requiredRole?: 'admin' | 'employee' | 'staff'
+  requiredRole?: 'staff'
+  /** The signed-in person's role must grant this capability (see lib/roles). */
+  requiredCapability?: Capability
 }
 
 // Lazy load the Clerk-protected component to avoid importing Clerk hooks when not needed
 const ClerkProtectedContent = lazy(() => import('./ClerkProtectedContent'))
 
-export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+export default function ProtectedRoute({ children, requiredRole, requiredCapability }: ProtectedRouteProps) {
   const { isClerkEnabled } = useAuthContext()
 
   if (!isClerkEnabled && import.meta.env.PROD) {
@@ -39,7 +42,7 @@ export default function ProtectedRoute({ children, requiredRole }: ProtectedRout
         </div>
       }
     >
-      <ClerkProtectedContent requiredRole={requiredRole}>{children}</ClerkProtectedContent>
+      <ClerkProtectedContent requiredRole={requiredRole} requiredCapability={requiredCapability}>{children}</ClerkProtectedContent>
     </Suspense>
   )
 }

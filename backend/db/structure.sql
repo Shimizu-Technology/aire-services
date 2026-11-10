@@ -2445,11 +2445,12 @@ CREATE TABLE public.users (
     termination_effective_on date,
     termination_reason text,
     terminated_by_id bigint,
+    my_pay_enabled boolean DEFAULT false NOT NULL,
     CONSTRAINT check_public_team_photo_position_x_range CHECK (((public_team_photo_position_x >= 0) AND (public_team_photo_position_x <= 100))),
     CONSTRAINT check_public_team_photo_position_y_range CHECK (((public_team_photo_position_y >= 0) AND (public_team_photo_position_y <= 100))),
     CONSTRAINT check_users_kiosk_matches_time_tracking CHECK ((kiosk_enabled = time_tracking_enabled)),
     CONSTRAINT check_users_profile_source CHECK (((profile_source)::text = ANY (ARRAY[('clerk'::character varying)::text, ('local'::character varying)::text]))),
-    CONSTRAINT check_valid_role CHECK (((role)::text = ANY (ARRAY[('admin'::character varying)::text, ('employee'::character varying)::text])))
+    CONSTRAINT check_valid_role CHECK (((role)::text = ANY ((ARRAY['owner'::character varying, 'admin'::character varying, 'manager'::character varying, 'employee'::character varying])::text[])))
 );
 
 
@@ -5560,6 +5561,8 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261110000100'),
+('20261110000000'),
 ('20261102000000'),
 ('20261025010000'),
 ('20261024090000'),

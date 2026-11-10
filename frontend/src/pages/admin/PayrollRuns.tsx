@@ -904,7 +904,7 @@ export default function PayrollRuns() {
   return (
     <div className="space-y-6">
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">Back to employee review</Link>}
-      <TimePayrollWorkspaceHeader activeSection="payroll" isAdmin period={activePeriod} />
+      <TimePayrollWorkspaceHeader activeSection="payroll" canManageTeamTime canManagePayroll period={activePeriod} />
 
       <section className="flex flex-col gap-4 border-l-4 border-primary bg-white/65 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
         <div>

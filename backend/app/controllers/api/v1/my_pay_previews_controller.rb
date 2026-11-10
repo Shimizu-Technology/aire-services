@@ -2,8 +2,8 @@
 
 module Api
   module V1
-    # Read-only "preview as a worker" for the admins named in
-    # Setting.my_pay_preview_user_ids. The target worker is an AIRE user looked
+    # Read-only "preview as a worker" for owners and admins (the preview_pay
+    # capability; managers cannot see other people's pay). The target worker is an AIRE user looked
     # up here; their own payroll_integration_uuid and the same ownership check
     # as My Pay decide which statements can be shown. Works while My Pay is off
     # for workers. Every statement access is audited by ID, never by amount.
@@ -77,7 +77,7 @@ module Api
       end
 
       def require_preview_access!
-        return if Setting.my_pay_preview_allowed?(current_user)
+        return if current_user&.is_active? && current_user.can_preview_pay?
 
         AuditLog.record_security_event!(action: "authorization.my_pay_preview_denied", actor: current_user, outcome: "denied", metadata: { path: request.path })
         render json: { error: NOT_ALLOWED_MESSAGE, code: "my_pay_preview_not_enabled" }, status: :forbidden

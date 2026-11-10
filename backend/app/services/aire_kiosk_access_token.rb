@@ -6,7 +6,7 @@ class AireKioskAccessToken
 
   class << self
     def issue_for(admin, issued_at: Time.current)
-      raise ArgumentError, "Only admins can unlock the kiosk" unless admin&.admin?
+      raise ArgumentError, "Only managers and admins can unlock the kiosk" unless admin&.can_unlock_kiosk?
 
       verifier.generate(
         {
@@ -23,7 +23,7 @@ class AireKioskAccessToken
       return nil unless payload.is_a?(Hash)
 
       admin = User.find_by(id: payload["admin_id"] || payload[:admin_id])
-      return nil unless admin&.admin? && admin.is_active?
+      return nil unless admin&.can_unlock_kiosk? && admin.is_active?
 
       admin
     rescue ActiveSupport::MessageVerifier::InvalidSignature

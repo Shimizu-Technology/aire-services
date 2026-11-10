@@ -17,6 +17,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import type { Capabilities, Capability } from '../../lib/roles'
+import { useCapabilities } from '../../lib/useCapabilities'
 import { isWithinRoute } from '../../lib/employeeWorkspace'
 import { lockDialogScroll } from '../../lib/useDialogFocus'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
@@ -29,68 +31,40 @@ function NavIcon({ icon: Icon }: { icon: LucideIcon }) {
   )
 }
 
-const employeeNavigation = [
-  {
-    name: 'My Dashboard',
-    href: '/admin',
-    icon: House,
-  },
-  {
-    name: 'My Time',
-    href: '/admin/time',
-    icon: Clock3,
-  },
-  {
-    name: 'Schedule',
-    href: '/admin/schedule',
-    icon: CalendarDays,
-  },
-]
+interface NavItem {
+  name: string
+  href: string
+  icon: LucideIcon
+}
 
-// Shown only when My Pay is enabled for the signed-in user (pilot gate).
-const myPayNavigation = {
+// Shown only when My Pay is on for the signed-in user.
+const myPayNavigation: NavItem = {
   name: 'My Pay',
   href: '/admin/pay',
   icon: Wallet,
 }
 
-const adminNavigation = [
-  {
-    name: 'Dashboard',
-    href: '/admin',
-    icon: House,
-  },
-  {
-    name: 'Time & Payroll',
-    href: '/admin/time',
-    icon: Clock3,
-  },
-  {
-    name: 'Schedule',
-    href: '/admin/schedule',
-    icon: CalendarDays,
-  },
-  {
-    name: 'Team',
-    href: '/admin/users',
-    icon: UserRound,
-  },
-  {
-    name: 'Media',
-    href: '/admin/media',
-    icon: Image,
-  },
-  {
-    name: 'Activity History',
-    href: '/admin/activity',
-    icon: History,
-  },
-  {
-    name: 'Settings',
-    href: '/admin/settings',
-    icon: Settings,
-  },
+// Owner and admin areas, each shown only to roles with that capability.
+const administrationNavigation: (NavItem & { capability: Capability })[] = [
+  { name: 'Team', href: '/admin/users', icon: UserRound, capability: 'manage_users' },
+  { name: 'Media', href: '/admin/media', icon: Image, capability: 'manage_site' },
+  { name: 'Activity History', href: '/admin/activity', icon: History, capability: 'view_activity' },
+  { name: 'Settings', href: '/admin/settings', icon: Settings, capability: 'manage_settings' },
 ]
+
+// Employees see their own workspace; managers get the same short list pointed
+// at the team (approvals and timecards); owners and admins get everything.
+function navigationFor(capabilities: Capabilities, myPayEnabled: boolean): NavItem[] {
+  const supervises = capabilities.manage_team_time
+  const dashboard: NavItem = { name: supervises ? 'Dashboard' : 'My Dashboard', href: '/admin', icon: House }
+  const time: NavItem = { name: supervises ? 'Time & Payroll' : 'My Time', href: '/admin/time', icon: Clock3 }
+  const schedule: NavItem = { name: 'Schedule', href: '/admin/schedule', icon: CalendarDays }
+  const administration = administrationNavigation.filter((item) => capabilities[item.capability])
+  const myPay = myPayEnabled ? [myPayNavigation] : []
+
+  if (administration.length > 0) return [dashboard, ...myPay, time, schedule, ...administration]
+  return [dashboard, time, ...myPay, schedule]
+}
 
 const desktopSidebarStorageKey = 'aire-admin-sidebar-collapsed'
 
@@ -104,14 +78,13 @@ export default function AdminLayout() {
     return window.localStorage.getItem(desktopSidebarStorageKey) === 'true'
   })
   const location = useLocation()
-  const { userRole, isClerkEnabled, currentUser, refreshCurrentUser } = useAuthContext()
+  const { isClerkEnabled, currentUser, refreshCurrentUser } = useAuthContext()
 
-  const isAdmin = !isClerkEnabled || userRole === 'admin'
+  const capabilities = useCapabilities()
+  const isAdmin = capabilities.manage_settings
+  const workspaceLabel = isAdmin ? 'Admin' : capabilities.manage_team_time ? 'Manager' : 'Staff'
   const myPayEnabled = Boolean(currentUser?.my_pay_enabled)
-  const navigation = useMemo(() => {
-    if (isAdmin) return myPayEnabled ? [adminNavigation[0], myPayNavigation, ...adminNavigation.slice(1)] : adminNavigation
-    return myPayEnabled ? [...employeeNavigation.slice(0, 2), myPayNavigation, ...employeeNavigation.slice(2)] : employeeNavigation
-  }, [isAdmin, myPayEnabled])
+  const navigation = useMemo(() => navigationFor(capabilities, myPayEnabled), [capabilities, myPayEnabled])
   const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)
   // Required PIN setup takes precedence over the navigation dialog.
   const navigationOpen = mobileOpen && !needsKioskPinSetup
@@ -192,12 +165,12 @@ export default function AdminLayout() {
             </button>
             <div>
               <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">AIRE Ops</Link>
-              <p className="text-xs text-slate-400 lg:hidden">{isAdmin ? 'Admin dashboard' : 'Staff portal'}</p>
+              <p className="text-xs text-slate-400 lg:hidden">{isAdmin ? 'Admin dashboard' : `${workspaceLabel} portal`}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 md:inline-flex">
-              {isAdmin ? 'Admin workspace' : 'Staff workspace'}
+              {`${workspaceLabel} workspace`}
             </div>
             <Link to="/kiosk" className="text-sm text-slate-500 hover:text-slate-900" target="_blank" rel="noopener noreferrer">Kiosk</Link>
             <Link to="/" className="text-sm text-slate-500 hover:text-slate-900">View Site</Link>

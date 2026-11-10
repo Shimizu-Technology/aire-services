@@ -108,10 +108,10 @@ function LeaveRequestTimeline({ request }: { request: LeaveRequest }) {
 }
 
 interface LeaveRequestsPanelProps {
-  isAdmin: boolean
+  canApproveLeave: boolean
 }
 
-export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps) {
+export default function LeaveRequestsPanel({ canApproveLeave }: LeaveRequestsPanelProps) {
   const [requests, setRequests] = useState<LeaveRequest[]>([])
   const [pagination, setPagination] = useState<PaginationMeta | null>(null)
   const [pendingPagination, setPendingPagination] = useState<PaginationMeta | null>(null)
@@ -135,7 +135,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
   const loadRequests = useCallback(async (targetPage: number, targetReviewedPage: number) => {
     const requestId = ++latestLoadRequestId.current
 
-    if (isAdmin) {
+    if (canApproveLeave) {
       const [pendingResult, reviewedResult] = await Promise.all([
         api.getLeaveRequests('pending', targetPage),
         api.getLeaveRequests('reviewed', targetReviewedPage),
@@ -176,7 +176,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
     setReviewedPagination(null)
     setLoading(false)
     return true
-  }, [isAdmin])
+  }, [canApproveLeave])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -190,8 +190,8 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
   }, [loadRequests, page, reviewedPage])
 
   const historyRequests = useMemo(
-    () => (isAdmin ? reviewedRequests : requests.filter((request) => request.status !== 'pending')),
-    [isAdmin, requests, reviewedRequests],
+    () => (canApproveLeave ? reviewedRequests : requests.filter((request) => request.status !== 'pending')),
+    [canApproveLeave, requests, reviewedRequests],
   )
 
   const submitRequest = async (event: React.FormEvent) => {
@@ -342,7 +342,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <h3 className="text-lg font-semibold text-slate-900">
-            {isAdmin ? `Pending approvals${pendingPagination ? ` (${pendingPagination.total_count})` : ''}` : 'My requests'}
+            {canApproveLeave ? `Pending approvals${pendingPagination ? ` (${pendingPagination.total_count})` : ''}` : 'My requests'}
           </h3>
         </div>
         {loading ? (
@@ -369,7 +369,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                       <p className="mt-2 text-sm text-slate-600">
                         {formatDate(request.start_date)} to {formatDate(request.end_date)} • {request.total_days} day{request.total_days === 1 ? '' : 's'}
                       </p>
-                      {isAdmin && (
+                      {canApproveLeave && (
                         <p className="mt-1 text-sm text-slate-500">Requested by {requestOwnerName(request)}</p>
                       )}
                       {request.reason && (
@@ -384,7 +384,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                     </div>
                   </div>
 
-                  {isAdmin && request.status === 'pending' && (
+                  {canApproveLeave && request.status === 'pending' && (
                     <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
                       <textarea
                         rows={2}
@@ -414,7 +414,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
                     </div>
                   )}
 
-                  {!isAdmin && request.status === 'pending' && (
+                  {!canApproveLeave && request.status === 'pending' && (
                     <div className="mt-4 border-t border-slate-200 pt-4">
                       <button
                         type="button"
@@ -458,7 +458,7 @@ export default function LeaveRequestsPanel({ isAdmin }: LeaveRequestsPanelProps)
         )}
       </section>
 
-      {isAdmin && (historyRequests.length > 0 || (reviewedPagination?.total_count ?? 0) > 0) && (
+      {canApproveLeave && (historyRequests.length > 0 || (reviewedPagination?.total_count ?? 0) > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-5 py-4">
             <h3 className="text-lg font-semibold text-slate-900">Completed requests</h3>

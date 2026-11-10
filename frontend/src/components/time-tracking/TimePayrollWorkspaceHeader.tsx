@@ -8,7 +8,10 @@ export type TimePayrollSection = 'entries' | 'approvals' | 'reports' | 'payroll'
 
 interface TimePayrollWorkspaceHeaderProps {
   activeSection: TimePayrollSection
-  isAdmin: boolean
+  /** Owners, admins and managers: approvals, team timecards and hours reports. */
+  canManageTeamTime: boolean
+  /** Owners and admins: the payroll workspace. */
+  canManagePayroll?: boolean
   pendingApprovalCount?: number
   pendingOvertimeCount?: number
   period?: PayrollPeriod
@@ -20,14 +23,14 @@ interface WorkspaceSection {
   id: TimePayrollSection
   label: string
   icon: LucideIcon
-  adminOnly?: boolean
+  requires?: 'team' | 'payroll'
 }
 
 const sections: WorkspaceSection[] = [
   { id: 'entries', label: 'Time Entries', icon: Clock3 },
-  { id: 'approvals', label: 'Approvals', icon: CircleCheckBig, adminOnly: true },
-  { id: 'reports', label: 'Hours Reports', icon: ChartNoAxesColumnIncreasing, adminOnly: true },
-  { id: 'payroll', label: 'Payroll', icon: ReceiptText, adminOnly: true },
+  { id: 'approvals', label: 'Approvals', icon: CircleCheckBig, requires: 'team' },
+  { id: 'reports', label: 'Hours Reports', icon: ChartNoAxesColumnIncreasing, requires: 'team' },
+  { id: 'payroll', label: 'Payroll', icon: ReceiptText, requires: 'payroll' },
   { id: 'leave', label: 'Leave Requests', icon: CalendarPlus },
 ]
 
@@ -49,29 +52,34 @@ function approvalBadge(count: number) {
 
 export default function TimePayrollWorkspaceHeader({
   activeSection,
-  isAdmin,
+  canManageTeamTime,
+  canManagePayroll = false,
   pendingApprovalCount = 0,
   pendingOvertimeCount = 0,
   period,
   action,
   onSectionChange,
 }: TimePayrollWorkspaceHeaderProps) {
-  const visibleSections = sections.filter((section) => isAdmin || !section.adminOnly)
+  const visibleSections = sections.filter((section) => (
+    section.requires === 'payroll' ? canManagePayroll : section.requires === 'team' ? canManageTeamTime : true
+  ))
 
   return (
     <div className="space-y-5">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-            {isAdmin ? 'Workforce operations' : 'Staff workspace'}
+            {canManageTeamTime ? 'Workforce operations' : 'Staff workspace'}
           </p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-            {isAdmin ? 'Time & Payroll' : 'My Time'}
+            {canManageTeamTime ? 'Time & Payroll' : 'My Time'}
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            {isAdmin
+            {canManagePayroll
               ? 'Review recorded time, resolve approvals, inspect live hours, and finalize auditable payroll cutoffs.'
-              : 'Clock in, review your recorded hours, and manage leave requests.'}
+              : canManageTeamTime
+                ? 'Review and correct the team’s time, resolve approvals and leave, and export hours before each cutoff.'
+                : 'Clock in, review your recorded hours, and manage leave requests.'}
           </p>
         </div>
         {action && <div className="shrink-0">{action}</div>}

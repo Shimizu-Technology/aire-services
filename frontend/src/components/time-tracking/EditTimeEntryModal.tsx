@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
+import { useCapabilities } from '../../lib/useCapabilities'
 
 interface TimeCategoryOption {
   id: number
@@ -49,7 +50,7 @@ interface EditTimeEntryModalProps {
   entry: EditableTimeEntry | null
   categories: TimeCategoryOption[]
   canDelete: boolean
-  isAdmin?: boolean
+  canManageTeamTime?: boolean
   onClose: () => void
   onSaved: () => void | Promise<void>
   onDeleted: () => void | Promise<void>
@@ -95,12 +96,13 @@ export default function EditTimeEntryModal({
   entry,
   categories,
   canDelete,
-  isAdmin = false,
+  canManageTeamTime = false,
   onClose,
   onSaved,
   onDeleted,
   onError,
 }: EditTimeEntryModalProps) {
+  const canViewActivity = useCapabilities().view_activity
   const [formData, setFormData] = useState({
     work_date: '',
     start_time: '08:00',
@@ -332,19 +334,19 @@ export default function EditTimeEntryModal({
                 )}
                 {!isActiveClockEntry && (
                   <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    {isAdmin
+                    {canManageTeamTime
                       ? 'Changes to dates, times, breaks, hours, or work category return this entry to the approval queue. Notes can be updated without another approval.'
                       : 'Every change, including notes, returns this entry to the approval queue.'}
                   </div>
                 )}
-                <a href={`/admin/activity?subject_type=TimeEntry&subject_id=${entry.id}`} className="mt-3 inline-flex text-xs font-semibold text-cyan-700 transition hover:text-cyan-900">
+                {canViewActivity && <a href={`/admin/activity?subject_type=TimeEntry&subject_id=${entry.id}`} className="mt-3 inline-flex text-xs font-semibold text-cyan-700 transition hover:text-cyan-900">
                   View complete activity history
-                </a>
+                </a>}
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <fieldset disabled={saving || deleting}>
-                {isAdmin && (isActiveClockEntry || entry.approval_status === 'denied') && (
+                {canManageTeamTime && (isActiveClockEntry || entry.approval_status === 'denied') && (
                   <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 p-3">
                     <label className="flex items-start gap-2 text-sm font-semibold text-cyan-900">
                       <input type="checkbox" checked={!!reviewAction} onChange={(event) => {

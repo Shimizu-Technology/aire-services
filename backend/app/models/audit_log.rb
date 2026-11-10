@@ -51,7 +51,7 @@ class AuditLog < ApplicationRecord
         actor_email: actor&.email,
         actor_role: actor&.role,
         actor_kind: actor_kind || (actor ? "user" : "system"),
-        source: source || (actor&.admin? ? "admin" : "web"),
+        source: source || (actor&.supervisor? ? "admin" : "web"),
         subject_name: subject_name || AuditRecordSnapshot.subject_name(auditable),
         outcome: outcome,
         request_id: Current.request_id,

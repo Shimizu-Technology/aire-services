@@ -4,7 +4,8 @@ require "rails_helper"
 
 RSpec.describe "My Pay preview", type: :request do
   let(:viewer) { create(:user, :admin, first_name: "Leon", last_name: "Viewer") }
-  let(:other_admin) { create(:user, :admin, first_name: "Roke", last_name: "Admin") }
+  let(:owner) { create(:user, :owner, first_name: "Leon", last_name: "Owner") }
+  let(:manager) { create(:user, :manager, first_name: "Roke", last_name: "Manager") }
   let(:worker) { create(:user, :employee, first_name: "Ana", last_name: "Worker") }
   let(:other_worker) { create(:user, :employee, first_name: "Ben", last_name: "Other") }
   let(:unmapped_worker) { create(:user, :employee, first_name: "Cora", last_name: "Unmapped") }
@@ -92,9 +93,7 @@ RSpec.describe "My Pay preview", type: :request do
       original.call(env: cornerstone_env, http: method(:fake_cornerstone))
     end
     # My Pay itself stays off for every worker throughout.
-    Setting.set("my_pay_enabled_user_ids", "")
     Setting.set("my_pay_enabled_for_all", "false")
-    Setting.set("my_pay_preview_user_ids", viewer.id.to_s)
   end
 
   describe "access" do
@@ -104,21 +103,21 @@ RSpec.describe "My Pay preview", type: :request do
       expect(cornerstone_requests).to be_empty
     end
 
-    it "refuses an admin who isn't on the preview allowlist, with no worker data" do
+    it "refuses a manager, with no worker data: managers never see other people's pay" do
       [ "/api/v1/my_pay/preview/workers", "/api/v1/my_pay/preview/workers/#{worker.id}", preview_path(worker.id), preview_path(worker.id, "/42"), preview_path(worker.id, "/42/pdf") ].each do |path|
-        get path, headers: { "Authorization" => "Bearer test_token_#{other_admin.id}" }
+        get path, headers: { "Authorization" => "Bearer test_token_#{manager.id}" }
         expect(response).to have_http_status(:forbidden)
         expect(response.parsed_body).to eq("error" => "My Pay preview isn't available for your account.", "code" => "my_pay_preview_not_enabled")
       end
       expect(cornerstone_requests).to be_empty
-      expect(AuditLog.where(action: "authorization.my_pay_preview_denied", user: other_admin).count).to eq(5)
+      expect(AuditLog.where(action: "authorization.my_pay_preview_denied", user: manager).count).to eq(5)
 
-      get "/api/v1/auth/me", headers: { "Authorization" => "Bearer test_token_#{other_admin.id}" }
+      get "/api/v1/auth/me", headers: { "Authorization" => "Bearer test_token_#{manager.id}" }
       expect(response.parsed_body.dig("user", "my_pay_preview_enabled")).to be(false)
     end
 
-    it "refuses an employee even if their ID is put on the allowlist" do
-      Setting.set("my_pay_preview_user_ids", "#{viewer.id},#{worker.id}")
+    it "refuses an employee, even one whose own My Pay is on" do
+      worker.update!(my_pay_enabled: true)
       get preview_path(other_worker.id), headers: { "Authorization" => "Bearer test_token_#{worker.id}" }
       expect(response).to have_http_status(:forbidden)
       get "/api/v1/my_pay/preview/workers", headers: { "Authorization" => "Bearer test_token_#{worker.id}" }
@@ -126,10 +125,11 @@ RSpec.describe "My Pay preview", type: :request do
       expect(cornerstone_requests).to be_empty
     end
 
-    it "is off for everyone when no preview Setting exists" do
-      Setting.where(key: "my_pay_preview_user_ids").delete_all
-      get preview_path(worker.id), headers: viewer_headers
-      expect(response).to have_http_status(:forbidden)
+    it "is open to every active owner and admin, with no allowlist" do
+      [ viewer, owner ].each do |previewer|
+        get "/api/v1/my_pay/preview/workers", headers: { "Authorization" => "Bearer test_token_#{previewer.id}" }
+        expect(response).to have_http_status(:ok)
+      end
     end
 
     it "tells the frontend who may preview" do

@@ -1,11 +1,12 @@
 import { getAuthTokenValue } from './api'
 import { apiUrl } from './apiBase'
+import type { UserRole } from './roles'
 import { businessDateISO, formatDateOnly } from './dateUtils'
 
 // The signed-in worker's own pay statements. The API derives the worker from
 // the session; nothing here sends a worker or user identifier. The read-only
 // admin preview (myPayPreviewApi) names an AIRE user ID, and the API checks
-// that the signed-in admin is on the preview allowlist.
+// that the signed-in person is an owner or admin.
 
 export type MyPayPaymentStatus = 'pending' | 'prepared' | 'issued' | 'voided'
 export type MyPayPaymentMethod = 'paper_check' | 'direct_deposit'
@@ -157,7 +158,7 @@ export const myPayApi: MyPaySource = statementSource('/api/v1/my_pay')
 export interface MyPayPreviewWorker {
   id: number
   name: string
-  role: 'admin' | 'employee'
+  role: UserRole
   /** True once any of this person's hours have been sent to payroll from AIRE. */
   sent_to_payroll: boolean
 }
@@ -167,7 +168,7 @@ function workerPath(userId: string): string {
   return `/api/v1/my_pay/preview/workers/${userId}`
 }
 
-// Read-only preview of any worker's My Pay, for allowlisted admins only.
+// Read-only preview of any worker's My Pay, for owners and admins only.
 export const myPayPreviewApi = {
   workers: (signal?: AbortSignal) => readJson<{ workers: MyPayPreviewWorker[] }>('/api/v1/my_pay/preview/workers', signal),
   worker: async (userId: string, signal?: AbortSignal) => readJson<{ worker: MyPayPreviewWorker }>(workerPath(userId), signal),

@@ -7,6 +7,7 @@ import { isIsoDate } from '../../lib/payrollPeriods'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
+import { useCapabilities } from '../../lib/useCapabilities'
 import { formatDateISO, formatDateInTimeZoneISO } from '../../lib/dateUtils'
 import type { Schedule as ScheduleType, ScheduleTimePreset, ApprovedLeaveAvailability } from '../../lib/api'
 
@@ -70,8 +71,11 @@ export default function Schedule() {
   const selectedUser = /^[1-9]\d*$/.test(query.get('user_id') || '') ? query.get('user_id') : null
   const currentPath = `${location.pathname}${location.search}`
   const returnTo = query.has('return_to') ? safeAdminReturn(query.get('return_to')) : null
-  const { userRole, isClerkEnabled, currentUser } = useAuthContext()
-  const canManage = !isClerkEnabled || userRole === 'admin'
+  const { currentUser } = useAuthContext()
+  const capabilities = useCapabilities()
+  const canManage = capabilities.manage_schedules
+  // Names link to the employee workspace, which lives under Team.
+  const canOpenEmployeeWorkspace = capabilities.manage_users
   const [schedules, setSchedules] = useState<ScheduleType[]>([])
   const [approvedLeave, setApprovedLeave] = useState<ApprovedLeaveAvailability[]>([])
   const [users, setUsers] = useState<UserOption[]>([])
@@ -566,7 +570,7 @@ export default function Schedule() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="font-medium text-primary-dark truncate">
-                                  {canManage && user ? <Link className="underline decoration-primary/30 underline-offset-4 hover:decoration-primary" to={employeeWorkspaceHref(user.id, { tab: 'schedule', returnTo: currentPath, startDate: formatDateISO(currentWeekStart), endDate: formatDateISO(weekDates[6]) })}>{getUserDisplayName(user)}</Link> : getUserDisplayName(user)}
+                                  {canOpenEmployeeWorkspace && user ? <Link className="underline decoration-primary/30 underline-offset-4 hover:decoration-primary" to={employeeWorkspaceHref(user.id, { tab: 'schedule', returnTo: currentPath, startDate: formatDateISO(currentWeekStart), endDate: formatDateISO(weekDates[6]) })}>{getUserDisplayName(user)}</Link> : getUserDisplayName(user)}
                                 </p>
                                 <p className="text-sm text-text-muted">
                                   {schedule.formatted_time_range}
@@ -652,7 +656,7 @@ export default function Schedule() {
                     <tr key={user.id} className="hover:bg-secondary/20 transition-colors">
                       <td className="px-4 py-3">
                         <div className="font-medium text-primary-dark text-sm">
-                          {canManage && user ? <Link className="underline decoration-primary/30 underline-offset-4 hover:decoration-primary" to={employeeWorkspaceHref(user.id, { tab: 'schedule', returnTo: currentPath, startDate: formatDateISO(currentWeekStart), endDate: formatDateISO(weekDates[6]) })}>{getUserDisplayName(user)}</Link> : getUserDisplayName(user)}
+                          {canOpenEmployeeWorkspace && user ? <Link className="underline decoration-primary/30 underline-offset-4 hover:decoration-primary" to={employeeWorkspaceHref(user.id, { tab: 'schedule', returnTo: currentPath, startDate: formatDateISO(currentWeekStart), endDate: formatDateISO(weekDates[6]) })}>{getUserDisplayName(user)}</Link> : getUserDisplayName(user)}
                         </div>
                       </td>
                       {weekDates.map((date, idx) => {

@@ -51,7 +51,7 @@ RSpec.describe "Api::V1::Auth", type: :request do
     end
   end
 
-  it "allows first-user bootstrap only when explicitly enabled" do
+  it "allows first-user bootstrap only when explicitly enabled, as the owner" do
     with_env("ALLOW_FIRST_USER_BOOTSTRAP" => "true") do
       post "/api/v1/auth/me", headers: headers
 
@@ -60,7 +60,7 @@ RSpec.describe "Api::V1::Auth", type: :request do
       expect(User.last).to have_attributes(
         clerk_id: "user_clerk_123",
         email: "first.admin@example.com",
-        role: "admin"
+        role: "owner"
       )
     end
   end
