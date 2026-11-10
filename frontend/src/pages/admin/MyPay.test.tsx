@@ -63,6 +63,23 @@ describe('My Pay list', () => {
     expect(listMock.mock.calls[0]).toHaveLength(1)
   })
 
+  it('says Processing only for an upcoming check, never for an old one payroll has no delivery record for', async () => {
+    const pending = { method: 'paper_check' as const, status: 'pending' as const, issued_on: null, check_number_last4: null }
+    listMock.mockResolvedValue({
+      worker: { employment_type: 'hourly', contractor: false },
+      statements: [
+        statement({ id: '50', pay_date: '2099-01-15', payment: pending }),
+        statement({ id: '20', pay_date: '2026-04-30', payment: pending }),
+      ],
+    })
+    renderPage()
+
+    const links = await screen.findAllByRole('link', { name: /Paycheck for/ })
+    expect(within(links[0]).getByText('Processing')).toBeVisible()
+    expect(within(links[1]).queryByText('Processing')).not.toBeInTheDocument()
+    expect(links[1]).toHaveAccessibleName('Paycheck for Thu, Apr 30, 2026, net $987.65')
+  })
+
   it('shows an empty state with a path to My Time', async () => {
     listMock.mockResolvedValue({ worker: { employment_type: 'hourly', contractor: false }, statements: [] })
     renderPage()

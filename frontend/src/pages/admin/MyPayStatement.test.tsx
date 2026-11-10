@@ -25,6 +25,7 @@ function detail(overrides: Partial<MyPayStatementDetail> = {}): MyPayStatementDe
     ],
     taxes: [{ label: 'Federal income tax', amount: '120.00', ytd: '2400.00' }],
     deductions: [{ label: 'Retirement', amount: '25.00', ytd: '500.00' }],
+    other_pay: [],
     ytd: { gross: '24690.00', net: '19753.00' },
     hours_on_check: [
       { time_entry_id: 501, work_date: '2026-09-15', category: 'Flight instruction', total_hours: '4.00', regular_hours: '4.00', overtime_hours: '0.00', source_kind: 'carryover', prior_period: true },
@@ -83,6 +84,60 @@ describe('My Pay statement detail', () => {
     expect(within(payment).getByText('Paper check ending 4321')).toBeVisible()
   })
 
+  it('adds other pay after taxes and deductions so the shown math reaches net pay', async () => {
+    api.statement.mockResolvedValue({
+      worker: { employment_type: 'hourly', contractor: false },
+      statement: detail({ net_pay: '1412.00', other_pay: [{ label: 'Mileage reimbursement', amount: '40.00', ytd: '120.00' }] }),
+    })
+    renderPage()
+
+    const hero = (await screen.findByRole('heading', { level: 1, name: 'Paycheck · Nov 15, 2026' })).closest('section') as HTMLElement
+    // 1,517.00 - 120.00 - 25.00 + 40.00 = 1,412.00
+    expect(within(hero).getByText('$1,517.00')).toBeVisible()
+    expect(within(hero).getByText('−$120.00')).toBeVisible()
+    expect(within(hero).getByText('−$25.00')).toBeVisible()
+    expect(within(hero).getByText('+$40.00')).toBeVisible()
+    expect(within(hero).getByText('$1,412.00')).toBeVisible()
+    const other = section('Other pay')
+    expect(within(other).getByText('Mileage reimbursement')).toBeVisible()
+    expect(within(other).getByText('$120.00')).toBeVisible()
+    expect(within(other).getByText('Total other pay')).toBeVisible()
+  })
+
+  it('hides the other pay section when the stub has none', async () => {
+    api.statement.mockResolvedValue({ worker: { employment_type: 'hourly', contractor: false }, statement: detail() })
+    renderPage()
+    await screen.findByRole('heading', { level: 1, name: 'Paycheck · Nov 15, 2026' })
+    expect(screen.queryByRole('heading', { name: 'Other pay' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/^\+\$/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the work-date note in an earning label on its own line', async () => {
+    api.statement.mockResolvedValue({
+      worker: { employment_type: 'hourly', contractor: false },
+      statement: detail({ earnings: [{ label: 'Prior-period hours worked Sep 15, 2026\nAdmin Duties', hours: '4.25', rate: '10.00', amount: '42.50', kind: 'regular' }] }),
+    })
+    renderPage()
+
+    const label = await within(await screen.findByRole('heading', { level: 2, name: 'Earnings' }).then((h) => h.closest('section') as HTMLElement))
+      .findByText((_, element) => element?.tagName === 'P' && element.textContent === 'Prior-period hours worked Sep 15, 2026\nAdmin Duties')
+    expect(label).toHaveClass('whitespace-pre-line', 'break-words')
+  })
+
+  it('explains an older check with no recorded delivery instead of calling it Processing', async () => {
+    api.statement.mockResolvedValue({
+      worker: { employment_type: 'hourly', contractor: false },
+      statement: detail({ pay_date: '2026-04-30', payment: { method: 'paper_check', status: 'pending', issued_on: null, check_number_last4: '3056' } }),
+    })
+    renderPage()
+
+    await screen.findByRole('heading', { level: 1, name: 'Paycheck · Apr 30, 2026' })
+    expect(screen.queryByText('Processing')).not.toBeInTheDocument()
+    const payment = section('Payment')
+    expect(within(payment).getByText('Not recorded yet')).toBeVisible()
+    expect(within(payment).getByText(/hasn't recorded this check as delivered/)).toBeVisible()
+  })
+
   it('lists the hours on this check, labels earlier hours and links own entries to My Time', async () => {
     api.statement.mockResolvedValue({ worker: { employment_type: 'hourly', contractor: false }, statement: detail() })
     renderPage()
@@ -100,11 +155,15 @@ describe('My Pay statement detail', () => {
     api.statement.mockResolvedValue({
       worker: { employment_type: 'contractor', contractor: true },
       statement: detail({
-        earnings: [{ label: 'Contract hours', hours: '80.00', rate: '25.00', amount: '2000.00', kind: 'regular' }],
+        earnings: [
+          { label: 'Contract hours', hours: '80.00', rate: '25.00', amount: '2000.00', kind: 'regular' },
+          { label: 'Contract hours', hours: '2.00', rate: '37.50', amount: '75.00', kind: 'regular', note: 'Paid at 1.5× your contract rate' },
+        ],
         taxes: [],
         deductions: [],
-        gross_pay: '2000.00',
-        net_pay: '2000.00',
+        other_pay: [{ label: 'Payroll May 1-15', amount: '0.00', ytd: '323.75' }],
+        gross_pay: '2075.00',
+        net_pay: '2075.00',
         hours_on_check: [
           { time_entry_id: 502, work_date: '2026-10-20', category: 'Flight instruction', total_hours: '10.00', source_kind: 'current', prior_period: false },
         ],
@@ -115,6 +174,10 @@ describe('My Pay statement detail', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Payment statement · Nov 15, 2026' })).toBeVisible()
     expect(screen.queryByRole('heading', { name: 'Taxes' })).not.toBeInTheDocument()
     expect(screen.getByText('80 hrs × $25.00/hr contract rate')).toBeVisible()
+    // An older row paid above the contract rate shows its real rate and says why.
+    expect(screen.getByText('2 hrs × $37.50/hr')).toBeVisible()
+    expect(screen.getByText('Paid at 1.5× your contract rate')).toBeVisible()
+    expect(within(section('Other pay')).getByText('$323.75')).toBeVisible()
     expect(screen.getByText('Total payment')).toBeVisible()
     expect(document.body.textContent).not.toMatch(/overtime|\bOT\b|tax/i)
   })

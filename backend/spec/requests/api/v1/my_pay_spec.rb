@@ -48,14 +48,15 @@ RSpec.describe "My Pay", type: :request do
       ],
       taxes: [ { label: "Federal income tax", amount: "120.00", ytd: "2400.00" } ],
       deductions: [ { label: "Retirement", amount: "25.00", ytd: "500.00" } ],
+      other_pay: [ { label: "Mileage reimbursement", amount: "40.00", ytd: "120.00" } ],
       ytd: { gross: "24690.00", net: "19753.00" },
       bank_account_number: "000123456789",
       routing_number: "021000021",
       employee_ssn: "123-45-6789",
       source_entries: [
-        { source_time_entry_id: own_entry.id.to_s, work_date: "2026-10-20", regular_hours: "6.00", overtime_hours: "2.00", source_kind: "current", category: "flight" },
-        { source_time_entry_id: carried_entry.id.to_s, work_date: "2026-10-14", regular_hours: "4.00", overtime_hours: "0.00", source_kind: "carryover", category: "flight" },
-        { source_time_entry_id: foreign_entry.id.to_s, work_date: "2026-10-21", regular_hours: "1.00", overtime_hours: "0.00", source_kind: "current", category: "flight" }
+        { source_time_entry_id: own_entry.id.to_s, work_date: "2026-10-20", hours: "8.00", regular_hours: "6.00", overtime_hours: "2.00", source_kind: "current", category: "flight" },
+        { source_time_entry_id: carried_entry.id.to_s, work_date: "2026-10-14", hours: "4.00", regular_hours: "4.00", overtime_hours: "0.00", source_kind: "carryover", category: "flight" },
+        { source_time_entry_id: foreign_entry.id.to_s, work_date: "2026-10-21", hours: "1.00", regular_hours: "1.00", overtime_hours: "0.00", source_kind: "current", category: "flight" }
       ]
     )
   end
@@ -199,6 +200,7 @@ RSpec.describe "My Pay", type: :request do
       ])
       expect(statement.fetch("taxes")).to eq([ { "label" => "Federal income tax", "amount" => "120.00", "ytd" => "2400.00" } ])
       expect(statement.fetch("deductions")).to eq([ { "label" => "Retirement", "amount" => "25.00", "ytd" => "500.00" } ])
+      expect(statement.fetch("other_pay")).to eq([ { "label" => "Mileage reimbursement", "amount" => "40.00", "ytd" => "120.00" } ])
       expect(statement.fetch("hours_on_check")).to eq([
         { "time_entry_id" => carried_entry.id, "work_date" => "2026-10-14", "category" => "Flight instruction",
           "total_hours" => "4.00", "regular_hours" => "4.00", "overtime_hours" => "0.00", "source_kind" => "carryover", "prior_period" => true },
@@ -220,9 +222,44 @@ RSpec.describe "My Pay", type: :request do
       expect(body.fetch("worker")).to eq("employment_type" => "contractor", "contractor" => true)
       statement = body.fetch("statement")
       expect(statement.fetch("taxes")).to eq([])
-      expect(statement.fetch("earnings").map { |line| line.values_at("label", "kind") }).to eq([ %w[Regular regular], [ "Contract hours", "regular" ] ])
+      expect(statement.fetch("earnings").map { |line| line.values_at("label", "kind", "note") })
+        .to eq([ [ "Regular", "regular", nil ], [ "Contract hours", "regular", "Paid at 1.5× your contract rate" ] ])
       expect(statement.fetch("hours_on_check").map(&:keys)).to all(eq(%w[time_entry_id work_date category total_hours source_kind prior_period]))
-      expect(statement.to_json).not_to match(/overtime/i)
+      expect(statement.fetch("hours_on_check").map { |line| line["total_hours"] }).to eq(%w[4.00 8.00 1.00])
+      expect(statement.to_json).not_to match(/overtime|\bOT\b/i)
+    end
+
+    it "folds an older straight-time contractor OT row into its matching row, as payroll prints it now" do
+      workers[worker.payroll_integration_uuid].merge!(employment_type: "contractor", contractor: true)
+      allow(self).to receive(:detail).and_wrap_original do |original, id|
+        original.call(id).merge(
+          gross_pay: "2274.00", net_pay: "2274.00", taxes: [], deductions: [], other_pay: [],
+          earnings: [
+            { label: "Flight Hours · AIRE current period · $30.00/hr", hours: "60.60", rate: "30.00", amount: "1818.00", kind: "regular" },
+            { label: "Flight Hours · AIRE current period · $30.00/hr OT", hours: "1.20", rate: "30.00", amount: "36.00", kind: "overtime" },
+            { label: "Ground Instruction Hours · AIRE current period · $30.00/hr", hours: "14.00", rate: "30.00", amount: "420.00", kind: "regular" }
+          ]
+        )
+      end
+      get "/api/v1/my_pay/42", headers: headers
+
+      earnings = response.parsed_body.dig("statement", "earnings")
+      expect(earnings).to eq([
+        { "label" => "Flight Hours · AIRE current period · $30.00/hr", "hours" => "61.80", "rate" => "30.00", "amount" => "1854.00", "kind" => "regular" },
+        { "label" => "Ground Instruction Hours · AIRE current period · $30.00/hr", "hours" => "14.00", "rate" => "30.00", "amount" => "420.00", "kind" => "regular" }
+      ])
+      expect(earnings.sum { |line| BigDecimal(line["amount"]) }).to eq(BigDecimal("2274.00"))
+    end
+
+    it "keeps work-date notes on their own line in earning labels" do
+      allow(self).to receive(:detail).and_wrap_original do |original, id|
+        original.call(id).merge(earnings: [
+          { label: "Prior-period hours worked Sep 15, 2026\r\n  Admin Duties  \n\n", hours: "4.25", rate: "10.00", amount: "42.50", kind: "regular" }
+        ])
+      end
+      get "/api/v1/my_pay/42", headers: headers
+
+      expect(response.parsed_body.dig("statement", "earnings", 0, "label")).to eq("Prior-period hours worked Sep 15, 2026\nAdmin Duties")
     end
 
     it "returns 404 for a statement that belongs to another worker, even if Cornerstone would answer" do

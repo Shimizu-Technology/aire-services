@@ -33,21 +33,29 @@ function sum(lines: { amount: string }[]): string {
   return (cents / 100).toFixed(2)
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   const id = useId()
   return (
     <section aria-labelledby={id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <h2 id={id} className="border-b border-slate-100 px-4 py-3 text-base font-semibold text-slate-900 sm:px-5">{title}</h2>
+      <div className="border-b border-slate-100 px-4 py-3 sm:px-5">
+        <h2 id={id} className="text-base font-semibold text-slate-900">{title}</h2>
+        {description && <p className="mt-0.5 text-sm text-slate-600">{description}</p>}
+      </div>
       {children}
     </section>
   )
 }
 
+// Stub labels can put a work-date note on its own line; keep that break and
+// let long labels wrap instead of widening the row.
+const labelClass = 'whitespace-pre-line break-words font-medium text-slate-900'
+
 function earningDetail(line: MyPayEarning, contractor: boolean): string | null {
   if (!line.hours) return null
   const hours = formatHours(line.hours)
   if (!line.rate) return hours
-  return `${hours} × ${rateFormat.format(Number(line.rate))}${contractor ? '/hr contract rate' : '/hr'}`
+  // A contractor row with a note was paid above the contract rate; the note says how.
+  return `${hours} × ${rateFormat.format(Number(line.rate))}${contractor && !line.note ? '/hr contract rate' : '/hr'}`
 }
 
 function EarningsSection({ earnings, gross, contractor }: { earnings: MyPayEarning[]; gross: string | null; contractor: boolean }) {
@@ -62,8 +70,9 @@ function EarningsSection({ earnings, gross, contractor }: { earnings: MyPayEarni
             return (
               <li key={`${line.label}-${index}`} className="flex items-start justify-between gap-4 px-4 py-3 sm:px-5">
                 <div className="min-w-0">
-                  <p className="font-medium text-slate-900">{line.label}</p>
+                  <p className={labelClass}>{line.label}</p>
                   {detail && <p className="mt-0.5 text-sm tabular-nums text-slate-600">{detail}</p>}
+                  {line.note && <p className="mt-0.5 text-sm text-slate-600">{line.note}</p>}
                 </div>
                 <p className="shrink-0 font-semibold tabular-nums text-slate-900">{formatMoney(line.amount)}</p>
               </li>
@@ -79,9 +88,9 @@ function EarningsSection({ earnings, gross, contractor }: { earnings: MyPayEarni
   )
 }
 
-function WithholdingSection({ title, lines, emptyText }: { title: string; lines: MyPayWithholding[]; emptyText: string }) {
+function WithholdingSection({ title, description, lines, emptyText }: { title: string; description?: string; lines: MyPayWithholding[]; emptyText: string }) {
   return (
-    <Section title={title}>
+    <Section title={title} description={description}>
       {lines.length === 0 ? (
         <p className="px-4 py-4 text-sm text-slate-600 sm:px-5">{emptyText}</p>
       ) : (
@@ -94,7 +103,7 @@ function WithholdingSection({ title, lines, emptyText }: { title: string; lines:
           <ul className="divide-y divide-slate-100">
             {lines.map((line, index) => (
               <li key={`${line.label}-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_8rem] sm:px-5">
-                <p className="font-medium text-slate-900">{line.label}</p>
+                <p className={labelClass}>{line.label}</p>
                 <p className="text-right font-semibold tabular-nums text-slate-900">{formatMoney(line.amount)}</p>
                 <p className="col-span-2 text-sm tabular-nums text-slate-600 sm:col-span-1 sm:text-right">
                   <span className="sm:sr-only">Year to date: </span>{formatMoney(line.ytd)}
@@ -169,6 +178,29 @@ function HoursSection({ lines, statementId, contractor }: { lines: MyPayHoursLin
         </ul>
       )}
     </Section>
+  )
+}
+
+// How the net figure is reached, in the order the stub applies it:
+// gross - taxes - deductions + other pay = net.
+function NetPayMath({ statement, contractor, otherPay }: { statement: MyPayStatementDetail; contractor: boolean; otherPay: MyPayWithholding[] }) {
+  const signed = (sign: '−' | '+', amount: string) => `${Number(amount) === 0 ? '' : sign}${formatMoney(amount)}`
+  const parts = [
+    { label: contractor ? 'Before deductions' : 'Gross', value: formatMoney(statement.gross_pay) },
+    ...(contractor ? [] : [{ label: 'Taxes', value: signed('−', sum(statement.taxes)) }]),
+    { label: 'Deductions', value: signed('−', sum(statement.deductions)) },
+    ...(otherPay.length > 0 ? [{ label: 'Other pay', value: signed('+', sum(otherPay)) }] : []),
+  ]
+  const columns = parts.length > 3 ? 'grid-cols-2 sm:grid-cols-4' : parts.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+  return (
+    <dl className={`mt-5 grid gap-3 border-t border-slate-100 pt-4 text-sm ${columns}`}>
+      {parts.map((part) => (
+        <div key={part.label}>
+          <dt className="text-slate-500">{part.label}</dt>
+          <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{part.value}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 
@@ -273,7 +305,8 @@ export default function MyPayStatement() {
 
   const { statement, worker } = state
   const contractor = worker.contractor
-  const status = paymentStatus(statement.payment)
+  const status = paymentStatus(statement.payment, statement.pay_date)
+  const otherPay = statement.other_pay ?? []
   const purpose = runPurposeLabel(statement.run_purpose)
   const kind = contractor ? 'Payment statement' : 'Paycheck'
   const payDate = formatPayDate(statement.pay_date)
@@ -287,7 +320,7 @@ export default function MyPayStatement() {
           <h1 id="my-pay-statement-title" className="text-sm font-semibold text-slate-600">
             {kind} · <span className="text-slate-900">{payDate}</span>
           </h1>
-          <StatusBadge {...status} />
+          {status.badge && <StatusBadge label={status.label} tone={status.tone} />}
         </div>
         <p className="mt-4 text-sm font-medium text-slate-500">{contractor ? 'Total payment' : 'Net pay'}</p>
         <p className="font-display text-4xl font-bold tracking-tight tabular-nums text-slate-950 sm:text-5xl">{formatMoney(statement.net_pay)}</p>
@@ -296,22 +329,7 @@ export default function MyPayStatement() {
           {purpose && ` · ${purpose}`}
           {statement.total_hours && ` · ${formatHours(statement.total_hours)}`}
         </p>
-        <dl className={`mt-5 grid gap-3 border-t border-slate-100 pt-4 text-sm ${contractor ? 'grid-cols-2' : 'grid-cols-3'}`}>
-          <div>
-            <dt className="text-slate-500">{contractor ? 'Before deductions' : 'Gross'}</dt>
-            <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{formatMoney(statement.gross_pay)}</dd>
-          </div>
-          {!contractor && (
-            <div>
-              <dt className="text-slate-500">Taxes</dt>
-              <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{formatMoney(sum(statement.taxes))}</dd>
-            </div>
-          )}
-          <div>
-            <dt className="text-slate-500">Deductions</dt>
-            <dd className="mt-0.5 font-semibold tabular-nums text-slate-900">{formatMoney(sum(statement.deductions))}</dd>
-          </div>
-        </dl>
+        <NetPayMath statement={statement} contractor={contractor} otherPay={otherPay} />
         <div className="mt-5">
           <DownloadButton statementId={statement.id} payDate={statement.pay_date} />
         </div>
@@ -320,6 +338,14 @@ export default function MyPayStatement() {
       <EarningsSection earnings={statement.earnings} gross={statement.gross_pay} contractor={contractor} />
       {!contractor && <WithholdingSection title="Taxes" lines={statement.taxes} emptyText="No taxes were withheld from this check." />}
       <WithholdingSection title="Deductions" lines={statement.deductions} emptyText={`No deductions were taken from this ${contractor ? 'payment' : 'check'}.`} />
+      {otherPay.length > 0 && (
+        <WithholdingSection
+          title="Other pay"
+          description={contractor ? 'Reimbursements and other pay added to your payment.' : 'Reimbursements and other non-taxable pay, added after taxes and deductions.'}
+          lines={otherPay}
+          emptyText=""
+        />
+      )}
 
       <Section title="Year to date">
         <dl className="grid grid-cols-2 gap-4 px-4 py-4 sm:px-5">
@@ -339,8 +365,11 @@ export default function MyPayStatement() {
       <Section title="Payment">
         <dl className="divide-y divide-slate-100 text-sm">
           <div className="flex justify-between gap-4 px-4 py-3 sm:px-5">
-            <dt className="text-slate-500">Status</dt>
-            <dd className="font-semibold text-slate-900">{status.label}</dd>
+            <dt className="shrink-0 text-slate-500">Status</dt>
+            <dd className="text-right">
+              <span className="font-semibold text-slate-900">{status.label}</span>
+              {status.explanation && <span className="mt-1 block text-slate-600">{status.explanation}</span>}
+            </dd>
           </div>
           <div className="flex justify-between gap-4 px-4 py-3 sm:px-5">
             <dt className="text-slate-500">Method</dt>

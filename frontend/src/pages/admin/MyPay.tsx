@@ -33,23 +33,25 @@ function groupByYear(statements: MyPayStatementSummary[]) {
 }
 
 function StatementCard({ statement, contractor }: { statement: MyPayStatementSummary; contractor: boolean }) {
-  const status = paymentStatus(statement.payment)
+  const status = paymentStatus(statement.payment, statement.pay_date)
   const purpose = runPurposeLabel(statement.run_purpose)
   const payDate = formatPayDate(statement.pay_date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
   return (
     <li>
       <Link
         to={`/admin/pay/${statement.id}`}
-        aria-label={`${contractor ? 'Payment' : 'Paycheck'} for ${payDate}, net ${formatMoney(statement.net_pay)}, ${status.label}`}
+        aria-label={`${contractor ? 'Payment' : 'Paycheck'} for ${payDate}, net ${formatMoney(statement.net_pay)}${status.badge ? `, ${status.label}` : ''}`}
         className="group block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-cyan-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 active:bg-slate-50 sm:p-5"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-base font-semibold text-slate-950 sm:text-lg">{payDate}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <StatusBadge {...status} />
-              {purpose && <span className="text-xs font-medium text-slate-600">{purpose}</span>}
-            </div>
+            {(status.badge || purpose) && (
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {status.badge && <StatusBadge label={status.label} tone={status.tone} />}
+                {purpose && <span className="text-xs font-medium text-slate-600">{purpose}</span>}
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1 text-right">
             <div>

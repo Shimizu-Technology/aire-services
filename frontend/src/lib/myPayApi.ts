@@ -1,6 +1,6 @@
 import { getAuthTokenValue } from './api'
 import { apiUrl } from './apiBase'
-import { formatDateOnly } from './dateUtils'
+import { businessDateISO, formatDateOnly } from './dateUtils'
 
 // The signed-in worker's own pay statements. The API derives the worker from
 // the session; nothing here sends a worker or user identifier.
@@ -33,11 +33,14 @@ export interface MyPayStatementSummary {
 }
 
 export interface MyPayEarning {
+  /** May contain a line break before the stub's work-date note. */
   label: string
   hours: string | null
   rate: string | null
   amount: string
   kind: 'regular' | 'overtime' | 'holiday' | 'pto' | 'bonus' | 'other'
+  /** Contractors only: how an older row paid above the contract rate was paid. */
+  note?: string
 }
 
 export interface MyPayWithholding {
@@ -61,6 +64,8 @@ export interface MyPayStatementDetail extends MyPayStatementSummary {
   earnings: MyPayEarning[]
   taxes: MyPayWithholding[]
   deductions: MyPayWithholding[]
+  /** Non-taxable additions such as reimbursements, added after taxes and deductions. */
+  other_pay: MyPayWithholding[]
   ytd: { gross: string | null; net: string | null }
   hours_on_check: MyPayHoursLine[]
 }
@@ -149,18 +154,41 @@ export function formatPeriod(start: string | null, end: string | null): string {
 
 export type StatusTone = 'success' | 'info' | 'neutral' | 'danger'
 
-// Plain words for the payment state of one check or deposit.
-export function paymentStatus(payment: MyPayStatementSummary['payment']): { label: string; tone: StatusTone } {
+export interface PaymentStatusView {
+  label: string
+  tone: StatusTone
+  /** False when there is nothing useful to badge, such as an older check with no recorded payment. */
+  badge: boolean
+  explanation?: string
+}
+
+// Plain words for the payment state of one check or deposit. Payroll marks a
+// payment issued only from a delivery or transfer record, so an older check
+// can still be "pending". Calling it "Processing" months later would be wrong,
+// and calling it "Paid" would be a guess.
+export function paymentStatus(
+  payment: MyPayStatementSummary['payment'],
+  payDate: string | null = null,
+  today: string = businessDateISO(),
+): PaymentStatusView {
   const deposit = payment.method === 'direct_deposit'
   switch (payment.status) {
     case 'issued':
-      return { label: deposit ? 'Deposited' : 'Paid', tone: 'success' }
+      return { label: deposit ? 'Deposited' : 'Paid', tone: 'success', badge: true }
     case 'prepared':
-      return { label: deposit ? 'Deposit scheduled' : 'Check ready', tone: 'info' }
+      return { label: deposit ? 'Deposit scheduled' : 'Check ready', tone: 'info', badge: true }
     case 'voided':
-      return { label: 'Voided', tone: 'danger' }
+      return { label: 'Voided', tone: 'danger', badge: true }
     default:
-      return { label: 'Processing', tone: 'neutral' }
+      if (payDate && payDate < today) {
+        return {
+          label: 'Not recorded yet',
+          tone: 'neutral',
+          badge: false,
+          explanation: `Payroll hasn't recorded this ${deposit ? 'deposit' : 'check'} as delivered. If you didn't receive it, ask an AIRE administrator.`,
+        }
+      }
+      return { label: 'Processing', tone: 'neutral', badge: true }
   }
 }
 

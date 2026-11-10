@@ -15,6 +15,8 @@ module Payroll
     DATE = /\A\d{4}-\d{2}-\d{2}\z/
     OVERTIME_WORDING = /over\s*-?\s*time|\bOT\b|over\s*40/i
     CONTRACTOR_EARNING_LABEL = "Contract hours"
+    # Earning labels can carry the stub's work-date note on a second line.
+    LABEL_LIMIT = 240
 
     def initialize(user:)
       @user = user
@@ -61,10 +63,13 @@ module Payroll
       contractor = worker.fetch(:contractor)
       ytd = row["ytd"].is_a?(Hash) ? row["ytd"] : {}
       base.merge(
-        earnings: lines(row["earnings"]).filter_map { |line| earning(line, contractor: contractor) },
+        earnings: earnings(lines(row["earnings"]), contractor: contractor),
         # Contractors are paid without withholding; never render a tax table.
         taxes: contractor ? [] : lines(row["taxes"]).filter_map { |line| withholding(line) },
         deductions: lines(row["deductions"]).filter_map { |line| withholding(line) },
+        # Non-taxable additions such as reimbursements; added after taxes and
+        # deductions, so net = gross - taxes - deductions + other pay.
+        other_pay: lines(row["other_pay"]).filter_map { |line| withholding(line) },
         ytd: { gross: money(ytd["gross"]), net: money(ytd["net"]) },
         hours_on_check: hours_on_check(lines(row["source_entries"]), base, contractor: contractor)
       )
@@ -86,16 +91,61 @@ module Payroll
       }
     end
 
-    def earning(line, contractor:)
+    def earnings(rows, contractor:)
+      lines = rows.filter_map { |line| earning(line) }
+      contractor ? contractor_earnings(lines) : lines
+    end
+
+    def earning(line)
       return unless line.is_a?(Hash) && (amount = money(line["amount"]))
 
       kind = EARNING_KINDS.include?(line["kind"]) ? line["kind"] : "other"
-      label = text(line["label"]) || kind.humanize
-      if contractor && (kind == "overtime" || label.match?(OVERTIME_WORDING))
-        kind = "regular"
-        label = CONTRACTOR_EARNING_LABEL
-      end
+      label = text(line["label"], limit: LABEL_LIMIT) || kind.humanize
       { label: label, hours: quantity(line["hours"]), rate: quantity(line["rate"]), amount: amount, kind: kind }
+    end
+
+    # Contractors are paid their contract rate for every hour, so their pay is
+    # never described as overtime. An older check can still carry a saved
+    # "... OT" row. Paid at the same rate as a matching row, it is folded into
+    # that row, as current payroll prints it. Paid at a higher rate, it keeps
+    # its actual rate and amount and says plainly what that rate was.
+    def contractor_earnings(lines)
+      flagged, plain = lines.partition { |line| line[:kind] == "overtime" || line[:label].match?(OVERTIME_WORDING) }
+      result = plain.map(&:dup)
+      contract_rates = plain.filter_map { |line| line[:rate] && BigDecimal(line[:rate]) }.select(&:positive?)
+      flagged.each do |line|
+        line = line.merge(kind: line[:kind] == "overtime" ? "regular" : line[:kind], label: contractor_label(line[:label]))
+        target = result.find { |row| row[:label] == line[:label] && row[:rate] && row[:rate] == line[:rate] && row[:hours] && line[:hours] }
+        if target
+          target[:hours] = quantity(BigDecimal(target[:hours]) + BigDecimal(line[:hours]))
+          target[:amount] = format("%.2f", BigDecimal(target[:amount]) + BigDecimal(line[:amount]))
+        else
+          note = higher_rate_note(line[:rate], contract_rates)
+          result << (note ? line.merge(note: note) : line)
+        end
+      end
+      result
+    end
+
+    def contractor_label(label)
+      cleaned = label.split("\n").map { |part| part.gsub(OVERTIME_WORDING, " ").squish.sub(/\A[\s·,:\-–]+/, "").sub(/[\s·,:\-–]+\z/, "") }
+        .reject(&:blank?).join("\n")
+      cleaned.blank? || cleaned.casecmp?("contract") ? CONTRACTOR_EARNING_LABEL : cleaned
+    end
+
+    def higher_rate_note(rate, contract_rates)
+      return if rate.nil? || contract_rates.empty?
+
+      rate = BigDecimal(rate)
+      base = contract_rates.max
+      return unless rate > base
+
+      # The saved rate is rounded to cents, so 1.5 x 9.25 is printed as 13.88.
+      if (rate - (base * BigDecimal("1.5"))).abs <= BigDecimal("0.01")
+        "Paid at 1.5× your contract rate"
+      else
+        "Paid at a higher rate than your contract rate"
+      end
     end
 
     def withholding(line)
@@ -115,12 +165,13 @@ module Payroll
         work_date = date(row["work_date"]) || entry&.work_date&.iso8601
         regular = BigDecimal(quantity(row["regular_hours"]) || "0")
         overtime = BigDecimal(quantity(row["overtime_hours"]) || "0")
+        total = quantity(row["hours"]) || quantity(regular + overtime)
         source_kind = SOURCE_KINDS.include?(row["source_kind"]) ? row["source_kind"] : "current"
         line = {
           time_entry_id: entry&.id,
           work_date: work_date,
           category: entry&.time_category&.name || text(row["category"]),
-          total_hours: format("%.2f", regular + overtime)
+          total_hours: format("%.2f", BigDecimal(total))
         }
         # Contractors are paid one flat rate for every hour; AIRE's own
         # regular/over-40 split is not part of their statement.
@@ -170,9 +221,11 @@ module Payroll
       string.match?(/\A[a-z_]{1,40}\z/) ? string : nil
     end
 
-    def text(value)
-      string = value.to_s.strip
-      string.presence&.slice(0, 120)
+    # Keeps single line breaks (the stub's work-date notes) and drops blank
+    # lines and stray whitespace.
+    def text(value, limit: 120)
+      string = value.to_s.split(/\r\n?|\n/).map(&:squish).reject(&:empty?).join("\n")
+      string.presence&.slice(0, limit)
     end
   end
 end
