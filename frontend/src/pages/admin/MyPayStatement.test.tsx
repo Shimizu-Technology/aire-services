@@ -183,6 +183,17 @@ describe('My Pay statement detail', () => {
     expect(label).toHaveClass('whitespace-pre-line', 'break-words')
   })
 
+  it('explains a voided check has no stub instead of offering a download that fails', async () => {
+    api.statement.mockResolvedValue({
+      worker: { employment_type: 'hourly', contractor: false },
+      statement: detail({ payment: { method: 'paper_check', status: 'voided', issued_on: null, check_number_last4: '3056' } }),
+    })
+    renderPage()
+
+    expect(await screen.findByText(/was voided, so there's no stub to download/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: /Download PDF stub/ })).not.toBeInTheDocument()
+  })
+
   it('explains an older check with no recorded delivery instead of calling it Processing', async () => {
     api.statement.mockResolvedValue({
       worker: { employment_type: 'hourly', contractor: false },

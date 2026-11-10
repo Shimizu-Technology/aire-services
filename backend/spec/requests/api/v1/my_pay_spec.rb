@@ -30,7 +30,7 @@ RSpec.describe "My Pay", type: :request do
     {
       id: id,
       pay_period: { start_date: "2026-10-16", end_date: "2026-10-31", pay_date: id == 42 ? "2026-11-15" : "2026-10-31", run_purpose: "regular" },
-      check_date: "2026-11-15",
+      check_date: id == 42 ? "2026-11-15" : "2026-10-31",
       gross_pay: "1234.56",
       net_pay: "987.65",
       total_hours: "80.00",
@@ -140,6 +140,15 @@ RSpec.describe "My Pay", type: :request do
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body.fetch("statements").map { |row| row["id"] }).to eq([ "7" ])
       expect(cornerstone_requests).to eq([ "/api/v1/integrations/time_payroll/workers/#{admin.payroll_integration_uuid}/statements" ])
+    end
+
+    it "dates a reissued check by its own check date, like the printed stub" do
+      reissued = method(:summary)
+      define_singleton_method(:summary) { |id| reissued.call(id).merge(id == 42 ? { check_date: "2026-11-18" } : {}) }
+
+      get "/api/v1/my_pay", headers: { "Authorization" => "Bearer test_token_#{worker.id}" }
+
+      expect(response.parsed_body.fetch("statements").first.fetch("pay_date")).to eq("2026-11-18")
     end
 
     it "ignores any worker identifier supplied by the client" do

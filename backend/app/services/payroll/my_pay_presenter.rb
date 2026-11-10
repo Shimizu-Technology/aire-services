@@ -42,7 +42,8 @@ module Payroll
       period = row["pay_period"].is_a?(Hash) ? row["pay_period"] : {}
       {
         id: row["id"].to_s,
-        pay_date: date(period["pay_date"]) || date(row["check_date"]),
+        # Same precedence as the printed stub, so a reissued check shows its own date.
+        pay_date: date(row["check_date"]) || date(period["pay_date"]),
         check_date: date(row["check_date"]),
         period_start: date(period["start_date"]),
         period_end: date(period["end_date"]),

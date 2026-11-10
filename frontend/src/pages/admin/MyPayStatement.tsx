@@ -387,7 +387,9 @@ export default function MyPayStatement() {
         </p>
         <NetPayMath statement={statement} contractor={contractor} otherPay={otherPay} />
         <div className="mt-5">
-          <DownloadButton statementId={statement.id} payDate={statement.pay_date} />
+          {statement.payment?.status === 'voided'
+            ? <p className="text-sm text-slate-600">This {contractor ? 'payment' : 'check'} was voided, so there&apos;s no stub to download.</p>
+            : <DownloadButton statementId={statement.id} payDate={statement.pay_date} />}
         </div>
       </section>
 
