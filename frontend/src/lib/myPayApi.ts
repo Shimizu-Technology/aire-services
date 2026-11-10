@@ -38,6 +38,8 @@ export interface MyPayEarning {
   hours: string | null
   rate: string | null
   amount: string
+  /** Year to date for this row, as the paper stub prints it; null where the stub prints a dash. */
+  ytd?: string | null
   kind: 'regular' | 'overtime' | 'holiday' | 'pto' | 'bonus' | 'other'
   /** Contractors only: how an older row paid above the contract rate was paid. */
   note?: string

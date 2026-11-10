@@ -43,8 +43,9 @@ RSpec.describe "My Pay", type: :request do
   def detail(id)
     summary(id).merge(
       earnings: [
-        { label: "Regular", hours: "76.00", rate: "18.50", amount: "1406.00", kind: "regular" },
-        { label: "Overtime", hours: "4.00", rate: "27.75", amount: "111.00", kind: "overtime" }
+        { label: "Regular", hours: "76.00", rate: "18.50", amount: "1406.00", ytd: "22990.00", kind: "regular" },
+        { label: "Overtime", hours: "4.00", rate: "27.75", amount: "111.00", ytd: "1200.00", kind: "overtime" },
+        { label: "Regular Pay", hours: nil, rate: nil, amount: "0.00", ytd: "500.00", kind: "other" }
       ],
       taxes: [ { label: "Federal income tax", amount: "120.00", ytd: "2400.00" } ],
       deductions: [ { label: "Retirement", amount: "25.00", ytd: "500.00" } ],
@@ -170,6 +171,21 @@ RSpec.describe "My Pay", type: :request do
       expect(audit.metadata).to eq("statement_count" => 2)
     end
 
+    it "still shows pay when the audit write fails, and reports the failure as an error" do
+      failure = ActiveRecord::StatementInvalid.new("audit table unavailable")
+      allow(AuditLog).to receive(:record!).and_raise(failure)
+      allow(Rails.error).to receive(:report)
+      allow(Rails.logger).to receive(:error)
+
+      get "/api/v1/my_pay", headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.fetch("statements").size).to eq(2)
+      expect(Rails.logger).to have_received(:error).with("[MyPay] Failed to audit my_pay.statements_viewed: ActiveRecord::StatementInvalid")
+      expect(Rails.error).to have_received(:report).with(failure, handled: true, severity: :error,
+        context: { operation: "my_pay_audit", action: "my_pay.statements_viewed", outcome: "succeeded" })
+    end
+
     it "returns a friendly unavailable state when Cornerstone is down" do
       allow(self).to receive(:cornerstone_down).and_return(true)
       get "/api/v1/my_pay", headers: headers
@@ -195,8 +211,10 @@ RSpec.describe "My Pay", type: :request do
       statement = response.parsed_body.fetch("statement")
       expect(statement).to include("id" => "42", "net_pay" => "987.65", "ytd" => { "gross" => "24690.00", "net" => "19753.00" })
       expect(statement.fetch("earnings")).to eq([
-        { "label" => "Regular", "hours" => "76.00", "rate" => "18.50", "amount" => "1406.00", "kind" => "regular" },
-        { "label" => "Overtime", "hours" => "4.00", "rate" => "27.75", "amount" => "111.00", "kind" => "overtime" }
+        { "label" => "Regular", "hours" => "76.00", "rate" => "18.50", "amount" => "1406.00", "ytd" => "22990.00", "kind" => "regular" },
+        { "label" => "Overtime", "hours" => "4.00", "rate" => "27.75", "amount" => "111.00", "ytd" => "1200.00", "kind" => "overtime" },
+        # Paid earlier this year, not on this check: the stub's $0.00 row with its YTD.
+        { "label" => "Regular Pay", "hours" => nil, "rate" => nil, "amount" => "0.00", "ytd" => "500.00", "kind" => "other" }
       ])
       expect(statement.fetch("taxes")).to eq([ { "label" => "Federal income tax", "amount" => "120.00", "ytd" => "2400.00" } ])
       expect(statement.fetch("deductions")).to eq([ { "label" => "Retirement", "amount" => "25.00", "ytd" => "500.00" } ])
@@ -223,7 +241,7 @@ RSpec.describe "My Pay", type: :request do
       statement = body.fetch("statement")
       expect(statement.fetch("taxes")).to eq([])
       expect(statement.fetch("earnings").map { |line| line.values_at("label", "kind", "note") })
-        .to eq([ [ "Regular", "regular", nil ], [ "Contract hours", "regular", "Paid at 1.5× your contract rate" ] ])
+        .to eq([ [ "Regular", "regular", nil ], [ "Regular Pay", "other", nil ], [ "Contract hours", "regular", "Paid at 1.5× your contract rate" ] ])
       expect(statement.fetch("hours_on_check").map(&:keys)).to all(eq(%w[time_entry_id work_date category total_hours source_kind prior_period]))
       expect(statement.fetch("hours_on_check").map { |line| line["total_hours"] }).to eq(%w[4.00 8.00 1.00])
       expect(statement.to_json).not_to match(/overtime|\bOT\b/i)
@@ -235,9 +253,9 @@ RSpec.describe "My Pay", type: :request do
         original.call(id).merge(
           gross_pay: "2274.00", net_pay: "2274.00", taxes: [], deductions: [], other_pay: [],
           earnings: [
-            { label: "Flight Hours · AIRE current period · $30.00/hr", hours: "60.60", rate: "30.00", amount: "1818.00", kind: "regular" },
-            { label: "Flight Hours · AIRE current period · $30.00/hr OT", hours: "1.20", rate: "30.00", amount: "36.00", kind: "overtime" },
-            { label: "Ground Instruction Hours · AIRE current period · $30.00/hr", hours: "14.00", rate: "30.00", amount: "420.00", kind: "regular" }
+            { label: "Flight Hours · AIRE current period · $30.00/hr", hours: "60.60", rate: "30.00", amount: "1818.00", ytd: "3018.00", kind: "regular" },
+            { label: "Flight Hours · AIRE current period · $30.00/hr OT", hours: "1.20", rate: "30.00", amount: "36.00", ytd: "36.00", kind: "overtime" },
+            { label: "Ground Instruction Hours · AIRE current period · $30.00/hr", hours: "14.00", rate: "30.00", amount: "420.00", ytd: nil, kind: "regular" }
           ]
         )
       end
@@ -245,10 +263,38 @@ RSpec.describe "My Pay", type: :request do
 
       earnings = response.parsed_body.dig("statement", "earnings")
       expect(earnings).to eq([
-        { "label" => "Flight Hours · AIRE current period · $30.00/hr", "hours" => "61.80", "rate" => "30.00", "amount" => "1854.00", "kind" => "regular" },
-        { "label" => "Ground Instruction Hours · AIRE current period · $30.00/hr", "hours" => "14.00", "rate" => "30.00", "amount" => "420.00", "kind" => "regular" }
+        { "label" => "Flight Hours · AIRE current period · $30.00/hr", "hours" => "61.80", "rate" => "30.00", "amount" => "1854.00", "ytd" => "3054.00",
+          "kind" => "regular" },
+        { "label" => "Ground Instruction Hours · AIRE current period · $30.00/hr", "hours" => "14.00", "rate" => "30.00", "amount" => "420.00", "ytd" => nil,
+          "kind" => "regular" }
       ])
       expect(earnings.sum { |line| BigDecimal(line["amount"]) }).to eq(BigDecimal("2274.00"))
+    end
+
+    it "adds a contractor's earlier-this-year OT rows to the contract row's YTD, with no OT wording" do
+      workers[worker.payroll_integration_uuid].merge!(employment_type: "contractor", contractor: true)
+      allow(self).to receive(:detail).and_wrap_original do |original, id|
+        original.call(id).merge(
+          gross_pay: "1854.00", net_pay: "1854.00", taxes: [], deductions: [], other_pay: [], ytd: { gross: "4389.00", net: "4389.00" },
+          # As Cornerstone's stub prints it before contractor OT folding: YTD-only rows for the earlier split.
+          earnings: [
+            { label: "Flight Hours · AIRE current period · $30.00/hr", hours: "61.80", rate: "30.00", amount: "1854.00", ytd: "3054.00", kind: "regular" },
+            { label: "Contract Labor", hours: nil, rate: nil, amount: "0.00", ytd: "1200.00", kind: "regular" },
+            { label: "Contract OT", hours: nil, rate: nil, amount: "0.00", ytd: "90.00", kind: "overtime" },
+            { label: "Ground Hours OT", hours: nil, rate: nil, amount: "0.00", ytd: "45.00", kind: "overtime" }
+          ]
+        )
+      end
+      get "/api/v1/my_pay/42", headers: headers
+
+      earnings = response.parsed_body.dig("statement", "earnings")
+      expect(earnings.map { |line| line.values_at("label", "amount", "ytd", "kind") }).to eq([
+        [ "Flight Hours · AIRE current period · $30.00/hr", "1854.00", "3054.00", "regular" ],
+        [ "Contract Labor", "0.00", "1290.00", "regular" ],
+        [ "Ground Hours", "0.00", "45.00", "regular" ]
+      ])
+      expect(earnings.sum { |line| BigDecimal(line["ytd"]) }).to eq(BigDecimal("4389.00"))
+      expect(earnings.to_json).not_to match(/overtime|\bOT\b/i)
     end
 
     it "keeps work-date notes on their own line in earning labels" do

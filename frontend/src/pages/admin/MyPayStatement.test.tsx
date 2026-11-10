@@ -91,6 +91,58 @@ describe('My Pay statement detail', () => {
     expect(within(payment).getByText('Paper check ending 4321')).toBeVisible()
   })
 
+  it("shows each earning's year to date and keeps earlier-this-year rows collapsed and out of gross pay", async () => {
+    api.statement.mockResolvedValue({
+      worker: { employment_type: 'hourly', contractor: false },
+      statement: detail({
+        earnings: [
+          { label: 'Regular', hours: '76.00', rate: '18.50', amount: '1406.00', ytd: '22990.00', kind: 'regular' },
+          { label: 'Overtime', hours: '4.00', rate: '27.75', amount: '111.00', ytd: '1200.00', kind: 'overtime' },
+          { label: 'Regular Pay', hours: null, rate: null, amount: '0.00', ytd: '3498.24', kind: 'other' },
+          { label: 'Bonus', hours: null, rate: null, amount: '0.00', ytd: '500.00', kind: 'bonus' },
+        ],
+      }),
+    })
+    renderPage()
+
+    const earnings = (await screen.findByRole('heading', { level: 2, name: 'Earnings' })).closest('section') as HTMLElement
+    const row = (label: string) => within(earnings).getByText(label).closest('li') as HTMLElement
+    expect(row('Regular')).toHaveTextContent('Year to date: $22,990.00')
+    expect(row('Overtime')).toHaveTextContent('Year to date: $1,200.00')
+    const total = within(earnings).getByText('Gross pay').parentElement as HTMLElement
+    // Gross is this check only; the earlier rows add nothing to it.
+    expect(total).toHaveTextContent('$1,517.00')
+    expect(total).toHaveTextContent('Year to date: $24,690.00')
+
+    const earlier = within(earnings).getByText('Earlier this year · 2 items')
+    expect(within(earnings).getByText('Regular Pay')).not.toBeVisible()
+    fireEvent.click(earlier)
+    expect(within(earnings).getByText('Regular Pay')).toBeVisible()
+    expect(row('Regular Pay')).toHaveTextContent('Year to date: $3,498.24')
+    expect(row('Regular Pay')).not.toHaveTextContent('$0.00')
+    expect(row('Bonus')).toHaveTextContent('Year to date: $500.00')
+    expect(within(earnings).getByText(/Included in year to date, not in gross pay/)).toBeVisible()
+    expect(within(screen.getByRole('heading', { level: 1 }).closest('section') as HTMLElement).getByText('$1,517.00')).toBeVisible()
+  })
+
+  it('leaves the year-to-date line off an earning the stub prints with a dash', async () => {
+    api.statement.mockResolvedValue({
+      worker: { employment_type: 'hourly', contractor: false },
+      statement: detail({
+        earnings: [
+          { label: 'Regular', hours: '76.00', rate: '18.50', amount: '1406.00', ytd: null, kind: 'regular' },
+          { label: 'Overtime', hours: '4.00', rate: '27.75', amount: '111.00', ytd: '1200.00', kind: 'overtime' },
+        ],
+      }),
+    })
+    renderPage()
+
+    const earnings = (await screen.findByRole('heading', { level: 2, name: 'Earnings' })).closest('section') as HTMLElement
+    expect(within(earnings).getByText('Regular').closest('li')).not.toHaveTextContent('Year to date: $')
+    expect(within(earnings).getByText('Overtime').closest('li')).toHaveTextContent('Year to date: $1,200.00')
+    expect(within(earnings).queryByText(/Earlier this year/)).not.toBeInTheDocument()
+  })
+
   it('adds other pay after taxes and deductions so the shown math reaches net pay', async () => {
     api.statement.mockResolvedValue({
       worker: { employment_type: 'hourly', contractor: false },
@@ -163,8 +215,9 @@ describe('My Pay statement detail', () => {
       worker: { employment_type: 'contractor', contractor: true },
       statement: detail({
         earnings: [
-          { label: 'Contract hours', hours: '80.00', rate: '25.00', amount: '2000.00', kind: 'regular' },
-          { label: 'Contract hours', hours: '2.00', rate: '37.50', amount: '75.00', kind: 'regular', note: 'Paid at 1.5× your contract rate' },
+          { label: 'Contract hours', hours: '80.00', rate: '25.00', amount: '2000.00', ytd: '4000.00', kind: 'regular' },
+          { label: 'Contract hours', hours: '2.00', rate: '37.50', amount: '75.00', ytd: '75.00', kind: 'regular', note: 'Paid at 1.5× your contract rate' },
+          { label: 'Contract Labor', hours: null, rate: null, amount: '0.00', ytd: '1290.00', kind: 'regular' },
         ],
         taxes: [],
         deductions: [],
@@ -188,6 +241,10 @@ describe('My Pay statement detail', () => {
     // Nothing was added on this payment, so the summary math leaves other pay out.
     expect(within(screen.getByRole('heading', { level: 1 }).closest('section') as HTMLElement).queryByText('Other pay')).not.toBeInTheDocument()
     expect(screen.getByText('Total payment')).toBeVisible()
+    const contractPay = section('Contract pay')
+    expect(within(contractPay).getByText('Total before deductions').parentElement).toHaveTextContent('$2,075.00')
+    expect(within(contractPay).getByText('Earlier this year · 1 item')).toBeVisible()
+    expect(within(contractPay).getByText(/Paid on earlier payments this year/)).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/overtime|\bOT\b|tax/i)
   })
 

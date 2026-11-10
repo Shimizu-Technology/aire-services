@@ -101,30 +101,58 @@ module Payroll
 
       kind = EARNING_KINDS.include?(line["kind"]) ? line["kind"] : "other"
       label = text(line["label"], limit: LABEL_LIMIT) || kind.humanize
-      { label: label, hours: quantity(line["hours"]), rate: quantity(line["rate"]), amount: amount, kind: kind }
+      # ytd is nil where the paper stub prints a dash for that row.
+      { label: label, hours: quantity(line["hours"]), rate: quantity(line["rate"]), amount: amount, ytd: money(line["ytd"]), kind: kind }
     end
 
     # Contractors are paid their contract rate for every hour, so their pay is
     # never described as overtime. An older check can still carry a saved
     # "... OT" row. Paid at the same rate as a matching row, it is folded into
     # that row, as current payroll prints it. Paid at a higher rate, it keeps
-    # its actual rate and amount and says plainly what that rate was.
+    # its actual rate and amount and says plainly what that rate was. A
+    # year-to-date-only OT row (earlier OT, nothing on this check) adds its YTD
+    # to the contract row it came from, as Cornerstone's stub folds it.
     def contractor_earnings(lines)
       flagged, plain = lines.partition { |line| line[:kind] == "overtime" || line[:label].match?(OVERTIME_WORDING) }
       result = plain.map(&:dup)
       contract_rates = plain.filter_map { |line| line[:rate] && BigDecimal(line[:rate]) }.select(&:positive?)
-      flagged.each do |line|
-        line = line.merge(kind: line[:kind] == "overtime" ? "regular" : line[:kind], label: contractor_label(line[:label]))
+      flagged.each do |original|
+        line = original.merge(kind: original[:kind] == "overtime" ? "regular" : original[:kind], label: contractor_label(original[:label]))
+        if ytd_only?(line)
+          target = result.find { |row| row[:label] == contract_row_label(original[:label]) } || result.find { |row| row[:label] == line[:label] }
+          target ? target[:ytd] = add_money(target[:ytd], line[:ytd]) : result << line
+          next
+        end
+
         target = result.find { |row| row[:label] == line[:label] && row[:rate] && row[:rate] == line[:rate] && row[:hours] && line[:hours] }
         if target
           target[:hours] = quantity(BigDecimal(target[:hours]) + BigDecimal(line[:hours]))
           target[:amount] = format("%.2f", BigDecimal(target[:amount]) + BigDecimal(line[:amount]))
+          target[:ytd] = add_money(target[:ytd], line[:ytd])
         else
           note = higher_rate_note(line[:rate], contract_rates)
           result << (note ? line.merge(note: note) : line)
         end
       end
       result
+    end
+
+    # Paid earlier this year but not on this check: the stub prints $0.00 with a YTD.
+    def ytd_only?(line)
+      line[:hours].nil? && BigDecimal(line[:amount]).zero? && line[:ytd].present? && BigDecimal(line[:ytd]).nonzero?
+    end
+
+    # The contract row a saved OT row was split from ("Contract OT" from
+    # "Contract Labor", "Flight Hours OT" from "Flight Hours").
+    def contract_row_label(label)
+      label == "Contract OT" ? "Contract Labor" : label.delete_suffix(" OT")
+    end
+
+    # A YTD the stub could not attribute (nil) stays unknown once combined.
+    def add_money(left, right)
+      return if left.nil? || right.nil?
+
+      format("%.2f", BigDecimal(left) + BigDecimal(right))
     end
 
     def contractor_label(label)

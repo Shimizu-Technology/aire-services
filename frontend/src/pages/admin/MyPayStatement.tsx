@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, Download } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Download } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { MyPayErrorState, StatementDetailSkeleton, StatusBadge } from '../../components/my-pay/MyPayParts'
 import { formatDateOnly } from '../../lib/dateUtils'
@@ -58,32 +58,87 @@ function earningDetail(line: MyPayEarning, contractor: boolean): string | null {
   return `${hours} × ${rateFormat.format(Number(line.rate))}${contractor && !line.note ? '/hr contract rate' : '/hr'}`
 }
 
-function EarningsSection({ earnings, gross, contractor }: { earnings: MyPayEarning[]; gross: string | null; contractor: boolean }) {
+// Paid on an earlier check this year but not on this one: the paper stub
+// prints these as $0.00 rows with a year-to-date amount.
+function isEarlierThisYear(line: MyPayEarning): boolean {
+  return Number(line.amount) === 0 && !line.hours && line.ytd != null && Number(line.ytd) !== 0
+}
+
+const ytdGrid = 'grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 sm:grid-cols-[minmax(0,1fr)_8rem_8rem]'
+
+function YtdCell({ value }: { value: string | null | undefined }) {
+  // Mobile shows a labeled line only when the stub has a YTD for the row; the
+  // desktop column keeps the stub's dash so rows stay aligned.
+  return (
+    <p className={`col-span-2 text-sm tabular-nums text-slate-600 sm:col-span-1 sm:text-right ${value == null ? 'hidden sm:block' : ''}`}>
+      <span className="sm:sr-only">Year to date: </span>{formatMoney(value)}
+    </p>
+  )
+}
+
+function EarningsSection({ earnings, gross, grossYtd, contractor }: { earnings: MyPayEarning[]; gross: string | null; grossYtd: string | null; contractor: boolean }) {
+  const earlier = earnings.filter(isEarlierThisYear)
+  const current = earnings.filter((line) => !isEarlierThisYear(line))
+  const showYtd = earnings.some((line) => line.ytd != null)
   return (
     <Section title={contractor ? 'Contract pay' : 'Earnings'}>
-      {earnings.length === 0 ? (
+      {current.length === 0 ? (
         <p className="px-4 py-4 text-sm text-slate-600 sm:px-5">No line items were included on this statement.</p>
       ) : (
-        <ul className="divide-y divide-slate-100">
-          {earnings.map((line, index) => {
-            const detail = earningDetail(line, contractor)
-            return (
-              <li key={`${line.label}-${index}`} className="flex items-start justify-between gap-4 px-4 py-3 sm:px-5">
-                <div className="min-w-0">
-                  <p className={labelClass}>{line.label}</p>
-                  {detail && <p className="mt-0.5 text-sm tabular-nums text-slate-600">{detail}</p>}
-                  {line.note && <p className="mt-0.5 text-sm text-slate-600">{line.note}</p>}
-                </div>
-                <p className="shrink-0 font-semibold tabular-nums text-slate-900">{formatMoney(line.amount)}</p>
-              </li>
-            )
-          })}
-        </ul>
+        <>
+          {showYtd && (
+            <div aria-hidden="true" className={`hidden border-b border-slate-100 px-5 pt-2 pb-1.5 text-xs font-medium text-slate-500 sm:grid ${ytdGrid}`}>
+              <span />
+              <span className="text-right">This check</span>
+              <span className="text-right">Year to date</span>
+            </div>
+          )}
+          <ul className="divide-y divide-slate-100">
+            {current.map((line, index) => {
+              const detail = earningDetail(line, contractor)
+              return (
+                <li key={`${line.label}-${index}`} className={`${showYtd ? ytdGrid : 'flex justify-between gap-4'} items-start px-4 py-3 sm:px-5`}>
+                  <div className="min-w-0">
+                    <p className={labelClass}>{line.label}</p>
+                    {detail && <p className="mt-0.5 text-sm tabular-nums text-slate-600">{detail}</p>}
+                    {line.note && <p className="mt-0.5 text-sm text-slate-600">{line.note}</p>}
+                  </div>
+                  <p className="shrink-0 text-right font-semibold tabular-nums text-slate-900">{formatMoney(line.amount)}</p>
+                  {showYtd && <YtdCell value={line.ytd} />}
+                </li>
+              )
+            })}
+          </ul>
+        </>
       )}
-      <div className="flex items-center justify-between gap-4 rounded-b-2xl border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
+      <div className={`${showYtd ? ytdGrid : 'flex justify-between gap-4'} items-center border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-5 ${earlier.length === 0 ? 'rounded-b-2xl' : ''}`}>
         <p className="font-semibold text-slate-900">{contractor ? 'Total before deductions' : 'Gross pay'}</p>
-        <p className="font-bold tabular-nums text-slate-950">{formatMoney(gross)}</p>
+        <p className="text-right font-bold tabular-nums text-slate-950">{formatMoney(gross)}</p>
+        {showYtd && <YtdCell value={grossYtd} />}
       </div>
+      {earlier.length > 0 && (
+        <details className="group rounded-b-2xl border-t border-slate-100">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-b-2xl px-4 group-open:rounded-none py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cyan-600 sm:px-5 [&::-webkit-details-marker]:hidden">
+            <span>Earlier this year · {earlier.length} {earlier.length === 1 ? 'item' : 'items'}</span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform duration-150 group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+          </summary>
+          <div className="px-4 pb-3 sm:px-5">
+            <p className="text-sm text-slate-600">
+              Paid on earlier {contractor ? 'payments' : 'checks'} this year, not on this one. Included in year to date, not in {contractor ? 'this total' : 'gross pay'}.
+            </p>
+            <ul className="mt-2 divide-y divide-slate-100">
+              {earlier.map((line, index) => (
+                <li key={`${line.label}-${index}`} className={`${ytdGrid} items-baseline py-2.5`}>
+                  <p className="whitespace-pre-line break-words text-sm text-slate-700">{line.label}</p>
+                  {/* Nothing on this check; only the year-to-date column applies. */}
+                  <span aria-hidden="true" className="hidden sm:block" />
+                  <p className="text-right text-sm tabular-nums text-slate-600"><span className="sm:sr-only">Year to date: </span>{formatMoney(line.ytd)}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
+      )}
     </Section>
   )
 }
@@ -336,7 +391,7 @@ export default function MyPayStatement() {
         </div>
       </section>
 
-      <EarningsSection earnings={statement.earnings} gross={statement.gross_pay} contractor={contractor} />
+      <EarningsSection earnings={statement.earnings} gross={statement.gross_pay} grossYtd={statement.ytd.gross} contractor={contractor} />
       {!contractor && <WithholdingSection title="Taxes" lines={statement.taxes} emptyText="No taxes were withheld from this check." />}
       <WithholdingSection title="Deductions" lines={statement.deductions} emptyText={`No deductions were taken from this ${contractor ? 'payment' : 'check'}.`} />
       {otherPay.length > 0 && (
