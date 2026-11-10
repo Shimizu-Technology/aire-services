@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditTimeEntryModal from './EditTimeEntryModal'
@@ -251,6 +251,18 @@ describe('EditTimeEntryModal', () => {
   it('does not expose the admin clock transition to employees', () => {
     renderReviewEditor(activeEntry, false)
     expect(screen.queryByRole('checkbox', { name: 'End this clock' })).not.toBeInTheDocument()
+  })
+
+  it("edits a manager's own time like an employee's while it needs another approver", () => {
+    renderReviewEditor({ ...activeEntry, needs_another_approver: true } as typeof activeEntry)
+    expect(screen.queryByRole('checkbox', { name: 'End this clock' })).not.toBeInTheDocument()
+    cleanup()
+
+    render(<EditTimeEntryModal isOpen canManageTeamTime entry={{ ...activeEntry, needs_another_approver: true, status: 'completed',
+      entry_method: 'manual', end_time: '12:00', approval_status: 'denied', time_category: { id: 1, name: 'CFI' } }}
+      categories={[{ id: 1, name: 'CFI' }]} canDelete onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />)
+    expect(screen.queryByRole('checkbox', { name: 'Submit denied time for review' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Every change, including notes, returns this entry to the approval queue/i)).toBeInTheDocument()
   })
 
   it('requires a reload before submitting a correction with no entry version', async () => {

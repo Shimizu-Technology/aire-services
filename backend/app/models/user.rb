@@ -228,6 +228,24 @@ class User < ApplicationRecord
   def can_export_hours_reports? = capability?(:export_hours_reports)
   def can_send_pay_statements? = capability?(:send_pay_statements)
 
+  # Approve, deny or override one's own time. Owners and admins always may;
+  # managers only while "Managers can approve their own time" is on.
+  def can_review_own_time?
+    return false unless can_approve_time?
+
+    administrator? || Setting.managers_can_approve_own_time?
+  end
+
+  # Approve, deny or override time that belongs to owner_id.
+  def can_review_time_of?(owner_id)
+    can_approve_time? && (owner_id != id || can_review_own_time?)
+  end
+
+  # A supervisor whose own time is sent to another approver.
+  def own_time_needs_another_approver?
+    can_approve_time? && !can_review_own_time?
+  end
+
   # Who may set target's role to new_role. Owners may assign any role; admins
   # only move people between manager and employee and never touch owners or
   # admins. Nobody changes their own role. The last-owner rule is enforced

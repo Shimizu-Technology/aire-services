@@ -428,6 +428,38 @@ describe('ApprovalQueue review workflow', () => {
     expect(within(categorySelect).queryByRole('option', { name: 'Other' })).not.toBeInTheDocument()
   })
 
+  it("shows a manager's own pending time read-only when another approver is needed", async () => {
+    const own = makeEntry({
+      id: 81,
+      overtime_status: 'pending',
+      pending_overtime_hours: 1.5,
+      needs_another_approver: true,
+      user: { ...entries[0].user, id: 20, display_name: 'Roke Manager', full_name: 'Roke Manager' },
+    })
+    const theirs = makeEntry({ id: 82 })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [own, theirs], count: 2 } })
+    apiMock.bulkApproveTimeEntries.mockResolvedValue({ data: { time_entries: [theirs], count: 1 } })
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    try {
+      render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+      expect(await screen.findByText('Needs another approver.')).toBeVisible()
+      expect(screen.getByRole('checkbox', { name: /select roke manager/i })).toBeDisabled()
+      expect(screen.getByRole('checkbox', { name: /select aika kanekatsu/i })).toBeEnabled()
+      expect(screen.queryByRole('button', { name: 'Approve time + 1.50 OT' })).not.toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: 'Approve' })).toHaveLength(1)
+      expect(screen.getAllByRole('button', { name: 'Deny' })).toHaveLength(1)
+      expect(screen.queryByRole('button', { name: 'Deny OT' })).not.toBeInTheDocument()
+      expect(screen.getAllByTitle('Edit entry')).toHaveLength(1)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Select approvable (1)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }))
+      await waitFor(() => expect(apiMock.bulkApproveTimeEntries).toHaveBeenCalledWith([82]))
+      expect(apiMock.approveTimeEntry).not.toHaveBeenCalled()
+      expect(apiMock.approveOvertime).not.toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('identifies card hours as total entry hours rather than the held overtime portion', async () => {
     render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
     expect(await screen.findByText('Only the overtime portion needs review.')).toBeInTheDocument()

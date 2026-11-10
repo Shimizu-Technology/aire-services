@@ -6,6 +6,8 @@ class TimeEntryReviewCorrection
   class CorrectionError < StandardError; end
   class StaleEntryError < CorrectionError; end
 
+  OWN_TIME_MESSAGE = "Another approver needs to correct your own time".freeze
+
   def self.call(entry:, actor:, action:, attributes:, reason:)
     new(entry: entry, actor: actor, action: action, attributes: attributes, reason: reason).call
   end
@@ -18,6 +20,7 @@ class TimeEntryReviewCorrection
 
   def call
     raise CorrectionError, "Only managers and admins can submit this correction" unless actor.can_manage_team_time?
+    raise CorrectionError, OWN_TIME_MESSAGE unless actor.can_review_time_of?(entry.user_id)
     raise CorrectionError, "A correction reason is required" if reason.blank?
     version = attributes[:expected_version]
     raise StaleEntryError, "Reload this entry before submitting the correction" unless version.to_s.match?(/\A\d+\z/)

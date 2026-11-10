@@ -15,6 +15,9 @@ module Api
           clock_in_location_longitude
           clock_in_location_radius_meters
         ].freeze
+        APPROVAL_SETTING_KEYS = [ Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY ].freeze
+        SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS).freeze
+        BOOLEAN_SETTING_KEYS = APPROVAL_SETTING_KEYS
 
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_settings) }
@@ -84,7 +87,7 @@ module Api
           end
 
           if settings_present
-            unknown = payload.keys.map(&:to_s) - CLOCK_SETTING_KEYS
+            unknown = payload.keys.map(&:to_s) - SETTING_KEYS
             if unknown.any?
               return render json: { error: "Unknown settings: #{unknown.join(", ")}" }, status: :unprocessable_entity
             end
@@ -103,9 +106,15 @@ module Api
                 raise ActiveRecord::Rollback if approval_groups_error.present?
               end
 
+              audited_before = APPROVAL_SETTING_KEYS.select { |key| payload&.key?(key) }.index_with do |key|
+                Setting.lock.find_by(key: key)&.value || Setting::DEFAULTS[key]
+              end
+
               payload&.each do |key, value|
                 Setting.set(key.to_s, value.to_s)
               end
+
+              record_approval_setting_changes!(audited_before, payload) if audited_before.any?
 
               Setting.set_approval_groups!(approval_groups_payload) if approval_groups_present
             end
@@ -128,15 +137,35 @@ module Api
         private
 
         def serialized_settings
-          CLOCK_SETTING_KEYS.index_with { |key| Setting.get(key) }
+          SETTING_KEYS.index_with { |key| Setting.get(key) }
         end
 
         # Returns a hash of string keys => string values, or nil if :settings is absent.
         def settings_update_params
           return nil unless params.key?(:settings)
 
-          permitted = params.require(:settings).permit(*CLOCK_SETTING_KEYS)
-          permitted.to_h.compact_blank
+          permitted = params.require(:settings).permit(*SETTING_KEYS).to_h
+          # A boolean false would otherwise be dropped as blank.
+          BOOLEAN_SETTING_KEYS.each { |key| permitted[key] = permitted[key].to_s if permitted.key?(key) && permitted[key] == false }
+          permitted.compact_blank
+        end
+
+        # Settings that change who may approve time keep their own before/after audit row.
+        def record_approval_setting_changes!(before_values, payload)
+          before_values.each do |key, before|
+            after = payload.fetch(key).to_s
+            next if before == after
+
+            AuditLog.record!(
+              action: "setting.#{key}_updated",
+              auditable: Setting.find_by!(key: key),
+              actor: current_user,
+              event_category: "settings",
+              changes: { key => [ before == "true", after == "true" ] },
+              metadata: { key: key, enabled: after == "true" },
+              mark_domain_recorded: false
+            )
+          end
         end
 
         def approval_groups_update_params
@@ -151,6 +180,11 @@ module Api
         end
 
         def validate_settings(payload)
+          BOOLEAN_SETTING_KEYS.each do |key|
+            next unless payload.key?(key)
+            return "#{key.humanize} must be true or false" unless %w[true false].include?(payload[key].to_s)
+          end
+
           if payload.key?("overtime_daily_threshold_hours")
             v = payload["overtime_daily_threshold_hours"].to_f
             return "Daily overtime threshold must be greater than 0" if v <= 0

@@ -198,6 +198,12 @@ function summaryCountForApprovalGroup(summary: PendingApprovalsSummary | null, k
 }
 
 
+// Ready for this viewer to approve: has a work category and is not their own
+// time waiting for another approver.
+function isReviewable(entry: TimeEntry) {
+  return entry.time_category !== null && !entry.needs_another_approver
+}
+
 function approveLabel(entry: TimeEntry) {
   const hours = entry.overtime_status === 'pending' ? entry.pending_overtime_hours ?? 0 : 0
   if (hours <= 0) return 'Approve'
@@ -379,7 +385,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     return Array.from(usersById.values()).sort((a, b) => a.label.localeCompare(b.label))
   }, [allEntries, reviewFilters.userId, selectedEmployeeOption])
 
-  const approvableEntries = useMemo(() => entries.filter((entry) => entry.time_category !== null), [entries])
+  const approvableEntries = useMemo(() => entries.filter(isReviewable), [entries])
   const selectedEntries = useMemo(() => approvableEntries.filter((entry) => selectedIds.has(entry.id)), [approvableEntries, selectedIds])
   const allVisibleSelected = approvableEntries.length > 0 && approvableEntries.every((entry) => selectedIds.has(entry.id))
 
@@ -419,7 +425,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
   }
 
   const toggleGroupSelection = (groupEntries: TimeEntry[]) => {
-    const selectableEntries = groupEntries.filter((entry) => entry.time_category !== null)
+    const selectableEntries = groupEntries.filter(isReviewable)
     const groupSelected = selectableEntries.length > 0 && selectableEntries.every((entry) => selectedIds.has(entry.id))
     setSelectedIds((previous) => {
       const next = new Set(previous)
@@ -653,6 +659,8 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     const selected = selectedIds.has(entry.id)
     const reasons = approvalReasonsFor(entry)
     const missingCategory = entry.time_category === null
+    const needsAnotherApprover = !!entry.needs_another_approver
+    const selectable = !missingCategory && !needsAnotherApprover
 
     return (
       <div
@@ -660,12 +668,12 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
         className={`border rounded-xl p-3.5 transition-colors ${selected ? 'border-primary bg-cyan-50/50' : 'border-neutral-warm bg-secondary/30'}`}
       >
         <div className="flex items-start gap-3">
-          <label className={`mt-1 inline-flex min-h-[44px] min-w-[44px] items-start justify-center rounded-xl border border-slate-200 bg-white pt-3 ${missingCategory ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:border-primary/50'}`} title={missingCategory ? 'Add a work category before approval' : 'Select for bulk approval'}>
+          <label className={`mt-1 inline-flex min-h-[44px] min-w-[44px] items-start justify-center rounded-xl border border-slate-200 bg-white pt-3 ${selectable ? 'cursor-pointer hover:border-primary/50' : 'cursor-not-allowed opacity-50'}`} title={needsAnotherApprover ? 'Needs another approver' : missingCategory ? 'Add a work category before approval' : 'Select for bulk approval'}>
             <input
               type="checkbox"
               className="h-4 w-4 accent-primary"
               checked={selected}
-              disabled={missingCategory}
+              disabled={!selectable}
               onChange={() => toggleEntrySelection(entry.id)}
               aria-label={`Select ${entryDisplayName(entry)} on ${formatWorkDate(entry.work_date)}`}
             />
@@ -718,7 +726,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                     )}
                   </div>
                 )}
-                {missingCategory && (
+                {missingCategory && !needsAnotherApprover && (
                   <p className="mt-2 text-xs font-medium text-red-700">Edit this entry and choose an assigned work category before approving it.</p>
                 )}
               </div>
@@ -745,6 +753,11 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
               </div>
             )}
 
+            {needsAnotherApprover ? (
+              <p className="mt-3 text-sm text-text-muted">
+                <span className="font-semibold text-primary-dark">Needs another approver.</span> An owner, admin or another manager reviews your own time.
+              </p>
+            ) : (
             <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:items-center">
               <button
                 onClick={() => handleApprove(entry, noteInput?.id === entry.id ? noteInput.note : undefined)}
@@ -788,6 +801,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 </svg>
               </button>
             </div>
+            )}
           </div>
         </div>
       </div>
@@ -1046,7 +1060,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
           ) : reviewFilters.groupByDate ? (
             <div className="space-y-4">
               {groupedEntries.map((group) => {
-                const groupApprovableEntries = group.entries.filter((entry) => entry.time_category !== null)
+                const groupApprovableEntries = group.entries.filter(isReviewable)
                 const groupSelected = groupApprovableEntries.length > 0 && groupApprovableEntries.every((entry) => selectedIds.has(entry.id))
                 return (
                   <section key={group.date} className="rounded-2xl border border-slate-200 bg-white/70 p-3">

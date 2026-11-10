@@ -22,6 +22,7 @@ interface EditableTimeEntry {
   approval_status?: 'pending' | 'approved' | 'denied' | null
   approval_note?: string | null
   approved_by?: { id: number; full_name: string } | null
+  needs_another_approver?: boolean
   entry_method?: 'clock' | 'manual'
   status?: 'clocked_in' | 'on_break' | 'completed'
   clock_in_at?: string | null
@@ -103,6 +104,8 @@ export default function EditTimeEntryModal({
   onError,
 }: EditTimeEntryModalProps) {
   const canViewActivity = useCapabilities().view_activity
+  // A manager's own time, while it needs another approver, is edited like an employee's.
+  const supervisorEdit = canManageTeamTime && !entry?.needs_another_approver
   const [formData, setFormData] = useState({
     work_date: '',
     start_time: '08:00',
@@ -334,7 +337,7 @@ export default function EditTimeEntryModal({
                 )}
                 {!isActiveClockEntry && (
                   <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    {canManageTeamTime
+                    {supervisorEdit
                       ? 'Changes to dates, times, breaks, hours, or work category return this entry to the approval queue. Notes can be updated without another approval.'
                       : 'Every change, including notes, returns this entry to the approval queue.'}
                   </div>
@@ -346,7 +349,7 @@ export default function EditTimeEntryModal({
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <fieldset disabled={saving || deleting}>
-                {canManageTeamTime && (isActiveClockEntry || entry.approval_status === 'denied') && (
+                {supervisorEdit && (isActiveClockEntry || entry.approval_status === 'denied') && (
                   <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 p-3">
                     <label className="flex items-start gap-2 text-sm font-semibold text-cyan-900">
                       <input type="checkbox" checked={!!reviewAction} onChange={(event) => {

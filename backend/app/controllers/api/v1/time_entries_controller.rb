@@ -164,13 +164,15 @@ module Api
         update_params[:break_minutes] = break_update[:total_minutes] if break_update
 
         @time_entry.assign_attributes(update_params)
-        if !current_user.can_manage_team_time? || payroll_relevant_changes?(@time_entry, break_update)
+        # A manager whose own time needs another approver edits it like an employee.
+        supervisor_edit = current_user.can_manage_team_time? && !own_time_needs_another_approver?(@time_entry)
+        if !supervisor_edit || payroll_relevant_changes?(@time_entry, break_update)
           update_params[:approval_status] = "pending"
           update_params[:approved_by] = nil
           update_params[:approved_at] = nil
           update_params[:approval_note] = append_review_note(
             @time_entry.approval_note,
-            actor_kind: current_user.can_manage_team_time? ? :admin : :employee
+            actor_kind: supervisor_edit ? :admin : :employee
           )
         end
 
@@ -194,7 +196,7 @@ module Api
               new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
               overtime_attrs = { overtime_status: new_overtime }
 
-              if !current_user.can_manage_team_time? || old_values[:overtime_status].in?([ "approved", "denied" ])
+              if !supervisor_edit || old_values[:overtime_status].in?([ "approved", "denied" ])
                 overtime_attrs[:overtime_approved_by] = nil
                 overtime_attrs[:overtime_approved_at] = nil
                 overtime_attrs[:overtime_note] = nil
@@ -297,6 +299,9 @@ module Api
           admin_override = nil
           target_user = current_user
         end
+        if admin_override && target_user.id == current_user.id && current_user.own_time_needs_another_approver?
+          return render json: { error: TimeClockService::OWN_CLOCK_OVERRIDE_MESSAGE }, status: :forbidden
+        end
 
         source = resolved_clock_source(target_user: target_user, admin_override: admin_override)
         entry = TimeClockService.clock_in(
@@ -307,6 +312,8 @@ module Api
           location: clock_location_params
         )
         render json: { time_entry: serialize_time_entry(eager_reload(entry)) }, status: :created
+      rescue TimeClockService::AuthorizationError => e
+        render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -323,6 +330,8 @@ module Api
           description: permitted[:description]
         )
         render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
+      rescue TimeClockService::AuthorizationError => e
+        render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -333,6 +342,8 @@ module Api
         admin_override = (current_user.can_manage_team_time? && target_user.id != current_user.id) ? current_user : nil
         entry = TimeClockService.start_break(user: target_user, admin_override_by: admin_override)
         render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
+      rescue TimeClockService::AuthorizationError => e
+        render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -343,6 +354,8 @@ module Api
         admin_override = (current_user.can_manage_team_time? && target_user.id != current_user.id) ? current_user : nil
         entry = TimeClockService.end_break(user: target_user, admin_override_by: admin_override)
         render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
+      rescue TimeClockService::AuthorizationError => e
+        render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -359,6 +372,8 @@ module Api
           clock_source: source
         )
         render json: { time_entry: serialize_time_entry(eager_reload(entry)) }
+      rescue TimeClockService::AuthorizationError => e
+        render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -494,6 +509,9 @@ module Api
             error_message = "One or more selected entries could not be found"
             raise ActiveRecord::Rollback
           end
+          if entries_by_id.each_value.any? { |entry| own_time_needs_another_approver?(entry) }
+            raise TimeClockService::AuthorizationError, "#{TimeClockService::OWN_TIME_REVIEW_MESSAGE}. Deselect your own entries and try again."
+          end
 
           ::Payroll::AffectedOvertimeReview.around_entries(entries_by_id.values, force: true) do
             entry_ids.each do |entry_id|
@@ -543,6 +561,12 @@ module Api
 
       private
 
+      # The signed-in manager's own entry while "Managers can approve their own time" is off.
+      def own_time_needs_another_approver?(entry)
+        @own_time_needs_another_approver = current_user.own_time_needs_another_approver? if @own_time_needs_another_approver.nil?
+        @own_time_needs_another_approver && entry.user_id == current_user.id
+      end
+
       def with_export_invalidation(entry, reason)
         TimeEntry.transaction do
           updated_entry = yield
@@ -572,6 +596,9 @@ module Api
 
       def perform_review_correction
         return render json: { error: "Only managers and admins can submit this correction" }, status: :forbidden unless current_user.can_manage_team_time?
+        if own_time_needs_another_approver?(@time_entry)
+          return render json: { error: TimeEntryReviewCorrection::OWN_TIME_MESSAGE }, status: :forbidden
+        end
 
         attributes = params.require(:time_entry).permit(:review_action, :expected_version, :stop_date, :end_time, :time_category_id, :description).to_h
         TimeEntryReviewCorrection.call(entry: @time_entry, actor: current_user,
@@ -965,6 +992,7 @@ module Api
           approval_status: entry.approval_status,
           overtime_status: entry.overtime_status,
           approval_reasons: approval_reasons_for(entry),
+          needs_another_approver: own_time_needs_another_approver?(entry),
           clock_in_at: entry.clock_in_at&.iso8601(6),
           clock_out_at: entry.clock_out_at&.iso8601(6),
           approved_by: entry.approved_by ? {
