@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom'
 import { ChevronRight, ReceiptText } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { MyPayErrorState, StatementListSkeleton, StatusBadge } from '../../components/my-pay/MyPayParts'
+import { useMyPayScope } from '../../lib/myPayScope'
 import {
   MyPayError,
   formatHours,
   formatMoney,
   formatPayDate,
   formatPeriod,
-  myPayApi,
   paymentStatus,
   runPurposeLabel,
   type MyPayStatementSummary,
@@ -32,14 +32,14 @@ function groupByYear(statements: MyPayStatementSummary[]) {
   return groups
 }
 
-function StatementCard({ statement, contractor }: { statement: MyPayStatementSummary; contractor: boolean }) {
+function StatementCard({ statement, contractor, href }: { statement: MyPayStatementSummary; contractor: boolean; href: string }) {
   const status = paymentStatus(statement.payment, statement.pay_date)
   const purpose = runPurposeLabel(statement.run_purpose)
   const payDate = formatPayDate(statement.pay_date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
   return (
     <li>
       <Link
-        to={`/admin/pay/${statement.id}`}
+        to={href}
         aria-label={`${contractor ? 'Payment' : 'Paycheck'} for ${payDate}, net ${formatMoney(statement.net_pay)}${status.badge ? `, ${status.label}` : ''}`}
         className="group block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-cyan-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 active:bg-slate-50 sm:p-5"
       >
@@ -82,7 +82,9 @@ function StatementCard({ statement, contractor }: { statement: MyPayStatementSum
 
 export default function MyPay() {
   const { currentUser, isClerkEnabled } = useAuthContext()
-  const enabled = Boolean(currentUser?.my_pay_enabled)
+  const scope = useMyPayScope()
+  const { source } = scope
+  const enabled = scope.isEnabled(currentUser)
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
@@ -94,14 +96,14 @@ export default function MyPay() {
   useEffect(() => {
     if (!enabled) return
     const controller = new AbortController()
-    myPayApi.list(controller.signal)
+    source.list(controller.signal)
       .then((data) => setState({ status: 'ready', worker: data.worker, statements: data.statements }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
         setState({ status: 'error', error: error instanceof MyPayError ? error : new MyPayError('Pay history is temporarily unavailable. Please try again in a few minutes.', 'network') })
       })
     return () => controller.abort()
-  }, [enabled, attempt])
+  }, [enabled, attempt, source])
 
   const contractor = state.status === 'ready' && state.worker.contractor
 
@@ -141,8 +143,8 @@ export default function MyPay() {
             <p className="mx-auto mt-1 max-w-sm text-sm text-slate-600">
               {contractor ? 'Payments' : 'Paychecks'} show up here once payroll is finalized. Hours you&apos;ve worked are in My Time.
             </p>
-            <Link to="/admin/time" className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-semibold text-cyan-700 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-cyan-600">
-              Go to My Time
+            <Link to={scope.timeHref} className="mt-4 inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-semibold text-cyan-700 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-cyan-600">
+              Go to {scope.timeLabel}
             </Link>
           </div>
         )}
@@ -152,7 +154,7 @@ export default function MyPay() {
               <section key={group.year} aria-labelledby={`my-pay-year-${group.year}`}>
                 <h2 id={`my-pay-year-${group.year}`} className="mb-2 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">{group.year}</h2>
                 <ul className="space-y-3">
-                  {group.statements.map((statement) => <StatementCard key={statement.id} statement={statement} contractor={contractor} />)}
+                  {group.statements.map((statement) => <StatementCard key={statement.id} statement={statement} contractor={contractor} href={scope.statementHref(statement.id)} />)}
                 </ul>
               </section>
             ))}

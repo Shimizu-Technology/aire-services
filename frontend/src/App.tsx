@@ -26,6 +26,7 @@ const PayrollRuns = lazy(() => import('./pages/admin/PayrollRuns'))
 const PayrollAccountLink = lazy(() => import('./pages/admin/PayrollAccountLink'))
 const MyPay = lazy(() => import('./pages/admin/MyPay'))
 const MyPayStatement = lazy(() => import('./pages/admin/MyPayStatement'))
+const MyPayPreview = lazy(() => import('./pages/admin/MyPayPreview'))
 
 function AdminLoadingFallback() {
   return (
@@ -80,6 +81,10 @@ function App() {
           <Route path="schedule" element={<Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense>} />
           <Route path="pay" element={<Suspense fallback={<AdminLoadingFallback />}><MyPay /></Suspense>} />
           <Route path="pay/:id" element={<Suspense fallback={<AdminLoadingFallback />}><MyPayStatement /></Suspense>} />
+          {/* Read-only My Pay preview: admins on the preview allowlist only (checked again by the API). */}
+          <Route path="pay-preview" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="picker" /></Suspense></ProtectedRoute>} />
+          <Route path="pay-preview/:userId" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="list" /></Suspense></ProtectedRoute>} />
+          <Route path="pay-preview/:userId/:id" element={<ProtectedRoute requiredRole="admin"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="statement" /></Suspense></ProtectedRoute>} />
           <Route
             path="media"
             element={

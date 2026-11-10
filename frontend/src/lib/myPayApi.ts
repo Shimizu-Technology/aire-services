@@ -3,7 +3,9 @@ import { apiUrl } from './apiBase'
 import { businessDateISO, formatDateOnly } from './dateUtils'
 
 // The signed-in worker's own pay statements. The API derives the worker from
-// the session; nothing here sends a worker or user identifier.
+// the session; nothing here sends a worker or user identifier. The read-only
+// admin preview (myPayPreviewApi) names an AIRE user ID, and the API checks
+// that the signed-in admin is on the preview allowlist.
 
 export type MyPayPaymentStatus = 'pending' | 'prepared' | 'issued' | 'voided'
 export type MyPayPaymentMethod = 'paper_check' | 'direct_deposit'
@@ -74,7 +76,14 @@ export interface MyPayStatementDetail extends MyPayStatementSummary {
   hours_on_check: MyPayHoursLine[]
 }
 
-export type MyPayErrorCode = 'my_pay_unavailable' | 'payroll_not_linked' | 'statement_not_found' | 'my_pay_not_enabled' | 'network'
+export type MyPayErrorCode =
+  | 'my_pay_unavailable'
+  | 'payroll_not_linked'
+  | 'statement_not_found'
+  | 'my_pay_not_enabled'
+  | 'my_pay_preview_not_enabled'
+  | 'worker_not_found'
+  | 'network'
 
 export class MyPayError extends Error {
   readonly code: MyPayErrorCode
@@ -88,7 +97,7 @@ export class MyPayError extends Error {
 }
 
 const UNAVAILABLE = 'Pay history is temporarily unavailable. Please try again in a few minutes.'
-const KNOWN_CODES: MyPayErrorCode[] = ['my_pay_unavailable', 'payroll_not_linked', 'statement_not_found', 'my_pay_not_enabled']
+const KNOWN_CODES: MyPayErrorCode[] = ['my_pay_unavailable', 'payroll_not_linked', 'statement_not_found', 'my_pay_not_enabled', 'my_pay_preview_not_enabled', 'worker_not_found']
 
 async function authorizedFetch(path: string, signal?: AbortSignal): Promise<Response> {
   const token = await getAuthTokenValue()
@@ -114,22 +123,59 @@ async function readJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return data as T
 }
 
-function statementPath(id: string): string {
-  if (!/^[1-9]\d{0,17}$/.test(id)) throw new MyPayError("We couldn't find that paycheck.", 'statement_not_found', 404)
-  return `/api/v1/my_pay/${id}`
+const STATEMENT_ID = /^[1-9]\d{0,17}$/
+
+function statementPath(base: string, id: string): string {
+  if (!STATEMENT_ID.test(id)) throw new MyPayError("We couldn't find that paycheck.", 'statement_not_found', 404)
+  return `${base}/${id}`
 }
 
-export const myPayApi = {
-  list: (signal?: AbortSignal) =>
-    readJson<{ worker: MyPayWorker; statements: MyPayStatementSummary[] }>('/api/v1/my_pay', signal),
-  statement: (id: string, signal?: AbortSignal) =>
-    readJson<{ worker: MyPayWorker; statement: MyPayStatementDetail }>(statementPath(id), signal),
-  async pdf(id: string): Promise<{ blob: Blob; filename: string }> {
-    const response = await authorizedFetch(`${statementPath(id)}/pdf`)
-    if (!response.ok) throw await failure(response)
-    const disposition = response.headers.get('Content-Disposition') || ''
-    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `AIRE-pay-statement-${id}.pdf`
-    return { blob: await response.blob(), filename }
+/** Where a My Pay screen reads statements from: the worker's own, or a preview. */
+export interface MyPaySource {
+  list: (signal?: AbortSignal) => Promise<{ worker: MyPayWorker; statements: MyPayStatementSummary[] }>
+  statement: (id: string, signal?: AbortSignal) => Promise<{ worker: MyPayWorker; statement: MyPayStatementDetail }>
+  pdf: (id: string) => Promise<{ blob: Blob; filename: string }>
+}
+
+function statementSource(base: string): MyPaySource {
+  return {
+    list: (signal) => readJson<Awaited<ReturnType<MyPaySource['list']>>>(base, signal),
+    statement: (id, signal) => readJson<Awaited<ReturnType<MyPaySource['statement']>>>(statementPath(base, id), signal),
+    async pdf(id) {
+      const response = await authorizedFetch(`${statementPath(base, id)}/pdf`)
+      if (!response.ok) throw await failure(response)
+      const disposition = response.headers.get('Content-Disposition') || ''
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `AIRE-pay-statement-${id}.pdf`
+      return { blob: await response.blob(), filename }
+    },
+  }
+}
+
+export const myPayApi: MyPaySource = statementSource('/api/v1/my_pay')
+
+export interface MyPayPreviewWorker {
+  id: number
+  name: string
+  role: 'admin' | 'employee'
+  /** True once any of this person's hours have been sent to payroll from AIRE. */
+  sent_to_payroll: boolean
+}
+
+function workerPath(userId: string): string {
+  if (!STATEMENT_ID.test(userId)) throw new MyPayError("We couldn't find that worker.", 'worker_not_found', 404)
+  return `/api/v1/my_pay/preview/workers/${userId}`
+}
+
+// Read-only preview of any worker's My Pay, for allowlisted admins only.
+export const myPayPreviewApi = {
+  workers: (signal?: AbortSignal) => readJson<{ workers: MyPayPreviewWorker[] }>('/api/v1/my_pay/preview/workers', signal),
+  worker: (userId: string, signal?: AbortSignal) => readJson<{ worker: MyPayPreviewWorker }>(workerPath(userId), signal),
+  source: (userId: string): MyPaySource => {
+    // An invalid ID fails on use, inside each screen's normal error handling.
+    const base = STATEMENT_ID.test(userId) ? `${workerPath(userId)}/statements` : null
+    if (base) return statementSource(base)
+    const rejected = () => Promise.reject(new MyPayError("We couldn't find that worker.", 'worker_not_found', 404))
+    return { list: rejected, statement: rejected, pdf: rejected }
   },
 }
 
