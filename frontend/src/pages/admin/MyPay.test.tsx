@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MyPay from './MyPay'
 import { MyPayError, type MyPayStatementSummary } from '../../lib/myPayApi'
 
@@ -29,6 +29,13 @@ function renderPage() {
 }
 
 describe('My Pay list', () => {
+  // Payment wording depends on whether the pay date has passed (Guam time).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-10T02:00:00Z'))
+  })
+  afterEach(() => vi.useRealTimers())
+
   beforeEach(() => {
     listMock.mockReset()
     auth.value = { isClerkEnabled: true, currentUser: { id: 7, my_pay_enabled: true } }
@@ -63,13 +70,14 @@ describe('My Pay list', () => {
     expect(listMock.mock.calls[0]).toHaveLength(1)
   })
 
-  it('says Processing only for an upcoming check, never for an old one payroll has no delivery record for', async () => {
+  it('says Processing or Check ready only for an upcoming check, never for an old one without a delivery record', async () => {
     const pending = { method: 'paper_check' as const, status: 'pending' as const, issued_on: null, check_number_last4: null }
     listMock.mockResolvedValue({
       worker: { employment_type: 'hourly', contractor: false },
       statements: [
-        statement({ id: '50', pay_date: '2099-01-15', payment: pending }),
+        statement({ id: '50', pay_date: '2026-11-30', payment: pending }),
         statement({ id: '20', pay_date: '2026-04-30', payment: pending }),
+        statement({ id: '19', pay_date: '2026-04-15', payment: { ...pending, status: 'prepared' } }),
       ],
     })
     renderPage()
@@ -78,6 +86,9 @@ describe('My Pay list', () => {
     expect(within(links[0]).getByText('Processing')).toBeVisible()
     expect(within(links[1]).queryByText('Processing')).not.toBeInTheDocument()
     expect(links[1]).toHaveAccessibleName('Paycheck for Thu, Apr 30, 2026, net $987.65')
+    // A check prepared months ago is not "ready" now; without a delivery record it gets no badge.
+    expect(within(links[2]).queryByText('Check ready')).not.toBeInTheDocument()
+    expect(links[2]).toHaveAccessibleName('Paycheck for Wed, Apr 15, 2026, net $987.65')
   })
 
   it('shows an empty state with a path to My Time', async () => {

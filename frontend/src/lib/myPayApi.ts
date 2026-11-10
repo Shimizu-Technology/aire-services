@@ -164,30 +164,31 @@ export interface PaymentStatusView {
 
 // Plain words for the payment state of one check or deposit. Payroll marks a
 // payment issued only from a delivery or transfer record, so an older check
-// can still be "pending". Calling it "Processing" months later would be wrong,
-// and calling it "Paid" would be a guess.
+// can still be "pending" or "prepared". Calling it "Processing" or "Check
+// ready" months later would be wrong, and calling it "Paid" would be a guess.
 export function paymentStatus(
   payment: MyPayStatementSummary['payment'],
   payDate: string | null = null,
   today: string = businessDateISO(),
 ): PaymentStatusView {
   const deposit = payment.method === 'direct_deposit'
+  const past = Boolean(payDate && payDate < today)
+  const undelivered = (label: string): PaymentStatusView => ({
+    label,
+    tone: 'neutral',
+    badge: false,
+    explanation: `Payroll hasn't recorded this ${deposit ? 'deposit' : 'check'} as delivered. If you didn't receive it, ask an AIRE administrator.`,
+  })
   switch (payment.status) {
     case 'issued':
       return { label: deposit ? 'Deposited' : 'Paid', tone: 'success', badge: true }
     case 'prepared':
+      if (past) return undelivered(deposit ? 'Deposit scheduled' : 'Check prepared')
       return { label: deposit ? 'Deposit scheduled' : 'Check ready', tone: 'info', badge: true }
     case 'voided':
       return { label: 'Voided', tone: 'danger', badge: true }
     default:
-      if (payDate && payDate < today) {
-        return {
-          label: 'Not recorded yet',
-          tone: 'neutral',
-          badge: false,
-          explanation: `Payroll hasn't recorded this ${deposit ? 'deposit' : 'check'} as delivered. If you didn't receive it, ask an AIRE administrator.`,
-        }
-      }
+      if (past) return undelivered('Not recorded yet')
       return { label: 'Processing', tone: 'neutral', badge: true }
   }
 }

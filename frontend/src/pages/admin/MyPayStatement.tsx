@@ -189,7 +189,8 @@ function NetPayMath({ statement, contractor, otherPay }: { statement: MyPayState
     { label: contractor ? 'Before deductions' : 'Gross', value: formatMoney(statement.gross_pay) },
     ...(contractor ? [] : [{ label: 'Taxes', value: signed('−', sum(statement.taxes)) }]),
     { label: 'Deductions', value: signed('−', sum(statement.deductions)) },
-    ...(otherPay.length > 0 ? [{ label: 'Other pay', value: signed('+', sum(otherPay)) }] : []),
+    // A YTD-only other pay row (nothing added this check) stays in its section, not in this math.
+    ...(Number(sum(otherPay)) !== 0 ? [{ label: 'Other pay', value: signed('+', sum(otherPay)) }] : []),
   ]
   const columns = parts.length > 3 ? 'grid-cols-2 sm:grid-cols-4' : parts.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
   return (

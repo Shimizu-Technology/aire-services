@@ -63,6 +63,23 @@ RSpec.describe "My Time paycheck links and cutoff explanations", type: :request 
     expect(response.body).not_to include("PRIVATE-TEST-REFERENCE", "test-period", "settlements", "payment_reference")
   end
 
+  it "links older hours carried onto a current calendar payroll instead of calling their history unavailable" do
+    source = entry(work_date: Date.current.beginning_of_month - 16.days)
+    receipt(source, "committed")
+    create(:payroll_calendar_period, start_date: "2026-11-01", end_date: "2026-11-15", pay_date: "2026-11-22",
+      cutoff_at: guam.local(2026, 11, 15, 17), status: "finalized", payroll_batch: batch, finalized_at: Time.current)
+
+    expect(status_for(source)).to eq("status" => "committed", "label" => "In payroll — not paid yet", "paid_hours" => 0.0, "held_hours" => 0.0,
+      "paychecks" => [ { "statement_id" => "41", "pay_date" => "2026-11-22" } ])
+  end
+
+  it "keeps older committed hours without a current calendar payroll neutral" do
+    source = entry(work_date: Date.current.beginning_of_month - 16.days)
+    receipt(source, "committed")
+
+    expect(status_for(source)).to eq("status" => "payment_history_unavailable", "label" => "Payment history unavailable", "paid_hours" => 0.0, "held_hours" => 0.0)
+  end
+
   it "adds nothing when My Pay is not enabled for the worker" do
     Setting.set("my_pay_enabled_user_ids", "")
     source = entry

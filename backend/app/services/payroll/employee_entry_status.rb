@@ -44,8 +44,13 @@ module Payroll
         status = lifecycle.fetch(:status)
         settlements = lifecycle.fetch(:settlements)
         historical = legacy_ids.include?(entry.id) || (rollout && entry.work_date < rollout.cutoff_enforcement_starts_on)
+        # Older hours carried onto a current calendar payroll have a current
+        # settlement to report; only history without one is uncertain.
+        carried_forward = settlements.any? && settlements.all? do |row|
+          !row[:legacy_processing] && calendar_batch_ids(lifecycles).include?(row[:batch_id])
+        end
         open_shift = entry.status.in?(%w[clocked_in on_break])
-        uncertain_history = (untracked || historical) && (
+        uncertain_history = (untracked || (historical && !carried_forward)) && (
           (settlements.empty? && status.in?(%w[ready_for_cutoff awaiting_approval])) ||
           (lifecycle.fetch(:paid_hours).zero? && status.in?(%w[finalized imported committed]))
         )
@@ -65,6 +70,17 @@ module Payroll
     end
 
     private
+
+    # Batches run from the payroll calendar (connected payroll), as opposed to
+    # the manually committed legacy batches LegacyPaidHistoryGuard fences.
+    def calendar_batch_ids(lifecycles)
+      @calendar_batch_ids ||= begin
+        ids = lifecycles.values.flat_map { |lifecycle| lifecycle.fetch(:settlements).map { |row| row[:batch_id] } }.compact.uniq
+        ids.empty? ? Set.new : PayrollBatch.where(public_id: ids)
+          .where(id: PayrollCalendarPeriod.where.not(payroll_batch_id: nil).select(:payroll_batch_id))
+          .pluck(:public_id).to_set
+      end
+    end
 
     def with_pay_context(statuses, lifecycles)
       return statuses unless @viewer && Setting.my_pay_enabled_for?(@viewer)

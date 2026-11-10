@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MyPayStatement from './MyPayStatement'
 import { MyPayError, type MyPayStatementDetail } from '../../lib/myPayApi'
 
@@ -49,6 +49,13 @@ function section(name: string) {
 }
 
 describe('My Pay statement detail', () => {
+  // Payment wording depends on whether the pay date has passed (Guam time).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-10T02:00:00Z'))
+  })
+  afterEach(() => vi.useRealTimers())
+
   beforeEach(() => {
     api.statement.mockReset()
     api.pdf.mockReset()
@@ -178,6 +185,8 @@ describe('My Pay statement detail', () => {
     expect(screen.getByText('2 hrs × $37.50/hr')).toBeVisible()
     expect(screen.getByText('Paid at 1.5× your contract rate')).toBeVisible()
     expect(within(section('Other pay')).getByText('$323.75')).toBeVisible()
+    // Nothing was added on this payment, so the summary math leaves other pay out.
+    expect(within(screen.getByRole('heading', { level: 1 }).closest('section') as HTMLElement).queryByText('Other pay')).not.toBeInTheDocument()
     expect(screen.getByText('Total payment')).toBeVisible()
     expect(document.body.textContent).not.toMatch(/overtime|\bOT\b|tax/i)
   })
