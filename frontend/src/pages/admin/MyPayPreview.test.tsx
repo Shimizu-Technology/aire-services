@@ -112,6 +112,7 @@ describe('My Pay preview', () => {
       renderAt('/admin/pay-preview')
 
       expect(screen.getByRole('heading', { level: 1, name: 'Preview My Pay' })).toBeVisible()
+      expect(document.title).toBe('Preview My Pay | AIRE Ops')
       const list = await screen.findByRole('list')
       const links = within(list).getAllByRole('link')
       expect(links.map((link) => link.getAttribute('href'))).toEqual(['/admin/pay-preview/12', '/admin/pay-preview/13', '/admin/pay-preview/2'])

@@ -251,6 +251,10 @@ export default function MyPayPreview({ view }: { view: 'picker' | 'list' | 'stat
   const { currentUser, isClerkEnabled } = useAuthContext()
   const allowed = Boolean(currentUser?.my_pay_preview_enabled)
 
+  useEffect(() => {
+    document.title = 'Preview My Pay | AIRE Ops'
+  }, [])
+
   if (!allowed) return currentUser || !isClerkEnabled ? <NotAvailable /> : null
   if (view === 'picker') return <WorkerPicker />
 
