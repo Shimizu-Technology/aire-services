@@ -18,6 +18,15 @@ Rails.application.routes.draw do
       resources :team_members, only: [ :index ]
       resources :site_media, only: [ :index ], path: "site-media"
 
+      # Read-only My Pay preview for allowlisted admins (Setting my_pay_preview_user_ids)
+      scope "my_pay/preview", controller: :my_pay_previews, as: :my_pay_preview, format: false do
+        get "workers", action: :workers, as: :workers
+        get "workers/:user_id", action: :worker, as: :worker
+        get "workers/:user_id/statements", action: :index, as: :statements
+        get "workers/:user_id/statements/:id", action: :show, as: :statement
+        get "workers/:user_id/statements/:id/pdf", action: :pdf, as: :statement_pdf
+      end
+
       # The signed-in worker's own pay statements (proxied from Cornerstone)
       resources :my_pay, only: [ :index, :show ], controller: :my_pay, format: false do
         get :pdf, on: :member

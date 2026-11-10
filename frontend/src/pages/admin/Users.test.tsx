@@ -26,6 +26,9 @@ vi.mock('../../lib/api', () => ({
   api: apiMock,
 }))
 
+const auth = vi.hoisted(() => ({ value: { isClerkEnabled: true, currentUser: null as { id: number; my_pay_preview_enabled?: boolean } | null } }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => auth.value }))
+
 vi.mock('../../components/ui/MotionComponents', () => ({
   FadeUp: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
@@ -152,6 +155,19 @@ describe('Users filters', () => {
     apiMock.updateUser.mockResolvedValue({ data: { user: makeUser({}) } })
     apiMock.terminateUser.mockResolvedValue({ data: { user: makeUser({ is_active: false, employment_status: 'terminated' }) } })
     apiMock.reactivateUser.mockResolvedValue({ data: { user: makeUser({}) } })
+    auth.value = { isClerkEnabled: true, currentUser: null }
+  })
+
+  it('offers Preview My Pay only to admins on the preview allowlist', async () => {
+    auth.value = { isClerkEnabled: true, currentUser: { id: 3, my_pay_preview_enabled: false } }
+    const { unmount } = render(<MemoryRouter><Users /></MemoryRouter>)
+    expect(await screen.findByText('Alice Pilot')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Preview My Pay' })).not.toBeInTheDocument()
+    unmount()
+
+    auth.value = { isClerkEnabled: true, currentUser: { id: 1, my_pay_preview_enabled: true } }
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    expect(await screen.findByRole('link', { name: 'Preview My Pay' })).toHaveAttribute('href', '/admin/pay-preview')
   })
 
   it('narrows the users table by search and filters', async () => {

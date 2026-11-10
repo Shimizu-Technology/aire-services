@@ -4,13 +4,13 @@ import { ArrowLeft, ChevronDown, ChevronRight, Download } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { MyPayErrorState, StatementDetailSkeleton, StatusBadge } from '../../components/my-pay/MyPayParts'
 import { formatDateOnly } from '../../lib/dateUtils'
+import { useMyPayScope } from '../../lib/myPayScope'
 import {
   MyPayError,
   formatHours,
   formatMoney,
   formatPayDate,
   formatPeriod,
-  myPayApi,
   paymentMethodLabel,
   paymentStatus,
   runPurposeLabel,
@@ -185,6 +185,7 @@ function hoursBreakdown(line: MyPayHoursLine): string | null {
 }
 
 function HoursSection({ lines, statementId, contractor }: { lines: MyPayHoursLine[]; statementId: string; contractor: boolean }) {
+  const scope = useMyPayScope()
   return (
     <Section title="Hours on this check">
       {lines.length === 0 ? (
@@ -194,9 +195,7 @@ function HoursSection({ lines, statementId, contractor }: { lines: MyPayHoursLin
           {lines.map((line, index) => {
             const workedOn = line.work_date ? formatDateOnly(line.work_date, { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date not recorded'
             const breakdown = contractor ? null : hoursBreakdown(line)
-            const href = line.time_entry_id && line.work_date
-              ? `/admin/time?${new URLSearchParams({ date: line.work_date, view: 'day', entry_id: String(line.time_entry_id), return_to: `/admin/pay/${statementId}` })}`
-              : null
+            const href = scope.entryHref(line, statementId)
             const content = (
               <>
                 <div className="min-w-0">
@@ -222,7 +221,7 @@ function HoursSection({ lines, statementId, contractor }: { lines: MyPayHoursLin
                 {href ? (
                   <Link
                     to={href}
-                    aria-label={`Open ${workedOn} time entry in My Time, ${formatHours(line.total_hours)}`}
+                    aria-label={`Open ${workedOn} time entry in ${scope.timeLabel}, ${formatHours(line.total_hours)}`}
                     className="flex items-start justify-between gap-4 px-4 py-3 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cyan-600 sm:px-5"
                   >
                     {content}
@@ -264,13 +263,14 @@ function NetPayMath({ statement, contractor, otherPay }: { statement: MyPayState
 }
 
 function DownloadButton({ statementId, payDate }: { statementId: string; payDate: string | null }) {
+  const { source } = useMyPayScope()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const download = async () => {
     setBusy(true)
     setError(null)
     try {
-      const { blob, filename } = await myPayApi.pdf(statementId)
+      const { blob, filename } = await source.pdf(statementId)
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
@@ -305,7 +305,9 @@ function DownloadButton({ statementId, payDate }: { statementId: string; payDate
 export default function MyPayStatement() {
   const { id = '' } = useParams()
   const { currentUser, isClerkEnabled } = useAuthContext()
-  const enabled = Boolean(currentUser?.my_pay_enabled)
+  const scope = useMyPayScope()
+  const { source } = scope
+  const enabled = scope.isEnabled(currentUser)
   const [attempt, setAttempt] = useState(0)
   // Results are keyed by statement and attempt, so a new ID or a retry shows
   // the skeleton without resetting state inside the effect.
@@ -318,17 +320,17 @@ export default function MyPayStatement() {
   useEffect(() => {
     if (!enabled) return
     const controller = new AbortController()
-    myPayApi.statement(id, controller.signal)
+    source.statement(id, controller.signal)
       .then((data) => setResult({ key: requestKey, state: { status: 'ready', worker: data.worker, statement: data.statement } }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
         setResult({ key: requestKey, state: { status: 'error', error: error instanceof MyPayError ? error : new MyPayError('Pay history is temporarily unavailable. Please try again in a few minutes.', 'network') } })
       })
     return () => controller.abort()
-  }, [enabled, id, requestKey])
+  }, [enabled, id, requestKey, source])
 
   const back = (
-    <Link to="/admin/pay" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-semibold text-cyan-700 hover:text-cyan-900 focus-visible:outline-2 focus-visible:outline-cyan-600">
+    <Link to={scope.listHref} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-semibold text-cyan-700 hover:text-cyan-900 focus-visible:outline-2 focus-visible:outline-cyan-600">
       <ArrowLeft className="h-4 w-4" aria-hidden="true" />
       All pay
     </Link>

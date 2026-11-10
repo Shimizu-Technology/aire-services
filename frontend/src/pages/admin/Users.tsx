@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Eye } from 'lucide-react'
+import { useAuthContext } from '../../contexts/AuthContext'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
 import { api } from '../../lib/api'
@@ -72,6 +74,7 @@ export default function Users() {
   }, [])
 
   const location = useLocation()
+  const { currentUser } = useAuthContext()
   const [query, setQuery] = useSearchParams()
   const [compact, setCompact] = useState(window.innerWidth < 768)
   useEffect(() => {
@@ -788,12 +791,23 @@ export default function Users() {
               Manage staff roles, work categories, and kiosk PIN access for AIRE Ops.
             </p>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            Add team member
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {currentUser?.my_pay_preview_enabled && (
+              <Link
+                to="/admin/pay-preview"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+              >
+                <Eye className="h-4 w-4" aria-hidden="true" />
+                Preview My Pay
+              </Link>
+            )}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Add team member
+            </button>
+          </div>
         </div>
       </FadeUp>
 

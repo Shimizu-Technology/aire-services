@@ -246,6 +246,8 @@ export interface CurrentUser {
   kiosk_pin_last_rotated_at?: string | null;
   needs_kiosk_pin_setup: boolean;
   my_pay_enabled?: boolean;
+  /** Allowlisted admins only: may preview any worker's My Pay, read-only. */
+  my_pay_preview_enabled?: boolean;
   created_at: string;
 }
 

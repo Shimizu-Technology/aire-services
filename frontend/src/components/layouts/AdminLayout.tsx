@@ -127,6 +127,8 @@ export default function AdminLayout() {
   const isActive = (href: string) => {
     if (href === '/admin') return location.pathname === '/admin'
     if (href === '/admin/time') return location.pathname.startsWith('/admin/time') || location.pathname.startsWith('/admin/payroll')
+    // My Pay preview is opened from Team, so Team stays highlighted.
+    if (href === '/admin/users') return isWithinRoute(location.pathname, href) || isWithinRoute(location.pathname, '/admin/pay-preview')
     return isWithinRoute(location.pathname, href)
   }
 
