@@ -89,7 +89,10 @@ module Api
           metadata: metadata.compact
         )
       rescue StandardError => e
-        Rails.logger.warn("[MyPay] Failed to audit #{action}: #{e.class}")
+        # Fail open: the worker still sees their pay, but a missing audit row
+        # is an error that must reach error reporting.
+        Rails.logger.error("[MyPay] Failed to audit #{action}: #{e.class}")
+        Rails.error.report(e, handled: true, severity: :error, context: { operation: "my_pay_audit", action: action, outcome: outcome })
       end
     end
   end

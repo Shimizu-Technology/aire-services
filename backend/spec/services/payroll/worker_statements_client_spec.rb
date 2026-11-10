@@ -47,6 +47,19 @@ RSpec.describe Payroll::WorkerStatementsClient do
     expect(requests.last[:headers]["Accept"]).to eq("application/pdf")
   end
 
+  it "accepts any 2xx response and treats other non-error statuses as Unavailable" do
+    expect(client(response(203, list_body)).statements(uuid).fetch("statements")).to eq([ { "id" => 41 } ])
+    expect(client(response(201, { id: 41 }.to_json)).statement(uuid, "41").fetch("id")).to eq(41)
+    expect(client(response(206, "%PDF-1.7 test", "application/pdf")).statement_pdf(uuid, "41")).to start_with("%PDF-")
+
+    [ 199, 302, 304, 400, 422 ].each do |status|
+      expect { client(response(status, list_body)).statements(uuid) }.to raise_error(described_class::Unavailable, /HTTP #{status}/)
+      expect { client(response(status, { id: 41 }.to_json)).statement(uuid, "41") }.to raise_error(described_class::Unavailable, /HTTP #{status}/)
+      expect { client(response(status, "%PDF-1.7", "application/pdf")).statement_pdf(uuid, "41") }
+        .to raise_error(described_class::Unavailable, /HTTP #{status}/)
+    end
+  end
+
   it "maps an unknown or unmapped worker to NotLinked and an unknown statement to NotFound" do
     expect { client(response(404, "{}")).statements(uuid) }.to raise_error(described_class::NotLinked)
     expect { client(response(404, "{}")).statement(uuid, "41") }.to raise_error(described_class::NotFound)

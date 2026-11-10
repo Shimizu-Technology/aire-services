@@ -168,6 +168,70 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     expect(source.reload.approval_status).to eq("pending")
   end
 
+  describe "older hours carried onto a calendar payroll" do
+    let(:older) { entry(work_date: Date.current.beginning_of_month - 16.days) }
+    let(:admin_headers) { { "Authorization" => "Bearer test_token_#{admin.id}" } }
+
+    def calendar!(payroll_batch = batch)
+      create(:payroll_calendar_period, status: "finalized", payroll_batch: payroll_batch, finalized_at: Time.current)
+    end
+
+    def admin_status_for(source)
+      get "/api/v1/time_entries/#{source.id}", headers: admin_headers
+      expect(response).to have_http_status(:ok)
+      response.parsed_body.fetch("time_entry").fetch("payroll_status")
+    end
+
+    it "reports the calendar payroll's real status to the worker and to admins, with no paycheck links" do
+      receipt(older, "committed")
+      calendar!
+
+      expected = { "status" => "committed", "label" => "In payroll — not paid yet", "paid_hours" => 0.0, "held_hours" => 0.0 }
+      expect(status_for(older)).to eq(expected)
+      expect(admin_status_for(older)).to eq(expected)
+    end
+
+    it "keeps carried-over hours neutral while connected payroll is paused" do
+      receipt(older, "committed")
+      calendar!
+      previous = ENV["CONNECTED_PAYROLL_MODE"]
+      ENV["CONNECTED_PAYROLL_MODE"] = "paused"
+
+      expect(status_for(older)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+      expect(admin_status_for(older)).to include("status" => "payment_history_unavailable")
+    ensure
+      ENV["CONNECTED_PAYROLL_MODE"] = previous
+    end
+
+    it "keeps them neutral when any settlement comes from a batch outside the payroll calendar" do
+      receipt(older, "committed", hours: 4, line_key: "calendar")
+      calendar!
+      receipt(older, "committed", hours: 4, line_key: "manual", payroll_batch: create(:payroll_batch, start_date: Date.new(2026, 8, 16), end_date: Date.new(2026, 8, 31)))
+
+      expect(status_for(older)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+    end
+
+    it "keeps a calendar batch committed only by a manual batch record neutral" do
+      receipt(older, nil)
+      batch.payroll_batch_processing_events.create!(event_id: SecureRandom.uuid, status: "committed",
+        external_system: "cornerstone_payroll_manual", external_pay_period_id: "test-history", occurred_at: Time.current)
+      calendar!
+
+      expect(status_for(older)).to include("status" => "payment_history_unavailable", "label" => "Payment history unavailable")
+      expect(admin_status_for(older)).to include("status" => "payment_history_unavailable")
+    end
+
+    it "still shows a held older entry with no settlements as payment history unavailable, not held" do
+      source = entry(work_date: Date.current.beginning_of_month - 16.days, approval_status: "pending")
+      calendar!
+      batch.payroll_batch_exclusions.create!(source_time_entry_id: source.id, source_user_id: employee.id,
+        source_user_uuid: employee.payroll_integration_uuid, reason: "pending_approval",
+        held_total_hours: 8, held_regular_hours: 8, held_overtime_hours: 0, snapshot: {})
+
+      expect(status_for(source)).to include("status" => "payment_history_unavailable", "held_hours" => 8.0)
+    end
+  end
+
   it "does not invent payment history for uncovered entries inside the existing legacy fence" do
     boundary = Date.current.beginning_of_month
     PayrollLockRollout.configure!(starts_on: boundary, actor: "test", reason: "Synthetic historical test boundary")

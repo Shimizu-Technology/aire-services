@@ -1,8 +1,19 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../../support/database_clock_helpers"
 
 RSpec.describe "My Time paycheck links and cutoff explanations", type: :request do
+  include DatabaseClockHelpers
+  include ActiveSupport::Testing::TimeHelpers
+
+  # The next-payroll note reads the first scheduled cutoff after now, and work
+  # dates and the rollout start follow Date.current. Pin both the Rails and
+  # database clocks before any setup so the fixed November/December calendar
+  # below stays ahead of "now" on any run date. The "Sep 18 cutoff" in the
+  # notes is the payroll_batch factory's fixed cutoff_at, not today's date.
+  around { |example| with_shifted_database_clock(Time.find_zone!("Pacific/Guam").local(2026, 11, 10, 9)) { example.run } }
+
   let(:guam) { ActiveSupport::TimeZone["Pacific/Guam"] }
   let(:employee) { create(:user, :employee) }
   let(:admin) { create(:user, :admin) }

@@ -59,7 +59,7 @@ module Payroll
     def statement_pdf(source_user_uuid, statement_id)
       response = get("#{statements_path(source_user_uuid)}/#{checked_id(statement_id)}/pdf", accept: "application/pdf")
       raise NotFound, "Statement not found" if response.status == 404
-      raise Unavailable, "Cornerstone returned HTTP #{response.status}" unless response.status == 200
+      raise Unavailable, "Cornerstone returned HTTP #{response.status}" unless success?(response)
 
       body = response.body.to_s
       unless response.content_type.to_s.start_with?("application/pdf") && body.start_with?("%PDF-") && body.bytesize <= MAX_PDF_BYTES
@@ -101,8 +101,12 @@ module Payroll
       raise Unavailable, "Cornerstone statements request failed (#{e.class.name})"
     end
 
+    def success?(response)
+      (200..299).cover?(response.status)
+    end
+
     def parse_json!(response)
-      raise Unavailable, "Cornerstone returned HTTP #{response.status}" unless response.status == 200
+      raise Unavailable, "Cornerstone returned HTTP #{response.status}" unless success?(response)
 
       payload = JSON.parse(response.body.to_s)
       raise Unavailable, "Cornerstone returned an unexpected response" unless payload.is_a?(Hash)

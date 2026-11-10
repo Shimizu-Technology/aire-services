@@ -149,6 +149,17 @@ describe('My Time employee payment status', () => {
     expect(within(panel).getByRole('link', { name: 'May 15 check' })).toHaveAttribute('href', '/admin/pay/41')
   })
 
+  it.each([
+    ['/admin/pay/41', 'Back to paycheck'],
+    ['/admin/pay', 'Back to paycheck'],
+    ['/admin/payroll', 'Back to employee review'],
+  ])('labels the return link for %s', async (returnTo, label) => {
+    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [fixture()] } })
+    const query = new URLSearchParams({ date: '2025-05-06', view: 'day', return_to: returnTo })
+    render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeTracking /></MemoryRouter>)
+    expect(await screen.findByRole('link', { name: label })).toHaveAttribute('href', returnTo)
+  })
+
   it('explains late hours in plain language and never links an untrusted paycheck reference', async () => {
     open('day', {
       status: 'held', label: 'On hold — awaiting payroll', paid_hours: 0, held_hours: 8,

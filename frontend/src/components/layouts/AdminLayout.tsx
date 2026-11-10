@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import { isWithinRoute } from '../../lib/employeeWorkspace'
 import { lockDialogScroll } from '../../lib/useDialogFocus'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 
@@ -126,7 +127,7 @@ export default function AdminLayout() {
   const isActive = (href: string) => {
     if (href === '/admin') return location.pathname === '/admin'
     if (href === '/admin/time') return location.pathname.startsWith('/admin/time') || location.pathname.startsWith('/admin/payroll')
-    return location.pathname.startsWith(href)
+    return isWithinRoute(location.pathname, href)
   }
 
   useEffect(() => {
@@ -231,6 +232,7 @@ export default function AdminLayout() {
                 onClick={() => setMobileOpen(false)}
                 aria-label={desktopCollapsed ? item.name : undefined}
                 title={desktopCollapsed ? item.name : undefined}
+                aria-current={isActive(item.href) ? 'page' : undefined}
                 className={`group relative flex items-center rounded-xl px-4 py-3 text-sm font-medium transition ${desktopCollapsed ? 'gap-3 lg:justify-center lg:gap-0 lg:px-2' : 'gap-3'} ${isActive(item.href) ? 'bg-cyan-50 text-cyan-700 shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
               >
                 {desktopCollapsed ? (

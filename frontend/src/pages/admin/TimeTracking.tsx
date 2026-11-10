@@ -3,7 +3,7 @@ import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../l
 import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
+import { employeeWorkspaceHref, isWithinRoute, safeAdminReturn } from '../../lib/employeeWorkspace'
 import type { EmployeePayrollStatus, TimeEntriesResponse } from '../../lib/api'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
@@ -1219,7 +1219,7 @@ export default function TimeTracking() {
   return (
     <div className="space-y-6">
       <PayrollCutoffNotice />
-      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">{returnTo.startsWith('/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}</Link>}
+      {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">{isWithinRoute(returnTo, '/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}</Link>}
       <TimePayrollWorkspaceHeader
         activeSection={activeTab}
         isAdmin={isAdmin}
