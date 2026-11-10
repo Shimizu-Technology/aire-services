@@ -780,6 +780,7 @@ module Api
                 termination_effective_on: [ nil, effective_on.iso8601 ]
               }
             )
+            ::PayDocuments::LinkRevoker.revoke_for_termination!(worker: @user, actor: current_user)
           end
         end
 

@@ -29,4 +29,18 @@ RSpec.describe "Rack::Attack request throttles", type: :request do
       expect(response).to have_http_status(:not_found)
     end
   end
+
+  it "bounds public pay stub link and kiosk pay stub traffic per IP" do
+    travel_to(Time.current.change(sec: 0, min: (Time.current.min / 5) * 5)) do
+      60.times { post "/api/v1/pay_stub_links/lookup", params: { token: "x" } }
+      expect(response).to have_http_status(:not_found)
+      post "/api/v1/pay_stub_links/lookup", params: { token: "x" }
+      expect(response).to have_http_status(:too_many_requests)
+
+      30.times { post "/api/v1/aire/kiosk/pay_stubs/choices" }
+      expect(response).not_to have_http_status(:too_many_requests)
+      post "/api/v1/aire/kiosk/pay_stubs"
+      expect(response).to have_http_status(:too_many_requests)
+    end
+  end
 end

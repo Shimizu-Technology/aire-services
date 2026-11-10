@@ -3,19 +3,24 @@ import { useEffect } from 'react'
 import posthog from 'posthog-js'
 import { PostHogProvider as PHProvider, usePostHog } from 'posthog-js/react'
 import { useLocation } from 'react-router-dom'
+import { isPrivateAnalyticsPath, sanitizeAnalyticsEvent, stripUrlFragment } from '../lib/analyticsPrivacy'
 
 const POSTHOG_KEY = import.meta.env.VITE_PUBLIC_POSTHOG_KEY
 const POSTHOG_HOST = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
 const isPostHogEnabled = Boolean(!isStaging && POSTHOG_KEY && POSTHOG_KEY !== 'YOUR_POSTHOG_KEY')
 
-// Initialize PostHog
-if (isPostHogEnabled && typeof window !== 'undefined') {
+// Initialize PostHog, except on the pay stub link page, which sends nothing.
+// URL fragments never leave the browser: PostHog drops them itself and
+// before_send strips any that remain (the pay stub link token is one).
+if (isPostHogEnabled && typeof window !== 'undefined' && !isPrivateAnalyticsPath(window.location.pathname)) {
   posthog.init(POSTHOG_KEY, {
     api_host: POSTHOG_HOST,
     defaults: '2025-11-30', // Use recommended defaults
     capture_pageview: false, // We'll capture manually for SPA
     capture_pageleave: true,
     autocapture: true,
+    disable_capture_url_hashes: true,
+    before_send: sanitizeAnalyticsEvent,
   })
 }
 
@@ -28,9 +33,9 @@ export function PostHogPageView() {
   const posthogClient = usePostHog()
 
   useEffect(() => {
-    if (posthogClient && isPostHogEnabled) {
+    if (posthogClient && isPostHogEnabled && !isPrivateAnalyticsPath(location.pathname)) {
       posthogClient.capture('$pageview', {
-        $current_url: window.location.href,
+        $current_url: stripUrlFragment(window.location.href),
         $pathname: location.pathname,
       })
     }

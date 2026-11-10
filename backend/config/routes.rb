@@ -31,6 +31,27 @@ Rails.application.routes.draw do
       resources :my_pay, only: [ :index, :show ], controller: :my_pay, format: false do
         get :pdf, on: :member
       end
+      # "Email me this stub": a secure link to one of the worker's own stubs
+      post "my_pay/:id/email", to: "my_pay_emails#create", as: :my_pay_email, format: false
+
+      # Senders' pay stub tools (send_pay_statements: owners, admins, managers)
+      namespace :pay_stubs do
+        resources :workers, only: [ :index, :show ] do
+          get :statements, on: :member
+        end
+        resources :requests, only: [ :index ] do
+          post :dismiss, on: :member
+        end
+        resources :links, only: [ :index, :create ] do
+          post :revoke, on: :member
+        end
+        resource :notification_emails, only: [ :show, :update ]
+      end
+
+      # Public secure-link page; the token is sent in the request body
+      post "pay_stub_links/lookup", to: "pay_stub_links#lookup"
+      post "pay_stub_links/download", to: "pay_stub_links#download"
+      post "pay_stub_links/download_all", to: "pay_stub_links#download_all"
 
       get "payroll_cutoff", to: "payroll_cutoffs#show"
       post "payroll_cutoff/acknowledge", to: "payroll_cutoffs#acknowledge"
@@ -45,6 +66,8 @@ Rails.application.routes.draw do
         post "kiosk/start_break", to: "kiosk#start_break"
         post "kiosk/end_break", to: "kiosk#end_break"
         post "kiosk/switch_category", to: "kiosk#switch_category"
+        post "kiosk/pay_stubs/choices", to: "kiosk_pay_stubs#choices"
+        post "kiosk/pay_stubs", to: "kiosk_pay_stubs#create"
       end
 
       namespace :payroll do

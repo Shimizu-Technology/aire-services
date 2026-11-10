@@ -252,6 +252,8 @@ export interface CurrentUser {
   my_pay_enabled?: boolean;
   /** Owners and admins: may preview any worker's My Pay, read-only. */
   my_pay_preview_enabled?: boolean;
+  /** My Pay is on and "Workers can email themselves stubs" is on in Settings. */
+  my_pay_email_enabled?: boolean;
   created_at: string;
 }
 
@@ -383,6 +385,10 @@ export interface TimeClockAppSettings {
   clock_in_location_radius_meters: string;
   /** "true" (default) or "false". Off sends a manager's own time to another approver. */
   managers_can_approve_own_time?: string;
+  /** "false" (default) or "true". Shows "Request my pay stub" at the kiosk. */
+  pay_stub_kiosk_requests_enabled?: string;
+  /** "false" (default) or "true". Shows "Email me this stub" in My Pay. */
+  pay_stub_self_email_enabled?: string;
 }
 
 export interface AdminAppSettingsResponse {
@@ -674,6 +680,8 @@ export interface AireKioskVerifyResponse {
   kiosk_token: string;
   current_status: ClockStatus;
   available_categories: TimeCategory[];
+  /** "Pay stub requests at the kiosk" in Settings; off by default. */
+  pay_stub_requests_enabled?: boolean;
 }
 
 export interface KioskSessionResponse {

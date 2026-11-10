@@ -4,6 +4,7 @@ class AuditLogPresenter
   SUBJECTLESS_ACTIONS = %w[
     auth.signed_in auth.sign_in_failed auth.access_denied authorization.admin_denied
     authorization.staff_denied kiosk.verified kiosk.verification_failed kiosk.unlocked audit_history.exported
+    pay_documents.request_created
   ].freeze
   VERBS = {
     "auth.signed_in" => "Signed in",
@@ -40,7 +41,14 @@ class AuditLogPresenter
     "payroll_settlement_case.rerouted" => "Changed the held-time destination for",
     "payroll_settlement_case.marked_not_payable" => "Closed unpaid time for",
     "legacy_time_period_lock.archived" => "Archived",
-    "audit_history.exported" => "Exported activity history"
+    "audit_history.exported" => "Exported activity history",
+    "pay_documents.request_created" => "Requested a pay stub",
+    "pay_documents.request_notice_sent" => "Sent a pay stub request notice for",
+    "pay_documents.request_dismissed" => "Dismissed a pay stub request from",
+    "pay_documents.link_sent" => "Sent a pay stub link to",
+    "pay_documents.link_revoked" => "Revoked a pay stub link for",
+    "pay_documents.link_downloaded" => "Downloaded a pay stub for",
+    "pay_documents.link_download_denied" => "Was denied a pay stub download for"
   }.freeze
 
   attr_reader :audit_log
@@ -50,6 +58,9 @@ class AuditLogPresenter
   end
 
   def actor
+    # Whoever opened an emailed pay stub link; they don't sign in to AIRE.
+    return "Link recipient" if audit_log.actor_name.blank? && audit_log.metadata.is_a?(Hash) && audit_log.metadata["accessed_by"] == "link_recipient"
+
     audit_log.actor_name.presence || audit_log.actor_email.presence || audit_log.actor_kind.to_s.humanize
   end
 

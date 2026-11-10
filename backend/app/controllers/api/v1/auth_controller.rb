@@ -83,6 +83,7 @@ module Api
           needs_kiosk_pin_setup: user.time_tracking_enabled? && user.kiosk_enabled? && !user.kiosk_pin_configured?,
           my_pay_enabled: Setting.my_pay_enabled_for?(user),
           my_pay_preview_enabled: user.can_preview_pay?,
+          my_pay_email_enabled: Setting.my_pay_enabled_for?(user) && ::PayDocuments.self_email_enabled?,
           created_at: user.created_at
         }
       end

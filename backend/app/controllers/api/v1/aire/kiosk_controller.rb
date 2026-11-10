@@ -24,7 +24,8 @@ module Api
             employee: serialize_user(result[:user]),
             kiosk_token: result[:kiosk_token],
             current_status: serialize_status(result[:current_status]),
-            available_categories: serialize_categories_for(result[:user], result[:available_categories])
+            available_categories: serialize_categories_for(result[:user], result[:available_categories]),
+            pay_stub_requests_enabled: ::PayDocuments.kiosk_requests_enabled?
           }
         rescue AireKioskService::KioskError => e
           failed_user = User.find_kiosk_user_by_pin(params[:pin].to_s)

@@ -10,6 +10,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Send,
   Settings,
   UserRound,
   Wallet,
@@ -44,6 +45,13 @@ const myPayNavigation: NavItem = {
   icon: Wallet,
 }
 
+// Sending pay stubs: owners, admins and managers.
+const payStubsNavigation: NavItem = {
+  name: 'Pay stubs',
+  href: '/admin/pay-stubs',
+  icon: Send,
+}
+
 // Owner and admin areas, each shown only to roles with that capability.
 const administrationNavigation: (NavItem & { capability: Capability })[] = [
   { name: 'Team', href: '/admin/users', icon: UserRound, capability: 'manage_users' },
@@ -61,9 +69,10 @@ function navigationFor(capabilities: Capabilities, myPayEnabled: boolean): NavIt
   const schedule: NavItem = { name: 'Schedule', href: '/admin/schedule', icon: CalendarDays }
   const administration = administrationNavigation.filter((item) => capabilities[item.capability])
   const myPay = myPayEnabled ? [myPayNavigation] : []
+  const payStubs = capabilities.send_pay_statements ? [payStubsNavigation] : []
 
-  if (administration.length > 0) return [dashboard, ...myPay, time, schedule, ...administration]
-  return [dashboard, time, ...myPay, schedule]
+  if (administration.length > 0) return [dashboard, ...myPay, time, ...payStubs, schedule, ...administration]
+  return [dashboard, time, ...payStubs, ...myPay, schedule]
 }
 
 const desktopSidebarStorageKey = 'aire-admin-sidebar-collapsed'

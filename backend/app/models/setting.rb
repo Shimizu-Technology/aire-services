@@ -65,6 +65,8 @@ class Setting < ApplicationRecord
     "clock_in_location_longitude" => "144.79901",
     "clock_in_location_radius_meters" => "1000",
     "managers_can_approve_own_time" => "true",
+    "pay_stub_kiosk_requests_enabled" => "false",
+    "pay_stub_self_email_enabled" => "false",
     "contact_email" => DEFAULT_CONTACT_NOTIFICATION_EMAILS.join(", "),
     "contact_inquiry_topics" => DEFAULT_CONTACT_INQUIRY_TOPICS.to_json,
     "public_contact_settings" => DEFAULT_PUBLIC_CONTACT_SETTINGS.to_json,
@@ -137,6 +139,13 @@ class Setting < ApplicationRecord
   def self.managers_can_approve_own_time?
     get(MANAGERS_CAN_APPROVE_OWN_TIME_KEY) != "false"
   end
+
+  # Pay stub go-live switches on the Settings page, both off by default.
+  # "Pay stub requests at the kiosk" shows "Request my pay stub" after the
+  # PIN. "Workers can email themselves stubs" shows "Email me this stub" in
+  # My Pay. Senders can use the Pay stubs page either way.
+  PAY_STUB_KIOSK_REQUESTS_KEY = "pay_stub_kiosk_requests_enabled"
+  PAY_STUB_SELF_EMAIL_KEY = "pay_stub_self_email_enabled"
 
   def self.payroll_cutoff_reminder_emails
     normalize_emails(get("payroll_cutoff_reminder_emails"))

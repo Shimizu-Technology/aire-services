@@ -285,4 +285,45 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       expect(audit_rows).to be_empty
     end
   end
+
+  describe "pay stub switches" do
+    let(:owner) { create(:user, :owner) }
+    let(:manager) { create(:user, :manager) }
+    let(:keys) { [ Setting::PAY_STUB_KIOSK_REQUESTS_KEY, Setting::PAY_STUB_SELF_EMAIL_KEY ] }
+
+    it "are both off by default" do
+      get "/api/v1/admin/settings", headers: auth_headers_for[admin]
+
+      expect(json[:settings]).to include(pay_stub_kiosk_requests_enabled: "false", pay_stub_self_email_enabled: "false")
+      expect(PayDocuments.kiosk_requests_enabled?).to be(false)
+      expect(PayDocuments.self_email_enabled?).to be(false)
+    end
+
+    it "lets owners and admins turn each one on and off, auditing before and after" do
+      patch "/api/v1/admin/settings", params: { settings: { keys.first => true } }, headers: auth_headers_for[admin], as: :json
+      expect(response).to have_http_status(:ok)
+      expect(PayDocuments.kiosk_requests_enabled?).to be(true)
+      expect(PayDocuments.self_email_enabled?).to be(false)
+
+      patch "/api/v1/admin/settings", params: { settings: { keys.last => true } }, headers: auth_headers_for[owner], as: :json
+      patch "/api/v1/admin/settings", params: { settings: { keys.first => false } }, headers: auth_headers_for[owner], as: :json
+      expect(PayDocuments.kiosk_requests_enabled?).to be(false)
+      expect(PayDocuments.self_email_enabled?).to be(true)
+
+      rows = AuditLog.where(action: keys.map { |key| "setting.#{key}_updated" }).order(:id)
+      expect(rows.map { |row| [ row.user_id, row.event_category, row.changes_made ] }).to eq([
+        [ admin.id, "settings", { keys.first => [ false, true ] } ],
+        [ owner.id, "settings", { keys.last => [ false, true ] } ],
+        [ owner.id, "settings", { keys.first => [ true, false ] } ]
+      ])
+    end
+
+    it "refuses managers and employees" do
+      [ manager, employee ].each do |user|
+        patch "/api/v1/admin/settings", params: { settings: { keys.first => "true" } }, headers: auth_headers_for[user], as: :json
+        expect(response).to have_http_status(:forbidden), user.role
+      end
+      expect(PayDocuments.kiosk_requests_enabled?).to be(false)
+    end
+  end
 end

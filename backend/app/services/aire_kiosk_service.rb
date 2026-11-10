@@ -62,6 +62,13 @@ class AireKioskService
       response_payload(user, entry)
     end
 
+    # The PIN-verified kiosk employee, checked exactly as the clock actions
+    # check it: an unlocked kiosk and a current employee kiosk token.
+    def employee_from_tokens!(kiosk_access_token:, kiosk_token:)
+      unlock_admin_from_token!(kiosk_access_token)
+      user_from_token!(kiosk_token)
+    end
+
     private
 
     def response_payload(user, entry)
