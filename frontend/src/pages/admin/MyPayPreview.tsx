@@ -217,6 +217,8 @@ function WorkerPreview({ userId, children }: { userId: string; children: ReactNo
     return () => controller.abort()
   }, [userId, requestKey])
 
+  if (current?.error?.code === 'my_pay_preview_not_enabled') return <NotAvailable />
+
   if (current?.error) {
     const missing = current.error.code === 'worker_not_found' || current.error.code === 'statement_not_found'
     return (

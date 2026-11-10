@@ -20,7 +20,8 @@ export function MyPayErrorState({ error, onRetry, retrying }: { error: MyPayErro
   const notLinked = error.code === 'payroll_not_linked'
   const disabled = error.code === 'my_pay_not_enabled'
   const Icon = notLinked ? Link2Off : AlertCircle
-  const retryable = !notLinked && !disabled && error.code !== 'statement_not_found'
+  // Access and not-found answers won't change on retry; show the server's message instead.
+  const retryable = !notLinked && !disabled && !['statement_not_found', 'worker_not_found', 'my_pay_preview_not_enabled'].includes(error.code)
   return (
     <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950">
       <div className="flex items-start gap-3">

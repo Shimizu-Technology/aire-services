@@ -140,7 +140,8 @@ export interface MyPaySource {
 function statementSource(base: string): MyPaySource {
   return {
     list: (signal) => readJson<Awaited<ReturnType<MyPaySource['list']>>>(base, signal),
-    statement: (id, signal) => readJson<Awaited<ReturnType<MyPaySource['statement']>>>(statementPath(base, id), signal),
+    // async so a malformed ID rejects through the caller's catch instead of throwing.
+    statement: async (id, signal) => readJson<Awaited<ReturnType<MyPaySource['statement']>>>(statementPath(base, id), signal),
     async pdf(id) {
       const response = await authorizedFetch(`${statementPath(base, id)}/pdf`)
       if (!response.ok) throw await failure(response)
@@ -169,7 +170,7 @@ function workerPath(userId: string): string {
 // Read-only preview of any worker's My Pay, for allowlisted admins only.
 export const myPayPreviewApi = {
   workers: (signal?: AbortSignal) => readJson<{ workers: MyPayPreviewWorker[] }>('/api/v1/my_pay/preview/workers', signal),
-  worker: (userId: string, signal?: AbortSignal) => readJson<{ worker: MyPayPreviewWorker }>(workerPath(userId), signal),
+  worker: async (userId: string, signal?: AbortSignal) => readJson<{ worker: MyPayPreviewWorker }>(workerPath(userId), signal),
   source: (userId: string): MyPaySource => {
     // An invalid ID fails on use, inside each screen's normal error handling.
     const base = STATEMENT_ID.test(userId) ? `${workerPath(userId)}/statements` : null

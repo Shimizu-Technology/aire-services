@@ -207,6 +207,15 @@ describe('My Pay preview', () => {
       expect(screen.getByRole('region', { name: 'Preview mode' })).toHaveTextContent('Previewing as Chels Admin')
     })
 
+    it('shows the not-available view when access was removed mid-session, without a retry', async () => {
+      preview.worker.mockRejectedValue(new MyPayError("My Pay preview isn't available for your account.", 'my_pay_preview_not_enabled', 403))
+      renderAt('/admin/pay/preview/3')
+
+      expect(await screen.findByText(/My Pay preview isn.t available for your account/)).toBeVisible()
+      expect(screen.queryByRole('button', { name: /Try again/ })).not.toBeInTheDocument()
+      expect(preview.list).not.toHaveBeenCalled()
+    })
+
     it('says so when the worker is not an active team member, without loading pay', async () => {
       renderAt('/admin/pay-preview/999')
 
