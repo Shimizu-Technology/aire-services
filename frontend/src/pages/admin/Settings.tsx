@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
+import PayStubSettings from '../../components/pay-stubs/PayStubSettings'
 import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
 import type { PublicContactInfoSettings, PublicPhoneContactChannel, PublicPhoneContactSettings } from '../../lib/businessInfo'
@@ -1133,6 +1134,10 @@ export default function Settings() {
                 </div>
               </div>
             </section>
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
+            <PayStubSettings settings={clockSettings} onSaved={setClockSettings} />
           </FadeUp>
 
           <FadeUp delay={0.08}>

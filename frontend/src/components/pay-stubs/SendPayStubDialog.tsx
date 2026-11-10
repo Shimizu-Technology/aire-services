@@ -7,12 +7,18 @@ import { describeRequest } from './payStubCopy'
 
 // Send a secure link to some of one person's pay stubs. Senders pick from pay
 // dates and periods only; the API never returns amounts to this dialog.
+//
+// Managers send only to the person's email on file, which they see masked.
+// Owners and admins can also type another address, and only they can send a
+// request made to an address that isn't on file. The API enforces both.
 
 interface Props {
   /** Fulfil this request: person, stubs and recipient start from what they asked for. */
   request?: PayStubRequest | null
   /** Start with this person chosen (from a person's page). */
   workerId?: number | null
+  /** Owners and admins (preview_pay): may send to an address that isn't on file. */
+  canChooseRecipient: boolean
   onClose: () => void
   onSent: (link: PayStubLink) => void
 }
@@ -40,7 +46,7 @@ const field = 'mt-1 block w-full rounded-xl border border-slate-300 bg-white px-
 const secondary = 'inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 disabled:opacity-60'
 const primary = 'inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] duration-100 hover:bg-primary-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 
-export default function SendPayStubDialog({ request, workerId, onClose, onSent }: Props) {
+export default function SendPayStubDialog({ request, workerId, canChooseRecipient, onClose, onSent }: Props) {
   const ids = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   useDialogFocus(true, dialogRef, onClose)
@@ -50,10 +56,13 @@ export default function SendPayStubDialog({ request, workerId, onClose, onSent }
   const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(fixedWorker?.id ?? workerId ?? null)
   const [statements, setStatements] = useState<Loadable<PayStubDate[]> | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const typedRequest = request?.recipient_kind === 'typed' ? request.recipient_email ?? '' : ''
-  const [destination, setDestination] = useState<'on_file' | 'typed'>(typedRequest ? 'typed' : 'on_file')
-  const [email, setEmail] = useState(typedRequest)
-  const [confirmation, setConfirmation] = useState(typedRequest)
+  // A request to a typed address goes only to that address, which the API
+  // takes from the saved request.
+  const typedRequest = request?.recipient_kind === 'typed' ? request.recipient_email ?? '' : null
+  const blocked = typedRequest !== null && !canChooseRecipient
+  const [destination, setDestination] = useState<'on_file' | 'typed'>('on_file')
+  const [email, setEmail] = useState('')
+  const [confirmation, setConfirmation] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState<{ link: PayStubLink; captured: boolean } | null>(null)
@@ -85,11 +94,73 @@ export default function SendPayStubDialog({ request, workerId, onClose, onSent }
 
   const worker = workers.status === 'ready' ? workers.value.find((candidate) => candidate.id === selectedWorkerId) ?? null : null
   const onFile = worker?.on_file_email ?? null
-  const effectiveDestination = onFile ? destination : 'typed'
-  const typedMismatch = effectiveDestination === 'typed' && confirmation.length > 0 && email.trim().toLowerCase() !== confirmation.trim().toLowerCase()
-  const recipient = effectiveDestination === 'on_file' ? onFile : email.trim().toLowerCase()
-  const canSend = Boolean(worker) && selected.size > 0 && !sending
-    && (effectiveDestination === 'on_file' || (email.trim().includes('@') && email.trim().toLowerCase() === confirmation.trim().toLowerCase()))
+  const effectiveDestination = typedRequest !== null || (canChooseRecipient && (!onFile || destination === 'typed')) ? 'typed' : 'on_file'
+  const typing = effectiveDestination === 'typed' && typedRequest === null
+  const typedMismatch = typing && confirmation.length > 0 && email.trim().toLowerCase() !== confirmation.trim().toLowerCase()
+  const recipient = typedRequest ?? (effectiveDestination === 'on_file' ? onFile : email.trim().toLowerCase())
+  const canSend = Boolean(worker) && selected.size > 0 && !sending && !blocked
+    && (typedRequest !== null || (effectiveDestination === 'on_file' ? Boolean(onFile) : email.trim().includes('@') && email.trim().toLowerCase() === confirmation.trim().toLowerCase()))
+
+  const notOnFileBadge = (
+    <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not the email on file</span>
+  )
+
+  let recipientSection: React.ReactNode = null
+  if (worker && typedRequest !== null) {
+    recipientSection = (
+      <div>
+        <p className="text-sm font-semibold text-slate-800">Send to</p>
+        <p className="mt-1 break-all text-sm text-slate-900">{typedRequest}{notOnFileBadge}</p>
+        <p className="mt-1 text-sm text-slate-600">
+          {blocked
+            ? 'They typed this address at the kiosk. An owner or admin needs to send this one.'
+            : 'They typed this address at the kiosk. If it looks unfamiliar, check with them before sending.'}
+        </p>
+      </div>
+    )
+  } else if (worker && !canChooseRecipient) {
+    recipientSection = (
+      <div>
+        <p className="text-sm font-semibold text-slate-800">Send to</p>
+        <p className="mt-1 break-all text-sm text-slate-900">
+          {onFile ? `${onFile} (email on file)` : `There's no email on file for ${worker.first_name}. An owner or admin can send to another address.`}
+        </p>
+      </div>
+    )
+  } else if (worker) {
+    recipientSection = (
+      <fieldset>
+        <legend className="text-sm font-semibold text-slate-800">Send to</legend>
+        <div className="mt-2 space-y-2">
+          <label className={`flex min-h-12 items-center gap-3 rounded-xl border px-3 py-2 ${onFile ? 'cursor-pointer border-slate-200' : 'cursor-not-allowed border-slate-100 bg-slate-50'}`}>
+            <input type="radio" name={`${ids}-destination`} checked={effectiveDestination === 'on_file'} disabled={!onFile} onChange={() => setDestination('on_file')} className="h-5 w-5 accent-[#1e3a5f]" />
+            <span className="min-w-0 text-sm">
+              <span className="block font-medium text-slate-900">Email on file</span>
+              <span className="block break-all text-slate-600">{onFile ?? 'No email on file'}</span>
+            </span>
+          </label>
+          <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-3 py-2">
+            <input type="radio" name={`${ids}-destination`} checked={effectiveDestination === 'typed'} onChange={() => setDestination('typed')} className="h-5 w-5 accent-[#1e3a5f]" />
+            <span className="text-sm font-medium text-slate-900">Another email</span>
+          </label>
+          {typing && (
+            <div className="grid gap-3 pt-1 sm:grid-cols-2">
+              <label className="text-sm text-slate-700" htmlFor={`${ids}-email`}>
+                Email
+                <input id={`${ids}-email`} type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} onChange={(event) => { setError(null); setEmail(event.target.value) }} className={field} />
+              </label>
+              <label className="text-sm text-slate-700" htmlFor={`${ids}-confirm`}>
+                Type it again
+                <input id={`${ids}-confirm`} type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={confirmation} onChange={(event) => { setError(null); setConfirmation(event.target.value) }}
+                  aria-invalid={typedMismatch} aria-describedby={typedMismatch ? `${ids}-mismatch` : undefined} className={field} />
+              </label>
+              {typedMismatch && <p id={`${ids}-mismatch`} className="text-sm text-amber-800 sm:col-span-2">The two emails don&apos;t match yet.</p>}
+            </div>
+          )}
+        </div>
+      </fieldset>
+    )
+  }
 
   const groups = useMemo(() => (statements?.status === 'ready' ? groupByYear(statements.value) : []), [statements])
 
@@ -129,7 +200,7 @@ export default function SendPayStubDialog({ request, workerId, onClose, onSent }
         userId: worker.id,
         statementIds: [...selected],
         requestId: request?.id ?? null,
-        ...(effectiveDestination === 'typed' ? { email: email.trim(), emailConfirmation: confirmation.trim() } : {}),
+        ...(typing ? { email: email.trim(), emailConfirmation: confirmation.trim() } : {}),
       })
       setSent({ link: result.link, captured: result.email_status === 'captured' })
       onSent(result.link)
@@ -208,7 +279,7 @@ export default function SendPayStubDialog({ request, workerId, onClose, onSent }
                         </div>
                         <ul className="mt-1 divide-y divide-slate-100 rounded-xl border border-slate-200">
                           {rows.map((row) => {
-                            const purpose = runPurposeLabel(row.run_purpose)
+                            const purpose = runPurposeLabel(row.run_purpose ?? null)
                             return (
                               <li key={row.id}>
                                 <label className={`flex min-h-12 items-center gap-3 px-3 py-2.5 ${row.voided ? 'cursor-not-allowed bg-slate-50' : 'cursor-pointer hover:bg-slate-50'}`}>
@@ -230,44 +301,13 @@ export default function SendPayStubDialog({ request, workerId, onClose, onSent }
                 </fieldset>
               )}
 
-              {worker && (
-                <fieldset>
-                  <legend className="text-sm font-semibold text-slate-800">Send to</legend>
-                  <div className="mt-2 space-y-2">
-                    <label className={`flex min-h-12 items-center gap-3 rounded-xl border px-3 py-2 ${onFile ? 'cursor-pointer border-slate-200' : 'cursor-not-allowed border-slate-100 bg-slate-50'}`}>
-                      <input type="radio" name={`${ids}-destination`} checked={effectiveDestination === 'on_file'} disabled={!onFile} onChange={() => setDestination('on_file')} className="h-5 w-5 accent-[#1e3a5f]" />
-                      <span className="min-w-0 text-sm">
-                        <span className="block font-medium text-slate-900">Email on file</span>
-                        <span className="block break-all text-slate-600">{onFile ?? 'No email on file'}</span>
-                      </span>
-                    </label>
-                    <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-3 py-2">
-                      <input type="radio" name={`${ids}-destination`} checked={effectiveDestination === 'typed'} onChange={() => setDestination('typed')} className="h-5 w-5 accent-[#1e3a5f]" />
-                      <span className="text-sm font-medium text-slate-900">{request?.recipient_kind === 'typed' ? 'The email they typed at the kiosk' : 'Another email'}</span>
-                    </label>
-                    {effectiveDestination === 'typed' && (
-                      <div className="grid gap-3 pt-1 sm:grid-cols-2">
-                        <label className="text-sm text-slate-700" htmlFor={`${ids}-email`}>
-                          Email
-                          <input id={`${ids}-email`} type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} onChange={(event) => { setError(null); setEmail(event.target.value) }} className={field} />
-                        </label>
-                        <label className="text-sm text-slate-700" htmlFor={`${ids}-confirm`}>
-                          Type it again
-                          <input id={`${ids}-confirm`} type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={confirmation} onChange={(event) => { setError(null); setConfirmation(event.target.value) }}
-                            aria-invalid={typedMismatch} aria-describedby={typedMismatch ? `${ids}-mismatch` : undefined} className={field} />
-                        </label>
-                        {typedMismatch && <p id={`${ids}-mismatch`} className="text-sm text-amber-800 sm:col-span-2">The two emails don&apos;t match yet.</p>}
-                      </div>
-                    )}
-                  </div>
-                </fieldset>
-              )}
+              {worker && recipientSection}
 
               {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
             </div>
 
             <div className="border-t border-slate-100 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
-              {worker && selected.size > 0 && recipient && (
+              {worker && selected.size > 0 && recipient && !blocked && (
                 <p className="mb-3 text-sm text-slate-600">
                   Sends {selected.size === 1 ? '1 pay stub' : `${selected.size} pay stubs`} to <span className="break-all font-medium text-slate-900">{recipient}</span>. The link works for 7 days; each stub can be downloaded 5 times.
                 </p>

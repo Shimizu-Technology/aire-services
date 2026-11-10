@@ -22,6 +22,7 @@ const summary = (overrides: Partial<PayStubLinkSummary> = {}): PayStubLinkSummar
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.sessionStorage.clear()
   window.history.replaceState(null, '', `/stubs#t=${token}`)
 })
 afterEach(() => window.history.replaceState(null, '', '/'))
@@ -33,6 +34,8 @@ it('shows the first name and pay dates, then downloads with the token from the f
 
   expect(await screen.findByRole('heading', { name: 'Hi Mindy' })).toBeInTheDocument()
   expect(api.lookup).toHaveBeenCalledWith(token, expect.any(AbortSignal))
+  expect(window.location.href).toBe(`${window.location.origin}/stubs`)
+  expect(window.location.href).not.toContain(token)
   expect(screen.getByText('Pay date Sun, Nov 15, 2026')).toBeInTheDocument()
   expect(screen.getByText('1 download left')).toBeInTheDocument()
   expect(document.querySelector('meta[name="referrer"]')).toHaveAttribute('content', 'no-referrer')
@@ -68,6 +71,16 @@ it('says when the link is incomplete, without calling the API', () => {
   render(<PayStubLink />)
   expect(screen.getByRole('heading', { name: "This link isn't complete" })).toBeInTheDocument()
   expect(api.lookup).not.toHaveBeenCalled()
+  expect(window.location.hash).toBe('')
+})
+
+it('keeps working after a reload, when the token is only in this tab', async () => {
+  window.sessionStorage.setItem('aire.payStubLinkToken', token)
+  window.history.replaceState(null, '', '/stubs')
+  api.lookup.mockResolvedValue(summary())
+  render(<PayStubLink />)
+  expect(await screen.findByRole('heading', { name: 'Hi Mindy' })).toBeInTheDocument()
+  expect(api.lookup).toHaveBeenCalledWith(token, expect.any(AbortSignal))
 })
 
 it('shows the reason a download was refused', async () => {
@@ -87,4 +100,5 @@ it('loads a different link opened in the same tab', async () => {
   window.dispatchEvent(new HashChangeEvent('hashchange'))
   expect(await screen.findByRole('heading', { name: 'This link was turned off' })).toBeInTheDocument()
   expect(api.lookup).toHaveBeenLastCalledWith(other, expect.any(AbortSignal))
+  expect(window.location.href).toBe(`${window.location.origin}/stubs`)
 })

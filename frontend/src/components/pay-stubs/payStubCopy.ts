@@ -10,6 +10,8 @@ export function describeRequest(request: Pick<PayStubRequest, 'scope' | 'pay_dat
 
 export const LINK_STATE: Record<PayStubLinkState, { label: string; tone: StatusTone }> = {
   active: { label: 'Active', tone: 'success' },
+  pending: { label: 'Not sent', tone: 'neutral' },
+  inactive: { label: 'No longer works here', tone: 'neutral' },
   expired: { label: 'Expired', tone: 'neutral' },
   revoked: { label: 'Revoked', tone: 'danger' },
   used_up: { label: 'Downloads used up', tone: 'neutral' },

@@ -430,7 +430,7 @@ export default function MyPayStatement() {
             : (
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <DownloadButton statementId={statement.id} payDate={statement.pay_date} />
-                {scope.emailStub && <EmailStubButton statementId={statement.id} emailStub={scope.emailStub} />}
+                {scope.emailStub && currentUser?.my_pay_email_enabled && <EmailStubButton statementId={statement.id} emailStub={scope.emailStub} />}
               </div>
             )}
         </div>

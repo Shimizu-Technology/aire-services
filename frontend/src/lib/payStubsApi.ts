@@ -7,13 +7,14 @@ import type { UserRole } from './roles'
 
 export type PayStubScope = 'latest' | 'pay_date' | 'year'
 export type PayStubRecipientKind = 'on_file' | 'typed'
-export type PayStubLinkState = 'active' | 'expired' | 'revoked' | 'used_up' | 'failed'
+export type PayStubLinkState = 'active' | 'pending' | 'expired' | 'revoked' | 'used_up' | 'failed' | 'inactive'
 
 export interface PayStubWorker {
   id: number
   name: string
   first_name: string
   role: UserRole
+  /** Shown in full to owners and admins, masked ("m•••@example.com") for managers. */
   on_file_email: string | null
 }
 
@@ -22,7 +23,8 @@ export interface PayStubDate {
   pay_date: string | null
   period_start: string | null
   period_end: string | null
-  run_purpose: string | null
+  /** Owners and admins only; managers don't see which run a check came from. */
+  run_purpose?: string | null
   voided: boolean
 }
 
@@ -53,8 +55,10 @@ export interface PayStubRequest {
   year: number | null
   worker: PayStubWorker
   recipient_kind: PayStubRecipientKind
-  /** The typed address, or the email on file now; null when there's none on file. */
+  /** The typed address, or the email on file now (masked for managers); null when there's none on file. */
   recipient_email: string | null
+  /** False for a manager when the request names an address that isn't on file. */
+  can_send: boolean
   requested_at: string
   resolved_at: string | null
   resolved_by: string | null
@@ -165,7 +169,7 @@ export interface SendPayStubInput {
 
 // Senders: owners, admins and managers (send_pay_statements).
 export const payStubsApi = {
-  workers: (signal?: AbortSignal) => call<{ workers: PayStubWorker[] }>('/api/v1/pay_stubs/workers', { signal }),
+  workers: (signal?: AbortSignal) => call<{ workers: PayStubWorker[]; can_choose_recipient: boolean }>('/api/v1/pay_stubs/workers', { signal }),
   worker: async (userId: string | number, signal?: AbortSignal) => call<{ worker: PayStubWorker }>(`/api/v1/pay_stubs/workers/${id(userId)}`, { signal }),
   statements: async (userId: string | number, signal?: AbortSignal) => call<{ statements: PayStubDate[] }>(`/api/v1/pay_stubs/workers/${id(userId)}/statements`, { signal }),
   requests: (status: 'open' | 'closed', signal?: AbortSignal) => call<{ requests: PayStubRequest[]; open_count: number }>(`/api/v1/pay_stubs/requests?status=${status}`, { signal }),
@@ -222,10 +226,4 @@ export const payStubLinkApi = {
   lookup: (token: string, signal?: AbortSignal) => call<PayStubLinkSummary>('/api/v1/pay_stub_links/lookup', { method: 'POST', auth: false, body: { token }, signal }),
   download: (token: string, documentId: number) => callPdf('/api/v1/pay_stub_links/download', { token, document_id: documentId }, 'AIRE-pay-stub.pdf'),
   downloadAll: (token: string) => callPdf('/api/v1/pay_stub_links/download_all', { token }, 'AIRE-pay-stubs.pdf'),
-}
-
-/** Read the token from a link's URL fragment (`#t=...`). */
-export function tokenFromHash(hash: string): string | null {
-  const value = new URLSearchParams(hash.replace(/^#/, '')).get('t')
-  return value && /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null
 }

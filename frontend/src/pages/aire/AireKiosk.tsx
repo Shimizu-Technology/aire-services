@@ -74,6 +74,8 @@ export default function AireKiosk() {
   const [now, setNow] = useState(() => new Date())
   const [unlocking, setUnlocking] = useState(false)
   const [requestingStub, setRequestingStub] = useState(false)
+  // "Pay stub requests at the kiosk" in Settings; off until an owner or admin turns it on.
+  const [payStubRequestsEnabled, setPayStubRequestsEnabled] = useState(false)
   const [kioskAccessSession, setKioskAccessSession] = useState<StoredKioskAccessSession | null>(() => {
     if (typeof window === 'undefined') return null
     const raw = window.sessionStorage.getItem(KIOSK_ACCESS_STORAGE_KEY)
@@ -120,6 +122,7 @@ export default function AireKiosk() {
     setError(null)
     setSuccess(null)
     setRequestingStub(false)
+    setPayStubRequestsEnabled(false)
   }, [])
 
   const clearExpiredKioskAccessSession = useCallback(() => {
@@ -241,6 +244,7 @@ export default function AireKiosk() {
 
     setEmployee(result.data.employee)
     setKioskToken(result.data.kiosk_token)
+    setPayStubRequestsEnabled(result.data.pay_stub_requests_enabled === true)
     setStatus(result.data.current_status)
     setCategories(result.data.available_categories)
     setSelectedCategoryId(
@@ -527,7 +531,7 @@ export default function AireKiosk() {
             )}
           </div>
 
-          {employee && kioskToken && requestingStub ? (
+          {employee && kioskToken && payStubRequestsEnabled && requestingStub ? (
             <KioskPayStubRequest
               kioskAccessToken={kioskAccessToken || ''}
               kioskToken={kioskToken}
@@ -589,7 +593,7 @@ export default function AireKiosk() {
             ))}
           </div>}
 
-          {employee && kioskToken && !requestingStub && (
+          {employee && kioskToken && payStubRequestsEnabled && !requestingStub && (
             <button
               type="button"
               onClick={() => { bumpIdleTimer(); setError(null); setSuccess(null); setRequestingStub(true) }}

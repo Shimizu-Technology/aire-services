@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useId, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Inbox, Link2, Send } from 'lucide-react'
 import { StatusBadge } from '../../components/my-pay/MyPayParts'
 import SendPayStubDialog from '../../components/pay-stubs/SendPayStubDialog'
 import { LINK_STATE, describeRequest, formatWhen, linkDates } from '../../components/pay-stubs/payStubCopy'
 import { PayStubError, payStubsApi, type PayStubLink, type PayStubRequest } from '../../lib/payStubsApi'
+import { useCapabilities } from '../../lib/useCapabilities'
 
 // Pay stubs for senders: owners, admins and managers. Workers' kiosk requests
 // wait here to be sent or dismissed, and every sent link can be revoked.
-// Only pay dates appear; amounts are never part of this page.
+// Only pay dates appear; amounts are never part of this page. Managers send
+// only to a person's email on file; requests that name another address are
+// marked and left for an owner or admin.
 
 type Tab = 'requests' | 'links'
 type DialogTarget = { request?: PayStubRequest; workerId?: number }
@@ -68,7 +71,10 @@ function RequestCard({ request, onSend, onDismissed }: { request: PayStubRequest
       <p className="mt-2 break-words text-sm text-slate-600">
         {request.recipient_email
           ? <>Send to <span className="font-medium text-slate-900">{request.recipient_email}</span> ({request.recipient_kind === 'typed' ? 'typed at the kiosk' : 'email on file'})</>
-          : "No email on file. You'll need to type one."}
+          : request.can_send ? 'No email on file yet.' : 'No email on file.'}
+        {request.recipient_kind === 'typed' && (
+          <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not the email on file</span>
+        )}
       </p>
 
       {dismissing ? (
@@ -85,8 +91,10 @@ function RequestCard({ request, onSend, onDismissed }: { request: PayStubRequest
           </div>
         </div>
       ) : (
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <button type="button" className={primary} onClick={onSend}><Send className="h-4 w-4" aria-hidden="true" />Send</button>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+          {request.can_send
+            ? <button type="button" className={primary} onClick={onSend}><Send className="h-4 w-4" aria-hidden="true" />Send</button>
+            : <p className="text-sm font-medium text-slate-800 sm:mr-auto">An owner or admin needs to send this one.</p>}
           <button type="button" className={secondary} onClick={() => setDismissing(true)}>Dismiss</button>
         </div>
       )}
@@ -115,32 +123,14 @@ function ClosedRequests() {
   )
 }
 
+// Read-only here; owners and admins change the list in Settings.
 function NotificationRecipients() {
   const ids = useId()
   const load = useCallback((signal: AbortSignal) => payStubsApi.notificationEmails(signal), [])
-  const [state, setLoaded] = useLoad(load, 'notification')
-  const [draft, setDraft] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [state] = useLoad(load, 'notification')
 
   if (state.status !== 'ready') return null
   const { emails, editable } = state.value
-
-  const save = async () => {
-    if (draft === null) return
-    setSaving(true)
-    setFeedback(null)
-    try {
-      const result = await payStubsApi.updateNotificationEmails(draft)
-      setLoaded(result)
-      setDraft(null)
-      setFeedback({ tone: 'success', text: 'Saved.' })
-    } catch (caught) {
-      setFeedback({ tone: 'error', text: message(caught, 'These addresses could not be saved.') })
-    } finally {
-      setSaving(false)
-    }
-  }
 
   return (
     <section aria-labelledby={`${ids}-title`} className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 sm:p-5">
@@ -149,20 +139,9 @@ function NotificationRecipients() {
         {emails.length > 0 ? `New requests are also emailed to ${emails.join(', ')}.` : 'Nobody is emailed now; new requests appear only in this list.'}
         {' '}The heads-up names the person and what they asked for, never pay details.
       </p>
-      {editable && (draft === null ? (
-        <button type="button" className={`${secondary} mt-3`} onClick={() => { setFeedback(null); setDraft(emails.join(', ')) }}>Change recipients</button>
-      ) : (
-        <div className="mt-3 space-y-2">
-          <label htmlFor={`${ids}-emails`} className="block text-sm font-medium text-slate-800">Email addresses, separated by commas</label>
-          <textarea id={`${ids}-emails`} rows={2} value={draft} onChange={(event) => setDraft(event.target.value)} autoCapitalize="none" spellCheck={false}
-            className="block w-full rounded-xl border border-slate-300 px-3 py-2 text-base focus:border-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-600/30 sm:text-sm" />
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" className={secondary} onClick={() => setDraft(null)} disabled={saving}>Cancel</button>
-            <button type="button" className={primary} onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save recipients'}</button>
-          </div>
-        </div>
-      ))}
-      {feedback && <p role={feedback.tone === 'error' ? 'alert' : 'status'} className={`mt-2 text-sm ${feedback.tone === 'error' ? 'text-red-700' : 'text-emerald-800'}`}>{feedback.text}</p>}
+      {editable
+        ? <Link to="/admin/settings#pay-stubs" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-cyan-700 hover:text-cyan-900 focus-visible:outline-2 focus-visible:outline-cyan-600">Change recipients in Settings</Link>
+        : <p className="mt-2 text-sm text-slate-500">An owner or admin can change this in Settings.</p>}
     </section>
   )
 }
@@ -273,6 +252,7 @@ function LinksPanel({ refreshKey }: { refreshKey: number }) {
 }
 
 export default function PayStubs() {
+  const canChooseRecipient = useCapabilities().preview_pay
   const [params, setParams] = useSearchParams()
   const tab: Tab = params.get('tab') === 'links' ? 'links' : 'requests'
   const sendTo = params.get('send')
@@ -351,6 +331,7 @@ export default function PayStubs() {
         <SendPayStubDialog
           request={target.request}
           workerId={target.workerId}
+          canChooseRecipient={canChooseRecipient}
           onClose={closeDialog}
           onSent={() => setRefreshKey((value) => value + 1)}
         />

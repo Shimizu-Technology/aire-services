@@ -80,7 +80,17 @@ it('lets a signed-in manager unlock the kiosk', () => {
   expect(screen.getAllByRole('button', { name: /unlock/i }).length).toBeGreaterThan(0)
 })
 
+it('hides pay stub requests while they are off in Settings', async () => {
+  mocks.getPayrollCutoff.mockResolvedValue({ data: null })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  for (const digit of '1234') fireEvent.click(screen.getByRole('button', { name: digit }))
+  fireEvent.click(screen.getByRole('button', { name: 'Verify PIN' }))
+  expect(await screen.findByRole('button', { name: 'Clock In' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Request my pay stub' })).not.toBeInTheDocument()
+})
+
 it('lets a verified employee request a pay stub and confirms it went to the office', async () => {
+  mocks.aireKioskVerify.mockResolvedValue({ data: { employee, kiosk_token: 'employee-token', current_status: idle, available_categories: [category], pay_stub_requests_enabled: true } })
   mocks.getPayrollCutoff.mockResolvedValue({ data: null })
   stubMocks.choices.mockResolvedValue({ pay_dates: [], years: [2026], pay_dates_available: true, on_file_email_hint: 'a•••@example.com' })
   stubMocks.request.mockResolvedValue({ message: 'Your request was sent to the office.' })

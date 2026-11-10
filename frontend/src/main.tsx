@@ -1,3 +1,6 @@
+// First, before analytics or anything else loads: take a pay stub link
+// token out of the URL. Imports run in order, so this runs before PostHog.
+import './lib/payStubLinkTokenGuard'
 import { StagingContext } from './components/StagingContext'
 /* eslint-disable react-refresh/only-export-components */
 import { StrictMode } from 'react'

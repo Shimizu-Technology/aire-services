@@ -16,7 +16,8 @@ vi.mock('../../lib/payStubsApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/payStubsApi')>()
   return { ...actual, myPayEmailApi: emailApi }
 })
-vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ isClerkEnabled: true, currentUser: { id: 7, my_pay_enabled: true } }) }))
+const authUser = vi.hoisted(() => ({ id: 7, my_pay_enabled: true, my_pay_email_enabled: true }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ isClerkEnabled: true, currentUser: authUser }) }))
 
 function detail(overrides: Partial<MyPayStatementDetail> = {}): MyPayStatementDetail {
   return {
@@ -320,7 +321,18 @@ describe('My Pay statement detail', () => {
 })
 
 describe('Email me this stub', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    authUser.my_pay_email_enabled = true
+  })
+
+  it('is not offered while "Workers can email themselves stubs" is off', async () => {
+    authUser.my_pay_email_enabled = false
+    api.statement.mockResolvedValue({ worker: { employment_type: 'hourly', contractor: false }, statement: detail() })
+    renderPage()
+    expect(await screen.findByRole('button', { name: /Download PDF/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Email me this stub' })).not.toBeInTheDocument()
+  })
 
   it('emails a link to the worker and says where it went', async () => {
     api.statement.mockResolvedValue({ worker: { employment_type: 'hourly', contractor: false }, statement: detail() })

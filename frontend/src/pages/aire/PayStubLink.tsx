@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Clock3, Download, FileText, Files, LockKeyhole, RotateCw } from 'lucide-react'
 import { formatPayDate, formatPeriod } from '../../lib/myPayApi'
-import { PayStubError, payStubLinkApi, saveBlob, tokenFromHash, type PayStubLinkSummary } from '../../lib/payStubsApi'
+import { PayStubError, payStubLinkApi, saveBlob, type PayStubLinkSummary } from '../../lib/payStubsApi'
+import { PAY_STUB_TOKEN_EVENT, readPayStubToken, stashPayStubToken } from '../../lib/payStubLinkToken'
 
 // The page behind an emailed pay stub link. No sign-in: the token in the URL
-// fragment is the credential, and the fragment never reaches a server. The
-// page shows the employer, the worker's first name and pay dates only.
+// fragment is the credential, and the fragment never reaches a server. At
+// startup main.tsx moves it into this tab's sessionStorage and cleans the URL
+// (see payStubLinkToken.ts), so the page reads it from there. The page shows
+// the employer, the worker's first name and pay dates only.
 
 type LoadState =
   | { status: 'loading' }
@@ -70,7 +73,11 @@ const buttonBase = 'inline-flex min-h-12 items-center justify-center gap-2 round
 
 export default function PayStubLink() {
   useNoReferrer()
-  const [token, setToken] = useState(() => tokenFromHash(window.location.hash))
+  const [token, setToken] = useState(() => {
+    // Normally already done at startup; this covers rendering the page directly.
+    stashPayStubToken()
+    return readPayStubToken()
+  })
   const tokenRef = useRef(token)
   const [state, setState] = useState<LoadState>(() => (token ? { status: 'loading' } : { status: 'missing' }))
 
@@ -78,18 +85,26 @@ export default function PayStubLink() {
   const [busy, setBusy] = useState<number | 'all' | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
 
-  // Opening another emailed link in this tab changes only the fragment.
+  // Opening another emailed link in this tab changes only the fragment; the
+  // startup guard stashes the new token, cleans the URL and tells us.
   useEffect(() => {
-    const onHashChange = () => {
-      const next = tokenFromHash(window.location.hash)
+    const onNewToken = () => {
+      const next = readPayStubToken()
       if (next === tokenRef.current) return
       tokenRef.current = next
       setToken(next)
       setDownloadError(null)
       setState(next ? { status: 'loading' } : { status: 'missing' })
     }
+    const onHashChange = () => {
+      if (stashPayStubToken()) onNewToken()
+    }
+    window.addEventListener(PAY_STUB_TOKEN_EVENT, onNewToken)
     window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
+    return () => {
+      window.removeEventListener(PAY_STUB_TOKEN_EVENT, onNewToken)
+      window.removeEventListener('hashchange', onHashChange)
+    }
   }, [])
 
   useEffect(() => {

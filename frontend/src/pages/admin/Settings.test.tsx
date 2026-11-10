@@ -20,6 +20,12 @@ const apiMock = vi.hoisted(() => ({
   getAdminClockPlaceDetails: vi.fn(),
 }))
 
+const payStubsMock = vi.hoisted(() => ({ notificationEmails: vi.fn(), updateNotificationEmails: vi.fn() }))
+vi.mock('../../lib/payStubsApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/payStubsApi')>()
+  return { ...actual, payStubsApi: payStubsMock }
+})
+
 vi.mock('../../lib/api', () => ({
   api: {
     getAdminTimeCategories: apiMock.getAdminTimeCategories,
@@ -39,6 +45,8 @@ vi.mock('../../components/ui/MotionComponents', () => ({
 
 describe('Admin Settings contact settings', () => {
   beforeEach(() => {
+    payStubsMock.notificationEmails.mockReset().mockResolvedValue({ emails: [], editable: true })
+    payStubsMock.updateNotificationEmails.mockReset()
     stagingMock.enabled = false
     apiMock.getAdminTimeCategories.mockReset()
     apiMock.getAdminAppSettings.mockReset()
@@ -224,5 +232,36 @@ describe('Admin Settings contact settings', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Only owners and admins can change settings')
     expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).toBeChecked()
+  })
+
+  it('keeps both pay stub switches off by default and turns one on', async () => {
+    apiMock.updateAdminAppSettings.mockImplementation(async ({ settings }) => ({
+      data: { settings: { clock_in_location_name: 'AIRE Services Guam', pay_stub_kiosk_requests_enabled: 'false', pay_stub_self_email_enabled: 'false', ...settings }, approval_groups: [] },
+    }))
+    render(<Settings />)
+
+    const kiosk = await screen.findByRole('checkbox', { name: 'Pay stub requests at the kiosk' })
+    const self = screen.getByRole('checkbox', { name: 'Workers can email themselves stubs' })
+    expect(kiosk).not.toBeChecked()
+    expect(self).not.toBeChecked()
+    expect(self).toHaveAccessibleDescription(/only to the email on file/)
+
+    fireEvent.click(kiosk)
+    await waitFor(() => expect(apiMock.updateAdminAppSettings).toHaveBeenCalledWith({ settings: { pay_stub_kiosk_requests_enabled: 'true' } }))
+    expect(await screen.findByText('Workers can now request pay stubs at the kiosk.')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Pay stub requests at the kiosk' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Workers can email themselves stubs' })).not.toBeChecked()
+  })
+
+  it('edits who gets a heads-up about kiosk requests', async () => {
+    payStubsMock.updateNotificationEmails.mockResolvedValue({ emails: ['office@example.com'], editable: true })
+    render(<Settings />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change recipients' }))
+    fireEvent.change(screen.getByLabelText('Email addresses, separated by commas'), { target: { value: 'office@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipients' }))
+
+    await waitFor(() => expect(payStubsMock.updateNotificationEmails).toHaveBeenCalledWith('office@example.com'))
+    expect(await screen.findByText(/New requests are also emailed to office@example.com/)).toBeInTheDocument()
   })
 })
