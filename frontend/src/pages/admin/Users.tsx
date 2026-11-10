@@ -322,10 +322,12 @@ export default function Users() {
 
   const activeCategories = allCategories.filter((c) => c.is_active)
   const createUsesClerkProfile = createPersonalAccess
-  const canEditEmail = Boolean(editPersonalAccess && (editingUser?.is_pending || !editingUser?.has_clerk_account))
+  // Only an owner can change an owner's or admin's sign-in, kiosk and invite details.
+  const editAccessLocked = editingUser?.can_change_access === false
+  const canEditEmail = Boolean(editPersonalAccess && !editAccessLocked && (editingUser?.is_pending || !editingUser?.has_clerk_account))
   // Owners, admins and managers always sign in personally, and only an owner
   // can take sign-in away from an owner or admin.
-  const editLocksPersonalAccess = roleRequiresPersonalAccess(editRole) || editingUser?.can_change_access === false
+  const editLocksPersonalAccess = roleRequiresPersonalAccess(editRole) || editAccessLocked
   const routedUsersCount = users.filter((user) => (user.approval_group_keys?.length ?? (user.approval_group ? 1 : 0)) > 0).length
   const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
   const normalizedSearchTerm = searchTerm.trim().toLowerCase()
@@ -641,6 +643,14 @@ export default function Users() {
 
       if (nextPublicTeamSortOrder !== null) {
         payload.public_team_sort_order = nextPublicTeamSortOrder
+      }
+
+      if (editAccessLocked) {
+        delete payload.personal_access_enabled
+        delete payload.time_tracking_enabled
+        delete payload.kiosk_enabled
+        delete payload.kiosk_pin
+        delete payload.send_invitation
       }
 
       if (editPersonalAccess) {
@@ -1055,7 +1065,7 @@ export default function Users() {
               <div className="px-5 py-10 text-center text-sm text-slate-500">No team members match those filters.</div>
             ) : (
               <>
-              {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{[roleLabel(user.role), user.staff_title].filter(Boolean).join(' · ')}</p>{renderStatusBadge(user)}</div></div>{canManageMyPay && <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-2"><span className="text-sm font-medium text-slate-700">My Pay on</span>{renderMyPaySwitch(user)}</div>}<p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.is_active && user.is_pending && user.email && <button className="min-h-11 text-sm font-semibold text-cyan-800" onClick={() => handleResendInvite(user)} disabled={resendingIds.has(user.id)}>{resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}</button>}{user.time_tracking_enabled && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
+              {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{[roleLabel(user.role), user.staff_title].filter(Boolean).join(' · ')}</p>{renderStatusBadge(user)}</div></div>{canManageMyPay && <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-2"><span className="text-sm font-medium text-slate-700">My Pay on</span>{renderMyPaySwitch(user)}</div>}<p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.is_active && user.is_pending && user.email && user.can_change_access !== false && <button className="min-h-11 text-sm font-semibold text-cyan-800" onClick={() => handleResendInvite(user)} disabled={resendingIds.has(user.id)}>{resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}</button>}{user.time_tracking_enabled && user.can_change_access !== false && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
               {!compact && <div className="overflow-x-auto">
                 <table className="w-full min-w-[1200px]">
                   <thead className="bg-slate-50">
@@ -1172,7 +1182,7 @@ export default function Users() {
                         >
                           Edit
                         </button>
-                        {user.time_tracking_enabled && (
+                        {user.time_tracking_enabled && user.can_change_access !== false && (
                           <button
                             type="button"
                             onClick={() => openPinModal(user)}
@@ -1181,7 +1191,7 @@ export default function Users() {
                             {user.kiosk_pin_configured ? 'Reset PIN' : 'Set kiosk PIN'}
                           </button>
                         )}
-                        {user.is_active && user.is_pending && user.email && (
+                        {user.is_active && user.is_pending && user.email && user.can_change_access !== false && (
                           <button
                             type="button"
                             onClick={() => handleResendInvite(user)}
@@ -1378,7 +1388,7 @@ export default function Users() {
                     <span><span className="block text-sm font-medium text-slate-900">Personal sign-in</span><span className="mt-1 block text-xs leading-5 text-slate-500">Email account managed by Clerk.</span></span>
                   </label>
                   <label className={`flex items-start gap-3 rounded-xl border bg-white p-4 ${!editPersonalAccess ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
-                    <input type="checkbox" checked={editTimeTracking} disabled={!editPersonalAccess} onChange={(event) => setEditTimeTracking(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                    <input type="checkbox" checked={editTimeTracking} disabled={!editPersonalAccess || editAccessLocked} onChange={(event) => setEditTimeTracking(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
                     <span><span className="block text-sm font-medium text-slate-900">Tracks work hours</span><span className="mt-1 block text-xs leading-5 text-slate-500">Includes kiosk access and requires at least one work category.</span></span>
                   </label>
                 </div>
@@ -1399,7 +1409,7 @@ export default function Users() {
                       <label className="mb-2 block text-sm font-medium text-slate-700">Email <span className="text-rose-600">*</span></label>
                       <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} disabled={!canEditEmail} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
                       <p className="mt-2 text-xs text-slate-500">{editingUser.has_clerk_account ? 'This activated account’s email and name are managed by Clerk.' : 'Invitation email address.'}</p>
-                      {(editingUser.is_pending || (!editingUser.personal_access_enabled && !editingUser.has_clerk_account)) && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"><input type="checkbox" checked={editSendInvitation} onChange={(event) => setEditSendInvitation(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="text-sm text-slate-700">Send invitation when these changes are saved</span></label>}
+                      {!editAccessLocked && (editingUser.is_pending || (!editingUser.personal_access_enabled && !editingUser.has_clerk_account)) && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"><input type="checkbox" checked={editSendInvitation} onChange={(event) => setEditSendInvitation(event.target.checked)} className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="text-sm text-slate-700">Send invitation when these changes are saved</span></label>}
                     </>
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2">
@@ -1695,7 +1705,7 @@ export default function Users() {
                   </div>
                   <div className="mt-4">
                     <label className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-400">(optional)</span></label>
-                    <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editingUser.kiosk_pin_configured ? 'Keep current PIN' : editPersonalAccess ? 'Set one now instead' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                    <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} disabled={editAccessLocked} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editAccessLocked ? 'Only an owner can change this PIN' : editingUser.kiosk_pin_configured ? 'Keep current PIN' : editPersonalAccess ? 'Set one now instead' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
                     <p className="mt-2 text-xs text-slate-500">{editingUser.kiosk_pin_configured ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}. Leave blank to keep it.` : editPersonalAccess ? 'Leave blank and they will choose their PIN after their next sign-in.' : 'Leave blank to generate a secure six-digit PIN that is shown once after saving.'}</p>
                   </div>
                 </section>

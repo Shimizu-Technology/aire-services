@@ -113,6 +113,45 @@ RSpec.describe "Assigning roles on the Team page", type: :request do
       expect(AuditLog.where(action: "authorization.owner_denied", user: admin).count).to eq(8)
     end
 
+    it "can't redirect, resend or rekey a pending owner or admin invite" do
+      pending_owner = create(:user, :owner, clerk_id: "pending_owner_invite", email: "new.owner@example.com")
+      [ pending_owner, other_admin ].each do |target|
+        original_email = target.email
+        [
+          { email: "takeover@example.com", send_invitation: true },
+          { email: "takeover@example.com" },
+          { kiosk_pin: "4321" },
+          { kiosk_enabled: !target.kiosk_enabled? },
+          { time_tracking_enabled: !target.time_tracking_enabled? },
+          { send_invitation: true }
+        ].each do |attributes|
+          patch "/api/v1/admin/users/#{target.id}", params: attributes, headers: headers_for(admin)
+          expect(response).to have_http_status(:forbidden), "expected #{attributes.keys} to be refused"
+        end
+        post "/api/v1/admin/users/#{target.id}/resend_invite", headers: headers_for(admin)
+        expect(response).to have_http_status(:forbidden)
+        post "/api/v1/admin/users/#{target.id}/reset_kiosk_pin", headers: headers_for(admin)
+        expect(response).to have_http_status(:forbidden)
+        expect(target.reload.email).to eq(original_email)
+      end
+    end
+
+    it "saves an owner's unchanged sign-in details along with other edits" do
+      patch "/api/v1/admin/users/#{owner.id}",
+            params: { email: owner.email.upcase, personal_access_enabled: true, kiosk_enabled: owner.kiosk_enabled?,
+                      time_tracking_enabled: owner.time_tracking_enabled?, is_active: true, staff_title: "Owner" },
+            headers: headers_for(admin)
+      expect(response).to have_http_status(:ok)
+      expect(owner.reload.staff_title).to eq("Owner")
+    end
+
+    it "audits a refused role change" do
+      change_role(admin, owner, "employee")
+      expect(response).to have_http_status(:forbidden)
+      row = AuditLog.find_by!(action: "authorization.role_assignment_denied", user: admin)
+      expect(row.metadata).to include("target_user_id" => owner.id, "from" => "owner", "to" => "employee")
+    end
+
     it "still edits an admin's other details" do
       patch "/api/v1/admin/users/#{other_admin.id}", params: { staff_title: "Office manager" }, headers: headers_for(admin)
       expect(response).to have_http_status(:ok)

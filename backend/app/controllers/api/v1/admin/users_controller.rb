@@ -21,7 +21,7 @@ module Api
                         :public_team_photo,
                         :destroy_public_team_photo
                       ]
-        before_action :require_access_change_permission!, only: [ :destroy, :terminate, :reactivate ]
+        before_action :require_access_change_permission!, only: [ :destroy, :terminate, :reactivate, :resend_invite, :reset_kiosk_pin ]
         rescue_from MediaUploadValidation::InvalidMediaUpload, with: :invalid_media_upload
 
         def index
@@ -133,12 +133,12 @@ module Api
           end
 
           if params[:role].present? && params[:role] != @user.role && !current_user.can_assign_role?(@user, params[:role])
+            AuditLog.record_security_event!(action: "authorization.role_assignment_denied", actor: current_user, outcome: "denied",
+              metadata: { path: request.path, target_user_id: @user.id, from: @user.role, to: params[:role].to_s })
             return render json: { error: "Only an owner can assign or change the owner and admin roles" }, status: :forbidden
           end
 
-          if params.key?(:personal_access_enabled) && !boolean_param(:personal_access_enabled) && !current_user.can_change_access_for?(@user)
-            return render_owner_required
-          end
+          return render_owner_required if access_change_requested? && !current_user.can_change_access_for?(@user)
 
           if boolean_param(:send_invitation)
             personal_access_enabled = params.key?(:personal_access_enabled) ? boolean_param(:personal_access_enabled) : @user.personal_access_enabled?
@@ -387,6 +387,19 @@ module Api
 
         def require_access_change_permission!
           render_owner_required unless current_user.can_change_access_for?(@user)
+        end
+
+        # Sign-in, kiosk and invite details of an owner or admin are owner-only;
+        # otherwise an admin could, for example, point a pending owner invite at
+        # an address they control. Unchanged values (a full form save) pass.
+        def access_change_requested?
+          return true if params.key?(:email) && !params[:email].to_s.strip.casecmp?(@user.email.to_s)
+          toggled = %i[personal_access_enabled time_tracking_enabled kiosk_enabled is_active].any? { |key|
+            params.key?(key) && (boolean_param(key) == true) != @user.public_send(key)
+          }
+          return true if toggled
+
+          params[:kiosk_pin].present? || boolean_param(:send_invitation) == true
         end
 
         def render_owner_required

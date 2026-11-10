@@ -579,6 +579,25 @@ describe('Users roles and My Pay', () => {
     expect(within(dialog).queryByRole('button', { name: /terminate employment/i })).not.toBeInTheDocument()
   })
 
+  it("saves an owner's profile without touching their sign-in, kiosk or PIN", async () => {
+    const pendingOwner = { ...owner, time_tracking_enabled: true }
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [pendingOwner, manager, worker] } })
+    apiMock.updateUser.mockResolvedValue({ data: { user: pendingOwner } })
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Leon Owner')
+    const row = rowFor('Leon Owner')
+    expect(within(row).queryByRole('button', { name: /pin/i })).not.toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button', { name: /^edit$/i }))
+    const dialog = screen.getByRole('dialog', { name: /edit leon owner/i })
+    expect(within(dialog).getByRole('checkbox', { name: /^tracks work hours/i })).toBeDisabled()
+    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }))
+    await waitFor(() => expect(apiMock.updateUser).toHaveBeenCalled())
+    const payload = apiMock.updateUser.mock.calls[0][1]
+    for (const key of ['email', 'personal_access_enabled', 'time_tracking_enabled', 'kiosk_enabled', 'kiosk_pin', 'send_invitation']) {
+      expect(payload).not.toHaveProperty(key)
+    }
+  })
+
   it('turns one person’s My Pay on from the list', async () => {
     render(<MemoryRouter><Users /></MemoryRouter>)
     await screen.findByText('Ana Worker')
