@@ -166,6 +166,9 @@ export default function Settings() {
   const [savingCategory, setSavingCategory] = useState(false)
   const [savingThresholds, setSavingThresholds] = useState(false)
   const [savingApprovalGroups, setSavingApprovalGroups] = useState(false)
+  const [savingOwnTimeApproval, setSavingOwnTimeApproval] = useState(false)
+  const [ownTimeApprovalError, setOwnTimeApprovalError] = useState('')
+  const [ownTimeApprovalMessage, setOwnTimeApprovalMessage] = useState('')
   const [savingContactSettings, setSavingContactSettings] = useState(false)
   const [locationSearchQuery, setLocationSearchQuery] = useState('')
   const [placeSuggestions, setPlaceSuggestions] = useState<PlaceAutocompleteSuggestion[]>([])
@@ -583,6 +586,26 @@ export default function Settings() {
       setApprovalGroupsMessage('Departments saved.')
     } finally {
       setSavingApprovalGroups(false)
+    }
+  }
+
+  const handleManagersOwnTimeChange = async (enabled: boolean) => {
+    setSavingOwnTimeApproval(true)
+    setOwnTimeApprovalError('')
+    setOwnTimeApprovalMessage('')
+    try {
+      const res = await api.updateAdminAppSettings({
+        settings: { managers_can_approve_own_time: enabled ? 'true' : 'false' },
+      })
+      if (res.error || !res.data) {
+        setOwnTimeApprovalError(res.error || 'Failed to save the approval setting')
+        return
+      }
+
+      setClockSettings(res.data.settings)
+      setOwnTimeApprovalMessage(enabled ? 'Managers can approve their own time.' : "Managers' own time now goes to another approver.")
+    } finally {
+      setSavingOwnTimeApproval(false)
     }
   }
 
@@ -1070,6 +1093,45 @@ export default function Settings() {
                   </button>
                 </div>
               </form>
+            </section>
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 px-5 py-4">
+                <h2 className="text-lg font-semibold text-slate-900">Time approvals</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Changes apply right away and are recorded in the activity history.
+                </p>
+              </div>
+              <div className="space-y-4 px-5 py-5">
+                {ownTimeApprovalError && (
+                  <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{ownTimeApprovalError}</div>
+                )}
+                {ownTimeApprovalMessage && (
+                  <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{ownTimeApprovalMessage}</div>
+                )}
+                <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div>
+                    <h3 id="managers-own-time-label" className="text-sm font-semibold text-slate-900">Managers can approve their own time</h3>
+                    <p id="managers-own-time-help" className="mt-1 text-sm text-slate-500">
+                      When off, an owner, admin or another manager approves each manager's own time and overtime, and managers can't override their own clock.
+                    </p>
+                  </div>
+                  <label className="inline-flex min-h-[44px] shrink-0 items-center gap-2 text-sm font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={clockSettings?.managers_can_approve_own_time !== 'false'}
+                      disabled={savingOwnTimeApproval || !clockSettings}
+                      onChange={(e) => void handleManagersOwnTimeChange(e.target.checked)}
+                      aria-labelledby="managers-own-time-label"
+                      aria-describedby="managers-own-time-help"
+                      className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                    />
+                    {savingOwnTimeApproval ? 'Saving…' : 'Allowed'}
+                  </label>
+                </div>
+              </div>
             </section>
           </FadeUp>
 

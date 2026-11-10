@@ -64,6 +64,7 @@ class Setting < ApplicationRecord
     "clock_in_location_latitude" => "13.46913",
     "clock_in_location_longitude" => "144.79901",
     "clock_in_location_radius_meters" => "1000",
+    "managers_can_approve_own_time" => "true",
     "contact_email" => DEFAULT_CONTACT_NOTIFICATION_EMAILS.join(", "),
     "contact_inquiry_topics" => DEFAULT_CONTACT_INQUIRY_TOPICS.to_json,
     "public_contact_settings" => DEFAULT_PUBLIC_CONTACT_SETTINGS.to_json,
@@ -125,6 +126,16 @@ class Setting < ApplicationRecord
     return false unless user&.staff? && user.is_active?
 
     my_pay_enabled_for_all? || user.my_pay_enabled?
+  end
+
+  # "Managers can approve their own time" on the Settings page. On (the
+  # default) lets a manager approve, deny and override their own time like an
+  # admin. Off sends a manager's own time to another approver. Owners and
+  # admins are not affected.
+  MANAGERS_CAN_APPROVE_OWN_TIME_KEY = "managers_can_approve_own_time"
+
+  def self.managers_can_approve_own_time?
+    get(MANAGERS_CAN_APPROVE_OWN_TIME_KEY) != "false"
   end
 
   def self.payroll_cutoff_reminder_emails
