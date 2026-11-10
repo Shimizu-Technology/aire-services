@@ -209,7 +209,7 @@ describe('My Pay preview', () => {
 
     it('shows the not-available view when access was removed mid-session, without a retry', async () => {
       preview.worker.mockRejectedValue(new MyPayError("My Pay preview isn't available for your account.", 'my_pay_preview_not_enabled', 403))
-      renderAt('/admin/pay/preview/3')
+      renderAt('/admin/pay-preview/3')
 
       expect(await screen.findByText(/My Pay preview isn.t available for your account/)).toBeVisible()
       expect(screen.queryByRole('button', { name: /Try again/ })).not.toBeInTheDocument()
