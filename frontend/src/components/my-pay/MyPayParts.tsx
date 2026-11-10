@@ -29,7 +29,8 @@ export function MyPayErrorState({ error, onRetry, retrying }: { error: MyPayErro
           <p className="font-semibold">
             {notLinked ? 'Payroll not connected yet' : disabled ? 'My Pay is not available yet' : error.code === 'statement_not_found' ? 'Paycheck not found' : 'Pay history is temporarily unavailable'}
           </p>
-          <p className="mt-1 text-sm text-amber-900">{error.message}</p>
+          {/* The heading already says it's unavailable; keep only what to do next. */}
+          <p className="mt-1 text-sm text-amber-900">{retryable ? 'Please try again in a few minutes. Your paper stub is still your record of each check.' : error.message}</p>
           {retryable && onRetry && (
             <button
               type="button"

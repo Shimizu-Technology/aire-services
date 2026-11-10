@@ -114,6 +114,9 @@ describe('My Pay list', () => {
 
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText('Pay history is temporarily unavailable')).toBeVisible()
+    // The heading says what happened once; the body says what to do.
+    expect(within(alert).getAllByText(/temporarily unavailable/)).toHaveLength(1)
+    expect(within(alert).getByText(/Please try again in a few minutes/)).toBeVisible()
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('link', { name: /Paycheck for/ })).toBeVisible()
     expect(listMock).toHaveBeenCalledTimes(2)
