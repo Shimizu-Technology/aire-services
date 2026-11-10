@@ -322,6 +322,8 @@ class User < ApplicationRecord
     blockers << "payroll settlement history" if PayrollSettlementCase.where(source_user_id: id).exists?
     blockers << "payroll settlement events" if payroll_settlement_case_events.exists?
     blockers << "saved report history" if ReportExport.where("employee_ids @> ?", [ id ].to_json).exists?
+    blockers << "pay stub requests" if pay_document_requests.exists?
+    blockers << "pay stub links" if pay_document_deliveries.exists? || PayDocumentDelivery.where(sent_by_id: id).exists?
     blockers
   end
 

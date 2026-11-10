@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { formatPayDate } from '../../lib/myPayApi'
 import { PayStubError, kioskPayStubsApi, type KioskPayStubChoices, type PayStubScope } from '../../lib/payStubsApi'
 
@@ -39,6 +39,13 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
   const [confirmation, setConfirmation] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The kiosk can reset (idle timer, "Not you?") while a request is in flight;
+  // a late answer must not show "sent" to the next person.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
 
   useEffect(() => {
     let current = true
@@ -67,7 +74,8 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
     && (scope !== 'year' || year !== null)
     && (destination === 'on_file' || (email.trim().length > 3 && email.trim().toLowerCase() === confirmation.trim().toLowerCase()))
 
-  const submit = async () => {
+  const submit = async (event?: FormEvent) => {
+    event?.preventDefault()
     if (!ready || submitting) return
     onActivity()
     setSubmitting(true)
@@ -79,8 +87,9 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
         year: scope === 'year' ? year ?? undefined : undefined,
         ...(destination === 'typed' ? { email: email.trim(), emailConfirmation: confirmation.trim() } : {}),
       })
-      onSent(result.message)
+      if (mounted.current) onSent(result.message)
     } catch (caught) {
+      if (!mounted.current) return
       setError(caught instanceof PayStubError ? caught.message : 'Your request could not be sent. Please try again.')
       setSubmitting(false)
     }
@@ -102,7 +111,7 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
   const datesUnavailable = !choices.pay_dates_available || choices.pay_dates.length === 0
 
   return (
-    <section aria-labelledby={`${ids}-title`} className="mt-8 space-y-6">
+    <form aria-labelledby={`${ids}-title`} onSubmit={submit} noValidate className="mt-8 space-y-6">
       <div>
         <h2 id={`${ids}-title`} className="text-xl font-semibold text-white">Request my pay stub</h2>
         <p className="mt-1 text-sm text-slate-400">The office will email you a secure link to download it.</p>
@@ -197,7 +206,7 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
       {error && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <button type="button" onClick={submit} disabled={!ready || submitting} className={`rounded-2xl px-5 py-3.5 text-sm font-semibold transition select-none touch-manipulation ${
+        <button type="submit" disabled={!ready || submitting} className={`rounded-2xl px-5 py-3.5 text-sm font-semibold transition select-none touch-manipulation ${
           !ready || submitting ? 'cursor-not-allowed bg-slate-800 text-slate-500' : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 active:scale-[0.98]'
         }`}>
           {submitting ? 'Sending request…' : 'Send request to the office'}
@@ -206,6 +215,6 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
           Cancel
         </button>
       </div>
-    </section>
+    </form>
   )
 }

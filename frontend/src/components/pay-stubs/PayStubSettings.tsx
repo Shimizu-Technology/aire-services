@@ -34,16 +34,20 @@ function HeadsUpRecipients() {
   const [draft, setDraft] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
     payStubsApi.notificationEmails(controller.signal)
-      .then((data) => setEmails(data.emails))
+      .then((data) => { setEmails(data.emails); setLoadFailed(false) })
       .catch((caught: unknown) => {
-        if (!controller.signal.aborted) setFeedback({ tone: 'error', text: caught instanceof PayStubError ? caught.message : 'The heads-up list could not be loaded.' })
+        if (controller.signal.aborted) return
+        setLoadFailed(true)
+        setFeedback({ tone: 'error', text: caught instanceof PayStubError ? caught.message : 'The heads-up list could not be loaded.' })
       })
     return () => controller.abort()
-  }, [])
+  }, [loadAttempt])
 
   const save = async () => {
     if (draft === null) return
@@ -65,9 +69,12 @@ function HeadsUpRecipients() {
     <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
       <h3 id={`${ids}-title`} className="text-sm font-semibold text-slate-900">Email a heads-up about new kiosk requests</h3>
       <p className="mt-1 text-sm text-slate-500">
-        {emails === null ? 'Loading…' : emails.length > 0 ? `New requests are also emailed to ${emails.join(', ')}.` : 'Nobody is emailed now; new requests appear only on the Pay stubs page.'}
+        {emails === null ? (loadFailed ? 'The list could not be loaded.' : 'Loading…') : emails.length > 0 ? `New requests are also emailed to ${emails.join(', ')}.` : 'Nobody is emailed now; new requests appear only on the Pay stubs page.'}
         {' '}The heads-up names the person and what they asked for, never pay details.
       </p>
+      {emails === null && loadFailed && (
+        <button type="button" className={`${secondary} mt-3`} onClick={() => { setFeedback(null); setLoadFailed(false); setLoadAttempt((n) => n + 1) }}>Try again</button>
+      )}
       {emails !== null && (draft === null ? (
         <button type="button" className={`${secondary} mt-3`} onClick={() => { setFeedback(null); setDraft(emails.join(', ')) }}>Change recipients</button>
       ) : (

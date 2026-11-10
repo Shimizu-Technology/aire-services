@@ -93,6 +93,7 @@ export default function PayStubLink() {
       if (next === tokenRef.current) return
       tokenRef.current = next
       setToken(next)
+      setBusy(null)
       setDownloadError(null)
       setState(next ? { status: 'loading' } : { status: 'missing' })
     }
@@ -126,20 +127,26 @@ export default function PayStubLink() {
 
   const download = async (target: number | 'all') => {
     if (!token) return
+    const started = token
+    // A second link opened in this tab mid-download must keep its own state.
+    const stillCurrent = () => tokenRef.current === started
     setBusy(target)
     setDownloadError(null)
     try {
-      const { blob, filename } = target === 'all' ? await payStubLinkApi.downloadAll(token) : await payStubLinkApi.download(token, target)
+      const { blob, filename } = target === 'all' ? await payStubLinkApi.downloadAll(started) : await payStubLinkApi.download(started, target)
+      if (!stillCurrent()) return
       saveBlob(blob, filename)
       // Refresh the downloads-left counts (and the page state if that was the last one).
-      setState({ status: 'ready', summary: await payStubLinkApi.lookup(token) })
+      const summary = await payStubLinkApi.lookup(started)
+      if (stillCurrent()) setState({ status: 'ready', summary })
     } catch (error) {
+      if (!stillCurrent()) return
       setDownloadError(error instanceof PayStubError ? error.message : 'The download failed. Please try again.')
       if (error instanceof PayStubError && error.status === 410) {
-        payStubLinkApi.lookup(token).then((summary) => setState({ status: 'ready', summary })).catch(() => undefined)
+        payStubLinkApi.lookup(started).then((summary) => { if (stillCurrent()) setState({ status: 'ready', summary }) }).catch(() => undefined)
       }
     } finally {
-      setBusy(null)
+      if (stillCurrent()) setBusy(null)
     }
   }
 

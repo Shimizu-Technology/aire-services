@@ -58,7 +58,7 @@ module PayDocuments
         {}
       when "year"
         value = Integer(year.to_s, 10)
-        raise ArgumentError unless value.between?(2000, now.year)
+        raise ArgumentError unless value.between?(2001, now.year)
 
         { year: value }
       when "pay_date"
