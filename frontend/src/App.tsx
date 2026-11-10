@@ -24,6 +24,8 @@ const Media = lazy(() => import('./pages/admin/Media'))
 const ActivityHistory = lazy(() => import('./pages/admin/ActivityHistory'))
 const PayrollRuns = lazy(() => import('./pages/admin/PayrollRuns'))
 const PayrollAccountLink = lazy(() => import('./pages/admin/PayrollAccountLink'))
+const MyPay = lazy(() => import('./pages/admin/MyPay'))
+const MyPayStatement = lazy(() => import('./pages/admin/MyPayStatement'))
 
 function AdminLoadingFallback() {
   return (
@@ -76,6 +78,8 @@ function App() {
           <Route index element={<Suspense fallback={<AdminLoadingFallback />}><Dashboard /></Suspense>} />
           <Route path="time" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking /></Suspense>} />
           <Route path="schedule" element={<Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense>} />
+          <Route path="pay" element={<Suspense fallback={<AdminLoadingFallback />}><MyPay /></Suspense>} />
+          <Route path="pay/:id" element={<Suspense fallback={<AdminLoadingFallback />}><MyPayStatement /></Suspense>} />
           <Route
             path="media"
             element={

@@ -79,6 +79,7 @@ module Api
           kiosk_pin_configured: user.kiosk_pin_configured?,
           kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
           needs_kiosk_pin_setup: user.time_tracking_enabled? && user.kiosk_enabled? && !user.kiosk_pin_configured?,
+          my_pay_enabled: Setting.my_pay_enabled_for?(user),
           created_at: user.created_at
         }
       end

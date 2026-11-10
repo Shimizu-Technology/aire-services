@@ -18,6 +18,11 @@ Rails.application.routes.draw do
       resources :team_members, only: [ :index ]
       resources :site_media, only: [ :index ], path: "site-media"
 
+      # The signed-in worker's own pay statements (proxied from Cornerstone)
+      resources :my_pay, only: [ :index, :show ], controller: :my_pay, format: false do
+        get :pdf, on: :member
+      end
+
       get "payroll_cutoff", to: "payroll_cutoffs#show"
       post "payroll_cutoff/acknowledge", to: "payroll_cutoffs#acknowledge"
       post "aire/kiosk/cutoff", to: "payroll_cutoffs#kiosk"

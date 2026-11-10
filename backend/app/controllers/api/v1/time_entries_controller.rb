@@ -60,7 +60,7 @@ module Api
         total_count = summary[:entry_count]
         @time_entries = @time_entries.offset((page - 1) * per_page).limit(per_page)
 
-        @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: @time_entries.to_a).call
+        @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: @time_entries.to_a, viewer: current_user).call
 
         render json: {
           time_entries: @time_entries.map { |entry| serialize_time_entry(entry) },
@@ -77,7 +77,7 @@ module Api
 
       # GET /api/v1/time_entries/:id
       def show
-        @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: [ @time_entry ]).call
+        @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: [ @time_entry ], viewer: current_user).call
         render json: { time_entry: serialize_time_entry(@time_entry) }
       end
 

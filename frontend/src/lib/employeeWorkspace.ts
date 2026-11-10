@@ -1,5 +1,12 @@
 export type EmployeeTab = 'overview' | 'hours' | 'schedule' | 'activity' | 'setup'
 
+// True for the route itself or a page under it ("/admin/pay", "/admin/pay/42?x"),
+// never for a sibling that only shares its prefix ("/admin/payroll").
+export function isWithinRoute(path: string, route: string): boolean {
+  const pathname = path.split(/[?#]/, 1)[0]
+  return pathname === route || pathname.startsWith(`${route}/`)
+}
+
 export function safeAdminReturn(value: string | null | undefined): string {
   if (!value || !value.startsWith('/admin') || !/^\/admin(?:\/|\?|$)/.test(value) || (value.includes('\\') || Array.from(value).some((character) => character.charCodeAt(0) < 32))) return '/admin/users'
   const url = new URL(value, 'https://local.invalid')

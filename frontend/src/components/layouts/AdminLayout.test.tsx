@@ -45,6 +45,8 @@ function renderLayout(initialEntry = '/admin') {
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<div>Dashboard content</div>} />
           <Route path="/admin/payroll" element={<div>Payroll content</div>} />
+          <Route path="/admin/pay" element={<div>My Pay content</div>} />
+          <Route path="/admin/pay/:id" element={<div>Paycheck content</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -185,5 +187,39 @@ describe('AdminLayout kiosk PIN setup', () => {
 
     expect(screen.getByText('Payroll content')).toBeInTheDocument()
     expect(screen.queryByText('User menu')).not.toBeInTheDocument()
+  })
+})
+
+describe('AdminLayout My Pay navigation', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    Object.defineProperty(window, 'innerWidth', { value: 1280, writable: true, configurable: true })
+    authMock.value.isClerkEnabled = true
+  })
+
+  it.each(['employee', 'admin'] as const)('shows My Pay to an enabled %s', (role) => {
+    authMock.value.userRole = role
+    authMock.value.currentUser = { full_name: 'Pilot Worker', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
+    renderLayout()
+    expect(screen.getByRole('link', { name: 'My Pay' })).toHaveAttribute('href', '/admin/pay')
+  })
+
+  it.each(['employee', 'admin'] as const)('hides My Pay from a %s outside the pilot', (role) => {
+    authMock.value.userRole = role
+    authMock.value.currentUser = { full_name: 'Other Worker', needs_kiosk_pin_setup: false, my_pay_enabled: false } as typeof authMock.value.currentUser
+    renderLayout()
+    expect(screen.queryByRole('link', { name: 'My Pay' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['/admin/pay', 'My Pay'],
+    ['/admin/pay/42', 'My Pay'],
+    ['/admin/payroll', 'Time & Payroll'],
+  ])('highlights only the matching menu item on %s', (path, active) => {
+    authMock.value.userRole = 'admin'
+    authMock.value.currentUser = { full_name: 'Pilot Admin', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
+    renderLayout(path)
+    const current = screen.getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page')
+    expect(current.map((link) => link.textContent)).toEqual([active])
   })
 })
