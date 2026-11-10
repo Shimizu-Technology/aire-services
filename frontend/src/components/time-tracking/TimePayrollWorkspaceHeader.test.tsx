@@ -11,7 +11,8 @@ describe('TimePayrollWorkspaceHeader', () => {
       <MemoryRouter>
         <TimePayrollWorkspaceHeader
           activeSection="payroll"
-          isAdmin
+          canManageTeamTime
+          canManagePayroll
           pendingApprovalCount={35}
           pendingOvertimeCount={1}
           period={{ start: '2026-08-16', end: '2026-08-31' }}
@@ -39,7 +40,7 @@ describe('TimePayrollWorkspaceHeader', () => {
     const onSectionChange = vi.fn()
     render(
       <MemoryRouter>
-        <TimePayrollWorkspaceHeader activeSection="entries" isAdmin={false} onSectionChange={onSectionChange} />
+        <TimePayrollWorkspaceHeader activeSection="entries" canManageTeamTime={false} onSectionChange={onSectionChange} />
       </MemoryRouter>,
     )
 
@@ -48,5 +49,19 @@ describe('TimePayrollWorkspaceHeader', () => {
     expect(screen.queryByText('Hours Reports')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Leave Requests' }))
     expect(onSectionChange).toHaveBeenCalledWith('leave')
+  })
+
+  it('gives managers approvals and hours reports but not payroll', () => {
+    render(
+      <MemoryRouter>
+        <TimePayrollWorkspaceHeader activeSection="approvals" canManageTeamTime canManagePayroll={false} onSectionChange={vi.fn()} />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Time & Payroll' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approvals' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hours Reports' })).toBeInTheDocument()
+    expect(screen.queryByText('Payroll')).not.toBeInTheDocument()
+    expect(screen.queryByText(/finalize auditable payroll cutoffs/)).not.toBeInTheDocument()
   })
 })

@@ -45,7 +45,7 @@ class PayrollAccountLinkSession < ApplicationRecord
       raise ActiveRecord::RecordInvalid, self unless valid?
       errors.add(:base, "This connection request has already been used") if consumed_at.present?
       errors.add(:base, "This connection request has expired") unless expires_at.future?
-      unless user&.admin? && user.is_active? && user.personal_access_enabled?
+      unless user&.can_manage_payroll? && user.is_active? && user.personal_access_enabled?
         errors.add(:base, "An active AIRE administrator account is required")
       end
       raise ActiveRecord::RecordInvalid, self if errors.any?

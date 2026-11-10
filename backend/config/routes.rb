@@ -18,7 +18,7 @@ Rails.application.routes.draw do
       resources :team_members, only: [ :index ]
       resources :site_media, only: [ :index ], path: "site-media"
 
-      # Read-only My Pay preview for allowlisted admins (Setting my_pay_preview_user_ids)
+      # Read-only My Pay preview for owners and admins (the preview_pay capability)
       scope "my_pay/preview", controller: :my_pay_previews, as: :my_pay_preview, format: false do
         get "workers", action: :workers, as: :workers
         get "workers/:user_id", action: :worker, as: :worker
@@ -173,6 +173,8 @@ Rails.application.routes.draw do
             delete :public_team_photo, action: :destroy_public_team_photo
           end
         end
+        resource :my_pay_access, only: [ :show, :update ], controller: "my_pay_access"
+        patch "users/:user_id/my_pay", to: "my_pay_access#update_user", as: :user_my_pay
         resource :contact_settings, only: [ :show, :update ], controller: "contact_settings"
         resources :site_media, path: "site-media"
         get "settings", to: "settings#index"

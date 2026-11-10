@@ -21,7 +21,7 @@ module Api
         ].freeze
 
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:export_hours_reports) }
 
         def show
           render json: ::Payroll::HoursReportBuilder.new(report_params).call

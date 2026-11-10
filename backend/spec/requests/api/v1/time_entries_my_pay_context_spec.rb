@@ -23,7 +23,7 @@ RSpec.describe "My Time paycheck links and cutoff explanations", type: :request 
 
   before do
     PayrollLockRollout.configure!(starts_on: Date.current.beginning_of_month, actor: "test", reason: "Synthetic tracking activation")
-    Setting.set("my_pay_enabled_user_ids", employee.id.to_s)
+    employee.update!(my_pay_enabled: true)
   end
 
   def entry(**attributes)
@@ -92,7 +92,7 @@ RSpec.describe "My Time paycheck links and cutoff explanations", type: :request 
   end
 
   it "adds nothing when My Pay is not enabled for the worker" do
-    Setting.set("my_pay_enabled_user_ids", "")
+    employee.update!(my_pay_enabled: false)
     source = entry
     receipt(source, "payment_issued")
     expect(status_for(source)).to eq("status" => "payment_issued", "label" => "Paid", "paid_hours" => 8.0, "held_hours" => 0.0)
@@ -100,7 +100,7 @@ RSpec.describe "My Time paycheck links and cutoff explanations", type: :request 
   end
 
   it "never adds another worker's paycheck to an admin's view of their entries" do
-    Setting.set("my_pay_enabled_user_ids", "#{employee.id},#{admin.id}")
+    admin.update!(my_pay_enabled: true)
     source = entry
     receipt(source, "payment_issued")
     expect(status_for(source, { "Authorization" => "Bearer test_token_#{admin.id}" })).not_to have_key("paychecks")

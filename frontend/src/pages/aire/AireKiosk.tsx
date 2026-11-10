@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { SignInButton } from '@clerk/clerk-react'
 import { api, type AireKioskActionResponse, type AireKioskEmployee, type ClockStatus, type TimeCategory } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
+import { capabilitiesFor } from '../../lib/roles'
 
 type KioskAction = 'clock_in' | 'clock_out' | 'start_break' | 'end_break' | 'switch_category'
 
@@ -100,8 +101,8 @@ export default function AireKiosk() {
   )
   const kioskAccessToken = !isClerkEnabled ? null : kioskAccessSession?.token ?? null
   const kioskUnlocked = !isClerkEnabled || !!kioskAccessToken
-  const canUnlockKiosk = !isClerkEnabled || userRole === 'admin'
-  const canViewKiosk = !isClerkEnabled || userRole === 'admin' || kioskUnlocked
+  const canUnlockKiosk = !isClerkEnabled || capabilitiesFor(userRole).unlock_kiosk
+  const canViewKiosk = canUnlockKiosk || kioskUnlocked
 
   const clearSession = useCallback(() => {
     warningRequestRef.current += 1
@@ -310,7 +311,7 @@ export default function AireKiosk() {
 
   const handleUnlock = async () => {
     if (!canUnlockKiosk) {
-      setError('An admin account is required to unlock this kiosk.')
+      setError('A manager or admin account is required to unlock this kiosk.')
       return
     }
 
@@ -378,8 +379,8 @@ export default function AireKiosk() {
               Admin launch required
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-sm text-slate-300 md:text-base">
-              This shared kiosk should only be opened by an admin on the device that staff will use.
-              Once an admin unlocks it here, employees can enter their PIN until the kiosk is locked again or the unlock session expires.
+              This shared kiosk should only be opened by a manager or admin on the device that staff will use.
+              Once a manager or admin unlocks it here, employees can enter their PIN until the kiosk is locked again or the unlock session expires.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               {!isClerkEnabled ? (
@@ -398,7 +399,7 @@ export default function AireKiosk() {
               ) : (
                 <>
                   <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-                    You are signed in, but only admins can open this kiosk. Ask an admin to unlock it, or sign out and use an admin account.
+                    You are signed in, but only managers and admins can open this kiosk. Ask one to unlock it, or sign out and use a manager or admin account.
                   </div>
                   <Link
                     to="/admin"

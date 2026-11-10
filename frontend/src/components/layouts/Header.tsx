@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
+import { capabilitiesFor } from '../../lib/roles'
 import { cx } from '../../lib/cx'
 
 const navigation = [
@@ -16,6 +17,7 @@ export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
   const { isClerkEnabled, userRole, isStaff, isLoading } = useAuthContext()
+  const canUnlockKiosk = capabilitiesFor(userRole).unlock_kiosk
 
   const isActive = (href: string) => location.pathname === href
 
@@ -56,7 +58,7 @@ export default function Header() {
               <SignedIn>
                 {!isLoading && isStaff && (
                   <>
-                    {userRole === 'admin' && (
+                    {canUnlockKiosk && (
                       <Link
                         to="/kiosk"
                         className="inline-flex h-11 items-center rounded-2xl border border-cyan-300 bg-white px-4 text-sm font-semibold leading-none text-cyan-700 transition hover:-translate-y-0.5 hover:bg-cyan-50"
@@ -115,7 +117,7 @@ export default function Header() {
                 <SignedIn>
                   {!isLoading && isStaff && (
                     <>
-                      {userRole === 'admin' && (
+                      {canUnlockKiosk && (
                         <Link
                           to="/kiosk"
                           onClick={() => setMobileOpen(false)}
@@ -127,7 +129,7 @@ export default function Header() {
                       <Link
                         to="/admin"
                         onClick={() => setMobileOpen(false)}
-                        className={cx('flex min-h-12 items-center rounded-2xl bg-cyan-50 px-4 text-sm font-semibold text-cyan-700', userRole === 'admin' && 'mt-2')}
+                        className={cx('flex min-h-12 items-center rounded-2xl bg-cyan-50 px-4 text-sm font-semibold text-cyan-700', canUnlockKiosk && 'mt-2')}
                       >
                         Open Admin Dashboard
                       </Link>

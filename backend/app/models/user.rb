@@ -7,6 +7,31 @@ class User < ApplicationRecord
   KIOSK_LOCKOUT_DURATION = 15.minutes
   ADMIN_ACCESS_ADVISORY_LOCK_KEY = 92_144_008
 
+  # Roles, most to least privileged. The role alone decides what a person can
+  # do; see ROLE_CAPABILITIES. Owners can do everything admins can, plus assign
+  # owner and admin. Managers run the day-to-day time workflow only.
+  ROLES = %w[owner admin manager employee].freeze
+  ADMINISTRATOR_ROLES = %w[owner admin].freeze
+  SUPERVISOR_ROLES = %w[owner admin manager].freeze
+  # Roles an admin (not an owner) may grant, and may change someone away from.
+  ADMIN_ASSIGNABLE_ROLES = %w[manager employee].freeze
+  ROLE_CAPABILITIES = {
+    manage_settings: ADMINISTRATOR_ROLES,
+    manage_users: ADMINISTRATOR_ROLES,
+    manage_payroll: ADMINISTRATOR_ROLES,
+    manage_schedules: ADMINISTRATOR_ROLES,
+    manage_site: ADMINISTRATOR_ROLES,
+    view_activity: ADMINISTRATOR_ROLES,
+    preview_pay: ADMINISTRATOR_ROLES,
+    manage_my_pay_access: ADMINISTRATOR_ROLES,
+    approve_time: SUPERVISOR_ROLES,
+    manage_team_time: SUPERVISOR_ROLES,
+    approve_leave: SUPERVISOR_ROLES,
+    unlock_kiosk: SUPERVISOR_ROLES,
+    export_hours_reports: SUPERVISOR_ROLES,
+    send_pay_statements: SUPERVISOR_ROLES
+  }.freeze
+
   has_secure_password :kiosk_pin, validations: false
 
   has_many :audit_logs, dependent: :nullify
@@ -51,12 +76,13 @@ class User < ApplicationRecord
   validates :is_active, inclusion: { in: [ true, false ] }
   validates :is_intern, inclusion: { in: [ true, false ] }
   validates :personal_access_enabled, inclusion: { in: [ true, false ] }
+  validates :my_pay_enabled, inclusion: { in: [ true, false ] }
   validates :time_tracking_enabled, inclusion: { in: [ true, false ] }
   validates :profile_source, inclusion: { in: PROFILE_SOURCES }
   validates :public_team_enabled, inclusion: { in: [ true, false ] }
   validates :public_team_photo_position_x, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
   validates :public_team_photo_position_y, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
-  validates :role, inclusion: { in: %w[admin employee] }
+  validates :role, inclusion: { in: ROLES }
   validates :termination_reason, length: { maximum: 1_000 }, allow_blank: true
   validate :approval_group_must_be_configured
   validate :public_team_profile_is_complete
@@ -77,9 +103,13 @@ class User < ApplicationRecord
 
   attr_readonly :payroll_integration_uuid
 
+  scope :owners, -> { where(role: "owner") }
   scope :admins, -> { where(role: "admin") }
+  scope :managers, -> { where(role: "manager") }
   scope :employees, -> { where(role: "employee") }
-  scope :staff, -> { where(role: %w[admin employee]) }
+  # Owners and admins: everyone with full administrative access.
+  scope :administrators, -> { where(role: ADMINISTRATOR_ROLES) }
+  scope :staff, -> { where(role: ROLES) }
   scope :kiosk_enabled, -> { staff.where(kiosk_enabled: true) }
   scope :public_team, -> {
     staff
@@ -101,7 +131,7 @@ class User < ApplicationRecord
     raise "Admin access lock requires an open transaction" unless connection.transaction_open?
 
     connection.select_value("SELECT pg_advisory_xact_lock(#{ADMIN_ACCESS_ADVISORY_LOCK_KEY})")
-    admins.order(:id).lock.load
+    administrators.order(:id).lock.load
     yield
   end
 
@@ -138,16 +168,92 @@ class User < ApplicationRecord
     end
   end
 
+  def owner?
+    role == "owner"
+  end
+
+  # The admin role only. For "owner or admin" use administrator? or, better,
+  # the capability that describes the action.
   def admin?
     role == "admin"
+  end
+
+  def manager?
+    role == "manager"
   end
 
   def employee?
     role == "employee"
   end
 
+  def administrator?
+    ADMINISTRATOR_ROLES.include?(role)
+  end
+
+  # Owners, admins and managers: anyone who acts on other people's time.
+  def supervisor?
+    SUPERVISOR_ROLES.include?(role)
+  end
+
   def staff?
-    admin? || employee?
+    ROLES.include?(role)
+  end
+
+  def capability?(capability)
+    ROLE_CAPABILITIES.fetch(capability).include?(role)
+  end
+
+  def capabilities
+    ROLE_CAPABILITIES.keys.index_with { |capability| capability?(capability) }
+  end
+
+  # Settings, approval groups, clock rules and work categories.
+  def can_manage_settings? = capability?(:manage_settings)
+  # The Team page: people, access, termination, roles and My Pay switches.
+  def can_manage_users? = capability?(:manage_users)
+  # The payroll workspace and connection: calendar, cutoffs, batches, cockpit, pay rates.
+  def can_manage_payroll? = capability?(:manage_payroll)
+  def can_manage_schedules? = capability?(:manage_schedules)
+  # The public website: media and contact settings.
+  def can_manage_site? = capability?(:manage_site)
+  def can_view_activity? = capability?(:view_activity)
+  # Read-only preview of any worker's My Pay, including pay amounts.
+  def can_preview_pay? = capability?(:preview_pay)
+  def can_manage_my_pay_access? = capability?(:manage_my_pay_access)
+  def can_approve_time? = capability?(:approve_time)
+  # See everyone's time and create, correct or delete it, clock others in or out.
+  def can_manage_team_time? = capability?(:manage_team_time)
+  def can_approve_leave? = capability?(:approve_leave)
+  def can_unlock_kiosk? = capability?(:unlock_kiosk)
+  def can_export_hours_reports? = capability?(:export_hours_reports)
+  def can_send_pay_statements? = capability?(:send_pay_statements)
+
+  # Who may set target's role to new_role. Owners may assign any role; admins
+  # only move people between manager and employee and never touch owners or
+  # admins. Nobody changes their own role. The last-owner rule is enforced
+  # separately, under a lock, by RoleAssignment.
+  def can_assign_role?(target, new_role)
+    return false unless is_active? && can_manage_users?
+    return false unless ROLES.include?(new_role.to_s)
+    return false if target.persisted? && target.id == id
+
+    return true if owner?
+
+    ADMIN_ASSIGNABLE_ROLES.include?(new_role.to_s) &&
+      (target.new_record? || ADMIN_ASSIGNABLE_ROLES.include?(target.role_was.presence || target.role))
+  end
+
+  # Owners and admins can only be terminated, reactivated, deleted or lose sign-in at the
+  # hands of an owner, the same people who can take the role away.
+  def can_change_access_for?(target)
+    return false unless is_active? && can_manage_users?
+    return true if owner?
+
+    !target.administrator?
+  end
+
+  def roles_assignable_to(target)
+    ROLES.select { |candidate| can_assign_role?(target, candidate) }
   end
 
   def approval_group_keys
@@ -339,10 +445,10 @@ class User < ApplicationRecord
   end
 
   def admins_require_personal_access
-    return unless admin?
+    return unless supervisor?
     return if personal_access_enabled?
 
-    errors.add(:personal_access_enabled, "must be enabled for admins")
+    errors.add(:personal_access_enabled, "must be enabled for #{role.pluralize}")
   end
 
   def local_profiles_require_first_name

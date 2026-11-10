@@ -6,10 +6,10 @@ module Api
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_leave_request, only: [ :show, :approve, :decline, :cancel ]
-      before_action :require_admin!, only: [ :approve, :decline ]
+      before_action -> { require_capability!(:approve_leave) }, only: [ :approve, :decline ]
 
       def index
-        requests = current_user.admin? ? LeaveRequest.all : current_user.leave_requests
+        requests = current_user.can_approve_leave? ? LeaveRequest.all : current_user.leave_requests
         requests = requests.includes(:user, :reviewed_by, :cancelled_by)
         if params[:status].present?
           requests = if params[:status] == "reviewed"
@@ -108,7 +108,7 @@ module Api
       private
 
       def set_leave_request
-        scope = current_user.admin? ? LeaveRequest : current_user.leave_requests
+        scope = current_user.can_approve_leave? ? LeaveRequest : current_user.leave_requests
         @leave_request = scope.includes(:user, :reviewed_by, :cancelled_by).find(params[:id])
       rescue ActiveRecord::RecordNotFound
         render json: { error: "Leave request not found" }, status: :not_found

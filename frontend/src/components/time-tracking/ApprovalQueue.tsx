@@ -15,7 +15,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
 
 interface ApprovalQueueProps {
-  isAdmin?: boolean
+  canManageTeamTime?: boolean
   approvalGroups: ApprovalGroupOption[]
   approvalGroupsLoaded: boolean
   initialDateFilter?:
@@ -204,7 +204,7 @@ function approveLabel(entry: TimeEntry) {
   return entry.approval_status === 'pending' ? `Approve time + ${hours.toFixed(2)} OT` : `Approve ${hours.toFixed(2)} OT`
 }
 
-export default function ApprovalQueue({ isAdmin = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ canManageTeamTime = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -1080,7 +1080,7 @@ export default function ApprovalQueue({ isAdmin = false, approvalGroups, approva
     <EditTimeEntryModal
       isOpen={!!editingEntry}
       entry={editingEntry}
-      isAdmin={isAdmin}
+      canManageTeamTime={canManageTeamTime}
       categories={editingEntry?.user.time_category_ids
         ? categories.filter((category) => editingEntry.user.time_category_ids?.includes(category.id))
         : categories}

@@ -147,7 +147,7 @@ module Payroll
 
     def validate_environment_state!
       raise Error, "Keep connected payroll paused" if ConnectedPayrollMode.enabled?
-      raise Error, "An active admin must record this reconciliation" unless @actor&.admin? && @actor.is_active?
+      raise Error, "An active admin must record this reconciliation" unless @actor&.can_manage_payroll? && @actor.is_active?
       unless PayrollLockRollout.installation.cutoff_enforcement_starts_on == rollout_starts_on
         raise Error, "Expected the reviewed lock rollout boundary"
       end

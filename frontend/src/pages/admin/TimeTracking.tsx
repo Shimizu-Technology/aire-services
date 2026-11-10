@@ -4,7 +4,7 @@ import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Frag
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { employeeWorkspaceHref, isWithinRoute, safeAdminReturn } from '../../lib/employeeWorkspace'
-import type { EmployeePayrollStatus, TimeEntriesResponse } from '../../lib/api'
+import type { CurrentUser, EmployeePayrollStatus, TimeEntriesResponse } from '../../lib/api'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import type { ApprovalGroupFilter, ApprovalGroupOption, HoursReportDownloadType, HoursReportEmployee, HoursReportEntry, HoursReportParams, HoursReportResponse, PayrollEntryLifecycle, PayrollEntryLifecycleStatus, PendingApprovalsSummary } from '../../lib/api'
@@ -19,6 +19,8 @@ import LeaveRequestsPanel from '../../components/time-tracking/LeaveRequestsPane
 import ReportExportActions from '../../components/time-tracking/ReportExportActions'
 import TimePayrollWorkspaceHeader, { type TimePayrollSection } from '../../components/time-tracking/TimePayrollWorkspaceHeader'
 import { useAuthContext } from '../../contexts/AuthContext'
+import { capabilitiesFor, isUserRole, ROLE_DETAILS, USER_ROLES, type UserRole } from '../../lib/roles'
+import { useCapabilities } from '../../lib/useCapabilities'
 import { currentPayrollPeriod, isIsoDate, withPayrollPeriod, type PayrollPeriod } from '../../lib/payrollPeriods'
 
 // Local types to avoid Vite caching issues
@@ -212,6 +214,11 @@ function sortEntriesChronologically(a: TimeEntryItem, b: TimeEntryItem): number 
 }
 
 type TimeTab = Exclude<TimePayrollSection, 'payroll'>
+
+// Prefer the server's capability list; older payloads only say is_admin.
+function managesTeamTime(user: Pick<CurrentUser, 'role' | 'is_admin' | 'capabilities'>) {
+  return user.capabilities?.manage_team_time ?? (isUserRole(user.role) ? capabilitiesFor(user.role).manage_team_time : Boolean(user.is_admin))
+}
 type ReportApprovalStatus = '' | 'pending' | 'approved' | 'denied' | 'approved_or_standard'
 type ReportOvertimeStatus = '' | 'none' | 'pending' | 'approved' | 'denied'
 type ReportEmployeeStatus = 'all' | 'active' | 'current' | 'pending' | 'inactive' | 'terminated'
@@ -405,7 +412,12 @@ export default function TimeTracking() {
     setSearchParams(next, { replace: true })
   })
   const { userRole, isClerkEnabled, currentUser: authenticatedUser, isSignedIn } = useAuthContext()
-  const authSaysAdmin = !isClerkEnabled || userRole === 'admin'
+  const capabilities = useCapabilities()
+  const canManagePayroll = capabilities.manage_payroll
+  const canExportHours = capabilities.export_hours_reports
+  // The employee workspace (/admin/users/:id) lives under Team.
+  const canOpenEmployeeWorkspace = capabilities.manage_users
+  const canManageSettings = capabilities.manage_settings
   const routedPeriod = linkedPayrollPeriod(searchParams)
   const routedPeriodStart = routedPeriod?.start
   const routedPeriodEnd = routedPeriod?.end
@@ -418,7 +430,7 @@ export default function TimeTracking() {
     return /^\d+$/.test(value) ? value.replace(/^0+(?=\d)/, '') : ''
   })()
   const routedApprovalGroup = (searchParams.get('approval_group') || 'all') as 'all' | ApprovalGroupFilter
-  const routedRole = (searchParams.get('role') === 'admin' || searchParams.get('role') === 'employee' ? searchParams.get('role') : '') as '' | 'admin' | 'employee'
+  const routedRole: '' | UserRole = isUserRole(searchParams.get('role')) ? searchParams.get('role') as UserRole : ''
   const routedClockSource = (['kiosk', 'mobile', 'admin', 'legacy'].includes(searchParams.get('clock_source') || '') ? searchParams.get('clock_source') : '') as '' | 'kiosk' | 'mobile' | 'admin' | 'legacy'
   const routedEntryMethod = (searchParams.get('entry_method') === 'clock' || searchParams.get('entry_method') === 'manual' ? searchParams.get('entry_method') : '') as '' | 'clock' | 'manual'
   const initialLinkedPeriod = routedPeriod
@@ -429,7 +441,7 @@ export default function TimeTracking() {
   const [approvalGroupsLoaded, setApprovalGroupsLoaded] = useState(false)
   const [pendingApprovalSummary, setPendingApprovalSummary] = useState<PendingApprovalsSummary | null>(null)
   const pendingSummaryRequestSequence = useRef(0)
-  const [isAdmin, setIsAdmin] = useState(authSaysAdmin)
+  const [canManageTeamTime, setCanManageTeamTime] = useState(capabilities.manage_team_time)
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [optionsReady, setOptionsReady] = useState(false)
   const [optionsError, setOptionsError] = useState<string | null>(null)
@@ -524,18 +536,18 @@ export default function TimeTracking() {
 
   const calculatedHours = calculateHours(formData.start_time, formData.end_time, formData.break_minutes)
   const selectedEntryOwner = users.find((user) => user.id.toString() === formData.user_id)
-  const availableEntryCategories = isAdmin
+  const availableEntryCategories = canManageTeamTime
     ? categories.filter((category) => selectedEntryOwner?.time_category_ids?.includes(category.id))
     : categories
 
   const initialCategoryForOwner = useCallback((userId: number | null) => {
     if (!userId) return ''
     const owner = users.find((user) => user.id === userId)
-    const assigned = isAdmin
+    const assigned = canManageTeamTime
       ? categories.filter((category) => owner?.time_category_ids?.includes(category.id))
       : categories
     return assigned.length === 1 ? assigned[0].id.toString() : ''
-  }, [categories, isAdmin, users])
+  }, [categories, canManageTeamTime, users])
 
   // Owner display: "You" for self, real name for others
   const ownerLabel = (entry: TimeEntryItem): string => {
@@ -630,7 +642,8 @@ export default function TimeTracking() {
         api.getCurrentUser()
       ])
 
-      if (!catResponse.data || !currentUserResponse.data || (currentUserResponse.data.user.is_admin && !userResponse.data)) {
+      const signedInManagesTeamTime = currentUserResponse.data ? managesTeamTime(currentUserResponse.data.user) : false
+      if (!catResponse.data || !currentUserResponse.data || (signedInManagesTeamTime && !userResponse.data)) {
         setOptionsError(catResponse.error || currentUserResponse.error || userResponse.error || 'Unable to load people and work categories.')
         return
       }
@@ -654,7 +667,7 @@ export default function TimeTracking() {
       }
 
       if (currentUserResponse.data) {
-        setIsAdmin(currentUserResponse.data.user.is_admin)
+        setCanManageTeamTime(signedInManagesTeamTime)
         setCurrentUserId(currentUserResponse.data.user.id)
       }
       setOptionsReady(true)
@@ -664,14 +677,15 @@ export default function TimeTracking() {
   }, [])
 
   const loadApprovalGroups = useCallback(async () => {
-    if (!isAdmin) {
+    if (!canManageTeamTime) {
       setApprovalGroups([])
       setApprovalGroupsLoaded(true)
       return
     }
 
     try {
-      const response = await api.getAdminAppSettings()
+      // Managers can't open Settings; the staff directory carries the same department list.
+      const response = canManageSettings ? await api.getAdminAppSettings() : await api.getUsers()
       if (response.data?.approval_groups) {
         setApprovalGroups(response.data.approval_groups)
       }
@@ -680,11 +694,11 @@ export default function TimeTracking() {
     } finally {
       setApprovalGroupsLoaded(true)
     }
-  }, [isAdmin])
+  }, [canManageTeamTime, canManageSettings])
 
   const loadPendingApprovalSummary = useCallback(async () => {
     const requestSequence = ++pendingSummaryRequestSequence.current
-    if (!isAdmin) {
+    if (!canManageTeamTime) {
       setPendingApprovalSummary(null)
       return
     }
@@ -698,7 +712,7 @@ export default function TimeTracking() {
     } catch {
       // The approvals queue itself will surface errors when the tab is open.
     }
-  }, [isAdmin])
+  }, [canManageTeamTime])
   
   // Load payroll-safe, backend-calculated report data.
   const loadReport = useCallback(async () => {
@@ -749,8 +763,8 @@ export default function TimeTracking() {
   }, [reportFilters])
 
   useEffect(() => {
-    document.title = `${isAdmin ? 'Time & Payroll' : 'My Time'} | AIRE Ops`
-  }, [isAdmin])
+    document.title = `${canManageTeamTime ? 'Time & Payroll' : 'My Time'} | AIRE Ops`
+  }, [canManageTeamTime])
 
   useEffect(() => {
     const requestedTab = timeTabFromSearchParams(searchParams)
@@ -854,7 +868,7 @@ export default function TimeTracking() {
   }, [loadApprovalGroups])
 
   useEffect(() => {
-    if (!isAdmin) {
+    if (!canManageTeamTime) {
       setPendingApprovalSummary(null)
       return
     }
@@ -865,7 +879,7 @@ export default function TimeTracking() {
       stopPolling()
       pendingSummaryRequestSequence.current += 1
     }
-  }, [isAdmin, loadPendingApprovalSummary, entryRefreshRevision])
+  }, [canManageTeamTime, loadPendingApprovalSummary, entryRefreshRevision])
 
   useEffect(() => {
     if (activeTab === 'reports') {
@@ -903,11 +917,11 @@ export default function TimeTracking() {
         }
         const shift = response.data.schedule
         const owner = users.find((user) => user.id === shift.user_id)
-        if (String(shift.user_id) !== expectedOwner || (!isAdmin && shift.user_id !== currentUserId)) {
+        if (String(shift.user_id) !== expectedOwner || (!canManageTeamTime && shift.user_id !== currentUserId)) {
           setPrefillError('The shift employee has changed or is unavailable to your account. Open Schedule again.')
           return
         }
-        if (isAdmin && !owner) {
+        if (canManageTeamTime && !owner) {
           setPrefillError('The scheduled employee is unavailable. Review their access in Team before logging time.')
           return
         }
@@ -929,7 +943,7 @@ export default function TimeTracking() {
     }
     void initialize()
     return () => { cancelled = true }
-  }, [routedPrefill, routedScheduleId, routedPrefillOwner, optionsReady, users, isAdmin, currentUserId, initialCategoryForOwner, prefillRetry])
+  }, [routedPrefill, routedScheduleId, routedPrefillOwner, optionsReady, users, canManageTeamTime, currentUserId, initialCategoryForOwner, prefillRetry])
 
   // Calendar navigation operates on date-only values, never device timestamps.
   const goToToday = () => setCurrentDate(businessDateISO())
@@ -939,7 +953,7 @@ export default function TimeTracking() {
   // Modal handlers
   const openNewEntry = (date?: string, prefillStart?: string, prefillEnd?: string, prefillNotes?: string, ownerId?: number | null) => {
     if (!optionsReady || searchParams.get('prefill') === 'true') return
-    const selectedOwner = ownerId ?? (isAdmin && entryFilters.user_id ? Number(entryFilters.user_id) : currentUserId)
+    const selectedOwner = ownerId ?? (canManageTeamTime && entryFilters.user_id ? Number(entryFilters.user_id) : currentUserId)
     setEditingEntry(null)
     setFormData({
       work_date: date || currentDate,
@@ -1006,7 +1020,7 @@ export default function TimeTracking() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (isAdmin && !formData.user_id) {
+    if (canManageTeamTime && !formData.user_id) {
       setError('Please select an entry owner')
       return
     }
@@ -1025,7 +1039,7 @@ export default function TimeTracking() {
         end_time: formData.end_time,
         description: formData.description || undefined,
         time_category_id: formData.time_category_id ? parseInt(formData.time_category_id) : undefined,
-        user_id: isAdmin && formData.user_id ? parseInt(formData.user_id) : undefined,
+        user_id: canManageTeamTime && formData.user_id ? parseInt(formData.user_id) : undefined,
         break_minutes: formData.break_minutes
       }
 
@@ -1047,7 +1061,7 @@ export default function TimeTracking() {
   }
 
   const canDeleteEntry = (entry: TimeEntryItem): boolean => {
-    if (isAdmin) return true
+    if (canManageTeamTime) return true
     return currentUserId === entry.user.id
   }
 
@@ -1222,7 +1236,8 @@ export default function TimeTracking() {
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">{isWithinRoute(returnTo, '/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}</Link>}
       <TimePayrollWorkspaceHeader
         activeSection={activeTab}
-        isAdmin={isAdmin}
+        canManageTeamTime={canManageTeamTime}
+        canManagePayroll={canManagePayroll}
         pendingApprovalCount={pendingApprovalCount}
         pendingOvertimeCount={pendingOvertimeApprovalCount}
         period={workspacePeriod}
@@ -1251,16 +1266,16 @@ export default function TimeTracking() {
           {/* Clock In/Out Card - full width, horizontal on desktop */}
           <ClockInOutCard
             onStatusChange={refreshEntryViews}
-            showDisabledNotice={!isAdmin || (currentUserId !== null && routedUserId === String(currentUserId))}
+            showDisabledNotice={!canManageTeamTime || (currentUserId !== null && routedUserId === String(currentUserId))}
           />
 
-          {isAdmin && <WhosWorking />}
+          {canManageTeamTime && <WhosWorking />}
         </>
       )}
 
-      {activeTab === 'approvals' && isAdmin && (
+      {activeTab === 'approvals' && canManageTeamTime && (
         <ApprovalQueue
-          isAdmin={isAdmin}
+          canManageTeamTime={canManageTeamTime}
           approvalGroups={approvalGroups}
           approvalGroupsLoaded={approvalGroupsLoaded}
           initialDateFilter={routedThroughDate
@@ -1277,7 +1292,7 @@ export default function TimeTracking() {
       {activeTab === 'entries' && (
       <>
       {/* Filters (Admin only) */}
-      {isAdmin && (
+      {canManageTeamTime && (
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm p-4 hover:shadow-md transition-shadow duration-300">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
@@ -1540,7 +1555,7 @@ export default function TimeTracking() {
             ))}
           </div>
         </div>
-      ) : viewMode === 'week' && isAdmin ? (
+      ) : viewMode === 'week' && canManageTeamTime ? (
         /* Week View */
         <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
           <div className="overflow-x-auto">
@@ -1684,7 +1699,7 @@ export default function TimeTracking() {
                 <div key={entry.id} id={`time-entry-${entry.id}`} tabIndex={routedEntryId === String(entry.id) ? -1 : undefined} className={`p-3 sm:p-4 ${routedEntryId === String(entry.id) ? 'bg-cyan-50 ring-2 ring-inset ring-cyan-400' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      {(viewMode === 'period' || (!isAdmin && viewMode === 'week')) && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
+                      {(viewMode === 'period' || (!canManageTeamTime && viewMode === 'week')) && <p className="mb-2 text-sm font-semibold text-primary-dark">{formatDateOnly(entry.work_date, { weekday: 'short', month: 'short', day: 'numeric' })}</p>}
                       {/* Hours + Time + Category Row */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 px-2 py-1 text-sm font-bold text-primary sm:px-3">
@@ -1722,10 +1737,10 @@ export default function TimeTracking() {
                           </span>
                         )}
                       </div>
-                      {!isAdmin && <EmployeePaymentStatus status={entry.payroll_status} />}
+                      {!canManageTeamTime && <EmployeePaymentStatus status={entry.payroll_status} />}
                       {/* Owner */}
                       <p className="mt-1 text-xs sm:text-sm text-primary-dark/80 truncate">
-                        by {isAdmin ? <Link to={employeeWorkspaceHref(entry.user.id, { tab: 'hours', returnTo: currentPath, entry: String(entry.id), period: `${entry.work_date.slice(0, 7)}-${Number(entry.work_date.slice(8)) <= 15 ? '01' : '16'}` })} className="underline decoration-primary/30 underline-offset-4">{ownerLabel(entry)}</Link> : ownerLabel(entry)}
+                        by {canOpenEmployeeWorkspace ? <Link to={employeeWorkspaceHref(entry.user.id, { tab: 'hours', returnTo: currentPath, entry: String(entry.id), period: `${entry.work_date.slice(0, 7)}-${Number(entry.work_date.slice(8)) <= 15 ? '01' : '16'}` })} className="underline decoration-primary/30 underline-offset-4">{ownerLabel(entry)}</Link> : ownerLabel(entry)}
                       </p>
                       {/* Description */}
                       {entry.description && (
@@ -1899,7 +1914,7 @@ export default function TimeTracking() {
                 </div>
 
                 {/* Entry Owner (admin create only) */}
-                {isAdmin && (
+                {canManageTeamTime && (
                   <div>
                     <label htmlFor="time-entry-owner" className="block text-sm font-medium text-primary-dark mb-1">
                       Entry Owner
@@ -1983,7 +1998,7 @@ export default function TimeTracking() {
                     onChange={(e) => setFormData({ ...formData, time_category_id: e.target.value })}
                     className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     required
-                    disabled={isAdmin && !formData.user_id}
+                    disabled={canManageTeamTime && !formData.user_id}
                   >
                     <option value="">Select category...</option>
                     {availableEntryCategories.map(cat => (
@@ -2044,7 +2059,7 @@ export default function TimeTracking() {
       )}
 
       {/* Reports Tab */}
-      {activeTab === 'reports' && isAdmin && (
+      {activeTab === 'reports' && canExportHours && (
         <div className="space-y-6">
           <section className="flex flex-col gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -2053,12 +2068,12 @@ export default function TimeTracking() {
                 Use this report to investigate current time and download working exports. Finalize the authoritative cutoff from Payroll after review.
               </p>
             </div>
-            <Link
+            {canManagePayroll && <Link
               to={reportPayrollHref}
               className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               Prepare payroll cutoff
-            </Link>
+            </Link>}
           </section>
 
           <div className="rounded-2xl border border-neutral-warm bg-white p-4 shadow-sm">
@@ -2138,8 +2153,7 @@ export default function TimeTracking() {
                 <label className="mb-1 block text-sm text-text-muted">Role</label>
                 <select value={reportFilters.role} onChange={(e) => setReportFilters({ ...reportFilters, role: e.target.value as typeof reportFilters.role })} className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">All roles</option>
-                  <option value="employee">Employees</option>
-                  <option value="admin">Admins</option>
+                  {USER_ROLES.map((role) => <option key={role} value={role}>{ROLE_DETAILS[role].plural}</option>)}
                 </select>
               </div>
               <div>
@@ -2271,7 +2285,7 @@ export default function TimeTracking() {
                   <p className="mt-0.5 text-xs text-text-muted">Entry-level status from AIRE cutoff through Cornerstone payment.</p>
                   <p className="mt-0.5 text-xs text-text-muted">Accounting corrections are recorded entries, not payments.</p>
                 </div>
-                <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>
+                {canManagePayroll && <Link to={reportPayrollHref} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-primary transition hover:bg-cyan-50">Open payroll cutoffs</Link>}
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
 
@@ -2448,7 +2462,7 @@ export default function TimeTracking() {
           <DetailedEntriesTable
             key={`${hoursReport?.generated_at ?? 'empty'}:${hoursReport?.start_date ?? ''}:${hoursReport?.end_date ?? ''}:${reportData.length}`}
             entries={reportData}
-            isAdmin={isAdmin}
+            canManageTeamTime={canManageTeamTime}
             loading={reportLoading}
             onEdit={openEditEntry}
           />
@@ -2459,17 +2473,17 @@ export default function TimeTracking() {
       )}
 
       {activeTab === 'leave' && (
-        <LeaveRequestsPanel isAdmin={isAdmin} />
+        <LeaveRequestsPanel canApproveLeave={canManageTeamTime && capabilities.approve_leave} />
       )}
 
       {/* Shared editor stays mounted for entries, approvals, and report remediation. */}
       <EditTimeEntryModal
         isOpen={showEditModal && !!editingEntry}
         entry={editingEntry}
-        categories={editingEntry && isAdmin
+        categories={editingEntry && canManageTeamTime
           ? categories.filter((category) => users.find((user) => user.id === editingEntry.user.id)?.time_category_ids?.includes(category.id))
           : categories}
-        isAdmin={isAdmin}
+        canManageTeamTime={canManageTeamTime}
         canDelete={!!editingEntry && canDeleteEntry(editingEntry)}
         onClose={closeEditModal}
         onSaved={refreshEntriesAfterEdit}
@@ -2770,12 +2784,12 @@ function EmployeeReportDrawer({ employee, onClose }: { employee: HoursReportEmpl
 
 function DetailedEntriesTable({
   entries,
-  isAdmin,
+  canManageTeamTime,
   loading,
   onEdit,
 }: {
   entries: TimeEntryItem[]
-  isAdmin: boolean
+  canManageTeamTime: boolean
   loading: boolean
   onEdit: (entry: TimeEntryItem) => void
 }) {
@@ -2804,7 +2818,7 @@ function DetailedEntriesTable({
     })
   }
 
-  const colCount = isAdmin ? 10 : 8
+  const colCount = canManageTeamTime ? 10 : 8
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
@@ -2850,7 +2864,7 @@ function DetailedEntriesTable({
                   <PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} />
                   {entry.payroll_lifecycle && (entry.payroll_lifecycle.payment_reference || entry.payroll_lifecycle.payment_effective_on || entry.payroll_lifecycle.accounting_only) && <p className="break-words text-xs text-text-muted">{entry.payroll_lifecycle.accounting_only ? ACCOUNTING_CORRECTION_NOTE : [entry.payroll_lifecycle.payment_method?.replaceAll('_', ' '), entry.payroll_lifecycle.payment_reference ? `Reference ${entry.payroll_lifecycle.payment_reference}` : null, entry.payroll_lifecycle.payment_effective_on ? `Paid ${formatDate(entry.payroll_lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')}</p>}
                   {(entry.breaks || []).map((item, index) => <p key={index} className="break-words text-xs text-text-muted">Break {item.start_time || '—'}–{item.end_time || '—'} · {item.duration_minutes ?? '—'}m</p>)}
-                  {isAdmin && <button type="button" aria-label={`Edit time entry ${entry.id} for ${group.name}`} onClick={() => onEdit(entry)} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">Edit</button>}
+                  {canManageTeamTime && <button type="button" aria-label={`Edit time entry ${entry.id} for ${group.name}`} onClick={() => onEdit(entry)} className="min-h-11 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">Edit</button>}
                 </div>)}
               </div>
             </article>
@@ -2861,7 +2875,7 @@ function DetailedEntriesTable({
           <thead className="bg-neutral-warm/50">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Date</th>
-              {isAdmin && <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Employee</th>}
+              {canManageTeamTime && <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Employee</th>}
               <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Time</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Categories</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Source</th>
@@ -2869,7 +2883,7 @@ function DetailedEntriesTable({
               <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Breaks</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Description</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase">Payroll</th>
-              {isAdmin && <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Actions</th>}
+              {canManageTeamTime && <th className="px-4 py-3 text-right text-xs font-medium text-text-muted uppercase">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-warm">
@@ -2906,7 +2920,7 @@ function DetailedEntriesTable({
                           {formatDate(group.date)}
                         </div>
                       </td>
-                      {isAdmin && <td className="px-4 py-3 text-sm text-text-muted">{group.name}</td>}
+                      {canManageTeamTime && <td className="px-4 py-3 text-sm text-text-muted">{group.name}</td>}
                       <td className="px-4 py-3 text-sm text-primary-dark whitespace-nowrap">
                         {firstStart && lastEnd ? `${firstStart} – ${lastEnd}` : '-'}
                       </td>
@@ -2932,7 +2946,7 @@ function DetailedEntriesTable({
                       <td className="px-4 py-3 text-sm">
                         <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter((entry) => entry.payroll_lifecycle).map((entry) => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map((lifecycle) => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
                       </td>
-                      {isAdmin && (
+                      {canManageTeamTime && (
                         <td className="px-4 py-3 text-right">
                           {!hasMultiple && <button type="button" onClick={(event) => { event.stopPropagation(); onEdit(group.entries[0]) }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button>}
                         </td>
@@ -2941,7 +2955,7 @@ function DetailedEntriesTable({
                     {isExpanded && group.entries.map(entry => (
                       <tr key={entry.id} className="bg-secondary/30">
                         <td className="pl-10 pr-4 py-2 text-xs text-text-muted whitespace-nowrap"></td>
-                        {isAdmin && <td className="px-4 py-2 text-xs text-text-muted"></td>}
+                        {canManageTeamTime && <td className="px-4 py-2 text-xs text-text-muted"></td>}
                         <td className="px-4 py-2 text-xs text-primary-dark whitespace-nowrap">
                           {entry.formatted_start_time && entry.formatted_end_time
                             ? `${entry.formatted_start_time} – ${entry.formatted_end_time}`
@@ -2956,7 +2970,7 @@ function DetailedEntriesTable({
                           <EntryQualityFlags flags={entry.quality_flags} />
                         </td>
                         <td className="px-4 py-2 text-xs"><PayrollLifecycleBadge lifecycle={entry.payroll_lifecycle} /></td>
-                        {isAdmin && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button></td>}
+                        {canManageTeamTime && <td className="px-4 py-2 text-right"><button type="button" onClick={() => onEdit(entry)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-cyan-50">Edit</button></td>}
                       </tr>
                     ))}
                   </Fragment>

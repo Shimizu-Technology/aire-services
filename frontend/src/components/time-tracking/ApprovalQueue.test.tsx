@@ -136,7 +136,7 @@ describe('ApprovalQueue review workflow', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-31T14:30:00Z'))
     try {
-      render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded isAdmin />)
+      render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canManageTeamTime />)
       fireEvent.click(await screen.findByRole('button', { name: label }))
       await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenLastCalledWith(expect.objectContaining(expected)))
     } finally {
@@ -144,15 +144,15 @@ describe('ApprovalQueue review workflow', () => {
     }
   })
 
-  it.each([true, false])('passes the admin role (%s) to the denied overtime editor', async (isAdmin) => {
+  it.each([true, false])('passes the admin role (%s) to the denied overtime editor', async (canManageTeamTime) => {
     const denied = makeEntry({ version: 7, approval_status: 'denied', overtime_status: 'pending' })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [denied], count: 1, summary } })
-    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded isAdmin={isAdmin} canDeleteEntry={() => true} />)
+    render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canManageTeamTime={canManageTeamTime} canDeleteEntry={() => true} />)
     fireEvent.click(await screen.findByTitle('Edit entry'))
     const dialog = screen.getByRole('dialog', { name: 'Edit Time Entry' })
     expect(within(dialog).getByLabelText('End Time *')).toHaveValue('10:00')
     const resubmit = within(dialog).queryByRole('checkbox', { name: 'Submit denied time for review' })
-    if (isAdmin) expect(resubmit).toBeVisible()
+    if (canManageTeamTime) expect(resubmit).toBeVisible()
     else expect(resubmit).not.toBeInTheDocument()
   })
 
@@ -486,7 +486,7 @@ describe('Late approval guidance', () => {
     const event = vi.fn()
     window.addEventListener('aire:approvals-updated', event)
     try {
-      render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded onUpdate={updated} />)
+      render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded onUpdate={updated} />)
       expect(await screen.findByText(`This entry missed the payroll cutoff. ${LATE_HOURS_NOTICE}`)).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
       await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(late.id, undefined))
@@ -503,7 +503,7 @@ describe('Late approval guidance', () => {
     const updated = vi.fn()
     vi.stubGlobal('confirm', vi.fn(() => true))
     try {
-      render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded onUpdate={updated} />)
+      render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded onUpdate={updated} />)
       fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (1)' }))
       fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }))
       await waitFor(() => expect(updated).toHaveBeenCalledOnce())
@@ -517,7 +517,7 @@ describe('Late approval guidance', () => {
     const confirmation = vi.fn<(message: string) => boolean>(() => false)
     vi.stubGlobal('confirm', confirmation)
     try {
-      render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded onUpdate={vi.fn()} />)
+      render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded onUpdate={vi.fn()} />)
       fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (1)' }))
       fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }))
       expect(confirmation).toHaveBeenCalledOnce()
@@ -533,7 +533,7 @@ describe('Late approval guidance', () => {
     const confirmation = vi.fn(() => true)
     vi.stubGlobal('confirm', confirmation)
     try {
-      render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded />)
+      render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
       fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (2)' }))
       fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }))
       expect(confirmation).toHaveBeenCalledWith(expect.stringContaining('1 selected entry has missed the payroll cutoff.'))
@@ -551,7 +551,7 @@ it('keeps note entry and approval usable with a long entry', async () => {
   apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
   apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [source], count: 1 } })
   apiMock.approveTimeEntry.mockResolvedValue({ data: { time_entry: { ...source, approval_status: 'approved' } } })
-  render(<ApprovalQueue isAdmin approvalGroups={[]} approvalGroupsLoaded />)
+  render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
   fireEvent.click(await screen.findByRole('button', { name: 'Add note' }))
   fireEvent.change(screen.getByPlaceholderText('Add a note (optional)...'), { target: { value: 'Synthetic review note' } })
   expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled()

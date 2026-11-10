@@ -2,6 +2,7 @@
 
 class UserAccessConfiguration
   class ConfigurationError < StandardError; end
+  class RoleNotPermitted < ConfigurationError; end
 
   EMAIL_FORMAT = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
   ACCESS_FIELDS = %w[personal_access_enabled kiosk_enabled time_tracking_enabled].freeze
@@ -19,8 +20,10 @@ class UserAccessConfiguration
   def apply!
     configuration = resolved_configuration
     validate_configuration!(configuration)
+    authorize_role!(configuration)
     ensure_no_active_clock_transition!(configuration)
 
+    previous_role = creating ? nil : user.role
     previous_access = access_snapshot
     assign_identity!(configuration)
     assign_access!(configuration)
@@ -28,6 +31,7 @@ class UserAccessConfiguration
     save_user!
     sync_time_categories!(configuration) if configuration[:time_tracking_enabled]
     log_access_change!(previous_access)
+    RoleAssignment.audit!(user: user, from: previous_role, to: user.role, actor: actor) if !creating && previous_role != user.role
 
     configuration
   end
@@ -73,10 +77,10 @@ class UserAccessConfiguration
   end
 
   def validate_configuration!(configuration)
-    raise ConfigurationError, "Role must be admin or employee" unless %w[admin employee].include?(configuration[:role])
+    raise ConfigurationError, "Role must be one of #{User::ROLES.to_sentence(last_word_connector: ', or ')}" unless User::ROLES.include?(configuration[:role])
 
-    if configuration[:role] == "admin" && !configuration[:personal_access_enabled]
-      raise ConfigurationError, "Admins must keep personal sign-in enabled"
+    if User::SUPERVISOR_ROLES.include?(configuration[:role]) && !configuration[:personal_access_enabled]
+      raise ConfigurationError, "#{configuration[:role].pluralize.capitalize} must keep personal sign-in enabled"
     end
 
     if configuration[:personal_access_enabled]
@@ -100,6 +104,17 @@ class UserAccessConfiguration
     end
 
     validate_categories!(configuration) if configuration[:time_tracking_enabled]
+  end
+
+  # Only checked when the role actually changes, so editing an owner's or
+  # admin's other details stays available to admins.
+  def authorize_role!(configuration)
+    return unless creating || configuration[:role] != user.role
+    return if actor&.can_assign_role?(user, configuration[:role])
+
+    raise RoleNotPermitted, "You cannot change your own role" if user.persisted? && user.id == actor&.id
+
+    raise RoleNotPermitted, "Only an owner can assign or change the owner and admin roles"
   end
 
   def validate_categories!(configuration)

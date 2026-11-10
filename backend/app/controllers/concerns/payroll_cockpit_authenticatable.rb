@@ -39,7 +39,7 @@ module PayrollCockpitAuthenticatable
     end
 
     required_capability = self.class::PAYROLL_COMMAND_CAPABILITY
-    unless @payroll_actor.admin? && grant.allows?(required_capability)
+    unless @payroll_actor.can_manage_payroll? && grant.allows?(required_capability)
       audit_payroll_authorization_denial(grant.token_hint, "capability_required", actor: @payroll_actor)
       return render json: { error: "This AIRE payroll delegation does not allow that action" }, status: :forbidden
     end

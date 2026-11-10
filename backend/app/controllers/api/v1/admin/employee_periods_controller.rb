@@ -5,7 +5,7 @@ module Api
     module Admin
       class EmployeePeriodsController < BaseController
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:manage_payroll) }
 
         def index
           render_evidence

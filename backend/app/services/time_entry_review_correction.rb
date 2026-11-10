@@ -17,7 +17,7 @@ class TimeEntryReviewCorrection
   end
 
   def call
-    raise CorrectionError, "Only admins can submit this correction" unless actor.admin?
+    raise CorrectionError, "Only managers and admins can submit this correction" unless actor.can_manage_team_time?
     raise CorrectionError, "A correction reason is required" if reason.blank?
     version = attributes[:expected_version]
     raise StaleEntryError, "Reload this entry before submitting the correction" unless version.to_s.match?(/\A\d+\z/)

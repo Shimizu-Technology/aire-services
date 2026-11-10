@@ -102,4 +102,34 @@ describe('Dashboard unavailable snapshots', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Showing the last successful snapshot')
     expect(screen.getByText('3 approvals covering 10.00 hours still need review.', { exact: false })).toBeInTheDocument()
   })
+  it('gives a manager the approvals picture without the payroll workspace', async () => {
+    mocks.role = 'manager'
+    try {
+      open()
+      expect(await screen.findByText('Approvals this pay period')).toBeInTheDocument()
+      expect(mocks.getPayrollBatches).not.toHaveBeenCalled()
+      expect(screen.queryByRole('link', { name: /Prepare Payroll|Prepare payroll cutoff/ })).not.toBeInTheDocument()
+      expect(screen.getAllByRole('link', { name: 'Review Approvals' })[0].getAttribute('href')).toContain('tab=approvals')
+      expect(screen.getAllByRole('link', { name: 'View Schedule' }).length).toBeGreaterThan(0)
+      const actions = screen.getByRole('heading', { name: 'Action Center' }).closest('section') as HTMLElement
+      const titles = Array.from(actions.querySelectorAll('h3')).map((heading) => heading.textContent)
+      expect(titles).toEqual(['Time & Payroll', 'Pending Approvals', 'Leave Requests', 'Hours Reports'])
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    } finally {
+      mocks.role = 'admin'
+    }
+  })
+
+  it('keeps the full action center for an owner', async () => {
+    mocks.role = 'owner'
+    try {
+      open()
+      expect(await screen.findByText('Payroll readiness')).toBeInTheDocument()
+      expect(mocks.getPayrollBatches).toHaveBeenCalled()
+      const actions = screen.getByRole('heading', { name: 'Action Center' }).closest('section') as HTMLElement
+      expect(actions.querySelectorAll('h3')).toHaveLength(7)
+    } finally {
+      mocks.role = 'admin'
+    }
+  })
 })

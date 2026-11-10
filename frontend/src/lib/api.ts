@@ -2,6 +2,7 @@ import type { ConnectedPayrollCapability } from './connectedPayroll'
 // AIRE Services API client
 import type { PublicContactInfoSettings } from './businessInfo'
 import { apiUrl } from './apiBase'
+import type { Capabilities, UserRole } from './roles'
 
 export interface InvitationEmailOutcome {
   invitation_email_sent?: boolean | null;
@@ -232,12 +233,15 @@ export interface CurrentUser {
   first_name: string | null;
   last_name: string | null;
   full_name: string;
-  role: 'admin' | 'employee';
+  role: UserRole;
   is_intern?: boolean;
   approval_group?: ApprovalGroup | null;
   is_active: boolean;
+  /** Owner or admin. */
   is_admin: boolean;
+  is_owner?: boolean;
   is_staff: boolean;
+  capabilities?: Capabilities;
   personal_access_enabled: boolean;
   profile_source: 'clerk' | 'local';
   time_tracking_enabled: boolean;
@@ -246,7 +250,7 @@ export interface CurrentUser {
   kiosk_pin_last_rotated_at?: string | null;
   needs_kiosk_pin_setup: boolean;
   my_pay_enabled?: boolean;
-  /** Allowlisted admins only: may preview any worker's My Pay, read-only. */
+  /** Owners and admins: may preview any worker's My Pay, read-only. */
   my_pay_preview_enabled?: boolean;
   created_at: string;
 }
@@ -292,7 +296,12 @@ export interface AdminUser {
   last_name: string | null;
   display_name: string;
   full_name: string;
-  role: 'admin' | 'employee';
+  role: UserRole;
+  /** Roles the signed-in owner or admin may give this person; empty when they can't change it. */
+  assignable_roles?: UserRole[];
+  /** Whether the signed-in owner or admin may terminate, reactivate or remove sign-in for this person. */
+  can_change_access?: boolean;
+  my_pay_enabled?: boolean;
   staff_title: string | null;
   is_intern?: boolean;
   approval_group?: ApprovalGroup | null;
@@ -638,7 +647,10 @@ export interface ClockStatus {
   clock_in_location_required?: boolean;
   clock_in_location_name?: string | null;
   clock_in_location_radius_meters?: number | null;
+  /** Owner or admin. */
   is_admin?: boolean;
+  /** Owners, admins and managers may clock in outside the schedule window. */
+  can_override_clock?: boolean;
   clock_source?: 'kiosk' | 'mobile' | 'admin' | 'legacy' | null;
   time_category?: {
     id: number;
@@ -1006,7 +1018,7 @@ export interface HoursReportEmployee {
   last_name: string | null;
   display_name: string;
   full_name: string;
-  role: 'admin' | 'employee';
+  role: UserRole;
   is_intern: boolean;
   employee_type?: 'Intern' | 'Staff' | string;
   status: 'active' | 'pending' | 'inactive' | 'terminated';
@@ -1093,7 +1105,7 @@ export interface HoursReportParams {
   start_date: string;
   end_date: string;
   user_id?: number;
-  role?: 'admin' | 'employee';
+  role?: UserRole;
   status?: 'all' | 'active' | 'current' | 'pending' | 'inactive' | 'terminated';
   approval_group?: ApprovalGroupFilter | 'all';
   time_category_id?: number;
@@ -1559,7 +1571,7 @@ export const api = {
 
   // Users (staff list for dropdowns)
   getUsers: () =>
-    fetchApi<{ users: UserSummary[] }>('/api/v1/users'),
+    fetchApi<{ users: UserSummary[]; approval_groups?: ApprovalGroupOption[] }>('/api/v1/users'),
 
   // Admin: User Management
   getAdminUsers: () =>
@@ -1571,7 +1583,7 @@ export const api = {
     last_name?: string;
     staff_title?: string | null;
     is_intern?: boolean;
-    role: 'admin' | 'employee';
+    role: UserRole;
     approval_group?: ApprovalGroup | null;
     approval_groups?: ApprovalGroup[];
     send_invitation?: boolean;
@@ -1586,7 +1598,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  updateUserRole: (id: number, role: 'admin' | 'employee') =>
+  updateUserRole: (id: number, role: UserRole) =>
     fetchApi<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ role }),
@@ -1596,7 +1608,7 @@ export const api = {
     first_name?: string;
     last_name?: string;
     email?: string | null;
-    role?: 'admin' | 'employee';
+    role?: UserRole;
     staff_title?: string | null;
     is_intern?: boolean;
     approval_group?: ApprovalGroup | null;
@@ -1650,6 +1662,21 @@ export const api = {
   resendInvite: (id: number) =>
     fetchApi<InvitationEmailOutcome & { message: string }>(`/api/v1/admin/users/${id}/resend_invite`, {
       method: 'POST',
+    }),
+
+  getMyPayAccess: () =>
+    fetchApi<{ enabled_for_all: boolean; enabled_user_ids: number[] }>('/api/v1/admin/my_pay_access'),
+
+  setMyPayForEveryone: (enabledForAll: boolean) =>
+    fetchApi<{ enabled_for_all: boolean; enabled_user_ids: number[] }>('/api/v1/admin/my_pay_access', {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled_for_all: enabledForAll }),
+    }),
+
+  setUserMyPay: (id: number, enabled: boolean) =>
+    fetchApi<{ user_id: number; my_pay_enabled: boolean; my_pay_active: boolean }>(`/api/v1/admin/users/${id}/my_pay`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
     }),
 
   resetKioskPin: (id: number, pin?: string) =>

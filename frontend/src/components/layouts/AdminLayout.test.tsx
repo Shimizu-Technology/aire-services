@@ -9,7 +9,7 @@ import AdminLayout from './AdminLayout'
 const authMock = vi.hoisted(() => ({
   value: {
     isClerkEnabled: true,
-    userRole: 'employee' as 'employee' | 'admin',
+    userRole: 'employee' as 'owner' | 'admin' | 'manager' | 'employee',
     currentUser: {
       full_name: 'Hourly Pilot',
       needs_kiosk_pin_setup: true,
@@ -197,14 +197,14 @@ describe('AdminLayout My Pay navigation', () => {
     authMock.value.isClerkEnabled = true
   })
 
-  it.each(['employee', 'admin'] as const)('shows My Pay to an enabled %s', (role) => {
+  it.each(['employee', 'manager', 'admin', 'owner'] as const)('shows My Pay to an enabled %s', (role) => {
     authMock.value.userRole = role
     authMock.value.currentUser = { full_name: 'Pilot Worker', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
     renderLayout()
     expect(screen.getByRole('link', { name: 'My Pay' })).toHaveAttribute('href', '/admin/pay')
   })
 
-  it.each(['employee', 'admin'] as const)('hides My Pay from a %s outside the pilot', (role) => {
+  it.each(['employee', 'manager', 'admin', 'owner'] as const)('hides My Pay from a %s whose switch is off', (role) => {
     authMock.value.userRole = role
     authMock.value.currentUser = { full_name: 'Other Worker', needs_kiosk_pin_setup: false, my_pay_enabled: false } as typeof authMock.value.currentUser
     renderLayout()
@@ -221,5 +221,37 @@ describe('AdminLayout My Pay navigation', () => {
     renderLayout(path)
     const current = screen.getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page')
     expect(current.map((link) => link.textContent)).toEqual([active])
+  })
+})
+
+describe('AdminLayout navigation by role', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    Object.defineProperty(window, 'innerWidth', { value: 1280, writable: true, configurable: true })
+    authMock.value.isClerkEnabled = true
+    authMock.value.currentUser = { full_name: 'Team Member', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
+  })
+
+  function navLabels() {
+    const nav = screen.getAllByRole('navigation')[0]
+    return Array.from(nav.querySelectorAll('a')).map((link) => link.textContent?.trim())
+  }
+
+  it.each([
+    ['owner', ['Dashboard', 'My Pay', 'Time & Payroll', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
+    ['admin', ['Dashboard', 'My Pay', 'Time & Payroll', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
+    ['manager', ['Dashboard', 'Time & Payroll', 'My Pay', 'Schedule']],
+    ['employee', ['My Dashboard', 'My Time', 'My Pay', 'Schedule']],
+  ] as const)('gives a %s exactly their menu', (role, expected) => {
+    authMock.value.userRole = role
+    renderLayout()
+    expect(navLabels()).toEqual(expected)
+  })
+
+  it('labels the manager workspace without calling it admin', () => {
+    authMock.value.userRole = 'manager'
+    renderLayout()
+    expect(screen.getByText('Manager workspace')).toBeInTheDocument()
+    expect(screen.queryByText('Admin workspace')).not.toBeInTheDocument()
   })
 })

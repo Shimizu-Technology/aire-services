@@ -8,9 +8,9 @@ module Api
 
       # GET /api/v1/time_categories
       # Returns active time categories for dropdown selection
-      # Admins see all active categories; employees see only their assigned categories
+      # Supervisors see all active categories (they log time for others); employees see only their assigned categories
       def index
-        @categories = if current_user.admin?
+        @categories = if current_user.can_manage_team_time?
           TimeCategory.active.order(:name)
         else
           current_user.assigned_time_categories.active.order(:name)

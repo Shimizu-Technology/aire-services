@@ -17,7 +17,7 @@ class PayrollAccountLink < ApplicationRecord
   scope :active, -> { where(active: true) }
 
   def connected?
-    active? && user&.admin? && user.is_active? && user.personal_access_enabled?
+    active? && user&.can_manage_payroll? && user.is_active? && user.personal_access_enabled?
   end
 
   def revoke!
@@ -29,7 +29,7 @@ class PayrollAccountLink < ApplicationRecord
   def user_can_manage_payroll
     return unless active?
     return if user.blank?
-    return if user.admin? && user.is_active? && user.personal_access_enabled?
+    return if user.can_manage_payroll? && user.is_active? && user.personal_access_enabled?
 
     errors.add(:user, "must be an active AIRE administrator with personal sign-in")
   end

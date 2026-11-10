@@ -8,7 +8,7 @@ module Api
         include MediaUploadValidation
 
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:manage_users) }
         before_action :set_user,
                       only: [
                         :show,
@@ -21,6 +21,7 @@ module Api
                         :public_team_photo,
                         :destroy_public_team_photo
                       ]
+        before_action :require_access_change_permission!, only: [ :destroy, :terminate, :reactivate ]
         rescue_from MediaUploadValidation::InvalidMediaUpload, with: :invalid_media_upload
 
         def index
@@ -98,6 +99,8 @@ module Api
                 sync_approval_groups(@user, approval_groups)
               end
             end
+          rescue UserAccessConfiguration::RoleNotPermitted => e
+            return render json: { error: e.message }, status: :forbidden
           rescue UserAccessConfiguration::ConfigurationError => e
             return render json: { error: e.message }, status: :unprocessable_entity
           rescue ActiveRecord::RecordInvalid => e
@@ -127,6 +130,14 @@ module Api
 
           if @user.id == current_user.id && params.key?(:is_active) && !boolean_param(:is_active)
             return render json: { error: "You cannot deactivate your own account" }, status: :unprocessable_entity
+          end
+
+          if params[:role].present? && params[:role] != @user.role && !current_user.can_assign_role?(@user, params[:role])
+            return render json: { error: "Only an owner can assign or change the owner and admin roles" }, status: :forbidden
+          end
+
+          if params.key?(:personal_access_enabled) && !boolean_param(:personal_access_enabled) && !current_user.can_change_access_for?(@user)
+            return render_owner_required
           end
 
           if boolean_param(:send_invitation)
@@ -173,6 +184,8 @@ module Api
             end
           rescue StagingOutboundPolicy::Blocked => e
             return render json: { error: e.message, staging: true }, status: :service_unavailable
+          rescue UserAccessConfiguration::RoleNotPermitted => e
+            return render json: { error: e.message }, status: :forbidden
           rescue UserAccessConfiguration::ConfigurationError => e
             return render json: { error: e.message }, status: :unprocessable_entity
           rescue ActiveRecord::RecordInvalid => e
@@ -252,7 +265,7 @@ module Api
 
           begin
             ActiveRecord::Base.transaction do
-              if @user.admin?
+              if @user.administrator?
                 User.with_admin_access_lock { terminate_user_under_lock(effective_on) }
               else
                 terminate_user_under_lock(effective_on)
@@ -372,6 +385,15 @@ module Api
           render json: { error: "User not found" }, status: :not_found
         end
 
+        def require_access_change_permission!
+          render_owner_required unless current_user.can_change_access_for?(@user)
+        end
+
+        def render_owner_required
+          AuditLog.record_security_event!(action: "authorization.owner_denied", actor: current_user, outcome: "denied", metadata: { path: request.path, target_user_id: @user&.id })
+          render json: { error: "Only an owner can change access for an owner or admin" }, status: :forbidden
+        end
+
         def serialize_user(user)
           utcs = user.user_time_categories.includes(:time_category)
           {
@@ -382,6 +404,9 @@ module Api
             display_name: user.display_name,
             full_name: user.full_name,
             role: user.role,
+            assignable_roles: current_user.roles_assignable_to(user),
+            can_change_access: current_user.can_change_access_for?(user),
+            my_pay_enabled: user.my_pay_enabled?,
             staff_title: user.staff_title,
             is_intern: user.is_intern,
             approval_group: user.approval_group,
@@ -656,7 +681,7 @@ module Api
         end
 
         def with_admin_transition_lock_if_needed
-          if @user.admin? && @user.is_active? && @user.personal_access_enabled?
+          if @user.administrator? && @user.is_active? && @user.personal_access_enabled?
             return User.with_admin_access_lock do
               @user.reload
               yield
@@ -666,16 +691,21 @@ module Api
           yield
         end
 
+        # Owners and admins keep the app administrable: the last active owner
+        # and the last active owner-or-admin can't lose their role, activation
+        # or personal sign-in. Runs under User.with_admin_access_lock.
         def validate_last_admin_transition
-          return nil unless @user.admin? && @user.is_active? && @user.personal_access_enabled?
+          return nil unless @user.administrator? && @user.is_active? && @user.personal_access_enabled?
 
-          remains_admin = params[:role].blank? || params[:role] == "admin"
+          new_role = params[:role].presence || @user.role
           remains_active = !params.key?(:is_active) || boolean_param(:is_active)
           keeps_personal_access = !params.key?(:personal_access_enabled) || boolean_param(:personal_access_enabled)
-          return nil if remains_admin && remains_active && keeps_personal_access
-          return nil if User.admins.where(is_active: true, personal_access_enabled: true).where.not(id: @user.id).exists?
+          keeps_access = remains_active && keeps_personal_access
 
-          "AIRE Ops must keep at least one active admin with personal sign-in"
+          return RoleAssignment::LAST_OWNER_MESSAGE if (new_role != "owner" || !keeps_access) && RoleAssignment.last_active_owner?(@user)
+          return RoleAssignment::LAST_ADMINISTRATOR_MESSAGE if (!User::ADMINISTRATOR_ROLES.include?(new_role) || !keeps_access) && RoleAssignment.last_active_administrator?(@user)
+
+          nil
         end
 
         def termination_effective_on
@@ -692,10 +722,6 @@ module Api
           nil
         end
 
-        def last_active_admin?(user)
-          user.admin? && user.is_active? && user.personal_access_enabled? &&
-            !User.admins.where(is_active: true, personal_access_enabled: true).where.not(id: user.id).exists?
-        end
 
         def terminate_user_under_lock(effective_on)
           @user.with_lock do
@@ -710,8 +736,13 @@ module Api
               return
             end
 
-            if last_active_admin?(@user)
-              render json: { error: "AIRE Ops must keep at least one active admin with personal sign-in" }, status: :unprocessable_entity
+            last_access_error = if RoleAssignment.last_active_owner?(@user)
+              RoleAssignment::LAST_OWNER_MESSAGE
+            elsif RoleAssignment.last_active_administrator?(@user)
+              RoleAssignment::LAST_ADMINISTRATOR_MESSAGE
+            end
+            if last_access_error
+              render json: { error: last_access_error }, status: :unprocessable_entity
               return
             end
 

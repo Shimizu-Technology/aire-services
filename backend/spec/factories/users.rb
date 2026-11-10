@@ -11,6 +11,16 @@ FactoryBot.define do
     profile_source { "clerk" }
     time_tracking_enabled { false }
 
+    trait :owner do
+      role { "owner" }
+      first_name { "Owner" }
+    end
+
+    trait :manager do
+      role { "manager" }
+      first_name { "Manager" }
+    end
+
     trait :admin do
       role { "admin" }
       first_name { "Admin" }

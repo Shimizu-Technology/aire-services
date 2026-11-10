@@ -11,7 +11,7 @@ module Api
 
         before_action :authenticate_shared_secret!, only: :create
         before_action :authenticate_user!, only: %i[show authorize]
-        before_action :require_admin!, only: %i[show authorize]
+        before_action -> { require_capability!(:manage_payroll) }, only: %i[show authorize]
 
         def create
           session = PayrollAccountLinkSession.issue!(

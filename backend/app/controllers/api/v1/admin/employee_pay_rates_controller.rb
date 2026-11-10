@@ -5,7 +5,7 @@ module Api
     module Admin
       class EmployeePayRatesController < Api::V1::BaseController
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:manage_payroll) }
 
         # GET /api/v1/admin/employee_pay_rates
         # Optional filter: ?user_id=123

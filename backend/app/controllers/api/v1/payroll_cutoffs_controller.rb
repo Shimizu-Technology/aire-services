@@ -8,7 +8,7 @@ module Api
       before_action :prevent_caching
 
       def show
-        render_cutoff(current_user, include_attention: current_user.admin?)
+        render_cutoff(current_user, include_attention: current_user.can_manage_payroll?)
       end
 
       def kiosk

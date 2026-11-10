@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, expect, it, vi } from 'vitest'
 import AireKiosk from './AireKiosk'
 
-const authMock = vi.hoisted(() => ({ isClerkEnabled: true, isSignedIn: true, userRole: 'admin' as 'admin' | 'employee' | null }))
+const authMock = vi.hoisted(() => ({ isClerkEnabled: true, isSignedIn: true, userRole: 'admin' as 'owner' | 'admin' | 'manager' | 'employee' | null }))
 const mocks = vi.hoisted(() => ({ createAdminKioskSession: vi.fn(), getPayrollCutoff: vi.fn(), aireKioskVerify: vi.fn(), aireKioskClockIn: vi.fn(), aireKioskClockOut: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: mocks }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => authMock }))
@@ -62,6 +62,15 @@ it('shows an admin-only message for signed-in non-admin users', () => {
   authMock.isSignedIn = true
   authMock.userRole = 'employee'
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
-  expect(screen.getByText(/only admins can open this kiosk/i)).toBeInTheDocument()
+  expect(screen.getByText(/only managers and admins can open this kiosk/i)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Admin sign in to open kiosk' })).not.toBeInTheDocument()
+})
+
+it('lets a signed-in manager unlock the kiosk', () => {
+  sessionStorage.clear()
+  authMock.isSignedIn = true
+  authMock.userRole = 'manager'
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  expect(screen.queryByText(/only managers and admins can open this kiosk/i)).not.toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: /unlock/i }).length).toBeGreaterThan(0)
 })

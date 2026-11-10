@@ -314,9 +314,10 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
 
   const isClockedIn = status?.clocked_in
   const isOnBreak = status?.status === 'on_break'
-  const isAdmin = status?.is_admin ?? false
+  // Owners, admins and managers may clock in outside their schedule window.
+  const canOverrideClock = status?.can_override_clock ?? status?.is_admin ?? false
   const blockedReason = status?.clock_in_blocked_reason
-  const isAdminOverridable = isAdmin && (blockedReason === 'too_early' || blockedReason === 'shift_ended')
+  const isAdminOverridable = canOverrideClock && (blockedReason === 'too_early' || blockedReason === 'shift_ended')
   const canClockIn = categories.length > 0 && (status?.can_clock_in || isAdminOverridable)
 
   const hasMultipleSegments = (status?.session?.segments?.length ?? 0) > 1
@@ -427,8 +428,8 @@ export default function ClockInOutCard({ onStatusChange, showDisabledNotice = tr
           </div>
         )}
         {!isClockedIn && !status?.schedule && <NoScheduleMsg />}
-        {!isClockedIn && blockedReason === 'too_early' && <TooEarlyMsg isAdmin={isAdmin} minutesUntil={status?.minutes_until} />}
-        {!isClockedIn && blockedReason === 'shift_ended' && <ShiftEndedMsg isAdmin={isAdmin} />}
+        {!isClockedIn && blockedReason === 'too_early' && <TooEarlyMsg canOverride={canOverrideClock} minutesUntil={status?.minutes_until} />}
+        {!isClockedIn && blockedReason === 'shift_ended' && <ShiftEndedMsg canOverride={canOverrideClock} />}
         {!isClockedIn && blockedReason === 'inactive_employee' && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             Employee is inactive
@@ -888,7 +889,7 @@ function NoScheduleMsg() {
   )
 }
 
-function ShiftEndedMsg({ isAdmin }: { isAdmin: boolean }) {
+function ShiftEndedMsg({ canOverride }: { canOverride: boolean }) {
   return (
     <div className="mb-4 p-3.5 bg-amber-50 rounded-xl border border-amber-200">
       <div className="flex items-start gap-2">
@@ -898,7 +899,7 @@ function ShiftEndedMsg({ isAdmin }: { isAdmin: boolean }) {
         <div>
           <div className="text-sm font-medium text-amber-700">Shift has ended</div>
           <div className="text-xs text-amber-600 mt-0.5">
-            {isAdmin
+            {canOverride
               ? 'Your shift has ended, but you can use admin override.'
               : 'Your shift has ended. Please submit a manual entry if you need to log time.'}
           </div>
@@ -908,7 +909,7 @@ function ShiftEndedMsg({ isAdmin }: { isAdmin: boolean }) {
   )
 }
 
-function TooEarlyMsg({ isAdmin, minutesUntil }: { isAdmin: boolean; minutesUntil?: number }) {
+function TooEarlyMsg({ canOverride, minutesUntil }: { canOverride: boolean; minutesUntil?: number }) {
   return (
     <div className="mb-4 p-3.5 bg-amber-50 rounded-xl border border-amber-200">
       <div className="flex items-start gap-2">
@@ -918,7 +919,7 @@ function TooEarlyMsg({ isAdmin, minutesUntil }: { isAdmin: boolean; minutesUntil
         <div>
           <div className="text-sm font-medium text-amber-700">Too early to clock in</div>
           <div className="text-xs text-amber-600 mt-0.5">
-            {isAdmin
+            {canOverride
               ? 'Your shift hasn\'t started yet, but you can use admin override.'
               : `You can clock in ${minutesUntil != null ? `in ~${minutesUntil} minutes` : 'shortly before your shift'}. This will update automatically.`}
           </div>

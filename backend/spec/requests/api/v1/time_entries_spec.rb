@@ -128,7 +128,7 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
            headers: auth_headers_for[employee]
 
       expect(response).to have_http_status(:forbidden)
-      expect(json[:error]).to eq("Only admins can create entries for other users")
+      expect(json[:error]).to eq("Only managers and admins can create entries for other users")
     end
 
     it "rolls back a new entry when its required audit event cannot be written" do

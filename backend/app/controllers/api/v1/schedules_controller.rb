@@ -5,7 +5,7 @@ module Api
     class SchedulesController < BaseController
       before_action :authenticate_user!
       before_action :require_staff!
-      before_action :require_admin!, only: [ :create, :update, :destroy, :bulk_create, :clear_week ]
+      before_action -> { require_capability!(:manage_schedules) }, only: [ :create, :update, :destroy, :bulk_create, :clear_week ]
       before_action :set_schedule, only: [ :show, :update, :destroy ]
 
       # GET /api/v1/schedules
@@ -203,7 +203,7 @@ module Api
       end
 
       def set_schedule
-        @schedule = if current_user.admin?
+        @schedule = if current_user.can_manage_schedules?
           Schedule.find(params[:id])
         else
           current_user.schedules.find(params[:id])

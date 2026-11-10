@@ -96,7 +96,7 @@ describe('LeaveRequestsPanel transparency timeline', () => {
       })
     })
 
-    render(<LeaveRequestsPanel isAdmin />)
+    render(<LeaveRequestsPanel canApproveLeave />)
 
     expect(await screen.findByText('Pending approvals (1)')).toBeInTheDocument()
     expect(screen.getByText('Completed requests')).toBeInTheDocument()

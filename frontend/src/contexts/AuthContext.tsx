@@ -3,12 +3,13 @@ import type { ReactNode } from 'react'
 import { useAuth, useUser } from '@clerk/clerk-react'
 import { setAuthTokenGetter, api } from '../lib/api'
 import type { CurrentUser } from '../lib/api'
+import { isUserRole, type UserRole } from '../lib/roles'
 
 interface AuthContextType {
   isClerkEnabled: boolean
   isSignedIn: boolean
   isLoading: boolean
-  userRole: 'admin' | 'employee' | null
+  userRole: UserRole | null
   isStaff: boolean
   currentUser: CurrentUser | null
   authError: string | null
@@ -43,7 +44,7 @@ const CLERK_JWT_TEMPLATE = import.meta.env.VITE_CLERK_JWT_TEMPLATE
 function ClerkAuthProvider({ children }: { children: ReactNode }) {
   const { getToken, isLoaded, isSignedIn } = useAuth()
   const { user: clerkUser } = useUser()
-  const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null)
+  const [userRole, setUserRole] = useState<UserRole | null>(null)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [isAuthServiceUnavailable, setIsAuthServiceUnavailable] = useState(false)
@@ -97,7 +98,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
       const response = await api.getCurrentUser()
       if (response.data?.user) {
         const nextUser = response.data.user
-        const role = nextUser.role
+        const role = isUserRole(nextUser.role) ? nextUser.role : null
         setCurrentUser(nextUser)
         setUserRole(role)
         setAuthError(null)
@@ -159,7 +160,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
       isSignedIn: isSignedIn ?? false,
       isLoading: !isLoaded || (isSignedIn === true && !roleFetched),
       userRole,
-      isStaff: userRole === 'admin' || userRole === 'employee',
+      isStaff: isUserRole(userRole),
       currentUser,
       authError,
       isAuthServiceUnavailable,

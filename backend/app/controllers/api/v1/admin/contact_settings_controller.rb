@@ -5,7 +5,7 @@ module Api
     module Admin
       class ContactSettingsController < Api::V1::BaseController
         before_action :authenticate_user!
-        before_action :require_admin!
+        before_action -> { require_capability!(:manage_site) }
 
         def show
           render json: {

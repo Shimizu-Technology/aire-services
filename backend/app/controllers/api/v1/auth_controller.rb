@@ -70,7 +70,9 @@ module Api
           is_intern: user.is_intern,
           approval_group: user.approval_group,
           is_active: user.is_active,
-          is_admin: user.admin?,
+          is_admin: user.administrator?,
+          is_owner: user.owner?,
+          capabilities: user.capabilities,
           is_staff: user.staff?,
           personal_access_enabled: user.personal_access_enabled,
           profile_source: user.profile_source,
@@ -80,7 +82,7 @@ module Api
           kiosk_pin_last_rotated_at: user.kiosk_pin_last_rotated_at&.iso8601,
           needs_kiosk_pin_setup: user.time_tracking_enabled? && user.kiosk_enabled? && !user.kiosk_pin_configured?,
           my_pay_enabled: Setting.my_pay_enabled_for?(user),
-          my_pay_preview_enabled: Setting.my_pay_preview_allowed?(user),
+          my_pay_preview_enabled: user.can_preview_pay?,
           created_at: user.created_at
         }
       end
