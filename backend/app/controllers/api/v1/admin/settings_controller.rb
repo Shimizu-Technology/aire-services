@@ -16,8 +16,10 @@ module Api
           clock_in_location_radius_meters
         ].freeze
         APPROVAL_SETTING_KEYS = [ Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY ].freeze
-        SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS).freeze
-        BOOLEAN_SETTING_KEYS = APPROVAL_SETTING_KEYS
+        PAY_STUB_SETTING_KEYS = [ Setting::PAY_STUB_KIOSK_REQUESTS_KEY, Setting::PAY_STUB_SELF_EMAIL_KEY ].freeze
+        SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS).freeze
+        # On/off switches: each change gets its own before/after audit row.
+        BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS).freeze
 
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_settings) }
@@ -106,7 +108,7 @@ module Api
                 raise ActiveRecord::Rollback if approval_groups_error.present?
               end
 
-              audited_before = APPROVAL_SETTING_KEYS.select { |key| payload&.key?(key) }.index_with do |key|
+              audited_before = BOOLEAN_SETTING_KEYS.select { |key| payload&.key?(key) }.index_with do |key|
                 Setting.lock.find_by(key: key)&.value || Setting::DEFAULTS[key]
               end
 
@@ -114,7 +116,7 @@ module Api
                 Setting.set(key.to_s, value.to_s)
               end
 
-              record_approval_setting_changes!(audited_before, payload) if audited_before.any?
+              record_switch_changes!(audited_before, payload) if audited_before.any?
 
               Setting.set_approval_groups!(approval_groups_payload) if approval_groups_present
             end
@@ -150,8 +152,9 @@ module Api
           permitted.compact_blank
         end
 
-        # Settings that change who may approve time keep their own before/after audit row.
-        def record_approval_setting_changes!(before_values, payload)
+        # Switches that change who may approve time or how pay stubs go out
+        # keep their own before/after audit row.
+        def record_switch_changes!(before_values, payload)
           before_values.each do |key, before|
             after = payload.fetch(key).to_s
             next if before == after

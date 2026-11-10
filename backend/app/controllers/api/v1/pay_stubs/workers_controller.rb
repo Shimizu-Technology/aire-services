@@ -8,7 +8,7 @@ module Api
         # GET /api/v1/pay_stubs/workers
         def index
           workers = ::PayDocuments.sendable_workers.order(:first_name, :last_name, :id)
-          render json: { workers: workers.map { |user| worker_json(user) } }
+          render json: { workers: workers.map { |user| worker_json(user) }, can_choose_recipient: can_choose_recipient? }
         end
 
         # GET /api/v1/pay_stubs/workers/:id
@@ -18,10 +18,13 @@ module Api
 
         # GET /api/v1/pay_stubs/workers/:id/statements
         # Pay dates and periods only, never amounts, so managers can pick stubs.
+        # The run purpose (a bonus run, say) is for owners and admins only.
         def statements
           catalog = ::PayDocuments::StatementCatalog.new(worker: find_worker!(params[:id]))
           entries = ::PayDocuments.with_payroll { catalog.entries }
-          render json: { statements: entries.map(&:as_json) }
+          rows = entries.map(&:as_json)
+          rows = rows.map { |row| row.except(:run_purpose) } unless current_user.can_preview_pay?
+          render json: { statements: rows }
         end
       end
     end

@@ -102,6 +102,30 @@ RSpec.describe "Pay stub links", type: :request do
     expect(AuditLog.find_by(action: "pay_documents.link_download_denied").metadata["reason"]).to eq("revoked")
   end
 
+  it "doesn't work until its email is recorded as sent" do
+    delivery.update!(email_status: "pending")
+    lookup
+    expect(response.parsed_body).to include("state" => "pending", "documents" => [])
+
+    download(latest)
+    expect(response).to have_http_status(:gone)
+    expect(response.parsed_body["code"]).to eq("link_pending")
+    expect(latest.reload.download_count).to eq(0)
+    expect(cornerstone_requests).to be_empty
+  end
+
+  it "stops working for someone who no longer works here" do
+    worker.update_columns(is_active: false)
+    lookup
+    expect(response.parsed_body).to include("state" => "inactive", "documents" => [])
+
+    download(latest)
+    expect(response).to have_http_status(:gone)
+    expect(response.parsed_body["code"]).to eq("link_inactive")
+    expect(AuditLog.find_by(action: "pay_documents.link_download_denied").metadata["reason"]).to eq("inactive")
+    expect(cornerstone_requests).to be_empty
+  end
+
   it "won't download a check that was voided after the link was sent, and refunds the attempt" do
     stub_statements(worker, statement_row(42, pay_date: "2026-11-15", status: "voided"), statement_row(41, pay_date: "2026-10-31"))
     download(latest)

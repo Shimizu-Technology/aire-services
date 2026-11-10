@@ -45,7 +45,9 @@ module Api
             year: request.year,
             worker: worker_json(request.user),
             recipient_kind: request.recipient_kind,
-            recipient_email: request.recipient_kind == "typed" ? request.recipient_email : ::PayDocuments.on_file_email(request.user),
+            recipient_email: request.recipient_kind == "typed" ? request.recipient_email : visible_email("on_file", ::PayDocuments.on_file_email(request.user)),
+            # A typed address isn't the worker's own on file; only owners and admins can send those.
+            can_send: request.recipient_kind != "typed" || can_choose_recipient?,
             requested_at: request.created_at.iso8601,
             resolved_at: request.resolved_at&.iso8601,
             resolved_by: request.resolved_by&.full_name,

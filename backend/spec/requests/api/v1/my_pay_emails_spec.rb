@@ -11,6 +11,7 @@ RSpec.describe "My Pay: email me this stub", type: :request do
   let(:headers) { { "Authorization" => "Bearer test_token_#{worker.id}" } }
 
   before do
+    Setting.set(Setting::PAY_STUB_SELF_EMAIL_KEY, "true")
     stub_statements(worker, statement_row(42, pay_date: "2026-11-15"), statement_row(40, pay_date: "2026-10-31", status: "voided"))
     stub_statements(other, statement_row(99, pay_date: "2026-11-15"))
   end
@@ -25,6 +26,21 @@ RSpec.describe "My Pay: email me this stub", type: :request do
     expect(sent_mail.sole[:text]).to include("Here is the secure link you asked for in My Pay")
     expect_no_pay_details(sent_mail.sole[:html])
     expect(AuditLog.find_by(action: "pay_documents.link_sent", user: worker)).to be_present
+  end
+
+  it "is off until it's turned on in Settings" do
+    Setting.set(Setting::PAY_STUB_SELF_EMAIL_KEY, "false")
+    get "/api/v1/auth/me", headers: headers
+    expect(response.parsed_body.dig("user", "my_pay_email_enabled")).to be(false)
+
+    post "/api/v1/my_pay/42/email", headers: headers
+    expect(response).to have_http_status(:forbidden)
+    expect(response.parsed_body["code"]).to eq("self_email_off")
+    expect(PayDocumentDelivery.count).to eq(0)
+
+    Setting.set(Setting::PAY_STUB_SELF_EMAIL_KEY, "true")
+    get "/api/v1/auth/me", headers: headers
+    expect(response.parsed_body.dig("user", "my_pay_email_enabled")).to be(true)
   end
 
   it "won't email another worker's stub or a voided check" do

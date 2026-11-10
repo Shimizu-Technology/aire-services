@@ -13,7 +13,9 @@ module PayDocuments
       "revoked" => "This link was turned off by AIRE. Ask the office to send a new one.",
       "expired" => "This link has expired. Ask the office to send a new one.",
       "used_up" => "This link has reached its download limit. Ask the office to send a new one.",
-      "failed" => "This link isn't active. Ask the office to send a new one."
+      "failed" => "This link isn't active. Ask the office to send a new one.",
+      "pending" => "This link isn't active. Ask the office to send a new one.",
+      "inactive" => "This link isn't active anymore. Contact AIRE if you need your pay stubs."
     }.freeze
 
     def initialize(token:, client: Payroll::WorkerStatementsClient.new, now: Time.current)
@@ -28,7 +30,7 @@ module PayDocuments
 
     def summary
       found!
-      state = delivery.state(now)
+      state = current_state
       {
         state: state,
         message: UNAVAILABLE_STATES[state],
@@ -69,6 +71,14 @@ module PayDocuments
       raise Error.new("This link isn't valid. Check that you opened the whole link from your email.", code: "link_not_found", status: :not_found)
     end
 
+    # A link for someone who no longer works here stops working, even if it
+    # wasn't revoked when they were terminated.
+    def current_state
+      return "inactive" unless delivery.user.reload.is_active?
+
+      delivery.state(now)
+    end
+
     def not_found!
       raise Error.new("That pay stub isn't part of this link.", code: "document_not_found", status: :not_found)
     end
@@ -78,7 +88,7 @@ module PayDocuments
       denial = nil
       items = PayDocumentDelivery.transaction do
         delivery.lock!
-        state = delivery.state(now)
+        state = current_state
         next denial = [ state, Error.new(UNAVAILABLE_STATES.fetch(state), code: "link_#{state}", status: :gone) ] unless state == "active"
 
         selected = yield(delivery.pay_document_items.lock.to_a)

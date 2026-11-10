@@ -16,7 +16,8 @@ module PayDocuments
   # A full year of biweekly checks plus corrections fits comfortably.
   MAX_DOCUMENTS_PER_LINK = 60
   EMAIL_MAX_LENGTH = 254
-  EMAIL_FORMAT = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
+  # Characters that could split one address into several in a mail header.
+  EMAIL_SEPARATORS = /[<>,;"\s]/
   REQUEST_NOTICE_SETTING = "pay_stub_request_notification_emails"
 
   # Failures a caller can show as-is. `code` is stable for the frontend.
@@ -36,19 +37,32 @@ module PayDocuments
     def resolve_recipient!(worker:, email:, email_confirmation:, allow_typed: true)
       typed = email.to_s.strip.downcase
       if typed.present?
-        raise Error.new("Typed email addresses aren't allowed here.", code: "typed_email_not_allowed") unless allow_typed
-        raise Error.new("That email address doesn't look right.", code: "invalid_email") unless typed.length <= EMAIL_MAX_LENGTH && EMAIL_FORMAT.match?(typed)
+        raise Error.new("Typed email addresses aren't allowed here.", code: "typed_email_not_allowed", status: :forbidden) unless allow_typed
+        raise Error.new("That email address doesn't look right.", code: "invalid_email") unless valid_email?(typed)
         raise Error.new("The two email addresses don't match.", code: "email_mismatch") unless typed == email_confirmation.to_s.strip.downcase
 
         return [ "typed", typed ]
       end
 
-      on_file = worker.email.to_s.strip.downcase
-      if on_file.blank? || on_file.end_with?("@placeholder.local") || !EMAIL_FORMAT.match?(on_file)
-        raise Error.new("There's no email on file. Type an email address instead.", code: "no_email_on_file")
-      end
+      on_file = on_file_email(worker)
+      raise Error.new("There's no email on file. Type an email address instead.", code: "no_email_on_file") unless on_file
 
       [ "on_file", on_file ]
+    end
+
+    # One plain address with a dotted domain. URI::MailTo::EMAIL_REGEXP is
+    # the HTML spec's rule; header separators are refused explicitly too.
+    def valid_email?(address)
+      value = address.to_s
+      value.length <= EMAIL_MAX_LENGTH && !EMAIL_SEPARATORS.match?(value) &&
+        URI::MailTo::EMAIL_REGEXP.match?(value) && value.split("@", 2).last.include?(".")
+    end
+
+    # Owners and admins (preview_pay) may send a stub to an address that
+    # isn't on file. Everyone else sends only to the worker's own address,
+    # so nobody without pay access can route a stub to an inbox they read.
+    def can_choose_recipient?(actor)
+      actor.present? && actor.can_preview_pay?
     end
 
     # "m•••@example.com": enough for a worker at a shared kiosk to recognise
@@ -62,13 +76,22 @@ module PayDocuments
 
     def on_file_email(worker)
       address = worker.email.to_s.strip.downcase
-      return nil if address.blank? || address.end_with?("@placeholder.local") || !EMAIL_FORMAT.match?(address)
+      return nil if address.blank? || address.end_with?("@placeholder.local") || !valid_email?(address)
 
       address
     end
 
     def request_notice_emails
       Setting.normalize_emails(Setting.get(REQUEST_NOTICE_SETTING))
+    end
+
+    # The go-live switches on the Settings page; both are off until turned on.
+    def kiosk_requests_enabled?
+      Setting.get(Setting::PAY_STUB_KIOSK_REQUESTS_KEY) == "true"
+    end
+
+    def self_email_enabled?
+      Setting.get(Setting::PAY_STUB_SELF_EMAIL_KEY) == "true"
     end
 
     # Cornerstone failures as messages a person can act on.

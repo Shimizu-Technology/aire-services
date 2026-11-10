@@ -18,10 +18,29 @@ RSpec.describe "Kiosk pay stub requests", type: :request do
   let(:tokens) { { kiosk_access_token: kiosk_access_token, kiosk_token: kiosk_token } }
 
   before do
+    Setting.set(Setting::PAY_STUB_KIOSK_REQUESTS_KEY, "true")
     stub_statements(employee,
       statement_row(42, pay_date: "2026-11-15"),
       statement_row(40, pay_date: "2026-10-31", status: "voided"),
       statement_row(30, pay_date: "2025-12-31"))
+  end
+
+  it "is off until it's turned on in Settings" do
+    Setting.set(Setting::PAY_STUB_KIOSK_REQUESTS_KEY, "false")
+    post "/api/v1/aire/kiosk/verify", params: { pin: "731248", kiosk_access_token: kiosk_access_token }
+    expect(response.parsed_body["pay_stub_requests_enabled"]).to be(false)
+
+    post "/api/v1/aire/kiosk/pay_stubs/choices", params: tokens
+    expect(response).to have_http_status(:not_found)
+    post "/api/v1/aire/kiosk/pay_stubs", params: tokens.merge(scope: "latest")
+    expect(response).to have_http_status(:not_found)
+    expect(response.parsed_body["code"]).to eq("kiosk_requests_off")
+    expect(PayDocumentRequest.count).to eq(0)
+    expect(cornerstone_requests).to be_empty
+
+    Setting.set(Setting::PAY_STUB_KIOSK_REQUESTS_KEY, "true")
+    post "/api/v1/aire/kiosk/verify", params: { pin: "731248", kiosk_access_token: kiosk_access_token }
+    expect(response.parsed_body["pay_stub_requests_enabled"]).to be(true)
   end
 
   it "offers pay dates only, without voided checks, and a masked email" do
@@ -78,6 +97,25 @@ RSpec.describe "Kiosk pay stub requests", type: :request do
     expect(PayDocumentRequest.sole).to have_attributes(scope: "year", year: 2025, recipient_kind: "typed", recipient_email: "mindy.home@example.com")
   end
 
+  it "tells the worker's own address when a request names another one" do
+    post "/api/v1/aire/kiosk/pay_stubs", params: tokens.merge(scope: "year", year: "2025", email: "someone@example.com", email_confirmation: "someone@example.com")
+
+    expect(response).to have_http_status(:created)
+    alert = sent_mail.sole
+    expect(alert[:to]).to eq([ "mindy@example.com" ])
+    expect(alert[:text]).to include("A pay stub request was made at the kiosk to be sent to another address", "If this wasn't you, tell the office.")
+    [ alert[:subject], alert[:html], alert[:text] ].each do |part|
+      expect(part).not_to include("someone@example.com", "2025")
+      expect_no_pay_details(part)
+    end
+    expect(AuditLog.find_by(action: "pay_documents.request_worker_alert_sent").metadata).to include("target_user_id" => employee.id)
+  end
+
+  it "doesn't alert anyone for a request to the email on file" do
+    post "/api/v1/aire/kiosk/pay_stubs", params: tokens.merge(scope: "latest")
+    expect(sent_mail).to be_empty
+  end
+
   it "rejects a year in the future" do
     post "/api/v1/aire/kiosk/pay_stubs", params: tokens.merge(scope: "year", year: (Date.current.year + 1).to_s)
     expect(response.parsed_body["code"]).to eq("invalid_year")
@@ -94,6 +132,8 @@ RSpec.describe "Kiosk pay stub requests", type: :request do
     expect(response.parsed_body["code"]).to eq("no_email_on_file")
     post "/api/v1/aire/kiosk/pay_stubs", params: params.merge(email: "pilot@example.com", email_confirmation: "pilot@example.com")
     expect(response).to have_http_status(:created)
+    # No address on file to alert.
+    expect(sent_mail).to be_empty
   end
 
   it "allows three requests a day per worker" do

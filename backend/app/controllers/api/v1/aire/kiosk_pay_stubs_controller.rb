@@ -6,6 +6,7 @@ module Api
       # "Request my pay stub" at the shared kiosk. The worker is the one whose
       # PIN was just verified, using the same kiosk tokens as the clock. The
       # kiosk only ever sees pay dates and a masked email, never amounts.
+      # Off until "Pay stub requests at the kiosk" is turned on in Settings.
       class KioskPayStubsController < BaseController
         SENT_MESSAGE = "Your request was sent to the office."
 
@@ -13,6 +14,7 @@ module Api
         rescue_from ::PayDocuments::Error, with: :pay_document_error
 
         before_action :prevent_caching
+        before_action :require_enabled!
         before_action :load_employee!
 
         # POST /api/v1/aire/kiosk/pay_stubs/choices
@@ -49,6 +51,12 @@ module Api
         end
 
         private
+
+        def require_enabled!
+          return if ::PayDocuments.kiosk_requests_enabled?
+
+          render json: { error: "Pay stub requests aren't available at the kiosk.", code: "kiosk_requests_off" }, status: :not_found
+        end
 
         def load_employee!
           @employee = AireKioskService.employee_from_tokens!(

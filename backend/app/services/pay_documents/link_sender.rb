@@ -4,13 +4,18 @@ module PayDocuments
   # Creates a secure link to some of a worker's pay stubs and emails it.
   #
   # origin "sender": an active owner, admin or manager (send_pay_statements)
-  # sends to the email on file or to one typed twice, optionally fulfilling a
-  # worker's request. origin "self": a worker with My Pay on emails one of
-  # their own stubs to the address on file.
+  # sends a link, optionally fulfilling a worker's request. Managers send only
+  # to the worker's email on file. Owners and admins (preview_pay) may also
+  # type an address twice, and only they can fulfil a request made to a typed
+  # address; that address always comes from the saved request, never from
+  # the client. origin "self": a worker with My Pay on, while "Workers can
+  # email themselves stubs" is on, emails one of their own stubs to the
+  # address on file.
   #
   # Every statement must be the worker's own, unvoided check in Cornerstone's
-  # current list. The link is saved before the email goes out; if the email
-  # fails the link is marked failed and can never be used.
+  # current list. The link is saved as "pending" before the email goes out
+  # and only works once the email is recorded as sent. If the email fails,
+  # or recording it fails, the link is marked failed and can never be used.
   class LinkSender
     Result = Struct.new(:delivery, :email_status, keyword_init: true)
 
@@ -34,10 +39,8 @@ module PayDocuments
     def send!
       authorize!
       validate_request!
+      recipient_kind, address = resolve_recipient!
       entries = selected_entries
-      recipient_kind, address = PayDocuments.resolve_recipient!(
-        worker: worker, email: email, email_confirmation: email_confirmation, allow_typed: origin == "sender"
-      )
 
       token = PayDocumentDelivery.generate_token
       delivery = PayDocumentDelivery.transaction do
@@ -57,7 +60,7 @@ module PayDocuments
       permitted =
         case origin
         when "sender" then actor&.is_active? && actor.can_send_pay_statements?
-        when "self" then actor && actor.id == worker.id && Setting.my_pay_enabled_for?(worker)
+        when "self" then actor && actor.id == worker.id && Setting.my_pay_enabled_for?(worker) && PayDocuments.self_email_enabled?
         end
       raise Error.new("You can't send pay stubs.", code: "not_permitted", status: :forbidden) unless permitted
       raise Error.new("Pay stubs can only be sent to active team members.", code: "worker_not_found", status: :not_found) unless PayDocuments.sendable_workers.exists?(id: worker.id)
@@ -67,6 +70,30 @@ module PayDocuments
       return unless request
       raise Error.new("That request isn't for this person.", code: "request_mismatch") unless request.user_id == worker.id
       raise Error.new("That request was already handled.", code: "request_closed", status: :conflict) unless request.open?
+    end
+
+    def resolve_recipient!
+      return PayDocuments.resolve_recipient!(worker: worker, email: nil, email_confirmation: nil) if origin == "self"
+
+      if request&.recipient_kind == "typed"
+        unless PayDocuments.can_choose_recipient?(actor)
+          deny!("typed_request_needs_admin")
+          raise Error.new("This person asked for a different email address. An owner or admin needs to send this one.",
+            code: "typed_request_needs_admin", status: :forbidden)
+        end
+        address = request.recipient_email.to_s.strip.downcase
+        raise Error.new("The email on this request doesn't look right. Dismiss it and ask them again.", code: "invalid_email") unless PayDocuments.valid_email?(address)
+
+        return [ "typed", address ]
+      end
+
+      if email.present? && !PayDocuments.can_choose_recipient?(actor)
+        deny!("typed_email_not_allowed")
+        raise Error.new("Pay stubs can only go to the email on file. An owner or admin can send to a different address.",
+          code: "typed_email_not_allowed", status: :forbidden)
+      end
+
+      PayDocuments.resolve_recipient!(worker: worker, email: email, email_confirmation: email_confirmation)
     end
 
     def selected_entries
@@ -118,31 +145,56 @@ module PayDocuments
       delivery
     end
 
+    # A link stays "pending", and unusable, until this records the email as
+    # sent. If the email or that bookkeeping fails, the link is marked failed,
+    # so a retry after an error never leaves two working links.
     def deliver_email!(delivery, token)
       response = begin
         PayDocumentMailer.deliver_link(delivery: delivery, token: token)
       rescue StandardError => e
-        email_failed!(delivery, e)
+        email_failed!(delivery, e, message: "The email couldn't be sent, so the link was cancelled. Please try again.")
       end
 
       status = response.is_a?(Hash) && response["staging_captured"] ? "captured" : "sent"
-      PayDocumentDelivery.transaction do
-        delivery.update!(email_status: status, emailed_at: Time.current)
-        if request
-          request.lock!
-          request.update!(status: "fulfilled", resolved_by: actor, resolved_at: Time.current) if request.open?
+      begin
+        PayDocumentDelivery.transaction do
+          delivery.update!(email_status: status, emailed_at: Time.current)
+          if request
+            request.lock!
+            request.update!(status: "fulfilled", resolved_by: actor, resolved_at: Time.current) if request.open?
+          end
+          audit!(delivery, "pay_documents.link_sent", email_status: status)
         end
-        audit!(delivery, "pay_documents.link_sent", email_status: status)
+      rescue StandardError => e
+        email_failed!(delivery, e, message: "Something went wrong after the email was sent, so that link was cancelled. Please send it again.")
       end
       Result.new(delivery: delivery, email_status: status)
     end
 
-    def email_failed!(delivery, error)
+    def email_failed!(delivery, error, message:)
       Rails.logger.warn("[PayDocuments] Link email failed for delivery #{delivery.id}: #{error.class}")
       Rails.error.report(error, handled: true, severity: :error, context: { operation: "pay_document_link_email", delivery_id: delivery.id })
-      delivery.update!(email_status: "failed")
-      audit!(delivery, "pay_documents.link_sent", outcome: "failed", email_status: "failed", error_class: error.class.name)
-      raise Error.new("The email couldn't be sent, so the link was cancelled. Please try again.", code: "email_failed", status: :bad_gateway)
+      # update_columns: this must stick even when the record or a callback is what failed.
+      delivery.update_columns(email_status: "failed", updated_at: Time.current)
+      begin
+        audit!(delivery, "pay_documents.link_sent", outcome: "failed", email_status: "failed", error_class: error.class.name)
+      rescue StandardError => audit_error
+        Rails.error.report(audit_error, handled: true, severity: :error, context: { operation: "pay_document_link_audit", delivery_id: delivery.id })
+      end
+      raise Error.new(message, code: "email_failed", status: :bad_gateway)
+    end
+
+    # A refused send, recorded against the worker since no link exists.
+    def deny!(reason)
+      AuditLog.record!(
+        action: "pay_documents.link_sent",
+        auditable: worker,
+        actor: actor,
+        subject_name: worker.full_name,
+        event_category: "payroll",
+        outcome: "denied",
+        metadata: { target_user_id: worker.id, request_id: request&.id, origin: origin, reason: reason }.compact
+      )
     end
 
     def audit!(delivery, action, outcome: "succeeded", **extra)

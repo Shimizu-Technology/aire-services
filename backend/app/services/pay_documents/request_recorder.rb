@@ -3,7 +3,9 @@
 module PayDocuments
   # Records a worker's own pay stub request for the senders' list. The worker
   # is always the PIN-verified kiosk user; no worker ID comes from the client.
-  # A short heads-up email goes to the configured recipients, if any.
+  # A short heads-up email goes to the configured recipients, if any. When the
+  # request names an address other than the one on file, the worker's own
+  # address is also told, in case someone else used their PIN.
   class RequestRecorder
     def self.record!(...)
       new(...).record!
@@ -42,6 +44,7 @@ module PayDocuments
         ).tap { |created| audit!(created) }
       end
       notify!(request)
+      alert_worker!(request) if request.recipient_kind == "typed"
       request
     end
 
@@ -101,6 +104,19 @@ module PayDocuments
     rescue StandardError => e
       Rails.logger.warn("[PayDocuments] Request notice failed for request #{request.id}: #{e.class}")
       Rails.error.report(e, handled: true, severity: :warning, context: { operation: "pay_document_request_notice", request_id: request.id })
+    end
+
+    # No amounts, dates or the typed address: just that it happened.
+    def alert_worker!(request)
+      address = PayDocuments.on_file_email(worker)
+      return unless address
+
+      PayDocumentMailer.deliver_typed_request_alert(request: request, to: address)
+      AuditLog.record!(action: "pay_documents.request_worker_alert_sent", auditable: request, actor: nil, actor_kind: "system", source: "system",
+        subject_name: worker.full_name, event_category: "payroll", metadata: { request_id: request.id, target_user_id: worker.id })
+    rescue StandardError => e
+      Rails.logger.warn("[PayDocuments] Worker alert failed for request #{request.id}: #{e.class}")
+      Rails.error.report(e, handled: true, severity: :warning, context: { operation: "pay_document_request_worker_alert", request_id: request.id })
     end
   end
 end

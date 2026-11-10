@@ -28,8 +28,23 @@ module Api
           raise ::PayDocuments::Error.new("We couldn't find that person.", code: "worker_not_found", status: :not_found)
         end
 
+        # Managers send only to the address on file, so they see it masked.
+        # Owners and admins see it in full and may type another address.
         def worker_json(user)
-          { id: user.id, name: user.full_name, first_name: user.display_name, role: user.role, on_file_email: ::PayDocuments.on_file_email(user) }
+          { id: user.id, name: user.full_name, first_name: user.display_name, role: user.role,
+            on_file_email: visible_email("on_file", ::PayDocuments.on_file_email(user)) }
+        end
+
+        def can_choose_recipient?
+          ::PayDocuments.can_choose_recipient?(current_user)
+        end
+
+        # Typed addresses stay visible to every sender, so a request to an
+        # unfamiliar inbox can be spotted.
+        def visible_email(kind, address)
+          return address if address.nil? || kind == "typed" || can_choose_recipient?
+
+          ::PayDocuments.masked_email(address)
         end
 
         def delivery_json(delivery)
@@ -39,7 +54,7 @@ module Api
             origin: delivery.origin,
             worker: { id: delivery.user_id, name: delivery.user.full_name },
             sent_by: delivery.sent_by.full_name,
-            recipient_email: delivery.recipient_email,
+            recipient_email: visible_email(delivery.recipient_kind, delivery.recipient_email),
             recipient_kind: delivery.recipient_kind,
             request_id: delivery.pay_document_request_id,
             sent_at: delivery.created_at.iso8601,

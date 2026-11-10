@@ -24,7 +24,12 @@ class PayDocumentDelivery < ApplicationRecord
   validates :expires_at, presence: true
   validates :max_downloads_per_document, numericality: { only_integer: true, greater_than: 0 }
 
+  # Only a link whose email went out (or staging captured) can be used.
+  DELIVERED_STATUSES = %w[sent captured].freeze
+
   scope :recent_first, -> { order(created_at: :desc, id: :desc) }
+  # Links that would still work, or will once their email is recorded.
+  scope :unrevoked_open, ->(now = Time.current) { where(revoked_at: nil).where.not(email_status: "failed").where("expires_at > ?", now) }
 
   def self.digest(token)
     Digest::SHA256.hexdigest(token.to_s)
@@ -48,10 +53,12 @@ class PayDocumentDelivery < ApplicationRecord
     expires_at <= now
   end
 
-  # What the link page and the senders' list show for this link.
+  # What the link page and the senders' list show for this link. "pending"
+  # means the email hasn't been recorded as sent yet, so it can't be used.
   def state(now = Time.current)
     return "revoked" if revoked?
     return "failed" if email_status == "failed"
+    return "pending" unless DELIVERED_STATUSES.include?(email_status)
     return "expired" if expired?(now)
     return "used_up" if pay_document_items.all? { |item| item.download_count >= max_downloads_per_document }
 

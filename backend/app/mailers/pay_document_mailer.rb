@@ -14,6 +14,10 @@ class PayDocumentMailer < ApplicationMailer
     def deliver_request_notice(request:, recipients:)
       new.request_notice_email(request: request, recipients: recipients)
     end
+
+    def deliver_typed_request_alert(request:, to:)
+      new.typed_request_alert_email(request: request, to: to)
+    end
   end
 
   def link_email(delivery:, token:)
@@ -46,7 +50,59 @@ class PayDocumentMailer < ApplicationMailer
     )
   end
 
+  # Sent to the worker's address on file when a kiosk request names another
+  # address, so a coworker who used their PIN can't do it unnoticed.
+  def typed_request_alert_email(request:, to:)
+    @request = request
+    StagingMailTransport.deliver(
+      {
+        from: ENV.fetch("MAILER_FROM_EMAIL", "noreply@example.com"),
+        to: [ to ],
+        subject: "A pay stub request was made for you at the AIRE kiosk",
+        html: alert_html,
+        text: alert_text
+      },
+      options: { idempotency_key: "pay-document-request-alert-#{request.id}" }
+    )
+  end
+
   private
+
+  def alert_lines
+    [
+      "A pay stub request was made at the kiosk to be sent to another address.",
+      "If this wasn't you, tell the office."
+    ]
+  end
+
+  def alert_html
+    <<~HTML
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Pay stub request at the kiosk</title></head>
+      <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f0f4f8;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; margin: 0 auto; padding: 32px 20px;">
+          <tr><td style="background-color: #1e3a5f; border-radius: 12px 12px 0 0; padding: 24px 28px;">
+            <p style="margin: 0; color: #ffffff; font-size: 18px; font-weight: 600;">#{h(PayDocuments::EMPLOYER_NAME)}</p>
+          </td></tr>
+          <tr><td style="background-color: #ffffff; padding: 28px;">
+            <p style="margin: 0 0 16px 0; color: #1e293b; font-size: 16px;">Hi #{h(@request.user.display_name)},</p>
+            <p style="margin: 0 0 16px 0; color: #334155; font-size: 16px; line-height: 1.6;">#{h(alert_lines.first)}</p>
+            <p style="margin: 0; color: #334155; font-size: 16px; line-height: 1.6; font-weight: 600;">#{h(alert_lines.last)}</p>
+          </td></tr>
+        </table>
+      </body>
+      </html>
+    HTML
+  end
+
+  def alert_text
+    <<~TEXT
+      Hi #{@request.user.display_name},
+
+      #{alert_lines.join("\n\n")}
+    TEXT
+  end
 
   def link_intro(count)
     what = count == 1 ? "your pay stub" : "#{count} of your pay stubs"
@@ -117,7 +173,8 @@ class PayDocumentMailer < ApplicationMailer
 
   def notice_line
     where = @request.source == "kiosk" ? " at the kiosk" : ""
-    "#{@request.user.full_name} asked for #{requested}#{where}. Open the pay stub requests list in AIRE to send it or dismiss the request."
+    typed = @request.recipient_kind == "typed" ? " They asked for it to go to an address that isn't the email on file, so an owner or admin needs to send it." : ""
+    "#{@request.user.full_name} asked for #{requested}#{where}.#{typed} Open the pay stub requests list in AIRE to send it or dismiss the request."
   end
 
   def requests_url
