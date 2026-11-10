@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Clock3, Download, FileText, Files, LockKeyhole, RotateCw } from 'lucide-react'
 import { formatPayDate, formatPeriod } from '../../lib/myPayApi'
 import { PayStubError, payStubLinkApi, saveBlob, tokenFromHash, type PayStubLinkSummary } from '../../lib/payStubsApi'
@@ -70,11 +70,27 @@ const buttonBase = 'inline-flex min-h-12 items-center justify-center gap-2 round
 
 export default function PayStubLink() {
   useNoReferrer()
-  const [token] = useState(() => tokenFromHash(window.location.hash))
+  const [token, setToken] = useState(() => tokenFromHash(window.location.hash))
+  const tokenRef = useRef(token)
   const [state, setState] = useState<LoadState>(() => (token ? { status: 'loading' } : { status: 'missing' }))
+
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState<number | 'all' | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  // Opening another emailed link in this tab changes only the fragment.
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = tokenFromHash(window.location.hash)
+      if (next === tokenRef.current) return
+      tokenRef.current = next
+      setToken(next)
+      setDownloadError(null)
+      setState(next ? { status: 'loading' } : { status: 'missing' })
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
 
   useEffect(() => {
     if (!token) return
@@ -160,7 +176,7 @@ export default function PayStubLink() {
     return (
       <Shell>
         <Notice icon={summary.state === 'expired' ? Clock3 : LockKeyhole} title={UNAVAILABLE_TITLES[summary.state] ?? "This link isn't active"}>
-          {summary.message} For your security, pay stub links work for a limited time and a limited number of downloads.
+          Ask the office to send you a new link. For your security, pay stub links work for a limited time and a limited number of downloads.
         </Notice>
       </Shell>
     )

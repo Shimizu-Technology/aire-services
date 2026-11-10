@@ -77,3 +77,14 @@ it('shows the reason a download was refused', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Download pay stub for Sat, Oct 31, 2026' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('downloaded the maximum number of times')
 })
+
+it('loads a different link opened in the same tab', async () => {
+  api.lookup.mockResolvedValueOnce(summary()).mockResolvedValueOnce(summary({ first_name: 'Kai', documents: [] , state: 'revoked', message: 'x' }))
+  render(<PayStubLink />)
+  expect(await screen.findByRole('heading', { name: 'Hi Mindy' })).toBeInTheDocument()
+  const other = 'B'.repeat(43)
+  window.history.replaceState(null, '', `/stubs#t=${other}`)
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  expect(await screen.findByRole('heading', { name: 'This link was turned off' })).toBeInTheDocument()
+  expect(api.lookup).toHaveBeenLastCalledWith(other, expect.any(AbortSignal))
+})
