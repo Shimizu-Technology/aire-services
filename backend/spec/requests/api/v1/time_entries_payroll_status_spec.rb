@@ -337,7 +337,7 @@ RSpec.describe "Employee time-entry payment visibility", type: :request do
     expect(many.size).to be <= 35
     get "/api/v1/time_entries", params: { per_page: entries.size }, headers: headers
     second_id = response.parsed_body.fetch("time_entries").second.fetch("id")
-    expect(Payroll::EmployeeEntryStatus).to receive(:new).with(entries: satisfy { |rows| rows.map(&:id) == [ second_id ] && rows.all? { |row| row.user_id == employee.id } }).and_call_original
+    expect(Payroll::EmployeeEntryStatus).to receive(:new).with(entries: satisfy { |rows| rows.map(&:id) == [ second_id ] && rows.all? { |row| row.user_id == employee.id } }, viewer: employee).and_call_original
     get "/api/v1/time_entries", params: { per_page: 1, page: 2 }, headers: headers
     expect(response).to have_http_status(:ok)
     expect(response.parsed_body.fetch("time_entries").map { |row| row.fetch("id") }).to eq([ second_id ])

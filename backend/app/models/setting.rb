@@ -112,6 +112,22 @@ class Setting < ApplicationRecord
     normalize_emails(get("contact_email"))
   end
 
+  # My Pay pilot gate. "my_pay_enabled_user_ids" is a comma-separated AIRE user
+  # ID allowlist; "my_pay_enabled_for_all" = "true" opens it to every active
+  # staff member. Both are absent (hidden for everyone) by default.
+  def self.my_pay_enabled_user_ids
+    get("my_pay_enabled_user_ids").to_s.split(",").filter_map do |value|
+      id = value.strip
+      id.to_i if id.match?(/\A[1-9]\d*\z/)
+    end.uniq
+  end
+
+  def self.my_pay_enabled_for?(user)
+    return false unless user&.staff? && user.is_active?
+
+    get("my_pay_enabled_for_all") == "true" || my_pay_enabled_user_ids.include?(user.id)
+  end
+
   def self.payroll_cutoff_reminder_emails
     normalize_emails(get("payroll_cutoff_reminder_emails"))
   end

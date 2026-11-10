@@ -25,8 +25,11 @@ module Payroll
       "payment_history_unavailable" => "Payment history unavailable"
     }.freeze
 
-    def initialize(entries:)
+    # viewer: the signed-in user. When My Pay is enabled for them, their own
+    # entries also get paycheck links and a plain cutoff explanation.
+    def initialize(entries:, viewer: nil)
       @entries = Array(entries)
+      @viewer = viewer
     end
 
     def call
@@ -36,7 +39,7 @@ module Payroll
       rollout = PayrollLockRollout.find_by(id: 1)
       untracked = !ConnectedPayrollMode.enabled? || rollout.nil?
       legacy_ids = @entries.empty? ? [] : LegacyPaidHistoryGuard.legacy_entry_ids(@entries.map(&:id))
-      @entries.to_h do |entry|
+      statuses = @entries.to_h do |entry|
         lifecycle = lifecycles.fetch(entry.id)
         status = lifecycle.fetch(:status)
         settlements = lifecycle.fetch(:settlements)
@@ -58,9 +61,18 @@ module Payroll
           held_hours: lifecycle.fetch(:held_hours)
         } ]
       end
+      with_pay_context(statuses, lifecycles)
     end
 
     private
+
+    def with_pay_context(statuses, lifecycles)
+      return statuses unless @viewer && Setting.my_pay_enabled_for?(@viewer)
+
+      own = @entries.select { |entry| entry.user_id == @viewer.id }
+      context = EmployeeEntryPayContext.new(entries: own, lifecycles: lifecycles, statuses: statuses).call
+      statuses.to_h { |id, status| [ id, status.merge(context.fetch(id, {})) ] }
+    end
 
     def employee_label(entry, status, lifecycle, historical:)
       return "Shift in progress" if entry.status.in?(%w[clocked_in on_break])
