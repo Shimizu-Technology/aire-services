@@ -7,9 +7,13 @@ class TimeClockService
   class ClockError < StandardError; end
   class AuthorizationError < StandardError; end
 
+  OWN_TIME_REVIEW_MESSAGE = "Another approver needs to review your own time".freeze
+  OWN_CLOCK_OVERRIDE_MESSAGE = "Another approver needs to override your own clock".freeze
+
   class << self
     # ── Clock In ──
     def clock_in(user:, admin_override_by: nil, time_category_id: nil, clock_source: nil, location: nil)
+      ensure_clock_override_allowed!(user, admin_override_by)
       entry = nil
       clock_write_transaction do
         # Termination uses the same row lock. Whichever operation wins must be
@@ -69,6 +73,7 @@ class TimeClockService
 
     # ── Clock Out ──
     def clock_out(user:, admin_override_by: nil, corrected_end_time: nil, description: nil)
+      ensure_clock_override_allowed!(user, admin_override_by)
       entry = active_entry_for(user)
       raise ClockError, "Not currently clocked in" unless entry
 
@@ -136,6 +141,7 @@ class TimeClockService
 
     # ── Start Break ──
     def start_break(user:, admin_override_by: nil)
+      ensure_clock_override_allowed!(user, admin_override_by)
       entry = active_entry_for(user)
       raise ClockError, "You are not currently clocked in" unless entry
       raise ClockError, "You are already on a break" if entry.status == "on_break"
@@ -156,6 +162,7 @@ class TimeClockService
 
     # ── End Break ──
     def end_break(user:, admin_override_by: nil)
+      ensure_clock_override_allowed!(user, admin_override_by)
       entry = active_entry_for(user)
       raise ClockError, "You are not currently clocked in" unless entry
       raise ClockError, "You are not currently on a break" unless entry.status == "on_break"
@@ -176,6 +183,7 @@ class TimeClockService
 
     # ── Switch Category ──
     def switch_category(user:, time_category_id:, admin_override_by: nil, clock_source: nil)
+      ensure_clock_override_allowed!(user, admin_override_by)
       entry = active_entry_for(user)
       raise ClockError, "Not currently clocked in" unless entry
 
@@ -293,7 +301,7 @@ class TimeClockService
         breaks: breaks_list,
         session: session,
         is_admin: user.administrator?,
-        can_override_clock: user.can_manage_team_time?,
+        can_override_clock: user.can_manage_team_time? && user.can_review_own_time?,
         clock_source: entry&.clock_source,
         time_category: entry&.time_category ? {
           id: entry.time_category.id,
@@ -321,6 +329,7 @@ class TimeClockService
     # ── Admin: Approve Entry ──
     def approve_entry(entry:, approved_by:, note: nil)
       raise AuthorizationError, "Only managers and admins can approve entries" unless approved_by.can_approve_time?
+      ensure_review_allowed!(entry, approved_by)
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
       entry.with_lock do
@@ -350,6 +359,7 @@ class TimeClockService
     # and denials. The approval_status field distinguishes the action taken.
     def deny_entry(entry:, denied_by:, note: nil)
       raise AuthorizationError, "Only managers and admins can deny entries" unless denied_by.can_approve_time?
+      ensure_review_allowed!(entry, denied_by)
       raise ClockError, "A denial reason is required" if note.to_s.strip.blank?
 
       entry.with_lock do
@@ -370,6 +380,7 @@ class TimeClockService
     # ── Admin: Approve Overtime ──
     def approve_overtime(entry:, approved_by:, note: nil)
       raise AuthorizationError, "Only managers and admins can approve overtime" unless approved_by.can_approve_time?
+      ensure_review_allowed!(entry, approved_by)
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
       entry.with_lock do
@@ -400,6 +411,7 @@ class TimeClockService
     # ── Admin: Deny Overtime ──
     def deny_overtime(entry:, denied_by:, note: nil)
       raise AuthorizationError, "Only managers and admins can deny overtime" unless denied_by.can_approve_time?
+      ensure_review_allowed!(entry, denied_by)
       raise ClockError, "An overtime denial reason is required" if note.to_s.strip.blank?
 
       entry.with_lock do
@@ -606,8 +618,20 @@ class TimeClockService
       entry.approval_note = build_approval_note(entry.approval_note, "Clocked in without a schedule")
     end
 
+    # Supervisors who may approve their own time skip the queue for it.
     def unscheduled_entry_requires_approval?(user:, schedule:)
-      schedule.nil? && !user.supervisor?
+      schedule.nil? && !user.can_review_own_time?
+    end
+
+    def ensure_review_allowed!(entry, reviewer)
+      raise AuthorizationError, OWN_TIME_REVIEW_MESSAGE unless reviewer.can_review_time_of?(entry.user_id)
+    end
+
+    def ensure_clock_override_allowed!(user, admin_override_by)
+      return unless admin_override_by && admin_override_by.id == user.id
+      return if admin_override_by.can_review_own_time?
+
+      raise AuthorizationError, OWN_CLOCK_OVERRIDE_MESSAGE
     end
 
     def build_approval_note(existing_note, new_note)

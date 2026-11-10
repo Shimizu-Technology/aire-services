@@ -381,6 +381,8 @@ export interface TimeClockAppSettings {
   clock_in_location_latitude: string;
   clock_in_location_longitude: string;
   clock_in_location_radius_meters: string;
+  /** "true" (default) or "false". Off sends a manager's own time to another approver. */
+  managers_can_approve_own_time?: string;
 }
 
 export interface AdminAppSettingsResponse {
@@ -552,6 +554,8 @@ export interface TimeEntry {
   overtime_status: 'none' | 'pending' | 'approved' | 'denied' | null;
   pending_overtime_hours?: number;
   approval_reasons?: ApprovalReason[];
+  /** The viewer's own entry while "Managers can approve their own time" is off. */
+  needs_another_approver?: boolean;
   clock_in_at: string | null;
   clock_out_at: string | null;
   approved_by: {

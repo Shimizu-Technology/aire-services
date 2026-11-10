@@ -14,6 +14,7 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   getAdminContactSettings: vi.fn(),
   updateAdminContactSettings: vi.fn(),
+  updateAdminAppSettings: vi.fn(),
   geocodeAdminClockLocation: vi.fn(),
   autocompleteAdminClockLocation: vi.fn(),
   getAdminClockPlaceDetails: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../../lib/api', () => ({
     getAdminAppSettings: apiMock.getAdminAppSettings,
     getAdminContactSettings: apiMock.getAdminContactSettings,
     updateAdminContactSettings: apiMock.updateAdminContactSettings,
+    updateAdminAppSettings: apiMock.updateAdminAppSettings,
     geocodeAdminClockLocation: apiMock.geocodeAdminClockLocation,
     autocompleteAdminClockLocation: apiMock.autocompleteAdminClockLocation,
     getAdminClockPlaceDetails: apiMock.getAdminClockPlaceDetails,
@@ -42,6 +44,7 @@ describe('Admin Settings contact settings', () => {
     apiMock.getAdminAppSettings.mockReset()
     apiMock.getAdminContactSettings.mockReset()
     apiMock.updateAdminContactSettings.mockReset()
+    apiMock.updateAdminAppSettings.mockReset()
     apiMock.geocodeAdminClockLocation.mockReset()
     apiMock.autocompleteAdminClockLocation.mockReset()
     apiMock.getAdminClockPlaceDetails.mockReset()
@@ -188,5 +191,38 @@ describe('Admin Settings contact settings', () => {
       expect(screen.getByDisplayValue('13.469130')).toBeInTheDocument()
       expect(screen.getByDisplayValue('144.799010')).toBeInTheDocument()
     })
+  })
+
+  it('turns off managers approving their own time and shows the saved state', async () => {
+    apiMock.updateAdminAppSettings.mockImplementation(async ({ settings }) => ({
+      data: {
+        settings: { clock_in_location_name: 'AIRE Services Guam', ...settings },
+        approval_groups: [{ key: 'cfi', label: 'CFI' }],
+      },
+    }))
+    render(<Settings />)
+
+    const toggle = await screen.findByRole('checkbox', { name: 'Managers can approve their own time' })
+    expect(toggle).toBeChecked()
+    expect(toggle).toHaveAccessibleDescription(/another manager approves each manager's own time/)
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => expect(apiMock.updateAdminAppSettings).toHaveBeenCalledWith({
+      settings: { managers_can_approve_own_time: 'false' },
+    }))
+    expect(await screen.findByText("Managers' own time now goes to another approver.")).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).not.toBeChecked()
+  })
+
+  it('keeps the toggle unchanged and explains a failed save', async () => {
+    apiMock.updateAdminAppSettings.mockResolvedValue({ error: 'Only owners and admins can change settings' })
+    render(<Settings />)
+
+    const toggle = await screen.findByRole('checkbox', { name: 'Managers can approve their own time' })
+    fireEvent.click(toggle)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only owners and admins can change settings')
+    expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).toBeChecked()
   })
 })

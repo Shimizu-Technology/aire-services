@@ -229,4 +229,60 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       expect(response).to have_http_status(:forbidden)
     end
   end
+
+  describe "Managers can approve their own time" do
+    let(:owner) { create(:user, :owner) }
+    let(:manager) { create(:user, :manager) }
+    let(:key) { Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY }
+
+    def audit_rows
+      AuditLog.where(action: "setting.#{key}_updated").order(:id)
+    end
+
+    it "defaults to on" do
+      get "/api/v1/admin/settings", headers: auth_headers_for[admin]
+
+      expect(json.dig(:settings, :managers_can_approve_own_time)).to eq("true")
+    end
+
+    it "lets owners and admins change it, auditing before and after" do
+      patch "/api/v1/admin/settings", params: { settings: { key => false } }, headers: auth_headers_for[admin], as: :json
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:settings, :managers_can_approve_own_time)).to eq("false")
+      expect(Setting.managers_can_approve_own_time?).to be(false)
+
+      patch "/api/v1/admin/settings", params: { settings: { key => "true" } }, headers: auth_headers_for[owner], as: :json
+      expect(response).to have_http_status(:ok)
+      expect(Setting.managers_can_approve_own_time?).to be(true)
+
+      expect(audit_rows.map { |row| [ row.user_id, row.event_category, row.changes_made ] }).to eq([
+        [ admin.id, "settings", { key => [ true, false ] } ],
+        [ owner.id, "settings", { key => [ false, true ] } ]
+      ])
+    end
+
+    it "does not write a change row when the value is unchanged" do
+      patch "/api/v1/admin/settings", params: { settings: { key => "true" } }, headers: auth_headers_for[admin], as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(audit_rows).to be_empty
+    end
+
+    it "rejects values other than true or false" do
+      patch "/api/v1/admin/settings", params: { settings: { key => "sometimes" } }, headers: auth_headers_for[admin], as: :json
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(Setting.managers_can_approve_own_time?).to be(true)
+    end
+
+    it "refuses managers and employees" do
+      [ manager, employee ].each do |user|
+        patch "/api/v1/admin/settings", params: { settings: { key => "false" } }, headers: auth_headers_for[user], as: :json
+        expect(response).to have_http_status(:forbidden), user.role
+      end
+
+      expect(Setting.managers_can_approve_own_time?).to be(true)
+      expect(audit_rows).to be_empty
+    end
+  end
 end
