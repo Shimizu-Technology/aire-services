@@ -63,6 +63,8 @@ class User < ApplicationRecord
   has_many :user_time_categories, dependent: :destroy
   has_many :assigned_time_categories, through: :user_time_categories, source: :time_category
   has_many :user_approval_groups, dependent: :destroy
+  has_many :pay_document_requests, dependent: :restrict_with_error
+  has_many :pay_document_deliveries, dependent: :restrict_with_error
   has_one_attached :public_team_photo
 
   attr_accessor :skip_kiosk_pin_presence_validation

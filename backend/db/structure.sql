@@ -588,6 +588,176 @@ ALTER SEQUENCE public.leave_requests_id_seq OWNED BY public.leave_requests.id;
 
 
 --
+-- Name: pay_document_deliveries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pay_document_deliveries (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    sent_by_id bigint NOT NULL,
+    pay_document_request_id bigint,
+    origin character varying NOT NULL,
+    recipient_email character varying NOT NULL,
+    recipient_kind character varying NOT NULL,
+    token_digest character varying NOT NULL,
+    expires_at timestamp(6) without time zone NOT NULL,
+    max_downloads_per_document integer NOT NULL,
+    revoked_at timestamp(6) without time zone,
+    revoked_by_id bigint,
+    email_status character varying DEFAULT 'pending'::character varying NOT NULL,
+    emailed_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT pay_document_deliveries_download_cap CHECK ((max_downloads_per_document > 0)),
+    CONSTRAINT pay_document_deliveries_email_status CHECK (((email_status)::text = ANY ((ARRAY['pending'::character varying, 'sent'::character varying, 'captured'::character varying, 'failed'::character varying])::text[]))),
+    CONSTRAINT pay_document_deliveries_origin CHECK (((origin)::text = ANY ((ARRAY['sender'::character varying, 'self'::character varying])::text[]))),
+    CONSTRAINT pay_document_deliveries_recipient_kind CHECK (((recipient_kind)::text = ANY ((ARRAY['on_file'::character varying, 'typed'::character varying])::text[])))
+);
+
+
+--
+-- Name: pay_document_deliveries_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.pay_document_deliveries_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: pay_document_deliveries_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.pay_document_deliveries_id_seq OWNED BY public.pay_document_deliveries.id;
+
+
+--
+-- Name: pay_document_downloads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pay_document_downloads (
+    id bigint NOT NULL,
+    pay_document_delivery_id bigint NOT NULL,
+    pay_document_item_id bigint NOT NULL,
+    bundled boolean DEFAULT false NOT NULL,
+    ip_address character varying,
+    user_agent character varying(1000),
+    created_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: pay_document_downloads_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.pay_document_downloads_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: pay_document_downloads_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.pay_document_downloads_id_seq OWNED BY public.pay_document_downloads.id;
+
+
+--
+-- Name: pay_document_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pay_document_items (
+    id bigint NOT NULL,
+    pay_document_delivery_id bigint NOT NULL,
+    kind character varying NOT NULL,
+    reference character varying NOT NULL,
+    document_date date,
+    period_start date,
+    period_end date,
+    "position" integer DEFAULT 0 NOT NULL,
+    download_count integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT pay_document_items_download_count CHECK ((download_count >= 0)),
+    CONSTRAINT pay_document_items_kind CHECK (((kind)::text = 'pay_statement'::text))
+);
+
+
+--
+-- Name: pay_document_items_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.pay_document_items_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: pay_document_items_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.pay_document_items_id_seq OWNED BY public.pay_document_items.id;
+
+
+--
+-- Name: pay_document_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pay_document_requests (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    source character varying NOT NULL,
+    document_kind character varying DEFAULT 'pay_statement'::character varying NOT NULL,
+    scope character varying NOT NULL,
+    document_reference character varying,
+    document_date date,
+    year integer,
+    recipient_kind character varying NOT NULL,
+    recipient_email character varying,
+    status character varying DEFAULT 'open'::character varying NOT NULL,
+    resolved_by_id bigint,
+    resolved_at timestamp(6) without time zone,
+    resolution_note character varying(500),
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT pay_document_requests_kind CHECK (((document_kind)::text = 'pay_statement'::text)),
+    CONSTRAINT pay_document_requests_recipient_kind CHECK (((recipient_kind)::text = ANY ((ARRAY['on_file'::character varying, 'typed'::character varying])::text[]))),
+    CONSTRAINT pay_document_requests_scope CHECK (((scope)::text = ANY ((ARRAY['latest'::character varying, 'pay_date'::character varying, 'year'::character varying])::text[]))),
+    CONSTRAINT pay_document_requests_source CHECK (((source)::text = ANY ((ARRAY['kiosk'::character varying, 'web'::character varying])::text[]))),
+    CONSTRAINT pay_document_requests_status CHECK (((status)::text = ANY ((ARRAY['open'::character varying, 'fulfilled'::character varying, 'dismissed'::character varying])::text[]))),
+    CONSTRAINT pay_document_requests_typed_email CHECK ((((recipient_kind)::text = 'typed'::text) = (recipient_email IS NOT NULL)))
+);
+
+
+--
+-- Name: pay_document_requests_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.pay_document_requests_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: pay_document_requests_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.pay_document_requests_id_seq OWNED BY public.pay_document_requests.id;
+
+
+--
 -- Name: payroll_account_link_sessions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2516,6 +2686,34 @@ ALTER TABLE ONLY public.leave_requests ALTER COLUMN id SET DEFAULT nextval('publ
 
 
 --
+-- Name: pay_document_deliveries id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_deliveries ALTER COLUMN id SET DEFAULT nextval('public.pay_document_deliveries_id_seq'::regclass);
+
+
+--
+-- Name: pay_document_downloads id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_downloads ALTER COLUMN id SET DEFAULT nextval('public.pay_document_downloads_id_seq'::regclass);
+
+
+--
+-- Name: pay_document_items id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_items ALTER COLUMN id SET DEFAULT nextval('public.pay_document_items_id_seq'::regclass);
+
+
+--
+-- Name: pay_document_requests id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_requests ALTER COLUMN id SET DEFAULT nextval('public.pay_document_requests_id_seq'::regclass);
+
+
+--
 -- Name: payroll_account_link_sessions id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2898,6 +3096,38 @@ ALTER TABLE ONLY public.employee_pay_rates
 
 ALTER TABLE ONLY public.leave_requests
     ADD CONSTRAINT leave_requests_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pay_document_deliveries pay_document_deliveries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_deliveries
+    ADD CONSTRAINT pay_document_deliveries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pay_document_downloads pay_document_downloads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_downloads
+    ADD CONSTRAINT pay_document_downloads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pay_document_items pay_document_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_items
+    ADD CONSTRAINT pay_document_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pay_document_requests pay_document_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_requests
+    ADD CONSTRAINT pay_document_requests_pkey PRIMARY KEY (id);
 
 
 --
@@ -3787,6 +4017,111 @@ CREATE INDEX index_manual_allocations_on_payroll_item ON public.payroll_manual_a
 --
 
 CREATE UNIQUE INDEX index_obligation_corrections_successor ON public.payroll_obligation_corrections USING btree (payroll_batch_entry_id, external_system, successor_pay_period_id, successor_payroll_item_id);
+
+
+--
+-- Name: index_pay_document_deliveries_on_pay_document_request_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_deliveries_on_pay_document_request_id ON public.pay_document_deliveries USING btree (pay_document_request_id);
+
+
+--
+-- Name: index_pay_document_deliveries_on_revoked_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_deliveries_on_revoked_by_id ON public.pay_document_deliveries USING btree (revoked_by_id);
+
+
+--
+-- Name: index_pay_document_deliveries_on_sent_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_deliveries_on_sent_by_id ON public.pay_document_deliveries USING btree (sent_by_id);
+
+
+--
+-- Name: index_pay_document_deliveries_on_sent_by_id_and_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_deliveries_on_sent_by_id_and_created_at ON public.pay_document_deliveries USING btree (sent_by_id, created_at);
+
+
+--
+-- Name: index_pay_document_deliveries_on_token_digest; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_pay_document_deliveries_on_token_digest ON public.pay_document_deliveries USING btree (token_digest);
+
+
+--
+-- Name: index_pay_document_deliveries_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_deliveries_on_user_id ON public.pay_document_deliveries USING btree (user_id);
+
+
+--
+-- Name: index_pay_document_deliveries_on_user_id_and_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_deliveries_on_user_id_and_created_at ON public.pay_document_deliveries USING btree (user_id, created_at);
+
+
+--
+-- Name: index_pay_document_downloads_on_pay_document_delivery_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_downloads_on_pay_document_delivery_id ON public.pay_document_downloads USING btree (pay_document_delivery_id);
+
+
+--
+-- Name: index_pay_document_downloads_on_pay_document_item_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_downloads_on_pay_document_item_id ON public.pay_document_downloads USING btree (pay_document_item_id);
+
+
+--
+-- Name: index_pay_document_items_identity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_pay_document_items_identity ON public.pay_document_items USING btree (pay_document_delivery_id, kind, reference);
+
+
+--
+-- Name: index_pay_document_items_on_pay_document_delivery_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_items_on_pay_document_delivery_id ON public.pay_document_items USING btree (pay_document_delivery_id);
+
+
+--
+-- Name: index_pay_document_requests_on_resolved_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_requests_on_resolved_by_id ON public.pay_document_requests USING btree (resolved_by_id);
+
+
+--
+-- Name: index_pay_document_requests_on_status_and_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_requests_on_status_and_created_at ON public.pay_document_requests USING btree (status, created_at);
+
+
+--
+-- Name: index_pay_document_requests_on_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_requests_on_user_id ON public.pay_document_requests USING btree (user_id);
+
+
+--
+-- Name: index_pay_document_requests_on_user_id_and_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_pay_document_requests_on_user_id_and_created_at ON public.pay_document_requests USING btree (user_id, created_at);
 
 
 --
@@ -5123,6 +5458,14 @@ ALTER TABLE ONLY public.solid_queue_failed_executions
 
 
 --
+-- Name: pay_document_downloads fk_rails_39f584bc6d; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_downloads
+    ADD CONSTRAINT fk_rails_39f584bc6d FOREIGN KEY (pay_document_item_id) REFERENCES public.pay_document_items(id);
+
+
+--
 -- Name: time_entries fk_rails_3afcdd7800; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5144,6 +5487,14 @@ ALTER TABLE ONLY public.payroll_manual_allocations
 
 ALTER TABLE ONLY public.schedules
     ADD CONSTRAINT fk_rails_3c900465fa FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: pay_document_deliveries fk_rails_3daff30c02; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_deliveries
+    ADD CONSTRAINT fk_rails_3daff30c02 FOREIGN KEY (sent_by_id) REFERENCES public.users(id);
 
 
 --
@@ -5291,6 +5642,14 @@ ALTER TABLE ONLY public.payroll_manual_allocations
 
 
 --
+-- Name: pay_document_requests fk_rails_7e7d105dfd; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_requests
+    ADD CONSTRAINT fk_rails_7e7d105dfd FOREIGN KEY (resolved_by_id) REFERENCES public.users(id);
+
+
+--
 -- Name: payroll_settlement_cases fk_rails_80fb0295f2; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5307,11 +5666,27 @@ ALTER TABLE ONLY public.solid_queue_ready_executions
 
 
 --
+-- Name: pay_document_deliveries fk_rails_8530761cdd; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_deliveries
+    ADD CONSTRAINT fk_rails_8530761cdd FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
 -- Name: payroll_payment_attestations fk_rails_8cb89e210c; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payroll_payment_attestations
     ADD CONSTRAINT fk_rails_8cb89e210c FOREIGN KEY (resolved_manual_allocation_id) REFERENCES public.payroll_manual_allocations(id);
+
+
+--
+-- Name: pay_document_deliveries fk_rails_8cdb042341; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_deliveries
+    ADD CONSTRAINT fk_rails_8cdb042341 FOREIGN KEY (revoked_by_id) REFERENCES public.users(id);
 
 
 --
@@ -5328,6 +5703,14 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 
 ALTER TABLE ONLY public.payroll_entry_processing_events
     ADD CONSTRAINT fk_rails_94a8c847a2 FOREIGN KEY (payroll_batch_id) REFERENCES public.payroll_batches(id) ON DELETE CASCADE;
+
+
+--
+-- Name: pay_document_downloads fk_rails_961ecb4075; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_downloads
+    ADD CONSTRAINT fk_rails_961ecb4075 FOREIGN KEY (pay_document_delivery_id) REFERENCES public.pay_document_deliveries(id);
 
 
 --
@@ -5459,6 +5842,22 @@ ALTER TABLE ONLY public.site_media
 
 
 --
+-- Name: pay_document_requests fk_rails_c11acedd95; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_requests
+    ADD CONSTRAINT fk_rails_c11acedd95 FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: pay_document_deliveries fk_rails_c1f66c2cec; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_deliveries
+    ADD CONSTRAINT fk_rails_c1f66c2cec FOREIGN KEY (pay_document_request_id) REFERENCES public.pay_document_requests(id);
+
+
+--
 -- Name: active_storage_attachments fk_rails_c3b3935057; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5504,6 +5903,14 @@ ALTER TABLE ONLY public.payroll_batch_exclusions
 
 ALTER TABLE ONLY public.payroll_calendar_period_revisions
     ADD CONSTRAINT fk_rails_d376da3b87 FOREIGN KEY (payroll_calendar_period_id) REFERENCES public.payroll_calendar_periods(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: pay_document_items fk_rails_d45aaacbf9; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pay_document_items
+    ADD CONSTRAINT fk_rails_d45aaacbf9 FOREIGN KEY (pay_document_delivery_id) REFERENCES public.pay_document_deliveries(id);
 
 
 --
@@ -5561,6 +5968,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261110120000'),
 ('20261110000100'),
 ('20261110000000'),
 ('20261102000000'),
