@@ -10,7 +10,7 @@ export interface EvidenceTotals {
 export interface EvidenceEntry {
   accounting_correction_hours?: number;
   id: string; version: number; work_date: string; start_time: string | null; end_time: string | null; description: string | null; category: string | null
-  approval_status: string | null; overtime_status: string; status: string; regular_hours: number; overtime_hours: number
+  approval_status: string | null; auto_approved?: boolean; overtime_status: string; status: string; regular_hours: number; overtime_hours: number
   worked_hours: number; eligible_hours: number; pending_hours: number; denied_hours: number; issued_hours: number; committed_hours: number; exported_hours: number; held_hours: number; needs_reconciliation_hours: number; payment_attestation: string | null
 }
 export interface CoverageLine {

@@ -40,6 +40,7 @@ module Payroll
         },
         approval: {
           actor: serialize_actor(entry.approved_by),
+          auto_approved: entry.auto_approved?,
           occurred_at: entry.approved_at&.iso8601,
           note: entry.approval_note
         },

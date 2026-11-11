@@ -990,6 +990,7 @@ module Api
           attendance_status: entry.attendance_status,
           payroll_status: @employee_payroll_statuses&.fetch(entry.id, nil),
           approval_status: entry.approval_status,
+          auto_approved: entry.auto_approved?,
           overtime_status: entry.overtime_status,
           approval_reasons: approval_reasons_for(entry),
           needs_another_approver: own_time_needs_another_approver?(entry),
@@ -1338,6 +1339,10 @@ module Api
         note = entry.approval_note.to_s.downcase
 
         if entry.approval_status == "pending"
+          if entry.user.supervisor?
+            reasons << { key: "own_time", label: TimeClockService::SUPERVISOR_OWN_TIME_NOTE }
+          end
+
           if note.include?("corrected clock-out")
             reasons << { key: "corrected_clock_out", label: "Corrected clock-out" }
           end

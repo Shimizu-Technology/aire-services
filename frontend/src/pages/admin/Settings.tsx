@@ -6,6 +6,7 @@ import { FadeUp } from '../../components/ui/MotionComponents'
 import { useConfirm } from '../../components/ui/useConfirm'
 import { HelpTip } from '../../components/ui/HelpTip'
 import PayStubSettings from '../../components/pay-stubs/PayStubSettings'
+import AutoApprovalSettings from '../../components/time-tracking/AutoApprovalSettings'
 import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
 import type { PublicContactInfoSettings, PublicPhoneContactChannel, PublicPhoneContactSettings } from '../../lib/businessInfo'
@@ -1171,6 +1172,10 @@ export default function Settings() {
                 </div>
               </div>
             </section>
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
+            <AutoApprovalSettings settings={clockSettings} onSaved={setClockSettings} />
           </FadeUp>
 
           <FadeUp delay={0.08}>

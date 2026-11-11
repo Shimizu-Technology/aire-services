@@ -56,6 +56,8 @@ interface TimeEntryItem {
   clock_in_at?: string | null
   clock_out_at?: string | null
   approved_by?: { id: number; full_name: string } | null
+  /** Approved at clock-out by "Auto-approve ordinary shifts". */
+  auto_approved?: boolean
   approved_at?: string | null
   approval_note?: string | null
   breaks?: Array<{
@@ -277,6 +279,7 @@ function reportEntriesForDetailTable(report: HoursReportResponse): TimeEntryItem
     clock_source: entry.clock_source as TimeEntryItem['clock_source'],
     status: 'completed' as const,
     approval_status: entry.approval_status as TimeEntryItem['approval_status'],
+    auto_approved: entry.auto_approved,
     overtime_status: entry.overtime_status as TimeEntryItem['overtime_status'],
     payroll_lifecycle: entry.payroll_lifecycle,
     quality_flags: entry.quality_flags,
@@ -1758,7 +1761,11 @@ export default function TimeTracking() {
                       )}
                       {/* Client */}
                       {/* Approval info */}
-                      {entry.approved_by && (
+                      {entry.auto_approved ? (
+                        <div className="mt-2 text-xs text-text-muted border-t border-neutral-warm/50 pt-2">
+                          <span className="text-emerald-600">Auto-approved</span> · ordinary shift
+                        </div>
+                      ) : entry.approved_by && (
                         <div className="mt-2 text-xs text-text-muted border-t border-neutral-warm/50 pt-2">
                           <span className={entry.approval_status === 'approved' ? 'text-emerald-600' : 'text-red-500'}>
                             {entry.approval_status === 'approved' ? 'Approved' : 'Denied'} by {entry.approved_by.full_name}
@@ -2859,7 +2866,7 @@ function DetailedEntriesTable({
                 <div className="min-w-0"><dt className="text-xs text-text-muted">Categories</dt><dd className="break-words">{categories.join(', ')}</dd></div>
                 <div className="min-w-0"><dt className="text-xs text-text-muted">Sources</dt><dd className="break-words uppercase">{sources.join(', ')}</dd></div>
               </dl>
-              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700">{status === 'standard' ? 'Standard approval' : `${status} approval`}</span>)}</div>
+              <div className="flex flex-wrap gap-1">{[...new Set(group.entries.map(entry => entry.auto_approved ? 'auto' : entry.approval_status || 'standard'))].map(status => <span key={status} className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize text-slate-700">{status === 'standard' ? 'Standard approval' : status === 'auto' ? 'Auto-approved' : `${status} approval`}</span>)}</div>
               <div className="flex flex-wrap gap-1">{[...new Map(group.entries.filter(entry => entry.payroll_lifecycle).map(entry => [entry.payroll_lifecycle!.status, entry.payroll_lifecycle!])).values()].map(lifecycle => <PayrollLifecycleBadge key={lifecycle.status} lifecycle={lifecycle} />)}</div>
               <div id={detailId} hidden={multiple && !expanded} className="space-y-3">
                 {group.entries.map(entry => <div key={entry.id} className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-3">
@@ -2867,7 +2874,7 @@ function DetailedEntriesTable({
                   <dl className="grid min-w-0 grid-cols-2 gap-3 text-xs">
                     <div className="min-w-0"><dt className="text-text-muted">Category</dt><dd className="break-words font-medium">{entry.time_category?.name || 'Uncategorized'}</dd></div>
                     <div className="min-w-0"><dt className="text-text-muted">Source / method</dt><dd className="break-words uppercase">{entry.clock_source || 'legacy'}{entry.entry_method ? ` · ${entry.entry_method}` : ''}</dd></div>
-                    <div><dt className="text-text-muted">Approval</dt><dd className="capitalize">{entry.approval_status || 'Standard approval'}{entry.overtime_status && entry.overtime_status !== 'none' ? ` · OT ${entry.overtime_status}` : ''}</dd></div>
+                    <div><dt className="text-text-muted">Approval</dt><dd className="capitalize">{entry.auto_approved ? 'Auto-approved' : entry.approval_status || 'Standard approval'}{entry.overtime_status && entry.overtime_status !== 'none' ? ` · OT ${entry.overtime_status}` : ''}</dd></div>
                     <div><dt className="text-text-muted">Breaks</dt><dd>{entry.break_minutes || 0}m</dd></div>
                   </dl>
                   {entry.description && <p className="whitespace-pre-wrap break-words text-sm text-text-muted">{entry.description}</p>}
@@ -3219,10 +3226,10 @@ function PersonDayModalContent({
                           Pending approval
                         </span>
                       )}
-                      {entry.approval_status === 'approved' && entry.approved_by && (
+                      {entry.approval_status === 'approved' && (entry.approved_by || entry.auto_approved) && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                          Approved by {entry.approved_by.full_name}
+                          {entry.auto_approved ? 'Auto-approved' : `Approved by ${entry.approved_by?.full_name}`}
                         </span>
                       )}
                       {entry.approval_status === 'denied' && (

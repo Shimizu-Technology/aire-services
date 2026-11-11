@@ -9,6 +9,19 @@ class TimeClockService
 
   OWN_TIME_REVIEW_MESSAGE = "Another approver needs to review your own time".freeze
   OWN_CLOCK_OVERRIDE_MESSAGE = "Another approver needs to override your own clock".freeze
+  UNSCHEDULED_NOTE = "Clocked in without a schedule".freeze
+  SUPERVISOR_OWN_TIME_NOTE = "Supervisor's own time".freeze
+  # Punches an employee makes themselves. A supervisor clocking someone in or
+  # out is recorded as clock_source "admin" or admin_override.
+  SELF_SERVICE_CLOCK_SOURCES = %w[kiosk mobile].freeze
+  # Audit actions a normal kiosk or mobile shift writes about itself. Any
+  # other time_entry action on the entry means it was edited or corrected.
+  ORDINARY_SHIFT_AUDIT_ACTIONS = %w[
+    time_entry.clocked_in time_entry.clocked_out time_entry.break_started time_entry.break_ended
+    time_entry.category_switched time_entry.category_auto_assigned
+  ].freeze
+  # Consecutive segments (category switches) closer than this are one shift.
+  SESSION_GAP_SECONDS = 5
 
   class << self
     # ── Clock In ──
@@ -58,7 +71,7 @@ class TimeClockService
             clock_source: clock_source,
             admin_override: admin_override_by.present?,
             approval_status: nil,
-            approval_note: unscheduled_approval_note_for(user: user, schedule: schedule),
+            approval_note: unscheduled_approval_note_for(schedule: schedule),
             attendance_status: schedule ? calculate_attendance_status(now, schedule) : nil
           )
           entry.save!
@@ -102,11 +115,11 @@ class TimeClockService
           entry.clock_out_at = now
           entry.approval_status = "pending"
           entry.approval_note = build_approval_note(entry.approval_note, "Employee corrected clock-out time to #{parsed.strftime('%I:%M %p')}")
-          apply_unscheduled_pending!(entry)
+          apply_clock_approval_policy!(entry)
         else
           entry.end_time = guam_now
           entry.clock_out_at = now
-          apply_unscheduled_pending!(entry)
+          apply_clock_approval_policy!(entry)
         end
 
         entry.description = description if description.present?
@@ -133,6 +146,7 @@ class TimeClockService
           )
         end
         record_time_event!("time_entry.clocked_out", entry, user: user, actor: admin_override_by, source: entry.clock_source)
+        auto_approve_ordinary_shift!(entry)
       end
 
       broadcast_time_clock_update("clock_out", user)
@@ -221,7 +235,7 @@ class TimeClockService
         entry.calculate_hours_from_times
         entry.overtime_status = check_overtime_status(user, entry)
         entry.admin_override = true if admin_override_by.present?
-        apply_unscheduled_pending!(entry)
+        apply_clock_approval_policy!(entry)
         entry.save!
 
         new_entry = TimeEntry.create!(
@@ -237,7 +251,7 @@ class TimeClockService
           clock_source: resolved_source,
           admin_override: admin_override_by.present?,
           approval_status: nil,
-          approval_note: unscheduled_approval_note_for(user: user, schedule: entry.schedule),
+          approval_note: unscheduled_approval_note_for(schedule: entry.schedule),
           attendance_status: entry.attendance_status
         )
         record_time_event!(
@@ -248,6 +262,7 @@ class TimeClockService
           source: resolved_source,
           metadata: { previous_entry_id: entry.id, previous_time_category_id: previous_time_category_id }
         )
+        auto_approve_ordinary_shift!(entry)
       end
 
       broadcast_time_clock_update("switch_category", user)
@@ -603,24 +618,133 @@ class TimeClockService
       }
     end
 
+    # "Auto-approve ordinary shifts": why a completed clock entry is not an
+    # ordinary shift. An empty list means it is. Each exception keeps the
+    # entry in the approval queue exactly as it would be without the setting.
+    def ordinary_shift_exceptions(entry)
+      exceptions = []
+      exceptions << :setting_off unless Setting.auto_approve_ordinary_shifts?
+      # Employees only. A supervisor's own time always needs a person.
+      exceptions << :not_employee unless entry.user&.employee?
+      exceptions << :not_completed_clock unless entry.clock_entry? && entry.status == "completed" && entry.clock_in_at && entry.clock_out_at
+      exceptions << :not_self_service unless entry.clock_source.in?(SELF_SERVICE_CLOCK_SOURCES) && !entry.admin_override?
+      exceptions << :no_category if entry.time_category_id.blank?
+      # Scheduled shifts are not queued and keep today's behaviour. A queued
+      # shift whose only reason is the missing schedule qualifies; corrected
+      # clock-outs, edits, auto-closes and 24-hour holds add their own note.
+      exceptions << :queued_for_another_reason unless entry.approval_status == "pending" && entry.approval_note == UNSCHEDULED_NOTE
+      exceptions << :edited if edited_since_clock_in?(entry)
+      exceptions << :overtime if overtime_portion?(entry)
+      exceptions << :too_long if exceptions.exclude?(:not_completed_clock) && shift_span_hours(entry) >= Setting.auto_approve_max_shift_hours
+      exceptions << :late_hours if late_or_prior_period_hours?(entry)
+      exceptions << :crosses_period if exceptions.exclude?(:not_completed_clock) && crosses_period_or_cutoff?(entry)
+      exceptions
+    end
+
     private
 
-    def unscheduled_approval_note_for(user:, schedule:)
-      return nil unless unscheduled_entry_requires_approval?(user: user, schedule: schedule)
-
-      "Clocked in without a schedule"
+    def unscheduled_approval_note_for(schedule:)
+      UNSCHEDULED_NOTE if schedule.nil?
     end
 
-    def apply_unscheduled_pending!(entry)
-      return unless unscheduled_entry_requires_approval?(user: entry.user, schedule: entry.schedule)
+    # Unscheduled clock time waits for approval. A supervisor's own clock time
+    # always does, scheduled or not; whether they may approve it themselves is
+    # User#can_review_own_time? ("Managers can approve their own time").
+    def apply_clock_approval_policy!(entry)
+      if entry.schedule.nil?
+        entry.approval_status = "pending"
+        entry.approval_note = build_approval_note(entry.approval_note, UNSCHEDULED_NOTE)
+      end
+      return unless entry.user.supervisor?
 
       entry.approval_status = "pending"
-      entry.approval_note = build_approval_note(entry.approval_note, "Clocked in without a schedule")
+      entry.approval_note = build_approval_note(entry.approval_note, SUPERVISOR_OWN_TIME_NOTE)
     end
 
-    # Supervisors who may approve their own time skip the queue for it.
-    def unscheduled_entry_requires_approval?(user:, schedule:)
-      schedule.nil? && !user.can_review_own_time?
+    def auto_approve_ordinary_shift!(entry)
+      # Cheap gates first: with the setting off nothing else is queried.
+      return unless Setting.auto_approve_ordinary_shifts? && entry.user.employee?
+      return unless ordinary_shift_exceptions(entry).empty?
+
+      entry.update!(
+        approval_status: "approved",
+        approved_by: nil,
+        approved_at: Time.current,
+        approval_note: TimeEntry::AUTO_APPROVAL_NOTE
+      )
+      AuditLog.record!(
+        action: "time_entry.auto_approved",
+        auditable: entry,
+        actor: nil,
+        actor_kind: "system",
+        source: "system",
+        event_category: "approvals",
+        metadata: {
+          employee_id: entry.user_id,
+          employee_name: entry.user&.full_name,
+          work_date: entry.work_date&.iso8601,
+          hours: entry.hours.to_f,
+          rule: "ordinary_shift",
+          max_shift_hours: Setting.auto_approve_max_shift_hours
+        }
+      )
+    end
+
+    def edited_since_clock_in?(entry)
+      AuditLog.where(auditable_type: "TimeEntry", auditable_id: entry.id)
+        .where("action LIKE 'time_entry.%'")
+        .where.not(action: ORDINARY_SHIFT_AUDIT_ACTIONS)
+        .exists?
+    end
+
+    # Overtime is never auto-approved. Count time still waiting for approval
+    # as if approved, so a shift that would push the week over 40 hours once
+    # earlier shifts are approved is queued too.
+    def overtime_portion?(entry)
+      return true unless entry.overtime_status.in?([ nil, "none" ])
+
+      Payroll::AffectedOvertimeReview.projected_allocations_for([ entry ]).dig(entry.id, :overtime_hours).to_f.positive?
+    end
+
+    # Elapsed time since the shift began, breaks included. A category switch
+    # splits one shift into segments, so measure from the first segment.
+    def shift_span_hours(entry)
+      started_at = entry.clock_in_at
+      seen = [ entry.id ]
+      loop do
+        previous = TimeEntry.clock_entries.where(user_id: entry.user_id)
+          .where(clock_out_at: (started_at - SESSION_GAP_SECONDS.seconds)..started_at)
+          .where.not(id: seen)
+          .order(clock_out_at: :desc)
+          .first
+        break unless previous && seen.size < 50
+
+        seen << previous.id
+        started_at = previous.clock_in_at
+      end
+      (entry.clock_out_at - started_at) / 1.hour
+    end
+
+    # Late hours: the work date is in a pay period AIRE already finalized, or
+    # one whose published lock has passed.
+    def late_or_prior_period_hours?(entry)
+      date = entry.work_date
+      PayrollBatch.where("start_date <= :date AND end_date >= :date", date: date).exists? ||
+        Payroll::EntryCutoffWarnings.call([ entry ]).include?(entry.id)
+    end
+
+    # Clocked in and out in different pay periods (1st–15th, 16th–month end),
+    # or a payroll lock fell inside the shift.
+    def crosses_period_or_cutoff?(entry)
+      clock_out_date = entry.clock_out_at.in_time_zone(business_timezone).to_date
+      return true if pay_period_key(entry.work_date) != pay_period_key(clock_out_date)
+
+      shift = entry.clock_in_at..entry.clock_out_at
+      PayrollCalendarPeriod.where(cutoff_at: shift).exists? || PayrollBatch.where(cutoff_at: shift).exists?
+    end
+
+    def pay_period_key(date)
+      [ date.year, date.month, date.day <= 15 ? 1 : 2 ]
     end
 
     def ensure_review_allowed!(entry, reviewer)

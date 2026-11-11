@@ -385,6 +385,10 @@ export interface TimeClockAppSettings {
   clock_in_location_radius_meters: string;
   /** "true" (default) or "false". Off sends a manager's own time to another approver. */
   managers_can_approve_own_time?: string;
+  /** "false" (default) or "true". Approves employees' ordinary shifts at clock-out. */
+  auto_approve_ordinary_shifts?: string;
+  /** Hours, default "12". Shifts this long or longer are never auto-approved. */
+  auto_approve_max_shift_hours?: string;
   /** "false" (default) or "true". Shows "Request my pay stub" at the kiosk. */
   pay_stub_kiosk_requests_enabled?: string;
   /** "false" (default) or "true". Shows "Email me this stub" in My Pay. */
@@ -557,6 +561,8 @@ export interface TimeEntry {
   admin_override: boolean;
   attendance_status: 'early' | 'on_time' | 'late' | null;
   approval_status: 'pending' | 'approved' | 'denied' | null;
+  /** Approved at clock-out by "Auto-approve ordinary shifts"; approved_by is null. */
+  auto_approved?: boolean;
   overtime_status: 'none' | 'pending' | 'approved' | 'denied' | null;
   pending_overtime_hours?: number;
   approval_reasons?: ApprovalReason[];
@@ -869,6 +875,7 @@ export interface HoursReportEntry {
   clock_source: string | null;
   approval_status: string | null;
   approved_by: { id: number; full_name: string } | null;
+  auto_approved?: boolean;
   approved_at: string | null;
   overtime_status: string | null;
   time_category: { id: number; key?: string | null; name: string } | null;

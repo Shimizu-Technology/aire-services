@@ -20,6 +20,7 @@ class AuditLogPresenter
     "time_entry.deleted" => "Deleted",
     "time_entry.submitted" => "Submitted",
     "time_entry.approved" => "Approved",
+    "time_entry.auto_approved" => "Auto-approved",
     "time_entry.denied" => "Denied",
     "time_entry.clocked_in" => "Clocked in for",
     "time_entry.clocked_out" => "Clocked out from",

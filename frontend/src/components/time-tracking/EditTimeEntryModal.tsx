@@ -23,6 +23,7 @@ interface EditableTimeEntry {
   approval_status?: 'pending' | 'approved' | 'denied' | null
   approval_note?: string | null
   approved_by?: { id: number; full_name: string } | null
+  auto_approved?: boolean
   needs_another_approver?: boolean
   entry_method?: 'clock' | 'manual'
   status?: 'clocked_in' | 'on_break' | 'completed'
@@ -315,7 +316,12 @@ export default function EditTimeEntryModal({
                     Needs administrator correction: this clock spans 24 hours or more. No payable hours are saved. Correct the punches and breaks before approval.
                   </p>
                 )}
-                {entry.approved_by && (
+                {entry.auto_approved && (
+                  <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    <span className="font-medium">Auto-approved</span> at clock-out as an ordinary shift
+                  </div>
+                )}
+                {!entry.auto_approved && entry.approved_by && (
                   <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${
                     entry.approval_status === 'approved'
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
