@@ -24,7 +24,7 @@ const settings = (overrides: Record<string, string> = {}) => ({
 beforeEach(() => {
   auth.role = 'employee'
   auth.schedulesEnabled = false
-  auth.refreshCurrentUser.mockReset().mockResolvedValue(undefined)
+  auth.refreshCurrentUser.mockReset().mockResolvedValue(true)
   apiMock.updateAdminAppSettings.mockReset()
 })
 
