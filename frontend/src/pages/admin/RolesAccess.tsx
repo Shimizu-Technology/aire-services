@@ -7,6 +7,7 @@ import { StatusPill } from '../../components/ui/StatusPill'
 import { api, type AccessGuideResponse, type AccessGuideRoleCard, type AccessGuideRow, type AccessGuideSettingEffect } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import { ROLE_DETAILS, isUserRole } from '../../lib/roles'
+import { useCapabilities } from '../../lib/useCapabilities'
 
 // Roles & access: what each role can do, read from GET /api/v1/access_guide,
 // which builds it from User::ROLE_CAPABILITIES and the role rules. Owners
@@ -27,7 +28,7 @@ function rolePhrase(roles: string[]) {
 function FootnoteMarks({ ids, numbers }: { ids: string[]; numbers: Map<string, { n: number; label: string }> }) {
   if (ids.length === 0) return null
   return (
-    <>
+    <span className="ml-1 inline-flex gap-1 align-super">
       {ids.map((id) => {
         const note = numbers.get(id)
         if (!note) return null
@@ -36,13 +37,13 @@ function FootnoteMarks({ ids, numbers }: { ids: string[]; numbers: Map<string, {
             key={id}
             href={`#setting-${id}`}
             aria-label={`Note ${note.n}: ${note.label}`}
-            className="ml-0.5 align-super text-caption font-semibold text-cyan-800 hover:underline"
+            className="text-caption font-semibold text-cyan-800 hover:underline"
           >
             {note.n}
           </a>
         )
       })}
-    </>
+    </span>
   )
 }
 
@@ -57,9 +58,9 @@ function Cell({ row, role, numbers }: { row: AccessGuideRow; role: string; numbe
         : <Minus aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-ink-subtle" />}
       <span className="min-w-0">
         <span className={allowed ? 'text-ink' : 'text-ink-muted'}>{cell.value === 'yes' ? 'Yes' : cell.value === 'no' ? 'No' : 'Limited'}</span>
+        <FootnoteMarks ids={cell.footnotes ?? []} numbers={numbers} />
         {cell.note && <span className="block text-caption text-ink-muted">{cell.note}</span>}
       </span>
-      <FootnoteMarks ids={cell.footnotes ?? []} numbers={numbers} />
     </span>
   )
 }
@@ -189,7 +190,10 @@ export default function RolesAccess() {
     return () => { cancelled = true }
   }, [attempt])
 
-  const fullView = Boolean(guide?.viewer.can_see_members)
+  // The signed-in role picks the title while the guide loads, so owners and
+  // admins never see "What can I do?" flash first.
+  const canManageUsers = useCapabilities().manage_users
+  const fullView = guide ? guide.viewer.can_see_members : canManageUsers
   const title = fullView ? 'Roles & access' : 'What can I do?'
 
   useEffect(() => {

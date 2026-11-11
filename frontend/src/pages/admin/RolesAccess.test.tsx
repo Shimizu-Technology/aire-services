@@ -14,6 +14,8 @@ const fixture = guideFixture as unknown as AccessGuideResponse
 
 const apiMock = vi.hoisted(() => ({ getAccessGuide: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: apiMock }))
+const authMock = vi.hoisted(() => ({ value: { isClerkEnabled: true, userRole: 'admin' as string | null } }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => authMock.value }))
 
 function guideAs(role: string, overrides: Partial<AccessGuideResponse> = {}): AccessGuideResponse {
   const full = role === 'owner' || role === 'admin'
@@ -59,7 +61,21 @@ function matrixFromTable() {
 }
 
 describe('Roles & access', () => {
-  beforeEach(() => apiMock.getAccessGuide.mockReset())
+  beforeEach(() => {
+    apiMock.getAccessGuide.mockReset()
+    authMock.value.userRole = 'admin'
+  })
+
+  it('titles the page for the signed-in role while it loads', () => {
+    apiMock.getAccessGuide.mockReturnValue(new Promise(() => {}))
+    const { unmount } = render(<RolesAccess />, { wrapper: MemoryRouter })
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Roles & access')
+    expect(screen.getByRole('status')).toHaveTextContent('Loading roles')
+    unmount()
+    authMock.value.userRole = 'employee'
+    render(<RolesAccess />, { wrapper: MemoryRouter })
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('What can I do?')
+  })
 
   it("shows a capability grid that equals User::ROLE_CAPABILITIES and the frontend's copy of it", async () => {
     await renderAs('owner')
