@@ -1073,13 +1073,14 @@ export default function TimeTracking() {
     setLinkedEntryState(current => current?.entry && current.entry.id === id ? { ...current, entry: null } : current)
   }
 
-  const handleDelete = async (entry: TimeEntryItem) => {
+  // Resolves true only when the entry was actually deleted.
+  const handleDelete = async (entry: TimeEntryItem): Promise<boolean> => {
     if (!canDeleteEntry(entry)) {
       setError('You do not have permission to delete this time entry')
-      return
+      return false
     }
 
-    if (!(await confirm({ title: 'Are you sure you want to delete this time entry?', tone: 'danger', confirmLabel: 'Delete entry' }))) return
+    if (!(await confirm({ title: 'Are you sure you want to delete this time entry?', tone: 'danger', confirmLabel: 'Delete entry' }))) return false
 
     try {
       const response = await api.deleteTimeEntry(entry.id)
@@ -1087,10 +1088,10 @@ export default function TimeTracking() {
         if (response.code === 'correction_reason_required') {
           openEditEntry(entry)
           setError('This entry was already exported to payroll. Use the edit dialog to record a correction reason before deleting it.')
-          return
+          return false
         }
         setError(response.error)
-        return
+        return false
       }
       clearDeletedLinkedEntry(entry.id)
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
@@ -1098,8 +1099,10 @@ export default function TimeTracking() {
       setShowModal(false)
       setEditingEntry(null)
       refreshEntryViews()
+      return true
     } catch {
       setError('Failed to delete time entry')
+      return false
     }
   }
 
@@ -1828,7 +1831,7 @@ export default function TimeTracking() {
                 openNewEntry(personDayModal.date, undefined, undefined, undefined, userId)
               }}
               onDeleteEntry={async (entry) => {
-                await handleDelete(entry)
+                if (!(await handleDelete(entry))) return
                 const remaining = personDayModal.entries.filter(e => e.id !== entry.id)
                 if (remaining.length === 0) {
                   setPersonDayModal(null)

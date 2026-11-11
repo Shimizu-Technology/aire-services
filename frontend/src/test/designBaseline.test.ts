@@ -42,7 +42,8 @@ describe('design baseline', () => {
     const over = Object.entries(sources).flatMap(([path, source]) => {
       const count = source.match(SUB_12PX_TEXT)?.length ?? 0
       const allowed = SUB_12PX_PENDING[path] ?? 0
-      return count > allowed ? [`${path}: ${count} (allowed ${allowed})`] : []
+      // Exact match keeps the allowance a ratchet: lower it when a file improves.
+      return count !== allowed ? [`${path}: ${count} (allowed ${allowed}; update the allowance to match)`] : []
     })
     expect(over).toEqual([])
   })

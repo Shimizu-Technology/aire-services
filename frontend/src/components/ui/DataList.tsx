@@ -37,7 +37,7 @@ const INTERACTIVE = 'a, button, input, select, textarea, label, summary, [role="
  * scrolls sideways.
  */
 export function DataList<T>({ rows, columns, getRowKey, label, onRowClick, rowActionLabel, empty, className }: DataListProps<T>) {
-  if (rows.length === 0) {
+  if (rows.length === 0 || columns.length === 0) {
     return (
       <div className={cx('rounded-card border border-dashed border-line-strong bg-surface px-5 py-10 text-center text-body-sm text-ink-muted', className)}>
         {empty ?? 'Nothing to show yet.'}
@@ -49,6 +49,8 @@ export function DataList<T>({ rows, columns, getRowKey, label, onRowClick, rowAc
   const ordered = [primary, ...columns.filter(column => column !== primary)]
   const secondary = ordered.slice(1).filter(column => !column.hideOnMobile)
 
+  // A mouse convenience only: the primary-cell button is the keyboard and
+  // screen-reader way to open a row, so keep it whenever onRowClick is set.
   const openRow = (row: T) => (event: MouseEvent) => {
     if (!onRowClick) return
     const target = event.target as HTMLElement

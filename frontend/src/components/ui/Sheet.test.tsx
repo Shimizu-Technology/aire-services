@@ -56,9 +56,9 @@ describe('Sheet', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     await user.click(trigger)
-    fireEvent.click(screen.getByRole('dialog'))
+    fireEvent.mouseDown(screen.getByRole('dialog'))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('dialog').parentElement!)
+    fireEvent.mouseDown(screen.getByRole('dialog').parentElement!)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(onClose).toHaveBeenCalledTimes(3)
   })

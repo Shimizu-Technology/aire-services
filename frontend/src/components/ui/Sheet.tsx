@@ -34,7 +34,9 @@ function OpenSheet({ onClose, title, description, children, footer, initialFocus
   return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-end bg-slate-950/50 transition-opacity duration-200 ease-out starting:opacity-0 md:items-stretch md:justify-end"
-      onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+      // mousedown, not click: a drag that starts inside the panel and ends on
+      // the backdrop must not close the sheet.
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
     >
       <div
         ref={panelRef}
