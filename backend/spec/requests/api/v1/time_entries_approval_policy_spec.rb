@@ -82,6 +82,28 @@ RSpec.describe "Time entry approval policy", type: :request do
     expect(response.body).to include("Auto-approved")
   end
 
+  it "returns an auto-approved shift to pending on any later edit, the same as a person's approval" do
+    Setting.set(Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY, "true")
+    auto = clock_shift(employee)
+    expect(auto).to include("auto_approved" => true)
+    travel 16.hours
+    Setting.set(Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY, "false")
+    human = clock_shift(employee)
+    post "/api/v1/time_entries/#{human["id"]}/approve", headers: headers_for(admin)
+    expect(response).to have_http_status(:ok)
+
+    [ auto, human ].each do |entry|
+      patch "/api/v1/time_entries/#{entry["id"]}", params: { time_entry: { description: "Left early for the ramp" } }, headers: headers_for(employee)
+      expect(response).to have_http_status(:ok)
+      expect(json.fetch("time_entry")).to include("approval_status" => "pending", "auto_approved" => false, "approved_by" => nil, "approved_at" => nil)
+      expect(json.dig("time_entry", "approval_note")).to end_with("Employee edited time entry — awaiting admin review")
+    end
+
+    get "/api/v1/time_entries/pending_approvals", headers: headers_for(admin)
+    expect(json.fetch("pending_entries").map { |row| row["id"] }).to include(auto["id"], human["id"])
+    expect(TimeClockService.ordinary_shift_exceptions(TimeEntry.find(auto["id"]))).to include(:edited)
+  end
+
   it "keeps manual entries pending with auto-approval on" do
     Setting.set(Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY, "true")
 

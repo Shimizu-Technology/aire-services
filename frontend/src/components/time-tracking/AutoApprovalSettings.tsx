@@ -114,14 +114,14 @@ export default function AutoApprovalSettings({ settings, onSaved }: Props) {
           <Field
             className="sm:max-w-xs sm:flex-1"
             label="Longest shift to auto-approve (hours)"
-            help="Shifts this long or longer, breaks included, go to the queue."
+            help="The whole shift counts: first clock-in to final clock-out, breaks and category switches included."
             labelAction={(
               <HelpTip
                 label="Longest shift to auto-approve"
-                what="A shift that runs this many hours or more, from first clock-in to clock-out with breaks included, always waits for a person."
+                what="A shift that runs this many hours or more, from first clock-in to final clock-out with breaks and category switches included, always waits for a person, and so does every part of it. A shift the system closes for a missed clock-out always waits too, whatever this limit."
                 defaultValue="12 hours"
                 who="Owners and admins"
-                example="At 12, a 7:00 to 18:30 shift is auto-approved; a 7:00 to 19:00 shift goes to the queue."
+                example="At 12, a 7:00 to 18:30 shift is auto-approved. A 6:00 to 19:30 shift that switched category at 17:00 goes to the queue whole, both parts."
               />
             )}
           >

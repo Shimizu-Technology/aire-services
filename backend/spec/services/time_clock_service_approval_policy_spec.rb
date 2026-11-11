@@ -136,20 +136,108 @@ RSpec.describe TimeClockService, "approval policy", type: :service do
       expect(auto_approval_rows(entry)).to be_empty
     end
 
-    it "approves each segment of a category switch, measuring length from the first clock-in" do
-      turn_on_auto_approval!(max_hours: 4)
-      employee.user_time_categories.create!(time_category: other_category)
+    describe "a shift split by a category switch" do
+      before { employee.user_time_categories.create!(time_category: other_category) }
 
-      described_class.clock_in(user: employee, time_category_id: category.id, clock_source: "kiosk")
-      travel 3.hours
-      second = described_class.switch_category(user: employee, time_category_id: other_category.id, clock_source: "kiosk")
-      first = employee.time_entries.where.not(id: second.id).sole
-      expect(first.reload).to be_auto_approved
+      # Clocks in at the kiosk at the current time, switches category after
+      # `first_hours`, and clocks out `second_hours` later.
+      def switched_shift(first_hours:, second_hours:, clock_in_by: nil)
+        described_class.clock_in(user: employee, time_category_id: category.id, clock_source: "kiosk", admin_override_by: clock_in_by)
+        travel first_hours.hours
+        second = described_class.switch_category(user: employee, time_category_id: other_category.id, clock_source: "kiosk")
+        first = employee.time_entries.where(work_date: second.work_date).where.not(id: second.id).sole
+        expect(first.reload.approval_status).to eq("pending")
+        expect(first).not_to be_auto_approved
+        travel second_hours.hours
+        [ first, described_class.clock_out(user: employee) ].map(&:reload)
+      end
 
-      travel 2.hours
-      second = described_class.clock_out(user: employee).reload
-      expect(second.approval_status).to eq("pending")
-      expect(described_class.ordinary_shift_exceptions(second)).to eq([ :too_long ])
+      it "waits for the final clock-out and approves every segment together when the whole shift is ordinary" do
+        turn_on_auto_approval!(max_hours: 12)
+        travel_to(zone.local(2026, 4, 8, 6, 0, 0))
+
+        segments = switched_shift(first_hours: 4, second_hours: 4)
+        expect(segments).to all(be_auto_approved)
+        segments.each do |segment|
+          expect(described_class.ordinary_shift_exceptions(segment)).to eq([ :queued_for_another_reason ])
+          expect(auto_approval_rows(segment).sole.metadata).to include("shift_entry_ids" => segments.map(&:id), "shift_hours" => 8.0)
+        end
+      end
+
+      it "keeps every segment queued when the whole shift is over the length limit" do
+        # 06:00 to 17:00 is under 12 hours; the shift ends at 19:30, 13.5 hours.
+        turn_on_auto_approval!(max_hours: 12)
+        travel_to(zone.local(2026, 4, 8, 6, 0, 0))
+
+        segments = switched_shift(first_hours: 11, second_hours: 2.5)
+        expect(segments.map(&:approval_status)).to eq(%w[pending pending])
+        segments.each do |segment|
+          expect(described_class.ordinary_shift_exceptions(segment)).to eq([ :too_long ])
+          expect(auto_approval_rows(segment)).to be_empty
+        end
+      end
+
+      it "keeps every segment queued when the segments together reach overtime" do
+        # 36 hours Sunday to Tuesday; 3 + 3 hours on Wednesday makes 42.
+        turn_on_auto_approval!
+        earlier_week_entries(employee, approval_status: "approved")
+
+        segments = switched_shift(first_hours: 3, second_hours: 3)
+        expect(segments.map(&:approval_status)).to eq(%w[pending pending])
+        # Neither segment is overtime on its own clock: the first is still
+        # waiting, so only the projection counts it toward the week.
+        expect(segments.map(&:overtime_status)).to eq(%w[none none])
+        projected = Payroll::AffectedOvertimeReview.projected_allocations_for(segments)
+        expect(segments.sum { |segment| projected.dig(segment.id, :overtime_hours).to_d }).to eq(2)
+        segments.each { |segment| expect(described_class.ordinary_shift_exceptions(segment)).to include(:overtime) }
+        expect(segments.flat_map { |segment| auto_approval_rows(segment).to_a }).to be_empty
+      end
+
+      it "never approves any segment of a shift a supervisor started" do
+        turn_on_auto_approval!
+
+        segments = switched_shift(first_hours: 3, second_hours: 3, clock_in_by: admin)
+        expect(segments.first).to be_admin_override
+        expect(segments.last).not_to be_admin_override
+        expect(segments.map(&:approval_status)).to eq(%w[pending pending])
+        segments.each { |segment| expect(described_class.ordinary_shift_exceptions(segment)).to include(:not_self_service) }
+      end
+    end
+
+    describe "when the auto-approval itself fails" do
+      before do
+        turn_on_auto_approval!
+        employee.user_time_categories.create!(time_category: other_category)
+      end
+
+      it "still saves the clock-out, rolls back every segment's approval and reports the error" do
+        approvals = 0
+        allow(AuditLog).to receive(:record!).and_call_original
+        allow(AuditLog).to receive(:record!).with(hash_including(action: "time_entry.auto_approved")).and_wrap_original do |original, **args|
+          approvals += 1
+          raise ActiveRecord::StatementInvalid, "audit insert failed" if approvals == 2
+
+          original.call(**args)
+        end
+        allow(Rails.error).to receive(:report)
+
+        described_class.clock_in(user: employee, time_category_id: category.id, clock_source: "kiosk")
+        travel 3.hours
+        second = described_class.switch_category(user: employee, time_category_id: other_category.id, clock_source: "kiosk")
+        travel 3.hours
+        returned = described_class.clock_out(user: employee)
+
+        expect(returned).to have_attributes(id: second.id, status: "completed", approval_status: "pending")
+        segments = employee.time_entries.order(:clock_in_at).to_a
+        expect(segments.map(&:status)).to eq(%w[completed completed])
+        expect(segments.map(&:approval_status)).to eq(%w[pending pending])
+        expect(segments.map(&:approval_note)).to all(eq("Clocked in without a schedule"))
+        expect(AuditLog.where(action: "time_entry.clocked_out", auditable_id: second.id)).to exist
+        expect(AuditLog.where(action: "time_entry.auto_approved")).to be_empty
+        expect(Rails.error).to have_received(:report).with(an_instance_of(ActiveRecord::StatementInvalid),
+          hash_including(handled: true, context: hash_including(operation: "auto_approve_ordinary_shift", time_entry_id: second.id)))
+        expect(described_class.current_status(user: employee)[:clocked_in]).to be(false)
+      end
     end
 
     describe "exceptions stay in the queue" do
@@ -210,6 +298,25 @@ RSpec.describe TimeClockService, "approval policy", type: :service do
         expect_queued(shift(employee, hours: 8), :too_long)
         travel 16.hours
         expect(shift(employee, hours: 7.5)).to be_auto_approved
+      end
+
+      it "a shift payroll holds for review, such as an overnight shift with overlapping break rows" do
+        travel_to(zone.local(2026, 4, 8, 22, 0, 0))
+        entry = described_class.clock_in(user: employee, time_category_id: category.id, clock_source: "kiosk")
+        travel 3.hours
+        described_class.start_break(user: employee)
+        travel 30.minutes
+        described_class.end_break(user: employee)
+        # A duplicate break row over the same half hour: the minutes add up,
+        # but payroll cannot place the overlapping breaks across midnight.
+        entry.time_entry_breaks.create!(start_time: 30.minutes.ago, end_time: Time.current)
+        travel 4.5.hours
+
+        entry = described_class.clock_out(user: employee).reload
+        allocation = Payroll::AffectedOvertimeReview.projected_allocations_for([ entry ])[entry.id]
+        expect(allocation).to include(hold_reason: "unplaced_overnight_break")
+        expect(described_class.ordinary_shift_exceptions(entry)).to eq([ :allocation_hold ])
+        expect_queued(entry, :allocation_hold)
       end
 
       it "a missed clock-out closed by the system" do

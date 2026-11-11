@@ -35,6 +35,16 @@ describe('AutoApprovalSettings', () => {
     expect(screen.getAllByText(/her shift shows Auto-approved/).length).toBeGreaterThan(0)
   })
 
+  it('explains that the length limit covers the whole shift and that missed clock-outs always wait', () => {
+    renderSettings()
+
+    expect(screen.getByLabelText('Longest shift to auto-approve (hours)')).toHaveAccessibleDescription(/first clock-in to final clock-out, breaks and category switches included/)
+    fireEvent.click(screen.getByRole('button', { name: 'About Longest shift to auto-approve' }))
+    expect(screen.getAllByText(/so does every part of it/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/closes for a missed clock-out always waits too/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/goes to the queue whole, both parts/).length).toBeGreaterThan(0)
+  })
+
   it('asks for confirmation before turning it on, and saves nothing on cancel', async () => {
     renderSettings()
 
