@@ -337,9 +337,11 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
   end
 
   # Leon's batch-limit decision: measure 250 before raising the limit from 100.
-  # Prints the timings; REVIEW_BATCH_BENCHMARK=1 also asserts the 3s target.
-  # REVIEW_BATCH_PEOPLE=20 measures 100 shifts (five per person).
+  # Runs only with REVIEW_BATCH_BENCHMARK=1: prints the timings and asserts the
+  # 3s target. REVIEW_BATCH_PEOPLE=20 measures 100 shifts (five per person).
   it "measures a 250-shift batch and its undo" do
+    skip "set REVIEW_BATCH_BENCHMARK=1 to run" unless ENV["REVIEW_BATCH_BENCHMARK"]
+
     people = Integer(ENV.fetch("REVIEW_BATCH_PEOPLE", "50"))
     size = people * 5
     stub_const("Approvals::ApproveReviewBatch::MAX_ITEMS", [ size, 100 ].max)
@@ -368,6 +370,6 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
     expect(TimeEntry.where(id: entries.map(&:id), approval_status: "pending").count).to eq(size)
 
     puts format("\n  %d shifts: pending_approvals %.2fs, review batch %.2fs, undo %.2fs", size, list_seconds, approve_seconds, undo_seconds)
-    expect(approve_seconds).to be < 3 if ENV["REVIEW_BATCH_BENCHMARK"]
+    expect(approve_seconds).to be < 3
   end
 end

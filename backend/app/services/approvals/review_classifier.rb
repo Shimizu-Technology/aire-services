@@ -20,9 +20,12 @@ module Approvals
       time_entry.clocked_in time_entry.clocked_out time_entry.break_started time_entry.break_ended
       time_entry.category_switched time_entry.category_auto_assigned time_entry.auto_approved
     ].freeze
-    # A decision that was undone leaves the shift exactly as it was, so these
-    # rows aren't edits either.
-    REVIEW_AUDIT_ACTIONS = %w[time_entry.approved time_entry.overtime_approved time_entry.approval_undone].freeze
+    # A decision that was undone leaves the shift exactly as it was, and an
+    # overtime reset is the week's recalculation after another shift's review,
+    # so these rows aren't edits either.
+    REVIEW_AUDIT_ACTIONS = %w[
+      time_entry.approved time_entry.overtime_approved time_entry.approval_undone time_entry.overtime_reset
+    ].freeze
     NOT_EDITS = (ORDINARY_SHIFT_AUDIT_ACTIONS + REVIEW_AUDIT_ACTIONS).freeze
     # In-memory shift chaining looks this far around the loaded entries. A
     # chain longer than this spans more than the 23-hour auto-approve cap, so

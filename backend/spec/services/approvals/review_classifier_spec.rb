@@ -39,6 +39,13 @@ RSpec.describe Approvals::ReviewClassifier, type: :service do
     expect(keys_for(wednesday_shift)).to eq([ "overtime" ])
   end
 
+  it "does not call a shift edited because the week's overtime was reset" do
+    [ 5, 6, 7 ].each { |day| clock_shift(other, Date.new(2026, 4, day), from: 6, hours: 12) }
+    wednesday_shift = clock_shift(other, wednesday)
+    AuditLog.record!(action: Approvals::OvertimeResetAudit::ACTION, auditable: wednesday_shift, actor: admin, metadata: { employee_id: other.id })
+    expect(keys_for(wednesday_shift)).to eq([ "overtime" ])
+  end
+
   it "flags the viewer's own time, and says another approver is needed when the policy is off" do
     own = clock_shift(manager, wednesday, approval_note: "Clocked in without a schedule | Supervisor's own time")
     expect(keys_for(own)).to eq([ "own_time" ])
