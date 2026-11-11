@@ -152,7 +152,7 @@ class AccessGuide
       key: "approve_own_time",
       kind: "rule",
       label: "Approve their own time",
-      detail: "Approve, deny or override time and overtime that is their own.",
+      detail: "Approve, deny or override time and overtime that is their own. An owner's, admin's or manager's own clock time always waits in the approvals list and is never auto-approved.",
       cells: User::ROLES.index_with do |role|
         sample = sample_user(role)
         next cell("no") unless sample.can_approve_time?

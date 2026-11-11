@@ -164,7 +164,7 @@ module Reports
             entry[:break_minutes].to_i.zero? ? "-" : "#{entry[:break_minutes]}m",
             entry.dig(:time_category, :name) || "Uncategorized",
             entry[:clock_source].to_s.presence&.upcase || "LEGACY",
-            entry[:approval_status].to_s.presence&.capitalize || "Standard",
+            entry[:auto_approved] ? "Auto-approved" : (entry[:approval_status].to_s.presence&.capitalize || "Standard"),
             hours(entry[:regular_hours]),
             hours(entry[:overtime_hours]),
             hours(entry[:total_hours])

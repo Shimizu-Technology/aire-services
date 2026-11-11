@@ -12,6 +12,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { StatusPill } from '../../components/ui/StatusPill'
 import type { SettingsCatalogEntry } from '../../lib/api'
 import PayStubSettings from '../../components/pay-stubs/PayStubSettings'
+import AutoApprovalSettings from '../../components/time-tracking/AutoApprovalSettings'
 import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
 import type { PublicContactInfoSettings, PublicPhoneContactChannel, PublicPhoneContactSettings } from '../../lib/businessInfo'
@@ -172,6 +173,13 @@ function SetElsewhere({ catalog }: { catalog: SettingsCatalogEntry[] }) {
   )
 }
 
+// The keys the time clock rules form saves; its response may only update these.
+const TIME_CLOCK_RULE_KEYS: (keyof TimeClockAppSettings)[] = [
+  'overtime_daily_threshold_hours', 'overtime_weekly_threshold_hours', 'early_clock_in_buffer_minutes',
+  'clock_in_location_enforced', 'clock_in_location_name', 'clock_in_location_latitude',
+  'clock_in_location_longitude', 'clock_in_location_radius_meters',
+]
+
 export default function Settings() {
   useEffect(() => {
     document.title = 'Settings | AIRE Ops'
@@ -180,6 +188,15 @@ export default function Settings() {
   const [categories, setCategories] = useState<AdminTimeCategory[]>([])
   const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
   const scheduleRequiredForClockIn = clockSettings?.schedule_required_for_clock_in === 'true'
+  // Each switch saves on its own. Apply only the keys a save changed, so a
+  // slower response from another switch can't put back an older value.
+  const applySavedSettings = (keys: (keyof TimeClockAppSettings)[]) => (saved: TimeClockAppSettings) => {
+    setClockSettings((current) => {
+      if (!current) return saved
+      const changed = Object.fromEntries(keys.filter((key) => key in saved).map((key) => [key, saved[key]]))
+      return { ...current, ...changed }
+    })
+  }
   const [catalog, setCatalog] = useState<SettingsCatalogEntry[]>([])
   const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null)
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
@@ -433,7 +450,7 @@ export default function Settings() {
         return
       }
       if (res.data) {
-        setClockSettings(res.data.settings)
+        applySavedSettings(TIME_CLOCK_RULE_KEYS)(res.data.settings)
         setApprovalGroups(res.data.approval_groups)
         setThresholdDraft({
           overtime_daily_threshold_hours: res.data.settings.overtime_daily_threshold_hours,
@@ -651,7 +668,7 @@ export default function Settings() {
         return
       }
 
-      setClockSettings(res.data.settings)
+      applySavedSettings(['managers_can_approve_own_time'])(res.data.settings)
       setOwnTimeApprovalMessage(enabled ? 'Managers can approve their own time.' : "Managers' own time now goes to another approver.")
     } finally {
       setSavingOwnTimeApproval(false)
@@ -1233,7 +1250,11 @@ export default function Settings() {
           </FadeUp>
 
           <FadeUp delay={0.08}>
-            <PayStubSettings settings={clockSettings} onSaved={setClockSettings} />
+            <AutoApprovalSettings settings={clockSettings} onSaved={applySavedSettings(['auto_approve_ordinary_shifts', 'auto_approve_max_shift_hours'])} />
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
+            <PayStubSettings settings={clockSettings} onSaved={applySavedSettings(['pay_stub_kiosk_requests_enabled', 'pay_stub_self_email_enabled'])} />
           </FadeUp>
 
           <FadeUp delay={0.08}>

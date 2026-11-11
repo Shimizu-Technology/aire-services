@@ -15,6 +15,7 @@ class TimeEntry < ApplicationRecord
 
   MAX_CLOCK_SPAN = 24.hours
   ADMINISTRATOR_CORRECTION_NOTE = "Needs administrator correction: clock spans 24 hours or more; confirm punches and breaks before approval".freeze
+  AUTO_APPROVAL_NOTE = "Auto-approved: ordinary shift".freeze
 
   ENTRY_METHODS = %w[clock manual].freeze
   CLOCK_SOURCES = %w[kiosk mobile admin legacy].freeze
@@ -101,6 +102,12 @@ class TimeEntry < ApplicationRecord
 
   def pending_approval?
     approval_status == "pending"
+  end
+
+  # Approved at clock-out by "Auto-approve ordinary shifts", not by a person.
+  # Any later edit or correction resets the approval and its note.
+  def auto_approved?
+    approval_status == "approved" && approved_by_id.nil? && approval_note == AUTO_APPROVAL_NOTE
   end
 
   def counts_toward_hours?

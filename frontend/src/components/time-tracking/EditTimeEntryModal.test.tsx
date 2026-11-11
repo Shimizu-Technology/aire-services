@@ -20,6 +20,40 @@ describe('EditTimeEntryModal', () => {
     apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: {} } })
   })
 
+  it('shows an auto-approved entry as Auto-approved instead of an approver name', () => {
+    render(
+      <EditTimeEntryModal
+        isOpen
+        entry={{
+          id: 9,
+          work_date: '2026-05-05',
+          start_time: '08:00',
+          end_time: '16:00',
+          break_minutes: 0,
+          description: null,
+          entry_method: 'clock',
+          status: 'completed',
+          approval_status: 'approved',
+          approved_by: null,
+          auto_approved: true,
+          approval_note: 'Auto-approved: ordinary shift',
+          user: { id: 1, email: 'ana@example.com', full_name: 'Ana Employee' },
+          time_category: { id: 1, name: 'CFI' },
+          breaks: [],
+        }}
+        categories={[{ id: 1, name: 'CFI' }]}
+        canDelete
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Auto-approved')).toBeInTheDocument()
+    expect(screen.getByText(/at clock-out as an ordinary shift/)).toBeInTheDocument()
+    expect(screen.queryByText(/^by /)).not.toBeInTheDocument()
+  })
+
   it('normalizes existing ISO break timestamps into Guam HH:mm time inputs', () => {
     render(
       <EditTimeEntryModal

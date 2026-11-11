@@ -231,6 +231,33 @@ describe('Admin Settings contact settings', () => {
     expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).not.toBeChecked()
   })
 
+  it('does not let a slower time clock rules save restore an older switch value', async () => {
+    let finishRulesSave: (value: unknown) => void = () => {}
+    apiMock.updateAdminAppSettings.mockImplementation(({ settings }) => {
+      if ('overtime_daily_threshold_hours' in settings) {
+        // The rules response still carries the switch value from before the toggle.
+        return new Promise((resolve) => {
+          finishRulesSave = resolve
+        }).then(() => ({
+          data: { settings: { ...settings, managers_can_approve_own_time: 'true' }, approval_groups: [{ key: 'cfi', label: 'CFI' }] },
+        }))
+      }
+      return Promise.resolve({ data: { settings: { ...settings }, approval_groups: [{ key: 'cfi', label: 'CFI' }] } })
+    })
+    render(<Settings />)
+
+    const toggle = await screen.findByRole('checkbox', { name: 'Managers can approve their own time' })
+    fireEvent.submit(screen.getByRole('button', { name: 'Save time clock rules' }).closest('form')!)
+    fireEvent.click(toggle)
+    expect(await screen.findByText("Managers' own time now goes to another approver.")).toBeInTheDocument()
+
+    expect(apiMock.updateAdminAppSettings).toHaveBeenCalledWith({ settings: expect.objectContaining({ overtime_daily_threshold_hours: '8' }) })
+    expect(screen.getByRole('button', { name: /Saving/ })).toBeDisabled()
+    finishRulesSave(undefined)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save time clock rules' })).toBeEnabled())
+    expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).not.toBeChecked()
+  })
+
   it('keeps the toggle unchanged and explains a failed save', async () => {
     apiMock.updateAdminAppSettings.mockResolvedValue({ error: 'Only owners and admins can change settings' })
     render(<Settings />)

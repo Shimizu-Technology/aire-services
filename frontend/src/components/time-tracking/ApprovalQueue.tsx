@@ -131,6 +131,7 @@ function fallbackApprovalReasons(entry: TimeEntry): ApprovalReason[] {
   const note = (entry.approval_note ?? '').toLowerCase()
 
   if (entry.approval_status === 'pending') {
+    if (note.includes("supervisor's own time")) reasons.push({ key: 'own_time', label: "Supervisor's own time" })
     if (note.includes('corrected clock-out')) reasons.push({ key: 'corrected_clock_out', label: 'Corrected clock-out' })
     if (note.includes('employee edited')) reasons.push({ key: 'employee_edited', label: 'Employee edited' })
 
@@ -157,6 +158,7 @@ function reasonTone(key: string) {
     case 'corrected_clock_out':
       return 'border-sky-200 bg-sky-50 text-sky-700'
     case 'employee_edited':
+    case 'own_time':
       return 'border-violet-200 bg-violet-50 text-violet-700'
     case 'admin_override':
       return 'border-slate-200 bg-slate-50 text-slate-600'

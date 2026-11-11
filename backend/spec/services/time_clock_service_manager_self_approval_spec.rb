@@ -41,14 +41,17 @@ RSpec.describe TimeClockService, "manager self-approval setting", type: :service
       expect(overtime.reload.overtime_status).to eq("approved")
     end
 
-    it "keeps a manager's unscheduled clock out of the queue and allows self overrides" do
+    it "queues a manager's own clock, which they may then approve, and allows self overrides" do
       described_class.clock_in(user: manager, admin_override_by: manager, time_category_id: category.id)
       travel 2.hours
       entry = described_class.clock_out(user: manager)
 
-      expect(entry.approval_status).to be_nil
-      expect(entry.approval_note).to be_nil
+      expect(entry.approval_status).to eq("pending")
+      expect(entry.approval_note).to eq("Clocked in without a schedule | Supervisor's own time")
       expect(described_class.current_status(user: manager)[:can_override_clock]).to be(true)
+
+      described_class.approve_entry(entry: entry, approved_by: manager)
+      expect(entry.reload).to have_attributes(approval_status: "approved", approved_by_id: manager.id)
     end
   end
 
@@ -90,7 +93,7 @@ RSpec.describe TimeClockService, "manager self-approval setting", type: :service
       entry = described_class.clock_out(user: manager)
 
       expect(entry.approval_status).to eq("pending")
-      expect(entry.approval_note).to eq("Clocked in without a schedule")
+      expect(entry.approval_note).to eq("Clocked in without a schedule | Supervisor's own time")
     end
 
     it "refuses a manager's override of their own clock" do
@@ -110,7 +113,10 @@ RSpec.describe TimeClockService, "manager self-approval setting", type: :service
       travel 1.day
       described_class.clock_in(user: admin, admin_override_by: admin, time_category_id: category.id)
       travel 2.hours
-      expect(described_class.clock_out(user: admin).approval_status).to be_nil
+      own = described_class.clock_out(user: admin)
+      expect(own.approval_status).to eq("pending")
+      described_class.approve_entry(entry: own, approved_by: admin)
+      expect(own.reload).to have_attributes(approval_status: "approved", approved_by_id: admin.id)
     end
   end
 end

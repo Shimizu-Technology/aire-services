@@ -124,7 +124,7 @@ class SettingsCatalog
       section: :time_approvals,
       setting_keys: [ Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY ],
       capability: :manage_settings,
-      what: "When on, a manager can approve, deny and override their own time and overtime, as owners and admins can. When off, an owner, an admin or another manager has to approve it. Owners and admins can always approve their own time.",
+      what: "When on, a manager can approve, deny and override their own time and overtime, as owners and admins can. When off, an owner, an admin or another manager has to approve it. Either way, a manager's own clock time waits in the approvals list until someone approves it. Owners and admins can always approve their own time.",
       default: "On",
       example: "When off, Roke's own shifts wait for Chels, Leon or another manager to approve them.",
       access_effect: {
@@ -132,6 +132,26 @@ class SettingsCatalog
         on: "Managers approve their own time.",
         off: "A manager's own time goes to an owner, an admin or another manager."
       }
+    },
+    {
+      id: "auto_approve_ordinary_shifts",
+      label: "Auto-approve ordinary shifts",
+      section: :time_approvals,
+      setting_keys: [ Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY ],
+      capability: :manage_settings,
+      what: "When on, an employee's unscheduled shift is approved at their final clock-out instead of waiting in the approvals list, but only if the whole shift is ordinary: they clocked themselves in and out at the kiosk or on their phone, it has a work category, nobody edited it, it has no overtime, it's under the length limit and it stays inside one pay period. Anything else waits for a person. Overtime is never auto-approved, a missed clock-out the system closed always waits, and an owner's, admin's or manager's own time always waits. Scheduled shifts aren't affected. Chels and the CEO agree before it's turned on.",
+      default: "Off",
+      example: "When on, Ana clocks in at the kiosk at 8:00 AM and out at 4:30 PM with no overtime this week, so her shift shows Auto-approved. Had she corrected her clock-out, it would wait in the approvals list."
+    },
+    {
+      id: "auto_approve_max_shift_hours",
+      label: "Longest shift to auto-approve",
+      section: :time_approvals,
+      setting_keys: [ Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY ],
+      capability: :manage_settings,
+      what: "A shift that runs this many hours or more always waits for a person, and so does every part of it. The whole shift counts, from first clock-in to final clock-out, with breaks and category switches included. It can be 1 to 23 hours. A shift the system closes for a missed clock-out always waits, whatever this is.",
+      default: "12 hours",
+      example: "At 12, a 7:00 AM to 6:30 PM shift is auto-approved. A 6:00 AM to 7:30 PM shift that switched category at 5:00 PM goes to the approvals list whole, both parts."
     },
     {
       id: "pay_stub_kiosk_requests_enabled",

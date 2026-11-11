@@ -240,6 +240,7 @@ module Payroll
         start_time: entry.start_time&.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)&.strftime("%H:%M"),
         end_time: entry.end_time&.in_time_zone(TimeClockService::BUSINESS_TIMEZONE)&.strftime("%H:%M"),
         description: entry.description, category: entry.time_category&.name, approval_status: entry.approval_status,
+        auto_approved: entry.auto_approved?,
         overtime_status: entry.overtime_status, status: entry.status,
         allocation_review_reason: allocation[:hold_reason],
         regular_hours: allocation[:regular_hours].to_f, overtime_hours: allocation[:overtime_hours].to_f,

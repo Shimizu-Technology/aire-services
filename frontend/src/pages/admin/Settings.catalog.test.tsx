@@ -30,6 +30,8 @@ const SETTINGS_PAGE_KEYS: Record<keyof TimeClockAppSettings, true> = {
   clock_in_location_radius_meters: true,
   schedule_required_for_clock_in: true,
   managers_can_approve_own_time: true,
+  auto_approve_ordinary_shifts: true,
+  auto_approve_max_shift_hours: true,
   pay_stub_kiosk_requests_enabled: true,
   pay_stub_self_email_enabled: true,
 }
@@ -37,7 +39,7 @@ const SETTINGS_PAGE_KEYS: Record<keyof TimeClockAppSettings, true> = {
 // The other things the page edits, stored outside TimeClockAppSettings.
 const OTHER_PAGE_SETTINGS = ['approval_groups', 'contact_email', 'contact_inquiry_topics', 'public_contact_settings', 'public_social_links', 'pay_stub_request_notification_emails']
 
-const sources = import.meta.glob<string>(['./Settings.tsx', '../../components/pay-stubs/PayStubSettings.tsx'], { query: '?raw', import: 'default', eager: true })
+const sources = import.meta.glob<string>(['./Settings.tsx', '../../components/pay-stubs/PayStubSettings.tsx', '../../components/time-tracking/AutoApprovalSettings.tsx'], { query: '?raw', import: 'default', eager: true })
 
 const apiMock = vi.hoisted(() => ({
   getAdminTimeCategories: vi.fn(),
@@ -67,6 +69,8 @@ function renderSettings(entries: SettingsCatalogEntry[] = catalog) {
         clock_in_location_longitude: '144.79901',
         clock_in_location_radius_meters: '1000',
         managers_can_approve_own_time: 'true',
+        auto_approve_ordinary_shifts: 'false',
+        auto_approve_max_shift_hours: '12',
         pay_stub_kiosk_requests_enabled: 'false',
         pay_stub_self_email_enabled: 'false',
       },
