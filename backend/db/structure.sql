@@ -1870,6 +1870,87 @@ ALTER SEQUENCE public.report_exports_id_seq OWNED BY public.report_exports.id;
 
 
 --
+-- Name: review_batch_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_batch_items (
+    id bigint NOT NULL,
+    review_batch_id bigint NOT NULL,
+    time_entry_id bigint NOT NULL,
+    version_before integer NOT NULL,
+    version_after integer NOT NULL,
+    approved_time boolean DEFAULT false NOT NULL,
+    approved_overtime boolean DEFAULT false NOT NULL,
+    hours numeric(10,2) DEFAULT 0.0 NOT NULL,
+    overtime_hours numeric(10,2) DEFAULT 0.0 NOT NULL,
+    before_state jsonb DEFAULT '{}'::jsonb NOT NULL,
+    after_state jsonb DEFAULT '{}'::jsonb NOT NULL,
+    undone_at timestamp(6) without time zone,
+    undone_by_id bigint,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: review_batch_items_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_batch_items_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_batch_items_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_batch_items_id_seq OWNED BY public.review_batch_items.id;
+
+
+--
+-- Name: review_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_batches (
+    id bigint NOT NULL,
+    public_id character varying NOT NULL,
+    actor_id bigint NOT NULL,
+    idempotency_key character varying NOT NULL,
+    request_fingerprint character varying NOT NULL,
+    entry_count integer NOT NULL,
+    overtime_count integer DEFAULT 0 NOT NULL,
+    hours numeric(10,2) DEFAULT 0.0 NOT NULL,
+    undone_at timestamp(6) without time zone,
+    undone_by_id bigint,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: review_batches_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_batches_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_batches_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_batches_id_seq OWNED BY public.review_batches.id;
+
+
+--
 -- Name: schedule_time_presets; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2903,6 +2984,20 @@ ALTER TABLE ONLY public.report_exports ALTER COLUMN id SET DEFAULT nextval('publ
 
 
 --
+-- Name: review_batch_items id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_batch_items ALTER COLUMN id SET DEFAULT nextval('public.review_batch_items_id_seq'::regclass);
+
+
+--
+-- Name: review_batches id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_batches ALTER COLUMN id SET DEFAULT nextval('public.review_batches_id_seq'::regclass);
+
+
+--
 -- Name: schedule_time_presets id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3351,6 +3446,22 @@ ALTER TABLE ONLY public.payroll_time_entry_revisions
 
 ALTER TABLE ONLY public.report_exports
     ADD CONSTRAINT report_exports_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: review_batch_items review_batch_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_batch_items
+    ADD CONSTRAINT review_batch_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: review_batches review_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_batches
+    ADD CONSTRAINT review_batches_pkey PRIMARY KEY (id);
 
 
 --
@@ -4559,6 +4670,41 @@ CREATE UNIQUE INDEX index_report_exports_on_public_id ON public.report_exports U
 
 
 --
+-- Name: index_review_batch_items_on_review_batch_id_and_time_entry_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_review_batch_items_on_review_batch_id_and_time_entry_id ON public.review_batch_items USING btree (review_batch_id, time_entry_id);
+
+
+--
+-- Name: index_review_batch_items_on_time_entry_id_and_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_review_batch_items_on_time_entry_id_and_created_at ON public.review_batch_items USING btree (time_entry_id, created_at);
+
+
+--
+-- Name: index_review_batches_on_actor_id_and_idempotency_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_review_batches_on_actor_id_and_idempotency_key ON public.review_batches USING btree (actor_id, idempotency_key);
+
+
+--
+-- Name: index_review_batches_on_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX index_review_batches_on_created_at ON public.review_batches USING btree (created_at);
+
+
+--
+-- Name: index_review_batches_on_public_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_review_batches_on_public_id ON public.review_batches USING btree (public_id);
+
+
+--
 -- Name: index_schedule_time_presets_on_active; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5753,6 +5899,14 @@ ALTER TABLE ONLY public.solid_queue_claimed_executions
 
 
 --
+-- Name: review_batch_items fk_rails_a26e47ee9c; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_batch_items
+    ADD CONSTRAINT fk_rails_a26e47ee9c FOREIGN KEY (review_batch_id) REFERENCES public.review_batches(id);
+
+
+--
 -- Name: payroll_payment_attestation_events fk_rails_a48631bea5; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5975,6 +6129,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261111120000'),
 ('20261111000000'),
 ('20261110120000'),
 ('20261110000100'),
@@ -6091,3 +6246,4 @@ INSERT INTO "schema_migrations" (version) VALUES
 ('20260119104955'),
 ('20260119104947'),
 ('20260119104942');
+

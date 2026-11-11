@@ -18,6 +18,32 @@ RSpec.describe AuditLogPresenter do
 
   after { Current.reset }
 
+  describe "review batches from the Approvals inbox" do
+    let(:other) { create(:user, :employee, first_name: "Marcus", last_name: "Quinata") }
+
+    def batch_summary(action, actor: manager, **metadata)
+      batch = ReviewBatch.create!(actor: actor, idempotency_key: SecureRandom.uuid, request_fingerprint: "x", entry_count: metadata[:entry_count] || 1)
+      summary_for(action, actor: actor, subject: batch, subject_name: "batch", metadata: metadata)
+    end
+
+    it "says how many shifts were approved and for whom" do
+      expect(batch_summary("review_batch.approved", entry_count: 2, employee_count: 1, employee_id: other.id, employee_name: other.full_name))
+        .to eq("Roke Reyes approved 2 shifts for Marcus Quinata")
+      expect(batch_summary("review_batch.approved", entry_count: 27, employee_count: 13)).to eq("Roke Reyes approved 27 shifts for 13 people")
+      expect(batch_summary("review_batch.approved", entry_count: 1, overtime_count: 1, employee_count: 1, employee_id: worker.id, employee_name: worker.full_name))
+        .to eq("Roke Reyes approved 1 shift for Ethan Cruz, including overtime on it")
+      expect(batch_summary("review_batch.approved", entry_count: 2, employee_count: 1, employee_id: manager.id, employee_name: manager.full_name))
+        .to eq("Roke Reyes approved 2 shifts of their own")
+    end
+
+    it "says an undo moved the shifts back to waiting" do
+      expect(batch_summary("review_batch.undone", entry_count: 2, employee_count: 1, employee_id: other.id, employee_name: other.full_name))
+        .to eq("Roke Reyes undid the approval of 2 shifts for Marcus Quinata (moved back to waiting)")
+      expect(summary_for("time_entry.approval_undone", metadata: clock_metadata))
+        .to eq("Roke Reyes moved Ethan Cruz's time for Nov 10, 2026 back to waiting (undid an approval)")
+    end
+  end
+
   it "describes clock events as plain sentences" do
     expect(summary_for("time_entry.clocked_in", actor: worker, subject_name: "0.0 hours on 2026-11-10", metadata: clock_metadata)).to eq("Ethan Cruz clocked in")
     expect(summary_for("time_entry.clocked_out", actor: worker, metadata: clock_metadata)).to eq("Ethan Cruz clocked out")

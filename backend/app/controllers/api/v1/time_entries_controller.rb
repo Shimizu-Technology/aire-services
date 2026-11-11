@@ -10,7 +10,7 @@ module Api
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
-      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve ]
+      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval ]
 
       # GET /api/v1/time_entries
       def index
@@ -406,10 +406,12 @@ module Api
         pending_overtime = entries.select { |entry| entry.overtime_status == "pending" }
         allocations = ::Payroll::AffectedOvertimeReview.projected_allocations_for(pending_overtime)
         @pending_overtime_hours = pending_overtime.to_h { |entry| [ entry.id, allocations[entry.id].to_h.fetch(:overtime_hours, 0).to_f ] }
+        @review_kinds = ::Approvals::ReviewClassifier.call(entries, viewer: current_user)
 
         render json: {
           pending_entries: entries.map { |e| serialize_time_entry(e) },
           count: total_count,
+          review_summary: review_summary(entries, complete: total_count <= page * per_page && page == 1),
           pagination: {
             current_page: page,
             per_page: per_page,
@@ -482,6 +484,41 @@ module Api
         render json: { error: e.message }, status: :forbidden
       rescue TimeClockService::ClockError => e
         render json: { error: e.message }, status: :unprocessable_entity
+      end
+
+      # POST /api/v1/time_entries/review_batch
+      # Body: { items: [{ id, version, approve_time, approve_overtime, overtime_hours }], mode, note }
+      # Header: Idempotency-Key. All or nothing; see Approvals::ApproveReviewBatch.
+      def review_batch
+        result = ::Approvals::ApproveReviewBatch.call(
+          actor: current_user,
+          items: review_batch_items_param,
+          idempotency_key: request.headers["Idempotency-Key"],
+          mode: params[:mode],
+          note: params[:note]
+        )
+        render json: serialize_review_batch(result.batch).merge(replayed: result.replayed), status: result.replayed ? :ok : :created
+      rescue ::Approvals::ApproveReviewBatch::Error => e
+        render_review_error(e)
+      end
+
+      # POST /api/v1/time_entries/review_batches/:review_batch_id/undo
+      # Body (optional): { entry_ids: [...] } to undo part of the batch.
+      def undo_review_batch
+        batch = ::ReviewBatch.find_by(public_id: params[:review_batch_id].to_s)
+        return render json: { error: "Approval not found", code: "not_found" }, status: :not_found unless batch
+
+        entry_ids = params.key?(:entry_ids) ? Array(params[:entry_ids]).map(&:to_i) : nil
+        undo_and_render(batch, entry_ids)
+      end
+
+      # POST /api/v1/time_entries/:id/undo_approval
+      # Undoes this shift's most recent review-batch approval.
+      def undo_approval
+        item = ReviewBatchItem.active.where(time_entry_id: params[:id].to_i).order(created_at: :desc, id: :desc).first
+        return render json: { error: "There's no recent approval to undo for this shift", code: "not_found" }, status: :not_found unless item
+
+        undo_and_render(item.review_batch, [ item.time_entry_id ])
       end
 
       # POST /api/v1/time_entries/bulk_approve
@@ -562,6 +599,69 @@ module Api
       end
 
       private
+
+      def review_batch_items_param
+        Array(params[:items]).map do |item|
+          item.respond_to?(:permit) ? item.permit(:id, :version, :approve_time, :approve_overtime, :overtime_hours).to_h : {}
+        end
+      end
+
+      def undo_and_render(batch, entry_ids)
+        entries = ::Approvals::UndoReviewBatch.call(batch: batch, actor: current_user, entry_ids: entry_ids)
+        render json: {
+          review_batch_id: batch.public_id,
+          undone_count: entries.size,
+          time_entries: entries.map { |entry| review_entry_state(entry) }
+        }
+      rescue ::Approvals::ApproveReviewBatch::Error => e
+        render_review_error(e)
+      end
+
+      def render_review_error(error)
+        render json: { error: error.message, code: error.code }.merge(error.details), status: error.status
+      end
+
+      def serialize_review_batch(batch)
+        items = batch.review_batch_items.order(:time_entry_id).to_a
+        entries = TimeEntry.where(id: items.map(&:time_entry_id)).index_by(&:id)
+        {
+          review_batch_id: batch.public_id,
+          approved_count: items.count(&:approved_time),
+          overtime_approved_count: items.count(&:approved_overtime),
+          hours: batch.hours.to_f,
+          undo_expires_at: batch.undo_expires_at.iso8601,
+          undone: batch.undone_at.present?,
+          time_entries: items.filter_map { |item| entries[item.time_entry_id] && review_entry_state(entries[item.time_entry_id]) }
+        }
+      end
+
+      def review_entry_state(entry)
+        { id: entry.id, version: entry.lock_version, approval_status: entry.approval_status, overtime_status: entry.overtime_status }
+      end
+
+      # Counts per kind and per person for the loaded entries. complete is false
+      # when the list is paged, so a client never treats a page as the whole queue.
+      def review_summary(entries, complete:)
+        by_kind = entries.group_by { |entry| @review_kinds.dig(entry.id, :review_kind) }
+        {
+          complete: complete,
+          ordinary_count: by_kind.fetch(::Approvals::ReviewClassifier::ORDINARY, []).size,
+          ordinary_hours: by_kind.fetch(::Approvals::ReviewClassifier::ORDINARY, []).sum { |entry| entry.hours.to_f }.round(2),
+          needs_look_count: by_kind.fetch(::Approvals::ReviewClassifier::NEEDS_LOOK, []).size,
+          batch_limit: ::Approvals::ApproveReviewBatch::MAX_ITEMS,
+          by_person: entries.group_by(&:user_id).map do |_user_id, rows|
+            user = rows.first.user
+            ordinary = rows.select { |entry| @review_kinds.dig(entry.id, :review_kind) == ::Approvals::ReviewClassifier::ORDINARY }
+            {
+              user_id: user.id,
+              full_name: user.full_name,
+              ordinary_count: ordinary.size,
+              ordinary_hours: ordinary.sum { |entry| entry.hours.to_f }.round(2),
+              needs_look_count: rows.size - ordinary.size
+            }
+          end.sort_by { |row| row[:full_name].to_s.downcase }
+        }
+      end
 
       # The signed-in manager's own entry while "Managers can approve their own time" is off.
       def own_time_needs_another_approver?(entry)
@@ -1047,6 +1147,10 @@ module Api
         }.tap do |data|
           data[:payroll_cutoff_missed] = @missed_payroll_cutoff_ids.include?(entry.id) if @missed_payroll_cutoff_ids
           data[:pending_overtime_hours] = @pending_overtime_hours[entry.id] if @pending_overtime_hours&.key?(entry.id)
+          if (review = @review_kinds&.fetch(entry.id, nil))
+            data[:review_kind] = review[:review_kind]
+            data[:exceptions] = review[:exceptions]
+          end
         end
       end
 
