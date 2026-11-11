@@ -9,8 +9,9 @@ import { employeeWorkspaceHref, safeAdminReturn, type EmployeeTab } from '../../
 import EmployeeRelatedRecords from '../../components/time-tracking/EmployeeRelatedRecords'
 import { formatDateTime, formatWorkDate } from '../../lib/dateUtils'
 import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod } from '../../lib/payrollPeriods'
+import { useSchedulesEnabled } from '../../lib/useSchedulesEnabled'
 
-const tabs: { key: EmployeeTab; label: string }[] = [
+const allTabs: { key: EmployeeTab; label: string }[] = [
   { key: 'overview', label: 'Overview' }, { key: 'hours', label: 'Hours & payroll' },
   { key: 'schedule', label: 'Schedule' }, { key: 'activity', label: 'Activity' }, { key: 'setup', label: 'Access & profile' },
 ]
@@ -55,6 +56,9 @@ export default function EmployeeWorkspace() {
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
   const [retry, setRetry] = useState(0)
+  // Schedule is hidden with "Use schedules" off; a saved ?tab=schedule link opens Overview.
+  const schedulesEnabled = useSchedulesEnabled()
+  const tabs = schedulesEnabled ? allTabs : allTabs.filter((item) => item.key !== 'schedule')
   const tab = tabs.find((item) => item.key === query.get('tab'))?.key || 'overview'
   const cursor = query.get('cursor') || ''
   const selectedPeriod = query.get('period') || ''
