@@ -85,7 +85,10 @@ module Api
             :previous_regular_pay_date,
             :schedule_version,
             :publication_id,
-            overtime_policy: %i[schema_version calculation weekly_threshold_hours workweek_start time_zone]
+            :cutoff_source,
+            :policy_cutoff_at,
+            overtime_policy: %i[schema_version calculation weekly_threshold_hours workweek_start time_zone],
+            cutoff_override: [ :override_id, :action, :reason, :set_at, :previous_cutoff_at, { set_by: %i[name system role] } ]
           )
         end
       end

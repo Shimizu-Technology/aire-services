@@ -13,6 +13,8 @@ const apiMock = vi.hoisted(() => ({
   previewPayrollBatch: vi.fn(),
   finalizePayrollBatch: vi.fn(),
   downloadPayrollBatch: vi.fn(),
+  // The lock-time card loads its own state; these page tests cover the rest.
+  getPayrollCutoff: vi.fn(async () => ({ data: { cutoff: { stage: 'none' }, lock_control: null } })),
 }))
 
 vi.mock('../../lib/api', () => ({ api: apiMock }))

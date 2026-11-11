@@ -7,6 +7,11 @@ class PayrollCalendarPeriod < ApplicationRecord
   SCHEMA_VERSIONS = %w[1.0 2.0].freeze
   LOCK_MODES = %w[manual scheduled].freeze
   STATUSES = %w[scheduled failed finalized].freeze
+  CUTOFF_SOURCES = %w[policy override].freeze
+  OVERRIDE_ACTIONS = %w[lock_now change].freeze
+  # A lock-now publication carries the instant the admin chose. Delivery from
+  # Cornerstone can lag that instant, so it stays acceptable for this long.
+  LOCK_NOW_GRACE = 30.minutes
   UNLOADED_LOCK_ROLLOUT = Object.new.freeze
   private_constant :UNLOADED_LOCK_ROLLOUT
 
@@ -37,9 +42,11 @@ class PayrollCalendarPeriod < ApplicationRecord
   validates :lock_mode, inclusion: { in: LOCK_MODES }
   validates :status, inclusion: { in: STATUSES }
   validates :finalization_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
+  validates :cutoff_source, inclusion: { in: CUTOFF_SOURCES }
   validate :semimonthly_period
   validate :pay_date_after_period
   validate :cutoff_matches_policy
+  validate :override_is_complete
   validate :finalized_state_is_complete
   validate :valid_overtime_policy
 
@@ -66,6 +73,26 @@ class PayrollCalendarPeriod < ApplicationRecord
 
   def manual_lock?
     lock_mode == "manual"
+  end
+
+  def cutoff_overridden?
+    cutoff_source == "override"
+  end
+
+  # The policy cutoff Cornerstone would have used without an admin override.
+  def default_cutoff_at
+    cutoff_overridden? ? policy_cutoff_at : cutoff_at
+  end
+
+  # Earliest admin lock time: the start of the day after the period ends (Guam).
+  def self.earliest_override_at(end_date)
+    ActiveSupport::TimeZone[BUSINESS_TIME_ZONE].local(end_date.year, end_date.month, end_date.day).advance(days: 1)
+  end
+
+  # Latest admin lock time: 11:59 PM two days before payday (Guam).
+  def self.latest_override_at(pay_date)
+    day = pay_date - 2
+    ActiveSupport::TimeZone[BUSINESS_TIME_ZONE].local(day.year, day.month, day.day, 23, 59)
   end
 
   # The nominal policy cutoff is retained; manual frozen evidence has its own instant.
@@ -113,6 +140,11 @@ class PayrollCalendarPeriod < ApplicationRecord
     fields[:lock_mode] = lock_mode
     fields[:cutoff_enforcement_starts_on] = cutoff_enforcement_starts_on&.iso8601
     fields[:next_scheduled_cutoff_at] = next_scheduled_cutoff_at
+    fields[:cutoff_source] = cutoff_source
+    if cutoff_overridden?
+      fields[:policy_cutoff_at] = policy_cutoff_at.in_time_zone(time_zone).iso8601
+      fields[:cutoff_override] = cutoff_override
+    end
     fields[:overtime_policy] = overtime_policy if overtime_policy.present?
     if schema_version == "1.0"
       fields[:cutoff_days_before] = cutoff_days_before
@@ -166,7 +198,10 @@ class PayrollCalendarPeriod < ApplicationRecord
   def cutoff_matches_policy
     return if cutoff_at.blank? || pay_date.blank? || time_zone.blank?
     return unless time_zone == BUSINESS_TIME_ZONE
-    local_cutoff_date = cutoff_at.in_time_zone(time_zone).to_date
+    policy_instant = cutoff_overridden? ? policy_cutoff_at : cutoff_at
+    return if policy_instant.blank?
+
+    local_cutoff_date = policy_instant.in_time_zone(time_zone).to_date
     if schema_version == "1.0"
       if cutoff_rule != "before_pay_date" || cutoff_days != 7 || previous_regular_pay_date.present?
         errors.add(:base, "version 1.0 requires the original seven-day cutoff policy")
@@ -179,12 +214,30 @@ class PayrollCalendarPeriod < ApplicationRecord
       elsif cutoff_rule == "before_pay_date" && previous_regular_pay_date.present?
         errors.add(:previous_regular_pay_date, "must be blank for a pay-date cutoff")
       elsif basis && cutoff_days && local_cutoff_date != (cutoff_rule == "after_previous_regular_payday" ? basis + cutoff_days : basis - cutoff_days)
-        errors.add(:cutoff_at, "does not match the published cutoff policy")
+        errors.add(cutoff_overridden? ? :policy_cutoff_at : :cutoff_at, "does not match the published cutoff policy")
       end
-      if cutoff_rule == "after_previous_regular_payday" && cutoff_at.in_time_zone(time_zone).to_date >= pay_date
+      if cutoff_rule == "after_previous_regular_payday" && local_cutoff_date >= pay_date
         errors.add(:cutoff_at, "must precede the target pay date")
       end
     end
+  end
+
+  def override_is_complete
+    if cutoff_source == "policy"
+      errors.add(:base, "a policy cutoff cannot carry override details") if policy_cutoff_at.present? || cutoff_override.present?
+      return
+    end
+    return unless cutoff_overridden?
+
+    errors.add(:policy_cutoff_at, "is required for an overridden cutoff") if policy_cutoff_at.blank?
+    errors.add(:lock_mode, "must be scheduled to override its cutoff") unless lock_mode == "scheduled"
+    details = cutoff_override.is_a?(Hash) ? cutoff_override : {}
+    errors.add(:cutoff_override, "must include a reason") if details["reason"].to_s.strip.blank?
+    errors.add(:cutoff_override, "must use a supported action") unless OVERRIDE_ACTIONS.include?(details["action"])
+    return if cutoff_at.blank? || end_date.blank? || pay_date.blank?
+
+    errors.add(:cutoff_at, "must be after the period's last day") unless cutoff_at >= self.class.earliest_override_at(end_date)
+    errors.add(:cutoff_at, "must be at least two days before the pay date") unless cutoff_at <= self.class.latest_override_at(pay_date)
   end
 
   def finalized_state_is_complete
