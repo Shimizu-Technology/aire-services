@@ -51,6 +51,10 @@ module Api
         rescue ::Payroll::CalendarPeriodPublisher::ConflictError => e
           record_rejection(e.message)
           render json: { error: e.message }, status: :conflict
+        rescue ::Payroll::CalendarPeriodPublisher::BusyError => e
+          # Not a refusal: Cornerstone retries anything but 409 and 422.
+          response.set_header("Retry-After", "60")
+          render json: { error: e.message }, status: :service_unavailable
         end
 
         private

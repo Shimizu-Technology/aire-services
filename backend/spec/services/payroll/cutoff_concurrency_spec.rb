@@ -47,6 +47,9 @@ RSpec.describe "Payroll cutoff concurrency" do
           audit_logs
         RESTART IDENTITY CASCADE
       SQL
+      # Batch payloads create the installation identity on first use. Committed
+      # here, it would leak into specs that expect to create it themselves.
+      Setting.where(key: Payroll::IntegrationProfile::SOURCE_INSTANCE_SETTING_KEY).delete_all
       User.where(id: @reservation_race_user_ids).delete_all if @reservation_race_user_ids
       TimeCategory.where(id: @reservation_race_category_id).delete_all if @reservation_race_category_id
     ensure

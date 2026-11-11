@@ -31,6 +31,7 @@ module Payroll
       raise InvalidCommandError, "expected_version must be a non-negative integer" if expected_version.negative?
 
       reject_retired_claim!
+      reject_unfinalized_origin!
       existing = PayrollIntegrationCommand.find_by(command_id: command_id)
       return replay(existing) if existing && !action.start_with?("payroll_period.late_hours")
 
@@ -93,6 +94,17 @@ module Payroll
       if action.start_with?("payroll_period.late_hours")
         connection.execute("LOCK TABLE time_entries, time_entry_breaks, payroll_time_entry_revisions IN SHARE MODE")
       end
+    end
+
+    # Late hours come only from a finalized period, and finalized is final.
+    # Refusing any other origin before the batch lock keeps this command from
+    # waiting on a period row that a publisher or finalizer holds while it
+    # waits for the batch lock (see LockNowClaimFence).
+    def reject_unfinalized_origin!
+      return unless action.start_with?("payroll_period.late_hours")
+      return if target.status == "finalized"
+
+      raise ConflictError, "Late hours can come only from a locked pay period. Refresh and try again."
     end
 
     def reject_retired_claim!
