@@ -3,7 +3,9 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mockMatchMedia } from '../../test/matchMedia'
+import { ConfirmDialog } from './ConfirmDialog'
 import { Menu, type MenuItem } from './Menu'
+import { Sheet } from './Sheet'
 
 let restore = () => undefined as void
 afterEach(() => restore())
@@ -53,6 +55,35 @@ describe('Menu', () => {
     await user.click(trigger)
     await user.click(screen.getByText('Outside'))
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('closes itself on Escape inside a Sheet, leaving the sheet open until the next Escape', async () => {
+    restore = mockMatchMedia({ width: 1280 })
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<Sheet open onClose={onClose} title="Caleb Perez"><Menu label="More actions for Caleb Perez" items={items()} /></Sheet>)
+    const trigger = screen.getByRole('button', { name: 'More actions for Caleb Perez' })
+    await user.click(trigger)
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(trigger).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does the same inside a ConfirmDialog', async () => {
+    restore = mockMatchMedia({ width: 1280 })
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    render(
+      <ConfirmDialog open title="Send stubs?" confirmLabel="Send" details={<Menu label="Options" items={items()} />} onConfirm={vi.fn()} onCancel={onCancel} />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Options' }))
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(onCancel).not.toHaveBeenCalled()
   })
 
   it('becomes a sheet under 1024px', async () => {

@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent
 import { createPortal } from 'react-dom'
 import { Ellipsis } from 'lucide-react'
 import { cx } from '../../lib/cx'
+import { useEscapeLayer } from '../../lib/useDialogFocus'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { IconButton } from './Button'
 import type { ButtonVariant } from './buttonStyles'
@@ -112,6 +113,8 @@ function MenuPopover({ label, items, triggerRef, onClose, onSelect }: {
   const menuRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
   const enabled = items.map((item, index) => (item.disabled ? -1 : index)).filter(index => index >= 0)
+  // Escape closes this menu, not a Sheet or dialog it was opened from.
+  useEscapeLayer(true, menuRef, () => onClose())
 
   // Right-aligned under the trigger; flips above when there's no room below.
   useLayoutEffect(() => {
@@ -158,7 +161,6 @@ function MenuPopover({ label, items, triggerRef, onClose, onSelect }: {
     else if (event.key === 'ArrowUp') move(position > 0 ? position - 1 : enabled.length - 1)
     else if (event.key === 'Home') move(0)
     else if (event.key === 'End') move(enabled.length - 1)
-    else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose() }
     else if (event.key === 'Tab') onClose(false)
   }
 
