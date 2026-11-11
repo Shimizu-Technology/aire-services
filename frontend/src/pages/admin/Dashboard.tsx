@@ -1,4 +1,5 @@
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
+import PayrollLockControl from '../../components/payroll/PayrollLockControl'
 import { useState, useEffect, useCallback } from 'react'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
@@ -386,6 +387,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
                   ? 'No approvals are currently waiting. Preview the cutoff to confirm included hours, exclusions, and any blocking payroll data.'
                   : 'No approvals are currently waiting for this pay period.'}
             </p>
+            {canManagePayroll && <PayrollLockControl variant="compact" />}
           </div>
           <div className="flex flex-col justify-center gap-3 border-t border-primary/10 bg-primary/5 p-5 sm:flex-row lg:flex-col lg:border-l lg:border-t-0">
             <Link to={withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals' })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/20 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Review approvals</Link>

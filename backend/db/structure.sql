@@ -222,6 +222,9 @@ BEGIN
        OR NEW.schedule_version IS DISTINCT FROM OLD.schedule_version
        OR NEW.publication_id IS DISTINCT FROM OLD.publication_id
        OR NEW.request_checksum IS DISTINCT FROM OLD.request_checksum
+       OR NEW.cutoff_source IS DISTINCT FROM OLD.cutoff_source
+       OR NEW.policy_cutoff_at IS DISTINCT FROM OLD.policy_cutoff_at
+       OR NEW.cutoff_override IS DISTINCT FROM OLD.cutoff_override
      ) THEN
     RAISE EXCEPTION 'payroll calendar schedules cannot change after cutoff';
   END IF;
@@ -1066,8 +1069,12 @@ CREATE TABLE public.payroll_calendar_periods (
     overtime_policy jsonb DEFAULT '{}'::jsonb NOT NULL,
     lock_mode character varying DEFAULT 'scheduled'::character varying NOT NULL,
     cutoff_enforcement_starts_on date,
-    CONSTRAINT check_payroll_calendar_period_cutoff_date CHECK ((((schema_version)::text = ANY (ARRAY[('1.0'::character varying)::text, ('2.0'::character varying)::text])) AND ((cutoff_rule)::text = ANY (ARRAY[('before_pay_date'::character varying)::text, ('after_previous_regular_payday'::character varying)::text])) AND ((cutoff_days >= 0) AND (cutoff_days <= 31)) AND ((((schema_version)::text = '1.0'::text) AND ((cutoff_rule)::text = 'before_pay_date'::text) AND (cutoff_days = 7) AND (previous_regular_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - 7))) OR (((schema_version)::text = '2.0'::text) AND ((((cutoff_rule)::text = 'before_pay_date'::text) AND (previous_regular_pay_date IS NULL) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - cutoff_days))) OR (((cutoff_rule)::text = 'after_previous_regular_payday'::text) AND (previous_regular_pay_date IS NOT NULL) AND (previous_regular_pay_date < pay_date) AND ((previous_regular_pay_date + cutoff_days) < pay_date) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (previous_regular_pay_date + cutoff_days)))))))),
+    cutoff_source character varying DEFAULT 'policy'::character varying NOT NULL,
+    policy_cutoff_at timestamp(6) without time zone,
+    cutoff_override jsonb,
+    CONSTRAINT check_payroll_calendar_period_cutoff_date CHECK ((((schema_version)::text = ANY ((ARRAY['1.0'::character varying, '2.0'::character varying])::text[])) AND ((cutoff_rule)::text = ANY ((ARRAY['before_pay_date'::character varying, 'after_previous_regular_payday'::character varying])::text[])) AND ((cutoff_days >= 0) AND (cutoff_days <= 31)) AND ((((schema_version)::text = '1.0'::text) AND ((cutoff_rule)::text = 'before_pay_date'::text) AND (cutoff_days = 7) AND (previous_regular_pay_date IS NULL) AND ((((COALESCE(policy_cutoff_at, cutoff_at) AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - 7))) OR (((schema_version)::text = '2.0'::text) AND ((((cutoff_rule)::text = 'before_pay_date'::text) AND (previous_regular_pay_date IS NULL) AND ((((COALESCE(policy_cutoff_at, cutoff_at) AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (pay_date - cutoff_days))) OR (((cutoff_rule)::text = 'after_previous_regular_payday'::text) AND (previous_regular_pay_date IS NOT NULL) AND (previous_regular_pay_date < pay_date) AND ((previous_regular_pay_date + cutoff_days) < pay_date) AND ((((COALESCE(policy_cutoff_at, cutoff_at) AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date = (previous_regular_pay_date + cutoff_days)))))))),
     CONSTRAINT check_payroll_calendar_period_cutoff_days CHECK ((cutoff_days_before = 7)),
+    CONSTRAINT check_payroll_calendar_period_cutoff_override CHECK (((((cutoff_source)::text = 'policy'::text) AND (policy_cutoff_at IS NULL) AND (cutoff_override IS NULL)) OR (((cutoff_source)::text = 'override'::text) AND (policy_cutoff_at IS NOT NULL) AND (cutoff_override IS NOT NULL) AND (jsonb_typeof(cutoff_override) = 'object'::text) AND (length(btrim(COALESCE((cutoff_override ->> 'reason'::text), ''::text))) > 0) AND ((lock_mode)::text = 'scheduled'::text) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date > end_date) AND ((((cutoff_at AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Pacific/Guam'::text))::date <= (pay_date - 2))))),
     CONSTRAINT check_payroll_calendar_period_date_order CHECK ((end_date >= start_date)),
     CONSTRAINT check_payroll_calendar_period_pay_date CHECK ((pay_date > end_date)),
     CONSTRAINT check_payroll_calendar_period_semimonthly CHECK ((((EXTRACT(day FROM start_date) = (1)::numeric) AND (EXTRACT(day FROM end_date) = (15)::numeric) AND (date_trunc('month'::text, (start_date)::timestamp without time zone) = date_trunc('month'::text, (end_date)::timestamp without time zone))) OR ((EXTRACT(day FROM start_date) = (16)::numeric) AND (end_date = ((date_trunc('month'::text, (start_date)::timestamp without time zone) + '1 mon -1 days'::interval))::date)))),
@@ -5968,6 +5975,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261111000000'),
 ('20261110120000'),
 ('20261110000100'),
 ('20261110000000'),

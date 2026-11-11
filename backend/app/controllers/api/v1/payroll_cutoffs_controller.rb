@@ -5,6 +5,7 @@ module Api
     class PayrollCutoffsController < BaseController
       before_action :authenticate_user!, :require_staff!, only: [ :show, :acknowledge ]
       before_action :authenticate_kiosk!, only: [ :kiosk, :kiosk_acknowledge ]
+      before_action -> { require_capability!(:manage_payroll) }, only: :change_lock_time
       before_action :prevent_caching
 
       def show
@@ -17,6 +18,31 @@ module Api
 
       def acknowledge
         save_acknowledgement(current_user)
+      end
+
+      # Owners and admins ask Cornerstone Payroll to lock now, move, or reset the
+      # next lock. AIRE applies the result when Cornerstone republishes it.
+      def change_lock_time
+        return render json: { error: ConnectedPayrollMode::MESSAGE }, status: :service_unavailable unless ConnectedPayrollMode.enabled?
+
+        period = PayrollCalendarPeriod.find_by!(external_pay_period_id: params.require(:external_pay_period_id).to_s)
+        request_id = params[:request_id].to_s.downcase
+        request_id = SecureRandom.uuid unless request_id.match?(/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/)
+        change = ::Payroll::LockControl.new(period: period).request!(
+          user: current_user,
+          action: params[:lock_action].to_s,
+          cutoff_at: params[:cutoff_at],
+          reason: params[:reason],
+          publication_id: params[:publication_id],
+          request_id: request_id
+        )
+        render json: { cutoff_change: change, lock_control: ::Payroll::LockControl.state(period: period.reload) }
+      rescue ::Payroll::LockControl::Error => e
+        render json: { error: e.message }, status: :unprocessable_entity
+      rescue ::Payroll::CutoffChangeClient::Rejected => e
+        render json: { error: e.message }, status: e.status == 409 ? :conflict : :unprocessable_entity
+      rescue ::Payroll::CutoffChangeClient::Unavailable
+        render json: { error: "Cornerstone Payroll could not be reached. Nothing changed; try again in a minute." }, status: :bad_gateway
       end
 
       def kiosk_acknowledge
@@ -50,6 +76,7 @@ module Api
         if include_attention
           payload[:attention] = ::Payroll::CutoffPresenter.attention
           payload[:preparation_period] = ::Payroll::CutoffPresenter.preparation_period
+          payload[:lock_control] = ::Payroll::LockControl.state
         end
         render json: payload
       end

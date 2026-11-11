@@ -1486,13 +1486,62 @@ export interface PayrollCutoffAttention {
   lock_mode: 'manual' | 'scheduled';
   cutoff_state: 'attention_required';
 }
-export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null }
+/** The next scheduled lock and what an owner or admin may do with it. Cornerstone Payroll applies every change. */
+export interface PayrollLockControl {
+  period: { id: number; external_pay_period_id: string; start_date: string; end_date: string; pay_date: string };
+  publication_id: string;
+  schedule_version: number;
+  status: 'scheduled' | 'failed' | 'finalized';
+  cutoff_state: string;
+  cutoff_at: string;
+  cutoff_source: 'policy' | 'override';
+  default_cutoff_at: string;
+  override: {
+    action: 'lock_now' | 'change';
+    reason: string;
+    set_at: string | null;
+    set_by_name: string | null;
+    set_by_system: 'cornerstone_payroll' | 'aire_services' | null;
+    previous_cutoff_at: string | null;
+  } | null;
+  earliest_cutoff_at: string;
+  latest_cutoff_at: string;
+  lock_now_available_at: string;
+  can_change: boolean;
+  can_lock_now: boolean;
+  can_reset: boolean;
+  /** A change asked for here that Cornerstone accepted and AIRE hasn't applied yet. */
+  pending_change?: PayrollLockPendingChange | null;
+  unavailable_reason: string | null;
+}
+export interface PayrollLockPendingChange {
+  state: 'pending' | 'rejected';
+  action: PayrollLockAction;
+  cutoff_at: string | null;
+  requested_by_name: string | null;
+  requested_at: string;
+  error: string | null;
+}
+export type PayrollLockAction = 'lock_now' | 'change' | 'reset'
+export interface PayrollLockTimeRequest {
+  external_pay_period_id: string;
+  publication_id: string;
+  lock_action: PayrollLockAction;
+  reason: string;
+  cutoff_at?: string;
+  request_id: string;
+}
+export interface PayrollCutoffResponse { connected_payroll?: ConnectedPayrollCapability; cutoff: PayrollCutoff; acknowledged?: boolean; preparation_period?: PayrollCutoff['period']; attention?: PayrollCutoffAttention | null; lock_control?: PayrollLockControl | null }
 export interface PayrollCutoffIdentity { period_id: number; publication_id: string; version: number; stage: string }
 
 export const api = {
   getPayrollCutoff: (kioskAccessToken?: string, kioskToken?: string) => kioskAccessToken !== undefined
     ? fetchApi<PayrollCutoffResponse>('/api/v1/aire/kiosk/cutoff', { method: 'POST', body: JSON.stringify({ kiosk_access_token: kioskAccessToken, ...(kioskToken ? { kiosk_token: kioskToken } : {}) }) }, false)
     : fetchApi<PayrollCutoffResponse>('/api/v1/payroll_cutoff'),
+  changePayrollLockTime: (request: PayrollLockTimeRequest) =>
+    fetchApi<{ cutoff_change: { cutoff_at: string; action: PayrollLockAction }; lock_control: PayrollLockControl | null }>('/api/v1/payroll_cutoff/lock_time', {
+      method: 'POST', body: JSON.stringify(request),
+    }),
   acknowledgePayrollCutoff: (identity: PayrollCutoffIdentity, kiosk?: { accessToken: string; employeeToken: string }) =>
     fetchApi<{ acknowledged: boolean }>(kiosk ? '/api/v1/aire/kiosk/cutoff/acknowledge' : '/api/v1/payroll_cutoff/acknowledge', {
       method: 'POST', body: JSON.stringify({ ...identity, ...(kiosk ? { kiosk_access_token: kiosk.accessToken, kiosk_token: kiosk.employeeToken } : {}) }),

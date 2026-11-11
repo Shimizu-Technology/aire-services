@@ -55,6 +55,7 @@ Rails.application.routes.draw do
 
       get "payroll_cutoff", to: "payroll_cutoffs#show"
       post "payroll_cutoff/acknowledge", to: "payroll_cutoffs#acknowledge"
+      post "payroll_cutoff/lock_time", to: "payroll_cutoffs#change_lock_time"
       post "aire/kiosk/cutoff", to: "payroll_cutoffs#kiosk"
       post "aire/kiosk/cutoff/acknowledge", to: "payroll_cutoffs#kiosk_acknowledge"
 

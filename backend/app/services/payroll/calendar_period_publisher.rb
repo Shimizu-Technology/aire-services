@@ -20,13 +20,14 @@ module Payroll
 
     def call
       ConnectedPayrollMode.require_enabled!
-      PayrollCalendarPeriod.transaction do
+      result = PayrollCalendarPeriod.transaction do
         ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{ADVISORY_LOCK_KEY})")
         @now ||= Time.current
         replay = PayrollCalendarPeriodRevision.find_by(publication_id: attributes.fetch(:publication_id))
-        return replay_result(replay) if replay
+        next replay_result(replay) if replay
 
         validate_explicit_manual_rollout!
+        validate_cutoff_override!
         validate_publishable_time!
 
         period = PayrollCalendarPeriod.find_by(external_pay_period_id: attributes.fetch(:external_pay_period_id))
@@ -38,9 +39,12 @@ module Payroll
         end
         record_revision!(period)
         record_audit!(period, created: created)
+        record_cutoff_change_audit!(period)
         SettlementCaseCoordinator.route_open_cases_to_period!(period)
         Result.new(period: period, created: created, idempotent: false)
       end
+      finalize_promptly(result.period)
+      result
     rescue ActiveRecord::RecordNotUnique
       replay = PayrollCalendarPeriodRevision.find_by(publication_id: attributes.fetch(:publication_id))
       return replay_result(replay) if replay
@@ -84,6 +88,7 @@ module Payroll
         normalized[:cutoff_days] = Integer(values.fetch(:cutoff_days).to_s, 10)
         normalized[:previous_regular_pay_date] = parse_date!(values.fetch(:previous_regular_pay_date), "previous_regular_pay_date") if values.key?(:previous_regular_pay_date)
       end
+      normalize_cutoff_source!(values, normalized)
       if values.key?(:overtime_policy)
         raw_policy = values.fetch(:overtime_policy)
         raise ArgumentError, "overtime_policy must be an object" unless raw_policy.respond_to?(:to_h)
@@ -132,8 +137,117 @@ module Payroll
 
     def validate_publishable_time!
       return if @derived_lock_mode == "manual" || attributes.fetch(:cutoff_at) > now
+      # Lock now carries the instant the admin chose; delivery may arrive a little later.
+      return if lock_now? && attributes.fetch(:cutoff_at) >= now - PayrollCalendarPeriod::LOCK_NOW_GRACE
 
-      raise ArgumentError, "cutoff_at must be in the future when published"
+      raise ArgumentError, "cutoff_at must be in the future when published; this lock time had already passed when it reached AIRE"
+    end
+
+    def validate_cutoff_override!
+      return unless override?
+      raise ArgumentError, "Only scheduled locks can use an admin lock time" unless @derived_lock_mode == "scheduled"
+
+      cutoff_at = attributes.fetch(:cutoff_at)
+      unless cutoff_at >= PayrollCalendarPeriod.earliest_override_at(attributes.fetch(:end_date))
+        raise ArgumentError, "An admin lock time must be after the period's last day"
+      end
+      unless cutoff_at <= PayrollCalendarPeriod.latest_override_at(attributes.fetch(:pay_date))
+        raise ArgumentError, "An admin lock time must be at least two days before the pay date"
+      end
+    end
+
+    def override?
+      attributes[:cutoff_source] == "override"
+    end
+
+    def lock_now?
+      override? && attributes.dig(:cutoff_override, "action") == "lock_now"
+    end
+
+    # Policy publications may omit cutoff_source (older Cornerstone builds).
+    # An override must say so explicitly and carry its policy evidence; any
+    # other mismatch with the policy is rejected by the model's strict check.
+    def normalize_cutoff_source!(values, normalized)
+      source = values.fetch(:cutoff_source, "policy").to_s
+      unless PayrollCalendarPeriod::CUTOFF_SOURCES.include?(source)
+        raise ArgumentError, "cutoff_source must be policy or override"
+      end
+      normalized[:cutoff_source] = source if values.key?(:cutoff_source)
+      if source == "policy"
+        if values.key?(:policy_cutoff_at) || values.key?(:cutoff_override)
+          raise ArgumentError, "policy_cutoff_at and cutoff_override require cutoff_source override"
+        end
+        return
+      end
+
+      normalized[:policy_cutoff_at] = parse_time!(values.fetch(:policy_cutoff_at), "policy_cutoff_at")
+      normalized[:cutoff_override] = normalize_override(values.fetch(:cutoff_override))
+    end
+
+    def normalize_override(raw)
+      raise ArgumentError, "cutoff_override must be an object" unless raw.respond_to?(:to_h)
+
+      details = raw.to_h.deep_stringify_keys
+      unsupported = details.keys - %w[override_id action reason set_at set_by previous_cutoff_at]
+      raise ArgumentError, "cutoff_override contains unsupported fields" if unsupported.any?
+      unless PayrollCalendarPeriod::OVERRIDE_ACTIONS.include?(details["action"].to_s)
+        raise ArgumentError, "cutoff_override action must be lock_now or change"
+      end
+      reason = details["reason"].to_s.strip
+      raise ArgumentError, "cutoff_override reason is required" if reason.blank?
+      raise ArgumentError, "cutoff_override reason is too long" if reason.length > 500
+      override_id = details["override_id"].to_s.downcase
+      unless override_id.match?(/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/)
+        raise ArgumentError, "cutoff_override override_id must be a UUID"
+      end
+      set_by = details["set_by"]
+      unless set_by.is_a?(Hash) && set_by["name"].to_s.strip.present? && %w[cornerstone_payroll aire_services].include?(set_by["system"].to_s)
+        raise ArgumentError, "cutoff_override set_by must name the person and system"
+      end
+
+      {
+        "override_id" => override_id,
+        "action" => details["action"].to_s,
+        "reason" => reason,
+        "set_at" => parse_time!(details.fetch("set_at"), "cutoff_override set_at").iso8601,
+        "previous_cutoff_at" => details["previous_cutoff_at"].presence && parse_time!(details["previous_cutoff_at"], "cutoff_override previous_cutoff_at").iso8601,
+        "set_by" => set_by.slice("name", "system", "role").transform_values { |value| value.to_s.strip.first(120) }
+      }.compact
+    rescue KeyError => e
+      raise ArgumentError, "cutoff_override #{e.key} is required"
+    end
+
+    # Lock now should not wait for the next minute's scheduler sweep.
+    def finalize_promptly(period)
+      return unless period.scheduled_lock_enforced? && period.status != "finalized" && period.cutoff_at <= Time.current
+
+      PayrollCutoffFinalizationJob.perform_later
+    rescue StandardError => e
+      Rails.logger.error("Payroll cutoff finalization could not be queued after a lock-now publication: #{e.class}: #{e.message}")
+    end
+
+    def record_cutoff_change_audit!(period)
+      return if @previous_cutoff.nil? && !period.cutoff_overridden?
+      previous = @previous_cutoff || { source: "policy", cutoff_at: nil, override_id: nil }
+      return if previous[:source] == period.cutoff_source && previous[:override_id] == period.cutoff_override&.fetch("override_id", nil)
+
+      AuditLog.record!(
+        action: period.cutoff_overridden? ? "payroll_calendar_period.cutoff_overridden" : "payroll_calendar_period.cutoff_reset",
+        actor: nil,
+        actor_kind: "integration",
+        source: "integration",
+        event_category: "payroll",
+        auditable: period,
+        metadata: {
+          external_pay_period_id: period.external_pay_period_id,
+          schedule_version: period.schedule_version,
+          publication_id: period.publication_id,
+          cutoff_at: period.cutoff_at.iso8601,
+          previous_cutoff_at: previous[:cutoff_at],
+          policy_cutoff_at: period.default_cutoff_at.iso8601,
+          cutoff_override: period.cutoff_override
+        }.compact
+      )
     end
 
     def parse_date!(value, name)
@@ -163,6 +277,7 @@ module Payroll
 
     def create!
       raise ConflictError, "The first schedule version must be 1" unless attributes.fetch(:schedule_version) == 1
+      fence_late_lock_now!(nil)
 
       reject_overlap!
       reject_frozen_batch_overlap!
@@ -174,6 +289,11 @@ module Payroll
 
     def revise!(period)
       period.lock!
+      @previous_cutoff = {
+        source: period.cutoff_source,
+        cutoff_at: period.cutoff_at.iso8601,
+        override_id: period.cutoff_override&.fetch("override_id", nil)
+      }
       if period.status == "finalized" || period.cutoff_at <= now
         raise ConflictError, "A payroll period cannot be revised after its cutoff"
       end
@@ -182,10 +302,13 @@ module Payroll
         raise ConflictError, "Published calendar lock mode is immutable"
       end
       @activation_date = period.cutoff_enforcement_starts_on
+      # Versions only move forward. Cornerstone may skip one AIRE refused, so a
+      # gap is allowed; every publication is a complete snapshot of the period.
       expected_version = period.schedule_version + 1
-      unless attributes.fetch(:schedule_version) == expected_version
-        raise ConflictError, "schedule_version must be #{expected_version}"
+      unless attributes.fetch(:schedule_version) >= expected_version
+        raise ConflictError, "schedule_version must be #{expected_version} or later"
       end
+      fence_late_lock_now!(period)
 
       reject_overlap!(excluding: period)
       reject_invalid_settlement_routes!(period)
@@ -202,6 +325,17 @@ module Payroll
         last_finalization_error: nil
       ))
       period
+    end
+
+    # Only a lock-now instant that already passed needs this; any other cutoff
+    # is still ahead, so the pending-cutoff guard already sees it.
+    def fence_late_lock_now!(period)
+      return unless lock_now? && attributes.fetch(:cutoff_at) <= now
+
+      LockNowClaimFence.call!(start_date: attributes.fetch(:start_date), end_date: attributes.fetch(:end_date),
+        cutoff_at: attributes.fetch(:cutoff_at), period: period)
+    rescue LockNowClaimFence::ConflictError => e
+      raise ConflictError, e.message
     end
 
     def reject_invalid_settlement_routes!(period)
@@ -261,6 +395,9 @@ module Payroll
       end
       fields[:lock_mode] = @derived_lock_mode
       fields[:cutoff_enforcement_starts_on] = @activation_date
+      fields[:cutoff_source] = override? ? "override" : "policy"
+      fields[:policy_cutoff_at] = override? ? attributes.fetch(:policy_cutoff_at) : nil
+      fields[:cutoff_override] = override? ? attributes.fetch(:cutoff_override) : nil
       fields
     end
 
@@ -321,6 +458,9 @@ module Payroll
           request_checksum: period.request_checksum,
           overtime_policy: period.overtime_policy,
           previous_overtime_policy: @previous_overtime_policy,
+          cutoff_source: period.cutoff_source,
+          policy_cutoff_at: period.policy_cutoff_at&.iso8601,
+          cutoff_override: period.cutoff_override,
           **cutoff_policy
         }
       )

@@ -46,12 +46,19 @@ module Api
           render json: { error: e.message }, status: :service_unavailable
         rescue ArgumentError, ActiveRecord::RecordInvalid => e
           message = e.respond_to?(:record) ? e.record.errors.full_messages.join(", ") : e.message
+          record_rejection(message)
           render json: { error: message }, status: :unprocessable_entity
         rescue ::Payroll::CalendarPeriodPublisher::ConflictError => e
+          record_rejection(e.message)
           render json: { error: e.message }, status: :conflict
         end
 
         private
+
+        def record_rejection(message)
+          ::Payroll::LockControl.record_rejection!(external_pay_period_id: params[:id], schedule_version: params[:schedule_version],
+            publication_id: params[:publication_id], error: message)
+        end
 
         def find_period
           PayrollCalendarPeriod.find_by!(external_pay_period_id: params[:id])
@@ -85,7 +92,10 @@ module Api
             :previous_regular_pay_date,
             :schedule_version,
             :publication_id,
-            overtime_policy: %i[schema_version calculation weekly_threshold_hours workweek_start time_zone]
+            :cutoff_source,
+            :policy_cutoff_at,
+            overtime_policy: %i[schema_version calculation weekly_threshold_hours workweek_start time_zone],
+            cutoff_override: [ :override_id, :action, :reason, :set_at, :previous_cutoff_at, { set_by: %i[name system role] } ]
           )
         end
       end

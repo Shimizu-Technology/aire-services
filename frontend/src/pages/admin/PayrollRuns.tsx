@@ -13,6 +13,7 @@ import {
   type PayrollCarryoverQueue,
 } from '../../lib/api'
 import TimePayrollWorkspaceHeader from '../../components/time-tracking/TimePayrollWorkspaceHeader'
+import PayrollLockControl from '../../components/payroll/PayrollLockControl'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
 import {
   formatPayrollDate,
@@ -919,6 +920,8 @@ export default function PayrollRuns() {
       </section>
 
       {!connectionEnabled && <section aria-label="Payroll connection status" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">{connectionReason}</section>}
+
+      {connectionEnabled && <PayrollLockControl />}
 
       <CarryoverQueue queue={carryovers} loading={carryoversLoading} error={carryoversError} />
 

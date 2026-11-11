@@ -40,10 +40,10 @@ module Payroll
 
         StagingMailTransport.deliver(
           { from: ENV.fetch("MAILER_FROM_EMAIL", "noreply@example.com"), to: recipients, subject: subject(rows), html: html(rows) },
-          options: { idempotency_key: "payroll-cutoff-reminder-#{period.id}-#{local_cutoff.to_date}-#{days_before}" }
+          options: { idempotency_key: "payroll-cutoff-reminder-#{period.id}-#{local_cutoff.strftime("%Y%m%d%H%M")}-#{days_before}" }
         )
         AuditLog.record!(action: ACTION, actor: nil, actor_kind: "system", source: "system", auditable: period, event_category: "payroll",
-          metadata: { days_before: days_before, entry_count: rows.sum { |row| row[:entries] }, recipient_count: recipients.size })
+          metadata: { days_before: days_before, cutoff_at: period.cutoff_at.iso8601, entry_count: rows.sum { |row| row[:entries] }, recipient_count: recipients.size })
         result("sent")
       end
     end
@@ -72,8 +72,11 @@ module Payroll
       DAYS_BEFORE.include?(days_before) && local_now.hour >= SEND_FROM_HOUR
     end
 
+    # A moved lock time gets its own reminders. Older audit rows carry no
+    # cutoff_at and keep suppressing a resend for the date they were sent for.
     def already_sent?
-      AuditLog.where(action: ACTION, auditable: period).where("metadata ->> 'days_before' = ?", days_before.to_s).exists?
+      AuditLog.where(action: ACTION, auditable: period).where("metadata ->> 'days_before' = ?", days_before.to_s)
+        .where("metadata ->> 'cutoff_at' IS NULL OR metadata ->> 'cutoff_at' = ?", period.cutoff_at.iso8601).exists?
     end
 
     def first_enforced_date
