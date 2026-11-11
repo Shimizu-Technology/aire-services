@@ -86,10 +86,7 @@ jobs:
 
       - name: Install image processing dependencies
         run: |
-          # GitHub's runners sometimes can't resolve the Azure Ubuntu mirror; use the primary archive with retries.
-          sudo sed -i -E 's#mirror\+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g; s#http://azure\.archive\.ubuntu\.com/ubuntu/?#http://archive.ubuntu.com/ubuntu/#g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
-          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
-          sudo apt-get update
+          "$GITHUB_WORKSPACE/.github/scripts/apt-refresh.sh"
           sudo apt-get install --no-install-recommends -y libvips-tools fonts-dejavu-core
 
       - name: Set up Ruby
