@@ -264,7 +264,7 @@ RSpec.describe Payroll::CalendarPeriodPublisher do
 
     expect do
       described_class.new(attributes.merge(publication_id: SecureRandom.uuid), now: now).call
-    end.to raise_error(described_class::ConflictError, /schedule_version must be 2/)
+    end.to raise_error(described_class::ConflictError, /schedule_version must be 2 or later/)
 
     overlap = attributes.merge(
       external_pay_period_id: "cornerstone-overlap",

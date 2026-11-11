@@ -7,6 +7,11 @@ module Payroll
   class LockControl
     ACTIONS = %w[lock_now change reset].freeze
     REASON_MAX = 500
+    # Matches Cornerstone: a new time must be this far ahead, and the lock in
+    # effect can't change once it is this close, so delivery lands in time.
+    MIN_LEAD = 15.minutes
+    REQUESTED = "payroll_calendar_period.cutoff_change_requested"
+    REJECTED = "payroll_calendar_period.publication_rejected"
 
     class Error < StandardError; end
 
@@ -44,14 +49,39 @@ module Payroll
         cutoff_source: period.cutoff_source,
         default_cutoff_at: local(period.default_cutoff_at),
         override: override_json,
-        earliest_cutoff_at: local([ earliest, now ].max),
+        earliest_cutoff_at: local([ earliest, self.class.earliest_change_at(now) ].max),
         latest_cutoff_at: local(latest),
         lock_now_available_at: local(earliest),
         can_change: changeable?,
         can_lock_now: changeable? && now >= earliest && now <= latest,
-        can_reset: changeable? && period.cutoff_overridden? && period.default_cutoff_at > now,
+        can_reset: changeable? && period.cutoff_overridden? && period.default_cutoff_at >= now + MIN_LEAD,
+        pending_change: pending_change,
         unavailable_reason: unavailable_reason
       }
+    end
+
+    # The first whole minute at least MIN_LEAD from now.
+    def self.earliest_change_at(now)
+      lead = now + MIN_LEAD
+      rounded = lead.change(sec: 0, usec: 0)
+      rounded < lead ? rounded + 1.minute : rounded
+    end
+
+    # Cornerstone refused or AIRE could not apply this publication. Kept so
+    # the lock card can explain why an accepted change never arrived.
+    def self.record_rejection!(external_pay_period_id:, schedule_version:, publication_id:, error:)
+      period = PayrollCalendarPeriod.find_by(external_pay_period_id: external_pay_period_id.to_s)
+      version = Integer(schedule_version.to_s, 10, exception: false)
+      return unless period && version && version > period.schedule_version
+
+      AuditLog.record!(
+        action: REJECTED, actor: nil, actor_kind: "integration", source: "integration", event_category: "payroll",
+        outcome: "failed", auditable: period,
+        metadata: { external_pay_period_id: period.external_pay_period_id, schedule_version: version,
+                    publication_id: publication_id.to_s.presence, error: error.to_s.truncate(500) }.compact
+      )
+    rescue StandardError => e
+      Rails.logger.error("Payroll calendar rejection could not be recorded: #{e.class}: #{e.message}")
     end
 
     # Validates locally for a clear message, then asks Cornerstone. AIRE is
@@ -94,6 +124,7 @@ module Payroll
       return "This period locks manually from Cornerstone Payroll" unless period.scheduled_lock_enforced?
       return "This period needs attention before its lock time can change" unless period.status == "scheduled"
       return "This period is already locking" if period.cutoff_at <= now
+      return "AIRE locks these hours in under 15 minutes, so the lock time can no longer change" if period.cutoff_at < now + MIN_LEAD
       return "It is too close to payday to change the lock time" if PayrollCalendarPeriod.latest_override_at(period.pay_date) <= now
 
       nil
@@ -112,14 +143,16 @@ module Payroll
         time = parse_time(cutoff_at)
         earliest = PayrollCalendarPeriod.earliest_override_at(period.end_date)
         latest = PayrollCalendarPeriod.latest_override_at(period.pay_date)
-        raise Error, "Choose a time in the future" unless time > now
+        raise Error, "Choose a time at least 15 minutes from now" if time < now + MIN_LEAD
         raise Error, "Choose a time after the period ends" if time < earliest
         raise Error, "Choose a time at least two days before payday" if time > latest
 
         time
       when "reset"
         raise Error, "This period already uses the default lock time" unless period.cutoff_overridden?
-        raise Error, "The default lock time has already passed. Use Lock now instead." unless period.default_cutoff_at > now
+        unless period.default_cutoff_at >= now + MIN_LEAD
+          raise Error, "The default lock time is less than 15 minutes away. Use Lock now instead."
+        end
 
         nil
       end
@@ -145,6 +178,27 @@ module Payroll
         role: user.role,
         payroll_user_id: link&.external_actor_id
       }.compact
+    end
+
+    # A change an AIRE admin asked for that Cornerstone accepted but AIRE has
+    # not applied yet. AIRE doesn't see changes made in Cornerstone until they
+    # arrive, so this covers only requests made here.
+    def pending_change
+      request = AuditLog.where(action: REQUESTED, outcome: "succeeded", auditable: period).order(occurred_at: :desc, id: :desc).first
+      version = request&.metadata&.fetch("cornerstone_schedule_version", nil).to_i
+      return unless version > period.schedule_version
+
+      rejection = AuditLog.where(action: REJECTED, auditable: period)
+        .where("(metadata->>'schedule_version')::integer >= ?", version)
+        .order(occurred_at: :desc, id: :desc).first
+      {
+        state: rejection ? "rejected" : "pending",
+        action: request.metadata["requested_action"],
+        cutoff_at: request.metadata["cornerstone_cutoff_at"],
+        requested_by_name: request.actor_name,
+        requested_at: request.occurred_at.in_time_zone(PayrollCalendarPeriod::BUSINESS_TIME_ZONE).iso8601,
+        error: rejection&.metadata&.fetch("error", nil)
+      }
     end
 
     def override_json
@@ -177,6 +231,7 @@ module Payroll
           reason: reason,
           cornerstone_override_id: change&.fetch("override_id", nil),
           cornerstone_cutoff_at: change&.fetch("cutoff_at", nil),
+          cornerstone_schedule_version: change&.dig("publication", "schedule_version"),
           error: error
         }.compact
       )

@@ -277,6 +277,7 @@ module Payroll
 
     def create!
       raise ConflictError, "The first schedule version must be 1" unless attributes.fetch(:schedule_version) == 1
+      fence_late_lock_now!(nil)
 
       reject_overlap!
       reject_frozen_batch_overlap!
@@ -301,10 +302,13 @@ module Payroll
         raise ConflictError, "Published calendar lock mode is immutable"
       end
       @activation_date = period.cutoff_enforcement_starts_on
+      # Versions only move forward. Cornerstone may skip one AIRE refused, so a
+      # gap is allowed; every publication is a complete snapshot of the period.
       expected_version = period.schedule_version + 1
-      unless attributes.fetch(:schedule_version) == expected_version
-        raise ConflictError, "schedule_version must be #{expected_version}"
+      unless attributes.fetch(:schedule_version) >= expected_version
+        raise ConflictError, "schedule_version must be #{expected_version} or later"
       end
+      fence_late_lock_now!(period)
 
       reject_overlap!(excluding: period)
       reject_invalid_settlement_routes!(period)
@@ -321,6 +325,17 @@ module Payroll
         last_finalization_error: nil
       ))
       period
+    end
+
+    # Only a lock-now instant that already passed needs this; any other cutoff
+    # is still ahead, so the pending-cutoff guard already sees it.
+    def fence_late_lock_now!(period)
+      return unless lock_now? && attributes.fetch(:cutoff_at) <= now
+
+      LockNowClaimFence.call!(start_date: attributes.fetch(:start_date), end_date: attributes.fetch(:end_date),
+        cutoff_at: attributes.fetch(:cutoff_at), period: period)
+    rescue LockNowClaimFence::ConflictError => e
+      raise ConflictError, e.message
     end
 
     def reject_invalid_settlement_routes!(period)

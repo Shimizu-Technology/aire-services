@@ -87,6 +87,67 @@ RSpec.describe Payroll::CalendarPeriodPublisher, "admin lock times" do
     expect(period).to have_attributes(cutoff_at: locked_at, cutoff_state: "due")
   end
 
+  describe "a lock-now publication that arrives after its instant" do
+    let(:employee) { create(:user, :employee) }
+    let(:category) { create(:time_category, name: "Operations") }
+    let(:entry) do
+      work_date = dates.fetch(:start_date) + 2
+      create(:time_entry, user: employee, time_category: category, work_date: work_date, hours: 8,
+        status: "completed", approval_status: "approved", created_at: 2.days.ago)
+    end
+
+    def record_manual_paycheck!
+      PayrollManualAllocation.create!(
+        time_entry: entry, user: employee, recorded_by: create(:user, :admin),
+        source_user_uuid: employee.payroll_integration_uuid, source_time_entry_version: entry.lock_version,
+        work_date: entry.work_date, pay_date: Date.current, time_category_id: category.id,
+        regular_hours: 8, overtime_hours: 0, external_pay_period_id: "68", external_payroll_item_id: "1438",
+        reason: "Paid by manual check while the lock was on its way"
+      )
+    end
+
+    it "is refused when a manual paycheck for its hours was recorded after the instant" do
+      entry
+      locked_at = (PayrollClockHelpers.database_clock - 2.minutes).change(usec: 0)
+      record_manual_paycheck!
+
+      expect { publish(override_publication(base, cutoff_at: locked_at, action: "lock_now")) }
+        .to raise_error(described_class::ConflictError, /manual paycheck for these hours was recorded after .* Press Lock now again/)
+      expect(period).to have_attributes(schedule_version: 1, cutoff_source: "policy")
+      expect(PayrollCalendarPeriodRevision.where(schedule_version: 2)).to be_empty
+    end
+
+    it "is accepted when the paycheck was recorded before the instant" do
+      record_manual_paycheck!
+      locked_at = (PayrollClockHelpers.database_clock + 1.second).change(usec: 0)
+      PayrollClockHelpers.wait_for_database_cutoff(locked_at)
+
+      expect(publish(override_publication(base, cutoff_at: locked_at, action: "lock_now")).period)
+        .to have_attributes(cutoff_at: locked_at, schedule_version: 2)
+    end
+
+    it "is refused when late hours were routed to this period after the instant" do
+      locked_at = (PayrollClockHelpers.database_clock - 2.minutes).change(usec: 0)
+      fence = Payroll::LockNowClaimFence.new(start_date: dates.fetch(:start_date), end_date: dates.fetch(:end_date),
+        cutoff_at: locked_at, period: period)
+      routed = instance_double(ActiveRecord::Relation, exists?: true)
+      cases = PayrollSettlementCase.none
+      allow(PayrollSettlementCase).to receive(:where).and_return(cases)
+      allow(cases).to receive(:where).with(target_payroll_calendar_period_id: period.id).and_return(routed)
+      expect { fence.call! }.to raise_error(Payroll::LockNowClaimFence::ConflictError, /settlement change/)
+    end
+  end
+
+  it "accepts a later version when Cornerstone skipped one AIRE refused, but never an older one" do
+    publish(override_publication(base, cutoff_at: policy_cutoff + 1.day, version: 3))
+    expect(period).to have_attributes(schedule_version: 3, cutoff_at: policy_cutoff + 1.day)
+
+    expect { publish(override_publication(base, cutoff_at: policy_cutoff + 2.days, version: 2)) }
+      .to raise_error(described_class::ConflictError, "schedule_version must be 4 or later")
+    expect { publish(override_publication(base, cutoff_at: policy_cutoff + 2.days, version: 3)) }
+      .to raise_error(described_class::ConflictError, "schedule_version must be 4 or later")
+  end
+
   it "rejects a lock-now publication that arrives after the grace window or a past change" do
     stale = Time.current - PayrollCalendarPeriod::LOCK_NOW_GRACE - 1.minute
     expect { publish(override_publication(base, cutoff_at: stale, action: "lock_now")) }.to raise_error(ArgumentError, /must be in the future/)

@@ -122,7 +122,7 @@ RSpec.describe "Payroll calendar periods", type: :request do
     stale = payload.merge(publication_id: SecureRandom.uuid)
     put "/api/v1/payroll/calendar_periods/#{period_id}", params: stale.to_json, headers: headers
     expect(response).to have_http_status(:conflict)
-    expect(response.parsed_body.fetch("error")).to include("schedule_version must be 2")
+    expect(response.parsed_body.fetch("error")).to include("schedule_version must be 2 or later")
   end
 
   it "fails closed when the integration secret is unavailable" do

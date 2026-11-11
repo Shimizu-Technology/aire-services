@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
-import { Clock, Info, Lock, RotateCcw } from 'lucide-react'
-import { api, type PayrollLockAction, type PayrollLockControl as LockControlState } from '../../lib/api'
+import { Clock, Lock, RotateCcw } from 'lucide-react'
+import { api, type PayrollLockAction, type PayrollLockControl as LockControlState, type PayrollLockPendingChange } from '../../lib/api'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { useDialogFocus } from '../../lib/useDialogFocus'
-import { formatLockTime, fromGuamInput, lockDistance, toGuamInput } from '../../lib/lockTime'
+import { earliestLockChange, formatLockTime, fromGuamInput, lockDistance, toGuamInput } from '../../lib/lockTime'
+import { Button, Field, HelpTip, Input, Textarea } from '../ui'
 
 interface Props {
   /** Compact fits inside the dashboard payroll readiness card. */
@@ -25,7 +26,6 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
   const [control, setControl] = useState<LockControlState | null | undefined>(undefined)
   const [loadError, setLoadError] = useState(false)
   const [now, setNow] = useState(() => new Date())
-  const [helpOpen, setHelpOpen] = useState(false)
   const [dialog, setDialog] = useState<PayrollLockAction | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [waiting, setWaiting] = useState(false)
@@ -64,7 +64,7 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
       if (next === undefined || (next && next.period.id === previous.period.id && next.publication_id === previous.publication_id)) continue
       setWaiting(false)
       if (!next || next.period.id !== previous.period.id) setNotice(`AIRE locked the ${periodLabel(previous)} hours.`)
-      else if (next.cutoff_state === 'due') setNotice('AIRE is locking these hours now.')
+      else if (next.cutoff_state === 'due' || Date.parse(next.cutoff_at) <= Date.now() + serverOffset.current) setNotice('AIRE is locking these hours now.')
       else setNotice(`AIRE now locks at ${formatLockTime(next.cutoff_at)}.`)
       return
     }
@@ -87,6 +87,8 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
   const compact = variant === 'compact'
   const changed = control.cutoff_source === 'override' && control.override
   const busy = waiting
+  // Lock now leaves a past cutoff until the finalizer runs; never count down to it.
+  const locking = control.cutoff_state === 'due' || Date.parse(control.cutoff_at) <= now.getTime()
 
   return (
     <section aria-labelledby={`${helpId}-title`} className={compact ? 'mt-4 rounded-xl border border-primary/15 bg-primary/5 p-4' : 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm'}>
@@ -94,7 +96,7 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Next AIRE lock · {periodLabel(control)} hours</p>
           <h2 id={`${helpId}-title`} className={`mt-1 font-semibold text-slate-950 ${compact ? 'text-base' : 'text-xl'}`}>
-            {control.cutoff_state === 'due' ? 'Locking now' : <>Locks {formatLockTime(control.cutoff_at)} <span className="font-normal text-slate-600">({lockDistance(control.cutoff_at, now)})</span></>}
+            {locking ? 'Locking now' : <>Locks {formatLockTime(control.cutoff_at)} <span className="font-normal text-slate-600">({lockDistance(control.cutoff_at, now)})</span></>}
           </h2>
           {changed && control.override && (
             <p className="mt-1 break-words text-sm text-slate-700">
@@ -103,43 +105,28 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
           )}
           {changed && !compact && <p className="mt-1 text-sm text-slate-500">Default was {formatLockTime(control.default_cutoff_at)}.</p>}
         </div>
-        <button
-          type="button"
-          onClick={() => setHelpOpen(open => !open)}
-          aria-expanded={helpOpen}
-          aria-controls={`${helpId}-help`}
-          aria-label="About the lock time"
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-primary transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <Info className="h-5 w-5" aria-hidden="true" />
-        </button>
+        <HelpTip
+          label="the lock time"
+          className="mt-0.5 shrink-0"
+          what={<>At the lock time AIRE freezes this pay period’s hours and sends them to Cornerstone Payroll. {LATE_HOURS}</>}
+          defaultValue="5:00 PM Guam time, 7 days after the last regular payday."
+          who="AIRE owners and admins, and Cornerstone Payroll organization admins. Every change needs a reason and is recorded in both apps."
+        />
       </div>
 
-      {helpOpen && (
-        <div id={`${helpId}-help`} className="mt-3 space-y-2 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-          <p><strong className="font-semibold text-slate-900">What it does:</strong> at the lock time AIRE freezes this pay period’s hours and sends them to Cornerstone Payroll. {LATE_HOURS}</p>
-          <p><strong className="font-semibold text-slate-900">Default:</strong> 5:00 PM Guam time, 7 days after the last regular payday.</p>
-          <p><strong className="font-semibold text-slate-900">Who can change it:</strong> AIRE owners and admins, and Cornerstone Payroll admins. Every change needs a reason and is recorded in both apps.</p>
-        </div>
-      )}
+      {control.pending_change && <PendingChangeNote change={control.pending_change} />}
 
       {control.can_change ? (
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {control.can_lock_now && (
-            <button type="button" disabled={busy} onClick={() => setDialog('lock_now')} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
-              <Lock className="h-4 w-4" aria-hidden="true" />Lock now
-            </button>
+            <Button disabled={busy} onClick={() => setDialog('lock_now')} icon={<Lock className="size-4" />}>Lock now</Button>
           )}
-          <button type="button" disabled={busy} onClick={() => setDialog('change')} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/25 bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:border-primary/50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-            <Clock className="h-4 w-4" aria-hidden="true" />Change lock time
-          </button>
+          <Button variant="secondary" disabled={busy} onClick={() => setDialog('change')} icon={<Clock className="size-4" />}>Change lock time</Button>
           {control.can_reset && (
-            <button type="button" disabled={busy} onClick={() => setDialog('reset')} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />Reset to default
-            </button>
+            <Button variant="ghost" disabled={busy} onClick={() => setDialog('reset')} icon={<RotateCcw className="size-4" />}>Reset to default</Button>
           )}
         </div>
-      ) : control.unavailable_reason && control.cutoff_state !== 'due' && (
+      ) : control.unavailable_reason && !locking && (
         <p className="mt-3 text-sm text-slate-600">{control.unavailable_reason}.</p>
       )}
 
@@ -149,6 +136,7 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
         <LockTimeDialog
           action={dialog}
           control={control}
+          now={now}
           onClose={() => setDialog(null)}
           onDone={(message) => {
             setDialog(null)
@@ -162,16 +150,43 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
   )
 }
 
+/** A change requested from AIRE that Cornerstone accepted but AIRE hasn't applied. */
+function PendingChangeNote({ change }: { change: PayrollLockPendingChange }) {
+  const target = change.action === 'lock_now' ? 'Lock now'
+    : change.action === 'reset' ? 'the reset to the default time'
+      : change.cutoff_at ? `the change to ${formatLockTime(change.cutoff_at)}` : 'the change'
+  if (change.state === 'rejected') {
+    return (
+      <div role="status" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <p className="font-semibold">AIRE couldn’t apply {target}{change.error ? `: ${change.error}` : '.'}</p>
+        <p className="mt-1">The lock time above is still in effect. Lock now or choose a new time to replace it.</p>
+      </div>
+    )
+  }
+  return (
+    <p role="status" className="mt-3 rounded-xl border border-primary/15 bg-white px-3 py-2 text-sm text-slate-700">
+      <span className="font-semibold text-slate-900">Waiting for {target} to arrive from Cornerstone Payroll.</span> Until it does, AIRE keeps the lock time above.
+    </p>
+  )
+}
+
 const TITLES: Record<PayrollLockAction, string> = { lock_now: 'Lock hours now?', change: 'Change lock time', reset: 'Reset to the default lock time?' }
 const CONFIRM: Record<PayrollLockAction, string> = { lock_now: 'Lock now', change: 'Save lock time', reset: 'Reset to default' }
 
-function LockTimeDialog({ action, control, onClose, onDone }: {
+function LockTimeDialog({ action, control, now, onClose, onDone }: {
   action: PayrollLockAction
   control: LockControlState
+  now: Date
   onClose: () => void
   onDone: (message: string) => void
 }) {
-  const [cutoffInput, setCutoffInput] = useState(() => toGuamInput(control.cutoff_at))
+  // The server's earliest time ages while the page is open; never offer less than 15 minutes ahead.
+  const serverMin = toGuamInput(control.earliest_cutoff_at)
+  const leadMin = toGuamInput(earliestLockChange(now).toISOString())
+  const min = leadMin > serverMin ? leadMin : serverMin
+  const max = toGuamInput(control.latest_cutoff_at)
+  const current = toGuamInput(control.cutoff_at)
+  const [cutoffInput, setCutoffInput] = useState(() => (current < min ? min : current > max ? max : current))
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -180,16 +195,17 @@ function LockTimeDialog({ action, control, onClose, onDone }: {
   const ids = useId()
   useDialogFocus(true, dialogRef, () => { if (!submitting) onClose() })
 
-  const min = toGuamInput(control.earliest_cutoff_at)
-  const max = toGuamInput(control.latest_cutoff_at)
   const period = periodLabel(control)
   const chosen = action === 'change' ? fromGuamInput(cutoffInput) : null
   const outOfRange = action === 'change' && (!chosen || cutoffInput < min || cutoffInput > max)
+  const minLabel = formatLockTime(fromGuamInput(min)!)
+  // Saving the time AIRE already has would be refused.
+  const unchanged = action === 'change' && cutoffInput === current
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!reason.trim()) { setError('Enter a reason for the change.'); return }
-    if (outOfRange) { setError(`Choose a time between ${formatLockTime(control.earliest_cutoff_at)} and ${formatLockTime(control.latest_cutoff_at)}.`); return }
+    if (outOfRange) { setError(`Choose a time between ${minLabel} and ${formatLockTime(control.latest_cutoff_at)}.`); return }
     setSubmitting(true)
     setError(null)
     const result = await api.changePayrollLockTime({
@@ -223,32 +239,23 @@ function LockTimeDialog({ action, control, onClose, onDone }: {
           </div>
 
           {action === 'change' && (
-            <label className="mt-4 block text-sm font-medium text-slate-800">
-              New lock time (Guam)
-              <input type="datetime-local" value={cutoffInput} min={min} max={max} step={60} required
-                onChange={event => setCutoffInput(event.target.value)}
-                aria-describedby={`${ids}-range`}
-                className="mt-1 block min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-base text-slate-900 outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary/30" />
-              <span id={`${ids}-range`} className="mt-1 block text-xs font-normal text-slate-500">
-                Between {formatLockTime(control.earliest_cutoff_at)} and {formatLockTime(control.latest_cutoff_at)} (two days before payday).
-              </span>
-            </label>
+            <Field className="mt-4" label="New lock time (Guam)" required
+              help={<>{unchanged ? 'Choose a new time to save. ' : ''}Between {minLabel} (at least 15 minutes from now) and {formatLockTime(control.latest_cutoff_at)} (two days before payday).</>}>
+              <Input type="datetime-local" value={cutoffInput} min={min} max={max} step={60}
+                onChange={event => setCutoffInput(event.target.value)} />
+            </Field>
           )}
 
-          <label className="mt-4 block text-sm font-medium text-slate-800">
-            Reason (required)
-            <textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={500} rows={3} required
-              placeholder="For example: payday moved for the holiday"
-              className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-base text-slate-900 outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary/30" />
-          </label>
+          <Field className="mt-4" label="Reason" required help="Recorded in both apps with your name.">
+            <Textarea value={reason} onChange={event => setReason(event.target.value)} maxLength={500} rows={3}
+              placeholder="For example: payday moved for the holiday" />
+          </Field>
 
           {error && <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" onClick={onClose} disabled={submitting} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="min-h-11 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark disabled:opacity-50">
-              {submitting ? 'Sending…' : CONFIRM[action]}
-            </button>
+            <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
+            <Button type="submit" loading={submitting} loadingLabel="Sending…" disabled={unchanged}>{CONFIRM[action]}</Button>
           </div>
         </form>
       </div>

@@ -4,6 +4,7 @@ require "rails_helper"
 require_relative "../../../support/payroll_cutoff_override_helpers"
 
 RSpec.describe "Payroll lock time", type: :request do
+  include ActiveSupport::Testing::TimeHelpers
   include PayrollCutoffOverrideHelpers
 
   let(:dates) { ended_period_dates }
@@ -81,6 +82,7 @@ RSpec.describe "Payroll lock time", type: :request do
       { publication_id: SecureRandom.uuid } => "This pay period changed. Refresh and try again.",
       { lock_action: "change", cutoff_at: (latest + 1.minute).iso8601 } => "Choose a time at least two days before payday",
       { lock_action: "change", cutoff_at: "tomorrow" } => "Choose a valid lock time",
+      { lock_action: "change", cutoff_at: 14.minutes.from_now.iso8601 } => "Choose a time at least 15 minutes from now",
       { lock_action: "reset" } => "This period already uses the default lock time",
       { lock_action: "reopen" } => "Choose lock now, change, or reset"
     }.each do |params, message|
@@ -89,6 +91,50 @@ RSpec.describe "Payroll lock time", type: :request do
       expect(response.parsed_body).to eq("error" => message)
     end
     expect(client).not_to have_received(:request_change)
+  end
+
+  it "offers only times at least 15 minutes ahead and stops changes within 15 minutes of the lock" do
+    get "/api/v1/payroll_cutoff", headers: headers_for(admin)
+    earliest = Time.iso8601(response.parsed_body.dig("lock_control", "earliest_cutoff_at"))
+    expect(earliest).to be >= 15.minutes.from_now.change(sec: 0)
+    expect(earliest.sec).to eq(0)
+
+    travel_to(period.cutoff_at - 14.minutes) do
+      get "/api/v1/payroll_cutoff", headers: headers_for(admin)
+      expect(response.parsed_body.fetch("lock_control")).to include("can_change" => false, "can_lock_now" => false,
+        "unavailable_reason" => "AIRE locks these hours in under 15 minutes, so the lock time can no longer change")
+    end
+  end
+
+  it "notes a change Cornerstone accepted until it arrives, and AIRE's refusal if it doesn't apply" do
+    target = (Time.iso8601(base.fetch(:cutoff_at)) + 1.day).iso8601
+    allow(client).to receive(:request_change).and_return(
+      "override_id" => "abc", "cutoff_at" => target, "action" => "change", "publication" => { "schedule_version" => 2 }
+    )
+    request_change(admin, lock_action: "change", cutoff_at: target)
+    expect(response.parsed_body.dig("lock_control", "pending_change")).to include(
+      "state" => "pending", "action" => "change", "cutoff_at" => target, "requested_by_name" => "Chels Admin", "error" => nil
+    )
+    # AIRE keeps showing the lock it has applied.
+    expect(response.parsed_body.dig("lock_control", "cutoff_at")).to eq(Time.iso8601(base.fetch(:cutoff_at)).iso8601)
+
+    # The publication reached AIRE after its time.
+    late = override_publication(base, cutoff_at: Time.current - 1.hour)
+    previous_secret = ENV["PAYROLL_SHARED_SECRET"]
+    ENV["PAYROLL_SHARED_SECRET"] = "lock-time-spec-secret"
+    begin
+      put "/api/v1/payroll/calendar_periods/#{period.external_pay_period_id}", params: late.except(:external_pay_period_id).to_json,
+        headers: { "Content-Type" => "application/json", "X-Shared-Secret" => "lock-time-spec-secret" }
+    ensure
+      ENV["PAYROLL_SHARED_SECRET"] = previous_secret
+    end
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(AuditLog.find_by!(action: "payroll_calendar_period.publication_rejected").metadata).to include("schedule_version" => 2)
+
+    get "/api/v1/payroll_cutoff", headers: headers_for(admin)
+    expect(response.parsed_body.dig("lock_control", "pending_change")).to include(
+      "state" => "rejected", "error" => "cutoff_at must be in the future when published"
+    )
   end
 
   it "shows Cornerstone's refusal and records a failed request" do

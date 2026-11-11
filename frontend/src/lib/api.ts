@@ -1510,7 +1510,17 @@ export interface PayrollLockControl {
   can_change: boolean;
   can_lock_now: boolean;
   can_reset: boolean;
+  /** A change asked for here that Cornerstone accepted and AIRE hasn't applied yet. */
+  pending_change?: PayrollLockPendingChange | null;
   unavailable_reason: string | null;
+}
+export interface PayrollLockPendingChange {
+  state: 'pending' | 'rejected';
+  action: PayrollLockAction;
+  cutoff_at: string | null;
+  requested_by_name: string | null;
+  requested_at: string;
+  error: string | null;
 }
 export type PayrollLockAction = 'lock_now' | 'change' | 'reset'
 export interface PayrollLockTimeRequest {
