@@ -81,4 +81,14 @@ describe('TimeTracking pending approval summary requests', () => {
     expect(readSummary).not.toHaveBeenCalled()
     expect(apiMock.getPendingApprovals).toHaveBeenCalledTimes(1)
   })
+
+  it.each([
+    ['/admin/leave', '/admin/approvals'],
+    ['/admin/leave?start_date=2026-10-16&end_date=2026-10-31', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31&through_date=2026-10-31'],
+  ])('links Leave at %s back to every pending approval the badge counts', async (path, approvalsHref) => {
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 2, summary: summary(2) } })
+    render(<MemoryRouter initialEntries={[path]}><TimeTracking section="leave" /></MemoryRouter>)
+    // No period in the URL means no date filter, so older pending entries stay in view.
+    expect(await screen.findByRole('link', { name: 'Time & overtime, 2 pending' })).toHaveAttribute('href', approvalsHref)
+  })
 })

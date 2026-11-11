@@ -1159,9 +1159,6 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
   const pendingOvertimeApprovalCount = pendingApprovalSummary?.pending_overtime_count ?? 0
   const throughDateParam = searchParams.get('through_date')
   const routedThroughDate = isIsoDate(throughDateParam) ? throughDateParam : undefined
-  const workspacePeriod = activeTab === 'reports'
-    ? { start: reportFilters.start_date, end: reportFilters.end_date }
-    : routedPeriod ?? currentPayrollPeriod()
   const reportLinkedEntryId = linkedEntry && String(linkedEntry.id) === routedEntryId
     && (!reportFilters.user_id || String(linkedEntry.user.id) === reportFilters.user_id)
     && isIsoDate(linkedEntry.work_date) && isIsoDate(reportFilters.start_date) && isIsoDate(reportFilters.end_date)
@@ -1240,7 +1237,9 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
         canManagePayroll={canManagePayroll}
         pendingApprovalCount={pendingApprovalCount}
         pendingOvertimeCount={pendingOvertimeApprovalCount}
-        period={workspacePeriod}
+        // Only a period in the URL. Defaulting to the current one would hide
+        // older pending entries that the Approvals badge still counts.
+        period={routedPeriod}
         canApproveLeave={capabilities.approve_leave}
         action={activeTab === 'entries' ? (
           <button

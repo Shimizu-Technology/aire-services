@@ -17,6 +17,7 @@ interface TimePayrollWorkspaceHeaderProps {
   canApproveLeave?: boolean
   pendingApprovalCount?: number
   pendingOvertimeCount?: number
+  /** The period already in the URL. The Approvals link keeps it; without one the link stays unfiltered. */
   period?: PayrollPeriod
   action?: ReactNode
 }
