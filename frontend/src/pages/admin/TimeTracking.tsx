@@ -14,6 +14,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
 import EditTimeEntryModal from '../../components/time-tracking/EditTimeEntryModal'
+import { useConfirm } from '../../components/ui/useConfirm'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 import LeaveRequestsPanel from '../../components/time-tracking/LeaveRequestsPanel'
 import ReportExportActions from '../../components/time-tracking/ReportExportActions'
@@ -1078,7 +1079,7 @@ export default function TimeTracking() {
       return
     }
 
-    if (!confirm('Are you sure you want to delete this time entry?')) return
+    if (!(await confirm({ title: 'Are you sure you want to delete this time entry?', tone: 'danger', confirmLabel: 'Delete entry' }))) return
 
     try {
       const response = await api.deleteTimeEntry(entry.id)
@@ -1210,13 +1211,19 @@ export default function TimeTracking() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  const [confirm, confirmDialog] = useConfirm()
+
   const downloadReport = async (type: HoursReportDownloadType, acknowledgeDraft = false) => {
     setReportExporting(type)
     setError(null)
     try {
       const response = await api.downloadHoursReport(type, currentReportParams(), acknowledgeDraft)
       if (response.code === 'draft_acknowledgement_required' && !acknowledgeDraft) {
-        const confirmed = confirm('This report includes approved entries without work categories. Download a clearly marked draft anyway?')
+        const confirmed = await confirm({
+          title: 'Download a clearly marked draft anyway?',
+          description: 'This report includes approved entries without work categories.',
+          confirmLabel: 'Download draft',
+        })
         if (confirmed) await downloadReport(type, true)
         return
       }
@@ -2490,6 +2497,7 @@ export default function TimeTracking() {
         onDeleted={() => { clearDeletedLinkedEntry(editingEntry?.id); refreshEntriesAfterEdit() }}
         onError={setError}
       />
+      {confirmDialog}
     </div>
   )
 }

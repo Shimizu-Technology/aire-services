@@ -285,7 +285,7 @@ export default function SendPayStubDialog({ request, workerId, canChooseRecipien
                                 <label className={`flex min-h-12 items-center gap-3 px-3 py-2.5 ${row.voided ? 'cursor-not-allowed bg-slate-50' : 'cursor-pointer hover:bg-slate-50'}`}>
                                   <input type="checkbox" checked={selected.has(row.id)} disabled={row.voided} onChange={() => toggle(row.id)} className="h-5 w-5 rounded border-slate-300 accent-[#1e3a5f]" />
                                   <span className="min-w-0 flex-1">
-                                    <span className={`block text-sm font-medium ${row.voided ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{formatPayDate(row.pay_date)}</span>
+                                    <span className={`block text-sm font-medium ${row.voided ? 'text-slate-500 line-through' : 'text-slate-900'}`}>{formatPayDate(row.pay_date)}</span>
                                     <span className="block text-xs text-slate-500">
                                       {row.voided ? "Voided, can't be sent" : `Period ${formatPeriod(row.period_start, row.period_end)}${purpose ? ` · ${purpose}` : ''}`}
                                     </span>

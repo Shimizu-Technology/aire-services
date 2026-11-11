@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditTimeEntryModal from './EditTimeEntryModal'
@@ -331,6 +331,34 @@ describe('EditTimeEntryModal', () => {
     expect(trigger).toHaveFocus()
     expect(document.body.style.overflow).toBe(previousOverflow)
     trigger.remove()
+  })
+
+  it('deletes only after the in-app confirmation, and Escape closes just the confirmation', async () => {
+    apiMock.deleteTimeEntry.mockResolvedValue({})
+    const onClose = vi.fn()
+    const onDeleted = vi.fn()
+    render(<EditTimeEntryModal isOpen entry={{ ...activeEntry, end_time: '16:00', status: 'completed' }} categories={[{ id: 1, name: 'CFI' }]} canDelete canManageTeamTime
+      onClose={onClose} onSaved={vi.fn()} onDeleted={onDeleted} />)
+    const deleteButton = screen.getByRole('button', { name: 'Delete' })
+
+    fireEvent.click(deleteButton)
+    let confirmation = await screen.findByRole('alertdialog', { name: 'Are you sure you want to delete this time entry?' })
+    expect(within(confirmation).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    fireEvent.click(deleteButton)
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(apiMock.deleteTimeEntry).not.toHaveBeenCalled()
+
+    fireEvent.click(deleteButton)
+    confirmation = await screen.findByRole('alertdialog')
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Delete entry' }))
+    await waitFor(() => expect(apiMock.deleteTimeEntry).toHaveBeenCalledWith(6, undefined))
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce())
   })
 
 })
