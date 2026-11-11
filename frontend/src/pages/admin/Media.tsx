@@ -3,6 +3,7 @@ import { api, type SiteMedia, type SiteMediaInput, type SiteMediaPlacement, type
 import { SITE_MEDIA_PLACEMENT_GROUPS, SITE_MEDIA_PLACEMENTS } from '../../lib/siteMedia'
 import SiteMediaFrame from '../../components/site/SiteMediaFrame'
 import { FadeUp } from '../../components/ui/MotionComponents'
+import { useConfirm } from '../../components/ui/useConfirm'
 
 const emptyForm = {
   title: '',
@@ -160,8 +161,10 @@ export default function Media() {
     setSaving(false)
   }
 
+  const [confirm, confirmDialog] = useConfirm()
+
   const handleDelete = async (item: SiteMedia) => {
-    if (!confirm(`Delete "${item.title}"? This removes the uploaded media from the site.`)) return
+    if (!(await confirm({ title: `Delete "${item.title}"?`, description: 'This removes the uploaded media from the site.', tone: 'danger', confirmLabel: 'Delete media' }))) return
     const response = await api.deleteSiteMedia(item.id)
     if (response.error) {
       setError(response.error)
@@ -289,7 +292,7 @@ export default function Media() {
                   </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-white/70 bg-white/70 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Appears on</div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Appears on</div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {selectedPlacement.appearsOn.map((location) => (
                           <span key={location} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{location}</span>
@@ -297,7 +300,7 @@ export default function Media() {
                       </div>
                     </div>
                     <div className="rounded-xl border border-white/70 bg-white/70 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Recommended media</div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Recommended media</div>
                       <p className="mt-2 text-xs leading-relaxed text-slate-700">{selectedPlacement.recommended}</p>
                     </div>
                   </div>
@@ -493,7 +496,7 @@ export default function Media() {
                         </div>
                         {placement && (
                           <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Appears on</div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Appears on</div>
                             <p className="mt-1 text-xs leading-relaxed text-slate-600">{placement.appearsOn.join(', ')}</p>
                           </div>
                         )}
@@ -514,6 +517,7 @@ export default function Media() {
           </section>
         </div>
       </div>
+      {confirmDialog}
     </FadeUp>
   )
 }

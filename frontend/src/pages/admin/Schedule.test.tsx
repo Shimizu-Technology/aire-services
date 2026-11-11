@@ -60,14 +60,30 @@ describe('Schedule handoff and failures', () => {
   })
 
   it('keeps the edit dialog open when a deletion is rejected', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
     mocks.deleteSchedule.mockResolvedValue({ error: 'Cannot delete this shift' })
     open()
     fireEvent.click(await screen.findByRole('button', { name: 'Edit shift' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Are you sure you want to delete this shift?' })).getByRole('button', { name: 'Delete shift' }))
     await screen.findByText('Cannot delete this shift')
     expect(screen.getByRole('heading', { name: 'Edit Shift' })).toBeInTheDocument()
     expect(mocks.getSchedules).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the shift when the delete confirmation is cancelled, and Escape only closes the confirmation', async () => {
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit shift' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    const confirmation = await screen.findByRole('alertdialog', { name: 'Are you sure you want to delete this shift?' })
+    expect(within(confirmation).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: 'Edit Shift' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(mocks.deleteSchedule).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Edit Shift' })).toBeInTheDocument()
   })
 
   it('does not offer administrative commands or another employee’s Log Time to staff', async () => {

@@ -8,6 +8,7 @@ import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { useConfirm } from '../../components/ui/useConfirm'
 import { formatDateISO, formatDateInTimeZoneISO } from '../../lib/dateUtils'
 import type { Schedule as ScheduleType, ScheduleTimePreset, ApprovedLeaveAvailability } from '../../lib/api'
 
@@ -324,10 +325,12 @@ export default function Schedule() {
     }
   }
 
+  const [confirm, confirmDialog] = useConfirm()
+
   // Delete schedule
   const handleDelete = async () => {
     if (!editingSchedule || !canManage) return
-    if (!confirm('Are you sure you want to delete this shift?')) return
+    if (!(await confirm({ title: 'Are you sure you want to delete this shift?', tone: 'danger', confirmLabel: 'Delete shift' }))) return
 
     try {
       const response = await api.deleteSchedule(editingSchedule.id)
@@ -894,6 +897,7 @@ export default function Schedule() {
         </motion.div>
       )}
       </AnimatePresence>
+      {confirmDialog}
     </div>
   )
 }
