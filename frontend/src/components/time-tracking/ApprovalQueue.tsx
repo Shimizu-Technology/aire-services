@@ -14,6 +14,7 @@ import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
 import { useConfirm } from '../ui/useConfirm'
+import { useAuthContext } from '../../contexts/AuthContext'
 
 interface ApprovalQueueProps {
   canManageTeamTime?: boolean
@@ -185,6 +186,59 @@ function summarizeSelectedEntries(entries: TimeEntry[]) {
   return { totalHours, dateLabel }
 }
 
+const EDITED_REASON_KEYS = new Set(['corrected_clock_out', 'employee_edited', 'admin_override'])
+// The confirm lists this many people with overtime, then "+ N more people",
+// so the dialog's buttons stay on screen.
+const OVERTIME_PEOPLE_SHOWN = 4
+
+function plural(count: number, one: string, many: string) {
+  return `${count} ${count === 1 ? one : many}`
+}
+
+function listPhrase(items: string[]) {
+  if (items.length <= 1) return items.join('')
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+// Everything bulk approval approves besides ordinary time, so the confirm can
+// say it out loud. bulk_approve also approves any pending overtime on each entry.
+function describeBulkApproval(entries: TimeEntry[], viewerId: number | null | undefined) {
+  const overtimeByPerson = new Map<number, { id: number; name: string; hours: number }>()
+  for (const entry of entries) {
+    if (entry.overtime_status !== 'pending') continue
+    const person = overtimeByPerson.get(entry.user.id) ?? { id: entry.user.id, name: entryDisplayName(entry), hours: 0 }
+    person.hours += entry.pending_overtime_hours ?? 0
+    overtimeByPerson.set(entry.user.id, person)
+  }
+  const overtime = [...overtimeByPerson.values()].sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name))
+  const overtimeHours = overtime.reduce((sum, person) => sum + person.hours, 0)
+  const ownCount = viewerId == null ? 0 : entries.filter((entry) => entry.user.id === viewerId).length
+  const addedCount = entries.filter((entry) => entry.entry_method === 'manual').length
+  const editedCount = entries.filter((entry) => approvalReasonsFor(entry).some((reason) => EDITED_REASON_KEYS.has(reason.key))).length
+  const lateCount = entries.filter((entry) => entry.payroll_cutoff_missed).length
+
+  // Own, added and edited shifts, listed in the dialog under "Also included".
+  const others: string[] = []
+  if (ownCount > 0) others.push(`${ownCount} of your own shift${ownCount === 1 ? '' : 's'}`)
+  if (addedCount > 0) others.push(`${plural(addedCount, 'shift', 'shifts')} added by hand`)
+  if (editedCount > 0) others.push(plural(editedCount, 'edited shift', 'edited shifts'))
+
+  const parts = [...others]
+  if (overtime.length > 0) {
+    const who = overtime.length > 3 ? `${overtime.length} people` : listPhrase(overtime.map((person) => person.name))
+    parts.unshift(overtimeHours > 0 ? `${overtimeHours.toFixed(2)}h overtime for ${who}` : `overtime for ${who}`)
+  }
+  if (lateCount > 0) parts.push(`${plural(lateCount, 'shift', 'shifts')} that missed the payroll cutoff`)
+
+  return {
+    overtime,
+    overtimeHours,
+    others,
+    lateCount,
+    sentence: parts.length > 0 ? `Includes ${listPhrase(parts)}.` : null,
+  }
+}
+
 function SummaryMetric({ label, value, sublabel, tone = 'default' }: { label: string; value: string; sublabel?: string; tone?: 'default' | 'warning' | 'success' }) {
   const toneClass = tone === 'warning' ? 'text-amber-700' : tone === 'success' ? 'text-emerald-700' : 'text-primary-dark'
   return (
@@ -215,6 +269,7 @@ function approveLabel(entry: TimeEntry) {
 
 export default function ApprovalQueue({ canManageTeamTime = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
   const [confirm, confirmDialog] = useConfirm()
+  const { currentUser } = useAuthContext()
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -533,12 +588,20 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
       return
     }
 
-    const lateCount = selectedEntries.filter(entry => entry.payroll_cutoff_missed).length
     const selectedSummary = summarizeSelectedEntries(selectedEntries)
+    const included = describeBulkApproval(selectedEntries, currentUser?.id)
+    const lateCount = included.lateCount
     const count = selectedEntries.length
+    const entriesLabel = `${count} entr${count === 1 ? 'y' : 'ies'}`
+    const overtimeShown = included.overtime.slice(0, OVERTIME_PEOPLE_SHOWN)
+    const overtimeRest = included.overtime.slice(OVERTIME_PEOPLE_SHOWN)
+    const overtimeRestHours = overtimeRest.reduce((sum, person) => sum + person.hours, 0)
     const approved = await confirm({
       title: `Approve ${count} selected entr${count === 1 ? 'y' : 'ies'}?`,
-      confirmLabel: `Approve ${count} entr${count === 1 ? 'y' : 'ies'}`,
+      description: included.sentence ?? undefined,
+      confirmLabel: included.overtime.length > 0
+        ? `Approve ${entriesLabel} + ${included.overtimeHours > 0 ? `${included.overtimeHours.toFixed(2)}h ` : ''}OT`
+        : `Approve ${entriesLabel}`,
       details: (
         <>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -547,6 +610,35 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
             <dt>Total hours:</dt>
             <dd className="font-medium tabular-nums text-ink">{selectedSummary.totalHours.toFixed(2)}h</dd>
           </dl>
+          {included.overtime.length > 0 && (
+            <div data-testid="bulk-confirm-overtime" className="rounded-control border border-orange-200 bg-orange-50 px-3 py-2 text-orange-900">
+              <p className="font-semibold">
+                Includes {included.overtimeHours > 0 ? `${included.overtimeHours.toFixed(2)}h ` : ''}overtime. Approving these entries approves it too.
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {overtimeShown.map((person) => (
+                  <li key={person.id} className="flex justify-between gap-3">
+                    <span className="min-w-0 truncate">{person.name}</span>
+                    {person.hours > 0 && <span className="shrink-0 font-medium tabular-nums">{person.hours.toFixed(2)}h OT</span>}
+                  </li>
+                ))}
+                {overtimeRest.length > 0 && (
+                  <li className="flex justify-between gap-3">
+                    <span>+ {overtimeRest.length} more {overtimeRest.length === 1 ? 'person' : 'people'}</span>
+                    {overtimeRestHours > 0 && <span className="shrink-0 font-medium tabular-nums">{overtimeRestHours.toFixed(2)}h OT</span>}
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+          {included.others.length > 0 && (
+            <div data-testid="bulk-confirm-included" className="rounded-control border border-violet-200 bg-violet-50 px-3 py-2 text-violet-900">
+              <p className="font-semibold">Also included:</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {included.others.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          )}
           {lateCount > 0 && (
             <div className="rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
               <p className="font-semibold">{lateCount} selected entr{lateCount === 1 ? 'y has' : 'ies have'} missed the payroll cutoff.</p>

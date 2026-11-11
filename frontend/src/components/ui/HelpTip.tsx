@@ -145,7 +145,7 @@ export function HelpTip({ label, children, what, defaultValue, who, example, cla
           id={bubbleId}
           aria-hidden="true"
           className={cx(
-            'fixed left-0 top-0 z-[80] w-max max-w-[min(20rem,calc(100vw-1rem))] rounded-card border border-line bg-surface p-3 text-left shadow-lg',
+            'fixed left-0 top-0 z-(--z-popover) w-max max-w-[min(20rem,calc(100vw-1rem))] rounded-card border border-line bg-surface p-3 text-left shadow-lg',
             'transition-[opacity,scale] duration-150 ease-out-strong starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100',
           )}
         >

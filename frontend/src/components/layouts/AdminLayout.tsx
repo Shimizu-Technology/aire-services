@@ -7,12 +7,14 @@ import { api } from '../../lib/api'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
+import { ToastProvider } from '../ui'
 import AdminTabBar from './AdminTabBar'
+import { ShellChromeProvider } from './ShellChromeContext'
 import { approvalBadgeText, isNavItemActive, navItemLabel, navigationGroups, tabBarLayout, type NavigationOptions } from './adminNavigation'
 
 function NavIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
-    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition group-hover:border-cyan-200 group-hover:text-cyan-700 group-focus-visible:border-cyan-200 group-focus-visible:text-cyan-700">
+    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition group-hover:border-primary/25 group-hover:text-primary group-focus-visible:border-primary/25 group-focus-visible:text-primary group-aria-[current=page]:border-primary/25 group-aria-[current=page]:text-primary">
       <Icon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
     </span>
   )
@@ -41,7 +43,18 @@ function usePendingApprovalCount(enabled: boolean) {
   return enabled ? count : 0
 }
 
+// Toasts and the selection bar need the shell around every admin page.
 export default function AdminLayout() {
+  return (
+    <ShellChromeProvider>
+      <ToastProvider>
+        <AdminShell />
+      </ToastProvider>
+    </ShellChromeProvider>
+  )
+}
+
+function AdminShell() {
   const [desktopCollapsed, setDesktopCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem(desktopSidebarStorageKey) === 'true'
@@ -130,7 +143,7 @@ export default function AdminLayout() {
                           aria-label={navItemLabel(navItem, approvalCount)}
                           title={desktopCollapsed ? navItem.name : undefined}
                           aria-current={active ? 'page' : undefined}
-                          className={`group relative flex items-center rounded-xl py-3 text-sm font-medium transition ${desktopCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} ${active ? 'bg-cyan-50 text-cyan-700 shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                          className={`group relative flex items-center rounded-xl py-3 text-sm transition ${desktopCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} ${active ? 'bg-primary/[0.07] font-semibold text-primary shadow-[inset_3px_0_0_var(--color-primary)]' : 'font-medium text-slate-700 hover:bg-slate-100'}`}
                         >
                           <span className="relative inline-flex">
                             <NavIcon icon={navItem.icon} />

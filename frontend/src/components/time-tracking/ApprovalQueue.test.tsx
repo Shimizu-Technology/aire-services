@@ -20,6 +20,14 @@ vi.mock('../../lib/api', () => ({
   api: apiMock,
 }))
 
+const authMock = vi.hoisted(() => ({ currentUser: null as { id: number } | null }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ currentUser: authMock.currentUser }) }))
+
+// The dialog's description is the summary sentence followed by its details.
+function startsWith(text: string) {
+  return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+}
+
 function makeEntry(overrides: Partial<TimeEntry>): TimeEntry {
   return {
     id: 1,
@@ -122,6 +130,7 @@ describe('ApprovalQueue review workflow', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
+    authMock.currentUser = null
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: entries, count: entries.length, summary } })
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
   })
@@ -526,6 +535,7 @@ describe('ApprovalQueue review workflow', () => {
 describe('Late approval guidance', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    authMock.currentUser = null
     localStorage.clear()
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
   })
@@ -589,6 +599,102 @@ describe('Late approval guidance', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(trigger).toHaveFocus()
     expect(apiMock.bulkApproveTimeEntries).not.toHaveBeenCalled()
+  })
+
+  it('spells out overtime, own shifts and added or edited shifts before a bulk approval', async () => {
+    authMock.currentUser = { id: 20 }
+    const person = (id: number, name: string) => ({ ...entries[0].user, id, display_name: name, full_name: name })
+    const clock = { entry_method: 'clock' as const, clock_source: 'mobile' as const, approval_reasons: [{ key: 'unscheduled_clock', label: 'Unscheduled clock' }] }
+    const ordinary = makeEntry({ id: 101, hours: 8, ...clock, user: person(30, 'Marcus Quinata') })
+    const overtime = makeEntry({
+      id: 102,
+      hours: 10,
+      ...clock,
+      overtime_status: 'pending',
+      pending_overtime_hours: 6,
+      approval_reasons: [{ key: 'unscheduled_clock', label: 'Unscheduled clock' }, { key: 'overtime', label: 'Overtime' }],
+      user: person(31, 'Ethan Cruz'),
+    })
+    const ownA = makeEntry({ id: 103, hours: 4, ...clock, user: person(20, 'Roke Aguon') })
+    const ownB = makeEntry({ id: 104, hours: 4, ...clock, user: person(20, 'Roke Aguon') })
+    const added = makeEntry({ id: 105, hours: 3, user: person(32, 'Tomas Flores') })
+    const edited = makeEntry({ id: 106, hours: 5, ...clock, approval_reasons: [{ key: 'corrected_clock_out', label: 'Corrected clock-out' }], user: person(33, 'Grace Torres') })
+    const pending = [ordinary, overtime, ownA, ownB, added, edited]
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: pending, count: pending.length } })
+    apiMock.bulkApproveTimeEntries.mockResolvedValue({ data: { time_entries: pending, count: pending.length } })
+    render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (6)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (6)' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Approve 6 selected entries?' })
+    expect(dialog).toHaveAccessibleDescription(startsWith('Includes 6.00h overtime for Ethan Cruz, 2 of your own shifts, 1 shift added by hand and 1 edited shift.'))
+    expect(dialog).toHaveTextContent('34.00h')
+    const overtimeCallout = within(dialog).getByTestId('bulk-confirm-overtime')
+    expect(overtimeCallout).toHaveTextContent('Includes 6.00h overtime. Approving these entries approves it too.')
+    expect(overtimeCallout).toHaveTextContent('Ethan Cruz6.00h OT')
+    const alsoIncluded = within(dialog).getByTestId('bulk-confirm-included')
+    expect(within(alsoIncluded).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      '2 of your own shifts',
+      '1 shift added by hand',
+      '1 edited shift',
+    ])
+    expect(apiMock.bulkApproveTimeEntries).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Approve 6 entries + 6.00h OT' }))
+    await waitFor(() => expect(apiMock.bulkApproveTimeEntries).toHaveBeenCalledWith([101, 102, 103, 104, 105, 106]))
+  })
+
+  it('names each person with overtime and counts late shifts in the bulk summary', async () => {
+    const clock = { entry_method: 'clock' as const, clock_source: 'kiosk' as const, approval_reasons: [{ key: 'overtime', label: 'Overtime' }] }
+    const ethan = makeEntry({ id: 201, ...clock, overtime_status: 'pending', pending_overtime_hours: 2.5, user: { ...entries[0].user, id: 31, full_name: 'Ethan Cruz', display_name: 'Ethan Cruz' } })
+    const overtimeOnly = makeEntry({ ...entries[1], id: 202, ...clock, approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 1.5, payroll_cutoff_missed: true })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [ethan, overtimeOnly], count: 2 } })
+    render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (2)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Approve 2 selected entries?' })
+    expect(dialog).toHaveAccessibleDescription(startsWith('Includes 4.00h overtime for Ethan Cruz and Zion Quintanilla and 1 shift that missed the payroll cutoff.'))
+    expect(within(dialog).getByTestId('bulk-confirm-overtime')).toHaveTextContent('Ethan Cruz2.50h OTZion Quintanilla1.50h OT')
+    expect(within(dialog).queryByTestId('bulk-confirm-included')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Approve 2 entries + 4.00h OT' })).toBeInTheDocument()
+  })
+
+  it('lists at most four people with overtime and sums the rest', async () => {
+    const people = ['Ana Reyes', 'Ben Cruz', 'Cora Diaz', 'Dan Flores', 'Eve Garcia', 'Fay Hall']
+    const pending = people.map((name, index) => makeEntry({
+      id: 300 + index,
+      entry_method: 'clock',
+      clock_source: 'mobile',
+      overtime_status: 'pending',
+      pending_overtime_hours: 6 - index,
+      approval_reasons: [{ key: 'overtime', label: 'Overtime' }],
+      user: { ...entries[0].user, id: 400 + index, full_name: name, display_name: name },
+    }))
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: pending, count: pending.length } })
+    render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (6)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (6)' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Approve 6 selected entries?' })
+    expect(dialog).toHaveAccessibleDescription(startsWith('Includes 21.00h overtime for 6 people.'))
+    const rows = within(within(dialog).getByTestId('bulk-confirm-overtime')).getAllByRole('listitem').map((item) => item.textContent)
+    expect(rows).toEqual(['Ana Reyes6.00h OT', 'Ben Cruz5.00h OT', 'Cora Diaz4.00h OT', 'Dan Flores3.00h OT', '+ 2 more people3.00h OT'])
+  })
+
+  it('keeps the bulk confirm plain when only ordinary clock shifts are selected', async () => {
+    authMock.currentUser = { id: 20 }
+    const ordinary = makeEntry({ entry_method: 'clock', clock_source: 'mobile', approval_reasons: [{ key: 'unscheduled_clock', label: 'Unscheduled clock' }] })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [ordinary], count: 1 } })
+    render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (1)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Approve 1 selected entry?' })
+    expect(dialog).not.toHaveTextContent('Includes')
+    expect(dialog).not.toHaveTextContent('overtime')
+    expect(within(dialog).queryByTestId('bulk-confirm-included')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Approve 1 entry' })).toBeInTheDocument()
   })
 
   it('warns in bulk confirmation and still sends exactly the selected entries', async () => {

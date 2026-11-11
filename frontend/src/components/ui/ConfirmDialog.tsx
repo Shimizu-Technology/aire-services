@@ -53,7 +53,7 @@ function OpenConfirmDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/50 p-3 pb-safe-3 transition-opacity duration-200 ease-out starting:opacity-0 sm:items-center sm:p-6"
+      className="fixed inset-0 z-(--z-dialog) flex items-end justify-center bg-slate-950/50 p-3 pb-safe-3 transition-opacity duration-200 ease-out starting:opacity-0 sm:items-center sm:p-6"
       onClick={(event) => { if (event.target === event.currentTarget && !busy) onCancel() }}
     >
       <div
