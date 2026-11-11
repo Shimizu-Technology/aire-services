@@ -9,6 +9,8 @@ Rails.application.routes.draw do
       get "auth/me", to: "auth#me"
       post "auth/me", to: "auth#me"
       post "auth/kiosk_pin", to: "auth#update_kiosk_pin"
+      # What each role can do, for the Roles & access page
+      resource :access_guide, only: [ :show ]
 
       resources :staging_images, only: [ :show ], path: "staging-images"
 

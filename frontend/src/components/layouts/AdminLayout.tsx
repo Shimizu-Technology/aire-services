@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
 import {
   CalendarDays,
+  CircleHelp,
   Clock3,
   History,
   House,
@@ -52,6 +53,14 @@ const payStubsNavigation: NavItem = {
   icon: Send,
 }
 
+// What the signed-in person's role allows. Owners and admins reach the full
+// Roles & access page from Settings instead.
+const whatCanIDoNavigation: NavItem = {
+  name: 'What can I do?',
+  href: '/admin/settings/roles',
+  icon: CircleHelp,
+}
+
 // Owner and admin areas, each shown only to roles with that capability.
 const administrationNavigation: (NavItem & { capability: Capability })[] = [
   { name: 'Team', href: '/admin/users', icon: UserRound, capability: 'manage_users' },
@@ -72,7 +81,7 @@ function navigationFor(capabilities: Capabilities, myPayEnabled: boolean): NavIt
   const payStubs = capabilities.send_pay_statements ? [payStubsNavigation] : []
 
   if (administration.length > 0) return [dashboard, ...myPay, time, ...payStubs, schedule, ...administration]
-  return [dashboard, time, ...payStubs, ...myPay, schedule]
+  return [dashboard, time, ...payStubs, ...myPay, schedule, whatCanIDoNavigation]
 }
 
 const desktopSidebarStorageKey = 'aire-admin-sidebar-collapsed'

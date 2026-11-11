@@ -383,6 +383,8 @@ export interface TimeClockAppSettings {
   clock_in_location_latitude: string;
   clock_in_location_longitude: string;
   clock_in_location_radius_meters: string;
+  /** "false" (default) or "true". No control on the Settings page yet. */
+  schedule_required_for_clock_in?: string;
   /** "true" (default) or "false". Off sends a manager's own time to another approver. */
   managers_can_approve_own_time?: string;
   /** "false" (default) or "true". Shows "Request my pay stub" at the kiosk. */
@@ -394,6 +396,79 @@ export interface TimeClockAppSettings {
 export interface AdminAppSettingsResponse {
   settings: TimeClockAppSettings;
   approval_groups: ApprovalGroupOption[];
+  /** What each setting does, from the backend's SettingsCatalog. */
+  catalog?: SettingsCatalogEntry[];
+}
+
+/** One entry of the backend's SettingsCatalog (backend/app/models/settings_catalog.rb). */
+export interface SettingsCatalogEntry {
+  id: string;
+  label: string;
+  section: string;
+  section_label: string;
+  /** The page the setting is changed on: "Settings" or "Team". */
+  page: string;
+  path: string;
+  setting_keys: string[];
+  stored_in: string | null;
+  /** False when the Settings page shows the value but has no control for it yet. */
+  on_page: boolean;
+  capability: string;
+  who_roles: string[];
+  who: string;
+  what: string;
+  default: string;
+  example: string;
+  access_effect: { rows: string[]; on: string; off: string } | null;
+}
+
+export type AccessCellValue = 'yes' | 'no' | 'limited'
+
+export interface AccessGuideRow {
+  key: string;
+  kind: 'capability' | 'rule';
+  label: string;
+  detail: string;
+  /** footnotes: ids of the settings (AccessGuideSettingEffect) that change this answer. */
+  cells: Record<string, { value: AccessCellValue; note?: string; footnotes?: string[] }>;
+  /** Every setting that changes some answer in this row. */
+  footnotes: string[];
+}
+
+export interface AccessGuideRoleCard {
+  key: string;
+  label: string;
+  summary: string;
+  can: string[];
+  cannot: string[];
+  assigned_by: string[];
+  signs_in_personally: boolean;
+  /** Only for owners and admins. */
+  members?: { id: number; name: string }[];
+}
+
+export interface AccessGuideSettingEffect {
+  id: string;
+  label: string;
+  enabled: boolean;
+  effect: string;
+  rows: string[];
+  change_in: string;
+  path: string;
+  who: string;
+  /** People with My Pay on individually. Only for owners and admins. */
+  individual_count?: number;
+}
+
+/** GET /api/v1/access_guide, built from User::ROLE_CAPABILITIES and the role rules. */
+export interface AccessGuideResponse {
+  viewer: { role: string; can_see_members: boolean; can_change_settings: boolean };
+  roles: AccessGuideRoleCard[];
+  rows: AccessGuideRow[];
+  rules: { key: string; text: string }[];
+  settings: AccessGuideSettingEffect[];
+  everyone_can: string[];
+  role_capabilities: Record<string, string[]>;
 }
 
 export interface GeocodeResult {
@@ -1724,6 +1799,9 @@ export const api = {
     fetchApi<InvitationEmailOutcome & { message: string }>(`/api/v1/admin/users/${id}/resend_invite`, {
       method: 'POST',
     }),
+
+  getAccessGuide: () =>
+    fetchApi<AccessGuideResponse>('/api/v1/access_guide'),
 
   getMyPayAccess: () =>
     fetchApi<{ enabled_for_all: boolean; enabled_user_ids: number[] }>('/api/v1/admin/my_pay_access'),

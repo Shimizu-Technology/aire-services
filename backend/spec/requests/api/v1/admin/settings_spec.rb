@@ -30,6 +30,13 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       )
     end
 
+    it "includes the settings catalog so the page can explain each setting" do
+      get "/api/v1/admin/settings", headers: auth_headers_for[admin]
+
+      expect(json[:catalog].map { |entry| entry[:id] }).to eq(SettingsCatalog.entries.map { |entry| entry[:id] })
+      expect(json[:catalog].first).to include(:label, :section, :what, :default, :who, :example)
+    end
+
     it "blocks non-admin" do
       get "/api/v1/admin/settings", headers: auth_headers_for[employee]
 
