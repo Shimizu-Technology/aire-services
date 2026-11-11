@@ -23,7 +23,11 @@ export interface ListRowProps {
   meta?: ReactNode
   /** Avatar or icon tile. */
   leading?: ReactNode
-  /** Read-only content on the right: hours, a pill, reason chips. Put buttons in `action`. */
+  /**
+   * Content on the right: hours, a pill, reason chips, or a ⋯ `Menu`. Put the
+   * row's main button in `action`. Buttons and fields here join the row's tab
+   * stops automatically; give any other focusable widget LIST_CONTROL_ATTRIBUTE.
+   */
   trailing?: ReactNode
   checkbox?: { checked: CheckedState; onChange: (checked: boolean) => void; label: string; disabled?: boolean }
   /** The row's one button, e.g. Approve 2 or Review. */

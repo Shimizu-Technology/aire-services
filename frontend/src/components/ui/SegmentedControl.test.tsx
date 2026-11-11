@@ -77,7 +77,8 @@ describe('TabChips', () => {
 
   it('scrolls sideways without a scrollbar and keeps 44px targets on touch', () => {
     render(<Chips />)
-    expect(screen.getByRole('tablist')).toHaveClass('overflow-x-auto', '[scrollbar-width:none]')
+    // p-1 = the 2px focus ring plus its 2px offset, so the scroller doesn't clip it.
+    expect(screen.getByRole('tablist')).toHaveClass('overflow-x-auto', '[scrollbar-width:none]', 'p-1')
     for (const tab of screen.getAllByRole('tab')) expect(tab).toHaveClass('min-h-11', 'pointer-fine:min-h-9')
   })
 })

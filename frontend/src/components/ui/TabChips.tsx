@@ -70,7 +70,8 @@ export function TabChips<T extends string>({ label, items, value, onChange, cont
       ref={scroller}
       role="tablist"
       aria-label={label}
-      className={cx('flex gap-2 overflow-x-auto overscroll-x-contain p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', fade, className)}
+      // p-1 fits the 2px focus ring and its 2px offset, which overflow-x-auto would clip.
+      className={cx('flex gap-2 overflow-x-auto overscroll-x-contain p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', fade, className)}
     >
       {items.map((item, index) => {
         const selected = item.value === value
