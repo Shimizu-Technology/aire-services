@@ -179,6 +179,7 @@ export default function Settings() {
 
   const [categories, setCategories] = useState<AdminTimeCategory[]>([])
   const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
+  const scheduleRequiredForClockIn = clockSettings?.schedule_required_for_clock_in === 'true'
   const [catalog, setCatalog] = useState<SettingsCatalogEntry[]>([])
   const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null)
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
@@ -976,8 +977,8 @@ export default function Settings() {
                     </div>
                     <p className="text-caption text-ink-muted">Shown for reference. There's no switch for this here yet.</p>
                   </div>
-                  <StatusPill tone={clockSettings?.schedule_required_for_clock_in === 'true' ? 'info' : 'off'}>
-                    {clockSettings?.schedule_required_for_clock_in === 'true' ? 'On' : 'Off'}
+                  <StatusPill tone={scheduleRequiredForClockIn ? 'info' : 'off'}>
+                    {scheduleRequiredForClockIn ? 'On' : 'Off'}
                   </StatusPill>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
@@ -1006,10 +1007,11 @@ export default function Settings() {
                       <div className="space-y-4">
                         <div>
                           <div className="mb-2 flex items-center gap-1.5">
-                            <label className="block text-sm font-medium text-slate-700">Location label</label>
+                            <label htmlFor="clock-in-location-name" className="block text-sm font-medium text-slate-700">Location label</label>
                             <SettingHelp id="clock_in_location_name" />
                           </div>
                           <input
+                            id="clock-in-location-name"
                             value={thresholdDraft.clock_in_location_name}
                             onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_name: e.target.value }))}
                             placeholder="AIRE Services Guam"
@@ -1078,11 +1080,12 @@ export default function Settings() {
 
                         <div>
                           <div className="mb-2 flex items-center gap-1.5">
-                            <label className="block text-sm font-medium text-slate-700">Allowed radius (meters)</label>
+                            <label htmlFor="clock-in-location-radius" className="block text-sm font-medium text-slate-700">Allowed radius (meters)</label>
                             <SettingHelp id="clock_in_location_radius_meters" />
                           </div>
                           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_130px]">
                             <input
+                              id="clock-in-location-radius"
                               type="range"
                               min="50"
                               max="2000"
@@ -1583,7 +1586,7 @@ export default function Settings() {
                   <div>
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <div className="flex items-center gap-1.5">
-                        <label className="block text-sm font-medium text-slate-700">Public inquiry topics</label>
+                        <p id="contact-inquiry-topics-label" className="block text-sm font-medium text-slate-700">Public inquiry topics</p>
                         <SettingHelp id="contact_inquiry_topics" />
                       </div>
                       <button

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,7 +39,9 @@ function guideAs(role: string, overrides: Partial<AccessGuideResponse> = {}): Ac
 async function renderAs(role: string, overrides: Partial<AccessGuideResponse> = {}) {
   apiMock.getAccessGuide.mockResolvedValue({ data: guideAs(role, overrides) })
   render(<RolesAccess />, { wrapper: MemoryRouter })
-  return screen.findByRole('heading', { level: 1 })
+  // The loading state has its own h1, so wait for the loading status to go first.
+  await waitFor(() => expect(screen.queryByText('Loading roles…')).toBeNull())
+  return screen.getByRole('heading', { level: 1 })
 }
 
 // Reads the side-by-side table back into { capability: [roles allowed] }.
