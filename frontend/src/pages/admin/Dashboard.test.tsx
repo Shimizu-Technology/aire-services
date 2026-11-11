@@ -154,6 +154,42 @@ describe('Dashboard unavailable snapshots', () => {
     }
   })
 
+  it('skips schedules and their cards while "Use schedules" is off', async () => {
+    open()
+    expect(await screen.findByText('Active Right Now')).toBeInTheDocument()
+    expect(mocks.getSchedules).not.toHaveBeenCalled()
+    expect(screen.queryByText('Scheduled Today')).not.toBeInTheDocument()
+    expect(screen.queryByText('Weekly Scheduled Hours')).not.toBeInTheDocument()
+  })
+
+  it('shows schedule cards when "Use schedules" is on, and a schedule failure leaves the snapshot up', async () => {
+    mocks.schedulesEnabled = true
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-10T00:00:00Z'))
+    mocks.getSchedules.mockResolvedValueOnce({ data: { schedules: [
+      { work_date: '2026-11-10', hours: 8 },
+      { work_date: '2026-11-11', hours: 4.5 },
+    ] } })
+    try {
+      open()
+      const today = (await screen.findByText('Scheduled Today')).parentElement as HTMLElement
+      expect(mocks.getSchedules).toHaveBeenCalledTimes(1)
+      expect(within(today).getByText('1')).toBeInTheDocument()
+      expect((screen.getByText('Weekly Scheduled Hours').parentElement as HTMLElement)).toHaveTextContent('12.5h')
+
+      mocks.getSchedules.mockResolvedValueOnce({ error: 'Schedules unavailable' })
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh snapshot' }))
+      await waitFor(() => expect(mocks.getSchedules).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect((screen.getByText('Scheduled Today').parentElement as HTMLElement)).toHaveTextContent('—'))
+      expect(screen.getByText('Weekly Scheduled Hours').parentElement as HTMLElement).toHaveTextContent('—')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.getByText('3 approvals covering 10.00 hours still need review.', { exact: false })).toBeInTheDocument()
+    } finally {
+      mocks.schedulesEnabled = false
+      vi.useRealTimers()
+    }
+  })
+
   it('brings Schedule back when "Use schedules" is on', async () => {
     mocks.role = 'owner'
     mocks.schedulesEnabled = true
@@ -189,6 +225,8 @@ describe('My Time', () => {
       expect(screen.getByRole('link', { name: /Request Leave/ })).toHaveAttribute('href', '/admin/leave')
       expect(screen.queryByRole('heading', { name: 'My Upcoming Schedule' })).not.toBeInTheDocument()
       expect(screen.queryByRole('link', { name: /Full Schedule/ })).not.toBeInTheDocument()
+      await waitFor(() => expect(mocks.getTimeEntries).toHaveBeenCalled())
+      expect(mocks.getMySchedule).not.toHaveBeenCalled()
     } finally {
       mocks.role = 'admin'
     }
@@ -201,6 +239,7 @@ describe('My Time', () => {
       render(<MemoryRouter><MyTimeHome /></MemoryRouter>)
       expect(await screen.findByRole('heading', { name: 'My Upcoming Schedule' })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: /Full Schedule/ })).toHaveAttribute('href', '/admin/schedule')
+      expect(mocks.getMySchedule).toHaveBeenCalledTimes(1)
     } finally {
       mocks.role = 'admin'
       mocks.schedulesEnabled = false

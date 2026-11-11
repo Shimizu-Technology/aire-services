@@ -84,19 +84,20 @@ export function MyTimeHome() {
   const todayStr = businessDateISO()
   const loadDashboardData = useCallback(async () => {
     try {
+      // Shifts are only fetched while "Use schedules" is on.
       const [scheduleRes, entriesRes] = await Promise.all([
-        api.getMySchedule(),
+        schedulesEnabled ? api.getMySchedule() : Promise.resolve(null),
         api.getTimeEntries({ date: todayStr, per_page: 20 }),
       ])
 
-      if (scheduleRes.data?.schedules) setMySchedule(scheduleRes.data.schedules)
+      if (scheduleRes?.data?.schedules) setMySchedule(scheduleRes.data.schedules)
       if (entriesRes.data?.time_entries) setTodayEntries(entriesRes.data.time_entries)
     } catch {
       // Employee dashboard is best-effort.
     } finally {
       setLoadingTodayEntries(false)
     }
-  }, [todayStr])
+  }, [todayStr, schedulesEnabled])
 
   useEffect(() => {
     loadDashboardData()
@@ -247,8 +248,9 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
     activeCount: 0,
     openFromEarlierDays: 0,
     pendingApprovals: 0,
-    scheduledToday: 0,
-    weeklyHours: 0,
+    // Null when schedules are off or the schedule request failed.
+    scheduledToday: null as number | null,
+    weeklyHours: null as number | null,
     totalMembers: 0,
     periodPendingApprovals: 0,
     periodApprovalHours: 0,
@@ -261,13 +263,17 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
       const [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes, cutoffRes] = await Promise.all([
         api.getWhosWorking(),
         api.getPendingApprovals(),
-        api.getSchedules({ week: formatWeekStart(new Date()) }),
+        // Schedules are optional: skipped while "Use schedules" is off, and a
+        // failure only blanks the two schedule cards.
+        schedulesEnabled
+          ? api.getSchedules({ week: formatWeekStart(new Date()) }).catch(() => null)
+          : Promise.resolve(null),
         api.getUsers(),
         canManagePayroll ? api.getPayrollBatches() : Promise.resolve(null),
         api.getPayrollCutoff(),
       ])
 
-      const failure = [workersRes, approvalsRes, schedulesRes, usersRes, payrollRes, cutoffRes].find((result) => result && (result.error || !result.data))
+      const failure = [workersRes, approvalsRes, usersRes, payrollRes, cutoffRes].find((result) => result && (result.error || !result.data))
       if (failure) {
         setSnapshotError(failure.error || 'Dashboard snapshot unavailable')
         return
@@ -284,9 +290,9 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
       ).length
 
       const todayStr = businessDateISO()
-      const schedules = schedulesRes.data?.schedules ?? []
-      const todaySchedules = schedules.filter((s) => s.work_date === todayStr)
-      const weeklyHours = schedules.reduce((sum, s) => sum + s.hours, 0)
+      const schedules = schedulesRes && !schedulesRes.error ? schedulesRes.data?.schedules ?? null : null
+      const scheduledToday = schedules ? schedules.filter((s) => s.work_date === todayStr).length : null
+      const weeklyHours = schedules ? schedules.reduce((sum, s) => sum + s.hours, 0) : null
 
       setPayrollPeriod(preparationPeriod)
       setStats({
@@ -295,7 +301,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
         activeCount: active,
         openFromEarlierDays: workers.filter((w) => w.open_since_work_date).length,
         pendingApprovals: approvalsRes.data?.count ?? 0,
-        scheduledToday: todaySchedules.length,
+        scheduledToday,
         weeklyHours,
         totalMembers: usersRes.data?.users.length ?? 0,
         payrollFinalizedThrough: greatestPayrollEndDate(payrollRes?.data?.payroll_batches ?? []),
@@ -307,7 +313,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
     } finally {
       setStatsLoading(false)
     }
-  }, [canManagePayroll])
+  }, [canManagePayroll, schedulesEnabled])
 
   useEffect(() => {
     loadStats()
@@ -371,7 +377,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
       </div>}
       {!snapshotAt && !snapshotError && <p role="status">Loading dashboard snapshot…</p>}
       {snapshotAt && <>
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className={`grid grid-cols-2 gap-4 ${schedulesEnabled ? 'lg:grid-cols-4' : ''}`}>
         <StatCard
           label="Active Right Now"
           value={stats.activeCount.toString()}
@@ -381,8 +387,10 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
           accent
         />
         <StatCard label="Pending Approvals" value={stats.pendingApprovals.toString()} sublabel="Shifts and overtime waiting for approval" accent />
-        <StatCard label="Scheduled Today" value={stats.scheduledToday.toString()} sublabel="Assigned shifts on the current Guam workday" accent />
-        <StatCard label="Weekly Scheduled Hours" value={`${stats.weeklyHours.toFixed(1)}h`} sublabel="Total planned hours across the active week" />
+        {schedulesEnabled && <>
+          <StatCard label="Scheduled Today" value={stats.scheduledToday === null ? '—' : stats.scheduledToday.toString()} sublabel={stats.scheduledToday === null ? 'Schedule unavailable. Refresh to try again.' : 'Assigned shifts on the current Guam workday'} accent />
+          <StatCard label="Weekly Scheduled Hours" value={stats.weeklyHours === null ? '—' : `${stats.weeklyHours.toFixed(1)}h`} sublabel={stats.weeklyHours === null ? 'Schedule unavailable. Refresh to try again.' : 'Total planned hours across the active week'} />
+        </>}
       </div>
 
       <section className="overflow-hidden rounded-2xl border border-primary/20 bg-white shadow-sm">
