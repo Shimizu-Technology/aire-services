@@ -38,7 +38,7 @@ All endpoints require `X-Shared-Secret` or `X-Payroll-Shared-Secret`. AIRE fails
 }
 ```
 
-The first publication must use version `1`. Each revision must use the next version and a new UUID `publication_id`. Repeating the same publication ID and content is idempotent. Reusing an ID for different content, publishing a stale version, overlapping another period, or changing a period at or after cutoff returns `409 Conflict`.
+The first publication must use version `1`. Each revision must use a version greater than the current one (a gap is allowed; see Admin lock times) and a new UUID `publication_id`. Repeating the same publication ID and content is idempotent. Reusing an ID for different content, publishing a stale version, overlapping another period, or changing a period at or after cutoff returns `409 Conflict`.
 
 ## Admin lock times
 
