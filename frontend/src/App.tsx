@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+import { createBrowserRouter, createRoutesFromElements, Link, Outlet, Route, RouterProvider, useRouteError } from 'react-router-dom'
 
 import { PostHogPageView } from './providers/PostHogProvider'
 import PublicLayout from './components/layouts/PublicLayout'
@@ -59,11 +59,27 @@ function NotFound() {
   )
 }
 
-function App() {
+/** Every route renders inside this, so page views are tracked once per navigation. */
+function AppShell() {
   return (
-    <BrowserRouter>
+    <>
       <PostHogPageView />
-      <Routes>
+      <Outlet />
+    </>
+  )
+}
+
+/**
+ * A data router would otherwise show its own "Unexpected Application Error"
+ * page. Rethrowing keeps what BrowserRouter did: the error reaches React's
+ * root and the global error handlers that report it.
+ */
+function RethrowRouteError(): never {
+  throw useRouteError()
+}
+
+const routes = createRoutesFromElements(
+      <Route element={<AppShell />} errorElement={<RethrowRouteError />}>
         <Route element={<PublicLayout />}>
           <Route path="/" element={<AireHome />} />
           <Route path="/programs" element={<AirePrograms />} />
@@ -167,9 +183,28 @@ function App() {
             }
           />
         </Route>
-      </Routes>
-    </BrowserRouter>
-  )
+      </Route>,
+)
+
+type AppRouter = ReturnType<typeof createBrowserRouter>
+let appRouter: AppRouter | undefined
+
+// Created on the first render, as BrowserRouter was, so it reads the URL after
+// the pay stub token guard and the providers in main.tsx have run.
+function getAppRouter(): AppRouter {
+  appRouter ??= createBrowserRouter(routes)
+  return appRouter
+}
+
+// A hot reload of this file builds a new route tree and router; stop the old one listening.
+import.meta.hot?.dispose(() => appRouter?.dispose())
+
+/**
+ * A data router (createBrowserRouter) rather than BrowserRouter, so pages can
+ * use useBlocker, e.g. useUnsavedChanges asking before leaving with edits.
+ */
+function App() {
+  return <RouterProvider router={getAppRouter()} />
 }
 
 export default App
