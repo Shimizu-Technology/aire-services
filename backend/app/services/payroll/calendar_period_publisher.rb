@@ -8,6 +8,11 @@ module Payroll
     SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
     class ConflictError < StandardError; end
+    # A lock another payroll transaction held; the publication can be retried.
+    class BusyError < StandardError; end
+
+    # schedule_version is a PostgreSQL integer.
+    MAX_SCHEDULE_VERSION = 2_147_483_647
 
     Result = Data.define(:period, :created, :idempotent)
 
@@ -77,6 +82,7 @@ module Payroll
         schedule_version: Integer(values.fetch(:schedule_version).to_s, 10),
         publication_id: values.fetch(:publication_id).to_s.downcase
       }
+      raise ArgumentError, "schedule_version is too large" if normalized[:schedule_version] > MAX_SCHEDULE_VERSION
       if schema_version == "1.0"
         normalized[:cutoff_days_before] = Integer(
           values.fetch(:cutoff_days_before, PayrollCalendarPeriod::CUTOFF_DAYS_BEFORE).to_s,
@@ -336,6 +342,8 @@ module Payroll
         cutoff_at: attributes.fetch(:cutoff_at), period: period)
     rescue LockNowClaimFence::ConflictError => e
       raise ConflictError, e.message
+    rescue ActiveRecord::Deadlocked, ActiveRecord::LockWaitTimeout
+      raise BusyError, "Payroll finalization is busy. Retry this publication."
     end
 
     def reject_invalid_settlement_routes!(period)
@@ -360,8 +368,8 @@ module Payroll
     end
 
     # Manual finalizers hold this publisher's advisory lock until their batch
-    # commits. No batch lock is needed here: taking it after a period row would
-    # invert the evidence-command lock order.
+    # commits, so this check needs no batch lock. (A late Lock now takes one in
+    # LockNowClaimFence, which explains why that order is safe.)
     def reject_frozen_batch_overlap!
       batch = PayrollBatch.regular.where("start_date <= ? AND end_date >= ?", attributes.fetch(:end_date), attributes.fetch(:start_date)).first
       return unless batch

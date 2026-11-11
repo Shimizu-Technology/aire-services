@@ -182,8 +182,11 @@ module Payroll
 
     # A change an AIRE admin asked for that Cornerstone accepted but AIRE has
     # not applied yet. AIRE doesn't see changes made in Cornerstone until they
-    # arrive, so this covers only requests made here.
+    # arrive, so this covers only requests made here. Nothing once this lock
+    # has passed: the change can no longer matter.
     def pending_change
+      return if period.cutoff_at <= now
+
       request = AuditLog.where(action: REQUESTED, outcome: "succeeded", auditable: period).order(occurred_at: :desc, id: :desc).first
       version = request&.metadata&.fetch("cornerstone_schedule_version", nil).to_i
       return unless version > period.schedule_version
@@ -192,13 +195,24 @@ module Payroll
         .where("(metadata->>'schedule_version')::integer >= ?", version)
         .order(occurred_at: :desc, id: :desc).first
       {
-        state: rejection ? "rejected" : "pending",
+        state: rejection ? "rejected" : (expired?(request.metadata) ? "expired" : "pending"),
         action: request.metadata["requested_action"],
         cutoff_at: request.metadata["cornerstone_cutoff_at"],
         requested_by_name: request.actor_name,
         requested_at: request.occurred_at.in_time_zone(PayrollCalendarPeriod::BUSINESS_TIME_ZONE).iso8601,
         error: rejection&.metadata&.fetch("error", nil)
       }
+    end
+
+    # Its time passed before it arrived, so AIRE would refuse it now
+    # (CalendarPeriodPublisher#validate_publishable_time!).
+    def expired?(metadata)
+      cutoff_at = Time.iso8601(metadata["cornerstone_cutoff_at"].to_s)
+      return cutoff_at < now - PayrollCalendarPeriod::LOCK_NOW_GRACE if metadata["requested_action"] == "lock_now"
+
+      cutoff_at <= now
+    rescue ArgumentError
+      false
     end
 
     def override_json

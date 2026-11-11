@@ -121,6 +121,25 @@ RSpec.describe "Payroll late-hours supplemental batches", type: :request do
     expect(origin.payroll_batch.reload.attributes).to eq(original)
   end
 
+  it "refuses an origin that has not locked before it waits for the finalization lock" do
+    scheduled = create(:payroll_calendar_period, **payroll_calendar_at(database_clock + 20.days))
+    # A late Lock now holds this period's row while it waits for this lock.
+    database_config = ActiveRecord::Base.connection_db_config.configuration_hash
+    locker = PG.connect(host: database_config[:host].presence || ENV["PGHOST"], port: database_config[:port].presence || ENV["PGPORT"],
+      user: database_config[:username], password: database_config[:password], dbname: database_config.fetch(:database))
+    locker.exec("SELECT pg_advisory_lock(#{Payroll::BatchFinalizer::ADVISORY_LOCK_KEY})")
+
+    post "/api/v1/payroll/cockpit/periods/#{scheduled.external_pay_period_id}/late_hours", headers: headers,
+      params: { command_id: SecureRandom.uuid, expected_version: scheduled.lock_version, reason: "Pay late hours",
+                target_external_pay_period_id: "901", pay_date: database_clock.to_date.iso8601, cases: [ { id: "case", version: 0 } ] }.to_json
+    expect(response).to have_http_status(:conflict)
+    expect(json.fetch("error")).to eq("Late hours can come only from a locked pay period. Refresh and try again.")
+    expect(PayrollIntegrationCommand.count).to eq(0)
+  ensure
+    locker&.exec("SELECT pg_advisory_unlock_all()")
+    locker&.close
+  end
+
   it "requires the shared secret and settlement capability" do
     get path
     expect(response).to have_http_status(:unauthorized)

@@ -1518,7 +1518,8 @@ export interface PayrollLockControl {
   unavailable_reason: string | null;
 }
 export interface PayrollLockPendingChange {
-  state: 'pending' | 'rejected';
+  /** expired: its time passed before it arrived, so AIRE can't apply it. */
+  state: 'pending' | 'rejected' | 'expired';
   action: PayrollLockAction;
   cutoff_at: string | null;
   requested_by_name: string | null;
