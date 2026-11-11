@@ -15,6 +15,8 @@ export interface SheetProps {
   /** CSS selector for the element to focus when the sheet opens. Defaults to the first control. */
   initialFocus?: string
   closeLabel?: string
+  /** Fill the phone screen (pickers with long lists). The desktop side panel is full height anyway. */
+  fullHeight?: boolean
 }
 
 /**
@@ -26,7 +28,7 @@ export function Sheet(props: SheetProps) {
   return <OpenSheet {...props} />
 }
 
-function OpenSheet({ onClose, title, description, children, footer, initialFocus, closeLabel = 'Close' }: SheetProps) {
+function OpenSheet({ onClose, title, description, children, footer, initialFocus, closeLabel = 'Close', fullHeight = false }: SheetProps) {
   const ids = useId()
   const panelRef = useRef<HTMLDivElement>(null)
   useDialogFocus(true, panelRef, onClose, initialFocus)
@@ -46,7 +48,8 @@ function OpenSheet({ onClose, title, description, children, footer, initialFocus
         aria-describedby={description ? `${ids}-description` : undefined}
         tabIndex={-1}
         className={
-          'flex max-h-[85dvh] w-full flex-col rounded-t-card bg-surface shadow-2xl ' +
+          (fullHeight ? 'h-[calc(100dvh-env(safe-area-inset-top,0px)-0.75rem)] ' : 'max-h-[85dvh] ') +
+          'flex w-full flex-col rounded-t-card bg-surface shadow-2xl ' +
           'transition-transform duration-(--dur-sheet) ease-drawer starting:translate-y-full motion-reduce:transition-none ' +
           'md:h-dvh md:max-h-none md:max-w-md md:rounded-none md:rounded-l-card md:starting:translate-x-full md:starting:translate-y-0'
         }
