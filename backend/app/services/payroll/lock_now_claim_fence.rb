@@ -11,11 +11,26 @@ module Payroll
   class LockNowClaimFence
     class ConflictError < StandardError; end
 
+    LOCK_TIMEOUT = "5s"
+
     # Call inside the publisher's transaction, after it holds the publication
-    # advisory lock and the period row: the same order as the scheduled
-    # finalizer, which takes the batch lock after a period row.
+    # advisory lock and the (unfinalized) period row. That is the scheduled
+    # finalizer's order: period row, then batch lock. Evidence commands take
+    # the batch lock first and then their target (CockpitCommand); of those,
+    # only late hours targets a period row, and it refuses an unfinalized
+    # origin before taking the batch lock, so the two never wait on each
+    # other. Should a
+    # deadlock or lock timeout still occur, the publisher answers 503 and
+    # Cornerstone retries.
     def self.call!(start_date:, end_date:, cutoff_at:, period: nil)
-      ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
+      connection = ActiveRecord::Base.connection
+      # The short timeout covers only the wait for the finalization lock. The
+      # rest of the publication (routing, the period update) keeps the
+      # transaction's own setting, so a slow row there is not a fence timeout.
+      previous_timeout = connection.select_value("SHOW lock_timeout")
+      connection.execute("SET LOCAL lock_timeout = '#{LOCK_TIMEOUT}'")
+      connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
+      connection.execute("SET LOCAL lock_timeout = #{connection.quote(previous_timeout)}")
       new(start_date: start_date, end_date: end_date, cutoff_at: cutoff_at, period: period).call!
     end
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, type TimeClockAppSettings } from '../../lib/api'
-import { Button, Field, HelpTip, Input, useConfirm } from '../ui'
+import { Button, Field, Input, useConfirm } from '../ui'
+import SettingHelp from '../settings/SettingHelp'
 
 // "Auto-approve ordinary shifts" and its shift-length limit, on the Settings
 // page (owners and admins). Off by default. The rules live in
@@ -85,13 +86,7 @@ export default function AutoApprovalSettings({ settings, onSaved }: Props) {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
               <h3 id="auto-approve-label" className="text-sm font-semibold text-slate-900">Auto-approve ordinary shifts</h3>
-              <HelpTip
-                label="Auto-approve ordinary shifts"
-                what="Approves an employee's normal kiosk or mobile shift at clock-out: work category set, no edits, no overtime, no missed clock-out, under the length limit, inside the pay period. Anything else, and every supervisor's own time, waits in the queue."
-                defaultValue="Off. Chels and the CEO must agree before it is turned on."
-                who="Owners and admins"
-                example="Ana clocks in at the kiosk at 8:00 and out at 4:30 with no overtime this week, so her shift shows Auto-approved. Had she corrected her clock-out, it would wait in the queue."
-              />
+              <SettingHelp id="auto_approve_ordinary_shifts" />
             </div>
             <p id="auto-approve-help" className="mt-1 text-sm text-slate-500">
               Employees only. Overtime is never auto-approved.
@@ -115,15 +110,7 @@ export default function AutoApprovalSettings({ settings, onSaved }: Props) {
             className="sm:max-w-xs sm:flex-1"
             label="Longest shift to auto-approve (hours)"
             help="The whole shift counts: first clock-in to final clock-out, breaks and category switches included."
-            labelAction={(
-              <HelpTip
-                label="Longest shift to auto-approve"
-                what="A shift that runs this many hours or more, from first clock-in to final clock-out with breaks and category switches included, always waits for a person, and so does every part of it. A shift the system closes for a missed clock-out always waits too, whatever this limit."
-                defaultValue="12 hours"
-                who="Owners and admins"
-                example="At 12, a 7:00 to 18:30 shift is auto-approved. A 6:00 to 19:30 shift that switched category at 17:00 goes to the queue whole, both parts."
-              />
-            )}
+            labelAction={<SettingHelp id="auto_approve_max_shift_hours" />}
           >
             <Input
               type="number"

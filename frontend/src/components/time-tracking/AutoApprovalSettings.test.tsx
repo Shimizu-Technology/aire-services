@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AutoApprovalSettings from './AutoApprovalSettings'
-import type { TimeClockAppSettings } from '../../lib/api'
+import { SettingsCatalogContext } from '../settings/settingsCatalogContext'
+import type { SettingsCatalogEntry, TimeClockAppSettings } from '../../lib/api'
+// Written by the backend (spec/models/settings_catalog_spec.rb) from SettingsCatalog.
+import catalogFixture from '../../test/fixtures/settings-catalog.json'
 
 const apiMock = vi.hoisted(() => ({ updateAdminAppSettings: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: apiMock }))
@@ -11,7 +14,11 @@ const base = { auto_approve_ordinary_shifts: 'false', auto_approve_max_shift_hou
 
 function renderSettings(settings: TimeClockAppSettings = base) {
   const onSaved = vi.fn()
-  render(<AutoApprovalSettings settings={settings} onSaved={onSaved} />)
+  render(
+    <SettingsCatalogContext.Provider value={catalogFixture as SettingsCatalogEntry[]}>
+      <AutoApprovalSettings settings={settings} onSaved={onSaved} />
+    </SettingsCatalogContext.Provider>,
+  )
   return onSaved
 }
 
@@ -29,8 +36,8 @@ describe('AutoApprovalSettings', () => {
     expect(toggle).toHaveAccessibleDescription(/Employees only. Overtime is never auto-approved/)
 
     fireEvent.click(screen.getByRole('button', { name: 'About Auto-approve ordinary shifts' }))
-    const tip = screen.getAllByText(/Chels and the CEO must agree/)[0]
-    expect(tip).toBeInTheDocument()
+    expect(screen.getAllByText(/Chels and the CEO agree before it's turned on/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/an owner's, admin's or manager's own time always waits/).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Owners and admins').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/her shift shows Auto-approved/).length).toBeGreaterThan(0)
   })
@@ -41,8 +48,8 @@ describe('AutoApprovalSettings', () => {
     expect(screen.getByLabelText('Longest shift to auto-approve (hours)')).toHaveAccessibleDescription(/first clock-in to final clock-out, breaks and category switches included/)
     fireEvent.click(screen.getByRole('button', { name: 'About Longest shift to auto-approve' }))
     expect(screen.getAllByText(/so does every part of it/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/closes for a missed clock-out always waits too/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/goes to the queue whole, both parts/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/closes for a missed clock-out always waits/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/goes to the approvals list whole, both parts/).length).toBeGreaterThan(0)
   })
 
   it('asks for confirmation before turning it on, and saves nothing on cancel', async () => {

@@ -137,6 +137,24 @@ RSpec.describe "Payroll lock time", type: :request do
     )
   end
 
+  it "says a change expired once its time passed before it arrived, and drops the note once this lock passes" do
+    target = 20.minutes.from_now.change(sec: 0).iso8601
+    allow(client).to receive(:request_change).and_return(
+      "override_id" => "abc", "cutoff_at" => target, "action" => "change", "publication" => { "schedule_version" => 2 }
+    )
+    request_change(admin, lock_action: "change", cutoff_at: target)
+    expect(response.parsed_body.dig("lock_control", "pending_change")).to include("state" => "pending")
+
+    travel_to(Time.iso8601(target) + 1.minute) do
+      get "/api/v1/payroll_cutoff", headers: headers_for(admin)
+      expect(response.parsed_body.dig("lock_control", "pending_change")).to include("state" => "expired", "cutoff_at" => target, "error" => nil)
+    end
+    travel_to(period.cutoff_at + 1.second) do
+      get "/api/v1/payroll_cutoff", headers: headers_for(admin)
+      expect(response.parsed_body.fetch("lock_control")).to include("pending_change" => nil, "unavailable_reason" => "This period is already locking")
+    end
+  end
+
   it "shows Cornerstone's refusal and records a failed request" do
     allow(client).to receive(:request_change).and_raise(Payroll::CutoffChangeClient::Rejected.new("This period's lock time has already passed", status: 409))
     request_change(admin)

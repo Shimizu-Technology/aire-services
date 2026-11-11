@@ -59,7 +59,7 @@ it('shows the admin sign-in prompt when signed out', () => {
   authMock.isSignedIn = false
   authMock.userRole = null
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
-  expect(screen.getByRole('button', { name: 'Admin sign in to open kiosk' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Manager or admin sign in' })).toBeInTheDocument()
 })
 
 it('shows an admin-only message for signed-in non-admin users', () => {
@@ -68,7 +68,7 @@ it('shows an admin-only message for signed-in non-admin users', () => {
   authMock.userRole = 'employee'
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   expect(screen.getByText(/only managers and admins can open this kiosk/i)).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Admin sign in to open kiosk' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Manager or admin sign in' })).not.toBeInTheDocument()
 })
 
 it('lets a signed-in manager unlock the kiosk', () => {
@@ -104,4 +104,22 @@ it('lets a verified employee request a pay stub and confirms it went to the offi
   expect(await screen.findByText('Your request was sent to the office.')).toBeInTheDocument()
   expect(stubMocks.request).toHaveBeenCalledWith('access', 'employee-token', { scope: 'latest', statementId: undefined, year: undefined })
   expect(screen.getByRole('button', { name: 'Clock In' })).toBeInTheDocument()
+})
+
+it('says a manager or admin unlocks it, and offers the way out only while locked', () => {
+  sessionStorage.clear()
+  authMock.isSignedIn = true
+  authMock.userRole = 'manager'
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  expect(screen.getByText('A manager or admin unlocks this kiosk before staff can enter a PIN.')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin')
+  expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
+})
+
+it('hides the Admin and Home links on the shared device while unlocked', () => {
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  expect(screen.getByText('Kiosk unlocked')).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Lock kiosk' })).toBeInTheDocument()
 })

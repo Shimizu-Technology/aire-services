@@ -109,6 +109,8 @@ module Api
             actor: current_user,
             event_category: "time_tracking",
             metadata: {
+              employee_id: @time_entry.user_id,
+              employee_name: @time_entry.user&.full_name,
               hours: @time_entry.hours.to_f,
               work_date: @time_entry.work_date.iso8601,
               entry_method: "manual",

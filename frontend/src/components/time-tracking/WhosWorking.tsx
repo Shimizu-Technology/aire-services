@@ -1,4 +1,5 @@
-import { formatBusinessTime } from '../../lib/dateUtils'
+import { formatBusinessTime, formatDateOnly } from '../../lib/dateUtils'
+import { Link } from 'react-router-dom'
 import { useState, useEffect, useCallback, useRef, type JSX } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, getAuthTokenValue } from '../../lib/api'
@@ -177,6 +178,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
 
   const statusConfig: Record<string, { label: string; color: string; dot: string }> = {
     clocked_in: { label: 'Working', color: 'text-emerald-600', dot: 'bg-emerald-500' },
+    open_from_earlier_day: { label: 'Check clock-out', color: 'text-amber-800', dot: 'bg-amber-500' },
     on_break: { label: 'On Break', color: 'text-amber-600', dot: 'bg-amber-400' },
     clocked_out: { label: 'Done', color: 'text-blue-600', dot: 'bg-blue-400' },
     late: { label: 'Late', color: 'text-red-500', dot: 'bg-red-400' },
@@ -225,7 +227,7 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
         <div className="space-y-1">
           <AnimatePresence initial={false}>
             {relevantWorkers.map(worker => {
-              const config = statusConfig[worker.status] || statusConfig.no_schedule
+              const config = (worker.open_since_work_date ? statusConfig.open_from_earlier_day : statusConfig[worker.status]) || statusConfig.no_schedule
               const canExpand = isExpandable()
               const isExpanded = expandedId === worker.user.id && canExpand
 
@@ -260,7 +262,13 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
                               {worker.schedule.start_time} – {worker.schedule.end_time}
                             </div>
                           )}
-                          {(worker.status === 'clocked_in' || worker.status === 'on_break') && (
+                          {worker.open_since_work_date && (
+                            <div className="text-xs font-medium text-amber-800">
+                              Still clocked in since {formatDateOnly(worker.open_since_work_date, { weekday: 'short', month: 'short', day: 'numeric' })}
+                              {worker.clock_in_at ? `, ${fmtTime(worker.clock_in_at)}` : ''}
+                            </div>
+                          )}
+                          {!worker.open_since_work_date && (worker.status === 'clocked_in' || worker.status === 'on_break') && (
                             <div className="text-[11px] text-text-muted">
                               In since {worker.clock_in_at ? fmtTime(worker.clock_in_at) : '—'}
                               {worker.time_category?.name && <span className="ml-1">· {worker.time_category.name}</span>}
@@ -301,6 +309,16 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
                       </div>
                     </div>
 
+                    {worker.open_since_work_date && worker.open_entry_id && (
+                      <Link
+                        to={missedClockOutHref(worker)}
+                        onClick={(event) => event.stopPropagation()}
+                        className="ml-5 inline-flex min-h-11 items-center text-sm font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                      >
+                        Fix clock-out
+                      </Link>
+                    )}
+
                     <AnimatePresence>
                       {isExpanded && (
                         <motion.div
@@ -340,6 +358,16 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
       </div>
     </div>
   )
+}
+
+// Opens the exact open entry on its own work date so the supervisor can end it.
+function missedClockOutHref(worker: WorkerStatus) {
+  // An empty date would silently open today, so only send a real one.
+  const params = new URLSearchParams({ entry_id: String(worker.open_entry_id) })
+  if (worker.open_since_work_date) params.set('date', worker.open_since_work_date)
+  params.set('view', 'day')
+  params.set('user_id', String(worker.user.id))
+  return `/admin/time?${params}`
 }
 
 function ExpandedDetails({

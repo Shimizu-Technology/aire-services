@@ -179,6 +179,57 @@ describe('PayrollLockControl', () => {
     expect(screen.getByRole('button', { name: 'Lock now' })).toBeInTheDocument()
   })
 
+  it('offers only what the admin can still do to replace a refused change', async () => {
+    const refused = { state: 'rejected', action: 'change', cutoff_at: '2026-11-19T09:16:00+10:00', requested_by_name: 'Leon', requested_at: '2026-11-19T09:00:00+10:00', error: 'cutoff_at must be in the future when published' } as const
+    respondWith(control({ pending_change: refused, can_lock_now: false }))
+    const { unmount } = render(<PayrollLockControl />)
+    expect((await screen.findByText(/AIRE couldn’t apply/)).closest('[role="status"]')).toHaveTextContent('The lock time above is still in effect. Choose a new time to replace it.')
+    unmount()
+
+    respondWith(control({ pending_change: refused, can_change: false, can_lock_now: false, unavailable_reason: 'It is too close to payday to change the lock time' }))
+    render(<PayrollLockControl />)
+    const note = (await screen.findByText(/AIRE couldn’t apply/)).closest('[role="status"]')!
+    expect(note.textContent?.endsWith('The lock time above is still in effect.')).toBe(true)
+  })
+
+  it('lets an admin save the lock AIRE has to replace a change that expired before it arrived', async () => {
+    respondWith(control({
+      pending_change: { state: 'expired', action: 'change', cutoff_at: '2026-11-19T08:50:00+10:00', requested_by_name: 'Leon', requested_at: '2026-11-19T08:30:00+10:00', error: null },
+    }))
+    render(<PayrollLockControl />)
+    expect((await screen.findByText(/didn’t arrive/)).closest('[role="status"]')).toHaveTextContent(
+      'The change to Thu, Nov 19 at 8:50 AM didn’t arrive from Cornerstone Payroll in time, so AIRE didn’t apply it.')
+    fireEvent.click(screen.getByRole('button', { name: /Change lock time/ }))
+    expect((screen.getByLabelText(/New lock time/) as HTMLInputElement).value).toBe('2026-11-22T17:00')
+    expect(screen.getByRole('button', { name: 'Save lock time' })).toBeEnabled()
+  })
+
+  it('drops the pending note once the lock time is reached', async () => {
+    respondWith(control({
+      cutoff_at: '2026-11-19T08:59:30+10:00', can_change: false, can_lock_now: false, unavailable_reason: 'This period is already locking',
+      pending_change: { state: 'rejected', action: 'change', cutoff_at: '2026-11-21T12:00:00+10:00', requested_by_name: 'Leon', requested_at: '2026-11-19T08:00:00+10:00', error: 'Payroll calendar periods cannot overlap' },
+    }))
+    render(<PayrollLockControl />)
+    expect(await screen.findByRole('heading', { name: 'Locking now' })).toBeInTheDocument()
+    expect(screen.queryByText(/AIRE couldn’t apply/)).not.toBeInTheDocument()
+  })
+
+  it('moves a time that slipped under the 15-minute minimum before sending it', async () => {
+    respondWith(control())
+    render(<PayrollLockControl />)
+    fireEvent.click(await screen.findByRole('button', { name: /Change lock time/ }))
+    const input = screen.getByLabelText(/New lock time/) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '2026-11-19T09:15' } })
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Lock early' } })
+
+    // A minute and a half later the earliest allowed minute is 9:17.
+    vi.setSystemTime(new Date('2026-11-19T09:01:30+10:00'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save lock time' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The lock time must be at least 15 minutes from now, so the earliest is now Thu, Nov 19 at 9:17 AM. Check the new time and save again.')
+    expect(input.value).toBe('2026-11-19T09:17')
+    expect(mocks.changePayrollLockTime).not.toHaveBeenCalled()
+  })
+
   it('says Locking now instead of a past lock time after Lock now', async () => {
     respondWith(control({ cutoff_at: '2026-11-19T08:59:30+10:00', cutoff_state: 'upcoming', can_change: false, can_lock_now: false, unavailable_reason: 'This period is already locking' }))
     render(<PayrollLockControl />)

@@ -27,10 +27,7 @@ module Api
         before_action -> { require_capability!(:manage_settings) }
 
         def show
-          render json: {
-            settings: serialized_settings,
-            approval_groups: Setting.approval_groups
-          }
+          render json: settings_payload
         end
 
         def geocode
@@ -132,13 +129,20 @@ module Api
 
           return render json: { error: approval_groups_error }, status: :unprocessable_entity if approval_groups_error.present?
 
-          render json: {
-            settings: serialized_settings,
-            approval_groups: Setting.approval_groups
-          }
+          render json: settings_payload
         end
 
         private
+
+        # The catalog rides along so the page's help text always matches
+        # what the backend says each setting does.
+        def settings_payload
+          {
+            settings: serialized_settings,
+            approval_groups: Setting.approval_groups,
+            catalog: SettingsCatalog.as_json
+          }
+        end
 
         def serialized_settings
           SETTING_KEYS.index_with { |key| Setting.get(key) }
