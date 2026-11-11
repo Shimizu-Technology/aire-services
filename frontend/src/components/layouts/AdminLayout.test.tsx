@@ -242,8 +242,8 @@ describe('AdminLayout navigation by role', () => {
   it.each([
     ['owner', ['Dashboard', 'My Pay', 'Time & Payroll', 'Pay stubs', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
     ['admin', ['Dashboard', 'My Pay', 'Time & Payroll', 'Pay stubs', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
-    ['manager', ['Dashboard', 'Time & Payroll', 'Pay stubs', 'My Pay', 'Schedule']],
-    ['employee', ['My Dashboard', 'My Time', 'My Pay', 'Schedule']],
+    ['manager', ['Dashboard', 'Time & Payroll', 'Pay stubs', 'My Pay', 'Schedule', 'What can I do?']],
+    ['employee', ['My Dashboard', 'My Time', 'My Pay', 'Schedule', 'What can I do?']],
   ] as const)('gives a %s exactly their menu', (role, expected) => {
     authMock.value.userRole = role
     renderLayout()
