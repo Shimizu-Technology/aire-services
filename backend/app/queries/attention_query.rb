@@ -7,6 +7,7 @@ class AttentionQuery
   OPEN_STATUSES = WhosWorkingQuery::OPEN_STATUSES
   LONG_CLOCK_HOURS = 12
   MISSING_CATEGORY_SAMPLE = 20
+  PROJECTED_OVERTIME_LIMIT = 100
 
   # The Approvals inbox and its badge: anything with time or overtime waiting.
   # Keep in step with TimeEntriesController#pending_approval_entries_scope;
@@ -40,7 +41,7 @@ class AttentionQuery
     ].compact
 
     {
-      generated_at: now.iso8601,
+      generated_at: now.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).iso8601,
       time_zone: TimeClockService::BUSINESS_TIMEZONE,
       today: today.iso8601,
       sections: sections,
@@ -140,30 +141,50 @@ class AttentionQuery
     { key: "approvals_waiting", type: "approvals_waiting", tone: "waiting" }.merge(approvals)
   end
 
-  # Overtime hours use the same weekly projection the inbox shows per entry.
+  # Counts, people and weeks come from one aggregate, so they stay exact and
+  # equal the badge however long the backlog. Hours use the inbox's weekly
+  # projection, which loads every shift in each affected week; it runs for
+  # whole people, oldest waiting first, up to PROJECTED_OVERTIME_LIMIT
+  # entries. Anyone past that gets hours: nil, and so does the total.
   def overtime_item
     return unless viewer.can_approve_time?
 
-    entries = TimeEntry.where(overtime_status: "pending").preload(:user).order(:work_date, :id).to_a
-    return if entries.empty?
+    week_start = "time_entries.work_date - EXTRACT(DOW FROM time_entries.work_date)::integer"
+    rows = TimeEntry.where(overtime_status: "pending").group(:user_id).pluck(
+      :user_id, Arel.sql("COUNT(*)"), Arel.sql("MIN(time_entries.work_date)"),
+      Arel.sql("ARRAY_AGG(DISTINCT (#{week_start}) ORDER BY (#{week_start}))")
+    )
+    return if rows.empty?
 
-    allocations = Payroll::AffectedOvertimeReview.projected_allocations_for(entries)
-    hours_for = ->(entry) { allocations[entry.id].to_h.fetch(:overtime_hours, 0).to_f }
-    people = entries.group_by(&:user).map do |user, rows|
-      person(user).merge(
-        hours: rows.sum(&hours_for).round(2),
-        entry_count: rows.size,
-        week_starts: rows.map { |row| row.work_date.beginning_of_week(:sunday).iso8601 }.uniq
-      )
+    rows.sort_by! { |user_id, _count, oldest, _weeks| [ oldest, user_id ] }
+    budget = PROJECTED_OVERTIME_LIMIT
+    projected_ids = rows.take_while { |_user_id, count, _oldest, _weeks| (budget -= count) >= 0 }.map(&:first)
+    hours_by_user = projected_overtime_hours(projected_ids)
+    users = User.where(id: rows.map(&:first)).index_by(&:id)
+    people = rows.map do |user_id, count, _oldest, weeks|
+      person(users.fetch(user_id)).merge(hours: hours_by_user[user_id]&.round(2), entry_count: count, week_starts: weeks.map(&:iso8601))
     end
+    unprojected = rows.sum { |user_id, count, _oldest, _weeks| hours_by_user.key?(user_id) ? 0 : count }
     {
       key: "overtime_waiting",
       type: "overtime_waiting",
       tone: "waiting",
-      count: entries.size,
-      hours: entries.sum(&hours_for).round(2),
-      people: people.sort_by { |row| [ -row[:hours], row[:full_name].to_s ] }
+      count: rows.sum(&:second),
+      hours: unprojected.zero? ? hours_by_user.values.sum.round(2) : nil,
+      hours_complete: unprojected.zero?,
+      unprojected_count: unprojected,
+      people: people.sort_by { |row| [ row[:hours] ? 0 : 1, -row[:hours].to_f, row[:full_name].to_s, row[:id] ] }
     }
+  end
+
+  def projected_overtime_hours(user_ids)
+    return {} if user_ids.empty?
+
+    entries = TimeEntry.where(overtime_status: "pending", user_id: user_ids).to_a
+    allocations = Payroll::AffectedOvertimeReview.projected_allocations_for(entries)
+    entries.group_by(&:user_id).transform_values do |rows|
+      rows.sum { |entry| allocations[entry.id].to_h.fetch(:overtime_hours, 0).to_f }
+    end
   end
 
   # The batch builder's rule: a shift with no category whose employee doesn't

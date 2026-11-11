@@ -18,18 +18,20 @@ module Payroll
 
     def call
       problems = problem_events
+      failed_count = failed.count
+      stuck_count = stuck.count
       capability = ConnectedPayrollMode.capability
       {
         mode: capability[:mode],
         enabled: capability[:enabled],
         message: capability[:message],
-        state: state(capability[:enabled], problems),
+        state: state(capability[:enabled], failed_count + stuck_count),
         last_publication: last_publication,
         last_delivery: last_delivery,
         undelivered: {
           count: undelivered.count,
-          failed_count: problems.count { |event| event[:state] == "failed" },
-          stuck_count: problems.count { |event| event[:state] == "stuck" },
+          failed_count: failed_count,
+          stuck_count: stuck_count,
           events: problems
         },
         account_link: account_link,
@@ -41,9 +43,9 @@ module Payroll
 
     attr_reader :now
 
-    def state(enabled, problems)
+    def state(enabled, problem_count)
       return "paused" unless enabled
-      return "delivery_problem" if problems.any?
+      return "delivery_problem" if problem_count.positive?
 
       "connected"
     end
@@ -76,9 +78,17 @@ module Payroll
 
     # Failed: Cornerstone refused it or couldn't be reached; retries continue.
     # Stuck: still pending well after the lock that created it.
+    def failed
+      PayrollOutboxEvent.where(delivery_status: "failed")
+    end
+
+    def stuck
+      PayrollOutboxEvent.where(delivery_status: "pending").where(occurred_at: ..(now - STUCK_AFTER))
+    end
+
+    # The counts cover every problem event; the list shows the oldest few.
     def problem_events
-      @problem_events ||= undelivered.includes(:payroll_calendar_period)
-        .where("delivery_status = 'failed' OR occurred_at <= ?", now - STUCK_AFTER)
+      @problem_events ||= failed.or(stuck).includes(:payroll_calendar_period)
         .order(:occurred_at, :id).limit(PROBLEM_EVENT_LIMIT)
         .map do |event|
           event_json(event).merge(

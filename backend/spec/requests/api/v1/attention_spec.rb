@@ -124,8 +124,35 @@ RSpec.describe "Attention", type: :request do
 
     item = attention.fetch("items").find { |row| row["type"] == "overtime_waiting" }
 
-    expect(item).to include("count" => 1, "hours" => 8.0)
+    expect(item).to include("count" => 1, "hours" => 8.0, "hours_complete" => true, "unprojected_count" => 0)
     expect(item.fetch("people")).to contain_exactly(a_hash_including("id" => grace.id, "hours" => 8.0, "week_starts" => [ "2026-11-01" ]))
+  end
+
+  it "projects hours for whole people, oldest first, up to its budget, and still counts everyone" do
+    stub_const("AttentionQuery::PROJECTED_OVERTIME_LIMIT", 2)
+    (1..6).each { |day| shift(grace, date: Date.new(2026, 11, day), overtime_status: day == 6 ? "pending" : "none") }
+    shift(caleb, date: Date.new(2026, 10, 26), overtime_status: "pending")
+    shift(employee, date: Date.new(2026, 11, 9), overtime_status: "pending")
+    shift(employee, date: Date.new(2026, 11, 10), overtime_status: "pending")
+
+    body = attention
+    item = body.fetch("items").find { |row| row["type"] == "overtime_waiting" }
+
+    expect(item).to include("count" => 4, "hours" => nil, "hours_complete" => false, "unprojected_count" => 2)
+    expect(item.fetch("count")).to eq(body.dig("approvals", "by_kind", "overtime"))
+    expect(item.fetch("people").map { |row| [ row["id"], row["hours"], row["entry_count"], row["week_starts"] ] }).to eq([
+      [ grace.id, 8.0, 1, [ "2026-11-01" ] ],
+      [ caleb.id, 0.0, 1, [ "2026-10-25" ] ],
+      [ employee.id, nil, 2, [ "2026-11-08" ] ]
+    ])
+  end
+
+  it "stamps generated_at in Guam time even though the app runs in UTC" do
+    expect(Time.zone.name).to eq("UTC")
+
+    body = attention
+
+    expect(body.fetch("generated_at")).to eq("2026-11-11T00:20:00+10:00")
   end
 
   it "reads all clear when nothing needs anyone" do

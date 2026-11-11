@@ -38,7 +38,7 @@ Code: `AttentionQuery`.
 | 1 | `open_clock_earlier_day` (one per entry, oldest first) | `needs_fix` | `manage_team_time` | `entry_id`, `user`, `work_date`, `clock_in_at`, `status`, `hours_so_far`, `time_category` |
 | 2 | `long_clock_today` (over 12h, longest first) | `waiting` | `manage_team_time` | same as above |
 | 3 | `approvals_waiting` | `waiting` | `approve_time` | the `approvals` block |
-| 4 | `overtime_waiting` | `waiting` | `approve_time` | `count`, `hours`, `people[]` (`hours`, `entry_count`, `week_starts`) |
+| 4 | `overtime_waiting` | `waiting` | `approve_time` | `count`, `hours`, `hours_complete`, `unprojected_count`, `people[]` (`hours`, `entry_count`, `week_starts`) |
 | 5 | `missing_category` | `needs_fix` | `manage_team_time` | `count`, `entry_ids` (first 20), `period` |
 | 6 | `payroll_problem` (one per problem) | `needs_fix`, or `info` for a pending change | `manage_payroll` | `problem` plus details |
 | 7 | `leave_waiting` | `waiting` | `approve_leave` | `count`, `next` (the earliest-starting request) |
@@ -50,7 +50,7 @@ Code: `AttentionQuery`.
 **Rules:**
 - **Earlier-day clocks** are open clock entries whose Guam work date is before today, the same rule as Who's working. A clock started at 11:50 PM is flagged at midnight. `hours_so_far` is the time since clock-in less breaks.
 - **Approvals counts** use the same scope as the Approvals badge: `pending_approvals` with no filters, where time or overtime is waiting. `count`, `total_hours`, `oldest_work_date` and `by_kind` equal `summary.entry_count`, `total_hours`, `oldest_work_date`, `pending_time_entry_count`, `pending_overtime_count`, `manual_count` and `clock_count`. `attention_spec.rb` checks this for each supervisor role. `by_kind.added` counts manual (added) entries. The `ordinary` and `needs_look` split comes from the PR 2 classifier (#179) and isn't here yet.
-- **Overtime hours** use the inbox's weekly projection (`AffectedOvertimeReview.projected_allocations_for`).
+- **Overtime** `count`, and each person's `entry_count` and `week_starts`, come from one aggregate query, so `count` always equals `approvals.by_kind.overtime`. Hours use the inbox's weekly projection (`AffectedOvertimeReview.projected_allocations_for`), which loads every shift in each affected week. To keep Today fast with a long backlog, the projection runs for whole people, oldest waiting first, up to 100 entries (`AttentionQuery::PROJECTED_OVERTIME_LIMIT`). People past that get `hours: null`. If anyone does, the item's `hours` is `null` too, `hours_complete` is `false`, and `unprojected_count` says how many entries have no hours. People are sorted by hours, most first; people without hours come last.
 - **Missing category** follows the batch builder's rule. It counts completed, non-denied shifts in the current period that have no category, unless the person has exactly one active category to fall back on.
 - **Payroll problems** (`problem`):
   - `connection_paused`
@@ -79,14 +79,14 @@ Code: `Payroll::ConnectionStatus`.
 
 - **`state`** is `paused` when `ConnectedPayrollMode` is paused. Otherwise it's `delivery_problem` when any event is failed or stuck, and `connected` if not.
 - **`last_publication`** is the newest `PayrollCalendarPeriodRevision`. AIRE writes a revision only for a publication it accepted. Refused publications reach the lock card through `lock_change`.
-- **`undelivered.events`** lists up to 20 outbox events. An event is `failed` when Cornerstone refused it or couldn't be reached; retries continue. It's `stuck` when it's still pending 10 minutes after it was created. An event that's still sending isn't listed, but it counts in `count`. `last_error` is cut to 300 characters.
+- **`undelivered.events`** lists the oldest 20 problem events. `failed_count` and `stuck_count` count all of them, not just the listed ones. An event is `failed` when Cornerstone refused it or couldn't be reached; retries continue. It's `stuck` when it's still pending 10 minutes after it was created. An event that's still sending isn't listed, but it counts in `count`. `last_error` is cut to 300 characters.
 - **`account_link`** is the newest active link: the AIRE admin who approved it, the Cornerstone account email, and when.
 
 ## `GET /api/v1/payroll_periods` and `/:start_date`
 
 Code: `Payroll::PeriodHandoffState`.
 
-The index returns `{ periods: [...], current_start_date, labels, connected_payroll }`, newest first. `limit` defaults to 12, with a maximum of 48.
+The index returns `{ periods: [...], current_start_date, labels, connected_payroll }`, newest first. `limit` defaults to 12 and is clamped to 1–48. A `limit` that isn't a whole number (for example `limit[]=12` or `limit=twelve`) gets 422.
 
 The show route takes the period's first day (`2026-11-01`). It returns `{ period, previous_start_date, next_start_date, labels, connected_payroll }`.
 - A start date that isn't the 1st or the 16th gets 422.
@@ -116,7 +116,7 @@ Each period:
    - no events: **`locked`**
    - `imported`: **`received`**
    - `payment_issued`: **`paid`**
-   - anything else: **`in_run`**. That covers `committed`, `payment_prepared` and partial statuses, and also `payment_failed`, `payment_voided` and `payment_cancelled`. `payroll_status.status` says which, so payment problems stay visible.
+   - anything else: **`in_run`**. That covers `committed`, `payment_prepared` and partial statuses, and also `payment_failed`, `payment_voided` and `payment_cancelled`. `payroll_status` is `{ status, occurred_at }`; `status` says which, so payment problems stay visible. `occurred_at` is in Guam time like every other time here.
 
 A locked period that Payroll hasn't received stays `locked`. `delivery` shows the outbox event for it: `pending`, `failed` or `delivered`, plus `stuck`, attempts, and the last response status and error.
 

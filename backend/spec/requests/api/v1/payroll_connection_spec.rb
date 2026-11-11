@@ -61,6 +61,19 @@ RSpec.describe "Payroll connection", type: :request do
     expect(body.fetch("undelivered")).to eq("count" => 0, "failed_count" => 0, "stuck_count" => 0, "events" => [])
   end
 
+  it "counts every failed and stuck delivery, though it lists only the oldest 20" do
+    october = period(Date.new(2026, 10, 16))
+    23.times { |index| outbox(october, status: "failed", occurred_at: now - 3.hours + index.minutes) }
+    4.times { |index| outbox(october, status: "pending", occurred_at: now - 1.hour + index.minutes) }
+    outbox(october, status: "pending", occurred_at: now - 1.minute)
+
+    undelivered = connection.fetch("undelivered")
+
+    expect(undelivered).to include("count" => 28, "failed_count" => 23, "stuck_count" => 4)
+    expect(undelivered.fetch("events").size).to eq(20)
+    expect(undelivered.fetch("events")).to all(include("state" => "failed"))
+  end
+
   it "lists failed and stuck deliveries, but not one still sending" do
     october = period(Date.new(2026, 10, 16))
     failed = outbox(october, status: "failed", occurred_at: now - 2.hours, delivery_attempts: 5, last_response_status: 503,

@@ -9,7 +9,9 @@ module Api
       before_action -> { response.headers["Cache-Control"] = "no-store" }
 
       def index
-        limit = params[:limit].presence || ::Payroll::PeriodHandoffState::INDEX_LIMIT
+        limit = parse_limit
+        return if performed?
+
         today = Time.current.in_time_zone(PayrollCalendarPeriod::BUSINESS_TIME_ZONE).to_date
         current = ::Payroll::PeriodHandoffState.current_period(today: today)
         render json: {
@@ -37,6 +39,16 @@ module Api
       end
 
       private
+
+      # A whole number, clamped to 1..INDEX_MAX. Arrays, hashes and other
+      # strings are refused rather than coerced.
+      def parse_limit
+        raw = params[:limit]
+        return ::Payroll::PeriodHandoffState::INDEX_LIMIT if raw.blank?
+        return raw.to_i.clamp(1, ::Payroll::PeriodHandoffState::INDEX_MAX) if raw.is_a?(String) && raw.match?(/\A\d+\z/)
+
+        render json: { error: "limit must be a whole number" }, status: :unprocessable_entity
+      end
 
       def parse_start_date
         date = Date.iso8601(params[:start_date].to_s)

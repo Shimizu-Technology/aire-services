@@ -155,7 +155,7 @@ module Payroll
         locked_at: period.status == "finalized" ? local(period.finalized_at) : nil,
         payroll_batch_id: period.payroll_batch&.public_id,
         delivery: delivery_json,
-        payroll_status: payroll_processing&.slice(:status, :occurred_at),
+        payroll_status: payroll_status_json,
         **hours_json
       }
     end
@@ -186,6 +186,15 @@ module Payroll
       return @payroll_processing if defined?(@payroll_processing)
 
       @payroll_processing = period.payroll_batch&.processing_summary
+    end
+
+    # The summary serializes occurred_at in the app zone (UTC); the contract
+    # gives every time in Guam.
+    def payroll_status_json
+      return unless payroll_processing
+
+      occurred_at = payroll_processing[:occurred_at]
+      { status: payroll_processing[:status], occurred_at: occurred_at && local(Time.iso8601(occurred_at.to_s)) }
     end
 
     # The finalized-batch event AIRE sends at the lock. "Locked" but not

@@ -85,7 +85,9 @@ RSpec.describe "Payroll periods", type: :request do
       expect(in_run.fetch("steps").map { |step| [ step["key"], step["state"] ] }).to eq([
         %w[open done], %w[locked done], %w[received done], %w[in_run current], %w[paid upcoming]
       ])
-      expect(in_run.fetch("payroll_status")).to include("status" => "committed")
+      committed_at = payroll_calendar_for(Date.new(2026, 9, 1))[:cutoff_at] + 2.hours
+      expect(in_run.fetch("payroll_status")).to eq("status" => "committed", "occurred_at" => committed_at.in_time_zone(zone).iso8601)
+      expect(in_run.dig("payroll_status", "occurred_at")).to end_with("+10:00")
       paid = periods.fetch("periods").find { |row| row["start_date"] == "2026-08-16" }
       expect(paid.fetch("steps").map { |step| step["state"] }).to all(eq("done"))
       before = periods.fetch("periods").find { |row| row["start_date"] == "2026-08-01" }
@@ -177,6 +179,22 @@ RSpec.describe "Payroll periods", type: :request do
     expect(response).to have_http_status(:unprocessable_entity)
     show("2026-02-30")
     expect(response).to have_http_status(:unprocessable_entity)
+  end
+
+  it "takes a whole-number limit within bounds and refuses other shapes" do
+    [ 1, 16 ].each { |day| period(Date.new(2026, 10, day)) }
+    period(Date.new(2026, 11, 1))
+
+    get "/api/v1/payroll_periods", params: { limit: "2" }, headers: headers_for(admin)
+    expect(response.parsed_body.fetch("periods").map { |row| row["start_date"] }).to eq(%w[2026-11-01 2026-10-16])
+    get "/api/v1/payroll_periods", params: { limit: "0" }, headers: headers_for(admin)
+    expect(response.parsed_body.fetch("periods").size).to eq(1)
+
+    [ "/api/v1/payroll_periods?limit[]=12", "/api/v1/payroll_periods?limit[n]=12", "/api/v1/payroll_periods?limit=twelve" ].each do |path|
+      get path, headers: headers_for(admin)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response.parsed_body).to include("error" => "limit must be a whole number")
+    end
   end
 
   it "is for owners and admins only" do
