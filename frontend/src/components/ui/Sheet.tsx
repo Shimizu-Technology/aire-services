@@ -33,7 +33,7 @@ function OpenSheet({ onClose, title, description, children, footer, initialFocus
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-end bg-slate-950/50 transition-opacity duration-200 ease-out starting:opacity-0 md:items-stretch md:justify-end"
+      className="fixed inset-0 z-(--z-sheet) flex items-end bg-slate-950/50 transition-opacity duration-200 ease-out starting:opacity-0 md:items-stretch md:justify-end"
       // mousedown, not click: a drag that starts inside the panel and ends on
       // the backdrop must not close the sheet.
       onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
@@ -47,7 +47,7 @@ function OpenSheet({ onClose, title, description, children, footer, initialFocus
         tabIndex={-1}
         className={
           'flex max-h-[85dvh] w-full flex-col rounded-t-card bg-surface shadow-2xl ' +
-          'transition-transform duration-300 ease-drawer starting:translate-y-full motion-reduce:transition-none ' +
+          'transition-transform duration-(--dur-sheet) ease-drawer starting:translate-y-full motion-reduce:transition-none ' +
           'md:h-dvh md:max-h-none md:max-w-md md:rounded-none md:rounded-l-card md:starting:translate-x-full md:starting:translate-y-0'
         }
       >
