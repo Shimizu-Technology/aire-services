@@ -40,6 +40,45 @@ All endpoints require `X-Shared-Secret` or `X-Payroll-Shared-Secret`. AIRE fails
 
 The first publication must use version `1`. Each revision must use the next version and a new UUID `publication_id`. Repeating the same publication ID and content is idempotent. Reusing an ID for different content, publishing a stale version, overlapping another period, or changing a period at or after cutoff returns `409 Conflict`.
 
+## Admin lock times
+
+Cornerstone Payroll owns each period's lock time. By default it is the policy cutoff (17:00 Guam, seven days after the previous regular payday). An admin can lock now or move it; Cornerstone records the change and republishes the period as the next schedule version with these extra fields:
+
+```json
+{
+  "cutoff_at": "2026-11-21T12:00:00+10:00",
+  "cutoff_source": "override",
+  "policy_cutoff_at": "2026-11-22T17:00:00+10:00",
+  "cutoff_override": {
+    "override_id": "6f1d4c1e-6a52-4a7e-9f3e-1d2b3c4d5e6f",
+    "action": "change",
+    "reason": "Thanksgiving payroll run",
+    "set_at": "2026-11-18T09:00:00+10:00",
+    "set_by": { "name": "Chels", "system": "cornerstone_payroll", "role": "org_admin" },
+    "previous_cutoff_at": "2026-11-22T17:00:00+10:00"
+  }
+}
+```
+
+`spec/fixtures/files/aire_cutoff_override_publication.json` pins the full payload in both repositories.
+
+- `cutoff_source` is `policy` or `override`. Older publications omit it and are treated as `policy`. A `policy` publication keeps the strict policy check: a moved `cutoff_at` is rejected.
+- An `override` must carry `policy_cutoff_at` (which must satisfy the policy) and `cutoff_override` with a reason, an action (`lock_now` or `change`) and who set it. It applies only to `scheduled` locks.
+- An overridden `cutoff_at` must be no earlier than 00:00 Guam on the day after the period ends, and no later than 23:59 Guam two days before the pay date.
+- `cutoff_at` must be in the future, except for `lock_now`, which AIRE accepts up to 30 minutes after its instant and then queues finalization at once.
+- Reset publishes the policy cutoff again with `cutoff_source: "policy"`.
+- The database enforces the same rules: the policy date check uses `policy_cutoff_at` when present, so `cutoff_days` keeps its policy meaning; `check_payroll_calendar_period_cutoff_override` enforces the bounds; and the post-cutoff guard also freezes the override columns.
+
+Everything downstream reads the effective `cutoff_at`: the finalizer, the batch contract cutoff, `next_scheduled_cutoff_at`, the cutoff notice, and approval reminders (a lock moved to another day gets its own reminders).
+
+### Changing the lock time from AIRE
+
+Owners and admins see the next lock on the Payroll page and the dashboard readiness card. `POST /api/v1/payroll_cutoff/lock_time` (`manage_payroll`) validates the request, then calls Cornerstone's `POST /api/v1/integrations/time_payroll/calendar_periods/:external_pay_period_id/cutoff_change` with the shared secret, an `Idempotency-Key`, and the AIRE actor (user ID, name, email, role, linked Cornerstone user if any). AIRE changes only when Cornerstone's republished period arrives. Both apps audit the request. Managers and employees see only the effective cutoff in the existing notices.
+
+### Deploy order
+
+Deploy AIRE first. It accepts old publications (no `cutoff_source`) and new ones. Deploy Cornerstone Payroll second; before that, no override can be published.
+
 ## Read the calendar
 
 - `GET /api/v1/payroll/calendar_periods` returns up to 100 periods, newest first.
