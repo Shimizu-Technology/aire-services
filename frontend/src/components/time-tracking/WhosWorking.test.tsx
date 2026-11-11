@@ -83,7 +83,7 @@ describe('WhosWorking refresh strategy', () => {
     expect(await screen.findByText(/Still clocked in since Tue, Nov 10/)).toHaveTextContent('Still clocked in since Tue, Nov 10, 7:02 AM')
     expect(screen.getByText('1 active')).toBeInTheDocument()
     expect(screen.getByText('Check clock-out')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Fix clock-out' })).toHaveAttribute('href', '/admin/time?entry_id=55&date=2026-11-10&view=day&user_id=7')
+    expect(screen.getByRole('link', { name: 'Fix clock-out' })).toHaveAttribute('href', '/admin/timecards?entry_id=55&date=2026-11-10&view=day&user_id=7')
     expect(screen.queryByText(/In since/)).not.toBeInTheDocument()
   })
 

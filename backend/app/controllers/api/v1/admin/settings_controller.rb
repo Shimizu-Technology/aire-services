@@ -17,9 +17,10 @@ module Api
         ].freeze
         APPROVAL_SETTING_KEYS = [ Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY ].freeze
         PAY_STUB_SETTING_KEYS = [ Setting::PAY_STUB_KIOSK_REQUESTS_KEY, Setting::PAY_STUB_SELF_EMAIL_KEY ].freeze
-        SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS).freeze
+        SCHEDULE_SETTING_KEYS = [ Setting::SCHEDULES_ENABLED_KEY ].freeze
+        SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
         # On/off switches: each change gets its own before/after audit row.
-        BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS).freeze
+        BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
 
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_settings) }
@@ -152,8 +153,8 @@ module Api
           permitted.compact_blank
         end
 
-        # Switches that change who may approve time or how pay stubs go out
-        # keep their own before/after audit row.
+        # Switches that change who may approve time, how pay stubs go out or
+        # whether schedules are in use keep their own before/after audit row.
         def record_switch_changes!(before_values, payload)
           before_values.each do |key, before|
             after = payload.fetch(key).to_s

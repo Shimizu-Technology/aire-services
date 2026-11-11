@@ -170,6 +170,8 @@ class AuditLogPresenter
       "turned My Pay #{enabled ? 'on' : 'off'} for #{subject}" unless enabled.nil?
     when "setting.my_pay_everyone_updated"
       "turned My Pay #{metadata['enabled'] ? 'on' : 'off'} for everyone" if metadata.key?("enabled")
+    when "setting.schedules_enabled_updated"
+      "turned schedules #{metadata['enabled'] ? 'on' : 'off'}" if metadata.key?("enabled")
     end
   end
 

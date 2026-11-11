@@ -102,7 +102,7 @@ describe('employee workspace', () => {
     const hours = screen.getByRole('link', { name: 'Review hours & payroll' })
     expect(hours).toHaveAttribute('href', expect.stringContaining('source_user_uuid=employee-uuid'))
     expect(hours).toHaveAttribute('href', expect.stringContaining('source_instance_id=installation-uuid'))
-    expect(screen.getByRole('link', { name: 'Open hours report' })).toHaveAttribute('href', expect.stringContaining('tab=reports'))
+    expect(screen.getByRole('link', { name: 'Open hours report' })).toHaveAttribute('href', expect.stringMatching(/^\/admin\/reports\?/))
   })
 
   it('explains cancelled payment coverage as committed hours reserved for replacement', async () => {

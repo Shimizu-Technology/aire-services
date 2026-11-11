@@ -1,6 +1,6 @@
 vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TimeTracking from './TimeTracking'
 import type { TimeEntry } from '../../lib/api'
@@ -22,8 +22,13 @@ function Harness() {
   return <>
     <button onClick={() => navigate('/admin/time?entry_id=91&user_id=8&date=2026-11-02&view=day')}>Open other employee</button>
     <button onClick={() => { const next = new URLSearchParams(location.search); next.set('start_date', '2026-11-16'); next.set('end_date', '2026-11-30'); navigate(location.pathname + '?' + next) }}>Change review period</button>
+    <button onClick={() => navigate('/admin/approvals' + location.search)}>Go to approvals</button>
+    <button onClick={() => navigate(-1)}>Back</button>
     <output data-testid="search">{location.search}</output>
-    <TimeTracking />
+    <Routes>
+      <Route path="/admin/time" element={<TimeTracking />} />
+      <Route path="/admin/approvals" element={<TimeTracking section="approvals" />} />
+    </Routes>
   </>
 }
 
@@ -123,10 +128,11 @@ describe('TimeTracking current linked entry refresh', () => {
     })
     openPage()
     expect(await screen.findByRole('region', { name: 'Linked time entry' })).toHaveTextContent('pending')
-    fireEvent.click(screen.getByRole('button', { name: /^Approvals/ }))
+    // Approvals is its own page now: go there, approve, and come back.
+    fireEvent.click(screen.getByRole('button', { name: 'Go to approvals' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
     await waitFor(() => expect(apiMock.getTimeEntry).toHaveBeenCalledTimes(2))
-    fireEvent.click(screen.getByRole('button', { name: 'Time Entries' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(await screen.findByRole('region', { name: 'Linked time entry' })).toHaveTextContent('4.00h · Operations · approved')
     expect(dayCard().getByText('4h')).toBeInTheDocument()
     expect(dayCard().queryByText('Pending')).not.toBeInTheDocument()

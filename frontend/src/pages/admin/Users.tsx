@@ -14,7 +14,6 @@ import RolePicker from '../../components/team/RolePicker'
 import MyPaySwitch from '../../components/team/MyPaySwitch'
 import { isUserRole, ROLE_DETAILS, roleLabel, roleRequiresPersonalAccess, rolesAssignableToNewPerson, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
-import { touchBaseline } from '../../lib/touchBaseline'
 import { useConfirm } from '../../components/ui/useConfirm'
 
 const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
@@ -869,7 +868,7 @@ export default function Users() {
   useDialogFocus(Boolean(terminationUser), terminationDialogRef, () => { if (!savingTermination) closeTerminationModal() })
 
   return (
-    <div className={`space-y-6 ${touchBaseline}`}>
+    <div className="space-y-6">
       <FadeUp>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>

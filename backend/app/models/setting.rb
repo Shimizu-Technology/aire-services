@@ -67,6 +67,7 @@ class Setting < ApplicationRecord
     "managers_can_approve_own_time" => "true",
     "pay_stub_kiosk_requests_enabled" => "false",
     "pay_stub_self_email_enabled" => "false",
+    "schedules_enabled" => "false",
     "contact_email" => DEFAULT_CONTACT_NOTIFICATION_EMAILS.join(", "),
     "contact_inquiry_topics" => DEFAULT_CONTACT_INQUIRY_TOPICS.to_json,
     "public_contact_settings" => DEFAULT_PUBLIC_CONTACT_SETTINGS.to_json,
@@ -146,6 +147,17 @@ class Setting < ApplicationRecord
   # My Pay. Senders can use the Pay stubs page either way.
   PAY_STUB_KIOSK_REQUESTS_KEY = "pay_stub_kiosk_requests_enabled"
   PAY_STUB_SELF_EMAIL_KEY = "pay_stub_self_email_enabled"
+
+  # "Use schedules" on the Settings page, off by default (AIRE doesn't plan
+  # shifts in the app yet). It only shows or hides Schedule in the admin
+  # navigation. Clock-in rules don't read it: a shift that exists still sets
+  # the early clock-in window, and "schedule_required_for_clock_in" still
+  # applies on its own.
+  SCHEDULES_ENABLED_KEY = "schedules_enabled"
+
+  def self.schedules_enabled?
+    get(SCHEDULES_ENABLED_KEY) == "true"
+  end
 
   def self.payroll_cutoff_reminder_emails
     normalize_emails(get("payroll_cutoff_reminder_emails"))

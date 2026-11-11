@@ -1,25 +1,33 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AdminLayout from './AdminLayout'
 
+type Role = 'owner' | 'admin' | 'manager' | 'employee'
+interface TestUser {
+  id?: number
+  full_name: string
+  needs_kiosk_pin_setup: boolean
+  my_pay_enabled?: boolean
+  schedules_enabled?: boolean
+  time_tracking_enabled?: boolean
+}
+
 const authMock = vi.hoisted(() => ({
   value: {
     isClerkEnabled: true,
-    userRole: 'employee' as 'owner' | 'admin' | 'manager' | 'employee',
-    currentUser: {
-      full_name: 'Hourly Pilot',
-      needs_kiosk_pin_setup: true,
-    },
+    userRole: 'employee' as Role,
+    currentUser: { full_name: 'Hourly Pilot', needs_kiosk_pin_setup: true } as TestUser,
     refreshCurrentUser: vi.fn(),
   },
 }))
 
 const apiMock = vi.hoisted(() => ({
   setMyKioskPin: vi.fn(),
+  getPendingApprovals: vi.fn(),
 }))
 
 vi.mock('../../contexts/AuthContext', () => ({
@@ -38,90 +46,209 @@ vi.mock('@clerk/clerk-react', () => ({
   UserButton: () => <div>User menu</div>,
 }))
 
+const PAGES = ['/admin', '/admin/approvals', '/admin/leave', '/admin/timecards', '/admin/reports', '/admin/payroll', '/admin/pay', '/admin/pay/:id', '/admin/pay-stubs', '/admin/users', '/admin/settings', '/admin/website/media', '/admin/my-time', '/admin/my-hours', '/admin/schedule', '/admin/activity']
+
 function renderLayout(initialEntry = '/admin') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route element={<AdminLayout />}>
-          <Route path="/admin" element={<div>Dashboard content</div>} />
-          <Route path="/admin/payroll" element={<div>Payroll content</div>} />
-          <Route path="/admin/pay" element={<div>My Pay content</div>} />
-          <Route path="/admin/pay/:id" element={<div>Paycheck content</div>} />
-          <Route path="/admin/pay-stubs" element={<div>Pay stubs content</div>} />
+          {PAGES.map((path) => <Route key={path} path={path} element={<div>{`Page ${path}`}</div>} />)}
         </Route>
       </Routes>
     </MemoryRouter>,
   )
 }
 
+function signIn(role: Role, user: Partial<TestUser> = {}) {
+  authMock.value.userRole = role
+  authMock.value.currentUser = { id: 9, full_name: 'Team Member', needs_kiosk_pin_setup: false, my_pay_enabled: true, time_tracking_enabled: true, ...user }
+}
+
+const sidebar = () => screen.getByRole('navigation', { name: 'Main' })
+const tabBar = () => screen.getByRole('navigation', { name: 'Main tabs' })
+// The visible label of each link, without its badge.
+const names = (container: HTMLElement) => within(container).queryAllByRole('link').map((link) => link.querySelector('.truncate')?.textContent?.trim())
+const groupNames = (label: string) => names(within(sidebar()).getByRole('group', { name: label }))
+
+beforeEach(() => {
+  window.localStorage.clear()
+  authMock.value.isClerkEnabled = true
+  authMock.value.refreshCurrentUser.mockReset()
+  apiMock.setMyKioskPin.mockReset().mockResolvedValue({ data: { user: {} } })
+  apiMock.getPendingApprovals.mockReset().mockResolvedValue({ data: { summary: { entry_count: 0 } } })
+  signIn('employee')
+})
+
+describe('AdminLayout sidebar by role', () => {
+  it('gives owners and admins the week’s work, then admin pages, then their own time', () => {
+    for (const role of ['owner', 'admin'] as const) {
+      signIn(role)
+      const view = renderLayout()
+      expect(groupNames('Workspace')).toEqual(['Today', 'Approvals', 'Timecards', 'Payroll', 'Team', 'Reports', 'Pay stubs'])
+      expect(groupNames('Admin')).toEqual(['Settings', 'Website', 'Activity'])
+      expect(groupNames('Me')).toEqual(['My Time', 'My Pay', 'Unlock kiosk'])
+      view.unmount()
+    }
+  })
+
+  it('gives managers the team’s time, then theirs', () => {
+    signIn('manager')
+    renderLayout()
+    expect(groupNames('Workspace')).toEqual(['Approvals', 'Timecards', 'Reports', 'Pay stubs'])
+    expect(groupNames('Me')).toEqual(['My Time', 'My Pay', 'Unlock kiosk'])
+    expect(within(sidebar()).queryByRole('group', { name: 'Admin' })).not.toBeInTheDocument()
+    expect(screen.getByText('Manager workspace', { selector: 'div' })).toBeInTheDocument()
+  })
+
+  it('gives employees their own time only', () => {
+    signIn('employee')
+    renderLayout()
+    expect(groupNames('Workspace')).toEqual(['Clock', 'My Hours', 'Leave', 'My Pay'])
+    expect(within(sidebar()).queryByRole('group', { name: 'Me' })).not.toBeInTheDocument()
+  })
+
+  it('leaves out My Pay and My Time when they are off for the person', () => {
+    signIn('admin', { my_pay_enabled: false, time_tracking_enabled: false })
+    renderLayout()
+    expect(groupNames('Me')).toEqual(['Unlock kiosk'])
+  })
+
+  it('points each item at its route and opens the kiosk in a new tab', () => {
+    signIn('admin')
+    renderLayout()
+    const hrefs = Object.fromEntries(within(sidebar()).getAllByRole('link').map((link) => [link.getAttribute('aria-label'), link.getAttribute('href')]))
+    expect(hrefs).toMatchObject({
+      Today: '/admin', Approvals: '/admin/approvals', Timecards: '/admin/timecards', Payroll: '/admin/payroll', Team: '/admin/users',
+      Reports: '/admin/reports', 'Pay stubs': '/admin/pay-stubs', Settings: '/admin/settings', Website: '/admin/website', Activity: '/admin/activity',
+      'My Time': '/admin/my-time', 'My Pay': '/admin/pay', 'Unlock kiosk (opens in a new tab)': '/kiosk',
+    })
+    expect(within(sidebar()).getByRole('link', { name: /Unlock kiosk/ })).toHaveAttribute('target', '_blank')
+  })
+
+  it.each([
+    ['/admin', 'Today'],
+    ['/admin/approvals', 'Approvals'],
+    ['/admin/leave', 'Approvals'],
+    ['/admin/timecards', 'Timecards'],
+    ['/admin/payroll', 'Payroll'],
+    ['/admin/pay', 'My Pay'],
+    ['/admin/pay/42', 'My Pay'],
+    ['/admin/pay-stubs', 'Pay stubs'],
+    ['/admin/website/media', 'Website'],
+  ])('marks only the matching item current on %s', (path, active) => {
+    signIn('admin')
+    renderLayout(path)
+    const current = within(sidebar()).getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page')
+    expect(current.map((link) => link.getAttribute('aria-label'))).toEqual([active])
+  })
+
+  it('keeps Leave as its own item for employees', () => {
+    signIn('employee')
+    renderLayout('/admin/leave')
+    const current = within(sidebar()).getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page')
+    expect(current.map((link) => link.getAttribute('aria-label'))).toEqual(['Leave'])
+  })
+})
+
+describe('"Use schedules"', () => {
+  it.each(['owner', 'admin', 'manager', 'employee'] as const)('hides Schedule from a %s while it is off', (role) => {
+    signIn(role, { schedules_enabled: false })
+    renderLayout()
+    expect(screen.queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['admin', 'Workspace', ['Today', 'Approvals', 'Timecards', 'Schedule', 'Payroll', 'Team', 'Reports', 'Pay stubs']],
+    ['manager', 'Me', ['My Time', 'My Pay', 'Schedule', 'Unlock kiosk']],
+    ['employee', 'Workspace', ['Clock', 'My Hours', 'Leave', 'My Pay', 'Schedule']],
+  ] as const)('shows Schedule to a %s when it is on', (role, group, expected) => {
+    signIn(role, { schedules_enabled: true })
+    renderLayout()
+    expect(groupNames(group)).toEqual(expected)
+  })
+})
+
+describe('AdminLayout phone tab bar', () => {
+  it('gives managers Approvals, Timecards, Reports and My Time, with the rest under More', async () => {
+    signIn('manager')
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 12 } } })
+    renderLayout('/admin/approvals')
+
+    const approvals = await within(tabBar()).findByRole('link', { name: 'Approvals, 12 waiting' })
+    expect(approvals).toHaveAttribute('aria-current', 'page')
+    expect(approvals).toHaveTextContent('12')
+    expect(names(tabBar())).toEqual(['Approvals', 'Timecards', 'Reports', 'My Time'])
+    expect(apiMock.getPendingApprovals).toHaveBeenCalledWith({ page: 1, per_page: 1 })
+
+    fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
+    const sheet = screen.getByRole('dialog', { name: 'More' })
+    expect(names(sheet)).toEqual(['Pay stubs', 'My Pay', 'Unlock kiosk'])
+    fireEvent.click(within(sheet).getByRole('link', { name: 'Pay stubs' }))
+    expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
+    expect(screen.getByText('Page /admin/pay-stubs')).toBeInTheDocument()
+    expect(within(tabBar()).getByRole('button', { name: 'More' }).className).toContain('text-primary')
+  })
+
+  it('caps the badge at 99+ and shows none at zero', async () => {
+    signIn('manager')
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 140 } } })
+    const view = renderLayout()
+    expect(await within(tabBar()).findByText('99+')).toBeInTheDocument()
+    view.unmount()
+
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 0 } } })
+    renderLayout()
+    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledTimes(2))
+    expect(within(tabBar()).getByRole('link', { name: 'Approvals' })).not.toHaveTextContent(/\d/)
+  })
+
+  it('gives employees four tabs and no More when it all fits', () => {
+    signIn('employee')
+    renderLayout('/admin/my-time')
+    expect(names(tabBar())).toEqual(['Clock', 'Hours', 'Leave', 'My Pay'])
+    expect(within(tabBar()).getByRole('link', { name: 'Clock' })).toHaveAttribute('aria-current', 'page')
+    expect(within(tabBar()).queryByRole('button', { name: 'More' })).not.toBeInTheDocument()
+    // Employees never ask for the approvals count.
+    expect(apiMock.getPendingApprovals).not.toHaveBeenCalled()
+  })
+
+  it('puts Schedule in the fifth slot for employees when it is on', () => {
+    signIn('employee', { schedules_enabled: true })
+    renderLayout()
+    expect(names(tabBar())).toEqual(['Clock', 'Hours', 'Leave', 'My Pay', 'Schedule'])
+  })
+
+  it('gives owners and admins a More sheet grouped like the sidebar', () => {
+    signIn('admin')
+    renderLayout('/admin/settings')
+    expect(names(tabBar())).toEqual(['Today', 'Approvals', 'Timecards', 'Payroll'])
+    const more = within(tabBar()).getByRole('button', { name: 'More' })
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(more)
+    const sheet = screen.getByRole('dialog', { name: 'More' })
+    expect(names(within(sheet).getByRole('region', { name: 'Pages' }))).toEqual(['Team', 'Reports', 'Pay stubs'])
+    expect(names(within(sheet).getByRole('region', { name: 'Admin' }))).toEqual(['Settings', 'Website', 'Activity'])
+    expect(names(within(sheet).getByRole('region', { name: 'Me' }))).toEqual(['My Time', 'My Pay', 'Unlock kiosk'])
+    expect(within(sheet).getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
+  })
+
+  it('refreshes the badge when the page changes', async () => {
+    signIn('manager')
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 3 } } })
+    renderLayout('/admin/approvals')
+    await within(tabBar()).findByText('3')
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 2 } } })
+    await act(async () => { fireEvent.click(within(tabBar()).getByRole('link', { name: 'Timecards' })) })
+    expect(await within(tabBar()).findByText('2')).toBeInTheDocument()
+  })
+})
+
 describe('AdminLayout kiosk PIN setup', () => {
   beforeEach(() => {
-    window.localStorage.clear()
-    Object.defineProperty(window, 'innerWidth', { value: 1280, writable: true, configurable: true })
-    authMock.value.isClerkEnabled = true
-    authMock.value.userRole = 'employee'
-    authMock.value.currentUser = {
-      full_name: 'Hourly Pilot',
-      needs_kiosk_pin_setup: true,
-    }
-    authMock.value.refreshCurrentUser.mockReset()
-    apiMock.setMyKioskPin.mockReset()
-    apiMock.setMyKioskPin.mockResolvedValue({ data: { user: {} } })
-  })
-
-  it('opens labelled mobile navigation after desktop collapse and restores focus with Escape', () => {
-    authMock.value.userRole = 'admin'
-    authMock.value.currentUser.needs_kiosk_pin_setup = false
-    window.localStorage.setItem('aire-admin-sidebar-collapsed', 'true')
-    Object.defineProperty(window, 'innerWidth', { value: 390, writable: true, configurable: true })
-    renderLayout()
-    const trigger = screen.getByRole('button', { name: 'Toggle sidebar' })
-    expect(screen.queryByRole('link', { name: 'Time & Payroll' })).not.toBeInTheDocument()
-    fireEvent.click(trigger)
-    const dialog = screen.getByRole('dialog', { name: 'Navigation' })
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
-    expect(screen.getByRole('link', { name: 'Time & Payroll' })).toHaveTextContent('Time & Payroll')
-    expect(screen.getByRole('button', { name: 'Close navigation' })).toHaveFocus()
-    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
-    expect(screen.getByRole('link', { name: 'Settings' })).toHaveFocus()
-    fireEvent.keyDown(document, { key: 'Tab' })
-    expect(screen.getByRole('button', { name: 'Close navigation' })).toHaveFocus()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
-    expect(trigger).toHaveFocus()
-    expect(document.body.style.overflow).toBe('')
-    expect(window.localStorage.getItem('aire-admin-sidebar-collapsed')).toBe('true')
-  })
-
-  it('closes mobile navigation on desktop resize and focuses a visible link', () => {
-    authMock.value.currentUser.needs_kiosk_pin_setup = false
-    window.innerWidth = 390
-    renderLayout()
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }))
-    expect(document.body.style.overflow).toBe('hidden')
-    expect(screen.getByRole('button', { name: 'Close navigation' })).toHaveFocus()
-    window.innerWidth = 1280
-    fireEvent(window, new Event('resize'))
-    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
-    expect(document.body.style.overflow).toBe('')
-    expect(screen.getByRole('link', { name: 'My Dashboard' })).toHaveFocus()
-  })
-
-  it('suspends mobile navigation when required PIN setup arrives', () => {
-    authMock.value.currentUser.needs_kiosk_pin_setup = false
-    window.innerWidth = 390
-    const view = renderLayout()
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle sidebar' }))
-    authMock.value.currentUser = { full_name: 'Hourly Pilot', needs_kiosk_pin_setup: true }
-    view.rerender(<MemoryRouter><AdminLayout /></MemoryRouter>)
-    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument()
-    expect(screen.getByRole('dialog', { name: /create your kiosk pin/i })).toBeInTheDocument()
-    expect(screen.getByLabelText(/^pin$/i)).toHaveFocus()
-    expect(document.body.style.overflow).toBe('hidden')
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.getByRole('dialog', { name: /create your kiosk pin/i })).toBeInTheDocument()
-    view.unmount()
-    expect(document.body.style.overflow).toBe('')
+    signIn('employee', { full_name: 'Hourly Pilot', needs_kiosk_pin_setup: true })
   })
 
   it('blocks a personal time-tracking user until they create a PIN', async () => {
@@ -141,119 +268,15 @@ describe('AdminLayout kiosk PIN setup', () => {
 
   it('does not show the setup flow when the API says no PIN is needed', () => {
     authMock.value.currentUser.needs_kiosk_pin_setup = false
-
     renderLayout()
-
     expect(screen.queryByRole('dialog', { name: /create your kiosk pin/i })).not.toBeInTheDocument()
-    expect(screen.getByText('Dashboard content')).toBeInTheDocument()
-  })
-
-  it('groups payroll under Time & Payroll navigation for admins', () => {
-    authMock.value.userRole = 'admin'
-    authMock.value.currentUser.needs_kiosk_pin_setup = false
-
-    renderLayout()
-
-    const workspaceLinks = screen.getAllByRole('link', { name: /time & payroll/i })
-    expect(workspaceLinks.length).toBeGreaterThan(0)
-    workspaceLinks.forEach((link) => expect(link).toHaveAttribute('href', '/admin/time'))
-    expect(screen.queryByRole('link', { name: /payroll runs/i })).not.toBeInTheDocument()
-  })
-
-  it('keeps Time & Payroll active on the payroll cutoff route', () => {
-    authMock.value.userRole = 'admin'
-    authMock.value.currentUser.needs_kiosk_pin_setup = false
-
-    renderLayout('/admin/payroll')
-
-    const workspaceLinks = screen.getAllByRole('link', { name: /time & payroll/i })
-    expect(workspaceLinks.some((link) => link.classList.contains('bg-cyan-50'))).toBe(true)
-    expect(screen.getByText('Payroll content')).toBeInTheDocument()
-  })
-
-  it('keeps employee navigation focused on My Time', () => {
-    authMock.value.currentUser.needs_kiosk_pin_setup = false
-
-    renderLayout()
-
-    expect(screen.getAllByRole('link', { name: /my time/i }).length).toBeGreaterThan(0)
-    expect(screen.queryByRole('link', { name: /time & payroll/i })).not.toBeInTheDocument()
+    expect(screen.getByText('Page /admin')).toBeInTheDocument()
   })
 
   it('renders the local admin workspace without Clerk provider components', () => {
     authMock.value.isClerkEnabled = false
-    authMock.value.currentUser.needs_kiosk_pin_setup = false
-
     renderLayout('/admin/payroll')
-
-    expect(screen.getByText('Payroll content')).toBeInTheDocument()
+    expect(screen.getByText('Page /admin/payroll')).toBeInTheDocument()
     expect(screen.queryByText('User menu')).not.toBeInTheDocument()
-  })
-})
-
-describe('AdminLayout My Pay navigation', () => {
-  beforeEach(() => {
-    window.localStorage.clear()
-    Object.defineProperty(window, 'innerWidth', { value: 1280, writable: true, configurable: true })
-    authMock.value.isClerkEnabled = true
-  })
-
-  it.each(['employee', 'manager', 'admin', 'owner'] as const)('shows My Pay to an enabled %s', (role) => {
-    authMock.value.userRole = role
-    authMock.value.currentUser = { full_name: 'Pilot Worker', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
-    renderLayout()
-    expect(screen.getByRole('link', { name: 'My Pay' })).toHaveAttribute('href', '/admin/pay')
-  })
-
-  it.each(['employee', 'manager', 'admin', 'owner'] as const)('hides My Pay from a %s whose switch is off', (role) => {
-    authMock.value.userRole = role
-    authMock.value.currentUser = { full_name: 'Other Worker', needs_kiosk_pin_setup: false, my_pay_enabled: false } as typeof authMock.value.currentUser
-    renderLayout()
-    expect(screen.queryByRole('link', { name: 'My Pay' })).not.toBeInTheDocument()
-  })
-
-  it.each([
-    ['/admin/pay', 'My Pay'],
-    ['/admin/pay/42', 'My Pay'],
-    ['/admin/payroll', 'Time & Payroll'],
-    ['/admin/pay-stubs', 'Pay stubs'],
-  ])('highlights only the matching menu item on %s', (path, active) => {
-    authMock.value.userRole = 'admin'
-    authMock.value.currentUser = { full_name: 'Pilot Admin', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
-    renderLayout(path)
-    const current = screen.getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page')
-    expect(current.map((link) => link.textContent)).toEqual([active])
-  })
-})
-
-describe('AdminLayout navigation by role', () => {
-  beforeEach(() => {
-    window.localStorage.clear()
-    Object.defineProperty(window, 'innerWidth', { value: 1280, writable: true, configurable: true })
-    authMock.value.isClerkEnabled = true
-    authMock.value.currentUser = { full_name: 'Team Member', needs_kiosk_pin_setup: false, my_pay_enabled: true } as typeof authMock.value.currentUser
-  })
-
-  function navLabels() {
-    const nav = screen.getAllByRole('navigation')[0]
-    return Array.from(nav.querySelectorAll('a')).map((link) => link.textContent?.trim())
-  }
-
-  it.each([
-    ['owner', ['Dashboard', 'My Pay', 'Time & Payroll', 'Pay stubs', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
-    ['admin', ['Dashboard', 'My Pay', 'Time & Payroll', 'Pay stubs', 'Schedule', 'Team', 'Media', 'Activity History', 'Settings']],
-    ['manager', ['Dashboard', 'Time & Payroll', 'Pay stubs', 'My Pay', 'Schedule']],
-    ['employee', ['My Dashboard', 'My Time', 'My Pay', 'Schedule']],
-  ] as const)('gives a %s exactly their menu', (role, expected) => {
-    authMock.value.userRole = role
-    renderLayout()
-    expect(navLabels()).toEqual(expected)
-  })
-
-  it('labels the manager workspace without calling it admin', () => {
-    authMock.value.userRole = 'manager'
-    renderLayout()
-    expect(screen.getByText('Manager workspace')).toBeInTheDocument()
-    expect(screen.queryByText('Admin workspace')).not.toBeInTheDocument()
   })
 })

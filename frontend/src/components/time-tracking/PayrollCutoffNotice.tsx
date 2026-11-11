@@ -8,6 +8,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import './PayrollCutoffNotice.css'
 import { withPayrollPeriod } from '../../lib/payrollPeriods'
+import { ADMIN_PATHS, timeSectionPath } from '../../lib/adminRoutes'
 import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import { PAUSED_PAYROLL_MESSAGE } from '../../lib/connectedPayroll'
 
@@ -157,8 +158,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
       {passed ? <p className="mt-2">{LATE_HOURS_NOTICE}</p>
         : <p className="mt-2">{reviewsTeam ? "Review this period’s hours and pending approvals before the cutoff." : "Review your hours and contact your manager about anything missing."} You can keep clocking in and out.</p>}
       {!kiosk && <div className="mt-3 flex flex-wrap items-center gap-4">
-        <Link to={withPayrollPeriod('/admin/time', { start: cutoff.period.start_date, end: cutoff.period.end_date }, { tab: 'entries', view: 'period' })}>{reviewsTeam ? 'Review period hours' : 'Review my hours'}</Link>
-        {reviewsTeam && <Link to={withPayrollPeriod('/admin/time', { start: cutoff.period.start_date, end: cutoff.period.end_date }, { tab: 'approvals' })}>{pending === null ? 'Review pending approvals' : `${pending} pending approval${pending === 1 ? '' : 's'}`}</Link>}
+        <Link to={withPayrollPeriod(timeSectionPath('entries', { supervises: reviewsTeam }), { start: cutoff.period.start_date, end: cutoff.period.end_date }, { view: 'period' })}>{reviewsTeam ? 'Review period hours' : 'Review my hours'}</Link>
+        {reviewsTeam && <Link to={withPayrollPeriod(ADMIN_PATHS.approvals, { start: cutoff.period.start_date, end: cutoff.period.end_date })}>{pending === null ? 'Review pending approvals' : `${pending} pending approval${pending === 1 ? '' : 's'}`}</Link>}
       </div>}
       {ackError && <p className="mt-2" role="status">Dismissed on this screen. We couldn’t save your acknowledgement; you may see it again on another device.</p>}
     </section>
@@ -176,8 +177,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
           <button type="button" onClick={dismiss} data-cutoff-ack className="cutoff-primary">Got it</button>
-          {!kiosk && <Link onClick={dismiss} to={withPayrollPeriod('/admin/time', { start: modalPeriod.start_date, end: modalPeriod.end_date }, { tab: 'entries', view: 'period' })} className="cutoff-secondary">{reviewsTeam ? 'Review period hours' : 'Review my hours'}</Link>}
-          {reviewsTeam && <Link onClick={dismiss} to={withPayrollPeriod('/admin/time', { start: modalPeriod.start_date, end: modalPeriod.end_date }, { tab: 'approvals' })} className="cutoff-secondary">Review pending approvals</Link>}
+          {!kiosk && <Link onClick={dismiss} to={withPayrollPeriod(timeSectionPath('entries', { supervises: reviewsTeam }), { start: modalPeriod.start_date, end: modalPeriod.end_date }, { view: 'period' })} className="cutoff-secondary">{reviewsTeam ? 'Review period hours' : 'Review my hours'}</Link>}
+          {reviewsTeam && <Link onClick={dismiss} to={withPayrollPeriod(ADMIN_PATHS.approvals, { start: modalPeriod.start_date, end: modalPeriod.end_date })} className="cutoff-secondary">Review pending approvals</Link>}
         </div>
       </div>
     </div>, document.body)}

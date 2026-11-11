@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render as renderInDom, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Settings from './Settings'
@@ -40,6 +41,9 @@ vi.mock('../../lib/api', () => ({
     deleteTimeCategory: apiMock.deleteTimeCategory,
   },
 }))
+
+// Settings links to Website, so it renders inside a router.
+const render = (ui: ReactNode) => renderInDom(ui, { wrapper: MemoryRouter })
 
 vi.mock('../../components/ui/MotionComponents', () => ({
   FadeUp: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -149,8 +153,9 @@ describe('Admin Settings contact settings', () => {
     expect(screen.queryByText(/Search for an address or use your current location to preview/)).toBeNull()
   })
 
-  it('loads and updates contact settings', async () => {
-    render(<Settings />)
+  it('loads and updates contact settings under Website', async () => {
+    render(<Settings view="website" />)
+    expect(screen.getByRole('heading', { level: 1, name: 'Contact & links' })).toBeInTheDocument()
 
     expect(await screen.findByDisplayValue('ops@example.com')).toBeInTheDocument()
     await waitFor(() => {

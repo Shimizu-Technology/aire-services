@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { LeaveRequest, PaginationMeta } from '../../lib/api'
-import { touchBaseline } from '../../lib/touchBaseline'
 
 const LEAVE_TYPE_OPTIONS: Array<{ value: LeaveRequest['leave_type']; label: string }> = [
   { value: 'paid_time_off', label: 'Paid time off' },
@@ -371,7 +370,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
   )
 
   return (
-    <div className={`space-y-5 ${touchBaseline}`}>
+    <div className="space-y-5">
       {errorBanner}
       {!canApproveLeave && requestForm}
 

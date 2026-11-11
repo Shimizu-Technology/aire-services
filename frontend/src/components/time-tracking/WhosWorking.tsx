@@ -1,5 +1,6 @@
 import { formatBusinessTime, formatDateOnly } from '../../lib/dateUtils'
 import { Link } from 'react-router-dom'
+import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { useState, useEffect, useCallback, useRef, type JSX } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api, getAuthTokenValue } from '../../lib/api'
@@ -367,7 +368,7 @@ function missedClockOutHref(worker: WorkerStatus) {
   if (worker.open_since_work_date) params.set('date', worker.open_since_work_date)
   params.set('view', 'day')
   params.set('user_id', String(worker.user.id))
-  return `/admin/time?${params}`
+  return `${ADMIN_PATHS.timecards}?${params}`
 }
 
 function ExpandedDetails({

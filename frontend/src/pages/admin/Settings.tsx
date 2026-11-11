@@ -6,6 +6,8 @@ import { FadeUp } from '../../components/ui/MotionComponents'
 import { useConfirm } from '../../components/ui/useConfirm'
 import { HelpTip } from '../../components/ui/HelpTip'
 import PayStubSettings from '../../components/pay-stubs/PayStubSettings'
+import ScheduleSettings from '../../components/time-tracking/ScheduleSettings'
+import { Link } from 'react-router-dom'
 import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
 import type { PublicContactInfoSettings, PublicPhoneContactChannel, PublicPhoneContactSettings } from '../../lib/businessInfo'
@@ -134,10 +136,13 @@ function GoogleMapPreview({ latitude, longitude }: { latitude: number; longitude
   )
 }
 
-export default function Settings() {
+// "website" shows only the public contact details, phone numbers and social
+// links, under Website (/admin/website/contact); "settings" shows the rest.
+export default function Settings({ view = 'settings' }: { view?: 'settings' | 'website' }) {
+  const showSettings = view === 'settings'
   useEffect(() => {
-    document.title = 'Settings | AIRE Ops'
-  }, [])
+    document.title = showSettings ? 'Settings | AIRE Ops' : 'Contact & links | AIRE Ops'
+  }, [showSettings])
 
   const [categories, setCategories] = useState<AdminTimeCategory[]>([])
   const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
@@ -846,19 +851,25 @@ export default function Settings() {
 
   return (
     <div className="space-y-8">
-      <FadeUp>
+      {showSettings ? <FadeUp>
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h1>
           <p className="mt-1 text-sm text-slate-600">
-            Manage departments, work categories, overtime rules, and public contact settings.
+            Manage time clock rules, approvals, pay stubs, schedules, departments and work categories. Public contact details are under Website.
           </p>
         </div>
-      </FadeUp>
+      </FadeUp> : (
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Contact & links</h1>
+          <p className="mt-1 text-sm text-slate-600">Who gets website inquiries, and the phone numbers, email, address and social links on the public site.</p>
+        </div>
+      )}
 
       {loading ? (
         <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500 shadow-sm">Loading settings…</div>
       ) : (
         <>
+          {showSettings && <>
           <FadeUp delay={0.05}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
@@ -1178,6 +1189,10 @@ export default function Settings() {
           </FadeUp>
 
           <FadeUp delay={0.08}>
+            <ScheduleSettings settings={clockSettings} onSaved={setClockSettings} />
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Departments</h2>
@@ -1256,7 +1271,15 @@ export default function Settings() {
             </section>
           </FadeUp>
 
-          <FadeUp delay={0.1}>
+          </>}
+
+          {showSettings ? (
+            <section className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <h2 className="text-lg font-semibold text-slate-900">Contact details, phone numbers and social links</h2>
+              <p className="mt-1 text-sm text-slate-500">These are on the public website, so they’ve moved to the Website section.</p>
+              <Link to="/admin/website/contact" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-cyan-700 hover:text-cyan-900">Open Website → Contact & links</Link>
+            </section>
+          ) : <FadeUp delay={0.1}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Contact settings</h2>
@@ -1567,9 +1590,9 @@ export default function Settings() {
                 </div>
               </form>
             </section>
-          </FadeUp>
+          </FadeUp>}
 
-          <FadeUp delay={0.12}>
+          {showSettings && <FadeUp delay={0.12}>
             <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1668,7 +1691,7 @@ export default function Settings() {
                 </div>
               )}
             </section>
-          </FadeUp>
+          </FadeUp>}
         </>
       )}
 

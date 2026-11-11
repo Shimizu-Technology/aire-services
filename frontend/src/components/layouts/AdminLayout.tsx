@@ -1,28 +1,14 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
-import {
-  CalendarDays,
-  Clock3,
-  History,
-  House,
-  Image,
-  Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Send,
-  Settings,
-  UserRound,
-  Wallet,
-  X,
-  type LucideIcon,
-} from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
-import type { Capabilities, Capability } from '../../lib/roles'
+import { api } from '../../lib/api'
 import { useCapabilities } from '../../lib/useCapabilities'
-import { isWithinRoute } from '../../lib/employeeWorkspace'
-import { lockDialogScroll } from '../../lib/useDialogFocus'
+import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
+import AdminTabBar from './AdminTabBar'
+import { approvalBadgeText, isNavItemActive, navItemLabel, navigationGroups, tabBarLayout, type NavigationOptions } from './adminNavigation'
 
 function NavIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
@@ -32,56 +18,30 @@ function NavIcon({ icon: Icon }: { icon: LucideIcon }) {
   )
 }
 
-interface NavItem {
-  name: string
-  href: string
-  icon: LucideIcon
-}
-
-// Shown only when My Pay is on for the signed-in user.
-const myPayNavigation: NavItem = {
-  name: 'My Pay',
-  href: '/admin/pay',
-  icon: Wallet,
-}
-
-// Sending pay stubs: owners, admins and managers.
-const payStubsNavigation: NavItem = {
-  name: 'Pay stubs',
-  href: '/admin/pay-stubs',
-  icon: Send,
-}
-
-// Owner and admin areas, each shown only to roles with that capability.
-const administrationNavigation: (NavItem & { capability: Capability })[] = [
-  { name: 'Team', href: '/admin/users', icon: UserRound, capability: 'manage_users' },
-  { name: 'Media', href: '/admin/media', icon: Image, capability: 'manage_site' },
-  { name: 'Activity History', href: '/admin/activity', icon: History, capability: 'view_activity' },
-  { name: 'Settings', href: '/admin/settings', icon: Settings, capability: 'manage_settings' },
-]
-
-// Employees see their own workspace; managers get the same short list pointed
-// at the team (approvals and timecards); owners and admins get everything.
-function navigationFor(capabilities: Capabilities, myPayEnabled: boolean): NavItem[] {
-  const supervises = capabilities.manage_team_time
-  const dashboard: NavItem = { name: supervises ? 'Dashboard' : 'My Dashboard', href: '/admin', icon: House }
-  const time: NavItem = { name: supervises ? 'Time & Payroll' : 'My Time', href: '/admin/time', icon: Clock3 }
-  const schedule: NavItem = { name: 'Schedule', href: '/admin/schedule', icon: CalendarDays }
-  const administration = administrationNavigation.filter((item) => capabilities[item.capability])
-  const myPay = myPayEnabled ? [myPayNavigation] : []
-  const payStubs = capabilities.send_pay_statements ? [payStubsNavigation] : []
-
-  if (administration.length > 0) return [dashboard, ...myPay, time, ...payStubs, schedule, ...administration]
-  return [dashboard, time, ...payStubs, ...myPay, schedule]
-}
-
 const desktopSidebarStorageKey = 'aire-admin-sidebar-collapsed'
+const APPROVAL_BADGE_REFRESH_MS = 60_000
+
+/** Items waiting on the signed-in supervisor, for the Approvals badge. Refreshed on navigation and every minute. */
+function usePendingApprovalCount(enabled: boolean) {
+  const [count, setCount] = useState(0)
+  const location = useLocation()
+
+  useEffect(() => {
+    if (!enabled) return
+    let active = true
+    const load = async () => {
+      const response = await api.getPendingApprovals({ page: 1, per_page: 1 })
+      if (active && response.data) setCount(response.data.summary?.entry_count ?? 0)
+    }
+    void load().catch(() => undefined)
+    const stop = startVisibilityAwarePolling(load, APPROVAL_BADGE_REFRESH_MS)
+    return () => { active = false; stop() }
+  }, [enabled, location.pathname])
+
+  return enabled ? count : 0
+}
 
 export default function AdminLayout() {
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 1024)
-  const sidebarRef = useRef<HTMLElement>(null)
-  const mobileTriggerRef = useRef<HTMLButtonElement>(null)
   const [desktopCollapsed, setDesktopCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem(desktopSidebarStorageKey) === 'true'
@@ -92,78 +52,28 @@ export default function AdminLayout() {
   const capabilities = useCapabilities()
   const isAdmin = capabilities.manage_settings
   const workspaceLabel = isAdmin ? 'Admin' : capabilities.manage_team_time ? 'Manager' : 'Staff'
-  const myPayEnabled = Boolean(currentUser?.my_pay_enabled)
-  const navigation = useMemo(() => navigationFor(capabilities, myPayEnabled), [capabilities, myPayEnabled])
+  const navigationOptions: NavigationOptions = useMemo(() => ({
+    capabilities,
+    myPayEnabled: Boolean(currentUser?.my_pay_enabled),
+    schedulesEnabled: Boolean(currentUser?.schedules_enabled),
+    // Local development without Clerk has no signed-in record; show the full workspace.
+    tracksTime: currentUser ? currentUser.time_tracking_enabled !== false : !isClerkEnabled,
+  }), [capabilities, currentUser, isClerkEnabled])
+  const groups = useMemo(() => navigationGroups(navigationOptions), [navigationOptions])
+  const tabBar = useMemo(() => tabBarLayout(navigationOptions), [navigationOptions])
+  const approvalCount = usePendingApprovalCount(capabilities.approve_time)
   const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)
-  // Required PIN setup takes precedence over the navigation dialog.
-  const navigationOpen = mobileOpen && !needsKioskPinSetup
-  const restoreNavigationFocus = useEffectEvent((sidebar: HTMLElement | null, trigger: HTMLButtonElement | null) => {
-    if (needsKioskPinSetup) return
-    if (window.innerWidth >= 1024) {
-      if (document.activeElement === document.body) sidebar?.querySelector<HTMLElement>('a[href]')?.focus()
-    } else {
-      trigger?.focus()
-    }
-  })
-
-  const isActive = (href: string) => {
-    if (href === '/admin') return location.pathname === '/admin'
-    if (href === '/admin/time') return location.pathname.startsWith('/admin/time') || location.pathname.startsWith('/admin/payroll')
-    // My Pay preview is opened from Team, so Team stays highlighted.
-    if (href === '/admin/users') return isWithinRoute(location.pathname, href) || isWithinRoute(location.pathname, '/admin/pay-preview')
-    return isWithinRoute(location.pathname, href)
-  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(desktopSidebarStorageKey, String(desktopCollapsed))
   }, [desktopCollapsed])
 
-  useEffect(() => {
-    const updateViewport = () => {
-      const desktop = window.innerWidth >= 1024
-      setIsDesktop(desktop)
-      if (desktop) setMobileOpen(false)
-    }
-    window.addEventListener('resize', updateViewport)
-    return () => window.removeEventListener('resize', updateViewport)
-  }, [])
-
-  useEffect(() => {
-    if (!navigationOpen || isDesktop) return
-    const sidebar = sidebarRef.current
-    const trigger = mobileTriggerRef.current
-    const unlockScroll = lockDialogScroll()
-    const focusable = () => Array.from(sidebar?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])') ?? [])
-    focusable()[0]?.focus()
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        setMobileOpen(false)
-      } else if (event.key === 'Tab') {
-        const items = focusable()
-        const first = items[0]
-        const last = items.at(-1)
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
-      }
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('keydown', handleKey)
-      unlockScroll()
-      restoreNavigationFocus(sidebar, trigger)
-    }
-  }, [navigationOpen, isDesktop])
-
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.08),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#f3f4f6_100%)]">
-      <div inert={navigationOpen && !isDesktop} className="border-b border-slate-200/90 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
-        <div className="mx-auto flex h-16 w-full max-w-[104rem] items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <button ref={mobileTriggerRef} onClick={() => setMobileOpen((v) => !v)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Toggle sidebar" aria-expanded={navigationOpen}>
-              {navigationOpen ? <X className="h-6 w-6" aria-hidden="true" /> : <Menu className="h-6 w-6" aria-hidden="true" />}
-            </button>
+      <div className="border-b border-slate-200/90 bg-white/95 pt-safe backdrop-blur supports-[backdrop-filter]:bg-white/85">
+        <div className="mx-auto flex h-16 w-full max-w-[104rem] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setDesktopCollapsed((value) => !value)}
@@ -172,17 +82,16 @@ export default function AdminLayout() {
             >
               {desktopCollapsed ? <PanelLeftOpen className="h-5 w-5" aria-hidden="true" /> : <PanelLeftClose className="h-5 w-5" aria-hidden="true" />}
             </button>
-            <div>
+            <div className="min-w-0">
               <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">AIRE Ops</Link>
-              <p className="text-xs text-slate-500 lg:hidden">{isAdmin ? 'Admin dashboard' : `${workspaceLabel} portal`}</p>
+              <p className="text-xs text-slate-500 lg:hidden">{`${workspaceLabel} workspace`}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 md:inline-flex">
+            <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 lg:inline-flex">
               {`${workspaceLabel} workspace`}
             </div>
-            <Link to="/kiosk" className="text-sm text-slate-500 hover:text-slate-900" target="_blank" rel="noopener noreferrer">Kiosk</Link>
-            <Link to="/" className="text-sm text-slate-500 hover:text-slate-900">View Site</Link>
+            <Link to="/" className="inline-flex min-h-11 items-center text-sm text-slate-500 hover:text-slate-900">View site</Link>
             {isClerkEnabled && (
               <SignedIn>
                 <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
@@ -193,55 +102,69 @@ export default function AdminLayout() {
       </div>
 
       <div className="mx-auto flex w-full max-w-[104rem]">
-        {/* Backdrop overlay for mobile */}
-        {navigationOpen && (
-          <div
-            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
-            onClick={() => setMobileOpen(false)}
-          />
-        )}
-
-        <aside ref={sidebarRef} role={!isDesktop && navigationOpen ? 'dialog' : undefined} aria-modal={!isDesktop && navigationOpen ? true : undefined} aria-label="Navigation" aria-hidden={!isDesktop && !navigationOpen ? true : undefined} inert={!isDesktop && !navigationOpen} className={`fixed top-16 bottom-0 left-0 z-40 overflow-y-auto border-r border-slate-200 bg-white px-4 py-6 shadow-xl transition-all duration-300 motion-reduce:transition-none lg:static lg:translate-x-0 lg:overflow-visible lg:shadow-none ${desktopCollapsed ? 'w-72 lg:w-24' : 'w-72'} ${navigationOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-          {!isDesktop && <button type="button" onClick={() => setMobileOpen(false)} className="mb-4 flex min-h-11 items-center gap-2 text-slate-700 lg:hidden" aria-label="Close navigation"><X className="h-5 w-5" aria-hidden="true" />Close</button>}
-          <div className={`mb-6 ${desktopCollapsed ? 'px-0' : 'px-2'}`}>
-            <p className={`text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 ${desktopCollapsed ? 'hidden lg:block lg:text-center' : ''}`}>
-              {desktopCollapsed ? 'Nav' : isAdmin ? 'Admin Navigation' : 'Navigation'}
-            </p>
-          </div>
-          <nav className="space-y-1">
-            {navigation.map((item) => (
-              <Link
-                key={item.href}
-                to={item.href}
-                onClick={() => setMobileOpen(false)}
-                aria-label={desktopCollapsed ? item.name : undefined}
-                title={desktopCollapsed ? item.name : undefined}
-                aria-current={isActive(item.href) ? 'page' : undefined}
-                className={`group relative flex items-center rounded-xl px-4 py-3 text-sm font-medium transition ${desktopCollapsed ? 'gap-3 lg:justify-center lg:gap-0 lg:px-2' : 'gap-3'} ${isActive(item.href) ? 'bg-cyan-50 text-cyan-700 shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
-              >
-                {desktopCollapsed ? (
-                  <>
-                    <span className="inline-flex"><NavIcon icon={item.icon} /></span>
-                    <span className="lg:hidden">{item.name}</span>
-                    <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-lg transition duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 lg:block">
-                      {item.name}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className={isActive(item.href) ? 'text-cyan-700' : ''}><NavIcon icon={item.icon} /></span>
-                    <span>{item.name}</span>
-                  </>
+        <div className={`hidden shrink-0 border-r border-slate-200 bg-white px-4 py-6 lg:block ${desktopCollapsed ? 'w-24' : 'w-72'}`}>
+          <nav aria-label="Main" className="space-y-6">
+            {groups.map((group) => (
+              <div key={group.id} role="group" aria-label={group.label ?? 'Workspace'}>
+                {group.label && (
+                  <p aria-hidden="true" className={`mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 ${desktopCollapsed ? 'text-center' : 'px-4'}`}>
+                    {group.label}
+                  </p>
                 )}
-              </Link>
+                <ul className="space-y-1">
+                  {group.items.map((navItem) => {
+                    const active = isNavItemActive(navItem, location.pathname)
+                    const showBadge = navItem.badge === 'approvals' && approvalCount > 0
+                    return (
+                      <li key={navItem.id}>
+                        <Link
+                          to={navItem.href}
+                          target={navItem.external ? '_blank' : undefined}
+                          rel={navItem.external ? 'noopener noreferrer' : undefined}
+                          aria-label={navItemLabel(navItem, approvalCount)}
+                          title={desktopCollapsed ? navItem.name : undefined}
+                          aria-current={active ? 'page' : undefined}
+                          className={`group relative flex items-center rounded-xl py-3 text-sm font-medium transition ${desktopCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} ${active ? 'bg-cyan-50 text-cyan-700 shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                        >
+                          <span className="relative inline-flex">
+                            <NavIcon icon={navItem.icon} />
+                            {showBadge && desktopCollapsed && (
+                              <span aria-hidden="true" className="absolute -right-1.5 -top-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold leading-none text-white ring-2 ring-white">
+                                {approvalBadgeText(approvalCount)}
+                              </span>
+                            )}
+                          </span>
+                          {desktopCollapsed ? (
+                            <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-lg transition duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+                              {navItem.name}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="min-w-0 flex-1 truncate">{navItem.name}</span>
+                              {showBadge && (
+                                <span aria-hidden="true" className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-amber-200 bg-amber-50 px-1.5 text-xs font-bold text-amber-800">
+                                  {approvalBadgeText(approvalCount)}
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
             ))}
           </nav>
-        </aside>
+        </div>
 
-        <main inert={navigationOpen && !isDesktop} className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 xl:py-8">
+        {/* Room for the phone tab bar and the home indicator below the last row. */}
+        <main className="min-w-0 flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-6 sm:px-6 lg:px-8 lg:pb-8 xl:py-8">
           <Outlet />
         </main>
       </div>
+
+      <AdminTabBar layout={tabBar} approvalCount={approvalCount} />
 
       <KioskPinSetupModal
         open={needsKioskPinSetup}

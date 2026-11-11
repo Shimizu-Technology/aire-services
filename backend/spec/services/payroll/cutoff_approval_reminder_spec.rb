@@ -36,6 +36,9 @@ RSpec.describe Payroll::CutoffApprovalReminder do
     expect(mail[:to]).to eq([ "approver@example.test", "second@example.test" ])
     expect(mail[:subject]).to include("2 entries waiting")
     expect(mail[:html]).to include("O&#39;Neil", "1 time, 1 overtime")
+    # The approvals page; old /admin/time?tab=approvals links redirect there.
+    expect(mail[:html]).to include("/admin/approvals")
+    expect(mail[:html]).not_to include("/admin/time")
   end
 
   it "waits until the morning, and sends each day's reminder only once" do
