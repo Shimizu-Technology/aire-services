@@ -187,6 +187,9 @@ function summarizeSelectedEntries(entries: TimeEntry[]) {
 }
 
 const EDITED_REASON_KEYS = new Set(['corrected_clock_out', 'employee_edited', 'admin_override'])
+// The confirm lists this many people with overtime, then "+ N more people",
+// so the dialog's buttons stay on screen.
+const OVERTIME_PEOPLE_SHOWN = 4
 
 function plural(count: number, one: string, many: string) {
   return `${count} ${count === 1 ? one : many}`
@@ -590,6 +593,9 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     const lateCount = included.lateCount
     const count = selectedEntries.length
     const entriesLabel = `${count} entr${count === 1 ? 'y' : 'ies'}`
+    const overtimeShown = included.overtime.slice(0, OVERTIME_PEOPLE_SHOWN)
+    const overtimeRest = included.overtime.slice(OVERTIME_PEOPLE_SHOWN)
+    const overtimeRestHours = overtimeRest.reduce((sum, person) => sum + person.hours, 0)
     const approved = await confirm({
       title: `Approve ${count} selected entr${count === 1 ? 'y' : 'ies'}?`,
       description: included.sentence ?? undefined,
@@ -610,12 +616,18 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 Includes {included.overtimeHours > 0 ? `${included.overtimeHours.toFixed(2)}h ` : ''}overtime. Approving these entries approves it too.
               </p>
               <ul className="mt-1 space-y-0.5">
-                {included.overtime.map((person) => (
+                {overtimeShown.map((person) => (
                   <li key={person.id} className="flex justify-between gap-3">
-                    <span>{person.name}</span>
-                    {person.hours > 0 && <span className="font-medium tabular-nums">{person.hours.toFixed(2)}h OT</span>}
+                    <span className="min-w-0 truncate">{person.name}</span>
+                    {person.hours > 0 && <span className="shrink-0 font-medium tabular-nums">{person.hours.toFixed(2)}h OT</span>}
                   </li>
                 ))}
+                {overtimeRest.length > 0 && (
+                  <li className="flex justify-between gap-3">
+                    <span>+ {overtimeRest.length} more {overtimeRest.length === 1 ? 'person' : 'people'}</span>
+                    {overtimeRestHours > 0 && <span className="shrink-0 font-medium tabular-nums">{overtimeRestHours.toFixed(2)}h OT</span>}
+                  </li>
+                )}
               </ul>
             </div>
           )}

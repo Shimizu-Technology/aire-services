@@ -660,6 +660,28 @@ describe('Late approval guidance', () => {
     expect(within(dialog).getByRole('button', { name: 'Approve 2 entries + 4.00h OT' })).toBeInTheDocument()
   })
 
+  it('lists at most four people with overtime and sums the rest', async () => {
+    const people = ['Ana Reyes', 'Ben Cruz', 'Cora Diaz', 'Dan Flores', 'Eve Garcia', 'Fay Hall']
+    const pending = people.map((name, index) => makeEntry({
+      id: 300 + index,
+      entry_method: 'clock',
+      clock_source: 'mobile',
+      overtime_status: 'pending',
+      pending_overtime_hours: 6 - index,
+      approval_reasons: [{ key: 'overtime', label: 'Overtime' }],
+      user: { ...entries[0].user, id: 400 + index, full_name: name, display_name: name },
+    }))
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: pending, count: pending.length } })
+    render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select approvable (6)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (6)' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Approve 6 selected entries?' })
+    expect(dialog).toHaveAccessibleDescription(startsWith('Includes 21.00h overtime for 6 people.'))
+    const rows = within(within(dialog).getByTestId('bulk-confirm-overtime')).getAllByRole('listitem').map((item) => item.textContent)
+    expect(rows).toEqual(['Ana Reyes6.00h OT', 'Ben Cruz5.00h OT', 'Cora Diaz4.00h OT', 'Dan Flores3.00h OT', '+ 2 more people3.00h OT'])
+  })
+
   it('keeps the bulk confirm plain when only ordinary clock shifts are selected', async () => {
     authMock.currentUser = { id: 20 }
     const ordinary = makeEntry({ entry_method: 'clock', clock_source: 'mobile', approval_reasons: [{ key: 'unscheduled_clock', label: 'Unscheduled clock' }] })
