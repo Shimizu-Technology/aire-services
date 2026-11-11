@@ -61,6 +61,12 @@ Rails.application.routes.draw do
       post "aire/kiosk/cutoff", to: "payroll_cutoffs#kiosk"
       post "aire/kiosk/cutoff/acknowledge", to: "payroll_cutoffs#kiosk_acknowledge"
 
+      # Today and the pay period page (read-only)
+      resource :attention, only: [ :show ], controller: :attention
+      resource :payroll_connection, only: [ :show ]
+      resources :payroll_periods, only: [ :index, :show ], param: :start_date,
+                                  constraints: { start_date: /\d{4}-\d{2}-\d{2}/ }
+
       # Public kiosk endpoints
       namespace :aire do
         post "kiosk/verify", to: "kiosk#verify"
