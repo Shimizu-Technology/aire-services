@@ -34,12 +34,13 @@ const SETTINGS_PAGE_KEYS: Record<keyof TimeClockAppSettings, true> = {
   auto_approve_max_shift_hours: true,
   pay_stub_kiosk_requests_enabled: true,
   pay_stub_self_email_enabled: true,
+  schedules_enabled: true,
 }
 
 // The other things the page edits, stored outside TimeClockAppSettings.
 const OTHER_PAGE_SETTINGS = ['approval_groups', 'contact_email', 'contact_inquiry_topics', 'public_contact_settings', 'public_social_links', 'pay_stub_request_notification_emails']
 
-const sources = import.meta.glob<string>(['./Settings.tsx', '../../components/pay-stubs/PayStubSettings.tsx', '../../components/time-tracking/AutoApprovalSettings.tsx'], { query: '?raw', import: 'default', eager: true })
+const sources = import.meta.glob<string>(['./Settings.tsx', '../../components/pay-stubs/PayStubSettings.tsx', '../../components/time-tracking/AutoApprovalSettings.tsx', '../../components/time-tracking/ScheduleSettings.tsx'], { query: '?raw', import: 'default', eager: true })
 
 const apiMock = vi.hoisted(() => ({
   getAdminTimeCategories: vi.fn(),
@@ -55,7 +56,7 @@ vi.mock('../../components/ui/MotionComponents', () => ({
   FadeUp: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-function renderSettings(entries: SettingsCatalogEntry[] = catalog) {
+function renderSettings(entries: SettingsCatalogEntry[] = catalog, view: 'settings' | 'website' = 'settings') {
   apiMock.getAdminAppSettings.mockResolvedValue({
     data: {
       settings: {
@@ -73,12 +74,13 @@ function renderSettings(entries: SettingsCatalogEntry[] = catalog) {
         auto_approve_max_shift_hours: '12',
         pay_stub_kiosk_requests_enabled: 'false',
         pay_stub_self_email_enabled: 'false',
+        schedules_enabled: 'false',
       },
       approval_groups: [{ key: 'cfi', label: 'CFI' }],
       catalog: entries,
     },
   })
-  return render(<Settings />, { wrapper: MemoryRouter })
+  return render(<Settings view={view} />, { wrapper: MemoryRouter })
 }
 
 describe('Settings help comes from the settings catalog', () => {
@@ -128,6 +130,34 @@ describe('Settings help comes from the settings catalog', () => {
     const section = await screen.findByRole('region', { name: 'Set on other pages' })
     expect(within(section).getByRole('button', { name: 'About My Pay for everyone' })).toBeInTheDocument()
     expect(within(section).getAllByRole('link', { name: 'Team page' })[0]).toHaveAttribute('href', '/admin/users')
+  })
+
+  it('lists the contact settings as set on the Website page', async () => {
+    renderSettings()
+    const section = await screen.findByRole('region', { name: 'Set on other pages' })
+    expect(within(section).getByRole('button', { name: 'About Public contact details' })).toBeInTheDocument()
+    expect(within(section).getAllByRole('link', { name: 'Website page' })[0]).toHaveAttribute('href', '/admin/website/contact')
+  })
+
+  it('shows the contact tips under Website → Contact & links', async () => {
+    renderSettings(catalog, 'website')
+    await screen.findByRole('button', { name: 'About Public contact details' })
+    const tips = screen.getAllByRole('button', { name: /^About / }).map((button) => button.getAttribute('aria-label'))
+    const contact = catalog.filter((entry) => entry.section === 'contact')
+    expect(contact.length).toBeGreaterThan(0)
+    expect(tips.sort()).toEqual(contact.map((entry) => `About ${entry.label}`).sort())
+  })
+
+  it('explains Use schedules from the catalog, next to its switch', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+    await user.click(await screen.findByRole('button', { name: 'About Use schedules' }))
+    const entry = catalog.find((candidate) => candidate.id === 'schedules_enabled')!
+    expect(entry.what).toMatch(/doesn't change any clock-in rule/)
+    expect(entry.what).toContain('Require a scheduled shift to clock in')
+    const announcement = screen.getAllByRole('status').find((region) => region.textContent?.includes(entry.what))
+    expect(announcement).toHaveTextContent('DefaultOff')
+    expect(announcement).toHaveTextContent('Who can change itOwners and admins')
   })
 
   it('shows the scheduled-shift rule read-only, with its current value', async () => {

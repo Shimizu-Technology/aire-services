@@ -23,7 +23,6 @@ import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor, isUserRole, ROLE_DETAILS, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { currentPayrollPeriod, isIsoDate, withPayrollPeriod, type PayrollPeriod } from '../../lib/payrollPeriods'
-import { touchBaseline } from '../../lib/touchBaseline'
 
 // Local types to avoid Vite caching issues
 interface TimeCategory {
@@ -386,7 +385,10 @@ function EntryQualityFlags({ flags = [] }: { flags?: TimeEntryItem['quality_flag
   )
 }
 
-export default function TimeTracking() {
+// Each section is its own route now (/admin/approvals, /admin/timecards,
+// /admin/reports, /admin/leave, /admin/my-hours). Without a section prop the
+// old ?tab= parameter still decides, which the page's tests rely on.
+export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
   const currentPath = `${location.pathname}${location.search}`
@@ -455,7 +457,7 @@ export default function TimeTracking() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  const [activeTab, setActiveTab] = useState<TimeTab>(() => timeTabFromSearchParams(searchParams))
+  const activeTab: TimeTab = section ?? timeTabFromSearchParams(searchParams)
   
   // View mode: 'day' or 'week'
   const viewMode = routedView
@@ -768,13 +770,9 @@ export default function TimeTracking() {
   }, [reportFilters])
 
   useEffect(() => {
-    document.title = `${canManageTeamTime ? 'Time & Payroll' : 'My Time'} | AIRE Ops`
-  }, [canManageTeamTime])
-
-  useEffect(() => {
-    const requestedTab = timeTabFromSearchParams(searchParams)
-    setActiveTab((current) => current === requestedTab ? current : requestedTab)
-  }, [searchParams])
+    const titles: Record<TimeTab, string> = { entries: canManageTeamTime ? 'Timecards' : 'My Hours', approvals: 'Approvals', reports: 'Reports', leave: canManageTeamTime ? 'Leave requests' : 'Leave' }
+    document.title = `${titles[activeTab]} | AIRE Ops`
+  }, [activeTab, canManageTeamTime])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setEntryFilters(current => current.user_id === routedUserId ? current : { ...current, user_id: routedUserId }), 0)
@@ -1164,9 +1162,6 @@ export default function TimeTracking() {
   const pendingOvertimeApprovalCount = pendingApprovalSummary?.pending_overtime_count ?? 0
   const throughDateParam = searchParams.get('through_date')
   const routedThroughDate = isIsoDate(throughDateParam) ? throughDateParam : undefined
-  const workspacePeriod = activeTab === 'reports'
-    ? { start: reportFilters.start_date, end: reportFilters.end_date }
-    : routedPeriod ?? currentPayrollPeriod()
   const reportLinkedEntryId = linkedEntry && String(linkedEntry.id) === routedEntryId
     && (!reportFilters.user_id || String(linkedEntry.user.id) === reportFilters.user_id)
     && isIsoDate(linkedEntry.work_date) && isIsoDate(reportFilters.start_date) && isIsoDate(reportFilters.end_date)
@@ -1181,18 +1176,6 @@ export default function TimeTracking() {
     ...(returnTo ? { return_to: returnTo } : {}),
   })
 
-  const selectWorkspaceSection = (section: TimeTab) => {
-    setActiveTab(section)
-    const next = new URLSearchParams(searchParams)
-    if (activeTab === 'reports') {
-      next.set('start_date', reportFilters.start_date)
-      next.set('end_date', reportFilters.end_date)
-    }
-    if (section !== 'approvals') next.delete('through_date')
-    if (section === 'entries') next.delete('tab')
-    else next.set('tab', section)
-    setSearchParams(next)
-  }
 
   const currentReportParams = (): HoursReportParams => ({
     start_date: reportFilters.start_date,
@@ -1248,7 +1231,7 @@ export default function TimeTracking() {
   }
 
   return (
-    <div className={`space-y-6 ${touchBaseline}`}>
+    <div className="space-y-6">
       <PayrollCutoffNotice />
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">{isWithinRoute(returnTo, '/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}</Link>}
       <TimePayrollWorkspaceHeader
@@ -1257,8 +1240,10 @@ export default function TimeTracking() {
         canManagePayroll={canManagePayroll}
         pendingApprovalCount={pendingApprovalCount}
         pendingOvertimeCount={pendingOvertimeApprovalCount}
-        period={workspacePeriod}
-        onSectionChange={selectWorkspaceSection}
+        // Only a period in the URL. Defaulting to the current one would hide
+        // older pending entries that the Approvals badge still counts.
+        period={routedPeriod}
+        canApproveLeave={capabilities.approve_leave}
         action={activeTab === 'entries' ? (
           <button
             onClick={() => openNewEntry()}

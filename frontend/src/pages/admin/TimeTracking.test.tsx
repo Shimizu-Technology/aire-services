@@ -2,7 +2,7 @@ vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: 
 import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TimeTracking from './TimeTracking'
@@ -40,8 +40,15 @@ function TimeRouteHarness() {
       <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.set('entry_id', '91'); navigate(location.pathname + '?' + next) }}>Open next linked entry</button>
       <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.set('user_id', '8'); navigate(location.pathname + '?' + next) }}>Change linked employee</button>
       <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.delete('tab'); navigate(location.pathname + '?' + next) }}>Open linked entry view</button>
+      <button type="button" onClick={() => navigate('/admin/reports')}>Go to Reports</button>
+      <button type="button" onClick={() => navigate('/admin/approvals')}>Go to Approvals</button>
+      <output data-testid="location-path">{location.pathname}</output>
       <output data-testid="location-search">{location.search}</output>
-      <TimeTracking />
+      <Routes>
+        <Route path="/admin/time" element={<TimeTracking />} />
+        <Route path="/admin/reports" element={<TimeTracking section="reports" />} />
+        <Route path="/admin/approvals" element={<TimeTracking section="approvals" />} />
+      </Routes>
     </>
   )
 }
@@ -143,7 +150,7 @@ describe('TimeTracking routed report periods', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Log Time' }))
       expect(await screen.findByDisplayValue(today)).toHaveAttribute('type', 'date')
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Hours Reports' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Go to Reports' }))
       await waitFor(() => expect(apiMock.getHoursReport).toHaveBeenCalledWith(expect.objectContaining({ start_date: monthStart, end_date: today })))
     } finally {
       vi.useRealTimers()
@@ -452,9 +459,9 @@ describe('TimeTracking routed report periods', () => {
     expect(screen.getByTestId('location-search')).toHaveTextContent('status=all')
   })
 
-  it('carries an edited report period into approvals', async () => {
+  it('keeps an edited report period in the Reports URL, so Back returns to it', async () => {
     render(
-      <MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}>
+      <MemoryRouter initialEntries={['/admin/reports?start_date=2026-08-01&end_date=2026-08-15']}>
         <TimeRouteHarness />
       </MemoryRouter>,
     )
@@ -462,12 +469,8 @@ describe('TimeTracking routed report periods', () => {
 
     fireEvent.change(screen.getByDisplayValue('2026-08-01'), { target: { value: '2026-07-16' } })
     fireEvent.change(screen.getByDisplayValue('2026-08-15'), { target: { value: '2026-07-31' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Approvals' }))
-
-    await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({
-      start_date: '2026-07-16',
-      end_date: '2026-07-31',
-    })))
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('start_date=2026-07-16&end_date=2026-07-31'))
+    expect(screen.getByTestId('location-path')).toHaveTextContent('/admin/reports')
   })
 
   it('opens the locked-period approval queue with its existing range filters', async () => {
@@ -485,9 +488,9 @@ describe('TimeTracking routed report periods', () => {
     )
     await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalled())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hours Reports' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Reports' }))
 
-    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('tab=reports'))
+    await waitFor(() => expect(screen.getByTestId('location-path')).toHaveTextContent('/admin/reports'))
     expect(screen.getByTestId('location-search')).not.toHaveTextContent('through_date=')
   })
 
@@ -601,10 +604,9 @@ describe('TimeTracking routed report periods', () => {
 
     expect(screen.getAllByText('22.00')).not.toHaveLength(0)
     expect(screen.queryByText('11.00')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Payroll' })).toHaveAttribute(
-      'href',
-      '/admin/payroll?start_date=2026-07-01&end_date=2026-07-15',
-    )
+    for (const link of screen.getAllByRole('link', { name: /payroll cutoff/i })) {
+      expect(link.getAttribute('href')).toMatch(/^\/admin\/payroll\?start_date=2026-07-01&end_date=2026-07-15/)
+    }
   })
 
   it('clears prior report results when the next request fails', async () => {

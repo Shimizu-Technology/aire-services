@@ -376,7 +376,7 @@
       "key": "manage_settings",
       "kind": "capability",
       "label": "Change settings",
-      "detail": "Clock rules, time approvals, pay stub switches, departments and time categories.",
+      "detail": "Clock rules, time approvals, pay stub switches, schedules, departments and time categories.",
       "cells": {
         "owner": {
           "value": "yes"
@@ -661,7 +661,7 @@
   ],
   "everyone_can": [
     "Clock in and out, and see their own time",
-    "See the schedule",
+    "See the schedule, when schedules are in use",
     "Request leave"
   ],
   "role_capabilities": {

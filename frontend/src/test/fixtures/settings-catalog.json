@@ -86,7 +86,7 @@
       "admin"
     ],
     "who": "Owners and admins",
-    "what": "When on, people can't clock in on a day with no shift on the schedule. An owner, admin or manager can still clock them in. There's no switch for this on the Settings page yet.",
+    "what": "When on, people can't clock in on a day with no shift on the schedule. An owner, admin or manager can still clock them in. Shifts are added on the Schedule page, which shows only while \"Use schedules\" is on. There's no switch for this on the Settings page yet.",
     "default": "Off",
     "example": "When on, someone with no shift on Saturday is told to contact their manager if they try to clock in.",
     "access_effect": null
@@ -341,6 +341,29 @@
     "access_effect": null
   },
   {
+    "id": "schedules_enabled",
+    "label": "Use schedules",
+    "section": "schedules",
+    "section_label": "Schedules",
+    "page": "Settings",
+    "path": "/admin/settings#use-schedules",
+    "setting_keys": [
+      "schedules_enabled"
+    ],
+    "stored_in": null,
+    "on_page": true,
+    "capability": "manage_settings",
+    "who_roles": [
+      "owner",
+      "admin"
+    ],
+    "who": "Owners and admins",
+    "what": "Only shows or hides the Schedule pages in everyone's menu. It doesn't change any clock-in rule: shifts already entered still set the early clock-in window and the attendance badge either way, and it doesn't turn off \"Require a scheduled shift to clock in\". If that rule is on while this is off, people still need a shift to clock in but nobody can see or add one, so turn this on to add shifts.",
+    "default": "Off",
+    "example": "Turn it on when you start entering next week's shifts. Schedule appears in the menu, and clocking in works the same as before.",
+    "access_effect": null
+  },
+  {
     "id": "approval_groups",
     "label": "Departments",
     "section": "departments",
@@ -389,8 +412,8 @@
     "label": "Public contact details",
     "section": "contact",
     "section_label": "Contact settings",
-    "page": "Settings",
-    "path": "/admin/settings#contact-settings",
+    "page": "Website",
+    "path": "/admin/website/contact",
     "setting_keys": [
       "public_contact_settings"
     ],
@@ -412,8 +435,8 @@
     "label": "Public social links",
     "section": "contact",
     "section_label": "Contact settings",
-    "page": "Settings",
-    "path": "/admin/settings#contact-settings",
+    "page": "Website",
+    "path": "/admin/website/contact",
     "setting_keys": [
       "public_social_links"
     ],
@@ -435,8 +458,8 @@
     "label": "Notification recipient emails",
     "section": "contact",
     "section_label": "Contact settings",
-    "page": "Settings",
-    "path": "/admin/settings#contact-settings",
+    "page": "Website",
+    "path": "/admin/website/contact",
     "setting_keys": [
       "contact_email"
     ],
@@ -458,8 +481,8 @@
     "label": "Public inquiry topics",
     "section": "contact",
     "section_label": "Contact settings",
-    "page": "Settings",
-    "path": "/admin/settings#contact-settings",
+    "page": "Website",
+    "path": "/admin/website/contact",
     "setting_keys": [
       "contact_inquiry_topics"
     ],

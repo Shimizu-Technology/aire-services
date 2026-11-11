@@ -12,6 +12,10 @@ const apiMock = vi.hoisted(() => ({
 vi.mock('../../lib/api', () => ({ api: apiMock }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ isClerkEnabled: true, userRole: 'admin' }) }))
 vi.mock('../../components/time-tracking/WhosWorking', () => ({ default: () => null }))
+vi.mock('../../components/time-tracking/ApprovalQueue', () => ({
+  default: ({ onUpdate }: { onUpdate: () => void }) => <button onClick={onUpdate}>Refresh saved entry</button>,
+}))
+vi.mock('../../components/time-tracking/LeaveRequestsPanel', () => ({ default: () => null }))
 vi.mock('../../components/time-tracking/ClockInOutCard', () => ({
   default: ({ onStatusChange }: { onStatusChange: () => void }) => <button onClick={onStatusChange}>Refresh saved entry</button>,
 }))
@@ -32,7 +36,8 @@ function deferredResponse() {
 }
 
 function openPage() {
-  return render(<MemoryRouter initialEntries={['/admin/time?date=2026-11-01&view=day']}><TimeTracking /></MemoryRouter>)
+  // The count sits beside "Time & overtime" in the Approvals page header.
+  return render(<MemoryRouter initialEntries={['/admin/approvals']}><TimeTracking section="approvals" /></MemoryRouter>)
 }
 
 describe('TimeTracking pending approval summary requests', () => {
@@ -56,11 +61,11 @@ describe('TimeTracking pending approval summary requests', () => {
 
     if (trigger === 'saved entry refresh') fireEvent.click(screen.getByRole('button', { name: 'Refresh saved entry' }))
     else fireEvent(document, new Event('visibilitychange'))
-    expect(await screen.findByRole('button', { name: 'Approvals, 2 pending' })).toBeVisible()
+    expect(await screen.findByRole('link', { name: 'Time & overtime, 2 pending' })).toBeVisible()
 
     await act(async () => older.resolve({ data: { pending_entries: [], count: 9, summary: summary(9) } }))
-    expect(screen.getByRole('button', { name: 'Approvals, 2 pending' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: 'Approvals, 9 pending' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Time & overtime, 2 pending' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: 'Time & overtime, 9 pending' })).not.toBeInTheDocument()
   })
 
   it('does not consume a pending summary response or poll again after unmount', async () => {
@@ -75,5 +80,15 @@ describe('TimeTracking pending approval summary requests', () => {
     fireEvent(document, new Event('visibilitychange'))
     expect(readSummary).not.toHaveBeenCalled()
     expect(apiMock.getPendingApprovals).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['/admin/leave', '/admin/approvals'],
+    ['/admin/leave?start_date=2026-10-16&end_date=2026-10-31', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31&through_date=2026-10-31'],
+  ])('links Leave at %s back to every pending approval the badge counts', async (path, approvalsHref) => {
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 2, summary: summary(2) } })
+    render(<MemoryRouter initialEntries={[path]}><TimeTracking section="leave" /></MemoryRouter>)
+    // No period in the URL means no date filter, so older pending entries stay in view.
+    expect(await screen.findByRole('link', { name: 'Time & overtime, 2 pending' })).toHaveAttribute('href', approvalsHref)
   })
 })

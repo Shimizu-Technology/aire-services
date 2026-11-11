@@ -334,6 +334,83 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
     end
   end
 
+  describe "Use schedules" do
+    let(:owner) { create(:user, :owner) }
+    let(:manager) { create(:user, :manager) }
+    let(:key) { Setting::SCHEDULES_ENABLED_KEY }
+
+    def audit_rows
+      AuditLog.where(action: "setting.#{key}_updated").order(:id)
+    end
+
+    it "defaults to off" do
+      get "/api/v1/admin/settings", headers: auth_headers_for[admin]
+
+      expect(json.dig(:settings, :schedules_enabled)).to eq("false")
+      expect(Setting.schedules_enabled?).to be(false)
+    end
+
+    it "lets owners and admins turn it on and off, auditing before and after" do
+      patch "/api/v1/admin/settings", params: { settings: { key => true } }, headers: auth_headers_for[admin], as: :json
+      expect(response).to have_http_status(:ok)
+      expect(json.dig(:settings, :schedules_enabled)).to eq("true")
+      expect(Setting.schedules_enabled?).to be(true)
+
+      patch "/api/v1/admin/settings", params: { settings: { key => false } }, headers: auth_headers_for[owner], as: :json
+      expect(response).to have_http_status(:ok)
+      expect(Setting.schedules_enabled?).to be(false)
+
+      expect(audit_rows.map { |row| [ row.user_id, row.event_category, row.changes_made, row.metadata ] }).to eq([
+        [ admin.id, "settings", { key => [ false, true ] }, { "key" => key, "enabled" => true } ],
+        [ owner.id, "settings", { key => [ true, false ] }, { "key" => key, "enabled" => false } ]
+      ])
+      expect(AuditLogPresenter.new(audit_rows.first).summary).to end_with("turned schedules on")
+      expect(AuditLogPresenter.new(audit_rows.last).summary).to end_with("turned schedules off")
+    end
+
+    it "does not write a change row when the value is unchanged" do
+      patch "/api/v1/admin/settings", params: { settings: { key => "false" } }, headers: auth_headers_for[admin], as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(audit_rows).to be_empty
+    end
+
+    it "rejects values other than true or false" do
+      patch "/api/v1/admin/settings", params: { settings: { key => "maybe" } }, headers: auth_headers_for[admin], as: :json
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(Setting.schedules_enabled?).to be(false)
+    end
+
+    it "refuses managers and employees" do
+      [ manager, employee ].each do |user|
+        patch "/api/v1/admin/settings", params: { settings: { key => "true" } }, headers: auth_headers_for[user], as: :json
+        expect(response).to have_http_status(:forbidden), user.role
+      end
+
+      expect(Setting.schedules_enabled?).to be(false)
+      expect(audit_rows).to be_empty
+    end
+
+    it "reaches every signed-in role through their profile, so the menu can hide Schedule" do
+      [ owner, admin, manager, employee ].each do |user|
+        get "/api/v1/auth/me", headers: auth_headers_for[user]
+        expect(response.parsed_body.dig("user", "schedules_enabled")).to be(false), user.role
+      end
+
+      Setting.set(key, "true")
+      get "/api/v1/auth/me", headers: auth_headers_for[employee]
+      expect(response.parsed_body.dig("user", "schedules_enabled")).to be(true)
+    end
+
+    it "does not change the clock-in rules" do
+      expect(Setting.get("schedule_required_for_clock_in")).to eq("false")
+      patch "/api/v1/admin/settings", params: { settings: { key => true } }, headers: auth_headers_for[admin], as: :json
+      expect(json.dig(:settings, :schedule_required_for_clock_in)).to eq("false")
+      expect(json.dig(:settings, :early_clock_in_buffer_minutes)).to eq("5")
+    end
+  end
+
   describe "Auto-approve ordinary shifts" do
     let(:owner) { create(:user, :owner) }
     let(:manager) { create(:user, :manager) }

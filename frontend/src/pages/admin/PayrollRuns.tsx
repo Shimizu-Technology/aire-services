@@ -13,6 +13,7 @@ import {
   type PayrollCarryoverQueue,
 } from '../../lib/api'
 import TimePayrollWorkspaceHeader from '../../components/time-tracking/TimePayrollWorkspaceHeader'
+import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import PayrollLockControl from '../../components/payroll/PayrollLockControl'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
 import {
@@ -270,19 +271,19 @@ function CarryoverQueue({ queue, loading, error }: { queue: PayrollCarryoverQueu
 
 function issueDestination(key: keyof PayrollBatchIssues, period: PayrollPeriod) {
   if (key === 'pending_approval_count' || key === 'pending_overtime_count') {
-    return withPayrollPeriod('/admin/time', period, { tab: 'approvals', through_date: period.end })
+    return withPayrollPeriod(ADMIN_PATHS.approvals, period, { through_date: period.end })
   }
   if (key === 'denied_approval_count') {
-    return withPayrollPeriod('/admin/time', period, { tab: 'reports', approval_status: 'denied' })
+    return withPayrollPeriod(ADMIN_PATHS.reports, period, { approval_status: 'denied' })
   }
   if (key === 'denied_overtime_count') {
-    return withPayrollPeriod('/admin/time', period, { tab: 'reports', overtime_status: 'denied' })
+    return withPayrollPeriod(ADMIN_PATHS.reports, period, { overtime_status: 'denied' })
   }
   if (key === 'negative_adjustment_count') return '/admin/activity?event_category=payroll'
   if (key === 'missing_category_count') {
-    return withPayrollPeriod('/admin/time', period, { tab: 'reports', category_status: 'uncategorized' })
+    return withPayrollPeriod(ADMIN_PATHS.reports, period, { category_status: 'uncategorized' })
   }
-  return withPayrollPeriod('/admin/time', period, { tab: 'reports', approval_status: 'all' })
+  return withPayrollPeriod(ADMIN_PATHS.reports, period, { approval_status: 'all' })
 }
 
 function IssueSummary({ issues, period }: { issues: PayrollBatchIssues; period: PayrollPeriod }) {
@@ -914,8 +915,8 @@ export default function PayrollRuns() {
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{connectionEnabled ? `Preview exactly which approved hours will be included, then freeze an immutable AIRE batch for Cornerstone Payroll. ${CALENDAR_LATE_HOURS_NOTICE} ${AUTOMATIC_CARRYOVER_NOTICE}` : connection?.enabled === false ? 'Review recorded hours, approvals and finalized history. Use the hours report for manual payroll while the connection is paused.' : 'Review recorded hours, approvals and finalized payroll history while the connection status is being checked.'}</p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-          <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'approvals', through_date: activePeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>
-          <Link to={withPayrollPeriod('/admin/time', activePeriod, { tab: 'reports' })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">View live hours</Link>
+          <Link to={withPayrollPeriod(ADMIN_PATHS.approvals, activePeriod, { through_date: activePeriod.end })} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">Review approvals</Link>
+          <Link to={withPayrollPeriod(ADMIN_PATHS.reports, activePeriod)} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">View live hours</Link>
         </div>
       </section>
 

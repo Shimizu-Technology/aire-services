@@ -2,15 +2,16 @@ import { coverageStateLabel, historicalReasonLabel, identityStateLabel, receiptS
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import type { AdminUser } from '../../lib/api'
 import { employeeEvidenceApi, type EmployeeEvidence, type EvidencePeriod, type EvidenceTotals } from '../../lib/employeeEvidenceApi'
 import { employeeWorkspaceHref, safeAdminReturn, type EmployeeTab } from '../../lib/employeeWorkspace'
 import EmployeeRelatedRecords from '../../components/time-tracking/EmployeeRelatedRecords'
 import { formatDateTime, formatWorkDate } from '../../lib/dateUtils'
 import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod } from '../../lib/payrollPeriods'
-import { touchBaseline } from '../../lib/touchBaseline'
+import { useSchedulesEnabled } from '../../lib/useSchedulesEnabled'
 
-const tabs: { key: EmployeeTab; label: string }[] = [
+const allTabs: { key: EmployeeTab; label: string }[] = [
   { key: 'overview', label: 'Overview' }, { key: 'hours', label: 'Hours & payroll' },
   { key: 'schedule', label: 'Schedule' }, { key: 'activity', label: 'Activity' }, { key: 'setup', label: 'Access & profile' },
 ]
@@ -55,6 +56,9 @@ export default function EmployeeWorkspace() {
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
   const [retry, setRetry] = useState(0)
+  // Schedule is hidden with "Use schedules" off; a saved ?tab=schedule link opens Overview.
+  const schedulesEnabled = useSchedulesEnabled()
+  const tabs = schedulesEnabled ? allTabs : allTabs.filter((item) => item.key !== 'schedule')
   const tab = tabs.find((item) => item.key === query.get('tab'))?.key || 'overview'
   const cursor = query.get('cursor') || ''
   const selectedPeriod = query.get('period') || ''
@@ -145,7 +149,7 @@ export default function EmployeeWorkspace() {
     return `${path}?${params}`
   }
 
-  return <div className={`space-y-5 ${touchBaseline}`}>
+  return <div className="space-y-5">
     <Link to={returnTo} className="inline-flex min-h-11 min-w-11 items-center text-sm font-semibold text-cyan-800 hover:underline">Back to {returnTo.startsWith('/admin/users') ? 'Team' : 'previous view'}</Link>
     {loading ? <p role="status" className={panel}>Loading employee evidence…</p> : error ? <div role="alert" className={panel}><p>{error}</p><button className={`${action} mt-3`} onClick={() => setRetry((value) => value + 1)}>Retry</button></div> : user && evidence && <>
       <header className={panel}>
@@ -175,7 +179,7 @@ export default function EmployeeWorkspace() {
           {!!evidence.totals.receipt_review_count && <p className="text-sm text-amber-800">{evidence.totals.receipt_review_count} retained lines have batch-only or ambiguous receipt evidence. Exact line coverage needs reconciliation.</p>}
           {!user.time_tracking_enabled && <p className="text-sm text-slate-600">Time tracking is disabled for this person. No recorded hours is not a missing-pay warning.</p>}
         </section>
-        {tab === 'overview' && <div className={`${panel} flex flex-wrap gap-3`}><Link className={action} to={employeeWorkspaceHref(id, { tab: 'hours', returnTo, startDate, endDate, allHistory, sourceUserUuid, sourceInstanceId })}>Review hours & payroll</Link><Link className={action} to={related('/admin/time')}>View time entries</Link><Link className={action} to={related('/admin/time', { tab: 'reports' })}>Open hours report</Link><Link className={action} to={`/admin/pay-stubs?${new URLSearchParams({ send: id })}`}>Send pay stub</Link></div>}
+        {tab === 'overview' && <div className={`${panel} flex flex-wrap gap-3`}><Link className={action} to={employeeWorkspaceHref(id, { tab: 'hours', returnTo, startDate, endDate, allHistory, sourceUserUuid, sourceInstanceId })}>Review hours & payroll</Link><Link className={action} to={related(ADMIN_PATHS.timecards)}>View time entries</Link><Link className={action} to={related(ADMIN_PATHS.reports)}>Open hours report</Link><Link className={action} to={`/admin/pay-stubs?${new URLSearchParams({ send: id })}`}>Send pay stub</Link></div>}
         {tab === 'hours' && <section className="space-y-3" aria-label="Work periods">
           <h2 className="text-lg font-semibold">Work periods <span className="text-sm font-normal text-slate-500">({evidence.pagination.total_count})</span></h2>
           {!evidence.periods.length && <p className={panel}>No recorded work or retained payroll evidence in this date range.</p>}
@@ -193,7 +197,7 @@ export default function EmployeeWorkspace() {
                   <button className="min-h-11 min-w-11 text-left font-semibold text-cyan-800 hover:underline" onClick={() => update({ entry: entry.id, detail_cursor: null })}>{entry.work_date} · {entry.start_time || '—'} – {entry.end_time || '—'} · {h(entry.worked_hours)}</button>
                   <p className="mt-1 text-sm text-slate-600">{entry.category || 'Uncategorized'} · {entry.auto_approved ? 'Auto-approved' : entry.approval_status || (entry.status === 'completed' ? 'Standard clock entry' : entry.status)} · REG {h(entry.regular_hours)} / OT {h(entry.overtime_hours)}</p>
                   <p className="mt-1 text-xs text-slate-600">Issued coverage {h(entry.issued_hours)} · committed {h(entry.committed_hours)} · needs reconciliation {h(entry.needs_reconciliation_hours)}</p>
-                  {selectedEntry === entry.id && <div className="mt-3 space-y-2"><p className="break-words text-sm">{entry.description || 'No description recorded.'}</p>{entry.payment_attestation && <p className="text-sm">Evidence hold: {entry.payment_attestation}</p>}<Link className={action} to={related('/admin/time', { entry_id: entry.id, date: entry.work_date, view: 'day' })}>Open time entry</Link></div>}
+                  {selectedEntry === entry.id && <div className="mt-3 space-y-2"><p className="break-words text-sm">{entry.description || 'No description recorded.'}</p>{entry.payment_attestation && <p className="text-sm">Evidence hold: {entry.payment_attestation}</p>}<Link className={action} to={related(ADMIN_PATHS.timecards, { entry_id: entry.id, date: entry.work_date, view: 'day' })}>Open time entry</Link></div>}
                 </div>)}</div>
                 <h4 className="mt-5 font-semibold">Saved source coverage</h4>
                 <p className="mt-1 text-xs leading-5 text-slate-600">Signed correction lines are retained. Source REG/OT describes covered time; actual paycheck components and money are available in payroll.</p>

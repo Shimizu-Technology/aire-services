@@ -47,7 +47,7 @@ vi.mock('../../components/ui/MotionComponents', () => ({
   FadeUp: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-// The page links to Roles & access, so it renders inside a router.
+// The page links to Roles & access and Website, so it renders inside a router.
 const render = (ui: ReactElement) => renderUi(ui, { wrapper: MemoryRouter })
 
 describe('Admin Settings contact settings', () => {
@@ -155,8 +155,9 @@ describe('Admin Settings contact settings', () => {
     expect(screen.queryByText(/Search for an address or use your current location to preview/)).toBeNull()
   })
 
-  it('loads and updates contact settings', async () => {
-    render(<Settings />)
+  it('loads and updates contact settings under Website', async () => {
+    render(<Settings view="website" />)
+    expect(screen.getByRole('heading', { level: 1, name: 'Contact & links' })).toBeInTheDocument()
 
     expect(await screen.findByDisplayValue('ops@example.com')).toBeInTheDocument()
     await waitFor(() => {
@@ -256,6 +257,21 @@ describe('Admin Settings contact settings', () => {
     finishRulesSave(undefined)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save time clock rules' })).toBeEnabled())
     expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).not.toBeChecked()
+  })
+
+  it('scrolls to a linked section once settings have loaded', async () => {
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+    renderUi(<Settings />, { wrapper: ({ children }) => <MemoryRouter initialEntries={['/admin/settings#time-approvals']}>{children}</MemoryRouter> })
+
+    await screen.findByRole('checkbox', { name: 'Managers can approve their own time' })
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+    expect(scrollIntoView.mock.contexts[0]).toHaveProperty('id', 'time-approvals')
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
   })
 
   it('keeps the toggle unchanged and explains a failed save', async () => {

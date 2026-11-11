@@ -4,7 +4,7 @@ import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
 import { useConfirm } from '../../components/ui/useConfirm'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import SettingHelp from '../../components/settings/SettingHelp'
 import { SettingsCatalogContext } from '../../components/settings/settingsCatalogContext'
@@ -13,6 +13,7 @@ import { StatusPill } from '../../components/ui/StatusPill'
 import type { SettingsCatalogEntry } from '../../lib/api'
 import PayStubSettings from '../../components/pay-stubs/PayStubSettings'
 import AutoApprovalSettings from '../../components/time-tracking/AutoApprovalSettings'
+import ScheduleSettings from '../../components/time-tracking/ScheduleSettings'
 import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
 import type { PublicContactInfoSettings, PublicPhoneContactChannel, PublicPhoneContactSettings } from '../../lib/businessInfo'
@@ -180,10 +181,13 @@ const TIME_CLOCK_RULE_KEYS: (keyof TimeClockAppSettings)[] = [
   'clock_in_location_longitude', 'clock_in_location_radius_meters',
 ]
 
-export default function Settings() {
+// "website" shows only the public contact details, phone numbers and social
+// links, under Website (/admin/website/contact); "settings" shows the rest.
+export default function Settings({ view = 'settings' }: { view?: 'settings' | 'website' }) {
+  const showSettings = view === 'settings'
   useEffect(() => {
-    document.title = 'Settings | AIRE Ops'
-  }, [])
+    document.title = showSettings ? 'Settings | AIRE Ops' : 'Contact & links | AIRE Ops'
+  }, [showSettings])
 
   const [categories, setCategories] = useState<AdminTimeCategory[]>([])
   const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
@@ -217,6 +221,13 @@ export default function Settings() {
   const [primaryPhoneDraftId, setPrimaryPhoneDraftId] = useState(primaryPhoneDraftIdFor(initialPublicContactDraft, defaultPublicContactSettings))
   const [socialLinksDraft, setSocialLinksDraft] = useState<SocialLink[]>(defaultSocialLinks)
   const [loading, setLoading] = useState(true)
+  const { hash } = useLocation()
+  // Sections render only after settings load, so the browser's own jump to
+  // #section (Roles & access footnotes, old bookmarks) has nothing to land on.
+  useEffect(() => {
+    if (loading || !hash) return
+    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView({ block: 'start' })
+  }, [loading, hash])
   const [categoriesError, setCategoriesError] = useState('')
   const [settingsError, setSettingsError] = useState('')
   const [approvalGroupsError, setApprovalGroupsError] = useState('')
@@ -904,10 +915,10 @@ export default function Settings() {
 
   return (
     <div className="space-y-8">
-      <FadeUp>
+      {showSettings ? <FadeUp>
         <PageHeader
           title="Settings"
-          description="Manage departments, work categories, overtime rules, and public contact settings. Tap (i) next to a setting to see what it does."
+          description="Manage time clock rules, approvals, pay stubs, schedules, departments and work categories. Public contact details are under Website. Tap (i) next to a setting to see what it does."
           actions={(
             <Link
               to="/admin/settings/roles"
@@ -918,12 +929,18 @@ export default function Settings() {
             </Link>
           )}
         />
-      </FadeUp>
+      </FadeUp> : (
+        <PageHeader
+          title="Contact & links"
+          description="Who gets website inquiries, and the phone numbers, email, address and social links on the public site. Tap (i) next to a setting to see what it does."
+        />
+      )}
 
       {loading ? (
         <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500 shadow-sm">Loading settings…</div>
       ) : (
         <SettingsCatalogContext.Provider value={catalog}>
+          {showSettings && <>
           <FadeUp delay={0.05}>
             <section id="time-clock-rules" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
@@ -1258,6 +1275,10 @@ export default function Settings() {
           </FadeUp>
 
           <FadeUp delay={0.08}>
+            <ScheduleSettings settings={clockSettings} onSaved={applySavedSettings(['schedules_enabled'])} />
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
             <section id="departments" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <div className="flex items-center gap-1.5">
@@ -1339,7 +1360,16 @@ export default function Settings() {
             </section>
           </FadeUp>
 
-          <FadeUp delay={0.1}>
+          </>}
+
+          {showSettings ? (
+            // Keeps the old #contact-settings link landing here, pointing to Website.
+            <section id="contact-settings" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <h2 className="text-lg font-semibold text-slate-900">Contact details, phone numbers and social links</h2>
+              <p className="mt-1 text-sm text-slate-500">These are on the public website, so they’ve moved to the Website section.</p>
+              <Link to="/admin/website/contact" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-cyan-700 hover:text-cyan-900">Open Website → Contact & links</Link>
+            </section>
+          ) : <FadeUp delay={0.1}>
             <section id="contact-settings" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Contact settings</h2>
@@ -1662,9 +1692,9 @@ export default function Settings() {
                 </div>
               </form>
             </section>
-          </FadeUp>
+          </FadeUp>}
 
-          <FadeUp delay={0.12}>
+          {showSettings && <FadeUp delay={0.12}>
             <section id="time-categories" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1766,11 +1796,11 @@ export default function Settings() {
                 </div>
               )}
             </section>
-          </FadeUp>
+          </FadeUp>}
 
-          <FadeUp delay={0.12}>
+          {showSettings && <FadeUp delay={0.12}>
             <SetElsewhere catalog={catalog} />
-          </FadeUp>
+          </FadeUp>}
         </SettingsCatalogContext.Provider>
       )}
 

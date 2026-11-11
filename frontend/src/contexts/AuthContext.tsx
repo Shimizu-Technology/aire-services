@@ -14,7 +14,9 @@ interface AuthContextType {
   currentUser: CurrentUser | null
   authError: string | null
   isAuthServiceUnavailable: boolean
-  refreshCurrentUser: () => Promise<void>
+  /** Re-reads the signed-in profile. `background` keeps the current pages mounted while it loads. */
+  /** Resolves true once the signed-in profile has been reloaded; false if that attempt failed (retries continue). */
+  refreshCurrentUser: (options?: { background?: boolean }) => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType>({ 
@@ -26,7 +28,7 @@ const AuthContext = createContext<AuthContextType>({
   currentUser: null,
   authError: null,
   isAuthServiceUnavailable: false,
-  refreshCurrentUser: async () => {},
+  refreshCurrentUser: async () => false,
 })
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -50,7 +52,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
   const [isAuthServiceUnavailable, setIsAuthServiceUnavailable] = useState(false)
   const [roleFetched, setRoleFetched] = useState(false)
   const fetchedRef = useRef(false)
-  const fetchRoleRef = useRef<((retryCount?: number, force?: boolean) => Promise<void>) | undefined>(undefined)
+  const fetchRoleRef = useRef<((retryCount?: number, force?: boolean) => Promise<boolean>) | undefined>(undefined)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const lastClerkIdRef = useRef<string | null>(null)
 
@@ -82,16 +84,17 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
 
   const clerkUserId = clerkUser?.id
 
-  const fetchRole = useCallback(async (retryCount = 0, force = false) => {
+  // Resolves true when this attempt loaded the profile.
+  const fetchRole = useCallback(async (retryCount = 0, force = false): Promise<boolean> => {
     if (!isLoaded || !isSignedIn || !clerkUserId) {
       setCurrentUser(null)
       setUserRole(null)
       setIsAuthServiceUnavailable(false)
       setRoleFetched(true)
-      return
+      return false
     }
 
-    if (fetchedRef.current && !force) return
+    if (fetchedRef.current && !force) return false
     fetchedRef.current = true
 
     try {
@@ -104,12 +107,14 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
         setAuthError(null)
         setIsAuthServiceUnavailable(false)
         setRoleFetched(true)
+        return true
       } else if (response.status === 401 || response.status === 403) {
         setCurrentUser(null)
         setUserRole(null)
         setAuthError(response.error || 'Unable to verify your staff access')
         setIsAuthServiceUnavailable(false)
         setRoleFetched(true)
+        return false
       } else {
         throw new Error(response.error || 'No user in response')
       }
@@ -125,6 +130,7 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
         setIsAuthServiceUnavailable(true)
         setRoleFetched(true)
       }
+      return false
     }
   }, [isLoaded, isSignedIn, clerkUserId])
 
@@ -147,11 +153,13 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(retryTimerRef.current)
   }, [isLoaded, isSignedIn, fetchRole])
 
-  const refreshCurrentUser = useCallback(async () => {
+  const refreshCurrentUser = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     fetchedRef.current = false
-    setRoleFetched(false)
+    // A full refresh shows the sign-in check again; a background one (after
+    // a settings change) updates the profile without unmounting the page.
+    if (!background) setRoleFetched(false)
     setIsAuthServiceUnavailable(false)
-    await fetchRole(0, true)
+    return fetchRole(0, true)
   }, [fetchRole])
 
   return (
@@ -186,7 +194,7 @@ function NoAuthProvider({ children }: { children: ReactNode }) {
       currentUser: null,
       authError: null,
       isAuthServiceUnavailable: false,
-      refreshCurrentUser: async () => {},
+      refreshCurrentUser: async () => false,
     }}>
       {children}
     </AuthContext.Provider>

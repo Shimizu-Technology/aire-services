@@ -44,7 +44,7 @@ class AccessGuide
     manage_my_pay_access: { label: "Turn My Pay on or off", detail: "For one person or for everyone, on the Team page." },
     preview_pay: { label: "Preview anyone's My Pay", detail: "A read-only view of a worker's pay statements, including amounts." },
     manage_payroll: { label: "Run payroll", detail: "The pay calendar, cutoffs, lock times, payroll batches, pay rates and the payroll connection." },
-    manage_settings: { label: "Change settings", detail: "Clock rules, time approvals, pay stub switches, departments and time categories." },
+    manage_settings: { label: "Change settings", detail: "Clock rules, time approvals, pay stub switches, schedules, departments and time categories." },
     manage_site: { label: "Edit the public website", detail: "Website photos, contact details, social links and the contact form." },
     view_activity: { label: "See activity history", detail: "The record of who changed what, and when." }
   }.freeze
@@ -52,7 +52,7 @@ class AccessGuide
   # What every signed-in team member can do, whatever their role.
   EVERYONE_CAN = [
     "Clock in and out, and see their own time",
-    "See the schedule",
+    "See the schedule, when schedules are in use",
     "Request leave"
   ].freeze
 

@@ -84,6 +84,8 @@ module Api
           my_pay_enabled: Setting.my_pay_enabled_for?(user),
           my_pay_preview_enabled: user.can_preview_pay?,
           my_pay_email_enabled: Setting.my_pay_enabled_for?(user) && ::PayDocuments.self_email_enabled?,
+          # "Use schedules": the navigation shows Schedule only when it's on.
+          schedules_enabled: Setting.schedules_enabled?,
           created_at: user.created_at
         }
       end

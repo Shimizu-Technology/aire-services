@@ -5,8 +5,10 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import EmployeeWorkspace from './EmployeeWorkspace'
 
-const mock = vi.hoisted(() => ({ user: vi.fn(), periods: vi.fn(), period: vi.fn() }))
+const mock = vi.hoisted(() => ({ user: vi.fn(), periods: vi.fn(), period: vi.fn(), schedule: vi.fn() }))
 vi.mock('../../lib/employeeEvidenceApi', () => ({ employeeEvidenceApi: mock }))
+const flags = vi.hoisted(() => ({ schedulesEnabled: false }))
+vi.mock('../../lib/useSchedulesEnabled', () => ({ useSchedulesEnabled: () => flags.schedulesEnabled }))
 const totals = { worked_hours: 12, eligible_hours: 12, pending_hours: 3, denied_hours: 0, issued_hours: 6, committed_hours: 4, exported_hours: 0, held_hours: 0, needs_reconciliation_hours: 2, current_regular_hours: 12, current_overtime_hours: 0, frozen_regular_hours: 10, frozen_overtime_hours: 0, open_case_count: 0 }
 const period = { id: '2026-09-01', start_date: '2026-09-01', end_date: '2026-09-15', summary: totals, review_required: true, entries: [{ id: '19', work_date: '2026-09-08', start_time: '09:00', end_time: '17:00', worked_hours: 12, regular_hours: 12, overtime_hours: 0, issued_hours: 6, committed_hours: 4, needs_reconciliation_hours: 2, category: 'Operations', approval_status: 'approved', description: 'Saved source work' }], coverage_lines: [{ id: 'line1', batch_id: 'batch1', source_time_entry_id: '19', source_kind: 'current', coverage_state: 'issued', regular_hours: 6, overtime_hours: 0, work_date: '2026-09-08', external_pay_period_id: '30', external_payroll_item_id: '99', payment_reference: '1001' }], settlement_cases: [] }
 function Address() { return <output aria-label="Current address">{useLocation().pathname}{useLocation().search}</output> }
@@ -14,11 +16,34 @@ function open(path = '/admin/users/7?tab=hours&return_to=%2Fadmin%2Ftime%3Fuser_
   render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/admin/users/:id" element={<EmployeeWorkspace />} /></Routes><Address /></MemoryRouter>)
 }
 beforeEach(() => {
+  flags.schedulesEnabled = false
+  mock.schedule.mockResolvedValue({ schedules: [{ id: 4, work_date: '2026-09-08', formatted_time_range: '9:00 AM – 5:00 PM', notes: null }] })
   mock.user.mockResolvedValue({ user: { id: 7, full_name: 'Casey Employee', employment_status: 'terminated', personal_access_enabled: false, time_tracking_enabled: true } })
   mock.periods.mockResolvedValue({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals, periods: [period], evidence_note: 'Source coverage is not actual check REG/OT.', pagination: { total_count: 105, next_cursor: 'next-page' } })
   mock.period.mockResolvedValue({ period, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
 })
 describe('employee workspace', () => {
+  it('hides the Schedule tab and a saved schedule link while "Use schedules" is off', async () => {
+    open('/admin/users/7?tab=schedule&start_date=2026-09-01&end_date=2026-09-15')
+    await screen.findByRole('heading', { name: 'Casey Employee' })
+    const sections = screen.getByRole('navigation', { name: 'Employee sections' })
+    expect(within(sections).queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument()
+    expect(within(sections).getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('heading', { name: 'Employee schedule' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Review shifts and approved leave' })).not.toBeInTheDocument()
+    expect(mock.schedule).not.toHaveBeenCalled()
+  })
+
+  it('shows the Schedule tab and its shifts when "Use schedules" is on', async () => {
+    flags.schedulesEnabled = true
+    open('/admin/users/7?tab=schedule&start_date=2026-09-01&end_date=2026-09-15')
+    await screen.findByRole('heading', { name: 'Casey Employee' })
+    const sections = screen.getByRole('navigation', { name: 'Employee sections' })
+    expect(within(sections).getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page')
+    expect(await screen.findByRole('heading', { name: 'Employee schedule' })).toBeInTheDocument()
+    expect(await screen.findByText(/9:00 AM – 5:00 PM/)).toBeInTheDocument()
+  })
+
   it('shows complete totals, original-work evidence and exact connected navigation', async () => {
     open()
     await screen.findByRole('heading', { name: 'Casey Employee' })
@@ -102,7 +127,7 @@ describe('employee workspace', () => {
     const hours = screen.getByRole('link', { name: 'Review hours & payroll' })
     expect(hours).toHaveAttribute('href', expect.stringContaining('source_user_uuid=employee-uuid'))
     expect(hours).toHaveAttribute('href', expect.stringContaining('source_instance_id=installation-uuid'))
-    expect(screen.getByRole('link', { name: 'Open hours report' })).toHaveAttribute('href', expect.stringContaining('tab=reports'))
+    expect(screen.getByRole('link', { name: 'Open hours report' })).toHaveAttribute('href', expect.stringMatching(/^\/admin\/reports\?/))
   })
 
   it('explains cancelled payment coverage as committed hours reserved for replacement', async () => {

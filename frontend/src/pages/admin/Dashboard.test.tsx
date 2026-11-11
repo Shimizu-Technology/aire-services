@@ -3,10 +3,10 @@ import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import Dashboard from './Dashboard'
-const mocks = vi.hoisted(() => ({ getWhosWorking: vi.fn(), getPendingApprovals: vi.fn(), getSchedules: vi.fn(), getUsers: vi.fn(), getPayrollBatches: vi.fn(), getPayrollCutoff: vi.fn(), getMySchedule: vi.fn(), getTimeEntries: vi.fn(), role: 'admin' }))
+import Dashboard, { MyTimeHome } from './Dashboard'
+const mocks = vi.hoisted(() => ({ getWhosWorking: vi.fn(), getPendingApprovals: vi.fn(), getSchedules: vi.fn(), getUsers: vi.fn(), getPayrollBatches: vi.fn(), getPayrollCutoff: vi.fn(), getMySchedule: vi.fn(), getTimeEntries: vi.fn(), role: 'admin', schedulesEnabled: false }))
 vi.mock('../../lib/api', () => ({ api: mocks }))
-vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ userRole: mocks.role, isClerkEnabled: true }) }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ userRole: mocks.role, isClerkEnabled: true, currentUser: { id: 9, schedules_enabled: mocks.schedulesEnabled } }) }))
 vi.mock('../../components/time-tracking/WhosWorking', () => ({ default: () => <div>Staffing widget</div> }))
 vi.mock('../../components/time-tracking/ClockInOutCard', () => ({ default: () => null }))
 function open() { render(<MemoryRouter><Dashboard /></MemoryRouter>) }
@@ -30,7 +30,7 @@ describe('Dashboard unavailable snapshots', () => {
       expect(link).toHaveAttribute('href', '/admin/payroll?start_date=2026-10-16&end_date=2026-10-31')
     }
     expect(mocks.getPendingApprovals).toHaveBeenCalledWith({ start_date: '2026-10-16', end_date: '2026-10-31', per_page: 1 })
-    expect(screen.getByRole('link', { name: 'Review approvals' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals')
+    expect(screen.getByRole('link', { name: 'Review approvals' })).toHaveAttribute('href', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31')
   })
 
   it('keeps a latest batch being processed even when no reminder period is returned', async () => {
@@ -123,11 +123,13 @@ describe('Dashboard unavailable snapshots', () => {
       expect(await screen.findByText('Approvals this pay period')).toBeInTheDocument()
       expect(mocks.getPayrollBatches).not.toHaveBeenCalled()
       expect(screen.queryByRole('link', { name: /Prepare Payroll|Prepare payroll cutoff/ })).not.toBeInTheDocument()
-      expect(screen.getAllByRole('link', { name: 'Review Approvals' })[0].getAttribute('href')).toContain('tab=approvals')
-      expect(screen.getAllByRole('link', { name: 'View Schedule' }).length).toBeGreaterThan(0)
+      expect(screen.getAllByRole('link', { name: 'Review Approvals' })[0].getAttribute('href')).toMatch(/^\/admin\/approvals\?/)
+      // "Use schedules" is off, so nothing points at the Schedule page.
+      expect(screen.queryByRole('link', { name: 'View Schedule' })).not.toBeInTheDocument()
       const actions = screen.getByRole('heading', { name: 'Action Center' }).closest('section') as HTMLElement
       const titles = Array.from(actions.querySelectorAll('h3')).map((heading) => heading.textContent)
-      expect(titles).toEqual(['Time & Payroll', 'Pending Approvals', 'Leave Requests', 'Hours Reports'])
+      expect(titles).toEqual(['Timecards', 'Pending Approvals', 'Leave Requests', 'Hours Reports'])
+      expect(within(actions).getByRole('link', { name: /Timecards/ })).toHaveAttribute('href', '/admin/timecards')
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     } finally {
       mocks.role = 'admin'
@@ -141,13 +143,106 @@ describe('Dashboard unavailable snapshots', () => {
       expect(await screen.findByText('Payroll readiness')).toBeInTheDocument()
       expect(mocks.getPayrollBatches).toHaveBeenCalled()
       const actions = screen.getByRole('heading', { name: 'Action Center' }).closest('section') as HTMLElement
-      expect(actions.querySelectorAll('h3')).toHaveLength(6)
+      expect(actions.querySelectorAll('h3')).toHaveLength(5)
+      expect(within(actions).queryByRole('heading', { name: 'Schedule' })).not.toBeInTheDocument()
       expect(within(actions).getByRole('heading', { name: 'Team' })).toBeInTheDocument()
       expect(within(actions).queryByRole('heading', { name: 'Users' })).not.toBeInTheDocument()
       // One way to payroll: the readiness card, not the header or the Action Center.
       expect(screen.getAllByRole('link', { name: /^(prepare payroll|payroll cutoffs)/i }).map((link) => link.textContent)).toEqual(['Prepare payroll cutoff'])
     } finally {
       mocks.role = 'admin'
+    }
+  })
+
+  it('skips schedules and their cards while "Use schedules" is off', async () => {
+    open()
+    expect(await screen.findByText('Active Right Now')).toBeInTheDocument()
+    expect(mocks.getSchedules).not.toHaveBeenCalled()
+    expect(screen.queryByText('Scheduled Today')).not.toBeInTheDocument()
+    expect(screen.queryByText('Weekly Scheduled Hours')).not.toBeInTheDocument()
+  })
+
+  it('shows schedule cards when "Use schedules" is on, and a schedule failure leaves the snapshot up', async () => {
+    mocks.schedulesEnabled = true
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-10T00:00:00Z'))
+    mocks.getSchedules.mockResolvedValueOnce({ data: { schedules: [
+      { work_date: '2026-11-10', hours: 8 },
+      { work_date: '2026-11-11', hours: 4.5 },
+    ] } })
+    try {
+      open()
+      const today = (await screen.findByText('Scheduled Today')).parentElement as HTMLElement
+      expect(mocks.getSchedules).toHaveBeenCalledTimes(1)
+      expect(within(today).getByText('1')).toBeInTheDocument()
+      expect((screen.getByText('Weekly Scheduled Hours').parentElement as HTMLElement)).toHaveTextContent('12.5h')
+
+      mocks.getSchedules.mockResolvedValueOnce({ error: 'Schedules unavailable' })
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh snapshot' }))
+      await waitFor(() => expect(mocks.getSchedules).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect((screen.getByText('Scheduled Today').parentElement as HTMLElement)).toHaveTextContent('—'))
+      expect(screen.getByText('Weekly Scheduled Hours').parentElement as HTMLElement).toHaveTextContent('—')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.getByText('3 approvals covering 10.00 hours still need review.', { exact: false })).toBeInTheDocument()
+    } finally {
+      mocks.schedulesEnabled = false
+      vi.useRealTimers()
+    }
+  })
+
+  it('brings Schedule back when "Use schedules" is on', async () => {
+    mocks.role = 'owner'
+    mocks.schedulesEnabled = true
+    try {
+      open()
+      expect(await screen.findByText('Payroll readiness')).toBeInTheDocument()
+      const actions = screen.getByRole('heading', { name: 'Action Center' }).closest('section') as HTMLElement
+      expect(actions.querySelectorAll('h3')).toHaveLength(6)
+      expect(screen.getAllByRole('link', { name: 'Adjust Schedule' }).length).toBeGreaterThan(0)
+    } finally {
+      mocks.role = 'admin'
+      mocks.schedulesEnabled = false
+    }
+  })
+})
+
+describe('My Time', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.getMySchedule.mockResolvedValue({ data: { schedules: [] } })
+    mocks.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
+  })
+
+  it.each([
+    ['employee', '/admin/my-hours'],
+    ['manager', '/admin/timecards?user_id=9'],
+  ])('links a %s to their own hours and leave, without schedules while they are off', async (role, hoursHref) => {
+    mocks.role = role
+    try {
+      render(<MemoryRouter><MyTimeHome /></MemoryRouter>)
+      expect(screen.getByRole('heading', { level: 1, name: 'My Time' })).toBeInTheDocument()
+      expect(await screen.findByRole('link', { name: /My Hours/ })).toHaveAttribute('href', hoursHref)
+      expect(screen.getByRole('link', { name: /Request Leave/ })).toHaveAttribute('href', '/admin/leave')
+      expect(screen.queryByRole('heading', { name: 'My Upcoming Schedule' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /Full Schedule/ })).not.toBeInTheDocument()
+      await waitFor(() => expect(mocks.getTimeEntries).toHaveBeenCalled())
+      expect(mocks.getMySchedule).not.toHaveBeenCalled()
+    } finally {
+      mocks.role = 'admin'
+    }
+  })
+
+  it('shows upcoming shifts and the full schedule when schedules are on', async () => {
+    mocks.role = 'employee'
+    mocks.schedulesEnabled = true
+    try {
+      render(<MemoryRouter><MyTimeHome /></MemoryRouter>)
+      expect(await screen.findByRole('heading', { name: 'My Upcoming Schedule' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /Full Schedule/ })).toHaveAttribute('href', '/admin/schedule')
+      expect(mocks.getMySchedule).toHaveBeenCalledTimes(1)
+    } finally {
+      mocks.role = 'admin'
+      mocks.schedulesEnabled = false
     }
   })
 })

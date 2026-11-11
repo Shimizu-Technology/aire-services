@@ -4,7 +4,6 @@ import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorksp
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api, type AuditLogEntry, type AuditLogFilters } from '../../lib/api'
 import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
-import { touchBaseline } from '../../lib/touchBaseline'
 
 const CATEGORY_LABELS: Record<string, string> = {
   activity: 'General activity',
@@ -359,7 +358,7 @@ export default function ActivityHistory() {
   }
 
   return (
-    <div className={`space-y-6 ${touchBaseline}`}>
+    <div className="space-y-6">
       {returnTo && <Link className="text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>Back to employee</Link>}
       {eventLoading && <p role="status" className="text-sm text-slate-600">Loading linked event…</p>}
       {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}

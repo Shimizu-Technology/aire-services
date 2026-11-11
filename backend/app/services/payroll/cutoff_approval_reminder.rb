@@ -104,7 +104,8 @@ module Payroll
     end
 
     def html(rows)
-      link = "#{ENV.fetch('FRONTEND_URL', 'http://localhost:5173')}/admin/time?tab=approvals"
+      # Older emails link to /admin/time?tab=approvals, which the app redirects here.
+      link = "#{ENV.fetch('FRONTEND_URL', 'http://localhost:5173')}/admin/approvals"
       lines = rows.map do |row|
         needs = [ ("#{row[:needs_time]} time" if row[:needs_time].positive?), ("#{row[:needs_overtime]} overtime" if row[:needs_overtime].positive?) ].compact.join(", ")
         "<tr><td>#{CGI.escapeHTML(row[:name].to_s)}</td><td>#{format('%.2f', row[:hours])}</td><td>#{needs}</td></tr>"

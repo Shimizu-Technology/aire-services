@@ -273,7 +273,7 @@ describe('PayrollRuns', () => {
     expect(screen.getByText(/Pending and open work stays attached/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '1 Pending approval' })).toHaveAttribute(
       'href',
-      '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=approvals&through_date=2026-08-31',
+      '/admin/approvals?start_date=2026-08-16&end_date=2026-08-31&through_date=2026-08-31',
     )
   })
 
@@ -752,7 +752,7 @@ describe('PayrollRuns', () => {
     expect(screen.getByLabelText('Period start')).toHaveValue('2026-08-01')
     expect(screen.getByLabelText('Period end')).toHaveValue('2026-08-15')
     expect(screen.getByRole('link', { name: 'Review approvals' })).toHaveAttribute('href', expect.stringContaining('through_date=2026-08-15'))
-    expect(screen.getByRole('link', { name: 'View live hours' })).toHaveAttribute('href', '/admin/time?start_date=2026-08-01&end_date=2026-08-15&tab=reports')
+    expect(screen.getByRole('link', { name: 'View live hours' })).toHaveAttribute('href', '/admin/reports?start_date=2026-08-01&end_date=2026-08-15')
   })
 
   it('synchronizes the selected period when same-route query parameters change', async () => {
@@ -780,13 +780,13 @@ describe('PayrollRuns', () => {
     expect(screen.getByLabelText('Period start')).toHaveValue('2026-09-01')
     expect(screen.getByLabelText('Period end')).toHaveValue('2026-08-31')
     expect(screen.getByRole('button', { name: 'Preview cutoff' })).toBeDisabled()
-    expect(screen.getByRole('link', { name: 'Approvals' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Review approvals' })).toHaveAttribute(
       'href',
-      '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=approvals&through_date=2026-08-31',
+      '/admin/approvals?start_date=2026-08-16&end_date=2026-08-31&through_date=2026-08-31',
     )
-    expect(screen.getByRole('link', { name: 'Hours Reports' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'View live hours' })).toHaveAttribute(
       'href',
-      '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=reports',
+      '/admin/reports?start_date=2026-08-16&end_date=2026-08-31',
     )
 
     fireEvent.change(screen.getByLabelText('Period end'), { target: { value: '2026-09-15' } })
@@ -833,7 +833,7 @@ describe('PayrollRuns', () => {
     expect(screen.getByRole('button', { name: 'Finalize this cutoff' })).toBeDisabled()
     expect(screen.getByRole('link', { name: '1 Missing category' })).toHaveAttribute(
       'href',
-      '/admin/time?start_date=2026-08-16&end_date=2026-08-31&tab=reports&category_status=uncategorized',
+      '/admin/reports?start_date=2026-08-16&end_date=2026-08-31&category_status=uncategorized',
     )
   })
 

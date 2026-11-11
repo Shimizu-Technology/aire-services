@@ -46,12 +46,11 @@ describe('TimeTracking for a manager', () => {
     apiMock.getHoursReport.mockResolvedValue({ data: report })
   })
 
-  it('works the team timecards with approvals and hours reports, but no payroll', async () => {
+  it('works the team timecards, with approvals, reports and payroll left to the navigation', async () => {
     openPage('?date=2026-11-01&view=day')
-    expect(await screen.findByRole('heading', { name: 'Time & Payroll' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Timecards' })).toBeInTheDocument()
     expect(await screen.findByDisplayValue('All Employees')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Approvals' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Hours Reports' })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Approval types' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Payroll' })).not.toBeInTheDocument()
     expect(screen.getByText('Who is working')).toBeInTheDocument()
   })

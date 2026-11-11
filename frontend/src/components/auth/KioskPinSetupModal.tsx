@@ -5,7 +5,7 @@ import { api } from '../../lib/api'
 interface KioskPinSetupModalProps {
   open: boolean
   userName: string
-  onComplete: () => Promise<void> | void
+  onComplete: () => Promise<unknown> | void
 }
 
 export default function KioskPinSetupModal({ open, userName, onComplete }: KioskPinSetupModalProps) {

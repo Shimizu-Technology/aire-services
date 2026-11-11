@@ -254,6 +254,8 @@ export interface CurrentUser {
   my_pay_preview_enabled?: boolean;
   /** My Pay is on and "Workers can email themselves stubs" is on in Settings. */
   my_pay_email_enabled?: boolean;
+  /** "Use schedules" is on in Settings: Schedule shows in the navigation. */
+  schedules_enabled?: boolean;
   created_at: string;
 }
 
@@ -395,6 +397,8 @@ export interface TimeClockAppSettings {
   pay_stub_kiosk_requests_enabled?: string;
   /** "false" (default) or "true". Shows "Email me this stub" in My Pay. */
   pay_stub_self_email_enabled?: string;
+  /** "false" (default) or "true". "Use schedules": shows Schedule in the navigation. */
+  schedules_enabled?: string;
 }
 
 export interface AdminAppSettingsResponse {

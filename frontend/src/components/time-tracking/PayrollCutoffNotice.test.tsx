@@ -69,7 +69,7 @@ describe('Payroll cutoff notice', () => {
     const dialog = await screen.findByRole('dialog', { name: /hours lock today/i })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveTextContent('ChST (UTC+10)')
-    expect(within(dialog).getByRole('link', { name: 'Review my hours' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=entries&view=period')
+    expect(within(dialog).getByRole('link', { name: 'Review my hours' })).toHaveAttribute('href', '/admin/my-hours?start_date=2026-10-16&end_date=2026-10-31&view=period')
     await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveFocus())
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -81,7 +81,7 @@ describe('Payroll cutoff notice', () => {
     await screen.findByRole('dialog')
     const links = screen.getAllByRole('link', { name: 'Review my hours' })
     expect(links).toHaveLength(2)
-    for (const link of links) expect(link).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=entries&view=period')
+    for (const link of links) expect(link).toHaveAttribute('href', '/admin/my-hours?start_date=2026-10-16&end_date=2026-10-31&view=period')
   })
 
   it('gives managers period-review instructions and a popup approval action', async () => {
@@ -91,8 +91,8 @@ describe('Payroll cutoff notice', () => {
     expect(dialog).not.toHaveTextContent('contact your manager')
     expect(screen.getByRole('region', { name: 'Payroll cutoff' })).not.toHaveTextContent('contact your manager')
     expect(dialog).toHaveTextContent('Review this period’s hours and pending approvals before then.')
-    expect(within(dialog).getByRole('link', { name: 'Review pending approvals' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals')
-    expect(within(dialog).getByRole('link', { name: 'Review period hours' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('link', { name: 'Review pending approvals' })).toHaveAttribute('href', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31')
+    expect(within(dialog).getByRole('link', { name: 'Review period hours' })).toHaveAttribute('href', '/admin/timecards?start_date=2026-10-16&end_date=2026-10-31&view=period')
   })
 
   it('preserves employee instructions and keeps manager actions private', async () => {
@@ -214,7 +214,7 @@ describe('Payroll cutoff notice', () => {
     vi.mocked(api.getPendingApprovals).mockResolvedValue({ data: { pending_entries: [], count: 1 } })
     vi.mocked(api.getPayrollCutoff).mockResolvedValue({ data: { cutoff, acknowledged: true } })
     mount()
-    expect(await screen.findByRole('link', { name: '1 pending approval' })).toHaveAttribute('href', '/admin/time?start_date=2026-10-16&end_date=2026-10-31&tab=approvals')
+    expect(await screen.findByRole('link', { name: '1 pending approval' })).toHaveAttribute('href', '/admin/approvals?start_date=2026-10-16&end_date=2026-10-31')
     expect(api.getPendingApprovals).toHaveBeenCalledWith({ per_page: 1, start_date: '2026-10-16', end_date: '2026-10-31' })
   })
 

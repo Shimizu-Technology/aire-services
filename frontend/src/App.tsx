@@ -13,6 +13,8 @@ import AireContact from './pages/aire/AireContact'
 import AireDiscoveryFlight from './pages/aire/AireDiscoveryFlight'
 import AireCareers from './pages/aire/AireCareers'
 import AireKiosk from './pages/aire/AireKiosk'
+import { AdminLanding, LegacyTimeRedirect, MovedPage } from './pages/admin/AdminRedirects'
+import SchedulesGate from './pages/admin/SchedulesGate'
 
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
 const EmployeeWorkspace = lazy(() => import('./pages/admin/EmployeeWorkspace'))
@@ -30,6 +32,9 @@ const MyPayStatement = lazy(() => import('./pages/admin/MyPayStatement'))
 const MyPayPreview = lazy(() => import('./pages/admin/MyPayPreview'))
 const PayStubs = lazy(() => import('./pages/admin/PayStubs'))
 const PayStubLink = lazy(() => import('./pages/aire/PayStubLink'))
+const MyTimeHome = lazy(() => import('./pages/admin/Dashboard').then((module) => ({ default: module.MyTimeHome })))
+const WebsiteLayout = lazy(() => import('./pages/admin/Website'))
+const WebsiteHome = lazy(() => import('./pages/admin/Website').then((module) => ({ default: module.WebsiteHome })))
 
 function AdminLoadingFallback() {
   return (
@@ -81,9 +86,20 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Suspense fallback={<AdminLoadingFallback />}><Dashboard /></Suspense>} />
-          <Route path="time" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking /></Suspense>} />
-          <Route path="schedule" element={<Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense>} />
+          {/* Today for owners and admins; managers land on Approvals, employees on My Time. */}
+          <Route index element={<AdminLanding><Suspense fallback={<AdminLoadingFallback />}><Dashboard /></Suspense></AdminLanding>} />
+          {/* The old "Time & Payroll" tabs, one route each. /admin/time?tab=… redirects here.
+              Each keeps its own key so React remounts TimeTracking between them: without it,
+              one instance is reused and an Approvals period carries into Reports. */}
+          <Route path="approvals" element={<ProtectedRoute requiredCapability="approve_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="approvals" section="approvals" /></Suspense></ProtectedRoute>} />
+          <Route path="timecards" element={<ProtectedRoute requiredCapability="manage_team_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="timecards" section="entries" /></Suspense></ProtectedRoute>} />
+          <Route path="reports" element={<ProtectedRoute requiredCapability="export_hours_reports"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="reports" section="reports" /></Suspense></ProtectedRoute>} />
+          <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="leave" section="leave" /></Suspense>} />
+          <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="my-hours" section="entries" /></Suspense>} />
+          <Route path="my-time" element={<Suspense fallback={<AdminLoadingFallback />}><MyTimeHome /></Suspense>} />
+          <Route path="time" element={<LegacyTimeRedirect />} />
+          {/* Hidden unless "Use schedules" is on in Settings. */}
+          <Route path="schedule" element={<SchedulesGate><Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense></SchedulesGate>} />
           <Route path="pay" element={<Suspense fallback={<AdminLoadingFallback />}><MyPay /></Suspense>} />
           <Route path="pay/:id" element={<Suspense fallback={<AdminLoadingFallback />}><MyPayStatement /></Suspense>} />
           {/* Read-only My Pay preview: owners and admins only (checked again by the API). */}
@@ -92,14 +108,21 @@ function App() {
           <Route path="pay-preview/:userId/:id" element={<ProtectedRoute requiredCapability="preview_pay"><Suspense fallback={<AdminLoadingFallback />}><MyPayPreview view="statement" /></Suspense></ProtectedRoute>} />
           {/* Sending pay stubs: owners, admins and managers (checked again by the API). */}
           <Route path="pay-stubs" element={<ProtectedRoute requiredCapability="send_pay_statements"><Suspense fallback={<AdminLoadingFallback />}><PayStubs /></Suspense></ProtectedRoute>} />
+          {/* Everything on the public site. Media moved here from /admin/media. */}
           <Route
-            path="media"
+            path="website"
             element={
               <ProtectedRoute requiredCapability="manage_site">
-                <Suspense fallback={<AdminLoadingFallback />}><Media /></Suspense>
+                <Suspense fallback={<AdminLoadingFallback />}><WebsiteLayout /></Suspense>
               </ProtectedRoute>
             }
-          />
+          >
+            <Route index element={<Suspense fallback={<AdminLoadingFallback />}><WebsiteHome /></Suspense>} />
+            <Route path="media" element={<Suspense fallback={<AdminLoadingFallback />}><Media /></Suspense>} />
+            {/* Contact settings write through the settings API, so this also needs manage_settings. */}
+            <Route path="contact" element={<ProtectedRoute requiredCapability="manage_settings"><Suspense fallback={<AdminLoadingFallback />}><Settings view="website" /></Suspense></ProtectedRoute>} />
+          </Route>
+          <Route path="media" element={<MovedPage to="/admin/website/media" />} />
           <Route
             path="payroll"
             element={
