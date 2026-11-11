@@ -32,7 +32,13 @@ export function UiKitPagesFixture({ now = new Date() }: { now?: Date }) {
   const [myPay, setMyPay] = useState(false)
   const [person, setPerson] = useState<number | null>(null)
   const dirty = myPay !== savedMyPay
-  const { guard } = useUnsavedChanges({ dirty, what: 'Access' })
+  const unsaved = useUnsavedChanges({
+    dirty,
+    what: 'Access',
+    summary: `My Pay: ${savedMyPay ? 'On' : 'Off'} → ${myPay ? 'On' : 'Off'}`,
+    onSave: () => setSavedMyPay(myPay),
+    onDiscard: () => setMyPay(savedMyPay),
+  })
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -62,13 +68,8 @@ export function UiKitPagesFixture({ now = new Date() }: { now?: Date }) {
           </div>
         )}
       </Tabs>
-      <UnsavedChangesBar
-        dirty={dirty}
-        summary={`My Pay: ${savedMyPay ? 'On' : 'Off'} → ${myPay ? 'On' : 'Off'}`}
-        onSave={() => setSavedMyPay(myPay)}
-        onDiscard={() => setMyPay(savedMyPay)}
-      />
-      {guard}
+      <UnsavedChangesBar {...unsaved.barProps} />
+      {unsaved.guard}
     </div>
   )
 }

@@ -17,7 +17,12 @@ export interface TabsProps<T extends string> {
   defaultValue?: T
   /** Old keys that still arrive in links, mapped to today's: { hours: 'time', setup: 'access' }. */
   aliases?: Record<string, T>
-  /** `push` adds a history entry per tab (Back returns to the last tab); `replace` doesn't. */
+  /**
+   * `replace` (the default) keeps the tab in the URL without a history entry,
+   * so Back leaves the page instead of replaying tab taps. `push` adds an
+   * entry per click; arrow-key moves still replace, so one key press is never
+   * one Back press.
+   */
   history?: 'push' | 'replace'
   /** Renders the panel for the selected tab. */
   children: (value: T) => ReactNode
@@ -29,7 +34,7 @@ export interface TabsProps<T extends string> {
  * the same tab. Old keys are rewritten in place. Other query parameters stay.
  * Arrow keys move between tabs; the panel follows.
  */
-export function Tabs<T extends string>({ label, items, param = 'tab', defaultValue, aliases = {}, history = 'push', children, className }: TabsProps<T>) {
+export function Tabs<T extends string>({ label, items, param = 'tab', defaultValue, aliases = {}, history = 'replace', children, className }: TabsProps<T>) {
   const ids = useId()
   const [searchParams, setSearchParams] = useSearchParams()
   const refs = useRef<Array<HTMLButtonElement | null>>([])
@@ -49,13 +54,13 @@ export function Tabs<T extends string>({ label, items, param = 'tab', defaultVal
     }, { replace: true })
   }, [needsRewrite, known, param, setSearchParams])
 
-  const select = (value: T) => {
+  const select = (value: T, via: 'click' | 'keyboard' = 'click') => {
     if (value === selected) return
     setSearchParams(previous => {
       const next = new URLSearchParams(previous)
       next.set(param, value)
       return next
-    }, { replace: history === 'replace' })
+    }, { replace: history === 'replace' || via === 'keyboard' })
   }
 
   const onKeyDown = (event: KeyboardEvent, index: number) => {
@@ -68,7 +73,7 @@ export function Tabs<T extends string>({ label, items, param = 'tab', defaultVal
     if (next === null) return
     event.preventDefault()
     refs.current[next]?.focus()
-    select(items[next].value)
+    select(items[next].value, 'keyboard')
   }
 
   if (selected === undefined) return null

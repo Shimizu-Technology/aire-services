@@ -38,22 +38,39 @@ describe('LiveTimer', () => {
   })
 
   it('stops ticking while the page is hidden and catches up when it returns', () => {
-    const setInterval = vi.spyOn(window, 'setInterval')
-    const clearInterval = vi.spyOn(window, 'clearInterval')
+    const setTimeout = vi.spyOn(window, 'setTimeout')
     render(<LiveTimer since="2026-11-11T08:00:00Z" label="On the clock" />)
-    expect(setInterval).toHaveBeenCalledTimes(1)
-
     setVisibility('hidden')
-    expect(clearInterval).toHaveBeenCalled()
+    const scheduled = setTimeout.mock.calls.length
     act(() => { vi.advanceTimersByTime(60_000) })
     expect(screen.getByText('1:00:00')).toBeInTheDocument()
-    expect(setInterval).toHaveBeenCalledTimes(1)
+    expect(setTimeout.mock.calls.length).toBe(scheduled)
 
     setVisibility('visible')
     expect(screen.getByText('1:01:00')).toBeInTheDocument()
-    expect(setInterval).toHaveBeenCalledTimes(2)
     act(() => { vi.advanceTimersByTime(1_000) })
     expect(screen.getByText('1:01:01')).toBeInTheDocument()
+  })
+
+  it('ticks on whole seconds of elapsed time, not a second after mounting', () => {
+    // Mounted 400ms into a second: the next tick is 600ms later, not 1000ms.
+    vi.setSystemTime(new Date('2026-11-11T09:00:00.400Z'))
+    render(<LiveTimer since="2026-11-11T08:00:00Z" label="On the clock" />)
+    expect(screen.getByText('1:00:00')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(599) })
+    expect(screen.getByText('1:00:00')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByText('1:00:01')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1_000) })
+    expect(screen.getByText('1:00:02')).toBeInTheDocument()
+  })
+
+  it('shows a dash instead of crashing on an unreadable start', () => {
+    render(<LiveTimer since="not a date" label="On the clock" />)
+    expect(screen.getByText('–')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByText('On the clock')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(3_000) })
+    expect(document.querySelector('time')).toBeNull()
   })
 
   it('holds still while paused', () => {

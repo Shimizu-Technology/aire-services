@@ -6,9 +6,9 @@ import { IconButton } from './Button'
 export interface PeriodStepperProps {
   period: PayPeriod
   onChange: (period: PayPeriod) => void
-  /** Earliest period start that can be shown (YYYY-MM-DD), e.g. the person's hire period. */
+  /** Earliest date to reach (YYYY-MM-DD), e.g. the hire date. The period containing it is the first. */
   min?: string
-  /** Latest period start, e.g. the current period so nobody steps into the future. */
+  /** Latest date to reach, e.g. today, so nobody steps past the current period. */
   max?: string
   /** For tests and previews; defaults to now. */
   now?: Date
@@ -34,7 +34,8 @@ export function PeriodStepper({ period, onChange, min, max, now, className }: Pe
         label="Previous pay period"
         icon={<ChevronLeft className="size-5" />}
         variant="secondary"
-        disabled={min !== undefined && previous.start < min}
+        // Previous is reachable while any of it is on or after min (a hire mid-period counts).
+        disabled={min !== undefined && previous.end < min}
         onClick={() => onChange(previous)}
       />
       <p aria-live="polite" className="min-w-0 flex-1 px-2 text-center text-body-sm text-ink-muted">

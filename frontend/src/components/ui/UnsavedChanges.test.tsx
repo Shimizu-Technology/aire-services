@@ -7,29 +7,34 @@ import { describe, expect, it, vi } from 'vitest'
 import { ShellChromeProvider } from '../layouts/ShellChromeContext'
 import { useShellChrome } from '../layouts/shellChrome'
 import { UnsavedChangesBar } from './UnsavedChangesBar'
+import { blockPathOrParams, type ShouldBlock } from './unsavedChangesBlocking'
 import { useUnsavedChanges } from './useUnsavedChanges'
 
 function TabBarProbe() {
   return <p>{useShellChrome().selectionBarActive ? 'tab bar hidden' : 'tab bar shown'}</p>
 }
 
-function ApprovalSettings({ onSave = vi.fn(), onDiscard = vi.fn(), report }: { onSave?: () => void; onDiscard?: () => void; report?: (blocks: boolean) => void }) {
+function ApprovalSettings({ onSave = vi.fn(), onDiscard = vi.fn(), report, shouldBlock }: { onSave?: () => void; onDiscard?: () => void; report?: (blocks: boolean) => void; shouldBlock?: ShouldBlock }) {
   const [saved, setSaved] = useState('Off')
   const [draft, setDraft] = useState('Off')
   const dirty = draft !== saved
-  const { guard, blocksNavigation } = useUnsavedChanges({ dirty, what: 'Approvals', onDiscard })
+  const { barProps, guard, blocksNavigation } = useUnsavedChanges({
+    dirty,
+    what: 'Approvals',
+    summary: `Auto-approve: ${saved} → ${draft}`,
+    onSave: () => { onSave(); setSaved(draft) },
+    onDiscard: () => { onDiscard(); setDraft(saved) },
+    shouldBlock,
+  })
   report?.(blocksNavigation)
   return (
     <>
       <label>Auto-approve <input value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
       <Link to="/admin/settings">Settings</Link>
       <Link to="/admin/settings/approvals#help">Help</Link>
-      <UnsavedChangesBar
-        dirty={dirty}
-        summary={`Auto-approve: ${saved} → ${draft}`}
-        onSave={() => { onSave(); setSaved(draft) }}
-        onDiscard={() => setDraft(saved)}
-      />
+      <Link to="/admin/settings/approvals?site=cfi">CFI only</Link>
+      <Link to="/admin/settings/approvals?tab=leave">Leave tab</Link>
+      <UnsavedChangesBar {...barProps} />
       {guard}
     </>
   )
@@ -48,7 +53,8 @@ describe('UnsavedChangesBar', () => {
   it('appears with the change, takes the tab bar slot, and saves or discards', async () => {
     const user = userEvent.setup()
     const onSave = vi.fn()
-    renderWithDataRouter({ onSave })
+    const onDiscard = vi.fn()
+    renderWithDataRouter({ onSave, onDiscard })
     expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument()
     await user.type(screen.getByRole('textbox', { name: 'Auto-approve' }), 'n')
     const bar = screen.getByRole('region', { name: 'Unsaved changes' })
@@ -59,6 +65,7 @@ describe('UnsavedChangesBar', () => {
 
     await user.click(screen.getByRole('button', { name: 'Discard' }))
     expect(screen.getByRole('textbox')).toHaveValue('Off')
+    expect(onDiscard).toHaveBeenCalledTimes(1)
     expect(screen.getByText('tab bar shown')).toBeInTheDocument()
 
     await user.type(screen.getByRole('textbox'), '!')
@@ -102,6 +109,28 @@ describe('useUnsavedChanges', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     await act(async () => { await router.navigate('/admin/settings') })
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+  })
+
+  it("doesn't ask for a filter or other query change on the same page", async () => {
+    const user = userEvent.setup()
+    const router = renderWithDataRouter()
+    await user.type(screen.getByRole('textbox'), 'n')
+    await user.click(screen.getByRole('link', { name: 'CFI only' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(router.state.location.search).toBe('?site=cfi')
+    expect(screen.getByRole('textbox')).toHaveValue('Offn')
+  })
+
+  it('asks for a named query parameter with blockPathOrParams', async () => {
+    const user = userEvent.setup()
+    const router = renderWithDataRouter({ shouldBlock: blockPathOrParams('tab') })
+    await user.type(screen.getByRole('textbox'), 'n')
+    await user.click(screen.getByRole('link', { name: 'CFI only' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'Leave tab' }))
+    expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(router.state.location.search).toBe('?site=cfi')
   })
 
   it('asks before the tab closes while there are changes', async () => {

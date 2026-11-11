@@ -67,4 +67,14 @@ describe('PeriodStepper', () => {
     expect(screen.getByRole('button', { name: 'Previous pay period' })).toBeDisabled()
     expect(shown()).toHaveTextContent('2026-10-16..2026-10-31')
   })
+
+  it('reaches the period someone was hired in, mid-period', async () => {
+    const user = userEvent.setup()
+    render(<Stepper start={{ start: '2026-11-01', end: '2026-11-15' }} min="2026-10-20" />)
+    const previous = screen.getByRole('button', { name: 'Previous pay period' })
+    expect(previous).toBeEnabled()
+    await user.click(previous)
+    expect(shown()).toHaveTextContent('2026-10-16..2026-10-31')
+    expect(previous).toBeDisabled()
+  })
 })

@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -20,7 +20,7 @@ function renderFixture(url: string) {
 }
 
 describe('UI kit fixture: pages and forms together', () => {
-  it('opens an old tab link, edits behind one Save, and guards leaving', async () => {
+  it('opens an old tab link, keeps the draft across tabs, and guards leaving the page', async () => {
     restore = mockMatchMedia({ width: 390 })
     const user = userEvent.setup()
     const router = renderFixture('/admin/users/7?tab=setup')
@@ -30,13 +30,20 @@ describe('UI kit fixture: pages and forms together', () => {
     await user.click(screen.getByRole('switch', { name: 'My Pay' }))
     expect(screen.getByRole('region', { name: 'Unsaved changes' })).toHaveTextContent('My Pay: Off → On')
 
-    await user.click(screen.getByRole('tab', { name: 'Overview' }))
-    expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toHaveAccessibleDescription('Your changes to Access will be lost.')
-    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
-    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    // Switching tabs keeps the page's draft, so it doesn't ask.
     await user.click(screen.getByRole('tab', { name: 'Overview' }))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(router.state.location.search).toBe('?tab=overview')
+    expect(screen.getByRole('region', { name: 'Unsaved changes' })).toHaveTextContent('My Pay: Off → On')
+
+    // Leaving the page does.
+    await act(async () => { await router.navigate('/admin/users') })
+    expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toHaveAccessibleDescription('Your changes to Access will be lost.')
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await act(async () => { await router.navigate('/admin/users') })
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.getByText('Team')).toBeInTheDocument()
   })
 
   it('renders the overview pieces with their roles', async () => {

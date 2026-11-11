@@ -1,9 +1,10 @@
 import { useId, type ReactNode } from 'react'
-import { useBlocker, type Location } from 'react-router-dom'
+import { useBlocker } from 'react-router-dom'
 import { cx } from '../../lib/cx'
 import { useSelectionBarRegistration } from '../layouts/shellChrome'
 import { Button } from './Button'
 import { ConfirmDialog } from './ConfirmDialog'
+import { blockPathChanges, type ShouldBlock } from './unsavedChangesBlocking'
 
 export interface UnsavedChangesBarProps {
   /** The bar shows while this is true. */
@@ -25,7 +26,8 @@ export interface UnsavedChangesBarProps {
 /**
  * The one Save for a page or tab. Pinned to the bottom while there are
  * changes; on phones it takes the tab bar's place like the SelectionBar, so
- * Save stays under the thumb.
+ * Save stays under the thumb. Get its props from `useUnsavedChanges`, which
+ * also guards navigation with the same `dirty` and `onDiscard`.
  */
 export function UnsavedChangesBar({
   dirty,
@@ -84,14 +86,20 @@ export interface UnsavedChangesGuardProps {
   what?: string
   /** Called before leaving when they choose Discard changes. */
   onDiscard?: () => void
-  /** Which moves need asking. Defaults to any change of path or query; hash-only moves are free. */
-  shouldBlock?: (current: Location, next: Location) => boolean
+  /**
+   * Which moves need asking. Defaults to `blockPathChanges`: a different page.
+   * Query and hash changes on the same page (a filter, ?tab=) are free; use
+   * `blockPathOrParams('tab')` when the draft belongs to one tab.
+   */
+  shouldBlock?: ShouldBlock
 }
 
-const changesPage = (current: Location, next: Location) => current.pathname !== next.pathname || current.search !== next.search
-
-/** Asks before in-app navigation drops unsaved changes. Needs a data router; use through `useUnsavedChanges`. */
-export function UnsavedChangesGuard({ dirty, what, onDiscard, shouldBlock = changesPage }: UnsavedChangesGuardProps) {
+/**
+ * Asks before in-app navigation drops unsaved changes. Needs a data router;
+ * use through `useUnsavedChanges`. React Router allows one active blocker at
+ * a time, so render one guard per page and combine every section's `dirty`.
+ */
+export function UnsavedChangesGuard({ dirty, what, onDiscard, shouldBlock = blockPathChanges }: UnsavedChangesGuardProps) {
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && shouldBlock(currentLocation, nextLocation))
   return (
     <ConfirmDialog

@@ -1,6 +1,8 @@
-import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { cx } from '../../lib/cx'
+import { useEscapeLayer } from '../../lib/useDialogFocus'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { Avatar } from './Avatar'
 import { Sheet } from './Sheet'
@@ -28,9 +30,12 @@ export interface PersonPickerProps {
 }
 
 const DESKTOP = '(min-width: 1024px)'
+const NO_RECENT: Array<PickerPerson['id']> = []
+const GAP = 4
+const MARGIN = 8
 
-// "tasi" finds "Tåsi"; case and accents don't matter.
-const fold = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+// "tasi" finds "Tåsi" and "obrien" finds "O’Brien"; case, accents and apostrophes don't matter.
+const fold = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/['’ʼ‘]/g, '').toLowerCase()
 
 interface Section { title: string | null; people: PickerPerson[] }
 
@@ -69,13 +74,17 @@ function PersonOption({ person, selected }: { person: PickerPerson; selected: bo
   )
 }
 
-function PersonCombobox({ label, people, value, onChange, recentIds = [], placeholder = 'Find a person', description, disabled, className }: PersonPickerProps) {
+function PersonCombobox({ label, people, value, onChange, recentIds = NO_RECENT, placeholder = 'Find a person', description, disabled, className }: PersonPickerProps) {
   const ids = useId()
   const selected = people.find(person => person.id === value) ?? null
   const [query, setQuery] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
+  const fieldRef = useRef<HTMLDivElement>(null)
+  // Escape closes the list first, not a Sheet or dialog the picker sits in.
+  useEscapeLayer(open, listRef, () => { setOpen(false); setQuery(null) })
+  usePlaceUnder(open, fieldRef, listRef)
 
   const sections = useMemo(() => sectionsFor(people, query ?? '', recentIds), [people, query, recentIds])
   const options = sections.flatMap(section => section.people)
@@ -102,11 +111,6 @@ function PersonCombobox({ label, people, value, onChange, recentIds = [], placeh
     } else if (event.key === 'Enter' && open && options[activeIndex]) {
       event.preventDefault()
       choose(options[activeIndex])
-    } else if (event.key === 'Escape' && open) {
-      event.preventDefault()
-      event.stopPropagation()
-      setOpen(false)
-      setQuery(null)
     } else if (event.key === 'Home' && open) {
       event.preventDefault(); moveTo(0)
     } else if (event.key === 'End' && open) {
@@ -119,7 +123,7 @@ function PersonCombobox({ label, people, value, onChange, recentIds = [], placeh
   return (
     <div className={cx('relative', className)}>
       <label htmlFor={`${ids}-input`} className="mb-1.5 block text-body-sm font-semibold text-ink">{label}</label>
-      <div className="relative">
+      <div ref={fieldRef} className="relative">
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-subtle" />
         <input
           id={`${ids}-input`}
@@ -147,13 +151,16 @@ function PersonCombobox({ label, people, value, onChange, recentIds = [], placeh
         />
       </div>
       {description && <p id={`${ids}-description`} className="mt-1.5 text-caption text-ink-muted">{description}</p>}
-      <div
+      {/* Portaled so a Sheet's scrolling body can't clip it; placed under the field by usePlaceUnder. */}
+      {createPortal(<div
         ref={listRef}
         id={`${ids}-listbox`}
         role="listbox"
         aria-label={label}
         hidden={!open}
-        className="absolute inset-x-0 top-full z-(--z-popover) mt-1 max-h-80 overflow-y-auto overscroll-contain rounded-card border border-line bg-surface p-1 shadow-lg"
+        // Keep focus in the input: a click on padding, a heading or the scrollbar mustn't close the list.
+        onMouseDown={(event) => event.preventDefault()}
+        className="fixed left-0 top-0 z-(--z-popover) max-h-80 overflow-y-auto overscroll-contain rounded-card border border-line bg-surface p-1 shadow-lg"
       >
         {options.length === 0 && <p className="px-3 py-2.5 text-body-sm text-ink-muted">Nobody matches “{query}”.</p>}
         {sections.map((section, sectionIndex) => (
@@ -168,8 +175,6 @@ function PersonCombobox({ label, people, value, onChange, recentIds = [], placeh
                   role="option"
                   aria-selected={person.id === value}
                   data-active={optionIndex === activeIndex || undefined}
-                  // Keep focus in the input so the list doesn't close before the click lands.
-                  onMouseDown={(event) => event.preventDefault()}
                   onMouseMove={() => { if (optionIndex !== activeIndex) setActive(optionIndex) }}
                   onClick={() => choose(person)}
                   className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-control px-2.5 text-body-sm data-active:bg-surface-muted data-active:outline-2 data-active:-outline-offset-2 data-active:outline-primary/30 pointer-fine:min-h-10"
@@ -180,12 +185,40 @@ function PersonCombobox({ label, people, value, onChange, recentIds = [], placeh
             })}
           </div>
         ))}
-      </div>
+      </div>, document.body)}
     </div>
   )
 }
 
-function PersonSheetPicker({ label, people, value, onChange, recentIds = [], placeholder = 'Find a person', description, disabled, className }: PersonPickerProps) {
+/** Matches the list to the field's width and puts it below, or above when there's no room. */
+function usePlaceUnder(open: boolean, fieldRef: RefObject<HTMLElement | null>, listRef: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const field = fieldRef.current
+    const list = listRef.current
+    if (!open || !field || !list) return
+    const place = () => {
+      const anchor = field.getBoundingClientRect()
+      const height = list.offsetHeight
+      const above = anchor.bottom + GAP + height > window.innerHeight - MARGIN && anchor.top - GAP - height >= MARGIN
+      list.style.width = `${Math.round(anchor.width)}px`
+      list.style.left = `${Math.round(anchor.left)}px`
+      list.style.top = `${Math.round(above ? anchor.top - GAP - height : anchor.bottom + GAP)}px`
+    }
+    place()
+    // Typing changes the list's height, which matters when it opens upward.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place)
+    observer?.observe(list)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open, fieldRef, listRef])
+}
+
+function PersonSheetPicker({ label, people, value, onChange, recentIds = NO_RECENT, placeholder = 'Find a person', description, disabled, className }: PersonPickerProps) {
   const ids = useId()
   const selected = people.find(person => person.id === value) ?? null
   const [open, setOpen] = useState(false)

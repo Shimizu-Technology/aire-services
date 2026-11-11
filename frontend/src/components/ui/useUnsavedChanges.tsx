@@ -1,8 +1,12 @@
 import { useContext, useEffect, type ReactNode } from 'react'
 import { UNSAFE_DataRouterContext } from 'react-router-dom'
-import { UnsavedChangesGuard, type UnsavedChangesGuardProps } from './UnsavedChangesBar'
+import { UnsavedChangesGuard, type UnsavedChangesBarProps, type UnsavedChangesGuardProps } from './UnsavedChangesBar'
+
+export interface UnsavedChangesOptions extends Omit<UnsavedChangesBarProps, 'className'>, Pick<UnsavedChangesGuardProps, 'what' | 'shouldBlock'> {}
 
 export interface UnsavedChangesResult {
+  /** Spread onto the page's one `<UnsavedChangesBar>`. */
+  barProps: UnsavedChangesBarProps
   /** Render this once on the page. It is the "Leave without saving?" dialog. */
   guard: ReactNode
   /**
@@ -13,15 +17,21 @@ export interface UnsavedChangesResult {
 }
 
 /**
- *   const { guard } = useUnsavedChanges({ dirty, what: 'Approvals', onDiscard: reset })
- *   return <>{form}<UnsavedChangesBar dirty={dirty} … />{guard}</>
+ *   const unsaved = useUnsavedChanges({ dirty, what: 'Approvals', onSave: save, onDiscard: reset, saving })
+ *   return <>{form}<UnsavedChangesBar {...unsaved.barProps} />{unsaved.guard}</>
  *
- * Asks before in-app navigation (React Router's useBlocker with the shared
- * ConfirmDialog: Keep editing / Discard changes) and before the tab closes.
+ * One hook for the bar and the guard, so they share `dirty` and `onDiscard`.
+ * Asks before in-app navigation to another page (React Router's useBlocker
+ * with the shared ConfirmDialog: Keep editing / Discard changes) and before
+ * the tab closes.
+ *
+ * React Router supports one active blocker at a time: call this once per
+ * page, with `dirty` true when any section has changes, and don't nest a
+ * second page that also calls it.
  */
-export function useUnsavedChanges(options: UnsavedChangesGuardProps): UnsavedChangesResult {
+export function useUnsavedChanges({ what, shouldBlock, ...barProps }: UnsavedChangesOptions): UnsavedChangesResult {
   const dataRouter = useContext(UNSAFE_DataRouterContext)
-  const { dirty } = options
+  const { dirty, onDiscard } = barProps
 
   useEffect(() => {
     if (!dirty) return
@@ -35,7 +45,8 @@ export function useUnsavedChanges(options: UnsavedChangesGuardProps): UnsavedCha
   }, [dirty])
 
   return {
-    guard: dataRouter ? <UnsavedChangesGuard {...options} /> : null,
+    barProps,
+    guard: dataRouter ? <UnsavedChangesGuard dirty={dirty} what={what} onDiscard={onDiscard} shouldBlock={shouldBlock} /> : null,
     blocksNavigation: Boolean(dataRouter),
   }
 }

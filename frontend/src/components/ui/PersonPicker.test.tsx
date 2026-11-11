@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mockMatchMedia } from '../../test/matchMedia'
 import { PersonPicker, type PickerPerson } from './PersonPicker'
+import { Sheet } from './Sheet'
 
 const PEOPLE: PickerPerson[] = [
   { id: 1, name: 'Marcus Quinata', meta: 'CFI · Employee' },
@@ -75,6 +76,64 @@ describe('PersonPicker on desktop', () => {
     await user.keyboard('{Escape}')
     expect(input).toHaveAttribute('aria-expanded', 'false')
     expect(input).toHaveValue('Marcus Quinata')
+  })
+})
+
+describe('PersonPicker inside a Sheet on desktop', () => {
+  function InSheet({ onClose = vi.fn() }: { onClose?: () => void }) {
+    const [value, setValue] = useState<PickerPerson['id'] | null>(null)
+    return (
+      <Sheet open onClose={onClose} title="Add a shift">
+        <PersonPicker label="Who worked" people={[...PEOPLE, { id: 5, name: 'Ana O’Brien' }]} value={value} onChange={person => setValue(person.id)} />
+      </Sheet>
+    )
+  }
+
+  it('portals the list out of the sheet so its scrolling body cannot clip it', async () => {
+    restore = mockMatchMedia({ width: 1280 })
+    const user = userEvent.setup()
+    render(<InSheet />)
+    await user.click(screen.getByRole('combobox', { name: 'Who worked' }))
+    const listbox = screen.getByRole('listbox', { name: 'Who worked' })
+    expect(screen.getByRole('dialog', { name: 'Add a shift' })).not.toContainElement(listbox)
+    expect(listbox.parentElement).toBe(document.body)
+    expect(listbox).toHaveClass('fixed', 'z-(--z-popover)')
+  })
+
+  it('closes the list on Escape first, then the sheet', async () => {
+    restore = mockMatchMedia({ width: 1280 })
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<InSheet onClose={onClose} />)
+    const input = screen.getByRole('combobox', { name: 'Who worked' })
+    await user.click(input)
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+    await user.keyboard('{Escape}')
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+    expect(onClose).not.toHaveBeenCalled()
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays open when the list padding or scrollbar is pressed', async () => {
+    restore = mockMatchMedia({ width: 1280 })
+    const user = userEvent.setup()
+    render(<InSheet />)
+    const input = screen.getByRole('combobox', { name: 'Who worked' })
+    await user.click(input)
+    expect(fireEvent.mouseDown(screen.getByRole('listbox'))).toBe(false)
+  })
+
+  it('ignores apostrophes, so "obrien" finds O’Brien', async () => {
+    restore = mockMatchMedia({ width: 1280 })
+    const user = userEvent.setup()
+    render(<InSheet />)
+    const input = screen.getByRole('combobox', { name: 'Who worked' })
+    await user.type(input, "o'brien")
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map(option => option.textContent)).toEqual(['AOAna O’Brien'])
+    await user.clear(input)
+    await user.type(input, 'obrien')
+    expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(1)
   })
 })
 

@@ -15,37 +15,49 @@ export interface LiveTimerProps {
 }
 
 /**
- * Time since `since`, updated once a second while the page is visible. When
- * the tab is hidden the interval stops; on return it catches up at once, since
- * the value is always computed from the clock, never counted.
+ * Time since `since`, updated on each whole second of elapsed time while the
+ * page is visible, so it never skips or repeats a second. When the tab is
+ * hidden it stops; on return it catches up at once, since the value is always
+ * computed from the clock, never counted. An unreadable `since` shows a dash.
  */
 export function LiveTimer({ since, format = 'clock', label, paused = false, className }: LiveTimerProps) {
-  const start = typeof since === 'string' ? new Date(since) : since
+  const startMs = (typeof since === 'string' ? new Date(since) : since).getTime()
+  const valid = Number.isFinite(startMs)
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    if (paused) return
-    let interval: number | null = null
-    const tick = () => setNow(Date.now())
+    if (paused || !valid) return
+    let timer: number | null = null
+    const stop = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = null
+    }
+    const tick = () => {
+      const current = Date.now()
+      setNow(current)
+      // Wait until the next whole second since the start (at least a few ms).
+      const elapsed = current - startMs
+      const wait = 1000 - (((elapsed % 1000) + 1000) % 1000)
+      timer = window.setTimeout(tick, Math.max(wait, 16))
+    }
     const run = () => {
-      if (interval !== null) window.clearInterval(interval)
-      interval = null
-      if (document.visibilityState === 'hidden') return
-      tick()
-      interval = window.setInterval(tick, 1000)
+      stop()
+      if (document.visibilityState !== 'hidden') tick()
     }
     run()
     document.addEventListener('visibilitychange', run)
     return () => {
       document.removeEventListener('visibilitychange', run)
-      if (interval !== null) window.clearInterval(interval)
+      stop()
     }
-  }, [paused])
+  }, [paused, valid, startMs])
 
   return (
     <span className={cx('tabular-nums', className)}>
       <span className="sr-only">{label}</span>
-      <time aria-hidden="true" aria-live="off" dateTime={start.toISOString()}>{formatElapsed(now - start.getTime(), format)}</time>
+      {valid
+        ? <time aria-hidden="true" aria-live="off" dateTime={new Date(startMs).toISOString()}>{formatElapsed(now - startMs, format)}</time>
+        : <span aria-hidden="true">–</span>}
     </span>
   )
 }

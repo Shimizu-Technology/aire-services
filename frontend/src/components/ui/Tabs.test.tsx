@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { Tabs } from './Tabs'
 
@@ -58,6 +58,36 @@ describe('Tabs', () => {
     await user.keyboard('{End}')
     expect(where()).toContain('tab=access')
     expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('replaces history by default, so Back leaves the page instead of replaying tabs', async () => {
+    const user = userEvent.setup()
+    const router = createMemoryRouter([
+      { path: '/admin/users', element: <p>Team</p> },
+      { path: '/admin/users/:id', element: <Tabs label="Ethan Cruz" items={[{ value: 'overview', label: 'Overview' }, { value: 'time', label: 'Time' }, { value: 'pay', label: 'Pay' }]}>{(tab) => <p>{tab}</p>}</Tabs> },
+    ], { initialEntries: ['/admin/users', '/admin/users/9'] })
+    render(<RouterProvider router={router} />)
+    await user.click(screen.getByRole('tab', { name: 'Time' }))
+    await user.keyboard('{ArrowRight}{ArrowLeft}{ArrowRight}')
+    expect(router.state.location.search).toBe('?tab=pay')
+    await act(async () => { await router.navigate(-1) })
+    expect(router.state.location.pathname).toBe('/admin/users')
+  })
+
+  it('with history="push", adds an entry per click but not per arrow key', async () => {
+    const user = userEvent.setup()
+    const router = createMemoryRouter([
+      { path: '/admin/users', element: <p>Team</p> },
+      { path: '/admin/users/:id', element: <Tabs label="Ethan Cruz" history="push" items={[{ value: 'overview', label: 'Overview' }, { value: 'time', label: 'Time' }, { value: 'pay', label: 'Pay' }]}>{(tab) => <p>{tab}</p>}</Tabs> },
+    ], { initialEntries: ['/admin/users', '/admin/users/9'] })
+    render(<RouterProvider router={router} />)
+    await user.click(screen.getByRole('tab', { name: 'Time' }))
+    await user.keyboard('{ArrowRight}{ArrowLeft}{ArrowRight}')
+    expect(router.state.location.search).toBe('?tab=pay')
+    await act(async () => { await router.navigate(-1) })
+    expect(router.state.location.pathname + router.state.location.search).toBe('/admin/users/9')
+    await act(async () => { await router.navigate(-1) })
+    expect(router.state.location.pathname).toBe('/admin/users')
   })
 
   it('keeps 44px tab targets', () => {
