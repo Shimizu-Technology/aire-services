@@ -100,6 +100,24 @@ RSpec.describe TimeClockService, "approval policy", type: :service do
   end
 
   describe "Auto-approve ordinary shifts" do
+    # The rules live in Approvals::ReviewClassifier, which the Approvals inbox
+    # uses too, so "ordinary" means the same thing in both places.
+    it "shares its rules with the Approvals inbox" do
+      entry = shift(employee)
+      inbox = Approvals::ReviewClassifier.call([ entry ], viewer: manager).fetch(entry.id)
+
+      expect(described_class.ordinary_shift_exceptions(entry)).to eq([ :setting_off ])
+      expect(inbox).to eq(review_kind: "ordinary", exceptions: [])
+    end
+
+    it "doesn't count an approval that was undone as an edit" do
+      entry = shift(employee)
+      AuditLog.record!(action: "time_entry.approved", auditable: entry, actor: manager)
+      AuditLog.record!(action: "time_entry.approval_undone", auditable: entry, actor: manager)
+
+      expect(described_class.ordinary_shift_exceptions(entry)).to eq([ :setting_off ])
+    end
+
     it "is off by default, so an employee's unscheduled ordinary shift stays queued" do
       entry = shift(employee)
 

@@ -153,6 +153,8 @@ Rails.application.routes.draw do
           post :end_break
           post :switch_category
           post :bulk_approve
+          post :review_batch
+          post "review_batches/:review_batch_id/undo", action: :undo_review_batch, as: :undo_review_batch
           get :current_status
           get :pending_approvals
           get :whos_working
@@ -162,6 +164,7 @@ Rails.application.routes.draw do
           post :deny
           post :approve_overtime
           post :deny_overtime
+          post :undo_approval
         end
       end
       resources :time_categories, only: [ :index ]

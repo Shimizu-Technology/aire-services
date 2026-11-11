@@ -79,6 +79,23 @@ class ReportExport < ApplicationRecord
     end
   end
 
+  # One query for a batch of entries. Each export names the first of its
+  # entries the batch changed.
+  def self.invalidate_for_entries!(entry_ids:, changed_by:, reason:)
+    entry_ids = entry_ids.map(&:to_i).uniq.sort
+    return if entry_ids.empty?
+
+    containing = entry_ids.map { |id| sanitize_sql_array([ "entry_ids @> ?", [ id ].to_json ]) }.join(" OR ")
+    protecting_entries.where(containing).find_each do |report_export|
+      entry_id = entry_ids.find { |id| report_export.entry_ids.include?(id) }
+      report_export.update!(
+        state: "stale",
+        stale_at: Time.current,
+        stale_reason: "Entry ##{entry_id} changed by #{changed_by.full_name}: #{reason}"
+      )
+    end
+  end
+
   private_class_method def self.snapshot_entries(report, employee_ids:)
     visible_entries = Array(report[:employees]).flat_map do |employee|
       employee_id = (employee[:id] || employee[:source_user_id]).to_i

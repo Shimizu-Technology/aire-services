@@ -14,13 +14,6 @@ class TimeClockService
   # Punches an employee makes themselves. A supervisor clocking someone in or
   # out is recorded as clock_source "admin" or admin_override.
   SELF_SERVICE_CLOCK_SOURCES = %w[kiosk mobile].freeze
-  # Audit actions a normal kiosk or mobile shift writes about itself, and the
-  # auto-approval's own row. Any other time_entry action on the entry means
-  # it was edited or corrected.
-  ORDINARY_SHIFT_AUDIT_ACTIONS = %w[
-    time_entry.clocked_in time_entry.clocked_out time_entry.break_started time_entry.break_ended
-    time_entry.category_switched time_entry.category_auto_assigned time_entry.auto_approved
-  ].freeze
   # Consecutive segments (category switches) closer than this are one shift.
   SESSION_GAP_SECONDS = 5
   MAX_SHIFT_SEGMENTS = 50
@@ -345,12 +338,16 @@ class TimeClockService
     end
 
     # ── Admin: Approve Entry ──
-    def approve_entry(entry:, approved_by:, note: nil)
+    # A batch caller that already holds the employee and entry row locks, and
+    # loaded the entry under them, passes already_locked: true to skip the
+    # re-lock and reload. payroll_cases: false skips the settlement-case
+    # lookup when the caller already knows the entry has none.
+    def approve_entry(entry:, approved_by:, note: nil, audit_metadata: {}, already_locked: false, payroll_cases: true)
       raise AuthorizationError, "Only managers and admins can approve entries" unless approved_by.can_approve_time?
       ensure_review_allowed!(entry, approved_by)
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
-      entry.with_lock do
+      with_entry_lock(entry, already_locked) do
         raise ClockError, TimeEntry::ADMINISTRATOR_CORRECTION_NOTE if entry.needs_administrator_correction?
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
 
@@ -366,8 +363,8 @@ class TimeClockService
         end
 
         entry.update!(attrs)
-        record_review_event!("time_entry.approved", entry, approved_by, note)
-        record_payroll_case_approval_event!(entry, approved_by, "approved", note)
+        record_review_event!("time_entry.approved", entry, approved_by, note, metadata: audit_metadata)
+        record_payroll_case_approval_event!(entry, approved_by, "approved", note) if payroll_cases
       end
       entry
     end
@@ -396,12 +393,13 @@ class TimeClockService
     end
 
     # ── Admin: Approve Overtime ──
-    def approve_overtime(entry:, approved_by:, note: nil)
+    # Takes the same already_locked and payroll_cases options as approve_entry.
+    def approve_overtime(entry:, approved_by:, note: nil, audit_metadata: {}, already_locked: false, payroll_cases: true)
       raise AuthorizationError, "Only managers and admins can approve overtime" unless approved_by.can_approve_time?
       ensure_review_allowed!(entry, approved_by)
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
-      entry.with_lock do
+      with_entry_lock(entry, already_locked) do
         raise ClockError, TimeEntry::ADMINISTRATOR_CORRECTION_NOTE if entry.needs_administrator_correction?
         if entry.allocation_contract_version.nil?
           Payroll::AffectedOvertimeReview.around(entry, force: true) { nil }
@@ -420,8 +418,8 @@ class TimeClockService
           overtime_approved_at: Time.current,
           overtime_note: note
         )
-        record_review_event!("time_entry.overtime_approved", entry, approved_by, note)
-        record_payroll_case_approval_event!(entry, approved_by, "approved", note, approval_kind: "overtime")
+        record_review_event!("time_entry.overtime_approved", entry, approved_by, note, metadata: audit_metadata)
+        record_payroll_case_approval_event!(entry, approved_by, "approved", note, approval_kind: "overtime") if payroll_cases
       end
       entry
     end
@@ -448,6 +446,10 @@ class TimeClockService
     end
 
     # ── Helpers ──
+
+    def with_entry_lock(entry, already_locked, &block)
+      already_locked ? block.call : entry.with_lock(&block)
+    end
 
     def clock_write_transaction(&block)
       ActiveRecord::Base.transaction do
@@ -569,7 +571,7 @@ class TimeClockService
       )
     end
 
-    def record_review_event!(action, entry, actor, note, outcome: "succeeded")
+    def record_review_event!(action, entry, actor, note, outcome: "succeeded", metadata: {})
       AuditLog.record!(
         action: action,
         auditable: entry,
@@ -582,7 +584,7 @@ class TimeClockService
           employee_name: entry.user&.full_name,
           work_date: entry.work_date&.iso8601,
           review_note: note.to_s.strip.presence
-        }.compact
+        }.compact.merge(metadata)
       )
     end
 
@@ -630,34 +632,19 @@ class TimeClockService
       shift_exceptions(entry, shift_segments(entry))
     end
 
+    # True when a shift has more segments than shift_segments returns.
+    def shift_segments_truncated?(segments)
+      return false if segments.size < MAX_SHIFT_SEGMENTS
+
+      adjacent_segment(segments.first, segments, :previous).present? || adjacent_segment(segments.last, segments, :following).present?
+    end
+
     private
 
+    # The rules live in Approvals::ReviewClassifier so the Approvals inbox's
+    # "ordinary" means the same thing.
     def shift_exceptions(entry, segments)
-      allocations = Payroll::AffectedOvertimeReview.projected_allocations_for(segments)
-      exceptions = []
-      exceptions << :setting_off unless Setting.auto_approve_ordinary_shifts?
-      # Employees only. A supervisor's own time always needs a person.
-      exceptions << :not_employee unless entry.user&.employee?
-      exceptions << :not_completed_clock unless segments.all? { |segment| completed_clock?(segment) }
-      # A supervisor starting, switching or ending any part of the shift.
-      exceptions << :not_self_service unless segments.all? { |segment| segment.clock_source.in?(SELF_SERVICE_CLOCK_SOURCES) && !segment.admin_override? }
-      exceptions << :no_category if segments.any? { |segment| segment.time_category_id.blank? }
-      # Scheduled shifts are not queued and keep today's behaviour. A queued
-      # shift whose only reason is the missing schedule qualifies; corrected
-      # clock-outs, edits, auto-closes and 24-hour holds add their own note.
-      exceptions << :queued_for_another_reason unless segments.all? { |segment| segment.approval_status == "pending" && segment.approval_note == UNSCHEDULED_NOTE }
-      exceptions << :edited if edited_since_clock_in?(segments)
-      exceptions << :overtime if overtime_portion?(segments, allocations)
-      # Payroll cannot place the time yet (for example an overnight break that
-      # does not line up). Batches hold it as pending, so a person must look.
-      exceptions << :allocation_hold if segments.any? { |segment| allocations.dig(segment.id, :hold_reason) }
-      # Past the segment cap the chain is cut short, so the rules can't see the
-      # whole shift; leave all of it for a person.
-      exceptions << :too_many_segments if shift_segments_truncated?(segments)
-      exceptions << :too_long if exceptions.exclude?(:not_completed_clock) && shift_span_hours(segments) >= Setting.auto_approve_max_shift_hours
-      exceptions << :late_hours if segments.any? { |segment| late_or_prior_period_hours?(segment) }
-      exceptions << :crosses_period if exceptions.exclude?(:not_completed_clock) && crosses_period_or_cutoff?(segments)
-      exceptions
+      Approvals::ReviewClassifier.auto_approve_exceptions(entry, segments)
     end
 
     def unscheduled_approval_note_for(schedule:)
@@ -718,13 +705,9 @@ class TimeClockService
           rule: "ordinary_shift",
           max_shift_hours: Setting.auto_approve_max_shift_hours,
           shift_entry_ids: segments.map(&:id),
-          shift_hours: shift_span_hours(segments).round(2)
+          shift_hours: Approvals::ReviewClassifier.shift_span_hours(segments).round(2)
         }
       )
-    end
-
-    def completed_clock?(entry)
-      entry.clock_entry? && entry.status == "completed" && entry.clock_in_at.present? && entry.clock_out_at.present?
     end
 
     # The clock entries of one shift, in order: segments a category switch
@@ -740,12 +723,6 @@ class TimeClockService
       segments
     end
 
-    def shift_segments_truncated?(segments)
-      return false if segments.size < MAX_SHIFT_SEGMENTS
-
-      adjacent_segment(segments.first, segments, :previous).present? || adjacent_segment(segments.last, segments, :following).present?
-    end
-
     def adjacent_segment(segment, seen, direction)
       scope = TimeEntry.clock_entries.where(user_id: segment.user_id).where.not(id: seen.map(&:id))
       gap = SESSION_GAP_SECONDS.seconds
@@ -758,50 +735,6 @@ class TimeClockService
 
         scope.where(clock_in_at: segment.clock_out_at..(segment.clock_out_at + gap)).order(:clock_in_at).first
       end
-    end
-
-    def edited_since_clock_in?(segments)
-      AuditLog.where(auditable_type: "TimeEntry", auditable_id: segments.map(&:id))
-        .where("action LIKE 'time_entry.%'")
-        .where.not(action: ORDINARY_SHIFT_AUDIT_ACTIONS)
-        .exists?
-    end
-
-    # Overtime is never auto-approved. Count time still waiting for approval
-    # as if approved, so a shift that would push the week over 40 hours once
-    # earlier shifts (or its own earlier segments) are approved is queued too.
-    def overtime_portion?(segments, allocations)
-      segments.any? do |segment|
-        !segment.overtime_status.in?([ nil, "none" ]) || allocations.dig(segment.id, :overtime_hours).to_f.positive?
-      end
-    end
-
-    # Elapsed time from the shift's first clock-in to its last clock-out,
-    # breaks included.
-    def shift_span_hours(segments)
-      (segments.last.clock_out_at - segments.first.clock_in_at) / 1.hour
-    end
-
-    # Late hours: the work date is in a pay period AIRE already finalized, or
-    # one whose published lock has passed.
-    def late_or_prior_period_hours?(entry)
-      date = entry.work_date
-      PayrollBatch.where("start_date <= :date AND end_date >= :date", date: date).exists? ||
-        Payroll::EntryCutoffWarnings.call([ entry ]).include?(entry.id)
-    end
-
-    # Clocked in and out in different pay periods (1st–15th, 16th–month end),
-    # or a payroll lock fell inside the shift.
-    def crosses_period_or_cutoff?(segments)
-      clock_out_date = segments.last.clock_out_at.in_time_zone(business_timezone).to_date
-      return true if pay_period_key(segments.first.work_date) != pay_period_key(clock_out_date)
-
-      shift = segments.first.clock_in_at..segments.last.clock_out_at
-      PayrollCalendarPeriod.where(cutoff_at: shift).exists? || PayrollBatch.where(cutoff_at: shift).exists?
-    end
-
-    def pay_period_key(date)
-      [ date.year, date.month, date.day <= 15 ? 1 : 2 ]
     end
 
     def ensure_review_allowed!(entry, reviewer)
