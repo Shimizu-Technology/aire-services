@@ -42,7 +42,7 @@ jobs:
           persist-credentials: false
       - name: Install image processing dependencies
         run: |
-          sudo apt-get update
+          "$GITHUB_WORKSPACE/.github/scripts/apt-refresh.sh"
           sudo apt-get install --no-install-recommends -y libvips-tools fonts-dejavu-core
       - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
         with:

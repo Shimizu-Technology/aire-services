@@ -4,10 +4,12 @@ on:
   pull_request:
     paths:
       - 'backend/**'
+      - '.github/workflows/backend.yml'
   push:
     branches: [main]
     paths:
       - 'backend/**'
+      - '.github/workflows/backend.yml'
 
 defaults:
   run:
@@ -84,7 +86,7 @@ jobs:
 
       - name: Install image processing dependencies
         run: |
-          sudo apt-get update
+          "$GITHUB_WORKSPACE/.github/scripts/apt-refresh.sh"
           sudo apt-get install --no-install-recommends -y libvips-tools fonts-dejavu-core
 
       - name: Set up Ruby
