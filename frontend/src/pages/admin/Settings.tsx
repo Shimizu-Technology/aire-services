@@ -181,6 +181,15 @@ export default function Settings() {
   const [categories, setCategories] = useState<AdminTimeCategory[]>([])
   const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
   const scheduleRequiredForClockIn = clockSettings?.schedule_required_for_clock_in === 'true'
+  // Each switch saves on its own. Apply only the keys a save changed, so a
+  // slower response from another switch can't put back an older value.
+  const applySavedSettings = (keys: (keyof TimeClockAppSettings)[]) => (saved: TimeClockAppSettings) => {
+    setClockSettings((current) => {
+      if (!current) return saved
+      const changed = Object.fromEntries(keys.filter((key) => key in saved).map((key) => [key, saved[key]]))
+      return { ...current, ...changed }
+    })
+  }
   const [catalog, setCatalog] = useState<SettingsCatalogEntry[]>([])
   const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null)
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
@@ -652,7 +661,7 @@ export default function Settings() {
         return
       }
 
-      setClockSettings(res.data.settings)
+      applySavedSettings(['managers_can_approve_own_time'])(res.data.settings)
       setOwnTimeApprovalMessage(enabled ? 'Managers can approve their own time.' : "Managers' own time now goes to another approver.")
     } finally {
       setSavingOwnTimeApproval(false)
@@ -1234,11 +1243,11 @@ export default function Settings() {
           </FadeUp>
 
           <FadeUp delay={0.08}>
-            <AutoApprovalSettings settings={clockSettings} onSaved={setClockSettings} />
+            <AutoApprovalSettings settings={clockSettings} onSaved={applySavedSettings(['auto_approve_ordinary_shifts', 'auto_approve_max_shift_hours'])} />
           </FadeUp>
 
           <FadeUp delay={0.08}>
-            <PayStubSettings settings={clockSettings} onSaved={setClockSettings} />
+            <PayStubSettings settings={clockSettings} onSaved={applySavedSettings(['pay_stub_kiosk_requests_enabled', 'pay_stub_self_email_enabled'])} />
           </FadeUp>
 
           <FadeUp delay={0.08}>

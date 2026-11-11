@@ -177,6 +177,26 @@ RSpec.describe TimeClockService, "approval policy", type: :service do
         end
       end
 
+      it "keeps every segment queued when the shift has more segments than the cap can follow" do
+        stub_const("TimeClockService::MAX_SHIFT_SEGMENTS", 3)
+        turn_on_auto_approval!(max_hours: 12)
+        travel_to(zone.local(2026, 4, 8, 6, 0, 0))
+
+        described_class.clock_in(user: employee, time_category_id: category.id, clock_source: "kiosk")
+        3.times do |index|
+          travel 30.minutes
+          described_class.switch_category(user: employee, time_category_id: index.even? ? other_category.id : category.id, clock_source: "kiosk")
+        end
+        travel 30.minutes
+        described_class.clock_out(user: employee)
+
+        segments = employee.time_entries.order(:clock_in_at).to_a
+        expect(segments.size).to eq(4)
+        expect(segments.map(&:approval_status)).to all(eq("pending"))
+        expect(described_class.ordinary_shift_exceptions(segments.last.reload)).to include(:too_many_segments)
+        segments.each { |segment| expect(auto_approval_rows(segment)).to be_empty }
+      end
+
       it "keeps every segment queued when the segments together reach overtime" do
         # 36 hours Sunday to Tuesday; 3 + 3 hours on Wednesday makes 42.
         turn_on_auto_approval!

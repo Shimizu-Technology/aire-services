@@ -651,6 +651,9 @@ class TimeClockService
       # Payroll cannot place the time yet (for example an overnight break that
       # does not line up). Batches hold it as pending, so a person must look.
       exceptions << :allocation_hold if segments.any? { |segment| allocations.dig(segment.id, :hold_reason) }
+      # Past the segment cap the chain is cut short, so the rules can't see the
+      # whole shift; leave all of it for a person.
+      exceptions << :too_many_segments if shift_segments_truncated?(segments)
       exceptions << :too_long if exceptions.exclude?(:not_completed_clock) && shift_span_hours(segments) >= Setting.auto_approve_max_shift_hours
       exceptions << :late_hours if segments.any? { |segment| late_or_prior_period_hours?(segment) }
       exceptions << :crosses_period if exceptions.exclude?(:not_completed_clock) && crosses_period_or_cutoff?(segments)
@@ -735,6 +738,12 @@ class TimeClockService
         segments.push(following)
       end
       segments
+    end
+
+    def shift_segments_truncated?(segments)
+      return false if segments.size < MAX_SHIFT_SEGMENTS
+
+      adjacent_segment(segments.first, segments, :previous).present? || adjacent_segment(segments.last, segments, :following).present?
     end
 
     def adjacent_segment(segment, seen, direction)
