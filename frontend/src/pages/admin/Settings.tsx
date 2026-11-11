@@ -1356,7 +1356,8 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
           </>}
 
           {showSettings ? (
-            <section className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+            // Keeps the old #contact-settings link landing here, pointing to Website.
+            <section id="contact-settings" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900">Contact details, phone numbers and social links</h2>
               <p className="mt-1 text-sm text-slate-500">These are on the public website, so they’ve moved to the Website section.</p>
               <Link to="/admin/website/contact" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-cyan-700 hover:text-cyan-900">Open Website → Contact & links</Link>
