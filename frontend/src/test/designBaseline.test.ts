@@ -26,6 +26,19 @@ const SUB_12PX_PENDING: Record<string, number> = {
   '../pages/aire/AireHome.tsx': 2,
 }
 
+// Admin pages use Sheet, ConfirmDialog, SelectionBar and UnsavedChangesBar
+// instead of hand-rolling overlays and bottom bars. These files predate that;
+// the counts can only go down as their page PRs land.
+const HAND_ROLLED_DIALOG = /role=(?:"dialog"|\{[^}]*["']dialog["'])/g
+const HAND_ROLLED_BOTTOM_BAR = /\bfixed\b[^"'`]*\bbottom-0\b/g
+const HAND_ROLLED_OVERLAY_PENDING: Record<string, number> = {
+  '../pages/admin/ActivityHistory.tsx': 1,
+  '../pages/admin/PayrollRuns.tsx': 2,
+  '../pages/admin/Schedule.tsx': 1,
+  '../pages/admin/TimeTracking.tsx': 2,
+  '../pages/admin/Users.tsx': 4,
+}
+
 describe('design baseline', () => {
   it('has source files to check', () => {
     expect(Object.keys(sources).length).toBeGreaterThan(50)
@@ -44,6 +57,16 @@ describe('design baseline', () => {
       const allowed = SUB_12PX_PENDING[path] ?? 0
       // Exact match keeps the allowance a ratchet: lower it when a file improves.
       return count !== allowed ? [`${path}: ${count} (allowed ${allowed}; update the allowance to match)`] : []
+    })
+    expect(over).toEqual([])
+  })
+
+  it('adds no hand-rolled dialogs or bottom bars to admin pages', () => {
+    const over = Object.entries(sources).flatMap(([path, source]) => {
+      if (!path.startsWith('../pages/admin/')) return []
+      const count = (source.match(HAND_ROLLED_DIALOG)?.length ?? 0) + (source.match(HAND_ROLLED_BOTTOM_BAR)?.length ?? 0)
+      const allowed = HAND_ROLLED_OVERLAY_PENDING[path] ?? 0
+      return count !== allowed ? [`${path}: ${count} (allowed ${allowed}; use Sheet, SelectionBar or UnsavedChangesBar, or update the allowance to match)`] : []
     })
     expect(over).toEqual([])
   })
