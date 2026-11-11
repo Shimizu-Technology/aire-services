@@ -27,8 +27,10 @@ module DatabaseClockHelpers
       raise "with_shifted_database_clock needs a transactional example so the trigger rewrite rolls back"
     end
 
-    offset = connection.select_value("SELECT EXTRACT(EPOCH FROM clock_timestamp())").to_f - instant.to_f
-    shifted = ->(clock) { "(#{clock} - make_interval(secs => #{offset}))" }
+    # Whole microseconds, so both clocks shift by the same exact amount.
+    database_epoch = connection.select_value("SELECT EXTRACT(EPOCH FROM clock_timestamp())")
+    offset_usec = ((database_epoch.to_r - instant.to_r) * 1_000_000).round
+    shifted = ->(clock) { "(#{clock} - #{offset_usec} * interval '1 microsecond')" }
     CLOCK_FUNCTIONS.each do |name|
       definition = connection.select_value("SELECT pg_get_functiondef('public.#{name}'::regproc)")
       connection.execute(definition
@@ -54,7 +56,13 @@ module DatabaseClockHelpers
       end
     end
     # Read the system clock directly rather than through any stubbed Time.now.
-    Time.define_singleton_method(:now) { at(Process.clock_gettime(Process::CLOCK_REALTIME) - offset) }
+    # Integer nanoseconds, like the real Time.now: a Float time can carry a
+    # sub-nanosecond tail that Rails' microsecond rounding leaves in memory
+    # while PostgreSQL stores only the microseconds, so reload would differ.
+    offset_nsec = offset_usec * 1_000
+    Time.define_singleton_method(:now) do
+      at(Rational(Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond) - offset_nsec, 1_000_000_000))
+    end
     Date.define_singleton_method(:today) { Time.now.to_date }
 
     yield
