@@ -4,7 +4,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { useState } from 'react'
 import AdminLayout from './AdminLayout'
+import { Button, SelectionBar, useToast } from '../ui'
 
 type Role = 'owner' | 'admin' | 'manager' | 'employee'
 interface TestUser {
@@ -468,3 +470,58 @@ describe('AdminLayout kiosk PIN setup', () => {
     expect(screen.queryByText('User menu')).not.toBeInTheDocument()
   })
 })
+
+function SelectionPage() {
+  const [count, setCount] = useState(0)
+  const toast = useToast()
+  return (
+    <>
+      <button type="button" onClick={() => setCount(value => value + 1)}>Select a shift</button>
+      <button type="button" onClick={() => toast.show({ message: 'Approved 2 shifts for Marcus Quinata', action: { label: 'Undo', onAction: () => undefined } })}>Approve 2</button>
+      <SelectionBar count={count} noun={['shift', 'shifts']} label="Selected shifts" onClear={() => setCount(0)} actions={<Button>{`Approve ${count}`}</Button>} />
+    </>
+  )
+}
+
+describe('AdminLayout selection bar and toasts', () => {
+  const renderSelectionPage = () => render(
+    <MemoryRouter initialEntries={['/admin/approvals']}>
+      <Routes>
+        <Route element={<AdminLayout />}>
+          <Route path="/admin/approvals" element={<SelectionPage />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  )
+
+  it('swaps the phone tab bar for the selection bar while something is selected', () => {
+    signIn('manager')
+    setViewportWidth(390)
+    renderSelectionPage()
+    expect(tabBar()).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Select a shift' }))
+    expect(screen.getByRole('region', { name: 'Selected shifts' })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Main tabs' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(screen.queryByRole('region', { name: 'Selected shifts' })).not.toBeInTheDocument()
+    expect(tabBar()).toBeVisible()
+  })
+
+  it('gives every admin page a toast region', () => {
+    signIn('manager')
+    renderSelectionPage()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve 2' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Approved 2 shifts for Marcus Quinata')
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  it('marks the current sidebar item in navy, not cyan', () => {
+    signIn('manager')
+    renderSelectionPage()
+    const current = within(sidebar()).getByRole('link', { name: /Approvals/ })
+    expect(current).toHaveAttribute('aria-current', 'page')
+    expect(current).toHaveClass('text-primary', 'shadow-[inset_3px_0_0_var(--color-primary)]')
+    expect(current.className).not.toMatch(/cyan/)
+  })
+})
+

@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { Ellipsis, type LucideIcon } from 'lucide-react'
 import { Sheet } from '../ui'
 import { cx } from '../../lib/cx'
+import { useShellChrome } from './shellChrome'
 import { approvalBadgeText, isNavItemActive, navItemLabel, type NavItem, type TabBarLayout } from './adminNavigation'
 
 function TabIcon({ icon: Icon, badge }: { icon: LucideIcon; badge?: string }) {
@@ -43,6 +44,7 @@ interface AdminTabBarProps {
  */
 export default function AdminTabBar({ layout, approvalCount, suspended = false, onDesktopDismiss }: AdminTabBarProps) {
   const location = useLocation()
+  const { selectionBarActive } = useShellChrome()
   const [moreOpen, setMoreOpen] = useState(false)
   const [wasSuspended, setWasSuspended] = useState(suspended)
   const dismissedForDesktop = useRef(false)
@@ -98,7 +100,8 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
 
   return (
     <>
-      <nav aria-label="Main tabs" inert={suspended} className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-safe pl-safe pr-safe backdrop-blur supports-[backdrop-filter]:bg-surface/85 lg:hidden">
+      {/* A SelectionBar takes this place while something is selected. */}
+      <nav aria-label="Main tabs" inert={suspended} hidden={selectionBarActive} className="fixed inset-x-0 bottom-0 z-(--z-tabbar) border-t border-line bg-surface/95 pb-safe pl-safe pr-safe backdrop-blur supports-[backdrop-filter]:bg-surface/85 lg:hidden">
         <ul className="mx-auto flex max-w-xl items-stretch gap-1 px-2">
           {layout.tabs.map(renderTab)}
           {moreItems.length > 0 && (

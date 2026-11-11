@@ -50,6 +50,27 @@
 
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Bars pinned to the bottom edge (selection bar, unsaved-changes bar). */
+  --shadow-raised: 0 -1px 0 var(--color-line), 0 -8px 24px rgb(15 23 42 / 0.06);
+}
+
+/* Motion and stacking tokens. Tailwind has no theme namespace for these, so
+   they live on :root and are used as duration-(--dur-press), z-(--z-toast). */
+:root {
+  --dur-press: 120ms;
+  --dur-collapse: 180ms;
+  --dur-sheet: 260ms;
+
+  /* One stacking order for the admin. A modal owns the screen: the toast sits
+     under every modal (including page modals that still hand-roll z-50) and
+     waits behind it, so its Undo can't be clicked around a focus trap. */
+  --z-sticky: 10;
+  --z-tabbar: 40;
+  --z-toast: 45;
+  --z-sheet: 60;
+  --z-dialog: 70;
+  --z-popover: 80;
 }
 
 /* Phone-web baseline (mobile-native). */
