@@ -1088,10 +1088,10 @@ export default function Users() {
                           <Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link>
                           <div className="mt-0.5 text-sm text-slate-600">{[roleLabel(user.role), user.staff_title].filter(Boolean).join(' · ')}</div>
                           <div className="mt-0.5 break-all text-xs text-slate-500">{user.personal_access_enabled ? (user.email || 'Personal sign-in') : 'Kiosk only'}</div>
-                          {(user.is_intern || user.public_team_enabled) && (
+                          {(user.is_intern || (user.is_active && user.public_team_enabled)) && (
                             <div className="mt-1.5 flex flex-wrap gap-1">
                               {user.is_intern && <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Intern</span>}
-                              {user.public_team_enabled && (
+                              {user.is_active && user.public_team_enabled && (
                                 <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-800">
                                   {user.public_team_photo_thumb_url || user.public_team_photo_url ? 'On website' : 'On website · no photo'}
                                 </span>
@@ -1287,7 +1287,7 @@ export default function Users() {
                             <span className="font-medium">Kiosk access is included.</span>{' '}
                             {createPersonalAccess ? 'They will choose a PIN after their first sign-in.' : 'They will use a PIN to clock in and out.'}
                           </div>
-                          {!createPersonalAccess && <div><label className="mb-2 block text-sm font-medium text-slate-700">Kiosk PIN <span className="text-xs font-normal text-slate-500">(optional)</span></label><input inputMode="numeric" pattern="[0-9]{4,8}" value={createKioskPin} onChange={(event) => setCreateKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Generate automatically" className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /><p className="mt-2 text-xs text-slate-500">Leave blank to generate a secure six-digit PIN that is shown once after creation.</p></div>}
+                          {!createPersonalAccess && <div><label htmlFor="create-kiosk-pin" className="mb-2 block text-sm font-medium text-slate-700">Kiosk PIN <span className="text-xs font-normal text-slate-500">(optional)</span></label><input id="create-kiosk-pin" inputMode="numeric" pattern="[0-9]{4,8}" value={createKioskPin} onChange={(event) => setCreateKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Generate automatically" className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /><p className="mt-2 text-xs text-slate-500">Leave blank to generate a secure six-digit PIN that is shown once after creation.</p></div>}
                         </>
                       )}
                     </>
@@ -1656,8 +1656,8 @@ export default function Users() {
                     {editPersonalAccess ? 'This person can use both their account and the kiosk.' : 'This is how this person clocks in and out.'}
                   </div>
                   <div className="mt-4">
-                    <label className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-500">(optional)</span></label>
-                    <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} disabled={editAccessLocked} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editAccessLocked ? 'Only an owner can change this PIN' : editingUser.kiosk_pin_configured ? 'Keep current PIN' : editPersonalAccess ? 'Set one now instead' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
+                    <label htmlFor="edit-kiosk-pin" className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-500">(optional)</span></label>
+                    <input id="edit-kiosk-pin" inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} disabled={editAccessLocked} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editAccessLocked ? 'Only an owner can change this PIN' : editingUser.kiosk_pin_configured ? 'Keep current PIN' : editPersonalAccess ? 'Set one now instead' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
                     <p className="mt-2 text-xs text-slate-500">{editingUser.kiosk_pin_configured ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}. Leave blank to keep it.` : editPersonalAccess ? 'Leave blank and they will choose their PIN after their next sign-in.' : 'Leave blank to generate a secure six-digit PIN that is shown once after saving.'}</p>
                   </div>
                 </section>

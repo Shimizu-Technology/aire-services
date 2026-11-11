@@ -101,7 +101,10 @@ function boundedExportFilters(filters: AuditLogFilters): AuditLogFilters {
 }
 
 function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => void }) {
-  const detailRows = Object.entries(event.details).filter(([, value]) => value !== null && value !== undefined && value !== '')
+  // A numeric employee ID next to the employee's name adds nothing; it stays under Technical details.
+  const hideIdBesideName = (field: string) => (field === 'employee_id' || field === 'user_id') && Boolean(event.details.employee_name)
+  const detailRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && !hideIdBesideName(field))
+  const hiddenIdRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && hideIdBesideName(field))
   const changeRows = Object.entries(event.changes)
   const panelRef = useRef<HTMLElement>(null)
   const location = useLocation()
@@ -187,6 +190,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
             <div><dt className="inline text-slate-500">Event ID: </dt><dd className="inline">{event.id}</dd></div>
             {event.request.id && <div><dt className="inline text-slate-500">Request ID: </dt><dd className="inline break-all">{event.request.id}</dd></div>}
             {event.request.ip_address && <div><dt className="inline text-slate-500">IP address: </dt><dd className="inline">{event.request.ip_address}</dd></div>}
+            {hiddenIdRows.map(([field, value]) => <div key={field}><dt className="inline text-slate-500">{fieldLabel(field)}: </dt><dd className="inline">{valueText(value)}</dd></div>)}
           </dl>
         </details>
       </div>

@@ -118,7 +118,9 @@ interface LeaveRequestsPanelProps {
 
 export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = true, currentUserId = null }: LeaveRequestsPanelProps) {
   // Approvers come here to approve; their own request form stays folded away.
-  const [showRequestForm, setShowRequestForm] = useState(!canApproveLeave)
+  // Follows canApproveLeave (which can arrive after mount) until the user toggles.
+  const [requestFormOverride, setRequestFormOverride] = useState<boolean | null>(null)
+  const showRequestForm = requestFormOverride ?? !canApproveLeave
   const [requests, setRequests] = useState<LeaveRequest[]>([])
   const [pagination, setPagination] = useState<PaginationMeta | null>(null)
   const [pendingPagination, setPendingPagination] = useState<PaginationMeta | null>(null)
@@ -296,7 +298,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
             type="button"
             aria-expanded={showRequestForm}
             aria-controls="leave-request-form"
-            onClick={() => setShowRequestForm((open) => !open)}
+            onClick={() => setRequestFormOverride(!showRequestForm)}
             className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
           >
             {showRequestForm ? 'Hide form' : 'Request leave'}

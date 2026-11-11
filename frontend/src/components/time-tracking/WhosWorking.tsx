@@ -362,12 +362,11 @@ export default function WhosWorking({ alwaysShow = false, dashboardStyle = false
 
 // Opens the exact open entry on its own work date so the supervisor can end it.
 function missedClockOutHref(worker: WorkerStatus) {
-  const params = new URLSearchParams({
-    entry_id: String(worker.open_entry_id),
-    date: worker.open_since_work_date || '',
-    view: 'day',
-    user_id: String(worker.user.id),
-  })
+  // An empty date would silently open today, so only send a real one.
+  const params = new URLSearchParams({ entry_id: String(worker.open_entry_id) })
+  if (worker.open_since_work_date) params.set('date', worker.open_since_work_date)
+  params.set('view', 'day')
+  params.set('user_id', String(worker.user.id))
   return `/admin/time?${params}`
 }
 
