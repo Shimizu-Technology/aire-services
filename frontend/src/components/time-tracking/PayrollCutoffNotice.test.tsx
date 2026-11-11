@@ -111,6 +111,9 @@ describe('Payroll cutoff notice', () => {
       const dialog = await screen.findByRole('dialog')
       expect(dialog.parentElement?.parentElement).toBe(document.body)
       expect(dialog.closest('.space-y-8')).toBeNull()
+      // The dialog can be in the DOM before the effect that focuses it and
+      // listens for Escape runs. Focus marks that effect as done.
+      await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveFocus())
       fireEvent.keyDown(document, { key: 'Escape' })
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
       expect(document.body.style.overflow).not.toBe('hidden')
@@ -265,7 +268,7 @@ describe('Payroll cutoff notice', () => {
   it('starts keyboard focus on Got it while keeping Close available', async () => {
     mount()
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveFocus()
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveFocus())
     expect(within(dialog).getByRole('button', { name: 'Close payroll cutoff notice' })).toBeVisible()
   })
 
