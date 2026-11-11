@@ -50,12 +50,18 @@ RSpec.describe "Manager self-approval setting", type: :request do
       expect(bulk.reload.approval_status).to eq("approved")
     end
 
-    it "lets a manager clock themselves in with an override and skip the queue" do
+    it "lets a manager clock themselves in with an override; the time waits for their own approval" do
       post "/api/v1/time_entries/clock_in", params: { admin_override: true, time_category_id: category.id }, headers: headers_for(manager)
       expect(response).to have_http_status(:created)
       post "/api/v1/time_entries/clock_out", headers: headers_for(manager)
       expect(response).to have_http_status(:ok)
-      expect(json.dig("time_entry", "approval_status")).to be_nil
+      expect(json.dig("time_entry", "approval_status")).to eq("pending")
+      expect(json.dig("time_entry", "needs_another_approver")).to be(false)
+
+      entry_id = json.dig("time_entry", "id")
+      post "/api/v1/time_entries/#{entry_id}/approve", headers: headers_for(manager)
+      expect(response).to have_http_status(:ok)
+      expect(TimeEntry.find(entry_id)).to have_attributes(approval_status: "approved", approved_by_id: manager.id)
     end
   end
 
@@ -128,7 +134,7 @@ RSpec.describe "Manager self-approval setting", type: :request do
       expect(response).to have_http_status(:created)
       post "/api/v1/time_entries/clock_out", headers: headers_for(manager)
       entry = manager.time_entries.last
-      expect(entry).to have_attributes(approval_status: "pending", approval_note: "Clocked in without a schedule")
+      expect(entry).to have_attributes(approval_status: "pending", approval_note: "Clocked in without a schedule | Supervisor's own time")
 
       get "/api/v1/time_entries/pending_approvals", headers: headers_for(manager)
       own_row = json.fetch("pending_entries").find { |row| row["id"] == entry.id }

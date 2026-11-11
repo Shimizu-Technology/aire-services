@@ -138,6 +138,18 @@ RSpec.describe Payroll::CalendarPeriodPublisher, "admin lock times" do
     end
   end
 
+  it "limits the fence's lock timeout to its own lock wait" do
+    locked_at = (PayrollClockHelpers.database_clock - 2.minutes).change(usec: 0)
+    connection = ActiveRecord::Base.connection
+    ActiveRecord::Base.transaction do
+      connection.execute("SET LOCAL lock_timeout = '30s'")
+      Payroll::LockNowClaimFence.call!(start_date: dates.fetch(:start_date), end_date: dates.fetch(:end_date),
+        cutoff_at: locked_at, period: period)
+      # Later statements in the publication keep the transaction's setting.
+      expect(connection.select_value("SHOW lock_timeout")).to eq("30s")
+    end
+  end
+
   it "accepts a later version when Cornerstone skipped one AIRE refused, but never an older one" do
     publish(override_publication(base, cutoff_at: policy_cutoff + 1.day, version: 3))
     expect(period).to have_attributes(schedule_version: 3, cutoff_at: policy_cutoff + 1.day)

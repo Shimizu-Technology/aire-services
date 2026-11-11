@@ -4,10 +4,16 @@ import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
 import { useConfirm } from '../../components/ui/useConfirm'
-import { HelpTip } from '../../components/ui/HelpTip'
-import PayStubSettings from '../../components/pay-stubs/PayStubSettings'
-import ScheduleSettings from '../../components/time-tracking/ScheduleSettings'
 import { Link } from 'react-router-dom'
+import { ShieldCheck } from 'lucide-react'
+import SettingHelp from '../../components/settings/SettingHelp'
+import { SettingsCatalogContext } from '../../components/settings/settingsCatalogContext'
+import { PageHeader } from '../../components/ui/PageHeader'
+import { StatusPill } from '../../components/ui/StatusPill'
+import type { SettingsCatalogEntry } from '../../lib/api'
+import PayStubSettings from '../../components/pay-stubs/PayStubSettings'
+import AutoApprovalSettings from '../../components/time-tracking/AutoApprovalSettings'
+import ScheduleSettings from '../../components/time-tracking/ScheduleSettings'
 import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
 import type { PublicContactInfoSettings, PublicPhoneContactChannel, PublicPhoneContactSettings } from '../../lib/businessInfo'
@@ -136,6 +142,45 @@ function GoogleMapPreview({ latitude, longitude }: { latitude: number; longitude
   )
 }
 
+// Settings changed on another page (My Pay is on the Team page), listed so
+// this page explains every setting in the catalog.
+function SetElsewhere({ catalog }: { catalog: SettingsCatalogEntry[] }) {
+  const elsewhere = catalog.filter((entry) => entry.page !== 'Settings')
+  if (elsewhere.length === 0) return null
+  const pages = [...new Set(elsewhere.map((entry) => entry.page))]
+  return (
+    <section aria-labelledby="set-elsewhere-title" className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-5 py-4">
+        <h2 id="set-elsewhere-title" className="text-lg font-semibold text-slate-900">Set on other pages</h2>
+        <p className="mt-1 text-sm text-slate-500">These are changed where you work with the people they affect.</p>
+      </div>
+      <div className="divide-y divide-slate-200">
+        {pages.map((page) => (
+          <div key={page} className="px-5 py-4">
+            <ul className="space-y-2">
+              {elsewhere.filter((entry) => entry.page === page).map((entry) => (
+                <li key={entry.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-sm font-medium text-slate-800">{entry.label}</span>
+                  <SettingHelp id={entry.id} />
+                  <span className="text-sm text-slate-500">{entry.section_label} on the</span>
+                  <Link to={entry.path} className="text-sm font-semibold text-cyan-800 underline-offset-2 hover:underline">{page} page</Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+// The keys the time clock rules form saves; its response may only update these.
+const TIME_CLOCK_RULE_KEYS: (keyof TimeClockAppSettings)[] = [
+  'overtime_daily_threshold_hours', 'overtime_weekly_threshold_hours', 'early_clock_in_buffer_minutes',
+  'clock_in_location_enforced', 'clock_in_location_name', 'clock_in_location_latitude',
+  'clock_in_location_longitude', 'clock_in_location_radius_meters',
+]
+
 // "website" shows only the public contact details, phone numbers and social
 // links, under Website (/admin/website/contact); "settings" shows the rest.
 export default function Settings({ view = 'settings' }: { view?: 'settings' | 'website' }) {
@@ -146,6 +191,17 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
 
   const [categories, setCategories] = useState<AdminTimeCategory[]>([])
   const [clockSettings, setClockSettings] = useState<TimeClockAppSettings | null>(null)
+  const scheduleRequiredForClockIn = clockSettings?.schedule_required_for_clock_in === 'true'
+  // Each switch saves on its own. Apply only the keys a save changed, so a
+  // slower response from another switch can't put back an older value.
+  const applySavedSettings = (keys: (keyof TimeClockAppSettings)[]) => (saved: TimeClockAppSettings) => {
+    setClockSettings((current) => {
+      if (!current) return saved
+      const changed = Object.fromEntries(keys.filter((key) => key in saved).map((key) => [key, saved[key]]))
+      return { ...current, ...changed }
+    })
+  }
+  const [catalog, setCatalog] = useState<SettingsCatalogEntry[]>([])
   const [contactSettings, setContactSettings] = useState<ContactSettings | null>(null)
   const [approvalGroups, setApprovalGroups] = useState<ApprovalGroupOption[]>([])
   const [thresholdDraft, setThresholdDraft] = useState({
@@ -203,6 +259,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
     else if (setRes.data) {
       const s = setRes.data.settings
       setClockSettings(s)
+      setCatalog(setRes.data.catalog ?? [])
       setApprovalGroups(setRes.data.approval_groups)
       setApprovalGroupDrafts(
         setRes.data.approval_groups.length > 0
@@ -397,7 +454,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
         return
       }
       if (res.data) {
-        setClockSettings(res.data.settings)
+        applySavedSettings(TIME_CLOCK_RULE_KEYS)(res.data.settings)
         setApprovalGroups(res.data.approval_groups)
         setThresholdDraft({
           overtime_daily_threshold_hours: res.data.settings.overtime_daily_threshold_hours,
@@ -615,7 +672,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
         return
       }
 
-      setClockSettings(res.data.settings)
+      applySavedSettings(['managers_can_approve_own_time'])(res.data.settings)
       setOwnTimeApprovalMessage(enabled ? 'Managers can approve their own time.' : "Managers' own time now goes to another approver.")
     } finally {
       setSavingOwnTimeApproval(false)
@@ -852,26 +909,33 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
   return (
     <div className="space-y-8">
       {showSettings ? <FadeUp>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Manage time clock rules, approvals, pay stubs, schedules, departments and work categories. Public contact details are under Website.
-          </p>
-        </div>
+        <PageHeader
+          title="Settings"
+          description="Manage time clock rules, approvals, pay stubs, schedules, departments and work categories. Public contact details are under Website. Tap (i) next to a setting to see what it does."
+          actions={(
+            <Link
+              to="/admin/settings/roles"
+              className="inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-body-sm font-semibold text-ink hover:bg-surface-muted"
+            >
+              <ShieldCheck aria-hidden="true" className="size-4" />
+              Roles &amp; access
+            </Link>
+          )}
+        />
       </FadeUp> : (
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Contact & links</h1>
-          <p className="mt-1 text-sm text-slate-600">Who gets website inquiries, and the phone numbers, email, address and social links on the public site.</p>
-        </div>
+        <PageHeader
+          title="Contact & links"
+          description="Who gets website inquiries, and the phone numbers, email, address and social links on the public site. Tap (i) next to a setting to see what it does."
+        />
       )}
 
       {loading ? (
         <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500 shadow-sm">Loading settings…</div>
       ) : (
-        <>
+        <SettingsCatalogContext.Provider value={catalog}>
           {showSettings && <>
           <FadeUp delay={0.05}>
-            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section id="time-clock-rules" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Time clock rules</h2>
                 <p className="mt-1 text-sm text-slate-500">
@@ -886,13 +950,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <div>
                     <div className="mb-2 flex items-center gap-1.5">
                       <label htmlFor="daily-alert-hours" className="block text-sm font-medium text-slate-700">Daily hours review alert after (hours)</label>
-                      <HelpTip
-                        label="Daily hours review alert"
-                        what="Shows a review alert on a person's clock card once they pass this many hours in one day. It doesn't change pay or ask anyone to approve overtime."
-                        defaultValue="8 hours"
-                        who="Owners and admins"
-                        example="At 8, someone who has worked 8.5 hours today sees the alert. Their pay is the same."
-                      />
+                      <SettingHelp id="overtime_daily_threshold_hours" />
                     </div>
                     <input
                       id="daily-alert-hours"
@@ -908,13 +966,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <div>
                     <div className="mb-2 flex items-center gap-1.5">
                       <label htmlFor="weekly-alert-hours" className="block text-sm font-medium text-slate-700">Weekly hours review alert after (hours)</label>
-                      <HelpTip
-                        label="Weekly hours review alert"
-                        what="Shows a review alert on a person's clock card once they pass this many hours in the Sunday–Saturday week. Overtime pay still starts after 40 hours, whatever this is set to."
-                        defaultValue="40 hours"
-                        who="Owners and admins"
-                        example="At 36, someone with 37 hours this week sees the alert so a manager can plan. Overtime pay still starts after 40."
-                      />
+                      <SettingHelp id="overtime_weekly_threshold_hours" />
                     </div>
                     <input
                       id="weekly-alert-hours"
@@ -930,13 +982,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <div>
                     <div className="mb-2 flex items-center gap-1.5">
                       <label htmlFor="early-clock-in-buffer" className="block text-sm font-medium text-slate-700">Early clock-in buffer (minutes)</label>
-                      <HelpTip
-                        label="Early clock-in buffer"
-                        what="How many minutes before a scheduled shift someone can clock in. Clocking in up to this many minutes after the start still counts as on time. People with no schedule that day aren't affected."
-                        defaultValue="5 minutes"
-                        who="Owners and admins"
-                        example="At 5, for a 7:00 AM shift: clock-in opens at 6:55 AM, and clocking in by 7:05 AM counts as on time."
-                      />
+                      <SettingHelp id="early_clock_in_buffer_minutes" />
                     </div>
                     <input
                       id="early-clock-in-buffer"
@@ -950,11 +996,26 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                     />
                   </div>
                 </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-300 px-4 py-3">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium text-slate-700">Require a scheduled shift to clock in</p>
+                      <SettingHelp id="schedule_required_for_clock_in" />
+                    </div>
+                    <p className="text-caption text-ink-muted">Shown for reference. There's no switch for this here yet.</p>
+                  </div>
+                  <StatusPill tone={scheduleRequiredForClockIn ? 'info' : 'off'}>
+                    {scheduleRequiredForClockIn ? 'On' : 'Off'}
+                  </StatusPill>
+                </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <div className="flex flex-col gap-4">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-900">Clock-in location restriction</h3>
+                        <div className="flex items-center gap-1.5">
+                          <h3 className="text-sm font-semibold text-slate-900">Clock-in location restriction</h3>
+                          <SettingHelp id="clock_in_location_enforced" />
+                        </div>
                         <p className="mt-1 text-sm text-slate-500">
                           Require self-service clock-ins to happen at the AIRE office. Kiosk and admin override actions still work.
                         </p>
@@ -972,8 +1033,12 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                     <div className="grid gap-4 lg:grid-cols-[1.3fr_0.9fr]">
                       <div className="space-y-4">
                         <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Location label</label>
+                          <div className="mb-2 flex items-center gap-1.5">
+                            <label htmlFor="clock-in-location-name" className="block text-sm font-medium text-slate-700">Location label</label>
+                            <SettingHelp id="clock_in_location_name" />
+                          </div>
                           <input
+                            id="clock-in-location-name"
                             value={thresholdDraft.clock_in_location_name}
                             onChange={(e) => setThresholdDraft((d) => ({ ...d, clock_in_location_name: e.target.value }))}
                             placeholder="AIRE Services Guam"
@@ -1041,9 +1106,13 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                         </div>
 
                         <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">Allowed radius (meters)</label>
+                          <div className="mb-2 flex items-center gap-1.5">
+                            <label htmlFor="clock-in-location-radius" className="block text-sm font-medium text-slate-700">Allowed radius (meters)</label>
+                            <SettingHelp id="clock_in_location_radius_meters" />
+                          </div>
                           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_130px]">
                             <input
+                              id="clock-in-location-radius"
                               type="range"
                               min="50"
                               max="2000"
@@ -1092,7 +1161,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
 
                       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">Map preview</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-semibold text-slate-900">Map preview</p>
+                            <SettingHelp id="clock_in_location_pin" />
+                          </div>
                           <p className="mt-1 text-sm text-slate-500">
                             {isStaging ? 'Map previews are disabled in staging. Saved coordinates remain available below.' : 'Confirm the pin is on the AIRE office and then save the rule.'}
                           </p>
@@ -1146,7 +1218,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
           </FadeUp>
 
           <FadeUp delay={0.08}>
-            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section id="time-approvals" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Time approvals</h2>
                 <p className="mt-1 text-sm text-slate-500">
@@ -1162,7 +1234,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                 )}
                 <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <div>
-                    <h3 id="managers-own-time-label" className="text-sm font-semibold text-slate-900">Managers can approve their own time</h3>
+                    <div className="flex items-center gap-1.5">
+                      <h3 id="managers-own-time-label" className="text-sm font-semibold text-slate-900">Managers can approve their own time</h3>
+                      <SettingHelp id="managers_can_approve_own_time" />
+                    </div>
                     <p id="managers-own-time-help" className="mt-1 text-sm text-slate-500">
                       When off, an owner, admin or another manager approves each manager's own time and overtime, and managers can't override their own clock.
                     </p>
@@ -1185,17 +1260,24 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
           </FadeUp>
 
           <FadeUp delay={0.08}>
-            <PayStubSettings settings={clockSettings} onSaved={setClockSettings} />
+            <AutoApprovalSettings settings={clockSettings} onSaved={applySavedSettings(['auto_approve_ordinary_shifts', 'auto_approve_max_shift_hours'])} />
           </FadeUp>
 
           <FadeUp delay={0.08}>
-            <ScheduleSettings settings={clockSettings} onSaved={setClockSettings} />
+            <PayStubSettings settings={clockSettings} onSaved={applySavedSettings(['pay_stub_kiosk_requests_enabled', 'pay_stub_self_email_enabled'])} />
           </FadeUp>
 
           <FadeUp delay={0.08}>
-            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <ScheduleSettings settings={clockSettings} onSaved={applySavedSettings(['schedules_enabled'])} />
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
+            <section id="departments" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
-                <h2 className="text-lg font-semibold text-slate-900">Departments</h2>
+                <div className="flex items-center gap-1.5">
+                  <h2 className="text-lg font-semibold text-slate-900">Departments</h2>
+                  <SettingHelp id="approval_groups" />
+                </div>
                 <p className="mt-1 text-sm text-slate-500">
                   Configure the departments used on Users and pending approvals. Labels are what admins see; keys stay stable for routing.
                 </p>
@@ -1280,7 +1362,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
               <Link to="/admin/website/contact" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-cyan-700 hover:text-cyan-900">Open Website → Contact & links</Link>
             </section>
           ) : <FadeUp delay={0.1}>
-            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section id="contact-settings" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-lg font-semibold text-slate-900">Contact settings</h2>
                 <p className="mt-1 text-sm text-slate-500">
@@ -1295,7 +1377,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{contactSettingsMessage}</div>
                 )}
                 <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Public website contact details</h3>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Public website contact details</h3>
+                    <SettingHelp id="public_contact_settings" />
+                  </div>
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <div className="lg:col-span-2">
                       <label htmlFor="public-contact-email" className="mb-2 block text-sm font-medium text-slate-700">Public email</label>
@@ -1470,7 +1555,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                 <div>
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Public social links</h3>
+                      <div className="flex items-center gap-1.5">
+                        <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Public social links</h3>
+                        <SettingHelp id="public_social_links" />
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">Shown in the website footer and contact page.</p>
                     </div>
                     <button
@@ -1522,7 +1610,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
 
                 <div className="grid gap-5 lg:grid-cols-2">
                   <div>
-                    <label htmlFor="contact-notification-emails" className="mb-2 block text-sm font-medium text-slate-700">Notification recipient emails</label>
+                    <div className="mb-2 flex items-center gap-1.5">
+                      <label htmlFor="contact-notification-emails" className="block text-sm font-medium text-slate-700">Notification recipient emails</label>
+                      <SettingHelp id="contact_email" />
+                    </div>
                     <textarea
                       id="contact-notification-emails"
                       rows={6}
@@ -1537,7 +1628,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                   </div>
                   <div>
                     <div className="mb-2 flex items-center justify-between gap-3">
-                      <label className="block text-sm font-medium text-slate-700">Public inquiry topics</label>
+                      <div className="flex items-center gap-1.5">
+                        <p id="contact-inquiry-topics-label" className="block text-sm font-medium text-slate-700">Public inquiry topics</p>
+                        <SettingHelp id="contact_inquiry_topics" />
+                      </div>
                       <button
                         type="button"
                         onClick={addInquiryTopicDraft}
@@ -1593,10 +1687,13 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
           </FadeUp>}
 
           {showSettings && <FadeUp delay={0.12}>
-            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section id="time-categories" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Time categories</h2>
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-lg font-semibold text-slate-900">Time categories</h2>
+                    <SettingHelp id="time_categories" />
+                  </div>
                   <p className="mt-1 text-sm text-slate-500">
                     Define the types of work your team tracks. Assign categories to people on the <a href="/admin/users" className="font-medium text-cyan-700 hover:text-cyan-900">Users</a> page.
                   </p>
@@ -1692,7 +1789,11 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
               )}
             </section>
           </FadeUp>}
-        </>
+
+          {showSettings && <FadeUp delay={0.12}>
+            <SetElsewhere catalog={catalog} />
+          </FadeUp>}
+        </SettingsCatalogContext.Provider>
       )}
 
       {categoryModalOpen && (

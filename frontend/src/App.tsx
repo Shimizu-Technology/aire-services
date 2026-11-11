@@ -22,6 +22,7 @@ const Users = lazy(() => import('./pages/admin/Users'))
 const TimeTracking = lazy(() => import('./pages/admin/TimeTracking'))
 const Schedule = lazy(() => import('./pages/admin/Schedule'))
 const Settings = lazy(() => import('./pages/admin/Settings'))
+const RolesAccess = lazy(() => import('./pages/admin/RolesAccess'))
 const Media = lazy(() => import('./pages/admin/Media'))
 const ActivityHistory = lazy(() => import('./pages/admin/ActivityHistory'))
 const PayrollRuns = lazy(() => import('./pages/admin/PayrollRuns'))
@@ -146,6 +147,8 @@ function App() {
               </ProtectedRoute>
             }
           />
+          {/* Owners and admins get the full page; everyone else a read-only "What can I do?" view. */}
+          <Route path="settings/roles" element={<ProtectedRoute requiredRole="staff"><Suspense fallback={<AdminLoadingFallback />}><RolesAccess /></Suspense></ProtectedRoute>} />
           <Route
             path="settings"
             element={

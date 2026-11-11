@@ -46,7 +46,7 @@ vi.mock('@clerk/clerk-react', () => ({
   UserButton: () => <div>User menu</div>,
 }))
 
-const PAGES = ['/admin', '/admin/approvals', '/admin/leave', '/admin/timecards', '/admin/reports', '/admin/payroll', '/admin/pay', '/admin/pay/:id', '/admin/pay-stubs', '/admin/users', '/admin/settings', '/admin/website/media', '/admin/my-time', '/admin/my-hours', '/admin/schedule', '/admin/activity']
+const PAGES = ['/admin', '/admin/approvals', '/admin/leave', '/admin/timecards', '/admin/reports', '/admin/payroll', '/admin/pay', '/admin/pay/:id', '/admin/pay-stubs', '/admin/users', '/admin/settings', '/admin/website/media', '/admin/my-time', '/admin/my-hours', '/admin/schedule', '/admin/activity', '/admin/settings/roles']
 
 function layoutTree(initialEntry = '/admin') {
   return (
@@ -112,7 +112,7 @@ describe('AdminLayout sidebar by role', () => {
     signIn('manager')
     renderLayout()
     expect(groupNames('Workspace')).toEqual(['Approvals', 'Timecards', 'Reports', 'Pay stubs'])
-    expect(groupNames('Me')).toEqual(['My Time', 'My Pay', 'Unlock kiosk'])
+    expect(groupNames('Me')).toEqual(['My Time', 'My Pay', 'Unlock kiosk', 'What can I do?'])
     expect(within(sidebar()).queryByRole('group', { name: 'Admin' })).not.toBeInTheDocument()
     expect(screen.getByText('Manager workspace', { selector: 'div' })).toBeInTheDocument()
   })
@@ -120,8 +120,24 @@ describe('AdminLayout sidebar by role', () => {
   it('gives employees their own time only', () => {
     signIn('employee')
     renderLayout()
-    expect(groupNames('Workspace')).toEqual(['Clock', 'My Hours', 'Leave', 'My Pay'])
+    expect(groupNames('Workspace')).toEqual(['Clock', 'My Hours', 'Leave', 'My Pay', 'What can I do?'])
     expect(within(sidebar()).queryByRole('group', { name: 'Me' })).not.toBeInTheDocument()
+  })
+
+  it.each(['manager', 'employee'] as const)('opens "What can I do?" for a %s and marks it current there', (role) => {
+    signIn(role)
+    renderLayout('/admin/settings/roles')
+    const link = within(sidebar()).getByRole('link', { name: 'What can I do?' })
+    expect(link).toHaveAttribute('href', '/admin/settings/roles')
+    expect(link).toHaveAttribute('aria-current', 'page')
+  })
+
+  it.each(['owner', 'admin'] as const)('leaves "What can I do?" out for a %s, who opens Roles & access from Settings', (role) => {
+    signIn(role)
+    renderLayout('/admin/settings/roles')
+    expect(screen.queryByRole('link', { name: 'What can I do?' })).not.toBeInTheDocument()
+    const current = within(sidebar()).getAllByRole('link').filter((link) => link.getAttribute('aria-current') === 'page')
+    expect(current.map((link) => link.getAttribute('aria-label'))).toEqual(['Settings'])
   })
 
   it('leaves out My Pay and My Time when they are off for the person', () => {
@@ -176,8 +192,8 @@ describe('"Use schedules"', () => {
 
   it.each([
     ['admin', 'Workspace', ['Today', 'Approvals', 'Timecards', 'Schedule', 'Payroll', 'Team', 'Reports', 'Pay stubs']],
-    ['manager', 'Me', ['My Time', 'My Pay', 'Schedule', 'Unlock kiosk']],
-    ['employee', 'Workspace', ['Clock', 'My Hours', 'Leave', 'My Pay', 'Schedule']],
+    ['manager', 'Me', ['My Time', 'My Pay', 'Schedule', 'Unlock kiosk', 'What can I do?']],
+    ['employee', 'Workspace', ['Clock', 'My Hours', 'Leave', 'My Pay', 'Schedule', 'What can I do?']],
   ] as const)('shows Schedule to a %s when it is on', (role, group, expected) => {
     signIn(role, { schedules_enabled: true })
     renderLayout()
@@ -199,7 +215,7 @@ describe('AdminLayout phone tab bar', () => {
 
     fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
     const sheet = screen.getByRole('dialog', { name: 'More' })
-    expect(names(sheet)).toEqual(['Pay stubs', 'My Pay', 'Unlock kiosk'])
+    expect(names(sheet)).toEqual(['Pay stubs', 'My Pay', 'Unlock kiosk', 'What can I do?'])
     fireEvent.click(within(sheet).getByRole('link', { name: 'Pay stubs' }))
     expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
     expect(screen.getByText('Page /admin/pay-stubs')).toBeInTheDocument()
@@ -219,20 +235,34 @@ describe('AdminLayout phone tab bar', () => {
     expect(within(tabBar()).getByRole('link', { name: 'Approvals' })).not.toHaveTextContent(/\d/)
   })
 
-  it('gives employees four tabs and no More when it all fits', () => {
+  it('gives employees four tabs, with "What can I do?" under More', () => {
     signIn('employee')
     renderLayout('/admin/my-time')
     expect(names(tabBar())).toEqual(['Clock', 'Hours', 'Leave', 'My Pay'])
     expect(within(tabBar()).getByRole('link', { name: 'Clock' })).toHaveAttribute('aria-current', 'page')
-    expect(within(tabBar()).queryByRole('button', { name: 'More' })).not.toBeInTheDocument()
+    fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
+    const sheet = screen.getByRole('dialog', { name: 'More' })
+    expect(names(sheet)).toEqual(['What can I do?'])
+    fireEvent.click(within(sheet).getByRole('link', { name: 'What can I do?' }))
+    expect(screen.getByText('Page /admin/settings/roles')).toBeInTheDocument()
     // Employees never ask for the approvals count.
     expect(apiMock.getPendingApprovals).not.toHaveBeenCalled()
   })
 
-  it('puts Schedule in the fifth slot for employees when it is on', () => {
+  it('fills a free slot before More but never gives "What can I do?" a tab', () => {
+    signIn('employee', { my_pay_enabled: false, schedules_enabled: true })
+    renderLayout()
+    expect(names(tabBar())).toEqual(['Clock', 'Hours', 'Leave', 'Schedule'])
+    fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
+    expect(names(screen.getByRole('dialog', { name: 'More' }))).toEqual(['What can I do?'])
+  })
+
+  it('puts Schedule under More with "What can I do?" for employees when every tab is taken', () => {
     signIn('employee', { schedules_enabled: true })
     renderLayout()
-    expect(names(tabBar())).toEqual(['Clock', 'Hours', 'Leave', 'My Pay', 'Schedule'])
+    expect(names(tabBar())).toEqual(['Clock', 'Hours', 'Leave', 'My Pay'])
+    fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
+    expect(names(screen.getByRole('dialog', { name: 'More' }))).toEqual(['Schedule', 'What can I do?'])
   })
 
   it('gives owners and admins a More sheet grouped like the sidebar', () => {
@@ -287,7 +317,7 @@ describe('AdminLayout phone tab bar', () => {
       expect(close).toHaveFocus()
 
       fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
-      expect(within(sheet).getByRole('link', { name: /Unlock kiosk/ })).toHaveFocus()
+      expect(within(sheet).getByRole('link', { name: 'What can I do?' })).toHaveFocus()
       fireEvent.keyDown(document, { key: 'Tab' })
       expect(close).toHaveFocus()
 

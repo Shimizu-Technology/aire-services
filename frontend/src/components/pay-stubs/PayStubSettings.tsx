@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { api, type TimeClockAppSettings } from '../../lib/api'
 import { PayStubError, payStubsApi } from '../../lib/payStubsApi'
+import SettingHelp from '../settings/SettingHelp'
 
 // The pay stub go-live switches and the heads-up list, on the Settings page
 // (owners and admins). Both switches start off. Sending from the Pay stubs
@@ -67,7 +68,10 @@ function HeadsUpRecipients() {
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-      <h3 id={`${ids}-title`} className="text-sm font-semibold text-slate-900">Email a heads-up about new kiosk requests</h3>
+      <div className="flex items-center gap-1.5">
+        <h3 id={`${ids}-title`} className="text-sm font-semibold text-slate-900">Email a heads-up about new kiosk requests</h3>
+        <SettingHelp id="pay_stub_request_notification_emails" />
+      </div>
       <p className="mt-1 text-sm text-slate-500">
         {emails === null ? (loadFailed ? 'The list could not be loaded.' : 'Loading…') : emails.length > 0 ? `New requests are also emailed to ${emails.join(', ')}.` : 'Nobody is emailed now; new requests appear only on the Pay stubs page.'}
         {' '}The heads-up names the person and what they asked for, never pay details.
@@ -140,7 +144,10 @@ export default function PayStubSettings({ settings, onSaved }: Props) {
           return (
             <div key={item.key} className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
               <div>
-                <h3 id={`${item.key}-label`} className="text-sm font-semibold text-slate-900">{item.title}</h3>
+                <div className="flex items-center gap-1.5">
+                  <h3 id={`${item.key}-label`} className="text-sm font-semibold text-slate-900">{item.title}</h3>
+                  <SettingHelp id={item.key} />
+                </div>
                 <p id={`${item.key}-help`} className="mt-1 text-sm text-slate-500">{item.help}</p>
               </div>
               <label className="inline-flex min-h-[44px] shrink-0 items-center gap-2 text-sm font-medium text-slate-700">

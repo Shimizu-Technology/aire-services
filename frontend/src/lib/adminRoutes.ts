@@ -17,6 +17,7 @@ export const ADMIN_PATHS = {
   schedule: '/admin/schedule',
   team: '/admin/users',
   settings: '/admin/settings',
+  rolesAccess: '/admin/settings/roles',
   website: '/admin/website',
   websiteMedia: '/admin/website/media',
   websiteContact: '/admin/website/contact',

@@ -37,7 +37,7 @@ module Reports
                 format_hours(entry[:overtime_hours]),
                 format_hours(entry[:total_hours]),
                 entry[:approval_status] || "standard",
-                entry.dig(:approved_by, :full_name),
+                entry[:auto_approved] ? "Auto-approved" : entry.dig(:approved_by, :full_name),
                 entry[:approved_at],
                 entry[:description]
               ])

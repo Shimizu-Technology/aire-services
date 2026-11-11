@@ -285,6 +285,7 @@ module Payroll
         clock_source: entry.clock_source,
         approval_status: entry.approval_status,
         approved_by: entry.approved_by ? { id: entry.approved_by.id, full_name: entry.approved_by.full_name } : nil,
+        auto_approved: entry.auto_approved?,
         approved_at: entry.approved_at&.iso8601,
         overtime_status: entry.overtime_status,
         overtime_approved_by: entry.overtime_approved_by ? { id: entry.overtime_approved_by.id, full_name: entry.overtime_approved_by.full_name } : nil,

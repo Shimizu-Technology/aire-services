@@ -30,6 +30,13 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       )
     end
 
+    it "includes the settings catalog so the page can explain each setting" do
+      get "/api/v1/admin/settings", headers: auth_headers_for[admin]
+
+      expect(json[:catalog].map { |entry| entry[:id] }).to eq(SettingsCatalog.entries.map { |entry| entry[:id] })
+      expect(json[:catalog].first).to include(:label, :section, :what, :default, :who, :example)
+    end
+
     it "blocks non-admin" do
       get "/api/v1/admin/settings", headers: auth_headers_for[employee]
 
@@ -401,6 +408,67 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       patch "/api/v1/admin/settings", params: { settings: { key => true } }, headers: auth_headers_for[admin], as: :json
       expect(json.dig(:settings, :schedule_required_for_clock_in)).to eq("false")
       expect(json.dig(:settings, :early_clock_in_buffer_minutes)).to eq("5")
+    end
+  end
+
+  describe "Auto-approve ordinary shifts" do
+    let(:owner) { create(:user, :owner) }
+    let(:manager) { create(:user, :manager) }
+    let(:key) { Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY }
+    let(:hours_key) { Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY }
+
+    def audit_rows
+      AuditLog.where(action: [ "setting.#{key}_updated", "setting.#{hours_key}_updated" ]).order(:id)
+    end
+
+    it "is off by default with a 12-hour limit" do
+      get "/api/v1/admin/settings", headers: auth_headers_for[admin]
+
+      expect(json[:settings]).to include(auto_approve_ordinary_shifts: "false", auto_approve_max_shift_hours: "12")
+      expect(Setting.auto_approve_ordinary_shifts?).to be(false)
+      expect(Setting.auto_approve_max_shift_hours).to eq(12.0)
+    end
+
+    it "lets owners and admins change the switch and the limit, auditing before and after" do
+      patch "/api/v1/admin/settings", params: { settings: { key => true } }, headers: auth_headers_for[owner], as: :json
+      expect(response).to have_http_status(:ok)
+      expect(Setting.auto_approve_ordinary_shifts?).to be(true)
+
+      patch "/api/v1/admin/settings", params: { settings: { hours_key => "10.5" } }, headers: auth_headers_for[admin], as: :json
+      expect(response).to have_http_status(:ok)
+      expect(Setting.auto_approve_max_shift_hours).to eq(10.5)
+
+      patch "/api/v1/admin/settings", params: { settings: { key => false, hours_key => "10.5" } }, headers: auth_headers_for[admin], as: :json
+      expect(Setting.auto_approve_ordinary_shifts?).to be(false)
+
+      expect(audit_rows.map { |row| [ row.user_id, row.event_category, row.changes_made ] }).to eq([
+        [ owner.id, "settings", { key => [ false, true ] } ],
+        [ admin.id, "settings", { hours_key => [ 12.0, 10.5 ] } ],
+        [ admin.id, "settings", { key => [ true, false ] } ]
+      ])
+    end
+
+    it "rejects a limit outside 1 to 23 hours and non-boolean switch values" do
+      [ "0", "24", "abc" ].each do |value|
+        patch "/api/v1/admin/settings", params: { settings: { hours_key => value } }, headers: auth_headers_for[admin], as: :json
+        expect(response).to have_http_status(:unprocessable_entity), value
+      end
+      patch "/api/v1/admin/settings", params: { settings: { key => "sometimes" } }, headers: auth_headers_for[admin], as: :json
+      expect(response).to have_http_status(:unprocessable_entity)
+
+      expect(Setting.auto_approve_max_shift_hours).to eq(12.0)
+      expect(Setting.auto_approve_ordinary_shifts?).to be(false)
+      expect(audit_rows).to be_empty
+    end
+
+    it "refuses managers and employees" do
+      [ manager, employee ].each do |user|
+        patch "/api/v1/admin/settings", params: { settings: { key => "true", hours_key => "8" } }, headers: auth_headers_for[user], as: :json
+        expect(response).to have_http_status(:forbidden), user.role
+      end
+
+      expect(Setting.auto_approve_ordinary_shifts?).to be(false)
+      expect(audit_rows).to be_empty
     end
   end
 end

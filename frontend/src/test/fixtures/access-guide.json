@@ -1,0 +1,731 @@
+{
+  "viewer": {
+    "role": "owner",
+    "can_see_members": true,
+    "can_change_settings": true
+  },
+  "roles": [
+    {
+      "key": "owner",
+      "label": "Owner",
+      "summary": "Everything an admin can do, plus making people owners or admins and changing an owner's or admin's access.",
+      "can": [
+        "approve_time",
+        "manage_team_time",
+        "approve_leave",
+        "unlock_kiosk",
+        "export_hours_reports",
+        "send_pay_statements",
+        "manage_schedules",
+        "manage_users",
+        "manage_my_pay_access",
+        "preview_pay",
+        "manage_payroll",
+        "manage_settings",
+        "manage_site",
+        "view_activity",
+        "approve_own_time",
+        "assign_roles",
+        "change_admin_access",
+        "see_own_pay"
+      ],
+      "cannot": [
+        "get_own_stubs"
+      ],
+      "assigned_by": [
+        "owner"
+      ],
+      "signs_in_personally": true,
+      "members": []
+    },
+    {
+      "key": "admin",
+      "label": "Admin",
+      "summary": "Runs AIRE day to day: settings, the team, payroll, approvals and pay previews.",
+      "can": [
+        "approve_time",
+        "manage_team_time",
+        "approve_leave",
+        "unlock_kiosk",
+        "export_hours_reports",
+        "send_pay_statements",
+        "manage_schedules",
+        "manage_users",
+        "manage_my_pay_access",
+        "preview_pay",
+        "manage_payroll",
+        "manage_settings",
+        "manage_site",
+        "view_activity",
+        "approve_own_time",
+        "assign_roles",
+        "see_own_pay"
+      ],
+      "cannot": [
+        "change_admin_access",
+        "get_own_stubs"
+      ],
+      "assigned_by": [
+        "owner"
+      ],
+      "signs_in_personally": true,
+      "members": []
+    },
+    {
+      "key": "manager",
+      "label": "Manager",
+      "summary": "Runs the team's time: approvals, corrections, leave, the kiosk, hours reports and pay stubs. No settings, payroll or pay amounts.",
+      "can": [
+        "approve_time",
+        "manage_team_time",
+        "approve_leave",
+        "unlock_kiosk",
+        "export_hours_reports",
+        "send_pay_statements",
+        "approve_own_time",
+        "see_own_pay"
+      ],
+      "cannot": [
+        "manage_schedules",
+        "manage_users",
+        "manage_my_pay_access",
+        "preview_pay",
+        "manage_payroll",
+        "manage_settings",
+        "manage_site",
+        "view_activity",
+        "assign_roles",
+        "change_admin_access",
+        "get_own_stubs"
+      ],
+      "assigned_by": [
+        "owner",
+        "admin"
+      ],
+      "signs_in_personally": true,
+      "members": []
+    },
+    {
+      "key": "employee",
+      "label": "Employee",
+      "summary": "Their own time, schedule, leave and, when it's on for them, My Pay.",
+      "can": [
+        "see_own_pay"
+      ],
+      "cannot": [
+        "approve_time",
+        "manage_team_time",
+        "approve_leave",
+        "unlock_kiosk",
+        "export_hours_reports",
+        "send_pay_statements",
+        "manage_schedules",
+        "manage_users",
+        "manage_my_pay_access",
+        "preview_pay",
+        "manage_payroll",
+        "manage_settings",
+        "manage_site",
+        "view_activity",
+        "approve_own_time",
+        "assign_roles",
+        "change_admin_access",
+        "get_own_stubs"
+      ],
+      "assigned_by": [
+        "owner",
+        "admin"
+      ],
+      "signs_in_personally": false,
+      "members": []
+    }
+  ],
+  "rows": [
+    {
+      "key": "approve_time",
+      "kind": "capability",
+      "label": "Approve time",
+      "detail": "Approve or deny shifts and overtime in the approvals list.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "yes"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "manage_team_time",
+      "kind": "capability",
+      "label": "Manage the team's time",
+      "detail": "See everyone's time; add, correct or delete entries; clock people in or out.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "yes"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "approve_leave",
+      "kind": "capability",
+      "label": "Approve leave",
+      "detail": "Approve or decline leave requests.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "yes"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "unlock_kiosk",
+      "kind": "capability",
+      "label": "Unlock the kiosk",
+      "detail": "Open the shared kiosk so people can clock in with their PIN.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "yes"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "export_hours_reports",
+      "kind": "capability",
+      "label": "Export hours reports",
+      "detail": "Download hours as PDF or CSV.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "yes"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "send_pay_statements",
+      "kind": "capability",
+      "label": "Send pay stubs",
+      "detail": "Send stubs from the Pay stubs page and answer kiosk requests.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "yes"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "manage_schedules",
+      "kind": "capability",
+      "label": "Edit the schedule",
+      "detail": "Add, change and clear shifts.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "manage_users",
+      "kind": "capability",
+      "label": "Manage the team",
+      "detail": "Add people and change their access, department, work categories and kiosk PIN; terminate or reactivate them.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "manage_my_pay_access",
+      "kind": "capability",
+      "label": "Turn My Pay on or off",
+      "detail": "For one person or for everyone, on the Team page.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "preview_pay",
+      "kind": "capability",
+      "label": "Preview anyone's My Pay",
+      "detail": "A read-only view of a worker's pay statements, including amounts.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "manage_payroll",
+      "kind": "capability",
+      "label": "Run payroll",
+      "detail": "The pay calendar, cutoffs, lock times, payroll batches, pay rates and the payroll connection.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "manage_settings",
+      "kind": "capability",
+      "label": "Change settings",
+      "detail": "Clock rules, time approvals, pay stub switches, schedules, departments and time categories.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "manage_site",
+      "kind": "capability",
+      "label": "Edit the public website",
+      "detail": "Website photos, contact details, social links and the contact form.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "view_activity",
+      "kind": "capability",
+      "label": "See activity history",
+      "detail": "The record of who changed what, and when.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "approve_own_time",
+      "kind": "rule",
+      "label": "Approve their own time",
+      "detail": "Approve, deny or override time and overtime that is their own. An owner's, admin's or manager's own clock time always waits in the approvals list and is never auto-approved.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "yes"
+        },
+        "manager": {
+          "value": "yes",
+          "note": "While the setting is on",
+          "footnotes": [
+            "managers_can_approve_own_time"
+          ]
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": [
+        "managers_can_approve_own_time"
+      ]
+    },
+    {
+      "key": "assign_roles",
+      "kind": "rule",
+      "label": "Give someone a role",
+      "detail": "Choose a person's role on the Team page. Nobody can change their own role.",
+      "cells": {
+        "owner": {
+          "value": "yes",
+          "note": "Any role"
+        },
+        "admin": {
+          "value": "limited",
+          "note": "Manager or Employee only"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "change_admin_access",
+      "kind": "rule",
+      "label": "Change an owner's or admin's access",
+      "detail": "Terminate, reactivate or delete an owner or admin, or turn off their sign-in.",
+      "cells": {
+        "owner": {
+          "value": "yes"
+        },
+        "admin": {
+          "value": "no"
+        },
+        "manager": {
+          "value": "no"
+        },
+        "employee": {
+          "value": "no"
+        }
+      },
+      "footnotes": []
+    },
+    {
+      "key": "see_own_pay",
+      "kind": "rule",
+      "label": "See their own pay in My Pay",
+      "detail": "Their own pay statements and stubs. Any role, once My Pay is on for them.",
+      "cells": {
+        "owner": {
+          "value": "limited",
+          "note": "When their My Pay switch is on",
+          "footnotes": [
+            "my_pay_enabled_for_all"
+          ]
+        },
+        "admin": {
+          "value": "limited",
+          "note": "When their My Pay switch is on",
+          "footnotes": [
+            "my_pay_enabled_for_all"
+          ]
+        },
+        "manager": {
+          "value": "limited",
+          "note": "When their My Pay switch is on",
+          "footnotes": [
+            "my_pay_enabled_for_all"
+          ]
+        },
+        "employee": {
+          "value": "limited",
+          "note": "When their My Pay switch is on",
+          "footnotes": [
+            "my_pay_enabled_for_all"
+          ]
+        }
+      },
+      "footnotes": [
+        "my_pay_enabled_for_all"
+      ]
+    },
+    {
+      "key": "get_own_stubs",
+      "kind": "rule",
+      "label": "Get their own pay stubs without asking",
+      "detail": "Ask at the kiosk, or email one to themselves from My Pay.",
+      "cells": {
+        "owner": {
+          "value": "no",
+          "note": "Both pay stub switches are off",
+          "footnotes": [
+            "pay_stub_kiosk_requests_enabled",
+            "pay_stub_self_email_enabled"
+          ]
+        },
+        "admin": {
+          "value": "no",
+          "note": "Both pay stub switches are off",
+          "footnotes": [
+            "pay_stub_kiosk_requests_enabled",
+            "pay_stub_self_email_enabled"
+          ]
+        },
+        "manager": {
+          "value": "no",
+          "note": "Both pay stub switches are off",
+          "footnotes": [
+            "pay_stub_kiosk_requests_enabled",
+            "pay_stub_self_email_enabled"
+          ]
+        },
+        "employee": {
+          "value": "no",
+          "note": "Both pay stub switches are off",
+          "footnotes": [
+            "pay_stub_kiosk_requests_enabled",
+            "pay_stub_self_email_enabled"
+          ]
+        }
+      },
+      "footnotes": [
+        "pay_stub_kiosk_requests_enabled",
+        "pay_stub_self_email_enabled"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "key": "own_role",
+      "text": "Nobody can change their own role."
+    },
+    {
+      "key": "last_owner",
+      "text": "AIRE always keeps at least one active owner who signs in. The last one can't be given another role, terminated or lose sign-in."
+    },
+    {
+      "key": "personal_sign_in",
+      "text": "Owners, admins and managers always sign in personally. Only employees can be kiosk-only."
+    },
+    {
+      "key": "break_glass",
+      "text": "If no owner can sign in, Shimizu Technology can restore an owner with a recorded break-glass step."
+    }
+  ],
+  "settings": [
+    {
+      "id": "managers_can_approve_own_time",
+      "label": "Managers can approve their own time",
+      "enabled": true,
+      "effect": "Managers approve their own time.",
+      "rows": [
+        "approve_own_time"
+      ],
+      "change_in": "Settings → Time approvals",
+      "path": "/admin/settings#time-approvals",
+      "who": "Owners and admins"
+    },
+    {
+      "id": "pay_stub_kiosk_requests_enabled",
+      "label": "Pay stub requests at the kiosk",
+      "enabled": false,
+      "effect": "Workers can't ask for pay stubs at the kiosk.",
+      "rows": [
+        "get_own_stubs"
+      ],
+      "change_in": "Settings → Pay stubs",
+      "path": "/admin/settings#pay-stubs",
+      "who": "Owners and admins"
+    },
+    {
+      "id": "pay_stub_self_email_enabled",
+      "label": "Workers can email themselves stubs",
+      "enabled": false,
+      "effect": "Workers can't email themselves stubs; a sender does it from the Pay stubs page.",
+      "rows": [
+        "get_own_stubs"
+      ],
+      "change_in": "Settings → Pay stubs",
+      "path": "/admin/settings#pay-stubs",
+      "who": "Owners and admins"
+    },
+    {
+      "id": "my_pay_enabled_for_all",
+      "label": "My Pay for everyone",
+      "enabled": false,
+      "effect": "Only people with My Pay turned on individually can see it.",
+      "rows": [
+        "see_own_pay"
+      ],
+      "change_in": "Team → My Pay",
+      "path": "/admin/users",
+      "who": "Owners and admins",
+      "individual_count": 0
+    }
+  ],
+  "everyone_can": [
+    "Clock in and out, and see their own time",
+    "See the schedule, when schedules are in use",
+    "Request leave"
+  ],
+  "role_capabilities": {
+    "manage_settings": [
+      "owner",
+      "admin"
+    ],
+    "manage_users": [
+      "owner",
+      "admin"
+    ],
+    "manage_payroll": [
+      "owner",
+      "admin"
+    ],
+    "manage_schedules": [
+      "owner",
+      "admin"
+    ],
+    "manage_site": [
+      "owner",
+      "admin"
+    ],
+    "view_activity": [
+      "owner",
+      "admin"
+    ],
+    "preview_pay": [
+      "owner",
+      "admin"
+    ],
+    "manage_my_pay_access": [
+      "owner",
+      "admin"
+    ],
+    "approve_time": [
+      "owner",
+      "admin",
+      "manager"
+    ],
+    "manage_team_time": [
+      "owner",
+      "admin",
+      "manager"
+    ],
+    "approve_leave": [
+      "owner",
+      "admin",
+      "manager"
+    ],
+    "unlock_kiosk": [
+      "owner",
+      "admin",
+      "manager"
+    ],
+    "export_hours_reports": [
+      "owner",
+      "admin",
+      "manager"
+    ],
+    "send_pay_statements": [
+      "owner",
+      "admin",
+      "manager"
+    ]
+  }
+}

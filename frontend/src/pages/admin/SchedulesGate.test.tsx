@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UserRole } from '../../lib/roles'
 import SchedulesGate from './SchedulesGate'
 import ScheduleSettings from '../../components/time-tracking/ScheduleSettings'
+import { SettingsCatalogContext } from '../../components/settings/settingsCatalogContext'
+import type { SettingsCatalogEntry } from '../../lib/api'
+// Written by the backend (spec/models/settings_catalog_spec.rb) from SettingsCatalog.
+import catalog from '../../test/fixtures/settings-catalog.json'
 import { WebsiteHome } from './Website'
 
 const auth = vi.hoisted(() => ({ role: 'employee' as UserRole, schedulesEnabled: false, refreshCurrentUser: vi.fn() }))
@@ -55,13 +59,19 @@ describe('"Use schedules" switch', () => {
   it('starts off, explains itself, and turns on with one saved setting', async () => {
     const onSaved = vi.fn()
     apiMock.updateAdminAppSettings.mockResolvedValue({ data: { settings: settings({ schedules_enabled: 'true' }) } })
-    render(<ScheduleSettings settings={settings()} onSaved={onSaved} />)
+    // Settings provides the catalog that SettingHelp reads the tip from.
+    render(
+      <SettingsCatalogContext.Provider value={catalog as SettingsCatalogEntry[]}>
+        <ScheduleSettings settings={settings()} onSaved={onSaved} />
+      </SettingsCatalogContext.Provider>,
+    )
 
     const toggle = screen.getByRole('checkbox', { name: 'Use schedules' })
     expect(toggle).not.toBeChecked()
     expect(toggle).toHaveAccessibleDescription(/Shows Schedule in everyone’s menu/)
     fireEvent.click(screen.getByRole('button', { name: 'About Use schedules' }))
     expect(screen.getAllByText('Owners and admins').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/doesn't change any clock-in rule/).length).toBeGreaterThan(0)
 
     fireEvent.click(toggle)
     await waitFor(() => expect(apiMock.updateAdminAppSettings).toHaveBeenCalledWith({ settings: { schedules_enabled: 'true' } }))

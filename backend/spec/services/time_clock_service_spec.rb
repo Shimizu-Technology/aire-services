@@ -212,7 +212,7 @@ RSpec.describe TimeClockService, type: :service do
       expect(entry.approval_note).to eq("Clocked in without a schedule | Employee corrected clock-out time to 10:30 AM")
     end
 
-    it "does not mark unscheduled admin clock entries as pending on clock-out" do
+    it "sends an admin's own unscheduled clock entry to the queue on clock-out" do
       Setting.set("schedule_required_for_clock_in", "false")
       admin = create(:user, :admin, time_tracking_enabled: true, kiosk_enabled: true)
       admin.user_time_categories.create!(time_category: create(:time_category))
@@ -224,8 +224,8 @@ RSpec.describe TimeClockService, type: :service do
 
       expect(entry.status).to eq("completed")
       expect(entry.schedule).to be_nil
-      expect(entry.approval_status).to be_nil
-      expect(entry.approval_note).to be_nil
+      expect(entry.approval_status).to eq("pending")
+      expect(entry.approval_note).to eq("Clocked in without a schedule | Supervisor's own time")
     end
 
     it "completes clock entries without embedding payroll rates" do

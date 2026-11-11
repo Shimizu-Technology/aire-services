@@ -15,10 +15,12 @@ module Api
           clock_in_location_longitude
           clock_in_location_radius_meters
         ].freeze
-        APPROVAL_SETTING_KEYS = [ Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY ].freeze
+        APPROVAL_SETTING_KEYS = [ Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY, Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY ].freeze
+        # Approval policy values (not switches) that still get a before/after row.
+        AUDITED_VALUE_SETTING_KEYS = [ Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY ].freeze
         PAY_STUB_SETTING_KEYS = [ Setting::PAY_STUB_KIOSK_REQUESTS_KEY, Setting::PAY_STUB_SELF_EMAIL_KEY ].freeze
         SCHEDULE_SETTING_KEYS = [ Setting::SCHEDULES_ENABLED_KEY ].freeze
-        SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
+        SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS + AUDITED_VALUE_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
         # On/off switches: each change gets its own before/after audit row.
         BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
 
@@ -26,10 +28,7 @@ module Api
         before_action -> { require_capability!(:manage_settings) }
 
         def show
-          render json: {
-            settings: serialized_settings,
-            approval_groups: Setting.approval_groups
-          }
+          render json: settings_payload
         end
 
         def geocode
@@ -109,7 +108,7 @@ module Api
                 raise ActiveRecord::Rollback if approval_groups_error.present?
               end
 
-              audited_before = BOOLEAN_SETTING_KEYS.select { |key| payload&.key?(key) }.index_with do |key|
+              audited_before = (BOOLEAN_SETTING_KEYS + AUDITED_VALUE_SETTING_KEYS).select { |key| payload&.key?(key) }.index_with do |key|
                 Setting.lock.find_by(key: key)&.value || Setting::DEFAULTS[key]
               end
 
@@ -131,13 +130,20 @@ module Api
 
           return render json: { error: approval_groups_error }, status: :unprocessable_entity if approval_groups_error.present?
 
-          render json: {
-            settings: serialized_settings,
-            approval_groups: Setting.approval_groups
-          }
+          render json: settings_payload
         end
 
         private
+
+        # The catalog rides along so the page's help text always matches
+        # what the backend says each setting does.
+        def settings_payload
+          {
+            settings: serialized_settings,
+            approval_groups: Setting.approval_groups,
+            catalog: SettingsCatalog.as_json
+          }
+        end
 
         def serialized_settings
           SETTING_KEYS.index_with { |key| Setting.get(key) }
@@ -154,19 +160,21 @@ module Api
         end
 
         # Switches that change who may approve time, how pay stubs go out or
-        # whether schedules are in use keep their own before/after audit row.
+        # whether schedules are in use, and the auto-approval shift limit,
+        # keep their own before/after audit row.
         def record_switch_changes!(before_values, payload)
           before_values.each do |key, before|
             after = payload.fetch(key).to_s
-            next if before == after
+            switch = BOOLEAN_SETTING_KEYS.include?(key)
+            next if switch ? before == after : before.to_f == after.to_f
 
             AuditLog.record!(
               action: "setting.#{key}_updated",
               auditable: Setting.find_by!(key: key),
               actor: current_user,
               event_category: "settings",
-              changes: { key => [ before == "true", after == "true" ] },
-              metadata: { key: key, enabled: after == "true" },
+              changes: { key => switch ? [ before == "true", after == "true" ] : [ before.to_f, after.to_f ] },
+              metadata: switch ? { key: key, enabled: after == "true" } : { key: key, value: after.to_f },
               mark_domain_recorded: false
             )
           end
@@ -197,6 +205,12 @@ module Api
           if payload.key?("overtime_weekly_threshold_hours")
             v = payload["overtime_weekly_threshold_hours"].to_f
             return "Weekly overtime threshold must be greater than 0" if v <= 0
+          end
+
+          if payload.key?(Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY)
+            v = Setting.safe_float(payload[Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY])
+            limit = Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_LIMIT
+            return "Longest auto-approved shift must be between 1 and #{limit} hours" if v.nil? || v < 1 || v > limit
           end
 
           if payload.key?("early_clock_in_buffer_minutes")

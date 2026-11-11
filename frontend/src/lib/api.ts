@@ -385,21 +385,98 @@ export interface TimeClockAppSettings {
   clock_in_location_latitude: string;
   clock_in_location_longitude: string;
   clock_in_location_radius_meters: string;
+  /** "false" (default) or "true". No control on the Settings page yet. */
+  schedule_required_for_clock_in?: string;
   /** "true" (default) or "false". Off sends a manager's own time to another approver. */
   managers_can_approve_own_time?: string;
+  /** "false" (default) or "true". Approves employees' ordinary shifts at clock-out. */
+  auto_approve_ordinary_shifts?: string;
+  /** Hours, default "12". Shifts this long or longer are never auto-approved. */
+  auto_approve_max_shift_hours?: string;
   /** "false" (default) or "true". Shows "Request my pay stub" at the kiosk. */
   pay_stub_kiosk_requests_enabled?: string;
   /** "false" (default) or "true". Shows "Email me this stub" in My Pay. */
   pay_stub_self_email_enabled?: string;
   /** "false" (default) or "true". "Use schedules": shows Schedule in the navigation. */
   schedules_enabled?: string;
-  /** "false" (default) or "true". Clock-in needs a shift on the schedule. Not on the Settings page. */
-  schedule_required_for_clock_in?: string;
 }
 
 export interface AdminAppSettingsResponse {
   settings: TimeClockAppSettings;
   approval_groups: ApprovalGroupOption[];
+  /** What each setting does, from the backend's SettingsCatalog. */
+  catalog?: SettingsCatalogEntry[];
+}
+
+/** One entry of the backend's SettingsCatalog (backend/app/models/settings_catalog.rb). */
+export interface SettingsCatalogEntry {
+  id: string;
+  label: string;
+  section: string;
+  section_label: string;
+  /** The page the setting is changed on: "Settings" or "Team". */
+  page: string;
+  path: string;
+  setting_keys: string[];
+  stored_in: string | null;
+  /** False when the Settings page shows the value but has no control for it yet. */
+  on_page: boolean;
+  capability: string;
+  who_roles: string[];
+  who: string;
+  what: string;
+  default: string;
+  example: string;
+  access_effect: { rows: string[]; on: string; off: string } | null;
+}
+
+export type AccessCellValue = 'yes' | 'no' | 'limited'
+
+export interface AccessGuideRow {
+  key: string;
+  kind: 'capability' | 'rule';
+  label: string;
+  detail: string;
+  /** footnotes: ids of the settings (AccessGuideSettingEffect) that change this answer. */
+  cells: Record<string, { value: AccessCellValue; note?: string; footnotes?: string[] }>;
+  /** Every setting that changes some answer in this row. */
+  footnotes: string[];
+}
+
+export interface AccessGuideRoleCard {
+  key: string;
+  label: string;
+  summary: string;
+  can: string[];
+  cannot: string[];
+  assigned_by: string[];
+  signs_in_personally: boolean;
+  /** Only for owners and admins. */
+  members?: { id: number; name: string }[];
+}
+
+export interface AccessGuideSettingEffect {
+  id: string;
+  label: string;
+  enabled: boolean;
+  effect: string;
+  rows: string[];
+  change_in: string;
+  path: string;
+  who: string;
+  /** People with My Pay on individually. Only for owners and admins. */
+  individual_count?: number;
+}
+
+/** GET /api/v1/access_guide, built from User::ROLE_CAPABILITIES and the role rules. */
+export interface AccessGuideResponse {
+  viewer: { role: string; can_see_members: boolean; can_change_settings: boolean };
+  roles: AccessGuideRoleCard[];
+  rows: AccessGuideRow[];
+  rules: { key: string; text: string }[];
+  settings: AccessGuideSettingEffect[];
+  everyone_can: string[];
+  role_capabilities: Record<string, string[]>;
 }
 
 export interface GeocodeResult {
@@ -563,6 +640,8 @@ export interface TimeEntry {
   admin_override: boolean;
   attendance_status: 'early' | 'on_time' | 'late' | null;
   approval_status: 'pending' | 'approved' | 'denied' | null;
+  /** Approved at clock-out by "Auto-approve ordinary shifts"; approved_by is null. */
+  auto_approved?: boolean;
   overtime_status: 'none' | 'pending' | 'approved' | 'denied' | null;
   pending_overtime_hours?: number;
   approval_reasons?: ApprovalReason[];
@@ -878,6 +957,7 @@ export interface HoursReportEntry {
   clock_source: string | null;
   approval_status: string | null;
   approved_by: { id: number; full_name: string } | null;
+  auto_approved?: boolean;
   approved_at: string | null;
   overtime_status: string | null;
   time_category: { id: number; key?: string | null; name: string } | null;
@@ -1524,7 +1604,8 @@ export interface PayrollLockControl {
   unavailable_reason: string | null;
 }
 export interface PayrollLockPendingChange {
-  state: 'pending' | 'rejected';
+  /** expired: its time passed before it arrived, so AIRE can't apply it. */
+  state: 'pending' | 'rejected' | 'expired';
   action: PayrollLockAction;
   cutoff_at: string | null;
   requested_by_name: string | null;
@@ -1733,6 +1814,9 @@ export const api = {
     fetchApi<InvitationEmailOutcome & { message: string }>(`/api/v1/admin/users/${id}/resend_invite`, {
       method: 'POST',
     }),
+
+  getAccessGuide: () =>
+    fetchApi<AccessGuideResponse>('/api/v1/access_guide'),
 
   getMyPayAccess: () =>
     fetchApi<{ enabled_for_all: boolean; enabled_user_ids: number[] }>('/api/v1/admin/my_pay_access'),

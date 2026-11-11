@@ -1,11 +1,12 @@
-import type { ReactNode } from 'react'
-import { fireEvent, render as renderInDom, screen, waitFor, within } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
+import { fireEvent, render as renderUi, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Settings from './Settings'
 import { defaultPublicContactSettings } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
+import settingsCatalog from '../../test/fixtures/settings-catalog.json'
 
 const stagingMock = vi.hoisted(() => ({ enabled: false }))
 vi.mock('../../lib/staging', () => ({ get isStaging() { return stagingMock.enabled } }))
@@ -42,12 +43,12 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 
-// Settings links to Website, so it renders inside a router.
-const render = (ui: ReactNode) => renderInDom(ui, { wrapper: MemoryRouter })
-
 vi.mock('../../components/ui/MotionComponents', () => ({
   FadeUp: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
+
+// The page links to Roles & access and Website, so it renders inside a router.
+const render = (ui: ReactElement) => renderUi(ui, { wrapper: MemoryRouter })
 
 describe('Admin Settings contact settings', () => {
   beforeEach(() => {
@@ -82,6 +83,7 @@ describe('Admin Settings contact settings', () => {
           { key: 'cfi', label: 'CFI' },
           { key: 'ops_maintenance', label: 'Ops / Maintenance' },
         ],
+        catalog: settingsCatalog,
       },
     })
     apiMock.getAdminContactSettings.mockResolvedValue({
@@ -227,6 +229,33 @@ describe('Admin Settings contact settings', () => {
       settings: { managers_can_approve_own_time: 'false' },
     }))
     expect(await screen.findByText("Managers' own time now goes to another approver.")).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).not.toBeChecked()
+  })
+
+  it('does not let a slower time clock rules save restore an older switch value', async () => {
+    let finishRulesSave: (value: unknown) => void = () => {}
+    apiMock.updateAdminAppSettings.mockImplementation(({ settings }) => {
+      if ('overtime_daily_threshold_hours' in settings) {
+        // The rules response still carries the switch value from before the toggle.
+        return new Promise((resolve) => {
+          finishRulesSave = resolve
+        }).then(() => ({
+          data: { settings: { ...settings, managers_can_approve_own_time: 'true' }, approval_groups: [{ key: 'cfi', label: 'CFI' }] },
+        }))
+      }
+      return Promise.resolve({ data: { settings: { ...settings }, approval_groups: [{ key: 'cfi', label: 'CFI' }] } })
+    })
+    render(<Settings />)
+
+    const toggle = await screen.findByRole('checkbox', { name: 'Managers can approve their own time' })
+    fireEvent.submit(screen.getByRole('button', { name: 'Save time clock rules' }).closest('form')!)
+    fireEvent.click(toggle)
+    expect(await screen.findByText("Managers' own time now goes to another approver.")).toBeInTheDocument()
+
+    expect(apiMock.updateAdminAppSettings).toHaveBeenCalledWith({ settings: expect.objectContaining({ overtime_daily_threshold_hours: '8' }) })
+    expect(screen.getByRole('button', { name: /Saving/ })).toBeDisabled()
+    finishRulesSave(undefined)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save time clock rules' })).toBeEnabled())
     expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).not.toBeChecked()
   })
 

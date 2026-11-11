@@ -65,6 +65,8 @@ class Setting < ApplicationRecord
     "clock_in_location_longitude" => "144.79901",
     "clock_in_location_radius_meters" => "1000",
     "managers_can_approve_own_time" => "true",
+    "auto_approve_ordinary_shifts" => "false",
+    "auto_approve_max_shift_hours" => "12",
     "pay_stub_kiosk_requests_enabled" => "false",
     "pay_stub_self_email_enabled" => "false",
     "schedules_enabled" => "false",
@@ -139,6 +141,24 @@ class Setting < ApplicationRecord
 
   def self.managers_can_approve_own_time?
     get(MANAGERS_CAN_APPROVE_OWN_TIME_KEY) != "false"
+  end
+
+  # "Auto-approve ordinary shifts" on the Settings page, off by default.
+  # On approves an employee's ordinary kiosk or mobile shift at clock-out
+  # instead of queueing it (see TimeClockService.ordinary_shift_exceptions).
+  # Never applies to a supervisor's own time or to overtime. Shifts longer
+  # than "auto_approve_max_shift_hours" always go to the queue.
+  AUTO_APPROVE_ORDINARY_SHIFTS_KEY = "auto_approve_ordinary_shifts"
+  AUTO_APPROVE_MAX_SHIFT_HOURS_KEY = "auto_approve_max_shift_hours"
+  AUTO_APPROVE_MAX_SHIFT_HOURS_LIMIT = 23
+
+  def self.auto_approve_ordinary_shifts?
+    get(AUTO_APPROVE_ORDINARY_SHIFTS_KEY) == "true"
+  end
+
+  def self.auto_approve_max_shift_hours
+    hours = safe_float(get(AUTO_APPROVE_MAX_SHIFT_HOURS_KEY))
+    hours&.positive? ? [ hours, AUTO_APPROVE_MAX_SHIFT_HOURS_LIMIT ].min : DEFAULTS.fetch(AUTO_APPROVE_MAX_SHIFT_HOURS_KEY).to_f
   end
 
   # Pay stub go-live switches on the Settings page, both off by default.

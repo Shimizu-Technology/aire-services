@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { api, type TimeClockAppSettings } from '../../lib/api'
-import { HelpTip } from '../ui'
+import SettingHelp from '../settings/SettingHelp'
 
 // "Use schedules" on the Settings page (owners and admins). Off by default:
 // AIRE doesn't plan shifts in the app yet. It only shows or hides the
@@ -58,13 +58,7 @@ export default function ScheduleSettings({ settings, onSaved }: Props) {
           <div>
             <h3 id="use-schedules-label" className="flex items-center gap-1 text-sm font-semibold text-slate-900">
               Use schedules
-              <HelpTip
-                label="Use schedules"
-                what="Shows Schedule in the menu so you can plan shifts and staff can see theirs. Off hides it for everyone. Clocking in works the same either way."
-                defaultValue="Off"
-                who="Owners and admins"
-                example="Turn it on when you start entering next week’s shifts."
-              />
+              <SettingHelp id="schedules_enabled" />
             </h3>
             <p id="use-schedules-help" className="mt-1 text-sm text-slate-500">
               Shows Schedule in everyone’s menu. Shifts already entered still set the early clock-in window and the attendance badge either way.

@@ -114,7 +114,10 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
         />
       </div>
 
-      {control.pending_change && <PendingChangeNote change={control.pending_change} />}
+      {/* Once this lock passes, a change that never applied is history. */}
+      {control.pending_change && !locking && (
+        <PendingChangeNote change={control.pending_change} canChange={control.can_change} canLockNow={control.can_lock_now} />
+      )}
 
       {control.can_change ? (
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -137,6 +140,7 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
           action={dialog}
           control={control}
           now={now}
+          currentTime={() => new Date(Date.now() + serverOffset.current)}
           onClose={() => setDialog(null)}
           onDone={(message) => {
             setDialog(null)
@@ -151,15 +155,18 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
 }
 
 /** A change requested from AIRE that Cornerstone accepted but AIRE hasn't applied. */
-function PendingChangeNote({ change }: { change: PayrollLockPendingChange }) {
+function PendingChangeNote({ change, canChange, canLockNow }: { change: PayrollLockPendingChange; canChange: boolean; canLockNow: boolean }) {
   const target = change.action === 'lock_now' ? 'Lock now'
     : change.action === 'reset' ? 'the reset to the default time'
       : change.cutoff_at ? `the change to ${formatLockTime(change.cutoff_at)}` : 'the change'
-  if (change.state === 'rejected') {
+  if (change.state !== 'pending') {
+    const headline = change.state === 'expired'
+      ? `${target.charAt(0).toUpperCase()}${target.slice(1)} didn’t arrive from Cornerstone Payroll in time, so AIRE didn’t apply it.`
+      : `AIRE couldn’t apply ${target}${change.error ? `: ${change.error}` : '.'}`
     return (
       <div role="status" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-        <p className="font-semibold">AIRE couldn’t apply {target}{change.error ? `: ${change.error}` : '.'}</p>
-        <p className="mt-1">The lock time above is still in effect. Lock now or choose a new time to replace it.</p>
+        <p className="font-semibold">{headline}</p>
+        <p className="mt-1">The lock time above is still in effect.{canChange ? ` ${canLockNow ? 'Lock now or choose' : 'Choose'} a new time to replace it.` : ''}</p>
       </div>
     )
   }
@@ -173,10 +180,12 @@ function PendingChangeNote({ change }: { change: PayrollLockPendingChange }) {
 const TITLES: Record<PayrollLockAction, string> = { lock_now: 'Lock hours now?', change: 'Change lock time', reset: 'Reset to the default lock time?' }
 const CONFIRM: Record<PayrollLockAction, string> = { lock_now: 'Lock now', change: 'Save lock time', reset: 'Reset to default' }
 
-function LockTimeDialog({ action, control, now, onClose, onDone }: {
+function LockTimeDialog({ action, control, now, currentTime, onClose, onDone }: {
   action: PayrollLockAction
   control: LockControlState
   now: Date
+  /** The server clock at submit; `now` only ticks each minute. */
+  currentTime: () => Date
   onClose: () => void
   onDone: (message: string) => void
 }) {
@@ -199,12 +208,20 @@ function LockTimeDialog({ action, control, now, onClose, onDone }: {
   const chosen = action === 'change' ? fromGuamInput(cutoffInput) : null
   const outOfRange = action === 'change' && (!chosen || cutoffInput < min || cutoffInput > max)
   const minLabel = formatLockTime(fromGuamInput(min)!)
-  // Saving the time AIRE already has would be refused.
-  const unchanged = action === 'change' && cutoffInput === current
+  // Saving the time AIRE already has would be refused, unless it replaces a change AIRE didn't apply.
+  const replacing = control.pending_change != null && control.pending_change.state !== 'pending'
+  const unchanged = action === 'change' && cutoffInput === current && !replacing
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!reason.trim()) { setError('Enter a reason for the change.'); return }
+    // The minimum moves on while the dialog is open; Cornerstone would refuse a time that slipped under it.
+    const freshMin = toGuamInput(earliestLockChange(currentTime()).toISOString())
+    if (action === 'change' && chosen && cutoffInput < freshMin && freshMin <= max) {
+      setCutoffInput(freshMin)
+      setError(`The lock time must be at least 15 minutes from now, so the earliest is now ${formatLockTime(fromGuamInput(freshMin)!)}. Check the new time and save again.`)
+      return
+    }
     if (outOfRange) { setError(`Choose a time between ${minLabel} and ${formatLockTime(control.latest_cutoff_at)}.`); return }
     setSubmitting(true)
     setError(null)

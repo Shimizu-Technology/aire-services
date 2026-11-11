@@ -1,4 +1,6 @@
 import { useId } from 'react'
+import { Link } from 'react-router-dom'
+import { ExternalLink } from 'lucide-react'
 import { ROLE_DETAILS, roleLabel, type UserRole } from '../../lib/roles'
 
 interface RolePickerProps {
@@ -9,6 +11,22 @@ interface RolePickerProps {
   /** Shown instead of the choices when options is empty. */
   lockedReason?: string
   disabled?: boolean
+}
+
+// Opens in a new tab so a half-filled person form isn't lost.
+function RoleGuideLink() {
+  return (
+    <Link
+      to="/admin/settings/roles"
+      target="_blank"
+      rel="noopener"
+      className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-cyan-800 hover:underline pointer-fine:min-h-0"
+    >
+      See what each role can do
+      <ExternalLink aria-hidden="true" className="size-3.5" />
+      <span className="sr-only">(opens in a new tab)</span>
+    </Link>
+  )
 }
 
 // One radio card per role with a line of help, so the choice explains itself.
@@ -26,6 +44,7 @@ export default function RolePicker({ value, options, onChange, lockedReason, dis
           <p className="mt-0.5 text-xs leading-5 text-slate-600">{ROLE_DETAILS[value]?.help}</p>
           {lockedReason && <p className="mt-2 text-xs font-medium text-slate-700">{lockedReason}</p>}
         </div>
+        <RoleGuideLink />
       </div>
     )
   }
@@ -68,6 +87,7 @@ export default function RolePicker({ value, options, onChange, lockedReason, dis
           ? 'Owners, admins and managers always sign in personally.'
           : 'Only an owner can make someone an admin or owner. Managers always sign in personally.'}
       </p>
+      <RoleGuideLink />
     </fieldset>
   )
 }

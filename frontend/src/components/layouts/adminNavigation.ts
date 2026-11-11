@@ -3,6 +3,7 @@ import {
   CalendarPlus,
   ChartNoAxesColumnIncreasing,
   CircleCheckBig,
+  CircleHelp,
   Clock3,
   Globe,
   History,
@@ -33,6 +34,8 @@ export interface NavItem {
   /** Opens outside the admin shell (the shared kiosk), in a new tab. */
   external?: boolean
   badge?: 'approvals'
+  /** On phones, always under More rather than taking a tab. */
+  moreOnly?: boolean
 }
 
 export interface NavGroup {
@@ -71,6 +74,9 @@ const item = {
   leave: { id: 'leave', name: 'Leave', href: ADMIN_PATHS.leave, icon: CalendarPlus },
   myPay: { id: 'my-pay', name: 'My Pay', href: ADMIN_PATHS.myPay, icon: Wallet },
   kiosk: { id: 'kiosk', name: 'Unlock kiosk', shortName: 'Kiosk', href: '/kiosk', icon: KeyRound, external: true },
+  // Managers' and employees' read-only Roles & access view. Owners and admins
+  // open the full page from Settings.
+  whatCanIDo: { id: 'what-can-i-do', name: 'What can I do?', href: ADMIN_PATHS.rolesAccess, icon: CircleHelp, moreOnly: true },
 } satisfies Record<string, NavItem>
 
 const when = <T,>(condition: boolean, value: T): T[] => (condition ? [value] : [])
@@ -78,8 +84,8 @@ const when = <T,>(condition: boolean, value: T): T[] => (condition ? [value] : [
 /**
  * The sidebar, grouped by job (audit §6). Owners and admins: the week's work,
  * then admin pages, then their own time. Managers: the team's time, then
- * theirs. Employees: their own time only. Schedule appears only when
- * "Use schedules" is on.
+ * theirs. Employees: their own time only. Managers and employees end with
+ * "What can I do?". Schedule appears only when "Use schedules" is on.
  */
 export function navigationGroups({ capabilities, myPayEnabled, schedulesEnabled, tracksTime }: NavigationOptions): NavGroup[] {
   const groups: NavGroup[] = []
@@ -132,12 +138,13 @@ export function navigationGroups({ capabilities, myPayEnabled, schedulesEnabled,
         ...when(myPayEnabled, item.myPay),
         ...when(schedulesEnabled, item.schedule),
         ...when(capabilities.unlock_kiosk, item.kiosk),
+        item.whatCanIDo,
       ],
     })
   } else {
     groups.push({
       id: 'main',
-      items: [item.clock, item.myHours, item.leave, ...when(myPayEnabled, item.myPay), ...when(schedulesEnabled, item.schedule)],
+      items: [item.clock, item.myHours, item.leave, ...when(myPayEnabled, item.myPay), ...when(schedulesEnabled, item.schedule), item.whatCanIDo],
     })
   }
 
@@ -157,7 +164,8 @@ const MAX_TABS = 5
  * Managers get Approvals, Timecards, Reports and My Time; employees their
  * clock, hours, leave and pay; owners and admins Today, Approvals, Timecards
  * and Payroll. If only one page is left over it takes the fifth slot instead
- * of a "More" tab.
+ * of a "More" tab. "More only" pages (What can I do?) never take a tab, so
+ * they keep the More tab; other pages fill the free slots before it.
  */
 export function tabBarLayout(options: NavigationOptions): TabBarLayout {
   const groups = navigationGroups(options)
@@ -168,11 +176,19 @@ export function tabBarLayout(options: NavigationOptions): TabBarLayout {
       ? ['approvals', 'timecards', 'reports', 'my-time']
       : ['my-time', 'my-hours', 'leave', 'my-pay']
   const tabs = preferred.flatMap((id) => all.filter((candidate) => candidate.id === id)).slice(0, MAX_TABS - 1)
-  const rest = all.filter((candidate) => !tabs.includes(candidate))
+  let rest = all.filter((candidate) => !tabs.includes(candidate))
 
-  if (rest.length === 0) return { tabs, more: [] }
-  if (rest.length === 1 && tabs.length < MAX_TABS) return { tabs: [...tabs, rest[0]], more: [] }
-  if (tabs.length + rest.length <= MAX_TABS) return { tabs: [...tabs, ...rest], more: [] }
+  if (rest.some((candidate) => candidate.moreOnly)) {
+    const promotable = rest.filter((candidate) => !candidate.moreOnly)
+    if (tabs.length + promotable.length <= MAX_TABS - 1) {
+      tabs.push(...promotable)
+      rest = rest.filter((candidate) => candidate.moreOnly)
+    }
+  } else {
+    if (rest.length === 0) return { tabs, more: [] }
+    if (rest.length === 1 && tabs.length < MAX_TABS) return { tabs: [...tabs, rest[0]], more: [] }
+    if (tabs.length + rest.length <= MAX_TABS) return { tabs: [...tabs, ...rest], more: [] }
+  }
 
   const more = groups
     .map((group) => ({ ...group, items: group.items.filter((candidate) => rest.includes(candidate)) }))

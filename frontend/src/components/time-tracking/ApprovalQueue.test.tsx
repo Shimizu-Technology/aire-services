@@ -458,6 +458,28 @@ describe('ApprovalQueue review workflow', () => {
     expect(apiMock.approveOvertime).not.toHaveBeenCalled()
   })
 
+  it("lets a supervisor approve their own clock time when they may, marked as their own time", async () => {
+    const own = makeEntry({
+      id: 83,
+      entry_method: 'clock',
+      clock_source: 'kiosk',
+      approval_note: "Clocked in without a schedule | Supervisor's own time",
+      approval_reasons: [{ key: 'own_time', label: "Supervisor's own time" }, { key: 'unscheduled_clock', label: 'Unscheduled clock' }],
+      needs_another_approver: false,
+      user: { ...entries[0].user, id: 20, display_name: 'Roke Manager', full_name: 'Roke Manager' },
+    })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [own], count: 1 } })
+    apiMock.approveTimeEntry.mockResolvedValue({ data: { time_entry: { ...own, approval_status: 'approved' } } })
+    render(<ApprovalQueue canManageTeamTime approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
+
+    expect(await screen.findByText("Supervisor's own time")).toBeVisible()
+    expect(screen.queryByText('Needs another approver.')).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /select roke manager/i })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    await waitFor(() => expect(apiMock.approveTimeEntry).toHaveBeenCalledWith(83, undefined))
+  })
+
   it('identifies card hours as total entry hours rather than the held overtime portion', async () => {
     render(<ApprovalQueue approvalGroups={[]} approvalGroupsLoaded canDeleteEntry={() => true} />)
     expect(await screen.findByText('Only the overtime portion needs review.')).toBeInTheDocument()
