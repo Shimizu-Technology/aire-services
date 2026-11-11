@@ -133,7 +133,7 @@ RSpec.describe "Payroll lock time", type: :request do
 
     get "/api/v1/payroll_cutoff", headers: headers_for(admin)
     expect(response.parsed_body.dig("lock_control", "pending_change")).to include(
-      "state" => "rejected", "error" => "cutoff_at must be in the future when published"
+      "state" => "rejected", "error" => "cutoff_at must be in the future when published; this lock time had already passed when it reached AIRE"
     )
   end
 

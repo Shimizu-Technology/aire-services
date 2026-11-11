@@ -140,7 +140,7 @@ module Payroll
       # Lock now carries the instant the admin chose; delivery may arrive a little later.
       return if lock_now? && attributes.fetch(:cutoff_at) >= now - PayrollCalendarPeriod::LOCK_NOW_GRACE
 
-      raise ArgumentError, "cutoff_at must be in the future when published"
+      raise ArgumentError, "cutoff_at must be in the future when published; this lock time had already passed when it reached AIRE"
     end
 
     def validate_cutoff_override!
