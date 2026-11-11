@@ -24,8 +24,13 @@ module Payroll
     # Cornerstone retries.
     def self.call!(start_date:, end_date:, cutoff_at:, period: nil)
       connection = ActiveRecord::Base.connection
+      # The short timeout covers only the wait for the finalization lock. The
+      # rest of the publication (routing, the period update) keeps the
+      # transaction's own setting, so a slow row there is not a fence timeout.
+      previous_timeout = connection.select_value("SHOW lock_timeout")
       connection.execute("SET LOCAL lock_timeout = '#{LOCK_TIMEOUT}'")
       connection.execute("SELECT pg_advisory_xact_lock(#{BatchFinalizer::ADVISORY_LOCK_KEY})")
+      connection.execute("SET LOCAL lock_timeout = #{connection.quote(previous_timeout)}")
       new(start_date: start_date, end_date: end_date, cutoff_at: cutoff_at, period: period).call!
     end
 
