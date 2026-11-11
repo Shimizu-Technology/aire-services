@@ -13,11 +13,17 @@ module Approvals
   #   was approved stays waiting.
   # - In "ordinary" mode (the default, for group and Approve all actions)
   #   every item must still be ordinary for this viewer. "reviewed" mode is for
-  #   a decision made in the Review sheet, one person at a time.
+  #   a decision made in the Review sheet: it skips the classifier, so it is
+  #   limited to one person and REVIEWED_MAX_ITEMS shifts.
   # - The Idempotency-Key makes a retried request return the same batch.
   class ApproveReviewBatch
     MAX_ITEMS = 100
+    # One person's month of daily shifts. A Review sheet decision covers one
+    # shift and its category segments, so a real one is far smaller; anything
+    # bigger than a month for one person isn't a single decision.
+    REVIEWED_MAX_ITEMS = 31
     MODES = %w[ordinary reviewed].freeze
+    KEY_INDEX = "index_review_batches_on_actor_id_and_idempotency_key"
 
     class Error < StandardError
       attr_reader :status, :code, :details
@@ -29,6 +35,7 @@ module Approvals
     end
 
     Result = Data.define(:batch, :replayed)
+    KeyRaced = Class.new(StandardError)
     Item = Data.define(:id, :version, :approve_time, :approve_overtime, :overtime_hours)
 
     def self.call(**args)
@@ -52,7 +59,7 @@ module Approvals
       return replay(existing) if existing
 
       Result.new(batch: approve!, replayed: false)
-    rescue ActiveRecord::RecordNotUnique
+    rescue KeyRaced
       # The same key raced in from a double tap; the first request won.
       replay(::ReviewBatch.find_by!(actor_id: @actor.id, idempotency_key: @idempotency_key))
     end
@@ -63,44 +70,85 @@ module Approvals
       ActiveRecord::Base.transaction do
         # Claim the key first so a concurrent duplicate waits here, before
         # taking any employee or entry locks.
-        batch = ::ReviewBatch.create!(actor: @actor, idempotency_key: @idempotency_key,
-                                      request_fingerprint: fingerprint, entry_count: @items.size)
+        batch = claim_key!
         ids = @items.map(&:id)
         # The same employee-before-entry lock order as bulk_approve, single
-        # approvals and clock writes.
+        # approvals and clock writes. Clock punches wait at most
+        # TimeClockService::PUNCH_LOCK_TIMEOUT for these employee locks, so
+        # everything from here to commit is kept to batched queries except the
+        # per-shift approval itself.
         User.where(id: TimeEntry.where(id: ids).select(:user_id)).order(:id).lock.load
-        entries = TimeEntry.where(id: ids).order(:id).lock.includes(:user, :time_entry_breaks).index_by(&:id)
+        entries = TimeEntry.where(id: ids).order(:id).lock.includes(:user, :time_entry_breaks, :time_category).index_by(&:id)
 
         ensure_unchanged!(entries)
         ensure_allowed!(entries)
+        ensure_one_person!(entries) if @mode == "reviewed"
         ensure_ordinary!(entries) if @mode == "ordinary"
         ensure_overtime_as_shown!(entries)
 
         before = entries.transform_values { |entry| [ entry.lock_version, ReviewBatchItem.review_state(entry) ] }
-        approve_entries!(batch, entries)
+        OvertimeResetAudit.around(entries.values, actor: @actor, metadata: { review_batch_id: batch.public_id, reason: "approved" }) do
+          approve_entries!(batch, entries)
+        end
+        ensure_overtime_kept!(entries)
+        ReportExport.invalidate_for_entries!(entry_ids: ids, changed_by: @actor, reason: "Approved in review batch #{batch.public_id}")
         record_items!(batch, before)
         record_batch_audit!(batch, entries.values)
         batch
       end
     end
 
+    # The key claim runs in its own savepoint, so only a duplicate key (not
+    # any other unique violation later in the batch) is treated as a replay.
+    def claim_key!
+      ::ReviewBatch.transaction(requires_new: true) do
+        ::ReviewBatch.create!(actor: @actor, idempotency_key: @idempotency_key,
+                              request_fingerprint: fingerprint, entry_count: @items.size)
+      end
+    rescue ActiveRecord::RecordNotUnique => e
+      raise unless e.message.include?(KEY_INDEX)
+
+      raise KeyRaced
+    end
+
+    # All time first, in work-date order, then overtime. approve_overtime
+    # stores the overtime signature from an allocation that counts only
+    # approved time, so approving overtime before another shift's time in the
+    # same week would store a signature the end-of-batch recalculation then
+    # rejects. ensure_overtime_kept! checks the result.
     def approve_entries!(batch, entries)
       metadata = { review_batch_id: batch.public_id }
-      reason = "Approved in review batch #{batch.public_id}"
+      with_cases = PayrollSettlementCase.active.where(source_time_entry_id: entries.keys).distinct.pluck(:source_time_entry_id).to_set
+      options = ->(entry) { { already_locked: true, payroll_cases: with_cases.include?(entry.id), note: @note, audit_metadata: metadata } }
+      in_order = @items.sort_by { |item| [ entries.fetch(item.id).work_date, item.id ] }
       Payroll::AffectedOvertimeReview.around_entries(entries.values, force: true) do
-        @items.each do |item|
+        in_order.select(&:approve_time).each do |item|
           entry = entries.fetch(item.id)
-          entry = TimeClockService.approve_entry(entry: entry, approved_by: @actor, note: @note, audit_metadata: metadata) if item.approve_time
-          if item.approve_overtime
-            TimeClockService.approve_overtime(entry: entry, approved_by: @actor, note: @note, audit_metadata: metadata)
-          end
-          ReportExport.invalidate_for_entry!(entry_id: entry.id, changed_by: @actor, reason: reason)
+          TimeClockService.approve_entry(entry: entry, approved_by: @actor, **options.call(entry))
+        end
+        in_order.select(&:approve_overtime).each do |item|
+          entry = entries.fetch(item.id)
+          TimeClockService.approve_overtime(entry: entry, approved_by: @actor, **options.call(entry))
         end
       end
     rescue TimeClockService::AuthorizationError => e
       raise invalid(e.message, status: :forbidden, code: "forbidden")
     rescue TimeClockService::ClockError => e
       raise invalid(e.message, code: "not_approvable")
+    end
+
+    # The week's recalculation runs once, after every item. Overtime the batch
+    # approved must still be approved after it, or the response and audit rows
+    # would claim an approval that didn't stick.
+    def ensure_overtime_kept!(entries)
+      overtime_ids = @items.select(&:approve_overtime).map(&:id)
+      return if overtime_ids.empty?
+
+      reset = TimeEntry.where(id: overtime_ids).where.not(overtime_status: "approved").order(:id).pluck(:id)
+      return if reset.empty?
+
+      raise invalid("The overtime on #{shift_phrase(reset.size)} changed while approving. Nothing was approved.",
+                    status: :conflict, code: "stale_entries", details: { changed_ids: reset })
     end
 
     # Versions and states after the whole batch, including the overtime
@@ -175,6 +223,13 @@ module Approvals
                     status: :forbidden, code: "own_time")
     end
 
+    # Reviewed mode skips the classifier, so it is one person's decision only.
+    def ensure_one_person!(entries)
+      return if entries.each_value.map(&:user_id).uniq.one?
+
+      raise invalid("A reviewed approval can cover only one person's shifts", code: "invalid_request")
+    end
+
     def ensure_ordinary!(entries)
       kinds = ReviewClassifier.call(entries.values, viewer: @actor)
       needs_look = @items.map(&:id).reject { |id| kinds.dig(id, :review_kind) == ReviewClassifier::ORDINARY }
@@ -213,6 +268,9 @@ module Approvals
       raise invalid("Unknown review mode", code: "invalid_request") unless MODES.include?(@mode)
       raise invalid("Choose at least one shift to approve", code: "invalid_request") if @items.empty?
       raise invalid("Approve at most #{MAX_ITEMS} shifts at a time", code: "too_many_items") if @items.size > MAX_ITEMS
+      if @mode == "reviewed" && @items.size > REVIEWED_MAX_ITEMS
+        raise invalid("A reviewed approval can cover at most #{REVIEWED_MAX_ITEMS} shifts", code: "too_many_items")
+      end
       raise invalid("Each shift can appear only once", code: "invalid_request") if @items.map(&:id).uniq.size != @items.size
       raise invalid("Each shift needs approve_time or approve_overtime", code: "invalid_request") if @items.any? { |item| !item.approve_time && !item.approve_overtime }
       return unless @items.any? { |item| item.approve_overtime && item.overtime_hours.nil? }

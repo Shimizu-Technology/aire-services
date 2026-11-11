@@ -72,6 +72,7 @@ class AuditLogPresenter
     "time_entry.overtime_approved" => { other: "approved %{employee_possessive} overtime%{on_date}" },
     "time_entry.overtime_denied" => { other: "denied %{employee_possessive} overtime%{on_date}" },
     "time_entry.approval_undone" => { other: "moved %{employee_possessive} time%{on_date} back to waiting (undid an approval)" },
+    "time_entry.overtime_reset" => { other: "moved %{employee_possessive} approved overtime%{on_date} back to waiting (the week's overtime changed)" },
     "leave_request.created" => { self: "requested leave for %{subject}" },
     "leave_request.approved" => { other: "approved %{employee_possessive} leave for %{subject}" },
     "leave_request.declined" => { other: "declined %{employee_possessive} leave for %{subject}" },
@@ -88,6 +89,15 @@ class AuditLogPresenter
     "my_pay.preview_statement_viewed" => "previewed a pay statement for %{subject}",
     "my_pay.preview_statement_pdf_downloaded" => "downloaded a preview pay statement for %{subject}"
   }.freeze
+
+  # An undo names what it moved back; rows without time_reverted predate it
+  # and always moved the time.
+  UNDO_SENTENCES = {
+    time: "moved %{employee_possessive} time%{on_date} back to waiting (undid an approval)",
+    overtime: "moved %{employee_possessive} overtime%{on_date} back to waiting (undid an approval)",
+    both: "moved %{employee_possessive} time and overtime%{on_date} back to waiting (undid an approval)"
+  }.freeze
+  OVERTIME_CLEARED_SENTENCE = "cleared %{employee_possessive} approved overtime%{on_date} (the week no longer has that overtime)"
 
   OUTCOME_NOTES = { "failed" => "could not load", "denied" => "denied" }.freeze
   ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/
@@ -131,7 +141,7 @@ class AuditLogPresenter
   end
 
   def employee_sentence
-    template = EMPLOYEE_SENTENCES[audit_log.action]
+    template = employee_template
     return unless template
 
     employee = metadata["employee_name"].presence
@@ -149,6 +159,23 @@ class AuditLogPresenter
     format(pattern, employee: own ? "themselves" : employee.to_s,
            employee_possessive: own ? "their own" : possessive(employee),
            on_date: work_date ? " for #{work_date}" : "", hours: hours_phrase(metadata["hours"]), subject: subject)
+  end
+
+  def employee_template
+    template = EMPLOYEE_SENTENCES[audit_log.action]
+    case audit_log.action
+    when "time_entry.approval_undone"
+      time = metadata.fetch("time_reverted", true)
+      kind = if time && metadata["overtime_reverted"] then :both
+      elsif time then :time
+      else :overtime
+      end
+      template.merge(other: UNDO_SENTENCES.fetch(kind))
+    when "time_entry.overtime_reset"
+      metadata["overtime_status"] == "none" ? template.merge(other: OVERTIME_CLEARED_SENTENCE) : template
+    else
+      template
+    end
   end
 
   def my_pay_sentence

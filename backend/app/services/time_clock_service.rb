@@ -338,12 +338,16 @@ class TimeClockService
     end
 
     # ── Admin: Approve Entry ──
-    def approve_entry(entry:, approved_by:, note: nil, audit_metadata: {})
+    # A batch caller that already holds the employee and entry row locks, and
+    # loaded the entry under them, passes already_locked: true to skip the
+    # re-lock and reload. payroll_cases: false skips the settlement-case
+    # lookup when the caller already knows the entry has none.
+    def approve_entry(entry:, approved_by:, note: nil, audit_metadata: {}, already_locked: false, payroll_cases: true)
       raise AuthorizationError, "Only managers and admins can approve entries" unless approved_by.can_approve_time?
       ensure_review_allowed!(entry, approved_by)
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
-      entry.with_lock do
+      with_entry_lock(entry, already_locked) do
         raise ClockError, TimeEntry::ADMINISTRATOR_CORRECTION_NOTE if entry.needs_administrator_correction?
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
 
@@ -360,7 +364,7 @@ class TimeClockService
 
         entry.update!(attrs)
         record_review_event!("time_entry.approved", entry, approved_by, note, metadata: audit_metadata)
-        record_payroll_case_approval_event!(entry, approved_by, "approved", note)
+        record_payroll_case_approval_event!(entry, approved_by, "approved", note) if payroll_cases
       end
       entry
     end
@@ -389,12 +393,13 @@ class TimeClockService
     end
 
     # ── Admin: Approve Overtime ──
-    def approve_overtime(entry:, approved_by:, note: nil, audit_metadata: {})
+    # Takes the same already_locked and payroll_cases options as approve_entry.
+    def approve_overtime(entry:, approved_by:, note: nil, audit_metadata: {}, already_locked: false, payroll_cases: true)
       raise AuthorizationError, "Only managers and admins can approve overtime" unless approved_by.can_approve_time?
       ensure_review_allowed!(entry, approved_by)
       raise ClockError, "Choose a work category before approving this time entry" unless entry.time_category_id.present?
 
-      entry.with_lock do
+      with_entry_lock(entry, already_locked) do
         raise ClockError, TimeEntry::ADMINISTRATOR_CORRECTION_NOTE if entry.needs_administrator_correction?
         if entry.allocation_contract_version.nil?
           Payroll::AffectedOvertimeReview.around(entry, force: true) { nil }
@@ -414,7 +419,7 @@ class TimeClockService
           overtime_note: note
         )
         record_review_event!("time_entry.overtime_approved", entry, approved_by, note, metadata: audit_metadata)
-        record_payroll_case_approval_event!(entry, approved_by, "approved", note, approval_kind: "overtime")
+        record_payroll_case_approval_event!(entry, approved_by, "approved", note, approval_kind: "overtime") if payroll_cases
       end
       entry
     end
@@ -441,6 +446,10 @@ class TimeClockService
     end
 
     # ── Helpers ──
+
+    def with_entry_lock(entry, already_locked, &block)
+      already_locked ? block.call : entry.with_lock(&block)
+    end
 
     def clock_write_transaction(&block)
       ActiveRecord::Base.transaction do

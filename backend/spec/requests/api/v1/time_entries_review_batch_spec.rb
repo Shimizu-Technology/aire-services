@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../../support/database_clock_helpers"
 require_relative "../../../support/review_batch_helpers"
 
 RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
   include ActiveSupport::Testing::TimeHelpers
+  include DatabaseClockHelpers
   include ReviewBatchHelpers
 
   let(:review_category) { create(:time_category) }
@@ -15,6 +17,8 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
   let(:ethan) { create(:user, :employee, first_name: "Ethan", last_name: "Cruz") }
   let(:wednesday) { Date.new(2026, 4, 8) }
 
+  # Undo reads the database clock, so it starts at the same instant.
+  around { |example| with_shifted_database_clock(ReviewBatchHelpers::ZONE.local(2026, 4, 10, 18)) { example.run } }
   around { |example| travel_to(ReviewBatchHelpers::ZONE.local(2026, 4, 10, 18)) { example.run } }
 
   def json = response.parsed_body
@@ -124,6 +128,76 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
       expect(wednesday_shift.reload).to have_attributes(approval_status: "approved", overtime_status: "approved", overtime_approved_by_id: manager.id)
     end
 
+    # 30 approved hours, then a 4h Monday (X) and a 12h Thursday (Y) waiting:
+    # Y shows 6.0h of overtime once X counts, but only 2.0h before it does.
+    def week_with_two_waiting(user)
+      [ 5, 7, 8 ].each { |day| clock_shift(user, Date.new(2026, 4, day), hours: 10, approval_status: "approved") }
+      monday = clock_shift(user, Date.new(2026, 4, 6), hours: 4)
+      thursday = clock_shift(user, Date.new(2026, 4, 9), from: 6, hours: 12, overtime_status: "pending")
+      [ monday, thursday ]
+    end
+
+    [ :thursday_first, :monday_first ].each do |order|
+      it "keeps overtime approved whatever the item order (#{order})" do
+        monday, thursday = week_with_two_waiting(ethan)
+        items = [ item_for(thursday, approve_overtime: true, overtime_hours: 6.0), item_for(monday) ]
+        items.reverse! if order == :monday_first
+
+        post_review_batch(manager, items, mode: "reviewed")
+
+        expect(response).to have_http_status(:created)
+        expect(json["overtime_approved_count"]).to eq(1)
+        expect(monday.reload.approval_status).to eq("approved")
+        expect(thursday.reload).to have_attributes(approval_status: "approved", overtime_status: "approved", overtime_approved_by_id: manager.id)
+        expect(json["time_entries"].find { |row| row["id"] == thursday.id }).to include("overtime_status" => "approved")
+        expect(AuditLog.where(action: "time_entry.overtime_approved", auditable_id: thursday.id).count).to eq(1)
+        expect(AuditLog.where(action: Approvals::OvertimeResetAudit::ACTION)).to be_empty
+      end
+    end
+
+    it "approves nothing when the week's recalculation resets overtime the batch approved" do
+      monday, thursday = week_with_two_waiting(ethan)
+      allow(Payroll::AffectedOvertimeReview).to receive(:reconcile).and_wrap_original do |original, *args|
+        original.call(*args)
+        TimeEntry.where(id: thursday.id).update_all(overtime_status: "pending", overtime_approved_by_id: nil, overtime_approved_at: nil)
+      end
+
+      post_review_batch(manager, [ item_for(monday), item_for(thursday, approve_overtime: true, overtime_hours: 6.0) ], mode: "reviewed")
+
+      expect(response).to have_http_status(:conflict)
+      expect(json).to include("code" => "stale_entries", "changed_ids" => [ thursday.id ])
+      expect([ monday.reload, thursday.reload ].map(&:approval_status)).to eq(%w[pending pending])
+      expect(ReviewBatch.count).to eq(0)
+      expect(AuditLog.where(action: %w[time_entry.approved time_entry.overtime_approved review_batch.approved])).to be_empty
+    end
+
+    it "audits another shift whose approved overtime the recalculation reset, on approve and on undo" do
+      [ 5, 6, 7 ].each { |day| clock_shift(ethan, Date.new(2026, 4, day), hours: 12, approval_status: "approved") }
+      thursday = clock_shift(ethan, Date.new(2026, 4, 9), approval_status: "approved", overtime_status: "pending")
+      TimeClockService.approve_overtime(entry: thursday, approved_by: admin)
+      expect(thursday.reload.overtime_status).to eq("approved")
+      wednesday_shift = clock_shift(ethan, wednesday, hours: 4)
+
+      post_review_batch(manager, [ item_for(wednesday_shift) ], mode: "reviewed")
+
+      expect(response).to have_http_status(:created)
+      expect(thursday.reload.overtime_status).to eq("pending")
+      reset = AuditLog.find_by!(action: Approvals::OvertimeResetAudit::ACTION, auditable_id: thursday.id)
+      expect(reset.metadata).to include("review_batch_id" => json["review_batch_id"], "reason" => "approved",
+        "overtime_status" => "pending", "previous_overtime_approved_by_id" => admin.id)
+      expect(AuditLogPresenter.new(reset).summary).to eq("Roke Aguon moved Ethan Cruz's approved overtime for Apr 9, 2026 back to waiting (the week's overtime changed)")
+
+      # Approved again at the new hours, then the batch is undone: the week
+      # shrinks back and that approval is reset too, with its own row.
+      TimeClockService.approve_overtime(entry: thursday.reload, approved_by: admin)
+      post "/api/v1/time_entries/review_batches/#{json['review_batch_id']}/undo", headers: headers_for(manager), as: :json
+      expect(response).to have_http_status(:ok)
+      expect(thursday.reload.overtime_status).to eq("pending")
+      expect(AuditLog.where(action: Approvals::OvertimeResetAudit::ACTION, auditable_id: thursday.id).pluck(Arel.sql("metadata->>'reason'")))
+        .to eq(%w[approved approval_undone])
+      expect(AuditLog.where(action: Approvals::OvertimeResetAudit::ACTION, auditable_id: wednesday_shift.id)).to be_empty
+    end
+
     it "requires the overtime hours with every overtime approval" do
       entry = clock_shift(ethan, wednesday, overtime_status: "pending")
       post_review_batch(manager, [ item_for(entry, approve_overtime: true) ], mode: "reviewed")
@@ -143,6 +217,28 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
     expect(json["code"]).to eq("own_time")
     expect([ own.reload, theirs.reload ].map(&:approval_status)).to eq(%w[pending pending])
     expect(ReviewBatch.count).to eq(0)
+  end
+
+  describe "reviewed mode" do
+    it "covers one person only" do
+      entries = [ clock_shift(employee, wednesday), clock_shift(ethan, wednesday) ]
+      post_review_batch(manager, entries.map { |entry| item_for(entry) }, mode: "reviewed")
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json).to include("code" => "invalid_request", "error" => "A reviewed approval can cover only one person's shifts")
+      expect(entries.map { |entry| entry.reload.approval_status }).to eq(%w[pending pending])
+      expect(ReviewBatch.count).to eq(0)
+    end
+
+    it "is capped below the ordinary limit" do
+      stub_const("Approvals::ApproveReviewBatch::REVIEWED_MAX_ITEMS", 1)
+      entries = [ clock_shift(employee, wednesday), clock_shift(employee, Date.new(2026, 4, 9)) ]
+      post_review_batch(manager, entries.map { |entry| item_for(entry) }, mode: "reviewed")
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json).to include("code" => "too_many_items", "error" => "A reviewed approval can cover at most 1 shifts")
+
+      post_review_batch(manager, entries.map { |entry| item_for(entry) })
+      expect(response).to have_http_status(:created)
+    end
   end
 
   it "refuses needs-a-look shifts in ordinary mode" do
@@ -182,6 +278,31 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
       expect(json["code"]).to eq("idempotency_key_required")
     end
 
+    it "replays when the same key wins a race to the insert" do
+      entry = clock_shift(employee, wednesday)
+      items = [ item_for(entry) ]
+      post_review_batch(manager, items, key: "raced")
+      first = json
+      # The second request's lookup ran before the first committed.
+      allow(ReviewBatch).to receive(:find_by).and_call_original
+      allow(ReviewBatch).to receive(:find_by).with(actor_id: manager.id, idempotency_key: "raced").and_return(nil)
+
+      post_review_batch(manager, items, key: "raced")
+      expect(response).to have_http_status(:ok)
+      expect(json).to include("review_batch_id" => first["review_batch_id"], "replayed" => true)
+    end
+
+    it "doesn't treat any other unique violation as a replay" do
+      entry = clock_shift(employee, wednesday)
+      allow(ReviewBatchItem).to receive(:insert_all!).and_raise(ActiveRecord::RecordNotUnique, "duplicate key value violates unique constraint \"index_review_batch_items_on_review_batch_id_and_time_entry_id\"")
+
+      expect do
+        Approvals::ApproveReviewBatch.call(actor: manager, items: [ item_for(entry) ], idempotency_key: "not-a-race")
+      end.to raise_error(ActiveRecord::RecordNotUnique)
+      expect(entry.reload.approval_status).to eq("pending")
+      expect(ReviewBatch.count).to eq(0)
+    end
+
     it "keeps keys per approver" do
       first = clock_shift(employee, wednesday)
       second = clock_shift(ethan, wednesday)
@@ -217,10 +338,13 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
 
   # Leon's batch-limit decision: measure 250 before raising the limit from 100.
   # Prints the timings; REVIEW_BATCH_BENCHMARK=1 also asserts the 3s target.
+  # REVIEW_BATCH_PEOPLE=20 measures 100 shifts (five per person).
   it "measures a 250-shift batch and its undo" do
-    stub_const("Approvals::ApproveReviewBatch::MAX_ITEMS", 250)
+    people = Integer(ENV.fetch("REVIEW_BATCH_PEOPLE", "50"))
+    size = people * 5
+    stub_const("Approvals::ApproveReviewBatch::MAX_ITEMS", [ size, 100 ].max)
     days = (5..9).map { |day| Date.new(2026, 4, day) }
-    entries = 50.times.flat_map do |index|
+    entries = people.times.flat_map do |index|
       person = create(:user, :employee, first_name: "Person#{index}")
       days.map { |day| clock_shift(person, day, hours: 7) }
     end
@@ -229,21 +353,21 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     get "/api/v1/time_entries/pending_approvals", headers: headers_for(manager)
     list_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
-    expect(response.parsed_body["review_summary"]).to include("ordinary_count" => 250, "complete" => true)
+    expect(response.parsed_body["review_summary"]).to include("ordinary_count" => size, "complete" => true)
 
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     post_review_batch(manager, items)
     approve_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
     expect(response).to have_http_status(:created)
-    expect(TimeEntry.where(id: entries.map(&:id), approval_status: "approved").count).to eq(250)
+    expect(TimeEntry.where(id: entries.map(&:id), approval_status: "approved").count).to eq(size)
 
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     post "/api/v1/time_entries/review_batches/#{json['review_batch_id']}/undo", headers: headers_for(manager), as: :json
     undo_seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
     expect(response).to have_http_status(:ok)
-    expect(TimeEntry.where(id: entries.map(&:id), approval_status: "pending").count).to eq(250)
+    expect(TimeEntry.where(id: entries.map(&:id), approval_status: "pending").count).to eq(size)
 
-    puts format("\n  250 shifts: pending_approvals %.2fs, review batch %.2fs, undo %.2fs", list_seconds, approve_seconds, undo_seconds)
+    puts format("\n  %d shifts: pending_approvals %.2fs, review batch %.2fs, undo %.2fs", size, list_seconds, approve_seconds, undo_seconds)
     expect(approve_seconds).to be < 3 if ENV["REVIEW_BATCH_BENCHMARK"]
   end
 end

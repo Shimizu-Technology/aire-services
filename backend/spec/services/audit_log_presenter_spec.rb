@@ -42,6 +42,22 @@ RSpec.describe AuditLogPresenter do
       expect(summary_for("time_entry.approval_undone", metadata: clock_metadata))
         .to eq("Roke Reyes moved Ethan Cruz's time for Nov 10, 2026 back to waiting (undid an approval)")
     end
+
+    it "names what an undo moved back: time, overtime or both" do
+      expect(summary_for("time_entry.approval_undone", metadata: clock_metadata.merge(time_reverted: true, overtime_reverted: false)))
+        .to eq("Roke Reyes moved Ethan Cruz's time for Nov 10, 2026 back to waiting (undid an approval)")
+      expect(summary_for("time_entry.approval_undone", metadata: clock_metadata.merge(time_reverted: false, overtime_reverted: true)))
+        .to eq("Roke Reyes moved Ethan Cruz's overtime for Nov 10, 2026 back to waiting (undid an approval)")
+      expect(summary_for("time_entry.approval_undone", metadata: clock_metadata.merge(time_reverted: true, overtime_reverted: true)))
+        .to eq("Roke Reyes moved Ethan Cruz's time and overtime for Nov 10, 2026 back to waiting (undid an approval)")
+    end
+
+    it "says when a week's recalculation reset another shift's approved overtime" do
+      expect(summary_for("time_entry.overtime_reset", metadata: clock_metadata.merge(overtime_status: "pending")))
+        .to eq("Roke Reyes moved Ethan Cruz's approved overtime for Nov 10, 2026 back to waiting (the week's overtime changed)")
+      expect(summary_for("time_entry.overtime_reset", metadata: clock_metadata.merge(overtime_status: "none")))
+        .to eq("Roke Reyes cleared Ethan Cruz's approved overtime for Nov 10, 2026 (the week no longer has that overtime)")
+    end
   end
 
   it "describes clock events as plain sentences" do

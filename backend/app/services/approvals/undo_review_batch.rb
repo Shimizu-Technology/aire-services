@@ -7,7 +7,14 @@ module Approvals
   #
   # Allowed for the approver, or an owner or admin, for 15 minutes. All or
   # nothing: refused if any shift changed after the approval, or a payroll
-  # lock or finalized batch now covers it.
+  # lock or finalized batch now covers it. The window and the lock check use
+  # the database clock, read after the locks are held, like the payroll freeze
+  # and Payroll::PendingCutoffClaimGuard.
+  #
+  # Only the review fields (ReviewBatchItem::REVIEW_FIELDS) are put back.
+  # overtime_allocation_signature and allocation_contract_version are
+  # recalculated for the week by Payroll::AffectedOvertimeReview, not restored
+  # from before the approval.
   class UndoReviewBatch
     Error = ApproveReviewBatch::Error
 
@@ -15,16 +22,14 @@ module Approvals
       new(**args).call
     end
 
-    def initialize(batch:, actor:, entry_ids: nil, now: Time.current)
+    def initialize(batch:, actor:, entry_ids: nil)
       @batch = batch
       @actor = actor
       @entry_ids = entry_ids&.map(&:to_i)
-      @now = now
     end
 
     def call
       ensure_permitted!
-      raise error("The 15 minutes to undo this approval have passed. Correct it in Timecards instead.", code: "undo_expired") unless @batch.undo_window_open?(@now)
 
       ActiveRecord::Base.transaction do
         @batch.lock!
@@ -32,10 +37,15 @@ module Approvals
         user_ids = TimeEntry.where(id: items.map(&:time_entry_id)).distinct.pluck(:user_id)
         User.where(id: user_ids).order(:id).lock.load
         entries = TimeEntry.where(id: items.map(&:time_entry_id)).order(:id).lock.includes(:user, :time_entry_breaks).index_by(&:id)
+        @now = ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()")
+        raise error("The 15 minutes to undo this approval have passed. Correct it in Timecards instead.", code: "undo_expired") unless @batch.undo_window_open?(@now)
 
         ensure_reviewable!(entries)
         ensure_undoable!(items, entries)
-        restore!(items, entries)
+        OvertimeResetAudit.around(entries.values, actor: @actor, except_ids: entries.keys,
+                                  metadata: { review_batch_id: @batch.public_id, reason: "approval_undone" }) do
+          restore!(items, entries)
+        end
         @batch.update!(undone_at: @now, undone_by: @actor) unless @batch.review_batch_items.active.exists?
         record_batch_audit!(items, entries)
         items.map { |item| entries.fetch(item.time_entry_id) }
@@ -89,7 +99,6 @@ module Approvals
     end
 
     def restore!(items, entries)
-      reason = "Approval undone from review batch #{@batch.public_id}"
       Payroll::AffectedOvertimeReview.around_entries(entries.values, force: true) do
         items.each do |item|
           entry = entries.fetch(item.time_entry_id)
@@ -97,17 +106,20 @@ module Approvals
           entry.save!
         end
       end
+      # One reload for the whole batch, after the reconciliation.
+      entries.merge!(TimeEntry.where(id: entries.keys).includes(:user).index_by(&:id))
       items.each do |item|
         entry = entries.fetch(item.time_entry_id)
         # The week's overtime reconciliation ran once above for everyone it
-        # affects. Put back this shift's own overtime review exactly as it was.
+        # affects. Put back this shift's own overtime review exactly as it was;
+        # its allocation signature stays as the reconciliation set it.
         overtime = item.before_state.slice("overtime_status", "overtime_approved_by_id", "overtime_approved_at", "overtime_note")
-        entry.reload
         entry.update_columns(overtime.merge("updated_at" => @now)) if ReviewBatchItem.review_state(entry).slice(*overtime.keys) != overtime
-        ReportExport.invalidate_for_entry!(entry_id: entry.id, changed_by: @actor, reason: reason)
         record_entry_audit!(entry, item)
-        item.update!(undone_at: @now, undone_by_id: @actor.id)
       end
+      ReviewBatchItem.where(id: items.map(&:id)).update_all(undone_at: @now, undone_by_id: @actor.id, updated_at: @now)
+      ReportExport.invalidate_for_entries!(entry_ids: entries.keys, changed_by: @actor,
+                                           reason: "Approval undone from review batch #{@batch.public_id}")
     end
 
     def record_entry_audit!(entry, item)
@@ -123,6 +135,7 @@ module Approvals
           employee_name: entry.user&.full_name,
           work_date: entry.work_date&.iso8601,
           hours: entry.hours.to_f,
+          time_reverted: item.approved_time,
           overtime_reverted: item.approved_overtime,
           approved_by_id: @batch.actor_id
         }

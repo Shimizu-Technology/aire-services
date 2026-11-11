@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "../../../support/database_clock_helpers"
 require_relative "../../../support/review_batch_helpers"
 
 RSpec.describe "Undoing a review batch", type: :request do
   include ActiveSupport::Testing::TimeHelpers
+  include DatabaseClockHelpers
   include ReviewBatchHelpers
 
   let(:review_category) { create(:time_category) }
@@ -16,6 +18,8 @@ RSpec.describe "Undoing a review batch", type: :request do
   let(:ethan) { create(:user, :employee, first_name: "Ethan", last_name: "Cruz") }
   let(:wednesday) { Date.new(2026, 4, 8) }
 
+  # Undo reads the database clock, so it starts at the same instant.
+  around { |example| with_shifted_database_clock(ReviewBatchHelpers::ZONE.local(2026, 4, 10, 18)) { example.run } }
   around { |example| travel_to(ReviewBatchHelpers::ZONE.local(2026, 4, 10, 18)) { example.run } }
 
   def json = response.parsed_body
@@ -69,7 +73,24 @@ RSpec.describe "Undoing a review batch", type: :request do
     expect(response).to have_http_status(:ok)
     expect(shift.reload).to have_attributes(approval_status: "pending", overtime_status: "pending",
       overtime_approved_by_id: nil, overtime_approved_at: nil, approved_by_id: nil)
-    expect(AuditLog.find_by!(action: "time_entry.approval_undone").metadata).to include("overtime_reverted" => true)
+    row = AuditLog.find_by!(action: "time_entry.approval_undone")
+    expect(row.metadata).to include("time_reverted" => true, "overtime_reverted" => true)
+    expect(AuditLogPresenter.new(row).summary).to eq("Roke Aguon moved Ethan Cruz's time and overtime for Apr 8, 2026 back to waiting (undid an approval)")
+  end
+
+  it "moves only the overtime back for an overtime-only approval, and says so" do
+    [ 5, 6, 7 ].each { |day| clock_shift(ethan, Date.new(2026, 4, day), from: 6, hours: 12, approval_status: "approved") }
+    shift = clock_shift(ethan, wednesday, approval_status: "approved", overtime_status: "pending")
+    batch_id = approve([ shift ], approve_time: false, approve_overtime: true, overtime_hours: 4.0)
+    expect(shift.reload.overtime_status).to eq("approved")
+
+    undo(batch_id)
+
+    expect(response).to have_http_status(:ok)
+    expect(shift.reload).to have_attributes(approval_status: "approved", overtime_status: "pending", overtime_approved_by_id: nil)
+    row = AuditLog.find_by!(action: "time_entry.approval_undone")
+    expect(row.metadata).to include("time_reverted" => false, "overtime_reverted" => true)
+    expect(AuditLogPresenter.new(row).summary).to eq("Roke Aguon moved Ethan Cruz's overtime for Apr 8, 2026 back to waiting (undid an approval)")
   end
 
   it "is allowed for an owner or admin but not another manager or an employee" do
@@ -90,16 +111,29 @@ RSpec.describe "Undoing a review batch", type: :request do
     expect(shifts.map { |shift| shift.reload.approval_status }).to eq(%w[approved pending pending])
   end
 
-  it "is refused after 15 minutes" do
+  def database_now = ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()")
+
+  it "is refused 15 minutes after the approval by the database clock" do
     shift = clock_shift(employee, wednesday)
     batch_id = approve([ shift ])
-    travel 15.minutes + 1.second
+    ReviewBatch.where(public_id: batch_id).update_all(created_at: database_now - 15.minutes - 1.second)
 
     undo(batch_id)
 
     expect(response).to have_http_status(:conflict)
     expect(json["code"]).to eq("undo_expired")
     expect(shift.reload.approval_status).to eq("approved")
+  end
+
+  it "uses the database clock, not the app server's, for the window" do
+    shift = clock_shift(employee, wednesday)
+    batch_id = approve([ shift ])
+    travel 20.minutes # only the app clock moves
+
+    undo(batch_id)
+
+    expect(response).to have_http_status(:ok)
+    expect(shift.reload.approval_status).to eq("pending")
   end
 
   it "is refused, for the whole batch, when a shift was edited after the approval" do
@@ -122,12 +156,14 @@ RSpec.describe "Undoing a review batch", type: :request do
   end
 
   it "is refused once the pay period has locked" do
-    create(:payroll_calendar_period, start_date: Date.new(2026, 4, 1), end_date: Date.new(2026, 4, 15), pay_date: Date.new(2026, 4, 20),
-      cutoff_at: ReviewBatchHelpers::ZONE.local(2026, 4, 13, 17))
     shift = clock_shift(employee, wednesday)
-    travel_to(ReviewBatchHelpers::ZONE.local(2026, 4, 13, 16, 55))
     batch_id = approve([ shift ])
-    travel 6.minutes
+    # A lock, published after the approval, whose cutoff the database clock
+    # has already passed.
+    cutoff = ReviewBatchHelpers::ZONE.local(2026, 4, 10, 17)
+    expect(database_now).to be > cutoff
+    create(:payroll_calendar_period, start_date: Date.new(2026, 4, 1), end_date: Date.new(2026, 4, 15), pay_date: Date.new(2026, 4, 17),
+      cutoff_at: cutoff)
 
     undo(batch_id)
 
