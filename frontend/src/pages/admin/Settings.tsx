@@ -173,6 +173,13 @@ function SetElsewhere({ catalog }: { catalog: SettingsCatalogEntry[] }) {
   )
 }
 
+// The keys the time clock rules form saves; its response may only update these.
+const TIME_CLOCK_RULE_KEYS: (keyof TimeClockAppSettings)[] = [
+  'overtime_daily_threshold_hours', 'overtime_weekly_threshold_hours', 'early_clock_in_buffer_minutes',
+  'clock_in_location_enforced', 'clock_in_location_name', 'clock_in_location_latitude',
+  'clock_in_location_longitude', 'clock_in_location_radius_meters',
+]
+
 export default function Settings() {
   useEffect(() => {
     document.title = 'Settings | AIRE Ops'
@@ -443,7 +450,7 @@ export default function Settings() {
         return
       }
       if (res.data) {
-        setClockSettings(res.data.settings)
+        applySavedSettings(TIME_CLOCK_RULE_KEYS)(res.data.settings)
         setApprovalGroups(res.data.approval_groups)
         setThresholdDraft({
           overtime_daily_threshold_hours: res.data.settings.overtime_daily_threshold_hours,
