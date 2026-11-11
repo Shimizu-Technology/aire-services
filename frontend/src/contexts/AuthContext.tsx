@@ -14,7 +14,8 @@ interface AuthContextType {
   currentUser: CurrentUser | null
   authError: string | null
   isAuthServiceUnavailable: boolean
-  refreshCurrentUser: () => Promise<void>
+  /** Re-reads the signed-in profile. `background` keeps the current pages mounted while it loads. */
+  refreshCurrentUser: (options?: { background?: boolean }) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({ 
@@ -147,9 +148,11 @@ function ClerkAuthProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(retryTimerRef.current)
   }, [isLoaded, isSignedIn, fetchRole])
 
-  const refreshCurrentUser = useCallback(async () => {
+  const refreshCurrentUser = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     fetchedRef.current = false
-    setRoleFetched(false)
+    // A full refresh shows the sign-in check again; a background one (after
+    // a settings change) updates the profile without unmounting the page.
+    if (!background) setRoleFetched(false)
     setIsAuthServiceUnavailable(false)
     await fetchRole(0, true)
   }, [fetchRole])

@@ -33,8 +33,9 @@ export default function ScheduleSettings({ settings, onSaved }: Props) {
       }
       onSaved(res.data.settings)
       setMessage(enabled ? 'Schedule is now in everyone’s menu.' : 'Schedule is hidden from the menu.')
-      // The menu reads this from the signed-in profile.
-      await refreshCurrentUser()
+      // The menu reads this from the signed-in profile. Refresh it in the
+      // background so this page (and the message above) stays put.
+      await refreshCurrentUser({ background: true })
     } finally {
       setSaving(false)
     }

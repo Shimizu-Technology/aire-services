@@ -68,7 +68,7 @@ describe('"Use schedules" switch', () => {
     expect(await screen.findByText('Schedule is now in everyone’s menu.')).toHaveAttribute('role', 'status')
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ schedules_enabled: 'true' }))
     // The menu reads the switch from the signed-in profile.
-    expect(auth.refreshCurrentUser).toHaveBeenCalledOnce()
+    expect(auth.refreshCurrentUser).toHaveBeenCalledWith({ background: true })
   })
 
   it('keeps the switch and the menu unchanged when saving fails', async () => {
