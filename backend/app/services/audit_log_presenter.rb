@@ -54,20 +54,26 @@ class AuditLogPresenter
     "pay_documents.link_download_denied" => "Was denied a pay stub download for"
   }.freeze
 
-  # Clock and review events name the employee in metadata; their frozen subject
-  # is only "8.0 hours on 2026-11-10". "self" applies when people act on their own time.
-  TIME_ENTRY_SENTENCES = {
-    "time_entry.clocked_in" => { self: "clocked in", other: "clocked in %{employee}" },
-    "time_entry.clocked_out" => { self: "clocked out", other: "clocked out %{employee}" },
-    "time_entry.break_started" => { self: "started a break", other: "started a break for %{employee}" },
-    "time_entry.break_ended" => { self: "ended a break", other: "ended a break for %{employee}" },
-    "time_entry.category_switched" => { self: "switched work category", other: "switched work category for %{employee}" },
+  # Time and leave events name the employee in metadata; a time entry's frozen
+  # subject is only "8.0 hours on 2026-11-10". "self" applies when people act on
+  # their own record. Clock events predating that metadata were always self-service.
+  EMPLOYEE_SENTENCES = {
+    "time_entry.clocked_in" => { self: "clocked in", other: "clocked in %{employee}", legacy_self: true },
+    "time_entry.clocked_out" => { self: "clocked out", other: "clocked out %{employee}", legacy_self: true },
+    "time_entry.break_started" => { self: "started a break", other: "started a break for %{employee}", legacy_self: true },
+    "time_entry.break_ended" => { self: "ended a break", other: "ended a break for %{employee}", legacy_self: true },
+    "time_entry.category_switched" => { self: "switched work category", other: "switched work category for %{employee}", legacy_self: true },
     "time_entry.auto_closed" => { other: "automatically clocked out %{employee} after a long open shift" },
     "time_entry.clock_ended" => { other: "entered the missed clock-out for %{employee}%{on_date}" },
+    "time_entry.created" => { self: "added %{hours} of their own time%{on_date}", other: "added %{hours} for %{employee}%{on_date}" },
     "time_entry.approved" => { other: "approved %{employee_possessive} time%{on_date}" },
     "time_entry.denied" => { other: "denied %{employee_possessive} time%{on_date}" },
     "time_entry.overtime_approved" => { other: "approved %{employee_possessive} overtime%{on_date}" },
-    "time_entry.overtime_denied" => { other: "denied %{employee_possessive} overtime%{on_date}" }
+    "time_entry.overtime_denied" => { other: "denied %{employee_possessive} overtime%{on_date}" },
+    "leave_request.created" => { self: "requested leave for %{subject}" },
+    "leave_request.approved" => { other: "approved %{employee_possessive} leave for %{subject}" },
+    "leave_request.declined" => { other: "declined %{employee_possessive} leave for %{subject}" },
+    "leave_request.cancelled" => { self: "cancelled their leave request for %{subject}", other: "cancelled %{employee_possessive} leave request for %{subject}" }
   }.freeze
 
   # The worker is both actor and subject of their own My Pay views; previews
@@ -102,7 +108,7 @@ class AuditLogPresenter
   end
 
   def summary
-    sentence = time_entry_sentence || my_pay_sentence || access_sentence
+    sentence = employee_sentence || my_pay_sentence || access_sentence
     return readable_dates("#{actor} #{sentence}".squish) if sentence
 
     verb = VERBS[audit_log.action]
@@ -122,19 +128,25 @@ class AuditLogPresenter
     audit_log.changes_made.is_a?(Hash) ? audit_log.changes_made : {}
   end
 
-  def time_entry_sentence
-    template = TIME_ENTRY_SENTENCES[audit_log.action]
+  def employee_sentence
+    template = EMPLOYEE_SENTENCES[audit_log.action]
     return unless template
 
     employee = metadata["employee_name"].presence
-    return template[:self] if template[:self] && (employee.nil? || own_record?(metadata["employee_id"]))
-    return unless employee
-
     own = own_record?(metadata["employee_id"])
+    pattern = if employee.nil?
+      template[:self] if template[:legacy_self]
+    elsif own
+      template[:self] || template[:other]
+    else
+      template[:other]
+    end
+    return unless pattern
+
     work_date = metadata["work_date"].presence
-    format(template[:other], employee: own ? "themselves" : employee,
+    format(pattern, employee: own ? "themselves" : employee.to_s,
            employee_possessive: own ? "their own" : possessive(employee),
-           on_date: work_date ? " for #{work_date}" : "")
+           on_date: work_date ? " for #{work_date}" : "", hours: hours_phrase(metadata["hours"]), subject: subject)
   end
 
   def my_pay_sentence
@@ -169,6 +181,13 @@ class AuditLogPresenter
 
   def own_record?(employee_id)
     employee_id.present? && audit_log.user_id.present? && employee_id.to_i == audit_log.user_id
+  end
+
+  def hours_phrase(value)
+    return "time" if value.blank?
+
+    number = value.to_f.round(2)
+    "#{number % 1 == 0 ? number.to_i : number} #{number == 1 ? 'hour' : 'hours'}"
   end
 
   def possessive(name)

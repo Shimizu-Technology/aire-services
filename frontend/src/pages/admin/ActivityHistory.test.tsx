@@ -88,6 +88,7 @@ describe('ActivityHistory', () => {
     expect(within(panel).getByText('Work category')).toBeInTheDocument()
     expect(within(panel).getByText('Employee')).toBeInTheDocument()
     expect(within(panel).getByText('Entered by a supervisor')).toBeInTheDocument()
+    expect(within(panel).getByText('No')).toBeInTheDocument()
     expect(within(panel).queryByText(/time category id/i)).not.toBeInTheDocument()
     const technical = within(panel).getByText('Technical details').closest('details') as HTMLDetailsElement
     expect(technical.open).toBe(false)

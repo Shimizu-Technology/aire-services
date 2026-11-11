@@ -51,7 +51,7 @@ module Api
             auditable: leave_request,
             actor: current_user,
             event_category: "leave",
-            metadata: { leave_type: leave_request.leave_type, status: "pending" }
+            metadata: { leave_type: leave_request.leave_type, status: "pending", employee_id: current_user.id, employee_name: current_user.full_name }
           )
         end
 
@@ -93,7 +93,8 @@ module Api
             auditable: @leave_request,
             actor: current_user,
             event_category: "leave",
-            outcome: "cancelled"
+            outcome: "cancelled",
+            metadata: { employee_id: @leave_request.user_id, employee_name: @leave_request.user&.full_name }
           )
           cancel_result = @leave_request
         end
@@ -154,7 +155,8 @@ module Api
               actor: current_user,
               event_category: "leave",
               outcome: status == "declined" ? "denied" : "succeeded",
-              metadata: { review_note: params[:review_note].to_s.strip.presence }.compact
+              metadata: { review_note: params[:review_note].to_s.strip.presence,
+                          employee_id: @leave_request.user_id, employee_name: @leave_request.user&.full_name }.compact
             )
             review_result = @leave_request
           end

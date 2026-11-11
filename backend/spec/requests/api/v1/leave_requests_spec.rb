@@ -40,7 +40,7 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(audit_log).to have_attributes(
         action: "leave_request.created",
         user_id: employee.id,
-        metadata: { "leave_type" => "paid_time_off", "status" => "pending" }
+        metadata: { "leave_type" => "paid_time_off", "status" => "pending", "employee_id" => employee.id, "employee_name" => employee.full_name }
       )
     end
 
@@ -140,7 +140,7 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(audit_log).to have_attributes(
         action: "leave_request.approved",
         user_id: admin.id,
-        metadata: { "review_note" => "Approved" }
+        metadata: { "review_note" => "Approved", "employee_id" => request_record.user_id, "employee_name" => request_record.user.full_name }
       )
     end
 
@@ -199,7 +199,7 @@ RSpec.describe "Api::V1::LeaveRequests", type: :request do
       expect(audit_log).to have_attributes(
         action: "leave_request.cancelled",
         user_id: employee.id,
-        metadata: {}
+        metadata: { "employee_id" => employee.id, "employee_name" => employee.full_name }
       )
     end
 

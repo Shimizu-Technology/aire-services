@@ -145,4 +145,20 @@ describe('LeaveRequestsPanel transparency timeline', () => {
     expect(await screen.findByText('Waiting for approval')).toBeInTheDocument()
     expect(screen.getByText('My requests')).toBeInTheDocument()
   })
+
+  it("doesn't offer approval on an approver's own request", async () => {
+    const own = makeRequest({ id: 7, user: { id: 3, email: 'roke@example.com', display_name: 'Roke', full_name: 'Roke Manager' } })
+    apiMock.getLeaveRequests.mockImplementation((status: string) => Promise.resolve({
+      data: { leave_requests: status === 'pending' ? [own, makeRequest({ id: 1 })] : [], pagination },
+    }))
+    apiMock.cancelLeaveRequest.mockResolvedValue({ data: { leave_request: { ...own, status: 'cancelled' } } })
+    render(<LeaveRequestsPanel canApproveLeave currentUserId={3} />)
+    const ownCard = (await screen.findByText('Requested by Roke Manager')).closest('article') as HTMLElement
+    expect(within(ownCard).queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
+    expect(within(ownCard).getByText('Your own request. Another manager or admin approves it.')).toBeInTheDocument()
+    fireEvent.click(within(ownCard).getByRole('button', { name: 'Cancel request' }))
+    expect(apiMock.cancelLeaveRequest).toHaveBeenCalledWith(7)
+    const otherCard = screen.getByText('Requested by Alice Smith').closest('article') as HTMLElement
+    expect(within(otherCard).getByRole('button', { name: 'Approve' })).toBeInTheDocument()
+  })
 })

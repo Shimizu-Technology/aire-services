@@ -963,7 +963,7 @@ export default function Users() {
         ) : (
           <>
             <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4">
-              <div className="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_repeat(5,minmax(8rem,auto))]">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(12rem,1.5fr)_repeat(5,minmax(0,1fr))]">
                 <label className="block">
                   <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Search</span>
                   <input

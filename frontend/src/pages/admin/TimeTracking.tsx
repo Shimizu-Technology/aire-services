@@ -2480,6 +2480,7 @@ export default function TimeTracking() {
         <LeaveRequestsPanel
           canApproveLeave={canManageTeamTime && capabilities.approve_leave}
           canRequestLeave={!(canManageTeamTime && capabilities.approve_leave) || authenticatedUser?.time_tracking_enabled !== false}
+          currentUserId={authenticatedUser?.id ?? currentUserId}
         />
       )}
 

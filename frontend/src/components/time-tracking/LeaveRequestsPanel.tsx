@@ -112,9 +112,11 @@ interface LeaveRequestsPanelProps {
   canApproveLeave: boolean
   /** Off for owners and admins who don't track their own time. */
   canRequestLeave?: boolean
+  /** The signed-in person; approvers can't review their own requests. */
+  currentUserId?: number | null
 }
 
-export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = true }: LeaveRequestsPanelProps) {
+export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = true, currentUserId = null }: LeaveRequestsPanelProps) {
   // Approvers come here to approve; their own request form stays folded away.
   const [showRequestForm, setShowRequestForm] = useState(!canApproveLeave)
   const [requests, setRequests] = useState<LeaveRequest[]>([])
@@ -416,7 +418,21 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
                     </div>
                   </div>
 
-                  {canApproveLeave && request.status === 'pending' && (
+                  {canApproveLeave && request.status === 'pending' && request.user.id === currentUserId && (
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                      <p className="text-sm text-slate-600">Your own request. Another manager or admin approves it.</p>
+                      <button
+                        type="button"
+                        disabled={actionLoadingId === request.id}
+                        onClick={() => void runReviewAction(request, 'cancel')}
+                        className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        {actionLoadingId === request.id ? 'Saving…' : 'Cancel request'}
+                      </button>
+                    </div>
+                  )}
+
+                  {canApproveLeave && request.status === 'pending' && request.user.id !== currentUserId && (
                     <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
                       <textarea
                         rows={2}

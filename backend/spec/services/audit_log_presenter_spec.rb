@@ -53,9 +53,18 @@ RSpec.describe AuditLogPresenter do
     expect(summary_for("pay_documents.link_downloaded", actor: nil, metadata: { accessed_by: "link_recipient" })).to eq("Link recipient downloaded a pay stub for Ethan Cruz")
   end
 
-  it "reads leave date ranges as dates" do
+  it "names whose leave was reviewed, and reads date ranges as dates" do
     leave = create(:leave_request, user: worker, start_date: Date.new(2026, 11, 20), end_date: Date.new(2026, 11, 21))
+    employee = { employee_id: worker.id, employee_name: worker.full_name }
+    expect(summary_for("leave_request.approved", subject: leave, metadata: employee)).to eq("Roke Reyes approved Ethan Cruz's leave for Nov 20, 2026 through Nov 21, 2026")
+    expect(summary_for("leave_request.created", actor: worker, subject: leave, metadata: employee)).to eq("Ethan Cruz requested leave for Nov 20, 2026 through Nov 21, 2026")
     expect(summary_for("leave_request.approved", subject: leave)).to eq("Roke Reyes approved leave for Nov 20, 2026 through Nov 21, 2026")
+  end
+
+  it "says whose time a supervisor added" do
+    expect(summary_for("time_entry.created", metadata: clock_metadata.merge(hours: 3.0))).to eq("Roke Reyes added 3 hours for Ethan Cruz for Nov 10, 2026")
+    expect(summary_for("time_entry.created", metadata: clock_metadata(manager).merge(hours: 1.0))).to eq("Roke Reyes added 1 hour of their own time for Nov 10, 2026")
+    expect(summary_for("time_entry.created", subject_name: "3.0 hours on 2026-11-07")).to eq("Roke Reyes created 3.0 hours on Nov 7, 2026")
   end
 
   it "never shows a raw event key for events without a sentence" do
