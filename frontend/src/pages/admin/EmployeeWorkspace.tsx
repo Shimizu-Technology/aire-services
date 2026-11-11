@@ -1,12 +1,14 @@
 import { coverageStateLabel, historicalReasonLabel, identityStateLabel, receiptScopeLabel, settlementStatusLabel, sourceKindLabel } from '../../lib/employeeEvidenceLabels'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import type { AdminUser } from '../../lib/api'
 import { employeeEvidenceApi, type EmployeeEvidence, type EvidencePeriod, type EvidenceTotals } from '../../lib/employeeEvidenceApi'
 import { employeeWorkspaceHref, safeAdminReturn, type EmployeeTab } from '../../lib/employeeWorkspace'
 import EmployeeRelatedRecords from '../../components/time-tracking/EmployeeRelatedRecords'
 import { formatDateTime, formatWorkDate } from '../../lib/dateUtils'
+import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod } from '../../lib/payrollPeriods'
+import { touchBaseline } from '../../lib/touchBaseline'
 
 const tabs: { key: EmployeeTab; label: string }[] = [
   { key: 'overview', label: 'Overview' }, { key: 'hours', label: 'Hours & payroll' },
@@ -54,16 +56,30 @@ export default function EmployeeWorkspace() {
   const [detailError, setDetailError] = useState('')
   const [retry, setRetry] = useState(0)
   const tab = tabs.find((item) => item.key === query.get('tab'))?.key || 'overview'
-  const startDate = query.get('start_date') || ''
-  const endDate = query.get('end_date') || ''
   const cursor = query.get('cursor') || ''
   const selectedPeriod = query.get('period') || ''
   const selectedEntry = query.get('entry') || ''
   const detailCursor = query.get('detail_cursor') || ''
+  const payPeriod = useMemo(() => currentPayrollPeriod(), [])
+  const allHistory = query.get('range') === 'all'
+  // A bare open shows this pay period; links to an exact period, entry or page keep their own range.
+  const useCurrentPeriod = !query.get('start_date') && !query.get('end_date') && !allHistory && !cursor && !selectedPeriod && !selectedEntry
+  const startDate = query.get('start_date') || (useCurrentPeriod ? payPeriod.start : '')
+  const endDate = query.get('end_date') || (useCurrentPeriod ? payPeriod.end : '')
+  const onCurrentPeriod = startDate === payPeriod.start && endDate === payPeriod.end
   const sourceUserUuid = query.get('source_user_uuid') || ''
   const sourceInstanceId = query.get('source_instance_id') || ''
   const returnTo = safeAdminReturn(query.get('return_to'))
   const currentPath = `${location.pathname}${location.search}`
+
+  // Write the default period into the URL so paging, tabs and links keep it.
+  useEffect(() => {
+    if (!useCurrentPeriod) return
+    const next = new URLSearchParams(query)
+    next.set('start_date', payPeriod.start)
+    next.set('end_date', payPeriod.end)
+    setQuery(next, { replace: true })
+  }, [useCurrentPeriod, payPeriod, query, setQuery])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -109,9 +125,19 @@ export default function EmployeeWorkspace() {
 
   const update = (values: Record<string, string | null>) => {
     const next = new URLSearchParams(query)
+    if (!('range' in values) && (values.start_date || values.end_date)) next.delete('range')
     Object.entries(values).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key))
     setQuery(next)
   }
+  const totalsHeading = onCurrentPeriod
+    ? `Hours this pay period · ${formatPayrollPeriod(payPeriod)}`
+    : startDate && endDate
+      ? `Hours for ${formatPayrollPeriod({ start: startDate, end: endDate })}`
+      : startDate
+        ? `Hours from ${formatPayrollDate(startDate)}`
+        : endDate
+          ? `Hours through ${formatPayrollDate(endDate)}`
+          : 'Hours for all recorded history'
   const related = (path: string, extras: Record<string, string> = {}) => {
     const params = new URLSearchParams({ user_id: id, return_to: currentPath, ...extras })
     if (startDate) params.set('start_date', startDate)
@@ -119,23 +145,27 @@ export default function EmployeeWorkspace() {
     return `${path}?${params}`
   }
 
-  return <div className="space-y-5">
+  return <div className={`space-y-5 ${touchBaseline}`}>
     <Link to={returnTo} className="inline-flex min-h-11 min-w-11 items-center text-sm font-semibold text-cyan-800 hover:underline">Back to {returnTo.startsWith('/admin/users') ? 'Team' : 'previous view'}</Link>
     {loading ? <p role="status" className={panel}>Loading employee evidence…</p> : error ? <div role="alert" className={panel}><p>{error}</p><button className={`${action} mt-3`} onClick={() => setRetry((value) => value + 1)}>Retry</button></div> : user && evidence && <>
       <header className={panel}>
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Team member</p>
         <h1 className="mt-1 break-words text-2xl font-bold text-slate-950">{user.full_name || user.display_name}</h1>
         <p className="mt-2 text-sm text-slate-600">{user.staff_title || 'Staff'} · {user.employment_status} · {user.personal_access_enabled ? 'Personal sign-in' : user.kiosk_enabled ? 'Kiosk access' : 'No sign-in'}</p>
-        <nav aria-label="Employee sections" className="mt-5 flex flex-wrap gap-2">{tabs.map((item) => <Link key={item.key} aria-current={tab === item.key ? 'page' : undefined} to={employeeWorkspaceHref(id, { tab: item.key, returnTo, startDate, endDate, period: selectedPeriod, entry: selectedEntry, cursor, detailCursor, sourceUserUuid, sourceInstanceId })} className={tab === item.key ? activeAction : action}>{item.label}</Link>)}</nav>
+        <nav aria-label="Employee sections" className="mt-5 flex flex-wrap gap-2">{tabs.map((item) => <Link key={item.key} aria-current={tab === item.key ? 'page' : undefined} to={employeeWorkspaceHref(id, { tab: item.key, returnTo, startDate, endDate, allHistory, period: selectedPeriod, entry: selectedEntry, cursor, detailCursor, sourceUserUuid, sourceInstanceId })} className={tab === item.key ? activeAction : action}>{item.label}</Link>)}</nav>
       </header>
       {(tab === 'overview' || tab === 'hours') && <>
         <section className={`${panel} space-y-4`} aria-label="Employee hour totals">
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-sm">From<input aria-label="From work date" type="date" value={startDate} onChange={(event) => update({ start_date: event.target.value, cursor: null, period: null, entry: null, detail_cursor: null })} className="mt-1 block min-h-11 rounded-lg border border-slate-300 p-2" /></label>
             <label className="text-sm">Through<input aria-label="Through work date" type="date" value={endDate} onChange={(event) => update({ end_date: event.target.value, cursor: null, period: null, entry: null, detail_cursor: null })} className="mt-1 block min-h-11 rounded-lg border border-slate-300 p-2" /></label>
-            {(startDate || endDate) && <button className={action} onClick={() => update({ start_date: null, end_date: null, cursor: null, period: null, entry: null, detail_cursor: null })}>All history</button>}
+            {!onCurrentPeriod && <button className={action} onClick={() => update({ start_date: payPeriod.start, end_date: payPeriod.end, range: null, cursor: null, period: null, entry: null, detail_cursor: null })}>This pay period</button>}
+            {(startDate || endDate) && <button className={action} onClick={() => update({ start_date: null, end_date: null, range: 'all', cursor: null, period: null, entry: null, detail_cursor: null })}>All history</button>}
           </div>
-          <p className="text-xs text-slate-500">Whole-filter totals · refreshed {formatDateTime(evidence.as_of)}</p>
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">{totalsHeading}</h2>
+            <p className="mt-0.5 text-xs text-slate-600">Updated {formatDateTime(evidence.as_of)}</p>
+          </div>
           <Totals totals={evidence.totals} />
           <p className="text-sm leading-6 text-slate-600">{evidence.evidence_note}</p>
           {!!evidence.totals.unissued_correction_count && <p className="text-sm text-amber-800">{evidence.totals.unissued_correction_count} signed correction lines await issuance, including classification changes with zero net hours.</p>}
@@ -145,7 +175,7 @@ export default function EmployeeWorkspace() {
           {!!evidence.totals.receipt_review_count && <p className="text-sm text-amber-800">{evidence.totals.receipt_review_count} retained lines have batch-only or ambiguous receipt evidence. Exact line coverage needs reconciliation.</p>}
           {!user.time_tracking_enabled && <p className="text-sm text-slate-600">Time tracking is disabled for this person. No recorded hours is not a missing-pay warning.</p>}
         </section>
-        {tab === 'overview' && <div className={`${panel} flex flex-wrap gap-3`}><Link className={action} to={employeeWorkspaceHref(id, { tab: 'hours', returnTo, startDate, endDate, sourceUserUuid, sourceInstanceId })}>Review hours & payroll</Link><Link className={action} to={related('/admin/time')}>View time entries</Link><Link className={action} to={related('/admin/time', { tab: 'reports' })}>Open hours report</Link><Link className={action} to={`/admin/pay-stubs?${new URLSearchParams({ send: id })}`}>Send pay stub</Link></div>}
+        {tab === 'overview' && <div className={`${panel} flex flex-wrap gap-3`}><Link className={action} to={employeeWorkspaceHref(id, { tab: 'hours', returnTo, startDate, endDate, allHistory, sourceUserUuid, sourceInstanceId })}>Review hours & payroll</Link><Link className={action} to={related('/admin/time')}>View time entries</Link><Link className={action} to={related('/admin/time', { tab: 'reports' })}>Open hours report</Link><Link className={action} to={`/admin/pay-stubs?${new URLSearchParams({ send: id })}`}>Send pay stub</Link></div>}
         {tab === 'hours' && <section className="space-y-3" aria-label="Work periods">
           <h2 className="text-lg font-semibold">Work periods <span className="text-sm font-normal text-slate-500">({evidence.pagination.total_count})</span></h2>
           {!evidence.periods.length && <p className={panel}>No recorded work or retained payroll evidence in this date range.</p>}

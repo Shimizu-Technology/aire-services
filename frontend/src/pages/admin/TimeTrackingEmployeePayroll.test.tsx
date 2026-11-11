@@ -54,9 +54,6 @@ const states: Array<[EmployeePayrollStatus['status'], string, number, number]> =
   ['payment_attested_pending_evidence', 'Historical payment reported — details unavailable', 0, 8],
   ['committed', 'Paid hours recorded — payroll update pending', 8, 0],
   ['committed', 'Payroll correction recorded — no new payment', 0, 0],
-  ['payment_history_unavailable', 'Payment history unavailable', 0, 0],
-  ['payment_history_unavailable', 'Approved — payment status not tracked yet', 0, 0],
-  ['payment_history_unavailable', 'Payment status not tracked yet', 0, 0],
   ['payment_history_unavailable', 'Payment history unavailable', 2, 0],
   ['payment_history_unavailable', 'Payment history unavailable', 0, 8],
 ]
@@ -137,9 +134,20 @@ describe('My Time employee payment status', () => {
 
   it('never infers paid from approval when the status response is missing', async () => {
     open('day')
-    const panel = await screen.findByLabelText('Payroll payment status')
-    expect(within(panel).getByText('Payment status unavailable')).toBeVisible()
-    expect(within(panel).queryByText('Paid', { exact: true })).not.toBeInTheDocument()
+    expect(await screen.findByText('Practice shift')).toBeVisible()
+    expect(screen.queryByLabelText('Payroll payment status')).not.toBeInTheDocument()
+    expect(screen.queryByText('Paid', { exact: true })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['Payment history unavailable'],
+    ['Approved — payment status not tracked yet'],
+    ['Payment status not tracked yet'],
+  ])('shows nothing while payment status is unknown: %s', async (label) => {
+    open('day', { status: 'payment_history_unavailable', label, paid_hours: 0, held_hours: 0 })
+    expect(await screen.findByText('Practice shift')).toBeVisible()
+    expect(screen.queryByLabelText('Payroll payment status')).not.toBeInTheDocument()
+    expect(screen.queryByText(/not tracked yet/)).not.toBeInTheDocument()
   })
 
   it('links paid time to the paycheck that paid it in My Pay', async () => {

@@ -36,6 +36,33 @@ describe('employee workspace', () => {
     expect(screen.getByRole('link', { name: 'Hours & payroll' })).toHaveClass('bg-slate-900', 'text-white')
     expect(screen.getByRole('link', { name: 'Hours & payroll' })).not.toHaveClass('bg-white', 'text-slate-800')
   })
+  it('opens on the current pay period instead of all-time totals', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-11T02:00:00Z'))
+    mock.periods.mockClear()
+    try {
+      open('/admin/users/7?tab=overview')
+      await screen.findByRole('heading', { name: 'Hours this pay period · Nov 1, 2026–Nov 15, 2026' })
+      const filter = mock.periods.mock.calls.at(-1)?.[1] as URLSearchParams
+      expect(filter.get('start_date')).toBe('2026-11-01')
+      expect(filter.get('end_date')).toBe('2026-11-15')
+      expect(mock.periods).toHaveBeenCalledTimes(1)
+      expect(screen.getByLabelText('Current address')).toHaveTextContent('start_date=2026-11-01&end_date=2026-11-15')
+      expect(screen.queryByText(/Whole-filter totals/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'This pay period' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'All history' }))
+      await screen.findByRole('heading', { name: 'Hours for all recorded history' })
+      expect((mock.periods.mock.calls.at(-1)?.[1] as URLSearchParams).has('start_date')).toBe(false)
+      expect(screen.getByLabelText('Current address')).toHaveTextContent('range=all')
+      expect(screen.getByRole('link', { name: 'Hours & payroll' })).toHaveAttribute('href', expect.stringContaining('range=all'))
+
+      fireEvent.click(screen.getByRole('button', { name: 'This pay period' }))
+      await screen.findByRole('heading', { name: 'Hours this pay period · Nov 1, 2026–Nov 15, 2026' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('restores exact selection from a refreshed URL', async () => {
     open('/admin/users/7?tab=hours&period=2026-09-01&entry=19&start_date=2026-09-01')
     await screen.findByText('Saved source work')

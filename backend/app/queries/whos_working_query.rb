@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class WhosWorkingQuery
+  OPEN_STATUSES = %w[clocked_in on_break].freeze
+
   class << self
     def call
       today = Time.current.in_time_zone(TimeClockService::BUSINESS_TIMEZONE).to_date
@@ -15,18 +17,29 @@ class WhosWorkingQuery
                                    .order(clock_in_at: :asc)
                                    .to_a
 
+      # A forgotten clock-out keeps the shift open on its original work date.
+      # Without these, the dashboard reads "0 active" just after midnight.
+      earlier_open_by_user = TimeEntry.where(user_id: staff_ids, work_date: ...today, status: OPEN_STATUSES)
+                                      .where(entry_method: "clock")
+                                      .eager_load(:time_entry_breaks, :time_category)
+                                      .order(clock_in_at: :desc)
+                                      .to_a
+                                      .group_by(&:user_id)
+                                      .transform_values(&:first)
+
       entries_by_user = all_today_entries.group_by(&:user_id)
 
       clocked_out_user_ids = all_today_entries.select { |e| e.status == "completed" }.map(&:user_id).to_set
-      active_entries_by_user = all_today_entries.select { |e| %w[clocked_in on_break].include?(e.status) }
+      active_entries_by_user = all_today_entries.select { |e| OPEN_STATUSES.include?(e.status) }
                                                 .index_by(&:user_id)
 
       buffer_seconds = (Setting.get("early_clock_in_buffer_minutes") || "5").to_i * 60
 
       staff_users.map do |user|
         schedule = today_schedules[user.id]
-        active_entry = active_entries_by_user[user.id]
-        user_entries = entries_by_user[user.id] || []
+        earlier_open_entry = earlier_open_by_user[user.id]
+        active_entry = active_entries_by_user[user.id] || earlier_open_entry
+        user_entries = [ earlier_open_entry, *entries_by_user[user.id] ].compact
         hours = user_entries.select { |e| e.status == "completed" }.sum { |e| e.hours.to_f }.round(2)
 
         active_break_record = active_entry&.active_break
@@ -58,7 +71,9 @@ class WhosWorkingQuery
           total_break_minutes: total_break_min,
           breaks: all_breaks,
           time_category: serialize_time_category(active_entry || user_entries.last),
-          day_entries: user_entries.map { |e| serialize_day_entry(e) }
+          day_entries: user_entries.map { |e| serialize_day_entry(e) },
+          open_since_work_date: earlier_open_entry&.work_date&.iso8601,
+          open_entry_id: earlier_open_entry&.id
         }
       end
     end

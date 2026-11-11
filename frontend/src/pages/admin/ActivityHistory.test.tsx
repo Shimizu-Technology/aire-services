@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -77,6 +77,22 @@ describe('ActivityHistory', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'Activity event details' })).not.toBeInTheDocument()
+  })
+
+  it('keeps raw event keys behind technical details and names recorded fields plainly', async () => {
+    const changed = { ...event, changes: { time_category_id: [3, 4] }, details: { employee_name: 'Ethan Cruz', admin_override: false } }
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [changed], pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(event.summary, 'i') }))
+    const panel = screen.getByRole('dialog', { name: 'Activity event details' })
+    expect(within(panel).getByText('Work category')).toBeInTheDocument()
+    expect(within(panel).getByText('Employee')).toBeInTheDocument()
+    expect(within(panel).getByText('Entered by a supervisor')).toBeInTheDocument()
+    expect(within(panel).getByText('No')).toBeInTheDocument()
+    expect(within(panel).queryByText(/time category id/i)).not.toBeInTheDocument()
+    const technical = within(panel).getByText('Technical details').closest('details') as HTMLDetailsElement
+    expect(technical.open).toBe(false)
+    expect(within(technical).getByText('time_entry.approved')).toBeInTheDocument()
   })
 
   it('applies category and search filters through the API', async () => {

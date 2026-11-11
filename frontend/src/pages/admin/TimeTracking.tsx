@@ -23,6 +23,7 @@ import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor, isUserRole, ROLE_DETAILS, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { currentPayrollPeriod, isIsoDate, withPayrollPeriod, type PayrollPeriod } from '../../lib/payrollPeriods'
+import { touchBaseline } from '../../lib/touchBaseline'
 
 // Local types to avoid Vite caching issues
 interface TimeCategory {
@@ -954,7 +955,10 @@ export default function TimeTracking() {
   // Modal handlers
   const openNewEntry = (date?: string, prefillStart?: string, prefillEnd?: string, prefillNotes?: string, ownerId?: number | null) => {
     if (!optionsReady || searchParams.get('prefill') === 'true') return
-    const selectedOwner = ownerId ?? (canManageTeamTime && entryFilters.user_id ? Number(entryFilters.user_id) : currentUserId)
+    // Supervisors usually log someone else's missed shift: use the person who is
+    // filtered or opened, and otherwise make them choose rather than defaulting to themselves.
+    const contextOwner = routedUserId || entryFilters.user_id || (linkedEntry ? String(linkedEntry.user.id) : '')
+    const selectedOwner = ownerId ?? (canManageTeamTime ? (contextOwner ? Number(contextOwner) : null) : currentUserId)
     setEditingEntry(null)
     setFormData({
       work_date: date || currentDate,
@@ -1241,7 +1245,7 @@ export default function TimeTracking() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${touchBaseline}`}>
       <PayrollCutoffNotice />
       {returnTo && <Link to={returnTo} className="inline-flex min-h-11 items-center text-sm font-semibold text-primary">{isWithinRoute(returnTo, '/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}</Link>}
       <TimePayrollWorkspaceHeader
@@ -1942,7 +1946,7 @@ export default function TimeTracking() {
                       }}
                       className="w-full px-3 py-2 border border-neutral-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     >
-                      <option value="">Select user...</option>
+                      <option value="">Choose who worked…</option>
                       {users.map(user => (
                         <option key={user.id} value={user.id}>
                           {(user.full_name || user.display_name || user.email || 'Team member')} ({user.role}){user.employment_status === 'terminated' ? ' — terminated' : user.employment_status === 'inactive' ? ' — inactive' : ''}
@@ -2483,7 +2487,11 @@ export default function TimeTracking() {
       )}
 
       {activeTab === 'leave' && (
-        <LeaveRequestsPanel canApproveLeave={canManageTeamTime && capabilities.approve_leave} />
+        <LeaveRequestsPanel
+          canApproveLeave={canManageTeamTime && capabilities.approve_leave}
+          canRequestLeave={!(canManageTeamTime && capabilities.approve_leave) || authenticatedUser?.time_tracking_enabled !== false}
+          currentUserId={authenticatedUser?.id ?? currentUserId}
+        />
       )}
 
       {/* Shared editor stays mounted for entries, approvals, and report remediation. */}
@@ -3292,10 +3300,15 @@ function paycheckLead(status: EmployeePayrollStatus['status']): string {
 function EmployeePaymentStatus({ status }: { status?: EmployeePayrollStatus | null }) {
   const neutral = status && ['payment_attested_pending_evidence', 'payment_history_unavailable'].includes(status.status)
   const paychecks = status?.paychecks?.filter((paycheck) => /^[1-9]\d{0,17}$/.test(paycheck.statement_id)) ?? []
+  // Show payment status only once there is something to say; an untracked
+  // shift would otherwise repeat "not tracked yet" under every row.
+  const unknown = !status || (status.status === 'payment_history_unavailable'
+    && paychecks.length === 0 && !status.note && !status.paid_hours && !status.held_hours)
+  if (unknown) return null
   return (
     <div className="mt-2 space-y-1 break-words text-sm text-primary-dark" aria-label="Payroll payment status">
-      <p className="font-medium">{status?.label || 'Payment status unavailable'}</p>
-      {status && paychecks.length > 0 && (
+      <p className="font-medium">{status.label}</p>
+      {paychecks.length > 0 && (
         <p className="text-sm">
           {paycheckLead(status.status)}{' '}
           {paychecks.map((paycheck, index) => (
@@ -3308,9 +3321,9 @@ function EmployeePaymentStatus({ status }: { status?: EmployeePayrollStatus | nu
           ))}
         </p>
       )}
-      {status?.note && <p className="text-sm text-amber-900">{status.note}</p>}
-      {status && (!neutral || status.paid_hours > 0) && <p className="text-xs text-text-muted">Paid hours confirmed: {status.paid_hours.toFixed(2)}h</p>}
-      {!!status?.held_hours && <p className="text-xs text-amber-800">{status.status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status.status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: {status.held_hours.toFixed(2)}h</p>}
+      {status.note && <p className="text-sm text-amber-900">{status.note}</p>}
+      {(!neutral || status.paid_hours > 0) && <p className="text-xs text-text-muted">Paid hours confirmed: {status.paid_hours.toFixed(2)}h</p>}
+      {!!status.held_hours && <p className="text-xs text-amber-800">{status.status === 'payment_attested_pending_evidence' ? 'Hours with reported payment' : status.status === 'payment_history_unavailable' ? 'Hours without payment details' : 'Hours on hold'}: {status.held_hours.toFixed(2)}h</p>}
     </div>
   )
 }
