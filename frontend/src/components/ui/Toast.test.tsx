@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ShellChromeProvider } from '../layouts/ShellChromeContext'
 import { mockMatchMedia } from '../../test/matchMedia'
 import { SelectionBar } from './SelectionBar'
+import { Sheet } from './Sheet'
 import { TOAST_DEFAULT_DURATION, ToastProvider } from './Toast'
 import type { ToastOptions } from './toastContext'
 import { useToast } from './useToast'
@@ -144,7 +145,67 @@ describe('Toast', () => {
         </ToastProvider>
       </ShellChromeProvider>,
     )
-    expect(screen.getAllByRole('status')[0]).toHaveClass('lg:bottom-24')
+    expect(screen.getByRole('region', { name: /Notifications/ })).toHaveClass('lg:bottom-24')
+  })
+
+  it('lives in a labelled Notifications region, and Alt+T focuses Undo and holds it open', () => {
+    renderToast({ message: 'Approved 2 shifts', action: { label: 'Undo', onAction: vi.fn() } })
+    const region = screen.getByRole('region', { name: 'Notifications (Alt+T)' })
+    expect(region).toHaveAttribute('aria-keyshortcuts', 'Alt+T')
+    const trigger = screen.getByRole('button', { name: 'Approve' })
+    act(() => { trigger.focus() })
+    // Option+T on a Mac reports "†" as the key, so the hotkey reads event.code.
+    fireEvent.keyDown(trigger, { key: '†', code: 'KeyT', altKey: true })
+    const undo = screen.getByRole('button', { name: 'Undo' })
+    expect(undo).toHaveFocus()
+    act(() => { vi.advanceTimersByTime(60_000) })
+    expect(screen.getByText('Approved 2 shifts').closest('[data-state]')).toHaveAttribute('data-state', 'open')
+    fireEvent.keyDown(undo, { key: 'Escape' })
+    expect(trigger).toHaveFocus()
+  })
+
+  it('focuses a toast without an action on Alt+T, and leaves Alt+T alone with no toast', () => {
+    render(<ToastProvider><Trigger options={{ message: 'Saved' }} /></ToastProvider>)
+    const trigger = screen.getByRole('button', { name: 'Approve' })
+    act(() => { trigger.focus() })
+    expect(fireEvent.keyDown(trigger, { key: '†', code: 'KeyT', altKey: true })).toBe(true)
+    expect(trigger).toHaveFocus()
+    fireEvent.click(trigger)
+    fireEvent.keyDown(trigger, { key: '†', code: 'KeyT', altKey: true })
+    expect(screen.getByText('Saved').closest('[data-state]')).toHaveFocus()
+  })
+
+  it('waits under an open modal: no countdown, and Alt+T stays in the modal', () => {
+    function WithSheet() {
+      const toast = useToast()
+      return (
+        <>
+          <button type="button" onClick={() => toast.show({ message: 'Approved 2 shifts', action: { label: 'Undo', onAction: vi.fn() } })}>Approve</button>
+          <Sheet open onClose={vi.fn()} title="Review shift"><button type="button">Inside</button></Sheet>
+        </>
+      )
+    }
+    render(<ToastProvider><WithSheet /></ToastProvider>)
+    act(() => { screen.getByRole('button', { name: 'Approve' }).click() })
+    const inside = screen.getByRole('button', { name: 'Inside' })
+    act(() => { inside.focus() })
+    fireEvent.keyDown(inside, { key: '†', code: 'KeyT', altKey: true })
+    expect(inside).toHaveFocus()
+    act(() => { vi.advanceTimersByTime(60_000) })
+    expect(screen.getByText('Approved 2 shifts').closest('[data-state]')).toHaveAttribute('data-state', 'open')
+  })
+
+  it('exits in 150ms with only the exit duration, matching the unmount', () => {
+    renderToast({ message: 'Saved' })
+    const toast = screen.getByText('Saved').closest('[data-state]')!
+    act(() => { vi.advanceTimersByTime(TOAST_DEFAULT_DURATION) })
+    expect(toast).toHaveAttribute('data-state', 'closing')
+    expect(toast).toHaveClass('duration-150', 'translate-y-4', 'opacity-0')
+    expect(toast).not.toHaveClass('duration-200')
+    act(() => { vi.advanceTimersByTime(149) })
+    expect(toast).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(toast).not.toBeInTheDocument()
   })
 
   it('says what is missing when there is no provider', () => {

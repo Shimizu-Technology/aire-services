@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { ListGroup } from './ListGroup'
 import { ListRow } from './ListRow'
+import { Menu } from './Menu'
 
 const PEOPLE = [
   { id: 'marcus', name: 'Marcus Quinata', shifts: ['Tue, Nov 10', 'Wed, Nov 11'] },
@@ -170,6 +171,69 @@ describe('ListGroup and ListRow', () => {
     expect(tabbable().map(row => row.textContent)).toEqual(['B'])
     rerender(<ListGroup label="Rows"><ListRow key="a" title="A" /></ListGroup>)
     expect(tabbable().map(row => row.textContent)).toEqual(['A'])
+  })
+
+  it('moves focus to the next row when the focused row is removed, or the previous one at the end', async () => {
+    function Approvable() {
+      const [people, setPeople] = useState(['Marcus', 'Grace', 'Ethan'])
+      return (
+        <ListGroup label="Rows">
+          {people.map(name => (
+            <ListRow key={name} title={name} action={{ label: `Approve ${name}`, onClick: () => setPeople(list => list.filter(other => other !== name)) }} />
+          ))}
+        </ListGroup>
+      )
+    }
+    const user = userEvent.setup()
+    render(<Approvable />)
+    rows()[0].focus()
+    await user.tab()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Grace' })).toHaveFocus())
+    expect(tabbable().map(row => row.textContent)).toEqual(['GraceApprove Grace'])
+
+    await user.keyboard('{End}')
+    expect(screen.getByRole('group', { name: 'Ethan' })).toHaveFocus()
+    await user.tab()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Grace' })).toHaveFocus())
+  })
+
+  it('leaves focus alone when a row goes away after focus left the list', async () => {
+    const { rerender } = render(
+      <>
+        <button type="button">Elsewhere</button>
+        <ListGroup label="Rows"><ListRow key="a" title="A" /><ListRow key="b" title="B" /></ListGroup>
+      </>,
+    )
+    const user = userEvent.setup()
+    rows()[0].focus()
+    await user.click(screen.getByRole('button', { name: 'Elsewhere' }))
+    rerender(
+      <>
+        <button type="button">Elsewhere</button>
+        <ListGroup label="Rows"><ListRow key="b" title="B" /></ListGroup>
+      </>,
+    )
+    expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus()
+  })
+
+  it('puts buttons in trailing, like a ⋯ Menu, in the roving model', async () => {
+    const user = userEvent.setup()
+    render(
+      <ListGroup label="People">
+        {['Marcus', 'Grace'].map(name => (
+          <ListRow key={name} title={name} trailing={<Menu label={`More actions for ${name}`} items={[{ id: 'stub', label: 'Send stub', onSelect: vi.fn() }]} />} />
+        ))}
+      </ListGroup>,
+    )
+    expect(screen.getByRole('button', { name: 'More actions for Marcus' })).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('button', { name: 'More actions for Grace' })).toHaveAttribute('tabindex', '-1')
+    rows()[0].focus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'More actions for Marcus' })).toHaveFocus()
+    await user.tab()
+    expect(document.body).toHaveFocus()
   })
 
   it('is 56px tall on touch and 48px with a mouse', () => {

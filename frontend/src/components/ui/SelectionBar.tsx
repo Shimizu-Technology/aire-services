@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { cx } from '../../lib/cx'
 import { useSelectionBarRegistration } from '../layouts/shellChrome'
 import { Button } from './Button'
@@ -46,6 +46,9 @@ export function SelectionBar({
   const barRef = useRef<HTMLDivElement>(null)
   const lastOutsideFocus = useRef<HTMLElement | null>(null)
   const wasActive = useRef(active)
+  // Silent until something has been selected, then "Selection cleared" at 0.
+  const [everActive, setEverActive] = useState(active)
+  if (active && !everActive) setEverActive(true)
   useSelectionBarRegistration(active)
 
   // Remember where focus was before it entered the bar (the row checkbox, say),
@@ -86,7 +89,7 @@ export function SelectionBar({
     <>
       {/* Lives outside the bar so it can announce "cleared" after the bar goes. */}
       <p id={`${ids}-count`} aria-live="polite" className="sr-only">
-        {active ? `${countText} selected` : ''}
+        {active ? `${countText} selected` : everActive ? 'Selection cleared' : ''}
       </p>
       {active && (
         <div

@@ -64,6 +64,12 @@ describe('SelectionBar', () => {
     expect(screen.queryByRole('region', { name: 'Selected shifts' })).not.toBeInTheDocument()
     expect(screen.getByText('tab bar shown')).toBeInTheDocument()
     expect(select).toHaveFocus()
+    expect(screen.getByText('Selection cleared')).toHaveAttribute('aria-live', 'polite')
+  })
+
+  it('says nothing at 0 before anything was selected', () => {
+    const { container } = render(<Harness />)
+    expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(/^$/)
   })
 
   it('clears on Escape, but not while typing in a field', async () => {
