@@ -9,6 +9,7 @@ import { useCapabilities } from '../../lib/useCapabilities'
 import type { Capabilities, Capability } from '../../lib/roles'
 import type { TimeEntry } from '../../lib/api'
 import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, payrollPreparationPeriod, withPayrollPeriod } from '../../lib/payrollPeriods'
+import { touchBaseline } from '../../lib/touchBaseline'
 
 const actionLinks: { title: string; description: string; href: string; capability: Capability }[] = [
   {
@@ -36,19 +37,13 @@ const actionLinks: { title: string; description: string; href: string; capabilit
     capability: 'export_hours_reports',
   },
   {
-    title: 'Payroll Cutoffs',
-    description: 'Preview included hours and finalize an immutable batch for Cornerstone Payroll.',
-    href: '/admin/payroll',
-    capability: 'manage_payroll',
-  },
-  {
     title: 'Schedule',
     description: 'Balance staffing, handoffs, and planned hours for the week.',
     href: '/admin/schedule',
     capability: 'manage_schedules',
   },
   {
-    title: 'Users',
+    title: 'Team',
     description: 'Manage roles, invites, and kiosk PIN access for the team.',
     href: '/admin/users',
     capability: 'manage_users',
@@ -96,7 +91,7 @@ function EmployeeDashboard() {
   }, [loadDashboardData])
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${touchBaseline}`}>
       <PayrollCutoffNotice />
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700">AIRE Ops</p>
@@ -145,7 +140,7 @@ function EmployeeDashboard() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-semibold text-slate-900">{entry.hours.toFixed(2)}h</p>
-                    <p className="text-xs uppercase tracking-[0.12em] text-slate-400">{entry.entry_method}</p>
+                    <p className="text-xs uppercase tracking-[0.12em] text-slate-500">{entry.entry_method}</p>
                   </div>
                 </div>
               )
@@ -177,7 +172,7 @@ function EmployeeDashboard() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-slate-700">{s.formatted_start_time} — {s.formatted_end_time}</p>
-                    <p className="text-xs text-slate-400">{s.hours}h</p>
+                    <p className="text-xs text-slate-500">{s.hours}h</p>
                   </div>
                 </div>
               )
@@ -238,6 +233,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
   const [statsLoading, setStatsLoading] = useState(true)
   const [stats, setStats] = useState({
     activeCount: 0,
+    openFromEarlierDays: 0,
     pendingApprovals: 0,
     scheduledToday: 0,
     weeklyHours: 0,
@@ -285,6 +281,7 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
         periodPendingApprovals: periodApprovals.data.summary?.entry_count ?? periodApprovals.data.count,
         periodApprovalHours: periodApprovals.data.summary?.total_hours ?? 0,
         activeCount: active,
+        openFromEarlierDays: workers.filter((w) => w.open_since_work_date).length,
         pendingApprovals: approvalsRes.data?.count ?? 0,
         scheduledToday: todaySchedules.length,
         weeklyHours,
@@ -304,13 +301,15 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
     loadStats()
   }, [loadStats])
 
+  // Payroll admins prepare payroll from the readiness card below, so the header
+  // doesn't repeat that button.
   const primaryAction = canManagePayroll
-    ? { label: 'Prepare Payroll', href: withPayrollPeriod('/admin/payroll', payrollPeriod) }
+    ? null
     : { label: 'Review Approvals', href: withPayrollPeriod('/admin/time', payrollPeriod, { tab: 'approvals' }) }
   const scheduleActionLabel = capabilities.manage_schedules ? 'Adjust Schedule' : 'View Schedule'
 
   return (
-    <div className="space-y-8">
+    <div className={`space-y-8 ${touchBaseline}`}>
       <PayrollCutoffNotice />
       <div>
         <div className="flex items-start justify-between gap-4">
@@ -319,12 +318,12 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Operations Dashboard</h1>
           </div>
           <div className="hidden shrink-0 items-center gap-2 sm:flex">
-            <Link
+            {primaryAction && <Link
               to={primaryAction.href} aria-disabled={!snapshotAt} onClick={event => { if (!snapshotAt) event.preventDefault() }}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
               {primaryAction.label}
-            </Link>
+            </Link>}
             <Link
               to="/admin/schedule"
               className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
@@ -338,13 +337,13 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
             ? 'Keep staffing, time tracking, and payroll-ready reporting aligned from one place.'
             : 'Keep staffing, time and approvals moving before each payroll cutoff.'}
         </p>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:hidden">
-          <Link
+        <div className={`mt-4 grid gap-2 sm:hidden ${primaryAction ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {primaryAction && <Link
             to={primaryAction.href} aria-disabled={!snapshotAt} onClick={event => { if (!snapshotAt) event.preventDefault() }}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
             {primaryAction.label}
-          </Link>
+          </Link>}
           <Link
             to="/admin/schedule"
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
@@ -361,8 +360,15 @@ function AdminDashboard({ capabilities }: { capabilities: Capabilities }) {
       {!snapshotAt && !snapshotError && <p role="status">Loading dashboard snapshot…</p>}
       {snapshotAt && <>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Active Right Now" value={stats.activeCount.toString()} sublabel="Staff currently clocked in or on break" accent />
-        <StatCard label="Pending Approvals" value={stats.pendingApprovals.toString()} sublabel="Manual entries or overtime waiting on review" accent />
+        <StatCard
+          label="Active Right Now"
+          value={stats.activeCount.toString()}
+          sublabel={stats.openFromEarlierDays > 0
+            ? `Includes ${stats.openFromEarlierDays} still clocked in from an earlier day`
+            : 'Staff currently clocked in or on break'}
+          accent
+        />
+        <StatCard label="Pending Approvals" value={stats.pendingApprovals.toString()} sublabel="Shifts and overtime waiting for approval" accent />
         <StatCard label="Scheduled Today" value={stats.scheduledToday.toString()} sublabel="Assigned shifts on the current Guam workday" accent />
         <StatCard label="Weekly Scheduled Hours" value={`${stats.weeklyHours.toFixed(1)}h`} sublabel="Total planned hours across the active week" />
       </div>
@@ -460,7 +466,7 @@ function StatCard({ label, value, sublabel, accent }: { label: string; value: st
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <p className="text-sm text-slate-500">{label}</p>
       <p className={`mt-2 text-3xl font-bold ${accent ? 'text-cyan-700' : 'text-slate-900'}`}>{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{sublabel}</p>
+      <p className="mt-1 text-xs text-slate-500">{sublabel}</p>
     </div>
   )
 }

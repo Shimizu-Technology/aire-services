@@ -1,6 +1,6 @@
 vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Dashboard from './Dashboard'
@@ -102,6 +102,20 @@ describe('Dashboard unavailable snapshots', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Showing the last successful snapshot')
     expect(screen.getByText('3 approvals covering 10.00 hours still need review.', { exact: false })).toBeInTheDocument()
   })
+  it('counts people still clocked in from an earlier day as active', async () => {
+    mocks.getWhosWorking.mockResolvedValue({ data: { workers: [
+      { user: { id: 1 }, status: 'clocked_in', open_since_work_date: '2026-11-10', open_entry_id: 5 },
+      { user: { id: 2 }, status: 'on_break', open_since_work_date: null },
+      { user: { id: 3 }, status: 'clocked_out' },
+    ] } })
+    open()
+    const card = (await screen.findByText('Active Right Now')).parentElement as HTMLElement
+    expect(card).toHaveTextContent('2')
+    expect(card).toHaveTextContent('Includes 1 still clocked in from an earlier day')
+    expect(screen.getByText('Shifts and overtime waiting for approval')).toBeInTheDocument()
+    expect(screen.queryByText(/Manual entries or overtime/)).not.toBeInTheDocument()
+  })
+
   it('gives a manager the approvals picture without the payroll workspace', async () => {
     mocks.role = 'manager'
     try {
@@ -127,7 +141,11 @@ describe('Dashboard unavailable snapshots', () => {
       expect(await screen.findByText('Payroll readiness')).toBeInTheDocument()
       expect(mocks.getPayrollBatches).toHaveBeenCalled()
       const actions = screen.getByRole('heading', { name: 'Action Center' }).closest('section') as HTMLElement
-      expect(actions.querySelectorAll('h3')).toHaveLength(7)
+      expect(actions.querySelectorAll('h3')).toHaveLength(6)
+      expect(within(actions).getByRole('heading', { name: 'Team' })).toBeInTheDocument()
+      expect(within(actions).queryByRole('heading', { name: 'Users' })).not.toBeInTheDocument()
+      // One way to payroll: the readiness card, not the header or the Action Center.
+      expect(screen.getAllByRole('link', { name: /^(prepare payroll|payroll cutoffs)/i }).map((link) => link.textContent)).toEqual(['Prepare payroll cutoff'])
     } finally {
       mocks.role = 'admin'
     }

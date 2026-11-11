@@ -749,6 +749,9 @@ export interface WorkerStatus {
     name: string;
   } | null;
   day_entries?: WorkerDayEntry[];
+  /** Set when the open clock started on an earlier work date (a likely missed clock-out). */
+  open_since_work_date?: string | null;
+  open_entry_id?: number | null;
 }
 
 export type LeaveRequestQueryStatus = LeaveRequest['status'] | 'reviewed';

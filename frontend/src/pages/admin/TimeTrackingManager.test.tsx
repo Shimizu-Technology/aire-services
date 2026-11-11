@@ -1,5 +1,5 @@
 vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TimeTracking from './TimeTracking'
@@ -54,6 +54,24 @@ describe('TimeTracking for a manager', () => {
     expect(screen.getByRole('button', { name: 'Hours Reports' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Payroll' })).not.toBeInTheDocument()
     expect(screen.getByText('Who is working')).toBeInTheDocument()
+  })
+
+  it('makes the manager choose who worked rather than logging time as themselves', async () => {
+    openPage('?date=2026-11-01&view=day')
+    const logTime = await screen.findByRole('button', { name: 'Log Time' })
+    await waitFor(() => expect(logTime).toBeEnabled())
+    fireEvent.click(logTime)
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Entry Owner')).toHaveValue('')
+    expect(within(dialog).getByRole('option', { name: 'Choose who worked…' })).toBeInTheDocument()
+  })
+
+  it('pre-selects the filtered person as the entry owner', async () => {
+    openPage('?date=2026-11-01&view=day&user_id=2')
+    const logTime = await screen.findByRole('button', { name: 'Log Time' })
+    await waitFor(() => expect(logTime).toBeEnabled())
+    fireEvent.click(logTime)
+    expect(within(await screen.findByRole('dialog')).getByLabelText('Entry Owner')).toHaveValue('2')
   })
 
   it('takes department labels from the staff list instead of admin Settings', async () => {

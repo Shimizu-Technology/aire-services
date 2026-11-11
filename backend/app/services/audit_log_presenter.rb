@@ -21,18 +21,21 @@ class AuditLogPresenter
     "time_entry.submitted" => "Submitted",
     "time_entry.approved" => "Approved",
     "time_entry.denied" => "Denied",
+    "time_entry.overtime_approved" => "Approved overtime for",
+    "time_entry.overtime_denied" => "Denied overtime for",
     "time_entry.clocked_in" => "Clocked in for",
     "time_entry.clocked_out" => "Clocked out from",
     "time_entry.legacy_lock_archived" => "Archived legacy lock state for",
-    "leave_request.created" => "Submitted",
-    "leave_request.approved" => "Approved",
-    "leave_request.declined" => "Declined",
-    "leave_request.cancelled" => "Cancelled",
+    "leave_request.created" => "Requested leave for",
+    "leave_request.approved" => "Approved leave for",
+    "leave_request.declined" => "Declined leave for",
+    "leave_request.cancelled" => "Cancelled leave for",
     "user.created" => "Created",
     "user.updated" => "Updated",
     "user.deleted" => "Deleted",
     "user.invite_resent" => "Resent an invitation for",
     "user.kiosk_pin_reset" => "Reset kiosk access for",
+    "user.kiosk_pin_set" => "Set a kiosk PIN for",
     "report.exported" => "Exported",
     "payroll_batch.finalized" => "Finalized",
     "payroll_batch.exported" => "Exported",
@@ -51,6 +54,36 @@ class AuditLogPresenter
     "pay_documents.link_download_denied" => "Was denied a pay stub download for"
   }.freeze
 
+  # Clock and review events name the employee in metadata; their frozen subject
+  # is only "8.0 hours on 2026-11-10". "self" applies when people act on their own time.
+  TIME_ENTRY_SENTENCES = {
+    "time_entry.clocked_in" => { self: "clocked in", other: "clocked in %{employee}" },
+    "time_entry.clocked_out" => { self: "clocked out", other: "clocked out %{employee}" },
+    "time_entry.break_started" => { self: "started a break", other: "started a break for %{employee}" },
+    "time_entry.break_ended" => { self: "ended a break", other: "ended a break for %{employee}" },
+    "time_entry.category_switched" => { self: "switched work category", other: "switched work category for %{employee}" },
+    "time_entry.auto_closed" => { other: "automatically clocked out %{employee} after a long open shift" },
+    "time_entry.clock_ended" => { other: "entered the missed clock-out for %{employee}%{on_date}" },
+    "time_entry.approved" => { other: "approved %{employee_possessive} time%{on_date}" },
+    "time_entry.denied" => { other: "denied %{employee_possessive} time%{on_date}" },
+    "time_entry.overtime_approved" => { other: "approved %{employee_possessive} overtime%{on_date}" },
+    "time_entry.overtime_denied" => { other: "denied %{employee_possessive} overtime%{on_date}" }
+  }.freeze
+
+  # The worker is both actor and subject of their own My Pay views; previews
+  # name the worker whose pay an admin looked at.
+  MY_PAY_SENTENCES = {
+    "my_pay.statements_viewed" => "viewed their pay statements",
+    "my_pay.statement_viewed" => "opened one of their pay statements",
+    "my_pay.statement_pdf_downloaded" => "downloaded one of their pay statements",
+    "my_pay.preview_statements_viewed" => "previewed %{subject_possessive} My Pay",
+    "my_pay.preview_statement_viewed" => "previewed a pay statement for %{subject}",
+    "my_pay.preview_statement_pdf_downloaded" => "downloaded a preview pay statement for %{subject}"
+  }.freeze
+
+  OUTCOME_NOTES = { "failed" => "could not load", "denied" => "denied" }.freeze
+  ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/
+
   attr_reader :audit_log
 
   def initialize(audit_log)
@@ -59,7 +92,7 @@ class AuditLogPresenter
 
   def actor
     # Whoever opened an emailed pay stub link; they don't sign in to AIRE.
-    return "Link recipient" if audit_log.actor_name.blank? && audit_log.metadata.is_a?(Hash) && audit_log.metadata["accessed_by"] == "link_recipient"
+    return "Link recipient" if audit_log.actor_name.blank? && metadata["accessed_by"] == "link_recipient"
 
     audit_log.actor_name.presence || audit_log.actor_email.presence || audit_log.actor_kind.to_s.humanize
   end
@@ -69,9 +102,84 @@ class AuditLogPresenter
   end
 
   def summary
-    verb = VERBS[audit_log.action] || audit_log.action.tr("._", " ").humanize
+    sentence = time_entry_sentence || my_pay_sentence || access_sentence
+    return readable_dates("#{actor} #{sentence}".squish) if sentence
+
+    verb = VERBS[audit_log.action]
+    return fallback_summary unless verb
     return "#{actor} #{verb.downcase}".squish if SUBJECTLESS_ACTIONS.include?(audit_log.action)
 
-    "#{actor} #{verb.downcase} #{subject}".squish
+    readable_dates("#{actor} #{verb.downcase} #{subject}".squish)
+  end
+
+  private
+
+  def metadata
+    audit_log.metadata.is_a?(Hash) ? audit_log.metadata : {}
+  end
+
+  def recorded_changes
+    audit_log.changes_made.is_a?(Hash) ? audit_log.changes_made : {}
+  end
+
+  def time_entry_sentence
+    template = TIME_ENTRY_SENTENCES[audit_log.action]
+    return unless template
+
+    employee = metadata["employee_name"].presence
+    return template[:self] if template[:self] && (employee.nil? || own_record?(metadata["employee_id"]))
+    return unless employee
+
+    own = own_record?(metadata["employee_id"])
+    work_date = metadata["work_date"].presence
+    format(template[:other], employee: own ? "themselves" : employee,
+           employee_possessive: own ? "their own" : possessive(employee),
+           on_date: work_date ? " for #{work_date}" : "")
+  end
+
+  def my_pay_sentence
+    template = MY_PAY_SENTENCES[audit_log.action]
+    return unless template
+
+    sentence = format(template, subject: subject, subject_possessive: possessive(subject))
+    note = OUTCOME_NOTES[audit_log.outcome]
+    note ? "#{sentence} (#{note})" : sentence
+  end
+
+  def access_sentence
+    case audit_log.action
+    when "user.role_changed"
+      from, to = Array(recorded_changes["role"])
+      return "changed #{possessive(subject)} role" if to.blank?
+
+      from.present? ? "changed #{possessive(subject)} role from #{from.to_s.humanize} to #{to.to_s.humanize}" : "made #{subject} #{to.to_s.humanize.downcase}"
+    when "user.my_pay_access_changed"
+      enabled = Array(recorded_changes["my_pay_enabled"]).last
+      "turned My Pay #{enabled ? 'on' : 'off'} for #{subject}" unless enabled.nil?
+    when "setting.my_pay_everyone_updated"
+      "turned My Pay #{metadata['enabled'] ? 'on' : 'off'} for everyone" if metadata.key?("enabled")
+    end
+  end
+
+  # Events without a sentence still read as "who · what · whom", never as a raw key.
+  def fallback_summary
+    phrase = audit_log.action.to_s.split(".").map { |part| part.tr("_", " ") }.join(": ").humanize
+    readable_dates([ actor, phrase, (subject unless subject == actor) ].compact.join(" · "))
+  end
+
+  def own_record?(employee_id)
+    employee_id.present? && audit_log.user_id.present? && employee_id.to_i == audit_log.user_id
+  end
+
+  def possessive(name)
+    "#{name}'s"
+  end
+
+  def readable_dates(text)
+    text.gsub(ISO_DATE) do
+      Date.new(Regexp.last_match(1).to_i, Regexp.last_match(2).to_i, Regexp.last_match(3).to_i).strftime("%b %-d, %Y")
+    rescue Date::Error
+      Regexp.last_match(0)
+    end
   end
 end

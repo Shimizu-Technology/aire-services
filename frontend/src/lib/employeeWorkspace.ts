@@ -13,13 +13,15 @@ export function safeAdminReturn(value: string | null | undefined): string {
   return url.origin === 'https://local.invalid' ? `${url.pathname}${url.search}${url.hash}` : '/admin/users'
 }
 
-export function employeeWorkspaceHref(id: number | string, options: { tab?: EmployeeTab; returnTo?: string; startDate?: string; endDate?: string; period?: string; entry?: string; cursor?: string; detailCursor?: string; sourceUserUuid?: string; sourceInstanceId?: string } = {}): string {
+export function employeeWorkspaceHref(id: number | string, options: { tab?: EmployeeTab; returnTo?: string; startDate?: string; endDate?: string; allHistory?: boolean; period?: string; entry?: string; cursor?: string; detailCursor?: string; sourceUserUuid?: string; sourceInstanceId?: string } = {}): string {
   if (!/^[1-9]\d*$/.test(String(id))) return '/admin/users'
   const query = new URLSearchParams()
   query.set('tab', options.tab || 'overview')
   if (options.returnTo) query.set('return_to', safeAdminReturn(options.returnTo))
   if (options.startDate) query.set('start_date', options.startDate)
   if (options.endDate) query.set('end_date', options.endDate)
+  // Without dates the person page opens on the current pay period.
+  if (options.allHistory && !options.startDate && !options.endDate) query.set('range', 'all')
   if (options.period) query.set('period', options.period)
   if (options.entry) query.set('entry', options.entry)
   if (options.cursor) query.set('cursor', options.cursor)

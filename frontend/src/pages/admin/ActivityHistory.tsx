@@ -4,6 +4,7 @@ import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorksp
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api, type AuditLogEntry, type AuditLogFilters } from '../../lib/api'
 import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
+import { touchBaseline } from '../../lib/touchBaseline'
 
 const CATEGORY_LABELS: Record<string, string> = {
   activity: 'General activity',
@@ -22,6 +23,36 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 function formatLabel(value: string) {
   return CATEGORY_LABELS[value] || value.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+// Recorded field names people actually see in changes and context.
+const FIELD_LABELS: Record<string, string> = {
+  time_category_id: 'Work category',
+  assigned_time_category_id: 'Assigned work category',
+  previous_time_category_id: 'Previous work category',
+  employee_name: 'Employee',
+  employee_id: 'Employee ID',
+  user_id: 'Employee ID',
+  target_name: 'Team member',
+  target_user_id: 'Team member ID',
+  viewer_user_id: 'Viewed by (ID)',
+  work_date: 'Work date',
+  review_note: 'Note',
+  admin_override: 'Entered by a supervisor',
+  my_pay_enabled: 'My Pay',
+  my_pay_enabled_for_all: 'My Pay for everyone',
+  statement_count: 'Pay statements shown',
+  statement_id: 'Pay statement',
+  approval_status: 'Approval',
+  overtime_status: 'Overtime approval',
+  break_minutes: 'Break minutes',
+  clock_source: 'Clocked in from',
+  entry_method: 'Entry type',
+  read_only: 'Read-only preview',
+}
+
+function fieldLabel(field: string) {
+  return FIELD_LABELS[field] || formatLabel(field)
 }
 
 function formatTimestamp(value: string) {
@@ -96,7 +127,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           <h2 className="mt-1 text-lg font-semibold text-slate-950">{event.summary}</h2>
           <p className="mt-1 text-sm text-slate-500">{formatTimestamp(event.occurred_at)}</p>
         </div>
-        <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close event details">
+        <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close event details">
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -105,19 +136,18 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
         <section>
           <h3 className="font-semibold text-slate-900">Actor and source</h3>
           <dl className="mt-3 grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-slate-600">
-            <dt className="text-slate-400">Actor</dt><dd>{event.actor.name || event.actor.email || formatLabel(event.actor.kind)}</dd>
-            {event.actor.email && <><dt className="text-slate-400">Email</dt><dd className="break-all">{event.actor.email}</dd></>}
-            <dt className="text-slate-400">Source</dt><dd>{formatLabel(event.source)}</dd>
-            <dt className="text-slate-400">Outcome</dt><dd>{formatLabel(event.outcome)}</dd>
+            <dt className="text-slate-500">Actor</dt><dd>{event.actor.name || event.actor.email || formatLabel(event.actor.kind)}</dd>
+            {event.actor.email && <><dt className="text-slate-500">Email</dt><dd className="break-all">{event.actor.email}</dd></>}
+            <dt className="text-slate-500">Source</dt><dd>{formatLabel(event.source)}</dd>
+            <dt className="text-slate-500">Outcome</dt><dd>{formatLabel(event.outcome)}</dd>
           </dl>
         </section>
 
         <section>
           <h3 className="font-semibold text-slate-900">Subject</h3>
           <dl className="mt-3 grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-slate-600">
-            <dt className="text-slate-400">Record</dt><dd>{event.subject.type === 'User' && event.subject.id > 0 ? <Link className="underline" to={employeeWorkspaceHref(event.subject.id, { tab: 'activity', returnTo: `${location.pathname}${location.search}` })}>{event.subject.name || `Employee #${event.subject.id}`}</Link> : event.subject.name || `${formatLabel(event.subject.type)} #${event.subject.id}`}</dd>
-            <dt className="text-slate-400">Type</dt><dd>{formatLabel(event.subject.type)}</dd>
-            <dt className="text-slate-400">Event</dt><dd className="font-mono text-xs">{event.action}</dd>
+            <dt className="text-slate-500">Record</dt><dd>{event.subject.type === 'User' && event.subject.id > 0 ? <Link className="underline" to={employeeWorkspaceHref(event.subject.id, { tab: 'activity', returnTo: `${location.pathname}${location.search}` })}>{event.subject.name || `Employee #${event.subject.id}`}</Link> : event.subject.name || `${formatLabel(event.subject.type)} #${event.subject.id}`}</dd>
+            <dt className="text-slate-500">Type</dt><dd>{formatLabel(event.subject.type)}</dd>
           </dl>
         </section>
 
@@ -127,7 +157,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
             <div className="mt-3 space-y-2">
               {changeRows.map(([field, value]) => (
                 <div key={field} className="rounded-xl bg-slate-50 px-3 py-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{formatLabel(field)}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</p>
                   <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-slate-700">{valueText(value)}</pre>
                 </div>
               ))}
@@ -141,7 +171,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
             <dl className="mt-3 space-y-3">
               {detailRows.map(([field, value]) => (
                 <div key={field}>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{formatLabel(field)}</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</dt>
                   <dd className="mt-1 whitespace-pre-wrap break-words text-slate-700">{valueText(value)}</dd>
                 </div>
               ))}
@@ -149,14 +179,15 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           </section>
         )}
 
-        <section className="border-t border-slate-100 pt-4">
-          <h3 className="font-semibold text-slate-900">Trace</h3>
-          <dl className="mt-3 space-y-2 text-xs text-slate-500">
-            <div><dt className="inline text-slate-400">Event ID: </dt><dd className="inline">{event.id}</dd></div>
-            {event.request.id && <div><dt className="inline text-slate-400">Request ID: </dt><dd className="inline break-all">{event.request.id}</dd></div>}
-            {event.request.ip_address && <div><dt className="inline text-slate-400">IP address: </dt><dd className="inline">{event.request.ip_address}</dd></div>}
+        <details className="border-t border-slate-100 pt-4">
+          <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-slate-900">Technical details</summary>
+          <dl className="mt-2 space-y-2 text-xs text-slate-600">
+            <div><dt className="inline text-slate-500">Event: </dt><dd className="inline font-mono">{event.action}</dd></div>
+            <div><dt className="inline text-slate-500">Event ID: </dt><dd className="inline">{event.id}</dd></div>
+            {event.request.id && <div><dt className="inline text-slate-500">Request ID: </dt><dd className="inline break-all">{event.request.id}</dd></div>}
+            {event.request.ip_address && <div><dt className="inline text-slate-500">IP address: </dt><dd className="inline">{event.request.ip_address}</dd></div>}
           </dl>
-        </section>
+        </details>
       </div>
       </aside>
     </>
@@ -323,7 +354,7 @@ export default function ActivityHistory() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${touchBaseline}`}>
       {returnTo && <Link className="text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>Back to employee</Link>}
       {eventLoading && <p role="status" className="text-sm text-slate-600">Loading linked event…</p>}
       {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
@@ -362,8 +393,8 @@ export default function ActivityHistory() {
             <option value="">All sources</option>
             {availableSources.map((source) => <option key={source} value={source}>{formatLabel(source)}</option>)}
           </select>
-          <label className="relative"><span className="pointer-events-none absolute left-3 top-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">From</span><input aria-label="From date" type="date" value={filters.from || ''} onChange={(event) => updateFilter('from', event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pt-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>
-          <label className="relative"><span className="pointer-events-none absolute left-3 top-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">To</span><input aria-label="To date" type="date" value={filters.to || ''} onChange={(event) => updateFilter('to', event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pt-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>
+          <label className="relative"><span className="pointer-events-none absolute left-3 top-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">From</span><input aria-label="From date" type="date" value={filters.from || ''} onChange={(event) => updateFilter('from', event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pt-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>
+          <label className="relative"><span className="pointer-events-none absolute left-3 top-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">To</span><input aria-label="To date" type="date" value={filters.to || ''} onChange={(event) => updateFilter('to', event.target.value)} className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pt-3 text-sm text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>
         </div>
         {activeFilterCount > 0 && <button type="button" onClick={clearFilters} className="mt-3 text-sm font-semibold text-primary transition hover:text-primary-dark">Clear {activeFilterCount} {activeFilterCount === 1 ? 'filter' : 'filters'}</button>}
       </section>
@@ -385,9 +416,9 @@ export default function ActivityHistory() {
             <div className="divide-y divide-slate-100">
               {events.map((event) => (
                 <button key={event.id} type="button" onClick={() => selectEvent(event)} className={`grid w-full gap-3 px-4 py-4 text-left transition hover:bg-slate-50 sm:grid-cols-[8rem_minmax(0,1fr)_8rem] sm:items-center sm:px-5 ${selected?.id === event.id ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : ''}`}>
-                  <div><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{formatLabel(event.event_category)}</span><p className="mt-1 text-xs text-slate-400 sm:hidden">{formatTimestamp(event.occurred_at)}</p></div>
+                  <div><span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{formatLabel(event.event_category)}</span><p className="mt-1 text-xs text-slate-500 sm:hidden">{formatTimestamp(event.occurred_at)}</p></div>
                   <div className="min-w-0"><p className="text-sm font-semibold leading-5 text-slate-900">{event.summary}</p><p className="mt-1 truncate text-xs text-slate-500">{event.actor.email || event.subject.type} · {formatLabel(event.source)}</p></div>
-                  <div className="hidden text-right sm:block"><p className="text-xs font-medium text-slate-600">{new Date(event.occurred_at).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric' })}</p><p className="mt-1 text-xs text-slate-400">{new Date(event.occurred_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' })}</p></div>
+                  <div className="hidden text-right sm:block"><p className="text-xs font-medium text-slate-600">{new Date(event.occurred_at).toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric' })}</p><p className="mt-1 text-xs text-slate-500">{new Date(event.occurred_at).toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' })}</p></div>
                 </button>
               ))}
             </div>

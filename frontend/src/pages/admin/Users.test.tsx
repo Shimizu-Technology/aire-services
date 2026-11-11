@@ -326,6 +326,36 @@ describe('Users filters', () => {
     expect(screen.queryByText(/Invitation submitted/)).not.toBeInTheDocument()
   })
 
+  it('fits the desktop table to five columns with status and actions, and drops the vanity counts', async () => {
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Alice Pilot')
+    const headers = screen.getAllByRole('columnheader').map((header) => header.textContent)
+    expect(headers).toEqual(['Team member', 'Department & work', 'Status', 'My Pay', 'Actions'])
+    expect(screen.queryByText('Assigned Departments')).not.toBeInTheDocument()
+    expect(screen.queryByText('Shown on Team Page')).not.toBeInTheDocument()
+    expect(screen.getByText('Total Team Members')).toBeInTheDocument()
+    const row = screen.getByRole('link', { name: 'Alice Pilot' }).closest('tr') as HTMLElement
+    expect(screen.getByRole('link', { name: 'Alice Pilot' })).toHaveAttribute('href', expect.stringMatching(/^\/admin\/users\/1\?/))
+    expect(row).toHaveTextContent('Employee · Certified Flight Instructor')
+    expect(row).toHaveTextContent('Kiosk PIN ready')
+    expect(within(row).getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(screen.queryByText(/personal sign-in off/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the phone cards with the person link and actions', async () => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    try {
+      render(<MemoryRouter><Users /></MemoryRouter>)
+      const card = (await screen.findByRole('link', { name: 'Alice Pilot' })).closest('article') as HTMLElement
+      expect(card).toBeInTheDocument()
+      expect(screen.queryByRole('table')).not.toBeInTheDocument()
+      expect(within(card).getByRole('button', { name: 'Edit access & profile' })).toBeInTheDocument()
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    }
+  })
+
   it('offers the compact invitation resend and reports capture on a phone card', async () => {
     const originalWidth = window.innerWidth
     const originalScroll = HTMLElement.prototype.scrollIntoView

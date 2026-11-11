@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { LeaveRequest, PaginationMeta } from '../../lib/api'
+import { touchBaseline } from '../../lib/touchBaseline'
 
 const LEAVE_TYPE_OPTIONS: Array<{ value: LeaveRequest['leave_type']; label: string }> = [
   { value: 'paid_time_off', label: 'Paid time off' },
@@ -70,20 +71,20 @@ function LeaveRequestTimeline({ request }: { request: LeaveRequest }) {
   return (
     <dl className="mt-3 grid gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-500 sm:grid-cols-2">
       <div>
-        <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Sent</dt>
+        <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Sent</dt>
         <dd className="mt-1 text-slate-700">
           {formatDateTime(request.created_at)} by {requestOwnerName(request)}
         </dd>
       </div>
       {request.status === 'pending' && (
         <div>
-          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Review</dt>
-          <dd className="mt-1 text-slate-700">Awaiting admin review</dd>
+          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Review</dt>
+          <dd className="mt-1 text-slate-700">Waiting for approval</dd>
         </div>
       )}
       {request.reviewed_at && (
         <div>
-          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Reviewed</dt>
+          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Reviewed</dt>
           <dd className="mt-1 text-slate-700">
             {formatDateTime(request.reviewed_at)} by {requestReviewerName(request)}
           </dd>
@@ -91,7 +92,7 @@ function LeaveRequestTimeline({ request }: { request: LeaveRequest }) {
       )}
       {request.status === 'cancelled' && (
         <div>
-          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Cancelled</dt>
+          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Cancelled</dt>
           <dd className="mt-1 text-slate-700">
             {formatDateTime(request.cancelled_at || request.updated_at)} by {requestCancellerName(request)}
           </dd>
@@ -99,7 +100,7 @@ function LeaveRequestTimeline({ request }: { request: LeaveRequest }) {
       )}
       {hasMeaningfulUpdate(request) && (
         <div>
-          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-400">Last updated</dt>
+          <dt className="font-semibold uppercase tracking-[0.12em] text-slate-500">Last updated</dt>
           <dd className="mt-1 text-slate-700">{formatDateTime(request.updated_at)}</dd>
         </div>
       )}
@@ -109,9 +110,13 @@ function LeaveRequestTimeline({ request }: { request: LeaveRequest }) {
 
 interface LeaveRequestsPanelProps {
   canApproveLeave: boolean
+  /** Off for owners and admins who don't track their own time. */
+  canRequestLeave?: boolean
 }
 
-export default function LeaveRequestsPanel({ canApproveLeave }: LeaveRequestsPanelProps) {
+export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = true }: LeaveRequestsPanelProps) {
+  // Approvers come here to approve; their own request form stays folded away.
+  const [showRequestForm, setShowRequestForm] = useState(!canApproveLeave)
   const [requests, setRequests] = useState<LeaveRequest[]>([])
   const [pagination, setPagination] = useState<PaginationMeta | null>(null)
   const [pendingPagination, setPendingPagination] = useState<PaginationMeta | null>(null)
@@ -269,23 +274,40 @@ export default function LeaveRequestsPanel({ canApproveLeave }: LeaveRequestsPan
     setReviewedPage(nextPage)
   }, [])
 
-  return (
-    <div className="space-y-5">
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Leave requests</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Submit time-off requests here so approvals stay in the app instead of getting lost in chat or email.
+  const errorBanner = error && (
+    <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+  )
+
+  const requestForm = canRequestLeave && (
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">{canApproveLeave ? 'Request your own leave' : 'Leave requests'}</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            {canApproveLeave
+              ? 'Time off you take yourself.'
+              : 'Submit time-off requests here so approvals stay in the app instead of getting lost in chat or email.'}
           </p>
         </div>
-        <form onSubmit={submitRequest} className="space-y-4 px-5 py-5">
-          {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-          )}
+        {canApproveLeave && (
+          <button
+            type="button"
+            aria-expanded={showRequestForm}
+            aria-controls="leave-request-form"
+            onClick={() => setShowRequestForm((open) => !open)}
+            className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+          >
+            {showRequestForm ? 'Hide form' : 'Request leave'}
+          </button>
+        )}
+      </div>
+      {showRequestForm && (
+        <form id="leave-request-form" onSubmit={submitRequest} className="space-y-4 px-5 py-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Leave type</label>
+              <label htmlFor="leave-type" className="mb-2 block text-sm font-medium text-slate-700">Leave type</label>
               <select
+                id="leave-type"
                 value={formData.leave_type}
                 onChange={(event) => setFormData((current) => ({ ...current, leave_type: event.target.value as LeaveRequest['leave_type'] }))}
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
@@ -296,8 +318,9 @@ export default function LeaveRequestsPanel({ canApproveLeave }: LeaveRequestsPan
               </select>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">Start date</label>
+              <label htmlFor="leave-start-date" className="mb-2 block text-sm font-medium text-slate-700">Start date</label>
               <input
+                id="leave-start-date"
                 type="date"
                 required
                 value={formData.start_date}
@@ -306,8 +329,9 @@ export default function LeaveRequestsPanel({ canApproveLeave }: LeaveRequestsPan
               />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">End date</label>
+              <label htmlFor="leave-end-date" className="mb-2 block text-sm font-medium text-slate-700">End date</label>
               <input
+                id="leave-end-date"
                 type="date"
                 required
                 value={formData.end_date}
@@ -327,8 +351,9 @@ export default function LeaveRequestsPanel({ canApproveLeave }: LeaveRequestsPan
             </div>
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Notes</label>
+            <label htmlFor="leave-notes" className="mb-2 block text-sm font-medium text-slate-700">Notes</label>
             <textarea
+              id="leave-notes"
               rows={3}
               value={formData.reason}
               onChange={(event) => setFormData((current) => ({ ...current, reason: event.target.value }))}
@@ -337,7 +362,14 @@ export default function LeaveRequestsPanel({ canApproveLeave }: LeaveRequestsPan
             />
           </div>
         </form>
-      </section>
+      )}
+    </section>
+  )
+
+  return (
+    <div className={`space-y-5 ${touchBaseline}`}>
+      {errorBanner}
+      {!canApproveLeave && requestForm}
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
@@ -457,6 +489,8 @@ export default function LeaveRequestsPanel({ canApproveLeave }: LeaveRequestsPan
           </div>
         )}
       </section>
+
+      {canApproveLeave && requestForm}
 
       {canApproveLeave && (historyRequests.length > 0 || (reviewedPagination?.total_count ?? 0) > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import WhosWorking from './WhosWorking'
@@ -70,6 +71,20 @@ describe('WhosWorking refresh strategy', () => {
     }] } })
     render(<WhosWorking alwaysShow />)
     expect(await screen.findByText('In since 8:00 AM')).toBeInTheDocument()
+  })
+
+  it('flags someone still clocked in from an earlier day and links to fixing that entry', async () => {
+    mocks.getWhosWorking.mockResolvedValue({ data: { workers: [{
+      user: { id: 7, display_name: 'Caleb', full_name: 'Caleb Perez', email: 'caleb@example.test' },
+      status: 'clocked_in', clock_in_at: '2026-11-09T21:02:00Z', completed_hours: 17.3, breaks: [],
+      open_since_work_date: '2026-11-10', open_entry_id: 55,
+    }] } })
+    render(<MemoryRouter><WhosWorking alwaysShow /></MemoryRouter>)
+    expect(await screen.findByText(/Still clocked in since Tue, Nov 10/)).toHaveTextContent('Still clocked in since Tue, Nov 10, 7:02 AM')
+    expect(screen.getByText('1 active')).toBeInTheDocument()
+    expect(screen.getByText('Check clock-out')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Fix clock-out' })).toHaveAttribute('href', '/admin/time?entry_id=55&date=2026-11-10&view=day&user_id=7')
+    expect(screen.queryByText(/In since/)).not.toBeInTheDocument()
   })
 
   it('uses cable events while connected and restores polling after disconnect', async () => {

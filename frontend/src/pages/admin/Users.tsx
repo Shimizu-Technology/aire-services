@@ -14,6 +14,7 @@ import RolePicker from '../../components/team/RolePicker'
 import MyPaySwitch from '../../components/team/MyPaySwitch'
 import { isUserRole, ROLE_DETAILS, roleLabel, roleRequiresPersonalAccess, rolesAssignableToNewPerson, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { touchBaseline } from '../../lib/touchBaseline'
 
 const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
 const maxPublicTeamPhotoSize = 15 * 1024 * 1024
@@ -328,8 +329,6 @@ export default function Users() {
   // Owners, admins and managers always sign in personally, and only an owner
   // can take sign-in away from an owner or admin.
   const editLocksPersonalAccess = roleRequiresPersonalAccess(editRole) || editAccessLocked
-  const routedUsersCount = users.filter((user) => (user.approval_group_keys?.length ?? (user.approval_group ? 1 : 0)) > 0).length
-  const publicTeamUsersCount = users.filter((user) => user.is_active && user.public_team_enabled).length
   const normalizedSearchTerm = searchTerm.trim().toLowerCase()
   const hasActiveFilters = Boolean(
     normalizedSearchTerm ||
@@ -861,7 +860,7 @@ export default function Users() {
   useDialogFocus(Boolean(terminationUser), terminationDialogRef, () => { if (!savingTermination) closeTerminationModal() })
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${touchBaseline}`}>
       <FadeUp>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -892,7 +891,7 @@ export default function Users() {
 
       {query.get('return_to') && <Link className="text-sm font-semibold text-cyan-800 hover:underline" to={safeAdminReturn(query.get('return_to'))}>Back to employee</Link>}
       {loadError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p>{loadError}</p>{loadedAt && <p className="mt-1 text-xs">Last refreshed {formatDateTime(loadedAt)}</p>}<button className="mt-3 rounded-lg border border-amber-400 px-3 py-2 font-semibold" onClick={() => setLoadRetry((value) => value + 1)}>Retry</button></div>}
-      {loadedAt && <div className="grid gap-4 md:grid-cols-4">
+      {loadedAt && <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-sm text-slate-500">Total Team Members</div>
           <div className="mt-2 text-3xl font-bold text-slate-900">{users.length}</div>
@@ -901,14 +900,6 @@ export default function Users() {
           <div className="text-sm text-slate-500">Owners &amp; Admins</div>
           <div className="mt-2 text-3xl font-bold text-cyan-700">{users.filter((u) => u.role === 'owner' || u.role === 'admin').length}</div>
           <div className="mt-1 text-xs text-slate-500">{users.filter((u) => u.role === 'manager').length} managers</div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-sm text-slate-500">Assigned Departments</div>
-          <div className="mt-2 text-3xl font-bold text-slate-900">{routedUsersCount}</div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-sm text-slate-500">Shown on Team Page</div>
-          <div className="mt-2 text-3xl font-bold text-slate-900">{publicTeamUsersCount}</div>
         </div>
       </div>
 
@@ -1067,118 +1058,69 @@ export default function Users() {
               <>
               {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{[roleLabel(user.role), user.staff_title].filter(Boolean).join(' · ')}</p>{renderStatusBadge(user)}</div></div>{canManageMyPay && <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-2"><span className="text-sm font-medium text-slate-700">My Pay on</span>{renderMyPaySwitch(user)}</div>}<p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.is_active && user.is_pending && user.email && user.can_change_access !== false && <button className="min-h-11 text-sm font-semibold text-cyan-800" onClick={() => handleResendInvite(user)} disabled={resendingIds.has(user.id)}>{resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}</button>}{user.time_tracking_enabled && user.can_change_access !== false && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
               {!compact && <div className="overflow-x-auto">
-                <table className="w-full min-w-[1200px]">
+                {/* Five columns so Status and Actions fit beside the sidebar at 1280px. */}
+                <table className="w-full">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Team Member</th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</th>
-                      {canManageMyPay && <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">My Pay</th>}
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Public Team</th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Department</th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Work Categories</th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Kiosk</th>
-                      <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Actions</th>
+                      <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Team member</th>
+                      <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Department &amp; work</th>
+                      <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Status</th>
+                      {canManageMyPay && <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">My Pay</th>}
+                      <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-slate-50/80">
-                    <td className="px-5 py-4">
+                  <tr key={user.id} className="align-top hover:bg-slate-50/80">
+                    <td className="px-4 py-4">
                       <div className="flex items-start gap-3">
-                        <TeamMemberAvatar user={user} />
+                        <TeamMemberAvatar user={user} className="h-10 w-10" />
                         <div className="min-w-0">
-                          <Link className="font-medium text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link>
-                          {user.staff_title && <div className="mt-1 text-sm text-slate-500">{user.staff_title}</div>}
-                          {user.is_intern && (
-                            <span className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                              Intern
-                            </span>
+                          <Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link>
+                          <div className="mt-0.5 text-sm text-slate-600">{[roleLabel(user.role), user.staff_title].filter(Boolean).join(' · ')}</div>
+                          <div className="mt-0.5 break-all text-xs text-slate-500">{user.personal_access_enabled ? (user.email || 'Personal sign-in') : 'Kiosk only'}</div>
+                          {(user.is_intern || user.public_team_enabled) && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {user.is_intern && <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Intern</span>}
+                              {user.public_team_enabled && (
+                                <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-800">
+                                  {user.public_team_photo_thumb_url || user.public_team_photo_url ? 'On website' : 'On website · no photo'}
+                                </span>
+                              )}
+                            </div>
                           )}
-                          {user.personal_access_enabled && user.email && <div className="mt-1 truncate text-sm text-slate-500">{user.email}</div>}
-                          {!user.personal_access_enabled && <div className="mt-1 text-xs italic text-slate-400">Kiosk only — personal sign-in off</div>}
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-4">
-                      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
-                        {roleLabel(user.role)}
-                      </span>
-                      <div className="mt-1 text-xs text-slate-500">{user.personal_access_enabled ? 'Personal access' : 'Kiosk-only access'}</div>
+                    <td className="px-4 py-4 text-sm">
+                      <div className="text-slate-800">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned'}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {!user.time_tracking_enabled
+                          ? 'Does not track hours'
+                          : (user.time_categories ?? []).length > 0
+                            ? user.time_categories!.map((tc) => tc.name).join(', ')
+                            : 'No work categories yet'}
+                      </div>
                     </td>
-                    {canManageMyPay && <td className="px-5 py-4">{renderMyPaySwitch(user)}</td>}
-                    <td className="px-5 py-4">
-                      {user.public_team_enabled ? (
-                        <div className="space-y-1">
-                          <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-medium text-cyan-700">
-                            Visible
-                          </span>
-                          {(user.public_team_title || user.staff_title) && (
-                            <div className="text-xs text-slate-500">{user.public_team_title || user.staff_title}</div>
-                          )}
-                          <div className={`text-xs ${user.public_team_photo_thumb_url || user.public_team_photo_url ? 'text-emerald-600' : 'text-amber-600'}`}>
-                            {user.public_team_photo_thumb_url || user.public_team_photo_url ? 'Portrait ready' : 'Text listing until photo'}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">Hidden</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      {(user.approval_group_labels?.length ?? 0) > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {user.approval_group_labels!.map((label) => (
-                            <span key={label} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
-                              {label}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">Unassigned</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      {!user.time_tracking_enabled ? (
-                        <span className="text-xs text-slate-400">Does not track hours</span>
-                      ) : (user.time_categories ?? []).length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {user.time_categories!.map((tc) => (
-                            <span key={tc.id} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
-                              {tc.name}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">Not configured</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-4">
                       {renderStatusBadge(user)}
                       {user.termination_effective_on && (
                         <div className="mt-1 text-xs text-slate-500">Effective {user.termination_effective_on}</div>
                       )}
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="space-y-1 text-sm">
-                        <div className="flex">
-                          {user.kiosk_enabled && user.kiosk_pin_configured ? (
-                            <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-cyan-700">PIN ready</span>
-                          ) : !user.kiosk_enabled ? (
-                            <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-slate-500">Disabled</span>
-                          ) : (
-                            <span className="inline-flex min-w-[6.5rem] justify-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-center text-xs font-medium leading-tight text-slate-600">Not set</span>
-                          )}
+                      {user.time_tracking_enabled && (
+                        <div className="mt-1 text-xs text-slate-500" title={user.kiosk_enabled && user.kiosk_pin_last_rotated_at ? `PIN changed ${formatDateTime(user.kiosk_pin_last_rotated_at)}` : undefined}>
+                          {!user.kiosk_enabled ? 'Kiosk off' : user.kiosk_pin_configured ? 'Kiosk PIN ready' : 'No kiosk PIN yet'}
                         </div>
-                        {user.kiosk_enabled && user.kiosk_pin_last_rotated_at && <div className="text-xs text-slate-500">Rotated {formatDateTime(user.kiosk_pin_last_rotated_at)}</div>}
-                        {user.kiosk_enabled && isKioskLocked(user) && <div className="text-xs text-red-600">Locked until {formatDateTime(user.kiosk_locked_until!)}</div>}
-                      </div>
+                      )}
+                      {user.kiosk_enabled && isKioskLocked(user) && <div className="mt-1 text-xs font-medium text-red-700">PIN locked until {formatDateTime(user.kiosk_locked_until!)}</div>}
                     </td>
-                    <td className="px-5 py-4">
-                      <div className="flex flex-col items-end gap-2 text-sm font-medium">
+                    {canManageMyPay && <td className="px-4 py-4">{renderMyPaySwitch(user)}</td>}
+                    <td className="px-4 py-4">
+                      <div className="flex flex-col items-end gap-1 text-sm font-medium">
                         <button
                           type="button"
                           onClick={() => openEditUser(user)}
-                          className="text-slate-700 transition hover:text-slate-900"
+                          className="inline-flex min-h-9 items-center rounded-lg border border-slate-300 bg-white px-3 font-semibold text-slate-800 transition hover:bg-slate-50"
                         >
                           Edit
                         </button>
@@ -1186,9 +1128,9 @@ export default function Users() {
                           <button
                             type="button"
                             onClick={() => openPinModal(user)}
-                            className="text-cyan-700 transition hover:text-cyan-900"
+                            className="min-h-9 text-right text-cyan-800 transition hover:text-cyan-950"
                           >
-                            {user.kiosk_pin_configured ? 'Reset PIN' : 'Set kiosk PIN'}
+                            {user.kiosk_pin_configured ? 'Reset PIN' : 'Set PIN'}
                           </button>
                         )}
                         {user.is_active && user.is_pending && user.email && user.can_change_access !== false && (
@@ -1196,7 +1138,7 @@ export default function Users() {
                             type="button"
                             onClick={() => handleResendInvite(user)}
                             disabled={resendingIds.has(user.id)}
-                            className="text-slate-700 transition hover:text-slate-900 disabled:opacity-50"
+                            className="min-h-9 text-right text-slate-700 transition hover:text-slate-900 disabled:opacity-50"
                           >
                             {resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}
                           </button>
@@ -1206,10 +1148,10 @@ export default function Users() {
                             type="button"
                             onClick={() => handleDelete(user)}
                             disabled={deletingIds.has(user.id)}
-                            className="text-red-600 transition hover:text-red-800 disabled:opacity-50"
+                            className="min-h-9 text-right text-red-700 transition hover:text-red-800 disabled:opacity-50"
                             title="Delete a never-used profile that has no work or payroll history"
                           >
-                            {deletingIds.has(user.id) ? 'Deleting…' : 'Delete unused profile'}
+                            {deletingIds.has(user.id) ? 'Deleting…' : 'Delete unused'}
                           </button>
                         )}
                       </div>
@@ -1335,7 +1277,7 @@ export default function Users() {
                             <span className="font-medium">Kiosk access is included.</span>{' '}
                             {createPersonalAccess ? 'They will choose a PIN after their first sign-in.' : 'They will use a PIN to clock in and out.'}
                           </div>
-                          {!createPersonalAccess && <div><label className="mb-2 block text-sm font-medium text-slate-700">Kiosk PIN <span className="text-xs font-normal text-slate-400">(optional)</span></label><input inputMode="numeric" pattern="[0-9]{4,8}" value={createKioskPin} onChange={(event) => setCreateKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Generate automatically" className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /><p className="mt-2 text-xs text-slate-500">Leave blank to generate a secure six-digit PIN that is shown once after creation.</p></div>}
+                          {!createPersonalAccess && <div><label className="mb-2 block text-sm font-medium text-slate-700">Kiosk PIN <span className="text-xs font-normal text-slate-500">(optional)</span></label><input inputMode="numeric" pattern="[0-9]{4,8}" value={createKioskPin} onChange={(event) => setCreateKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Generate automatically" className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /><p className="mt-2 text-xs text-slate-500">Leave blank to generate a secure six-digit PIN that is shown once after creation.</p></div>}
                         </>
                       )}
                     </>
@@ -1704,7 +1646,7 @@ export default function Users() {
                     {editPersonalAccess ? 'This person can use both their account and the kiosk.' : 'This is how this person clocks in and out.'}
                   </div>
                   <div className="mt-4">
-                    <label className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-400">(optional)</span></label>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">{editingUser.kiosk_pin_configured ? 'Replace kiosk PIN' : 'Kiosk PIN'} <span className="text-xs font-normal text-slate-500">(optional)</span></label>
                     <input inputMode="numeric" pattern="[0-9]{4,8}" value={editKioskPin} disabled={editAccessLocked} onChange={(event) => setEditKioskPin(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder={editAccessLocked ? 'Only an owner can change this PIN' : editingUser.kiosk_pin_configured ? 'Keep current PIN' : editPersonalAccess ? 'Set one now instead' : 'Generate automatically'} className="w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm tracking-widest outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:bg-slate-100 disabled:text-slate-500" />
                     <p className="mt-2 text-xs text-slate-500">{editingUser.kiosk_pin_configured ? `PIN ready${editingUser.kiosk_pin_last_rotated_at ? `, last rotated ${formatDateTime(editingUser.kiosk_pin_last_rotated_at)}` : ''}. Leave blank to keep it.` : editPersonalAccess ? 'Leave blank and they will choose their PIN after their next sign-in.' : 'Leave blank to generate a secure six-digit PIN that is shown once after saving.'}</p>
                   </div>
@@ -1781,7 +1723,7 @@ export default function Users() {
                 <input data-termination-autofocus type="date" value={terminationEffectiveOn} max={formatDateInTimeZoneISO(new Date(), 'Pacific/Guam')} onChange={(event) => setTerminationEffectiveOn(event.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
               </label>
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Internal note <span className="font-normal text-slate-400">(optional)</span></span>
+                <span className="mb-2 block text-sm font-medium text-slate-700">Internal note <span className="font-normal text-slate-500">(optional)</span></span>
                 <textarea value={terminationReason} maxLength={1000} onChange={(event) => setTerminationReason(event.target.value)} rows={3} placeholder="Reason or offboarding note" className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
               </label>
             </div>

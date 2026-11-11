@@ -218,7 +218,7 @@ export default function AireKiosk() {
 
   const handleVerify = async () => {
     if (!kioskUnlocked) {
-      setError('Kiosk is locked. Ask an admin to unlock it first.')
+      setError('Kiosk is locked. Ask a manager or admin to unlock it first.')
       return
     }
 
@@ -258,7 +258,7 @@ export default function AireKiosk() {
 
   const runAction = async (action: KioskAction) => {
     if (!kioskUnlocked) {
-      setError('Kiosk is locked. Ask an admin to unlock it first.')
+      setError('Kiosk is locked. Ask a manager or admin to unlock it first.')
       return
     }
 
@@ -375,7 +375,7 @@ export default function AireKiosk() {
 
   if (!canViewKiosk) {
     return (
-      <div className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6">
+      <div className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6 [-webkit-tap-highlight-color:transparent]">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-center justify-end gap-4 text-xs">
             <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
@@ -383,7 +383,7 @@ export default function AireKiosk() {
           <section className="mt-12 rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center shadow-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white md:text-4xl">
-              Admin launch required
+              Manager or admin launch required
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-sm text-slate-300 md:text-base">
               This shared kiosk should only be opened by a manager or admin on the device that staff will use.
@@ -400,7 +400,7 @@ export default function AireKiosk() {
               ) : !isSignedIn ? (
                 <SignInButton mode="modal" forceRedirectUrl="/kiosk" fallbackRedirectUrl="/kiosk">
                   <button className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
-                    Admin sign in to open kiosk
+                    Manager or admin sign in
                   </button>
                 </SignInButton>
               ) : (
@@ -430,14 +430,15 @@ export default function AireKiosk() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-slate-950 text-slate-100 [-webkit-tap-highlight-color:transparent]">
       {kioskUnlocked && <div className="mx-auto max-w-6xl px-4 pt-4 md:px-6">
         <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice }} />
       </div>}
-      <div className="mx-auto flex max-w-6xl items-center justify-end gap-4 px-4 pt-3 text-xs md:px-6">
-        <Link to="/admin" className="text-slate-500 transition hover:text-slate-300">Admin</Link>
-        <Link to="/" className="text-slate-500 transition hover:text-slate-300">Home</Link>
-      </div>
+      {/* Staff share this device while it's unlocked; keep them on the kiosk. */}
+      {!kioskUnlocked && <div className="mx-auto flex max-w-6xl items-center justify-end gap-4 px-4 pt-3 text-xs md:px-6">
+        <Link to="/admin" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Admin</Link>
+        <Link to="/" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Home</Link>
+      </div>}
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-8 pt-4 md:grid-cols-[1.15fr_1fr] md:px-6">
         <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -470,7 +471,7 @@ export default function AireKiosk() {
                   ? 'Local development mode is bypassing the admin unlock requirement.'
                   : kioskAccessSession
                     ? `Unlocked by ${kioskAccessSession.unlockedBy} until ${new Date(kioskAccessSession.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}.`
-                    : 'An admin has to unlock this kiosk before staff can enter a PIN.'}
+                    : 'A manager or admin unlocks this kiosk before staff can enter a PIN.'}
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -495,7 +496,7 @@ export default function AireKiosk() {
                 </button>
               ) : (
                 <Link to="/admin" className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10">
-                  Admin unlock
+                  Manager or admin unlock
                 </Link>
               )}
             </div>
