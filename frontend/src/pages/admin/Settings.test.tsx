@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Settings from './Settings'
@@ -18,6 +18,7 @@ const apiMock = vi.hoisted(() => ({
   geocodeAdminClockLocation: vi.fn(),
   autocompleteAdminClockLocation: vi.fn(),
   getAdminClockPlaceDetails: vi.fn(),
+  deleteTimeCategory: vi.fn(),
 }))
 
 const payStubsMock = vi.hoisted(() => ({ notificationEmails: vi.fn(), updateNotificationEmails: vi.fn() }))
@@ -36,6 +37,7 @@ vi.mock('../../lib/api', () => ({
     geocodeAdminClockLocation: apiMock.geocodeAdminClockLocation,
     autocompleteAdminClockLocation: apiMock.autocompleteAdminClockLocation,
     getAdminClockPlaceDetails: apiMock.getAdminClockPlaceDetails,
+    deleteTimeCategory: apiMock.deleteTimeCategory,
   },
 }))
 
@@ -263,5 +265,72 @@ describe('Admin Settings contact settings', () => {
 
     await waitFor(() => expect(payStubsMock.updateNotificationEmails).toHaveBeenCalledWith('office@example.com'))
     expect(await screen.findByText(/New requests are also emailed to office@example.com/)).toBeInTheDocument()
+  })
+
+  describe('time category confirmations', () => {
+    const category = (overrides: Record<string, unknown>) => ({
+      id: 1, name: 'Ground School', key: 'ground', description: null, is_active: true,
+      time_entries_count: 0, deletable: true, created_at: '2026-01-01', updated_at: '2026-01-01', ...overrides,
+    })
+    const showCategories = async (categories: unknown[]) => {
+      apiMock.getAdminTimeCategories.mockResolvedValue({ data: { time_categories: categories } })
+      apiMock.deleteTimeCategory.mockReset().mockResolvedValue({})
+      render(<Settings />)
+      await screen.findByText(categories.length > 1 ? 'Flight Instruction' : 'Ground School')
+    }
+
+    it('explains what deactivating a used category keeps, and does nothing on Cancel', async () => {
+      await showCategories([category({ id: 7, name: 'Flight Instruction', time_entries_count: 12, deletable: false }), category({})])
+      fireEvent.click(screen.getAllByRole('button', { name: 'Deactivate' })[0])
+      const dialog = await screen.findByRole('alertdialog', { name: 'Deactivate "Flight Instruction"?' })
+      expect(dialog).toHaveTextContent('Existing time entries keep this category; it will be hidden from new clock-ins.')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+      expect(apiMock.deleteTimeCategory).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'Deactivate' })[0])
+      fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Deactivate' }))
+      await waitFor(() => expect(apiMock.deleteTimeCategory).toHaveBeenCalledWith(7))
+    })
+
+    it('asks a plain question before deactivating an unused category', async () => {
+      await showCategories([category({})])
+      fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }))
+      const dialog = await screen.findByRole('alertdialog', { name: 'Deactivate "Ground School"?' })
+      expect(dialog).not.toHaveTextContent('Existing time entries')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Deactivate' }))
+      await waitFor(() => expect(apiMock.deleteTimeCategory).toHaveBeenCalledWith(1))
+    })
+
+    it('confirms permanent deletion as a destructive action', async () => {
+      await showCategories([category({})])
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      const dialog = await screen.findByRole('alertdialog', { name: 'Permanently delete "Ground School"?' })
+      expect(dialog).toHaveTextContent('This cannot be undone.')
+      expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+      fireEvent.keyDown(document, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+      expect(apiMock.deleteTimeCategory).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete permanently' }))
+      await waitFor(() => expect(apiMock.deleteTimeCategory).toHaveBeenCalledWith(1))
+    })
+  })
+
+  it('labels the time clock rules and explains each one in a help tip', async () => {
+    render(<Settings />)
+    expect(await screen.findByLabelText('Early clock-in buffer (minutes)')).toHaveValue(5)
+    expect(screen.getByLabelText('Daily hours review alert after (hours)')).toHaveValue(8)
+    expect(screen.getByLabelText('Weekly hours review alert after (hours)')).toHaveValue(40)
+
+    const tip = screen.getByRole('button', { name: 'About Early clock-in buffer' })
+    expect(tip).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(tip)
+    expect(tip).toHaveAttribute('aria-expanded', 'true')
+    const announcement = screen.getAllByRole('status').find(region => region.textContent?.includes('Early clock-in buffer'))
+    expect(announcement).toHaveTextContent('Default5 minutes')
+    expect(announcement).toHaveTextContent('Who can change itOwners and admins')
+    expect(screen.getByRole('button', { name: 'About Daily hours review alert' })).toHaveAttribute('aria-expanded', 'false')
   })
 })

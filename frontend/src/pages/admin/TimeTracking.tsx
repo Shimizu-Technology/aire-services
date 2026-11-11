@@ -14,6 +14,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import ClockInOutCard from '../../components/time-tracking/ClockInOutCard'
 import ApprovalQueue from '../../components/time-tracking/ApprovalQueue'
 import EditTimeEntryModal from '../../components/time-tracking/EditTimeEntryModal'
+import { useConfirm } from '../../components/ui/useConfirm'
 import WhosWorking from '../../components/time-tracking/WhosWorking'
 import LeaveRequestsPanel from '../../components/time-tracking/LeaveRequestsPanel'
 import ReportExportActions from '../../components/time-tracking/ReportExportActions'
@@ -1076,13 +1077,14 @@ export default function TimeTracking() {
     setLinkedEntryState(current => current?.entry && current.entry.id === id ? { ...current, entry: null } : current)
   }
 
-  const handleDelete = async (entry: TimeEntryItem) => {
+  // Resolves true only when the entry was actually deleted.
+  const handleDelete = async (entry: TimeEntryItem): Promise<boolean> => {
     if (!canDeleteEntry(entry)) {
       setError('You do not have permission to delete this time entry')
-      return
+      return false
     }
 
-    if (!confirm('Are you sure you want to delete this time entry?')) return
+    if (!(await confirm({ title: 'Are you sure you want to delete this time entry?', tone: 'danger', confirmLabel: 'Delete entry' }))) return false
 
     try {
       const response = await api.deleteTimeEntry(entry.id)
@@ -1090,10 +1092,10 @@ export default function TimeTracking() {
         if (response.code === 'correction_reason_required') {
           openEditEntry(entry)
           setError('This entry was already exported to payroll. Use the edit dialog to record a correction reason before deleting it.')
-          return
+          return false
         }
         setError(response.error)
-        return
+        return false
       }
       clearDeletedLinkedEntry(entry.id)
       reopenPersonDayAfterLoad.current = returnToPersonDay.current
@@ -1101,8 +1103,10 @@ export default function TimeTracking() {
       setShowModal(false)
       setEditingEntry(null)
       refreshEntryViews()
+      return true
     } catch {
       setError('Failed to delete time entry')
+      return false
     }
   }
 
@@ -1214,13 +1218,19 @@ export default function TimeTracking() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  const [confirm, confirmDialog] = useConfirm()
+
   const downloadReport = async (type: HoursReportDownloadType, acknowledgeDraft = false) => {
     setReportExporting(type)
     setError(null)
     try {
       const response = await api.downloadHoursReport(type, currentReportParams(), acknowledgeDraft)
       if (response.code === 'draft_acknowledgement_required' && !acknowledgeDraft) {
-        const confirmed = confirm('This report includes approved entries without work categories. Download a clearly marked draft anyway?')
+        const confirmed = await confirm({
+          title: 'Download a clearly marked draft anyway?',
+          description: 'This report includes approved entries without work categories.',
+          confirmLabel: 'Download draft',
+        })
         if (confirmed) await downloadReport(type, true)
         return
       }
@@ -1825,7 +1835,7 @@ export default function TimeTracking() {
                 openNewEntry(personDayModal.date, undefined, undefined, undefined, userId)
               }}
               onDeleteEntry={async (entry) => {
-                await handleDelete(entry)
+                if (!(await handleDelete(entry))) return
                 const remaining = personDayModal.entries.filter(e => e.id !== entry.id)
                 if (remaining.length === 0) {
                   setPersonDayModal(null)
@@ -2498,6 +2508,7 @@ export default function TimeTracking() {
         onDeleted={() => { clearDeletedLinkedEntry(editingEntry?.id); refreshEntriesAfterEdit() }}
         onError={setError}
       />
+      {confirmDialog}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { useConfirm } from '../ui/useConfirm'
 
 interface TimeCategoryOption {
   id: number
@@ -126,6 +127,7 @@ export default function EditTimeEntryModal({
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   useDialogFocus(isOpen && !!entry, dialogRef, () => { if (!saving && !deleting) onClose() })
+  const [confirm, confirmDialog] = useConfirm()
 
   useEffect(() => {
     if (!isOpen || !entry) return
@@ -261,7 +263,7 @@ export default function EditTimeEntryModal({
 
   const handleDelete = async () => {
     if (!entry || !canDelete) return
-    if (!confirm('Are you sure you want to delete this time entry?')) return
+    if (!(await confirm({ title: 'Are you sure you want to delete this time entry?', tone: 'danger', confirmLabel: 'Delete entry' }))) return
 
     setDeleting(true)
     setLocalError(null)
@@ -496,7 +498,7 @@ export default function EditTimeEntryModal({
                       ) : breakRows.map((row, index) => (
                         <div key={`${row.id || 'new'}-${index}`} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 rounded-xl border border-neutral-warm bg-white p-2">
                           <label className="block">
-                            <span className="mb-1 block text-[11px] font-medium text-text-muted">Start</span>
+                            <span className="mb-1 block text-xs font-medium text-text-muted">Start</span>
                             <input
                               type="time"
                               value={row.start_time}
@@ -505,7 +507,7 @@ export default function EditTimeEntryModal({
                             />
                           </label>
                           <label className="block">
-                            <span className="mb-1 block text-[11px] font-medium text-text-muted">End</span>
+                            <span className="mb-1 block text-xs font-medium text-text-muted">End</span>
                             <input
                               type="time"
                               value={row.end_time}
@@ -621,6 +623,7 @@ export default function EditTimeEntryModal({
               </form>
             </div>
           </div>
+          {confirmDialog}
         </div>,
     document.body,
   )
