@@ -134,7 +134,6 @@ describe('TimeTracking current linked entry refresh', () => {
   })
 
   it.each([404, 500])('removes a successfully deleted linked entry even when its following read returns%s', async (status) => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
     setSavedEntry(completed())
     apiMock.deleteTimeEntry.mockImplementation(async () => {
       apiMock.getTimeEntry.mockResolvedValue({ error: 'Time entry not found', status })
@@ -145,6 +144,7 @@ describe('TimeTracking current linked entry refresh', () => {
     await screen.findByRole('region', { name: 'Linked time entry' })
     const searchBefore = screen.getByTestId('search').textContent
     fireEvent.click(screen.getByTitle('Delete entry'))
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Are you sure you want to delete this time entry?' })).getByRole('button', { name: 'Delete entry' }))
     expect(await screen.findByText('Time entry not found')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()
     expect(document.getElementById('time-entry-90')).toBeNull()
@@ -153,7 +153,6 @@ describe('TimeTracking current linked entry refresh', () => {
   })
 
   it('does not restore a known-deleted entry when its earlier read completes before refresh cleanup', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
     setSavedEntry(completed())
     let finishRead!: (response: unknown) => void
     apiMock.getTimeEntry.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve }))
@@ -170,6 +169,7 @@ describe('TimeTracking current linked entry refresh', () => {
     await waitFor(() => expect(finishRead).toBeDefined())
     const searchBefore = screen.getByTestId('search').textContent
     fireEvent.click(deleteButton)
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Are you sure you want to delete this time entry?' })).getByRole('button', { name: 'Delete entry' }))
 
     expect(await screen.findByText('Refresh unavailable')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Linked time entry' })).not.toBeInTheDocument()

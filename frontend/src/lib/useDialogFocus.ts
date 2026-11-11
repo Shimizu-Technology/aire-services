@@ -2,6 +2,9 @@ import { useEffect, useEffectEvent, type RefObject } from 'react'
 
 let scrollLocks = 0
 let previousBodyOverflow = ''
+// Open dialogs, newest last. Only the top one handles Escape and Tab, so a
+// confirm dialog opened over a modal doesn't close or steal focus from both.
+const openDialogs: HTMLElement[] = []
 
 /** Shared by dialogs so one closing overlay cannot unlock another. */
 export function lockDialogScroll() {
@@ -25,9 +28,11 @@ export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>
     const dialog = ref.current
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const unlockScroll = lockDialogScroll()
+    openDialogs.push(dialog)
     const controls = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')).filter(element => element.getClientRects().length > 0)
     ;((initialFocusSelector && dialog.querySelector<HTMLElement>(initialFocusSelector)) || controls()[0] || dialog).focus()
     function handleKey(event: KeyboardEvent) {
+      if (openDialogs[openDialogs.length - 1] !== dialog) return
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return }
       if (event.key !== 'Tab') return
       const items = controls()
@@ -41,6 +46,8 @@ export function useDialogFocus(open: boolean, ref: RefObject<HTMLElement | null>
     document.addEventListener('keydown', handleKey, true)
     return () => {
       document.removeEventListener('keydown', handleKey, true)
+      const index = openDialogs.lastIndexOf(dialog)
+      if (index >= 0) openDialogs.splice(index, 1)
       unlockScroll()
       if (trigger?.isConnected) trigger.focus()
     }

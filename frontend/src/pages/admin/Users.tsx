@@ -14,6 +14,7 @@ import RolePicker from '../../components/team/RolePicker'
 import MyPaySwitch from '../../components/team/MyPaySwitch'
 import { isUserRole, ROLE_DETAILS, roleLabel, roleRequiresPersonalAccess, rolesAssignableToNewPerson, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
+import { useConfirm } from '../../components/ui/useConfirm'
 
 const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
 const maxPublicTeamPhotoSize = 15 * 1024 * 1024
@@ -747,8 +748,16 @@ export default function Users() {
     }
   }
 
+  const [confirm, confirmDialog] = useConfirm()
+
   const handleDelete = async (user: AdminUser) => {
-    if (!confirm(`Permanently delete the unused profile for ${user.display_name || user.email || 'this user'}? This is only allowed before any work history exists.`)) return
+    const remove = await confirm({
+      title: `Permanently delete the unused profile for ${user.display_name || user.email || 'this user'}?`,
+      description: 'This is only allowed before any work history exists.',
+      tone: 'danger',
+      confirmLabel: 'Delete profile',
+    })
+    if (!remove) return
     setDeletingIds((prev) => new Set(prev).add(user.id))
     try {
       const response = await api.deleteUser(user.id)
@@ -1867,6 +1876,7 @@ export default function Users() {
           </div>
         </div>
       )}
+      {confirmDialog}
     </div>
   )
 }

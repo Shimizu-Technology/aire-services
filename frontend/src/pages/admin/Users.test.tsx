@@ -631,4 +631,25 @@ describe('Users roles and My Pay', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Only owners and admins can change My Pay access')
     expect(within(rowFor('Ana Worker')).getByRole('switch', { name: 'My Pay for Ana Worker' })).toHaveAttribute('aria-checked', 'false')
   })
+
+  it('deletes an unused profile only after the in-app confirmation', async () => {
+    const unused = makeUser({ id: 13, full_name: 'Uma Unused', display_name: 'Uma Unused', email: 'uma@aire.test', can_delete_permanently: true, can_change_access: true })
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [owner, unused] } })
+    apiMock.deleteUser.mockResolvedValue({})
+    render(<MemoryRouter><Users /></MemoryRouter>)
+    await screen.findByText('Uma Unused')
+    const remove = within(rowFor('Uma Unused')).getByRole('button', { name: 'Delete unused profile' })
+
+    fireEvent.click(remove)
+    const dialog = await screen.findByRole('alertdialog', { name: 'Permanently delete the unused profile for Uma Unused?' })
+    expect(dialog).toHaveTextContent('This is only allowed before any work history exists.')
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(apiMock.deleteUser).not.toHaveBeenCalled()
+
+    fireEvent.click(remove)
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete profile' }))
+    await waitFor(() => expect(apiMock.deleteUser).toHaveBeenCalledWith(13))
+  })
 })

@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
+import { useConfirm } from '../../components/ui/useConfirm'
+import { HelpTip } from '../../components/ui/HelpTip'
 import PayStubSettings from '../../components/pay-stubs/PayStubSettings'
 import { defaultPublicContactSettings, defaultPublicPhoneContacts } from '../../lib/businessInfo'
 import { defaultSocialLinks } from '../../lib/socialLinks'
@@ -331,10 +333,15 @@ export default function Settings() {
     }
   }
 
+  const [confirm, confirmDialog] = useConfirm()
+
   const handleDeactivateCategory = async (cat: AdminTimeCategory) => {
-    if (cat.time_entries_count > 0) {
-      if (!confirm(`Deactivate "${cat.name}"? Existing time entries keep this category; it will be hidden from new clock-ins.`)) return
-    } else if (!confirm(`Deactivate "${cat.name}"?`)) return
+    const deactivate = await confirm({
+      title: `Deactivate "${cat.name}"?`,
+      description: cat.time_entries_count > 0 ? 'Existing time entries keep this category; it will be hidden from new clock-ins.' : undefined,
+      confirmLabel: 'Deactivate',
+    })
+    if (!deactivate) return
 
     const res = await api.deleteTimeCategory(cat.id)
     if (res.error) alert(res.error)
@@ -354,7 +361,7 @@ export default function Settings() {
       return
     }
 
-    if (!confirm(`Permanently delete "${cat.name}"? This cannot be undone.`)) return
+    if (!(await confirm({ title: `Permanently delete "${cat.name}"?`, description: 'This cannot be undone.', tone: 'danger', confirmLabel: 'Delete permanently' }))) return
 
     const res = await api.deleteTimeCategory(cat.id)
     if (res.error) alert(res.error)
@@ -864,10 +871,20 @@ export default function Settings() {
                 {settingsError && (
                   <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{settingsError}</div>
                 )}
-                <div className="grid gap-5 sm:grid-cols-3">
+                <div className="grid gap-5 sm:grid-cols-3 sm:items-end">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Daily hours review alert after (hours)</label>
+                    <div className="mb-2 flex items-center gap-1.5">
+                      <label htmlFor="daily-alert-hours" className="block text-sm font-medium text-slate-700">Daily hours review alert after (hours)</label>
+                      <HelpTip
+                        label="Daily hours review alert"
+                        what="Shows a review alert on a person's clock card once they pass this many hours in one day. It doesn't change pay or ask anyone to approve overtime."
+                        defaultValue="8 hours"
+                        who="Owners and admins"
+                        example="At 8, someone who has worked 8.5 hours today sees the alert. Their pay is the same."
+                      />
+                    </div>
                     <input
+                      id="daily-alert-hours"
                       type="number"
                       step="0.25"
                       min="0.25"
@@ -878,8 +895,18 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Weekly hours review alert after (hours)</label>
+                    <div className="mb-2 flex items-center gap-1.5">
+                      <label htmlFor="weekly-alert-hours" className="block text-sm font-medium text-slate-700">Weekly hours review alert after (hours)</label>
+                      <HelpTip
+                        label="Weekly hours review alert"
+                        what="Shows a review alert on a person's clock card once they pass this many hours in the Sunday–Saturday week. Overtime pay still starts after 40 hours, whatever this is set to."
+                        defaultValue="40 hours"
+                        who="Owners and admins"
+                        example="At 36, someone with 37 hours this week sees the alert so a manager can plan. Overtime pay still starts after 40."
+                      />
+                    </div>
                     <input
+                      id="weekly-alert-hours"
                       type="number"
                       step="0.25"
                       min="0.25"
@@ -890,8 +917,18 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Early clock-in buffer (minutes)</label>
+                    <div className="mb-2 flex items-center gap-1.5">
+                      <label htmlFor="early-clock-in-buffer" className="block text-sm font-medium text-slate-700">Early clock-in buffer (minutes)</label>
+                      <HelpTip
+                        label="Early clock-in buffer"
+                        what="How many minutes before a scheduled shift someone can clock in. Clocking in up to this many minutes after the start still counts as on time. People with no schedule that day aren't affected."
+                        defaultValue="5 minutes"
+                        who="Owners and admins"
+                        example="At 5, for a 7:00 AM shift: clock-in opens at 6:55 AM, and clocking in by 7:05 AM counts as on time."
+                      />
+                    </div>
                     <input
+                      id="early-clock-in-buffer"
                       type="number"
                       step="1"
                       min="0"
@@ -1703,6 +1740,7 @@ export default function Settings() {
           </div>
         </div>
       )}
+      {confirmDialog}
     </div>
   )
 }

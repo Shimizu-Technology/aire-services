@@ -16,6 +16,108 @@
 
   --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
   --font-body: 'DM Sans', system-ui, sans-serif;
+
+  /* Semantic roles for admin UI. Prefer these over raw slate/red classes in
+     new code; shared components in components/ui use them. */
+  --color-ink: #0f172a;
+  --color-ink-muted: #475569;
+  /* Smallest text colour allowed on white or slate-50 (4.6:1). Use instead of
+     slate-400, which is 2.6:1 and fails WCAG AA for labels. */
+  --color-ink-subtle: #64748b;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  --color-danger: #b91c1c;
+  --color-danger-dark: #991b1b;
+  --color-danger-soft: #fef2f2;
+
+  /* Type scale. Nothing below 12px (caption). */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.25rem;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5rem;
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.75rem;
+  --text-heading: 1.5rem;
+  --text-heading--line-height: 2rem;
+
+  /* Two radii: controls and cards. Spacing stays on Tailwind's 4px scale. */
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Phone-web baseline (mobile-native). */
+@layer base {
+  html {
+    /* The grey tap flash fights our own :active feedback. */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* No double-tap-zoom wait on controls. */
+  a, button, [role="button"], input, select, textarea, label, summary {
+    touch-action: manipulation;
+  }
+
+  /* Long-press shouldn't select a button's label. */
+  button, [role="button"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  @media (pointer: coarse) {
+    /* iOS zooms into any field under 16px. Override the small text tokens on
+       the field itself so text-xs/text-sm fields render at 16px on touch, while
+       larger sizes (kiosk PIN) keep their own size. */
+    input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]),
+    select,
+    textarea {
+      font-size: 1rem;
+      --text-xs: 1rem;
+      --text-sm: 1rem;
+      --text-caption: 1rem;
+      --text-body-sm: 1rem;
+    }
+
+    /* Removing the tap highlight removes the only press feedback legacy
+       buttons had. Utilities can still override this. */
+    button:not(:disabled):active,
+    [role="button"]:active,
+    a[href]:active {
+      opacity: 0.85;
+    }
+  }
+}
+
+/* Safe-area padding. env() is 0 until the viewport meta opts into
+   viewport-fit=cover, so these are safe to use now. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility pb-safe-* {
+  padding-bottom: calc(--spacing(--value(integer)) + env(safe-area-inset-bottom, 0px));
+}
+@utility pt-safe-* {
+  padding-top: calc(--spacing(--value(integer)) + env(safe-area-inset-top, 0px));
 }
 
 body {

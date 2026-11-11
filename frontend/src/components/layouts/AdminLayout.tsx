@@ -174,7 +174,7 @@ export default function AdminLayout() {
             </button>
             <div>
               <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">AIRE Ops</Link>
-              <p className="text-xs text-slate-400 lg:hidden">{isAdmin ? 'Admin dashboard' : `${workspaceLabel} portal`}</p>
+              <p className="text-xs text-slate-500 lg:hidden">{isAdmin ? 'Admin dashboard' : `${workspaceLabel} portal`}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -204,7 +204,7 @@ export default function AdminLayout() {
         <aside ref={sidebarRef} role={!isDesktop && navigationOpen ? 'dialog' : undefined} aria-modal={!isDesktop && navigationOpen ? true : undefined} aria-label="Navigation" aria-hidden={!isDesktop && !navigationOpen ? true : undefined} inert={!isDesktop && !navigationOpen} className={`fixed top-16 bottom-0 left-0 z-40 overflow-y-auto border-r border-slate-200 bg-white px-4 py-6 shadow-xl transition-all duration-300 motion-reduce:transition-none lg:static lg:translate-x-0 lg:overflow-visible lg:shadow-none ${desktopCollapsed ? 'w-72 lg:w-24' : 'w-72'} ${navigationOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
           {!isDesktop && <button type="button" onClick={() => setMobileOpen(false)} className="mb-4 flex min-h-11 items-center gap-2 text-slate-700 lg:hidden" aria-label="Close navigation"><X className="h-5 w-5" aria-hidden="true" />Close</button>}
           <div className={`mb-6 ${desktopCollapsed ? 'px-0' : 'px-2'}`}>
-            <p className={`text-xs font-semibold uppercase tracking-[0.12em] text-slate-400 ${desktopCollapsed ? 'hidden lg:block lg:text-center' : ''}`}>
+            <p className={`text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 ${desktopCollapsed ? 'hidden lg:block lg:text-center' : ''}`}>
               {desktopCollapsed ? 'Nav' : isAdmin ? 'Admin Navigation' : 'Navigation'}
             </p>
           </div>

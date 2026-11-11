@@ -13,6 +13,7 @@ import { addDateDays, businessDateISO, businessWeekStart, formatWorkDate } from 
 import { LATE_HOURS_NOTICE } from '../../lib/payrollCutoffCopy'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from './EditTimeEntryModal'
+import { useConfirm } from '../ui/useConfirm'
 
 interface ApprovalQueueProps {
   canManageTeamTime?: boolean
@@ -211,6 +212,7 @@ function approveLabel(entry: TimeEntry) {
 }
 
 export default function ApprovalQueue({ canManageTeamTime = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+  const [confirm, confirmDialog] = useConfirm()
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -530,9 +532,29 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     }
 
     const lateCount = selectedEntries.filter(entry => entry.payroll_cutoff_missed).length
-    const lateWarning = lateCount ? `\n\n${lateCount} selected entr${lateCount === 1 ? 'y has' : 'ies have'} missed the payroll cutoff.` : ''
     const selectedSummary = summarizeSelectedEntries(selectedEntries)
-    if (!confirm(`Approve ${selectedEntries.length} selected entr${selectedEntries.length === 1 ? 'y' : 'ies'}?\n\nDate range: ${selectedSummary.dateLabel}\nTotal hours: ${selectedSummary.totalHours.toFixed(2)}h${lateWarning}${lateCount > 0 ? `\n\n${LATE_HOURS_NOTICE}` : ''}`)) return
+    const count = selectedEntries.length
+    const approved = await confirm({
+      title: `Approve ${count} selected entr${count === 1 ? 'y' : 'ies'}?`,
+      confirmLabel: `Approve ${count} entr${count === 1 ? 'y' : 'ies'}`,
+      details: (
+        <>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            <dt>Date range:</dt>
+            <dd className="font-medium text-ink">{selectedSummary.dateLabel}</dd>
+            <dt>Total hours:</dt>
+            <dd className="font-medium tabular-nums text-ink">{selectedSummary.totalHours.toFixed(2)}h</dd>
+          </dl>
+          {lateCount > 0 && (
+            <div className="rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+              <p className="font-semibold">{lateCount} selected entr{lateCount === 1 ? 'y has' : 'ies have'} missed the payroll cutoff.</p>
+              <p className="mt-1">{LATE_HOURS_NOTICE}</p>
+            </div>
+          )}
+        </>
+      ),
+    })
+    if (!approved) return
 
     setBulkActionLoading(true)
     setActionError(null)
@@ -1104,6 +1126,7 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
       onDeleted={handleEditDeleted}
       onError={setActionError}
     />
+    {confirmDialog}
     </>
   )
 }
