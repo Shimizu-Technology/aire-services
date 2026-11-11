@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Ellipsis, type LucideIcon } from 'lucide-react'
 import { Sheet } from '../ui'
@@ -24,16 +24,57 @@ const tabClass = (active: boolean) => cx(
   active ? 'text-primary' : 'text-ink-muted hover:text-ink',
 )
 
+// Matches Tailwind's lg breakpoint, where the sidebar replaces the tab bar.
+const DESKTOP_MIN_WIDTH = 1024
+
+interface AdminTabBarProps {
+  layout: TabBarLayout
+  approvalCount: number
+  /** True while a required dialog (kiosk PIN setup) is open: the bar is inert and More stays closed. */
+  suspended?: boolean
+  /** Called after More closes because the window grew to desktop width, so focus can move to the sidebar. */
+  onDesktopDismiss?: () => void
+}
+
 /**
  * Phones and tablets: a bottom tab bar instead of the slide-over sidebar.
  * Sits above the home indicator (safe-area padding) and hides from lg up,
  * where the sidebar takes over. Overflow pages live in a "More" sheet.
  */
-export default function AdminTabBar({ layout, approvalCount }: { layout: TabBarLayout; approvalCount: number }) {
+export default function AdminTabBar({ layout, approvalCount, suspended = false, onDesktopDismiss }: AdminTabBarProps) {
   const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [wasSuspended, setWasSuspended] = useState(suspended)
+  const dismissedForDesktop = useRef(false)
   const moreItems = layout.more.flatMap((group) => group.items)
   const moreActive = moreItems.some((navItem) => isNavItemActive(navItem, location.pathname))
+
+  // Required PIN setup closes More; it doesn't reopen once the PIN is saved.
+  if (suspended !== wasSuspended) {
+    setWasSuspended(suspended)
+    if (suspended) setMoreOpen(false)
+  }
+
+  // The sheet is portaled outside the lg:hidden bar, so close it when the
+  // window grows to desktop width rather than leave it over the sidebar.
+  useEffect(() => {
+    if (!moreOpen) return
+    const closeOnDesktop = () => {
+      if (window.innerWidth < DESKTOP_MIN_WIDTH) return
+      dismissedForDesktop.current = true
+      setMoreOpen(false)
+    }
+    window.addEventListener('resize', closeOnDesktop)
+    return () => window.removeEventListener('resize', closeOnDesktop)
+  }, [moreOpen])
+
+  // Runs after the sheet's own cleanup has returned focus to the hidden More
+  // button, so the sidebar gets focus instead.
+  useEffect(() => {
+    if (moreOpen || !dismissedForDesktop.current) return
+    dismissedForDesktop.current = false
+    onDesktopDismiss?.()
+  }, [moreOpen, onDesktopDismiss])
 
   const renderTab = (navItem: NavItem) => {
     const active = isNavItemActive(navItem, location.pathname)
@@ -57,14 +98,14 @@ export default function AdminTabBar({ layout, approvalCount }: { layout: TabBarL
 
   return (
     <>
-      <nav aria-label="Main tabs" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-safe pl-safe pr-safe backdrop-blur supports-[backdrop-filter]:bg-surface/85 lg:hidden">
+      <nav aria-label="Main tabs" inert={suspended} className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-safe pl-safe pr-safe backdrop-blur supports-[backdrop-filter]:bg-surface/85 lg:hidden">
         <ul className="mx-auto flex max-w-xl items-stretch gap-1 px-2">
           {layout.tabs.map(renderTab)}
           {moreItems.length > 0 && (
             <li className="flex min-w-0 flex-1">
               <button
                 type="button"
-                onClick={() => setMoreOpen(true)}
+                onClick={() => { if (!suspended) setMoreOpen(true) }}
                 aria-haspopup="dialog"
                 aria-expanded={moreOpen}
                 className={tabClass(moreActive)}
@@ -77,7 +118,7 @@ export default function AdminTabBar({ layout, approvalCount }: { layout: TabBarL
         </ul>
       </nav>
 
-      <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="More">
+      <Sheet open={moreOpen && !suspended} onClose={() => setMoreOpen(false)} title="More">
         <div className="space-y-5">
           {layout.more.map((group) => (
             <section key={group.id} aria-label={group.label ?? 'Pages'}>

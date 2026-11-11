@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn, UserButton } from '@clerk/clerk-react'
 import { PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react'
@@ -63,6 +63,12 @@ export default function AdminLayout() {
   const tabBar = useMemo(() => tabBarLayout(navigationOptions), [navigationOptions])
   const approvalCount = usePendingApprovalCount(capabilities.approve_time)
   const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)
+  const sidebarRef = useRef<HTMLElement>(null)
+  // After the phone "More" sheet closes on a resize to desktop, continue from the current page's sidebar link.
+  const focusSidebar = useCallback(() => {
+    const sidebar = sidebarRef.current
+    ;(sidebar?.querySelector<HTMLElement>('a[aria-current="page"]') ?? sidebar?.querySelector<HTMLElement>('a[href]'))?.focus()
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -103,7 +109,7 @@ export default function AdminLayout() {
 
       <div className="mx-auto flex w-full max-w-[104rem]">
         <div className={`hidden shrink-0 border-r border-slate-200 bg-white px-4 py-6 lg:block ${desktopCollapsed ? 'w-24' : 'w-72'}`}>
-          <nav aria-label="Main" className="space-y-6">
+          <nav ref={sidebarRef} aria-label="Main" className="space-y-6">
             {groups.map((group) => (
               <div key={group.id} role="group" aria-label={group.label ?? 'Workspace'}>
                 {group.label && (
@@ -164,7 +170,7 @@ export default function AdminLayout() {
         </main>
       </div>
 
-      <AdminTabBar layout={tabBar} approvalCount={approvalCount} />
+      <AdminTabBar layout={tabBar} approvalCount={approvalCount} suspended={needsKioskPinSetup} onDesktopDismiss={focusSidebar} />
 
       <KioskPinSetupModal
         open={needsKioskPinSetup}

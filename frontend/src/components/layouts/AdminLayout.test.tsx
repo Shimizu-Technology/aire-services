@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AdminLayout from './AdminLayout'
 
@@ -48,16 +48,29 @@ vi.mock('@clerk/clerk-react', () => ({
 
 const PAGES = ['/admin', '/admin/approvals', '/admin/leave', '/admin/timecards', '/admin/reports', '/admin/payroll', '/admin/pay', '/admin/pay/:id', '/admin/pay-stubs', '/admin/users', '/admin/settings', '/admin/website/media', '/admin/my-time', '/admin/my-hours', '/admin/schedule', '/admin/activity']
 
-function renderLayout(initialEntry = '/admin') {
-  return render(
+function layoutTree(initialEntry = '/admin') {
+  return (
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route element={<AdminLayout />}>
           {PAGES.map((path) => <Route key={path} path={path} element={<div>{`Page ${path}`}</div>} />)}
         </Route>
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   )
+}
+
+function renderLayout(initialEntry = '/admin') {
+  return render(layoutTree(initialEntry))
+}
+
+// Happy DOM has no layout, so the dialog focus trap would see no visible controls.
+function withLayoutBoxes() {
+  return vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 100, 44)] as unknown as DOMRectList)
+}
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, 'innerWidth', { value: width, writable: true, configurable: true })
 }
 
 function signIn(role: Role, user: Partial<TestUser> = {}) {
@@ -70,6 +83,9 @@ const tabBar = () => screen.getByRole('navigation', { name: 'Main tabs' })
 // The visible label of each link, without its badge.
 const names = (container: HTMLElement) => within(container).queryAllByRole('link').map((link) => link.querySelector('.truncate')?.textContent?.trim())
 const groupNames = (label: string) => names(within(sidebar()).getByRole('group', { name: label }))
+
+const initialViewportWidth = window.innerWidth
+afterEach(() => setViewportWidth(initialViewportWidth))
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -235,6 +251,107 @@ describe('AdminLayout phone tab bar', () => {
     expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
   })
 
+  it('refreshes the badge every minute, and not while the browser tab is hidden', async () => {
+    vi.useFakeTimers()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    try {
+      signIn('manager')
+      renderLayout('/admin/approvals')
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(apiMock.getPendingApprovals).toHaveBeenCalledTimes(1)
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(apiMock.getPendingApprovals).toHaveBeenCalledTimes(2)
+
+      visibility.mockReturnValue('hidden')
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
+      expect(apiMock.getPendingApprovals).toHaveBeenCalledTimes(2)
+    } finally {
+      visibility.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps focus inside More, closes it with Escape and returns to the More button', () => {
+    const boxes = withLayoutBoxes()
+    try {
+      signIn('manager')
+      renderLayout('/admin/approvals')
+      const more = within(tabBar()).getByRole('button', { name: 'More' })
+      more.focus()
+      fireEvent.click(more)
+      const sheet = screen.getByRole('dialog', { name: 'More' })
+      expect(sheet).toHaveAttribute('aria-modal', 'true')
+      expect(more).toHaveAttribute('aria-expanded', 'true')
+      const close = within(sheet).getByRole('button', { name: 'Close' })
+      expect(close).toHaveFocus()
+
+      fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+      expect(within(sheet).getByRole('link', { name: /Unlock kiosk/ })).toHaveFocus()
+      fireEvent.keyDown(document, { key: 'Tab' })
+      expect(close).toHaveFocus()
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
+      expect(more).toHaveFocus()
+      expect(more).toHaveAttribute('aria-expanded', 'false')
+      expect(document.body.style.overflow).toBe('')
+    } finally {
+      boxes.mockRestore()
+    }
+  })
+
+  it('closes More when the window grows to desktop width and continues from the sidebar', () => {
+    const boxes = withLayoutBoxes()
+    try {
+      setViewportWidth(390)
+      signIn('admin')
+      renderLayout('/admin/settings')
+      fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
+      expect(document.body.style.overflow).toBe('hidden')
+
+      // Still a phone: the sheet stays.
+      setViewportWidth(700)
+      fireEvent(window, new Event('resize'))
+      expect(screen.getByRole('dialog', { name: 'More' })).toBeInTheDocument()
+
+      setViewportWidth(1280)
+      fireEvent(window, new Event('resize'))
+      expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
+      expect(document.body.style.overflow).toBe('')
+      expect(within(sidebar()).getByRole('link', { name: 'Settings' })).toHaveFocus()
+    } finally {
+      boxes.mockRestore()
+    }
+  })
+
+  it('locks the tab bar and More while required kiosk PIN setup is open', () => {
+    signIn('manager')
+    const view = renderLayout('/admin/approvals')
+    fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
+    expect(screen.getByRole('dialog', { name: 'More' })).toBeInTheDocument()
+
+    authMock.value.currentUser = { ...authMock.value.currentUser, needs_kiosk_pin_setup: true }
+    view.rerender(layoutTree('/admin/approvals'))
+    expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: /create your kiosk pin/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/^pin$/i)).toHaveFocus()
+    const lockedTabs = screen.getByRole('navigation', { name: 'Main tabs', hidden: true })
+    expect(lockedTabs).toHaveAttribute('inert')
+
+    fireEvent.click(within(lockedTabs).getByRole('button', { name: 'More', hidden: true }))
+    expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: /create your kiosk pin/i })).toBeInTheDocument()
+
+    // Once the PIN is saved the bar works again, and More doesn't pop back open.
+    authMock.value.currentUser = { ...authMock.value.currentUser, needs_kiosk_pin_setup: false }
+    view.rerender(layoutTree('/admin/approvals'))
+    expect(tabBar()).not.toHaveAttribute('inert')
+    expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /create your kiosk pin/i })).not.toBeInTheDocument()
+  })
+
   it('refreshes the badge when the page changes', async () => {
     signIn('manager')
     apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 3 } } })
@@ -243,6 +360,47 @@ describe('AdminLayout phone tab bar', () => {
     apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 2 } } })
     await act(async () => { fireEvent.click(within(tabBar()).getByRole('link', { name: 'Timecards' })) })
     expect(await within(tabBar()).findByText('2')).toBeInTheDocument()
+  })
+})
+
+describe('My Pay and Payroll navigation', () => {
+  // Every My Pay link the person can reach: sidebar, tab bar and the More sheet.
+  function myPayLinks() {
+    const more = within(tabBar()).queryByRole('button', { name: 'More' })
+    if (more) fireEvent.click(more)
+    return screen.queryAllByRole('link', { name: 'My Pay' })
+  }
+
+  it.each(['employee', 'manager', 'admin', 'owner'] as const)('shows My Pay to a %s only while their My Pay switch is on', (role) => {
+    signIn(role, { my_pay_enabled: true })
+    const view = renderLayout()
+    expect(within(sidebar()).getByRole('link', { name: 'My Pay' })).toHaveAttribute('href', '/admin/pay')
+    const links = myPayLinks()
+    expect(links.length).toBeGreaterThanOrEqual(2)
+    links.forEach((link) => expect(link).toHaveAttribute('href', '/admin/pay'))
+    view.unmount()
+
+    signIn(role, { my_pay_enabled: false })
+    renderLayout()
+    expect(myPayLinks()).toHaveLength(0)
+  })
+
+  it.each(['owner', 'admin'] as const)('gives a %s Payroll in the sidebar and the tab bar', (role) => {
+    signIn(role)
+    renderLayout('/admin/payroll')
+    for (const nav of [sidebar(), tabBar()]) {
+      const payroll = within(nav).getByRole('link', { name: 'Payroll' })
+      expect(payroll).toHaveAttribute('href', '/admin/payroll')
+      expect(payroll).toHaveAttribute('aria-current', 'page')
+    }
+  })
+
+  it.each(['manager', 'employee'] as const)('keeps Payroll out of a %s’s navigation', (role) => {
+    signIn(role)
+    renderLayout()
+    const more = within(tabBar()).queryByRole('button', { name: 'More' })
+    if (more) fireEvent.click(more)
+    expect(screen.queryByRole('link', { name: 'Payroll' })).not.toBeInTheDocument()
   })
 })
 
