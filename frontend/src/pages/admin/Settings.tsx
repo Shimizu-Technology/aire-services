@@ -4,7 +4,7 @@ import { api } from '../../lib/api'
 import type { AdminTimeCategory, ApprovalGroupOption, ContactSettings, PlaceAutocompleteSuggestion, SocialLink, TimeClockAppSettings } from '../../lib/api'
 import { FadeUp } from '../../components/ui/MotionComponents'
 import { useConfirm } from '../../components/ui/useConfirm'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import SettingHelp from '../../components/settings/SettingHelp'
 import { SettingsCatalogContext } from '../../components/settings/settingsCatalogContext'
@@ -221,6 +221,13 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
   const [primaryPhoneDraftId, setPrimaryPhoneDraftId] = useState(primaryPhoneDraftIdFor(initialPublicContactDraft, defaultPublicContactSettings))
   const [socialLinksDraft, setSocialLinksDraft] = useState<SocialLink[]>(defaultSocialLinks)
   const [loading, setLoading] = useState(true)
+  const { hash } = useLocation()
+  // Sections render only after settings load, so the browser's own jump to
+  // #section (Roles & access footnotes, old bookmarks) has nothing to land on.
+  useEffect(() => {
+    if (loading || !hash) return
+    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView({ block: 'start' })
+  }, [loading, hash])
   const [categoriesError, setCategoriesError] = useState('')
   const [settingsError, setSettingsError] = useState('')
   const [approvalGroupsError, setApprovalGroupsError] = useState('')

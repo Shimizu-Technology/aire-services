@@ -259,6 +259,21 @@ describe('Admin Settings contact settings', () => {
     expect(screen.getByRole('checkbox', { name: 'Managers can approve their own time' })).not.toBeChecked()
   })
 
+  it('scrolls to a linked section once settings have loaded', async () => {
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+    renderUi(<Settings />, { wrapper: ({ children }) => <MemoryRouter initialEntries={['/admin/settings#time-approvals']}>{children}</MemoryRouter> })
+
+    await screen.findByRole('checkbox', { name: 'Managers can approve their own time' })
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+    expect(scrollIntoView.mock.contexts[0]).toHaveProperty('id', 'time-approvals')
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
+
   it('keeps the toggle unchanged and explains a failed save', async () => {
     apiMock.updateAdminAppSettings.mockResolvedValue({ error: 'Only owners and admins can change settings' })
     render(<Settings />)
