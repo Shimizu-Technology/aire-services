@@ -87,12 +87,14 @@ function App() {
         >
           {/* Today for owners and admins; managers land on Approvals, employees on My Time. */}
           <Route index element={<AdminLanding><Suspense fallback={<AdminLoadingFallback />}><Dashboard /></Suspense></AdminLanding>} />
-          {/* The old "Time & Payroll" tabs, one route each. /admin/time?tab=… redirects here. */}
-          <Route path="approvals" element={<ProtectedRoute requiredCapability="approve_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking section="approvals" /></Suspense></ProtectedRoute>} />
-          <Route path="timecards" element={<ProtectedRoute requiredCapability="manage_team_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking section="entries" /></Suspense></ProtectedRoute>} />
-          <Route path="reports" element={<ProtectedRoute requiredCapability="export_hours_reports"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking section="reports" /></Suspense></ProtectedRoute>} />
-          <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking section="leave" /></Suspense>} />
-          <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking section="entries" /></Suspense>} />
+          {/* The old "Time & Payroll" tabs, one route each. /admin/time?tab=… redirects here.
+              Each keeps its own key so React remounts TimeTracking between them: without it,
+              one instance is reused and an Approvals period carries into Reports. */}
+          <Route path="approvals" element={<ProtectedRoute requiredCapability="approve_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="approvals" section="approvals" /></Suspense></ProtectedRoute>} />
+          <Route path="timecards" element={<ProtectedRoute requiredCapability="manage_team_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="timecards" section="entries" /></Suspense></ProtectedRoute>} />
+          <Route path="reports" element={<ProtectedRoute requiredCapability="export_hours_reports"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="reports" section="reports" /></Suspense></ProtectedRoute>} />
+          <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="leave" section="leave" /></Suspense>} />
+          <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="my-hours" section="entries" /></Suspense>} />
           <Route path="my-time" element={<Suspense fallback={<AdminLoadingFallback />}><MyTimeHome /></Suspense>} />
           <Route path="time" element={<LegacyTimeRedirect />} />
           {/* Hidden unless "Use schedules" is on in Settings. */}
