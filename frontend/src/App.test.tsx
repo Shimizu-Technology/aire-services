@@ -4,6 +4,7 @@ import { Link, Outlet } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
+import { ToastProvider } from './components/ui'
 
 const apiMock = vi.hoisted(() => ({
   getTimeEntry: vi.fn(),
@@ -14,8 +15,13 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   getPendingApprovals: vi.fn(),
   getHoursReport: vi.fn(),
+  getPayrollCutoff: vi.fn().mockResolvedValue({ error: 'No period' }),
+  getLeaveRequests: vi.fn().mockResolvedValue({ data: { leave_requests: [], pagination: { total_pages: 1 } } }),
+  getWhosWorking: vi.fn().mockResolvedValue({ data: { workers: [] } }),
 }))
 vi.mock('./lib/api', () => ({ api: apiMock }))
+vi.mock('./lib/api/approvals', () => ({ approvalsApi: { pending: apiMock.getPendingApprovals } }))
+vi.mock('./lib/payStubsApi', () => ({ payStubsApi: { requests: vi.fn().mockResolvedValue({ requests: [] }) } }))
 vi.mock('./contexts/AuthContext', () => ({
   useAuthContext: () => ({ isClerkEnabled: true, userRole: 'admin', currentUser: { id: 1 } }),
 }))
@@ -23,10 +29,10 @@ vi.mock('./providers/PostHogProvider', () => ({ PostHogPageView: () => null }))
 vi.mock('./components/auth/ProtectedRoute', () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock('./components/layouts/AdminLayout', () => ({
   default: () => (
-    <>
+    <ToastProvider>
       <Link to="/admin/reports">Go to Reports</Link>
       <Outlet />
-    </>
+    </ToastProvider>
   ),
 }))
 vi.mock('./components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
@@ -43,7 +49,7 @@ describe('App time-section routes', () => {
     apiMock.getUsers.mockResolvedValue({ data: { users: [] } })
     apiMock.getCurrentUser.mockResolvedValue({ data: { user: { id: 1, is_admin: true } } })
     apiMock.getAdminAppSettings.mockResolvedValue({ data: { approval_groups: [] } })
-    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null } })
+    apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null, review_summary: { complete: true, batch_limit: 100 } } })
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
   })
   afterEach(() => window.history.pushState({}, '', '/'))
@@ -52,7 +58,9 @@ describe('App time-section routes', () => {
     window.history.pushState({}, '', '/admin/approvals?start_date=2026-08-01&end_date=2026-08-15')
     render(<App />)
     await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01', end_date: '2026-08-15' })))
+    fireEvent.click(await screen.findByRole('button', { name: /Filters/ }))
     expect(await screen.findByDisplayValue('2026-08-01')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
 
     fireEvent.click(screen.getByRole('link', { name: 'Go to Reports' }))
 

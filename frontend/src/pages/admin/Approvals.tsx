@@ -128,7 +128,7 @@ function ApprovalsInbox() {
   const periodLabel = cutoff?.cutoff.period ? formatPayPeriod({ start: cutoff.cutoff.period.start_date, end: cutoff.cutoff.period.end_date }) : ''
   const filterCount = ['period', 'date', 'start_date', 'end_date', 'through_date', 'since_date', 'user_id', 'time_category_id', 'approval_type', 'entry_method', 'clock_source'].filter(key => query.has(key)).length
   return <div className="space-y-3 pb-6" onKeyDown={event => {
-    if (event.shiftKey && event.key.toLowerCase() === 'a' && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target as HTMLElement).closest('input,textarea,select,[role="dialog"],[role="alertdialog"]')) { event.preventDefault(); requestSelection(true) }
+    if (event.shiftKey && event.key.toLowerCase() === 'a' && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target as HTMLElement).closest('input,textarea,select,[aria-modal="true"]')) { event.preventDefault(); requestSelection(true) }
   }}>
     <PageHeader title="Approvals" description={`${inbox.data?.count ?? '…'} waiting${periodLabel ? ` · ${periodLabel}` : ''}${lockAt ? ` locks ${new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(lockAt))}` : ''}`} />
     <OfflineBanner loadedAt={inbox.loadedAt} />

@@ -47,7 +47,7 @@ describe('Approvals inbox', () => {
     const user = userEvent.setup(); renderInbox(); await screen.findByText('Ordinary shifts · 3 · 24.0h')
     const list = screen.getByRole('list', { name: 'Ordinary shifts by person' })
     const first = list.querySelector<HTMLElement>('[data-list-row]')!; first.focus()
-    await user.keyboard('{Enter}'); expect(screen.getByRole('checkbox', { name: 'Select Marcus Quinata, 2026-11-10' })).toBeInTheDocument()
+    await user.keyboard('{Enter}'); expect(screen.getAllByRole('checkbox', { name: 'Select Marcus Quinata, 2026-11-10' })).toHaveLength(2)
     await user.keyboard(' '); expect(screen.getByRole('region', { name: 'Selected shifts' })).toHaveTextContent('2 shifts')
     await user.keyboard('a'); expect(approvalsApi.review).not.toHaveBeenCalled()
     await user.keyboard('{Shift>}a{/Shift}'); expect(screen.getByRole('alertdialog')).toHaveTextContent('Approve 2 shifts?')
