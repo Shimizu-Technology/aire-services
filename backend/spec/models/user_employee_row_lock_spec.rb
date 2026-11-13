@@ -18,6 +18,7 @@ RSpec.describe "Employee row lock" do
   end
 
   # Holds the employee lock in another connection, as a running batch does.
+  # Waits are bounded so a setup failure fails the example instead of hanging.
   def while_batch_holds_lock
     locked = Queue.new
     release = Queue.new
@@ -25,16 +26,21 @@ RSpec.describe "Employee row lock" do
       ActiveRecord::Base.connection_pool.with_connection do
         ActiveRecord::Base.transaction do
           User.lock_employees!([ employee.id ])
-          locked << true
-          release.pop
+          locked << :locked
+          release.pop(timeout: 30)
         end
       end
+    rescue StandardError => error
+      locked << error
     end
-    locked.pop
+    signal = locked.pop(timeout: 10)
+    raise signal if signal.is_a?(Exception)
+    raise "the lock holder did not take the employee lock within 10s" unless signal == :locked
+
     yield
   ensure
-    release << true
-    holder&.join
+    release&.<< :release
+    raise "the lock holder did not finish within 10s" if holder && holder.join(10).nil?
   end
 
   it "lets an audit row for that employee through while the lock is held" do
