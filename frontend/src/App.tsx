@@ -13,12 +13,13 @@ import AireContact from './pages/aire/AireContact'
 import AireDiscoveryFlight from './pages/aire/AireDiscoveryFlight'
 import AireCareers from './pages/aire/AireCareers'
 import AireKiosk from './pages/aire/AireKiosk'
-import { AdminLanding, LegacyTimeRedirect, MovedPage } from './pages/admin/AdminRedirects'
+import { AdminLanding, LegacyTimeRedirect, MovedPage, SupervisorLeaveRedirect } from './pages/admin/AdminRedirects'
 import SchedulesGate from './pages/admin/SchedulesGate'
 
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
 const EmployeeWorkspace = lazy(() => import('./pages/admin/EmployeeWorkspace'))
 const Users = lazy(() => import('./pages/admin/Users'))
+const Approvals = lazy(() => import('./pages/admin/Approvals'))
 const TimeTracking = lazy(() => import('./pages/admin/TimeTracking'))
 const Schedule = lazy(() => import('./pages/admin/Schedule'))
 const Settings = lazy(() => import('./pages/admin/Settings'))
@@ -107,10 +108,10 @@ const routes = createRoutesFromElements(
           {/* The old "Time & Payroll" tabs, one route each. /admin/time?tab=… redirects here.
               Each keeps its own key so React remounts TimeTracking between them: without it,
               one instance is reused and an Approvals period carries into Reports. */}
-          <Route path="approvals" element={<ProtectedRoute requiredCapability="approve_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="approvals" section="approvals" /></Suspense></ProtectedRoute>} />
+          <Route path="approvals" element={<ProtectedRoute requiredCapability="approve_time"><Suspense fallback={<AdminLoadingFallback />}><Approvals /></Suspense></ProtectedRoute>} />
           <Route path="timecards" element={<ProtectedRoute requiredCapability="manage_team_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="timecards" section="entries" /></Suspense></ProtectedRoute>} />
           <Route path="reports" element={<ProtectedRoute requiredCapability="export_hours_reports"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="reports" section="reports" /></Suspense></ProtectedRoute>} />
-          <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="leave" section="leave" /></Suspense>} />
+          <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><SupervisorLeaveRedirect><TimeTracking key="leave" section="leave" /></SupervisorLeaveRedirect></Suspense>} />
           <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="my-hours" section="entries" /></Suspense>} />
           <Route path="my-time" element={<Suspense fallback={<AdminLoadingFallback />}><MyTimeHome /></Suspense>} />
           <Route path="time" element={<LegacyTimeRedirect />} />

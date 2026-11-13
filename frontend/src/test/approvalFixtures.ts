@@ -1,0 +1,8 @@
+import type { ReviewEntry } from '../lib/api/approvals'
+export function reviewEntry(id: number, userId = id, overrides: Partial<ReviewEntry> = {}): ReviewEntry {
+  return { id, version: id + 10, work_date: '2026-11-10', start_time: '08:00', end_time: '16:00', formatted_start_time: '8:00 AM', formatted_end_time: '4:00 PM', hours: 8, break_minutes: 0, description: null,
+    entry_method: 'clock', clock_source: 'mobile', status: 'completed', admin_override: false, attendance_status: null, approval_status: 'pending', overtime_status: 'none', pending_overtime_hours: 0,
+    clock_in_at: '2026-11-09T22:00:00Z', clock_out_at: '2026-11-10T06:00:00Z', approved_by: null, approved_at: null, approval_note: null, overtime_approved_by: null, overtime_approved_at: null, overtime_note: null, schedule: null, breaks: [],
+    user: { id: userId, full_name: userId === 1 ? 'Marcus Quinata' : 'Grace Torres', display_name: 'Worker', email: 'worker@aire.test' },
+    time_category: { id: 1, name: 'Flight' }, created_at: '2026-11-10T06:00:00Z', updated_at: '2026-11-10T06:00:00Z', review_kind: 'ordinary', exceptions: [], ...overrides }
+}

@@ -8,7 +8,7 @@ import EditTimeEntryModal from '../time-tracking/EditTimeEntryModal'
 
 const when = (value: string) => new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 export default function ReviewSheet({ entry, onClose, onApprove, onReload, busy, categories, onDirty }: {
-  entry: ReviewEntry; onClose: () => void; onApprove: (items: ReviewItem[], label: string) => Promise<boolean>
+  entry: ReviewEntry; onClose: (saved?: boolean) => void; onApprove: (items: ReviewItem[], label: string) => Promise<boolean>
   onReload: () => Promise<void>; busy: boolean; categories: TimeCategory[]; onDirty: (dirty: boolean) => void
 }) {
   const online = useOnlineStatus()
@@ -46,7 +46,7 @@ export default function ReviewSheet({ entry, onClose, onApprove, onReload, busy,
     try {
       const ok = await onApprove([{ id: entry.id, version: entry.version, approve_time: entry.approval_status === 'pending', approve_overtime: includeOvertime,
         ...(includeOvertime ? { overtime_hours: entry.pending_overtime_hours ?? 0 } : {}) }], includeOvertime ? `Approved ${(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime for ${entry.user.full_name}` : `Approved time for ${entry.user.full_name}`)
-      if (ok) { onDirty(false); onClose() }
+      if (ok) { onDirty(false); onClose(true) }
       else setError('This decision could not be saved. The list has been refreshed; close this review and check the shift again.')
     } finally { lock.current = false }
   }
@@ -56,7 +56,7 @@ export default function ReviewSheet({ entry, onClose, onApprove, onReload, busy,
     try {
       const response = denying === 'overtime' ? await api.denyOvertime(entry.id, note.trim()) : await api.denyTimeEntry(entry.id, note.trim())
       if (!response.data) { setError(response.error || "Couldn't save the denial."); return }
-      onDirty(false); await onReload(); onClose()
+      onDirty(false); await onReload(); onClose(true)
     } finally { lock.current = false; setSaving(false) }
   }
   const blocked = busy || saving || !online || entry.needs_another_approver
@@ -92,6 +92,6 @@ export default function ReviewSheet({ entry, onClose, onApprove, onReload, busy,
         {error && <p role="alert" className="text-body-sm text-danger">{error}</p>}
       </div>
     </Sheet>
-    <EditTimeEntryModal isOpen={editing} entry={entry} canManageTeamTime categories={categories} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); void onReload(); onClose() }} onError={setError} />
+    <EditTimeEntryModal isOpen={editing} entry={entry} canManageTeamTime canDelete={false} onDeleted={() => {}} categories={categories} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); void onReload(); onClose() }} onError={message => setError(message || '')} />
   </>
 }

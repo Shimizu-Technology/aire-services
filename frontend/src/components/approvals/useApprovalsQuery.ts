@@ -12,13 +12,15 @@ export function useApprovalsQuery(params: PendingApprovalsParams, paused: boolea
   const generation = useRef(0)
   const reload = useCallback(async () => {
     const id = ++generation.current
+    await Promise.resolve()
+    if (id !== generation.current) return
     setLoading(true)
     const response = await approvalsApi.pending(JSON.parse(key))
     if (id !== generation.current) return
     setResult(current => response.data ? { key, data: response.data, at: new Date() } : { ...current, key, error: response.error || "Couldn't load approvals." })
     setLoading(false)
   }, [key])
-  useEffect(() => { void reload(); return () => { generation.current++ } }, [reload])
+  useEffect(() => { const counter = generation; let active = true; queueMicrotask(() => { if (active) void reload() }); return () => { active = false; counter.current++ } }, [reload])
   useEffect(() => {
     if (paused) return
     const onFocus = () => { if (navigator.onLine) void reload() }
