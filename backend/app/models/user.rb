@@ -129,11 +129,27 @@ class User < ApplicationRecord
     end
   }
 
+  # Employee row lock that serializes punches, approvals, payroll and schedule
+  # writes for the same person. NO KEY UPDATE conflicts with itself and with
+  # FOR UPDATE, but not with the KEY SHARE that foreign-key checks take. So an
+  # insert that only references the user (an audit row, for example) is not
+  # stuck behind a long batch. Writes that must serialize take this lock
+  # explicitly; none rely on the foreign-key wait.
+  EMPLOYEE_ROW_LOCK = "FOR NO KEY UPDATE".freeze
+
+  def self.lock_employees!(ids)
+    where(id: ids).order(:id).lock(EMPLOYEE_ROW_LOCK).load
+  end
+
+  def lock_employee!
+    lock!(EMPLOYEE_ROW_LOCK)
+  end
+
   def self.with_admin_access_lock
     raise "Admin access lock requires an open transaction" unless connection.transaction_open?
 
     connection.select_value("SELECT pg_advisory_xact_lock(#{ADMIN_ACCESS_ADVISORY_LOCK_KEY})")
-    administrators.order(:id).lock.load
+    administrators.order(:id).lock(EMPLOYEE_ROW_LOCK).load
     yield
   end
 

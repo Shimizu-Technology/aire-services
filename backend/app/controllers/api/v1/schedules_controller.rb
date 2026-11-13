@@ -83,7 +83,7 @@ module Api
         errors = []
 
         ActiveRecord::Base.transaction do
-          User.where(id: schedules_data.map { |row| row[:user_id] }).order(:id).lock.load
+          User.lock_employees!(schedules_data.map { |row| row[:user_id] })
           schedules_data.each do |schedule_data|
             start_t = parse_time_as_utc(schedule_data[:start_time])
             end_t = parse_time_as_utc(schedule_data[:end_time])

@@ -8,7 +8,7 @@ module Payroll
     ACTIVE_KEY = :payroll_affected_overtime_entries
 
     def self.lock_users!(user_ids)
-      User.where(id: user_ids.compact.uniq.sort).order(:id).lock.load
+      User.lock_employees!(user_ids.compact.uniq.sort)
     end
 
     def self.lock(user_ids)

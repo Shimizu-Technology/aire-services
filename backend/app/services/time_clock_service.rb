@@ -458,17 +458,17 @@ class TimeClockService
         block.call
       end
     rescue ActiveRecord::LockWaitTimeout
-      raise ClockError, "Payroll is being finalized right now. Please try this time-clock action again in a moment."
+      raise ClockError, "Your time is being updated right now. Nothing was saved. Please try this clock action again in a few seconds."
     end
 
     def with_clock_in_user_lock(user)
       if user.administrator?
         User.with_admin_access_lock do
-          user.lock!
+          user.lock_employee!
           yield
         end
       else
-        user.lock!
+        user.lock_employee!
         yield
       end
     end
