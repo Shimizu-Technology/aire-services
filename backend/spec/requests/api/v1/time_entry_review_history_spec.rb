@@ -84,7 +84,7 @@ RSpec.describe "GET /api/v1/time_entries/:id/review_history", type: :request do
 
   it "drops non-allowlisted fields, nested values, and unrelated metadata" do
     record(changes: { hours: { from: 7, to: 8 }, pay_rate: { from: 100, to: 200 }, break_minutes: { from: { other_user: "Private" }, to: 30 } },
-      metadata: { salary: "Private", employee_name: "Wrong person", unrelated: { name: "Secret" } })
+      metadata: { salary: "Private", employee_name: "Wrong person", hours: { name: "Secret" }, correction_reason: { name: "Private" }, unrelated: { name: "Secret" } })
     other = clock_shift(create(:user, :employee), Date.new(2026, 11, 10))
     AuditLog.record!(action: "time_entry.updated", auditable: other, actor: manager, metadata: { correction_reason: "Unrelated reason" })
     history(manager)

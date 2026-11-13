@@ -30,15 +30,17 @@ module Approvals
       # metadata. Never let an arbitrary audit metadata key reach this read.
       safe = row.dup
       safe.subject_name = "#{@entry.hours.to_f} hours on #{@entry.work_date.iso8601}"
-      safe.metadata = row.metadata.to_h.slice("hours", "work_date", "time_reverted", "overtime_reverted", "overtime_status")
+      metadata = row.metadata.is_a?(Hash) ? row.metadata : {}
+      safe.metadata = metadata.slice("hours", "work_date", "time_reverted", "overtime_reverted", "overtime_status")
+        .select { |_key, value| value.is_a?(String) || value.is_a?(Numeric) || value == true || value == false }
         .merge("employee_id" => @entry.user_id, "employee_name" => @entry.user.full_name)
       safe.changes_made = {}
       {
         action: row.action, at: row.occurred_at.in_time_zone("Pacific/Guam").iso8601,
         actor: row.actor_name.present? ? { id: row.user_id, full_name: row.actor_name } : nil,
         sentence: AuditLogPresenter.new(safe).summary,
-        reason: row.metadata.to_h["correction_reason"].presence || row.metadata.to_h["review_note"].presence,
-        fields: row.changes_made.to_h.filter_map do |field, change|
+        reason: [ metadata["correction_reason"], metadata["review_note"] ].find { |value| value.is_a?(String) && value.present? },
+        fields: (row.changes_made.is_a?(Hash) ? row.changes_made : {}).filter_map do |field, change|
           next unless FIELDS.key?(field) && change.is_a?(Hash)
 
           { field: field, label: FIELDS.fetch(field), before: value(field, change["from"]), after: value(field, change["to"]) }

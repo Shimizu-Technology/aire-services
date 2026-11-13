@@ -33,7 +33,7 @@ export function useReviewBatch(reload: () => Promise<void>) {
   const approve = async (items: readonly ReviewItem[], batchLimit: number, label: string, mode: 'ordinary' | 'reviewed' = 'ordinary') => {
     if (lock.current || !navigator.onLine || !items.length) return false
     if (!Number.isInteger(batchLimit) || batchLimit < 1) { setNotice("Couldn't read the approval limit. Reload and try again."); return false }
-    lock.current = true; setBusy(true); setNotice('')
+    lock.current = true; setBusy(true); setNotice(''); toast.dismiss()
     const succeeded: SucceededBatch[] = []
     let approved = 0
     let complete = true
@@ -51,7 +51,9 @@ export function useReviewBatch(reload: () => Promise<void>) {
           if (response.status) retryKeys.current.delete(fingerprint)
           const server = response.error || 'The connection was interrupted. Reload to check what was saved before retrying.'
           const detail = server.replace(/Nothing was approved\.?/i, '').trim()
-          const message = approved
+          const message = !response.status
+            ? `Confirmed ${approved} of ${items.length} shifts approved. The connection was interrupted, so this request's outcome is unknown. Reload to check the list before retrying.`
+            : approved
             ? `Approved ${approved} of ${items.length} shifts. The other ${items.length - approved} weren't approved. ${detail} The list is updated; check them and try again.`
             : `${server} ${response.status === 409 ? 'The list is updated; check them and try again.' : ''}`
           setNotice(message)

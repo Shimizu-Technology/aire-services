@@ -122,6 +122,15 @@ function ApprovalsInbox() {
   const disabledReason = !online ? 'Reconnect to approve' : inbox.loading ? 'Wait for approvals to finish loading' : inbox.error ? 'Reload approvals before saving' : undefined
   const viewerGroups = people.find(person => person.id === currentUser?.id)?.approval_group_keys ?? (currentUser?.approval_group ? [currentUser.approval_group] : [])
   const attention = workers.filter(worker => worker.open_since_work_date && worker.open_entry_id && (!viewerGroups.length || people.some(person => person.id === worker.user.id && person.approval_group_keys?.some(key => viewerGroups.includes(key)))))
+  const matchesPerson = (id: number) => {
+    if (query.get('user_id') && String(id) !== query.get('user_id')) return false
+    if (department === 'all') return true
+    const person = people.find(person => person.id === id)
+    const keys = person?.approval_group_keys ?? (person?.approval_group ? [person.approval_group] : [])
+    return department === 'unassigned' ? keys.length === 0 : keys.includes(department)
+  }
+  const visibleLeave = leave.filter(request => matchesPerson(request.user.id))
+  const visibleStubs = stubs.filter(request => matchesPerson(request.worker.id))
   const lockAt = cutoff?.cutoff.cutoff_at
   const lockCopy = lockAt ? `They'll go to payroll at the ${new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(lockAt))} lock.` : undefined
   const departmentOptions = groups.length ? groups.map(group => ({ value: group.key, label: group.label })) : [{ value: 'cfi', label: 'CFI' }, { value: 'ops', label: 'Ops/Maint' }]
@@ -132,7 +141,7 @@ function ApprovalsInbox() {
   }}>
     <PageHeader title="Approvals" description={`${inbox.data?.count ?? '…'} waiting${periodLabel ? ` · ${periodLabel}` : ''}${lockAt ? ` locks ${new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(lockAt))}` : ''}`} />
     <OfflineBanner loadedAt={inbox.loadedAt} />
-    <TabChips label="What's waiting" value={kind} controls="approvals-panel" items={[{ value: 'time', label: 'Time', count: inbox.data?.count }, { value: 'leave', label: 'Leave', count: leave.length }, ...(capabilities.send_pay_statements && stubs.length ? [{ value: 'stubs' as const, label: 'Pay stubs', count: stubs.length }] : [])]} onChange={value => updateQuery('kind', value)} />
+    <TabChips label="What's waiting" value={kind} controls="approvals-panel" items={[{ value: 'time', label: 'Time', count: inbox.data?.count }, { value: 'leave', label: 'Leave', count: visibleLeave.length }, ...(capabilities.send_pay_statements && stubs.length ? [{ value: 'stubs' as const, label: 'Pay stubs', count: visibleStubs.length }] : [])]} onChange={value => updateQuery('kind', value)} />
     <div className="flex items-center gap-1"><div className="min-w-0 flex-1"><TabChips label="Department" value={department} items={[...departmentOptions, { value: 'all', label: 'Everyone' }]} onChange={value => { const next = new URLSearchParams(query); next.set('dept', value); void changeQuery(next) }} /></div><Button variant="ghost" aria-label={`Filters${filterCount ? ` (${filterCount})` : ''}`} onClick={() => setFiltersOpen(true)}><SlidersHorizontal className="size-4" aria-hidden="true" /><span className="hidden sm:inline">Filters</span>{filterCount > 0 && <span>{filterCount}</span>}</Button></div>
     {attention.map(worker => <div key={worker.user.id} className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-body-sm"><strong>{worker.user.full_name}</strong> is still clocked in from {worker.open_since_work_date}{worker.clock_in_at ? `, ${new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit' }).format(new Date(worker.clock_in_at))}` : ''}. <Link className="inline-flex min-h-11 items-center font-semibold underline" to={`/admin/timecards?entry_id=${worker.open_entry_id}&date=${worker.open_since_work_date}&user_id=${worker.user.id}`}>Fix clock-out</Link></div>)}
     {extrasError.workers && <ErrorState title={extrasError.workers} onRetry={() => { void loadExtras() }} />}
@@ -148,17 +157,17 @@ function ApprovalsInbox() {
           {ordinary.length > 0 ? <section className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-body font-semibold">Ordinary shifts · {ordinary.length} · {ordinary.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h</h2><Button variant="ghost" disabled={disabled || !inbox.data?.review_summary.complete} title={disabledReason || (!inbox.data?.review_summary.complete ? 'Narrow the filters to load a complete list' : undefined)} onClick={() => setConfirmation({ snapshot: approvalSelection(ordinary), all: true })}>Approve all {ordinary.length}</Button></div>
             <SegmentedControl label="Group shifts" options={[{ value: 'person', label: 'By person' }, { value: 'day', label: 'By day' }]} value={groupBy} onChange={value => updateQuery('group', value)} />
             <p className="text-body-sm text-ink-muted">Phone or kiosk clock-ins, no edits, no overtime, under the shift limit</p>
-            <OrdinaryGroups rows={ordinary} groupBy={groupBy} selected={selected} onSelect={toggleSelected} disabled={disabled} disabledReason={disabledReason} onApprove={rows => { void approveSnapshot(approvalSelection(rows)) }} />
+            <OrdinaryGroups rows={ordinary} groupBy={groupBy} selected={selected} onSelect={toggleSelected} disabled={disabled} disabledReason={disabledReason} onApprove={async rows => { await approveSnapshot(approvalSelection(rows)) }} />
           </section> : !inbox.loading && (needsLook.length ? <EmptyState title={`No ordinary shifts. ${needsLook.length} need a look above.`} /> : <EmptyState title="All caught up." description={`Nothing is waiting for approval${department !== 'all' ? ` in ${departmentOptions.find(item => item.value === department)?.label || department}` : ''}.`} action={department !== 'all' ? <Button variant="secondary" onClick={() => updateQuery('dept', 'all')}>See everyone</Button> : undefined} />)}
           {inbox.data && !inbox.data.review_summary.complete && <p className="text-body-sm text-ink-muted">Showing {entries.length} of {inbox.data.count} shifts. Narrow the filters to approve all.</p>}
         </>}
       </>}
-      {kind === 'leave' && (extrasError.leave ? <ErrorState title="Couldn't load leave requests." onRetry={() => { void loadExtras() }} /> : extrasLoading ? <p>Loading leave requests…</p> : <LeaveRequestsList requests={leave} viewerId={currentUser?.id} onChanged={loadExtras} />)}
-      {kind === 'stubs' && (extrasError.stubs ? <ErrorState title={extrasError.stubs} onRetry={() => { void loadExtras() }} /> : <StubRequestsList requests={stubs} canChooseRecipient={capabilities.preview_pay} onChanged={loadExtras} />)}
+      {kind === 'leave' && (extrasError.leave ? <ErrorState title="Couldn't load leave requests." onRetry={() => { void loadExtras() }} /> : extrasLoading ? <p>Loading leave requests…</p> : <LeaveRequestsList requests={visibleLeave} viewerId={currentUser?.id} onChanged={loadExtras} />)}
+      {kind === 'stubs' && (extrasError.stubs ? <ErrorState title={extrasError.stubs} onRetry={() => { void loadExtras() }} /> : <StubRequestsList requests={visibleStubs} canChooseRecipient={capabilities.preview_pay} onChanged={loadExtras} />)}
     </div>
     <p className="hidden text-body-sm text-ink-subtle lg:block">↑↓ or j/k move · Space selects · Enter opens · Esc clears · Shift+A reviews selected approvals</p>
     <SelectionBar count={selectedRows.length} noun={['shift', 'shifts']} label="Selected shifts" summary={selection ? `${selection.people.length} people · ${selection.hours.toFixed(1)}h` : undefined} onClear={() => setSelected(new Set())} actions={<Button disabled={disabled} title={disabledReason} onClick={() => requestSelection()}>Approve {selectedRows.length}</Button>} />
-    <ApproveAllDialog selection={confirmation?.snapshot ?? null} ordinary={confirmation?.all} exclusions={exclusionCopy(needsLook)} lockCopy={lockCopy} busy={batches.busy} onCancel={() => setConfirmation(null)} onConfirm={() => { if (confirmation && !disabled) void approveSnapshot(confirmation.snapshot) }} />
+    <ApproveAllDialog offline={!online} selection={confirmation?.snapshot ?? null} ordinary={confirmation?.all} exclusions={exclusionCopy(needsLook)} lockCopy={lockCopy} busy={batches.busy} onCancel={() => setConfirmation(null)} onConfirm={() => { if (confirmation && !disabled) void approveSnapshot(confirmation.snapshot) }} />
     {filtersOpen && <FiltersSheet query={query} categories={categories} people={people.map(person => ({ id: person.id, name: person.full_name }))} onClose={() => setFiltersOpen(false)} onApply={next => { setFiltersOpen(false); void changeQuery(next) }} />}
     {review && <ReviewSheet key={review.id} entry={review} categories={categories} busy={batches.busy} onDirty={setReviewDirty} onClose={saved => { void closeReview(saved) }} onReload={inbox.reload} onApprove={(items, label) => batches.approve(items, 31, label, 'reviewed')} />}
     {unsaved.guard}{confirmDialog}

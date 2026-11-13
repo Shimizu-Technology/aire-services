@@ -20,6 +20,9 @@ export interface ConfirmDialogProps {
   tone?: 'default' | 'danger'
   /** Shows a spinner on the action and blocks closing while work runs. */
   busy?: boolean
+  /** Disable just the save action, e.g. offline, while Cancel stays usable. */
+  confirmDisabled?: boolean
+  confirmDisabledReason?: string
   /** When set, the action stays disabled until this exact text is typed. */
   requireText?: string
   onConfirm: () => void
@@ -39,6 +42,8 @@ function OpenConfirmDialog({
   cancelLabel = 'Cancel',
   tone = 'default',
   busy = false,
+  confirmDisabled = false,
+  confirmDisabledReason,
   requireText,
   onConfirm,
   onCancel,
@@ -108,7 +113,8 @@ function OpenConfirmDialog({
             variant={danger ? 'danger' : 'primary'}
             onClick={onConfirm}
             loading={busy}
-            disabled={blocked}
+            disabled={blocked || confirmDisabled}
+            title={confirmDisabled ? confirmDisabledReason : undefined}
             className="w-full sm:w-auto"
           >
             {confirmLabel}
