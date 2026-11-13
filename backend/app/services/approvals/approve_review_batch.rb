@@ -17,6 +17,9 @@ module Approvals
   #   limited to one person and REVIEWED_MAX_ITEMS shifts.
   # - The Idempotency-Key makes a retried request return the same batch.
   class ApproveReviewBatch
+    # Measured Nov 13, 2026 under machine load 25-35: 100 shifts in 2.7s, 250 in
+    # 5.5s, above the 3s target. The inbox splits Approve all into all-or-nothing
+    # batches of this size, read from review_summary.batch_limit.
     MAX_ITEMS = 100
     # One person's month of daily shifts. A Review sheet decision covers one
     # shift and its category segments, so a real one is far smaller; anything
@@ -77,7 +80,7 @@ module Approvals
         # TimeClockService::PUNCH_LOCK_TIMEOUT for these employee locks, so
         # everything from here to commit is kept to batched queries except the
         # per-shift approval itself.
-        User.where(id: TimeEntry.where(id: ids).select(:user_id)).order(:id).lock.load
+        User.lock_employees!(TimeEntry.where(id: ids).select(:user_id))
         entries = TimeEntry.where(id: ids).order(:id).lock.includes(:user, :time_entry_breaks, :time_category).index_by(&:id)
 
         ensure_unchanged!(entries)

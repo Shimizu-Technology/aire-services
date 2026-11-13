@@ -123,7 +123,7 @@ module Api
         review_result = nil
         error_response = nil
 
-        @leave_request.user.with_lock do
+        @leave_request.user.with_lock(User::EMPLOYEE_ROW_LOCK) do
           @leave_request.with_lock do
             if @leave_request.user_id == current_user.id
               error_response = {

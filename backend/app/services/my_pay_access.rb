@@ -10,7 +10,7 @@ class MyPayAccess
       authorize!(actor)
 
       User.transaction do
-        user.lock!
+        user.lock_employee!
         before = user.my_pay_enabled?
         next if before == enabled
 

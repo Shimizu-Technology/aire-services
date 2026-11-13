@@ -21,7 +21,7 @@ module Scheduling
           schedule.errors.add(:user_id, "must reference an existing user")
           raise ActiveRecord::RecordInvalid, schedule
         end
-        user.with_lock do
+        user.with_lock(User::EMPLOYEE_ROW_LOCK) do
           leave = LeaveRequest.where(user_id: user.id, status: "approved")
             .where("start_date <= ? AND end_date >= ?", schedule.work_date, schedule.work_date).order(:id).to_a
           reason = leave_conflict_reason.to_s.strip

@@ -46,7 +46,7 @@ module PayDocuments
       delivery = PayDocumentDelivery.transaction do
         # Lock the worker and the sender in id order so both the per-worker and
         # the per-sender limits are checked atomically, without deadlocks.
-        [ worker, actor ].compact.uniq(&:id).sort_by(&:id).each(&:lock!)
+        [ worker, actor ].compact.uniq(&:id).sort_by(&:id).each(&:lock_employee!)
         check_rate_limits!
         create_delivery!(token, entries, recipient_kind, address)
       end

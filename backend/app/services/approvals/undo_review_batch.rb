@@ -35,7 +35,7 @@ module Approvals
         @batch.lock!
         items = selected_items
         user_ids = TimeEntry.where(id: items.map(&:time_entry_id)).distinct.pluck(:user_id)
-        User.where(id: user_ids).order(:id).lock.load
+        User.lock_employees!(user_ids)
         entries = TimeEntry.where(id: items.map(&:time_entry_id)).order(:id).lock.includes(:user, :time_entry_breaks).index_by(&:id)
         @now = ActiveRecord::Base.connection.select_value("SELECT clock_timestamp()")
         raise error("The 15 minutes to undo this approval have passed. Correct it in Timecards instead.", code: "undo_expired") unless @batch.undo_window_open?(@now)

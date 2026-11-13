@@ -32,7 +32,7 @@ module PayDocuments
       attributes = scope_attributes
 
       request = PayDocumentRequest.transaction do
-        worker.lock!
+        worker.lock_employee!
         RateLimit.check!(:worker_requests, worker: worker, now: now)
         PayDocumentRequest.create!(
           user: worker,
