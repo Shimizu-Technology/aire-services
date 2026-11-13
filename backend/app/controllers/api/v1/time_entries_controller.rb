@@ -10,7 +10,7 @@ module Api
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
-      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval ]
+      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval, :review_history ]
 
       # GET /api/v1/time_entries
       def index
@@ -79,6 +79,14 @@ module Api
       def show
         @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: [ @time_entry ], viewer: current_user).call
         render json: { time_entry: serialize_time_entry(@time_entry) }
+      end
+
+      # GET /api/v1/time_entries/:id/review_history
+      def review_history
+        entry = TimeEntry.find(params[:id])
+        return render json: { error: "Time entry not found" }, status: :not_found unless current_user.can_review_time_of?(entry.user_id)
+
+        render json: { entry_id: entry.id, changes: ::Approvals::ReviewHistory.new(entry).call }
       end
 
       # POST /api/v1/time_entries

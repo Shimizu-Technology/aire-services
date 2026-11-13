@@ -165,6 +165,7 @@ Rails.application.routes.draw do
           post :approve_overtime
           post :deny_overtime
           post :undo_approval
+          get :review_history
         end
       end
       resources :time_categories, only: [ :index ]
