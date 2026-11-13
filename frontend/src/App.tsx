@@ -20,6 +20,7 @@ const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
 const EmployeeWorkspace = lazy(() => import('./pages/admin/EmployeeWorkspace'))
 const Users = lazy(() => import('./pages/admin/Users'))
 const TimeTracking = lazy(() => import('./pages/admin/TimeTracking'))
+const Timecards = lazy(() => import('./pages/admin/Timecards'))
 const Schedule = lazy(() => import('./pages/admin/Schedule'))
 const Settings = lazy(() => import('./pages/admin/Settings'))
 const RolesAccess = lazy(() => import('./pages/admin/RolesAccess'))
@@ -108,7 +109,7 @@ const routes = createRoutesFromElements(
               Each keeps its own key so React remounts TimeTracking between them: without it,
               one instance is reused and an Approvals period carries into Reports. */}
           <Route path="approvals" element={<ProtectedRoute requiredCapability="approve_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="approvals" section="approvals" /></Suspense></ProtectedRoute>} />
-          <Route path="timecards" element={<ProtectedRoute requiredCapability="manage_team_time"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="timecards" section="entries" /></Suspense></ProtectedRoute>} />
+          <Route path="timecards" element={<ProtectedRoute requiredCapability="manage_team_time"><Suspense fallback={<AdminLoadingFallback />}><Timecards /></Suspense></ProtectedRoute>} />
           <Route path="reports" element={<ProtectedRoute requiredCapability="export_hours_reports"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="reports" section="reports" /></Suspense></ProtectedRoute>} />
           <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="leave" section="leave" /></Suspense>} />
           <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="my-hours" section="entries" /></Suspense>} />

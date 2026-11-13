@@ -58,6 +58,8 @@ interface EditTimeEntryModalProps {
   onSaved: () => void | Promise<void>
   onDeleted: () => void | Promise<void>
   onError?: (message: string | null) => void
+  /** A bottom sheet on phones (under 768px) instead of a centred dialog. */
+  phoneSheet?: boolean
 }
 
 const BUSINESS_TIME_ZONE = 'Pacific/Guam'
@@ -104,6 +106,7 @@ export default function EditTimeEntryModal({
   onSaved,
   onDeleted,
   onError,
+  phoneSheet = false,
 }: EditTimeEntryModalProps) {
   const canViewActivity = useCapabilities().view_activity
   // A manager's own time, while it needs another approver, is edited like an employee's.
@@ -292,7 +295,9 @@ export default function EditTimeEntryModal({
 
   return createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          className={phoneSheet
+            ? 'fixed inset-0 z-50 flex items-end justify-center bg-black/50 md:items-center md:p-4'
+            : 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'}
           onClick={(event) => {
             if (event.target === event.currentTarget && !saving && !deleting) onClose()
           }}
@@ -303,7 +308,9 @@ export default function EditTimeEntryModal({
             aria-modal="true"
             aria-labelledby={titleId}
             tabIndex={-1}
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl"
+            className={phoneSheet
+              ? 'max-h-[90dvh] w-full overflow-y-auto overscroll-contain rounded-t-2xl bg-white pb-safe shadow-xl md:max-h-[90vh] md:max-w-md md:rounded-2xl md:pb-0'
+              : 'max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl'}
           >
             <div className="p-6">
               <h2 id={titleId} className="mb-1 text-xl font-bold text-primary-dark">Edit Time Entry</h2>

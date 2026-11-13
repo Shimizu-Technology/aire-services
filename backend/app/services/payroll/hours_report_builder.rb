@@ -39,8 +39,10 @@ module Payroll
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
       breakdowns = build_breakdowns(employees)
       period_issues = issues_for(control_period_entries)
+      # Totals and breakdowns above still count every entry; only the rows go.
+      employees = employees.map { |employee| without_entry_rows(employee) } if summary_only?
 
-      {
+      report = {
         start_date: start_date.iso8601,
         end_date: end_date.iso8601,
         context_start_date: context_start_date.iso8601,
@@ -53,6 +55,8 @@ module Payroll
         breakdowns: breakdowns,
         employees: employees
       }
+      report[:summary_only] = true if summary_only?
+      report
     end
 
     private
@@ -150,6 +154,14 @@ module Payroll
 
     def include_empty_employees?
       ActiveModel::Type::Boolean.new.cast(params[:include_empty])
+    end
+
+    def summary_only?
+      ActiveModel::Type::Boolean.new.cast(params[:summary_only])
+    end
+
+    def without_entry_rows(employee)
+      employee.except(:excluded_entries).merge(days: employee[:days].map { |day| day.except(:entries) })
     end
 
     def build_employee_report(user, user_context_entries, user_report_entries, control_period_entries)
