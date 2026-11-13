@@ -60,7 +60,7 @@ class LeaveRequest < ApplicationRecord
     return if user_id.blank? || start_date.blank? || end_date.blank?
 
     overlapping = if user.present?
-      user.with_lock { overlapping_active_requests.exists? }
+      user.with_lock(User::EMPLOYEE_ROW_LOCK) { overlapping_active_requests.exists? }
     else
       overlapping_active_requests.exists?
     end

@@ -57,7 +57,7 @@ class RoleAssignment
 
     User.transaction do
       User.with_admin_access_lock do
-        user = User.lock.find_by(id: user_id)
+        user = User.lock(User::EMPLOYEE_ROW_LOCK).find_by(id: user_id)
         raise Error, "No user with ID #{user_id}" unless user
         raise Error, "#{user.full_name} is not active" unless user.is_active?
 

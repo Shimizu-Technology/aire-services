@@ -70,7 +70,7 @@ RSpec.describe "Employee row lock" do
     end
   end
 
-  it "answers a punch from an employee in the batch quickly with a retryable message" do
+  it "times out a punch by an employee in the batch within its bound and says nothing was saved" do
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     while_batch_holds_lock do
       expect { TimeClockService.clock_in(user: User.find(employee.id)) }

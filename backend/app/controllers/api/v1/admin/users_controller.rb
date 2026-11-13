@@ -737,7 +737,7 @@ module Api
 
 
         def terminate_user_under_lock(effective_on)
-          @user.with_lock do
+          @user.with_lock(User::EMPLOYEE_ROW_LOCK) do
             @user.reload
             if @user.terminated?
               render json: { error: "This employee is already terminated" }, status: :unprocessable_entity
