@@ -110,6 +110,12 @@ describe('What goes to payroll', () => {
     ])
   })
 
+  it('splits out overtime held from earlier periods', () => {
+    const earlier = { ...preview().exclusions[1], source_time_entry_id: '880', original_work_date: '2026-10-29', held_total_hours: 12, held_regular_hours: 4, held_overtime_hours: 8 }
+    const ethan = personRows(preview({ exclusions: [...preview().exclusions, earlier] })).find(row => row.name === 'Ethan Cruz')
+    expect(ethan).toMatchObject({ overtimeWaiting: 14, overtimeWaitingEarlier: 8 })
+  })
+
   it('reads a frozen batch the same way', () => {
     expect(personRows(lockedBatch().payload).map(row => [row.name, row.regular, row.overtime, row.waiting])).toEqual([['Caleb Perez', 76, 4, 0], ['Jun Santos', 0, 0, 8.9]])
   })

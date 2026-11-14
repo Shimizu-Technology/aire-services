@@ -31,7 +31,13 @@ function Flags({ row, locked }: { row: PersonRow; locked: boolean }) {
   return (
     <>
       {row.stillClockedIn && <StatusPill tone={locked ? 'off' : 'needs-fix'}>{locked ? 'Clocked in at the lock' : 'Still clocked in'}</StatusPill>}
-      {row.overtimeWaiting > 0 && <StatusPill tone={locked ? 'off' : 'waiting'}>{hoursLabel(row.overtimeWaiting)} OT {locked ? 'held back at the lock' : 'waiting'}</StatusPill>}
+      {row.overtimeWaiting > 0 && (
+        <StatusPill tone={locked ? 'off' : 'waiting'}>
+          {hoursLabel(row.overtimeWaiting)} OT {locked ? 'held back at the lock' : 'waiting'}
+          {/* The checklist counts this period's dates only; say how much of this came from earlier ones. */}
+          {row.overtimeWaitingEarlier > 0 && ` · ${hoursLabel(row.overtimeWaitingEarlier)} from earlier periods`}
+        </StatusPill>
+      )}
       {row.missingCategory && <StatusPill tone="needs-fix">No work category</StatusPill>}
     </>
   )

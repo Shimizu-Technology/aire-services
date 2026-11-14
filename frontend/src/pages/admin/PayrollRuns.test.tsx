@@ -188,6 +188,19 @@ describe('pay period page: open period', () => {
     expect(within(screen.getByRole('region', { name: /What goes to payroll/ })).getByRole('status')).toHaveTextContent("Couldn't refresh what goes to payroll. Last updated 7:41 PM.")
   })
 
+  // Lead: the table's overtime can include earlier periods; say how much, so it doesn't contradict the checklist.
+  it("labels the part of a person's waiting overtime that comes from earlier periods", async () => {
+    const base = preview()
+    const earlier = { ...base.exclusions[1], source_time_entry_id: '880', original_work_date: '2026-10-29', held_total_hours: 12, held_regular_hours: 4, held_overtime_hours: 8 }
+    mocks.previewPayrollBatch.mockResolvedValue({ data: preview({ exclusions: [...base.exclusions, earlier] }) })
+    await open()
+    const table = screen.getByRole('table', { name: 'What goes to payroll if it locked now' })
+    expect(within(table).getByText('14h OT waiting · 8h from earlier periods')).toBeInTheDocument()
+    expect(checklist().getByText('6h overtime waiting')).toBeInTheDocument()
+    // Only Ethan's flag has an earlier part.
+    expect(within(table).getAllByText(/from earlier periods/)).toHaveLength(1)
+  })
+
   it('becomes a list of people on a phone', async () => {
     restoreMatchMedia()
     restoreMatchMedia = mockMatchMedia({ width: 390 })

@@ -171,6 +171,8 @@ export interface PersonRow {
   waiting: number
   stillClockedIn: boolean
   overtimeWaiting: number
+  /** The part of `overtimeWaiting` from shifts dated before this period (carried in). */
+  overtimeWaitingEarlier: number
   missingCategory: boolean
   lines: PayrollBatchAdjustment[]
   held: PayrollBatchExclusion[]
@@ -182,7 +184,7 @@ export function personRows(payload: PayrollBatchPayload): PersonRow[] {
   const row = (id: string, name: string) => {
     let current = rows.get(id)
     if (!current) {
-      current = { id, name, regular: 0, overtime: 0, waiting: 0, stillClockedIn: false, overtimeWaiting: 0, missingCategory: false, lines: [], held: [] }
+      current = { id, name, regular: 0, overtime: 0, waiting: 0, stillClockedIn: false, overtimeWaiting: 0, overtimeWaitingEarlier: 0, missingCategory: false, lines: [], held: [] }
       rows.set(id, current)
     }
     return current
@@ -199,7 +201,10 @@ export function personRows(payload: PayrollBatchPayload): PersonRow[] {
     current.held.push(item)
     if (WAITING_REASONS.has(item.reason)) current.waiting += item.held_total_hours
     if (item.reason === 'open_clock') current.stillClockedIn = true
-    if (item.reason === 'pending_overtime') current.overtimeWaiting += item.held_overtime_hours
+    if (item.reason === 'pending_overtime') {
+      current.overtimeWaiting += item.held_overtime_hours
+      if (item.original_work_date < payload.start_date) current.overtimeWaitingEarlier += item.held_overtime_hours
+    }
   }
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
