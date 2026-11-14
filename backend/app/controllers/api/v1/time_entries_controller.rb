@@ -270,16 +270,22 @@ module Api
 
       # DELETE /api/v1/time_entries/:id
       def destroy
-        unless @time_entry.deletable_by?(current_user)
-          return render json: { error: "You can only delete your own time entries" }, status: :forbidden
-        end
+        return render_delete_refusal unless @time_entry.deletable_by?(current_user)
 
         return unless require_correction_reason_for_payroll_entry!
 
         entry_info = "#{@time_entry.hours}h on #{@time_entry.work_date}"
         entry_id = @time_entry.id
 
+        refused = false
         TimeEntry.transaction do
+          # Re-check under the employee's lock: an approval may have just landed.
+          @time_entry.lock!
+          unless @time_entry.deletable_by?(current_user)
+            refused = true
+            raise ActiveRecord::Rollback
+          end
+
           ::Payroll::SettlementCaseCoordinator.record_deletion!(@time_entry, actor: current_user)
           @time_entry.destroy!
 
@@ -298,6 +304,7 @@ module Api
 
           invalidate_payroll_exports!
         end
+        return render_delete_refusal if refused
 
         head :no_content
       end
@@ -705,6 +712,10 @@ module Api
       def overtime_ready_for_approval?(entry)
         allocation = ::Payroll::AffectedOvertimeReview.allocation_for(entry)
         allocation.present? && allocation[:hold_reason].blank?
+      end
+
+      def render_delete_refusal
+        render json: { error: TimeEntry::EMPLOYEE_DELETE_REFUSAL, code: "delete_not_allowed" }, status: :forbidden
       end
 
       def approval_change_reason(action, note = params[:note])
