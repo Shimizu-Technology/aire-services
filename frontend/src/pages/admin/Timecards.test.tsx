@@ -92,8 +92,8 @@ beforeEach(() => {
         .filter(row => !params.user_id || row.id === params.user_id),
     },
   }))
-  apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number; start_date?: string }) => ({
-    data: { time_entries: params.user_id === 7 && params.start_date === '2026-11-01' ? CALEB_ENTRIES : [], pagination: { total_pages: 1 } },
+  apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number; start_date?: string; end_date?: string }) => ({
+    data: { time_entries: params.user_id === 7 && params.end_date === '2026-11-15' ? CALEB_ENTRIES : [], pagination: { total_pages: 1 } },
   }))
   apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: OPEN } })
 })
@@ -151,7 +151,7 @@ describe('Timecards on a phone', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Previous pay period' }))
     expect(search().get('period')).toBe('2026-10-16')
     expect(search().get('user_id')).toBe('7')
-    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ user_id: 7, start_date: '2026-10-16', end_date: '2026-10-31' })))
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ user_id: 7, start_date: '2026-10-15', end_date: '2026-10-31' })))
     expect(await screen.findByText('No time recorded for Caleb in Oct 16–31.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Browser back' }))
@@ -196,14 +196,134 @@ describe('Timecards on a phone', () => {
     expect(await screen.findByText("Added 8.0h for Caleb. It's waiting in Approvals.")).toBeInTheDocument()
   })
 
-  it('says when work categories fail to load, and retries', async () => {
-    apiMock.getTimeCategories.mockResolvedValueOnce({ error: 'Server returned an invalid response (502)' })
+  it('blocks Fix clock-out and Log missed time while work categories are missing, until a retry loads them', async () => {
+    apiMock.getTimeCategories.mockResolvedValueOnce({ error: 'Server returned an invalid response (502)', status: 502 })
     openAt('/admin/timecards?user_id=7&period=2026-11-01')
     const alert = await screen.findByText("Couldn't load work categories.")
+    const reason = "Work categories didn't load. Try again at the top of the page."
+    expect(await screen.findByRole('button', { name: 'Fix clock-out' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Fix clock-out' })).toHaveAttribute('title', reason)
+    expect(screen.getByRole('button', { name: 'Log missed time for Caleb' })).toBeDisabled()
     fireEvent.click(within(alert.closest('[role=alert]') as HTMLElement).getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(screen.queryByText("Couldn't load work categories.")).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Fix clock-out' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Log missed time for Caleb' })).toBeEnabled()
     expect(apiMock.getTimeCategories).toHaveBeenCalledTimes(2)
   })
+
+  it('shows the linked shift’s fix blocked too when categories fail, rather than a form that can’t save', async () => {
+    apiMock.getTimeCategories.mockResolvedValueOnce({ error: 'Server returned an invalid response (502)', status: 502 })
+    openAt('/admin/timecards?entry_id=55&date=2026-11-10&view=day&user_id=7')
+    const fix = await screen.findByRole('form', { name: /Fix clock-out/ })
+    expect(within(fix).getByRole('alert')).toHaveTextContent("Work categories didn't load.")
+    expect(within(fix).getByRole('button', { name: 'Save clock-out' })).toBeDisabled()
+  })
+
+  it('never says nobody needs a look when the hours report failed, and recovers on retry', async () => {
+    apiMock.getHoursReport.mockResolvedValueOnce({ error: 'Something went wrong', status: 500 })
+    openAt('/admin/timecards')
+    expect(await screen.findByText("Couldn't load who needs a look.")).toBeInTheDocument()
+    expect(screen.queryByText('Nobody needs a look.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/nothing waiting/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Needs a look/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /Needs a look/ })).not.toHaveTextContent(/\d/)
+    fireEvent.click(within(screen.getByText("Couldn't load who needs a look.").closest('[role=alert]') as HTMLElement).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByText("Couldn't load who needs a look.")).not.toBeInTheDocument())
+    expect(await screen.findByText('Still clocked in')).toBeInTheDocument()
+  })
+
+  it('shows the error, not an empty "needs a look", when that chip is on and the report failed', async () => {
+    apiMock.getHoursReport.mockResolvedValueOnce({ error: 'Something went wrong', status: 500 })
+    openAt('/admin/timecards?filter=needs')
+    expect(await screen.findByText("Couldn't load who needs a look.")).toBeInTheDocument()
+    expect(screen.queryByText('Nobody needs a look.')).not.toBeInTheDocument()
+  })
+
+  it('refreshes the people and the open timecard when the tab comes back', async () => {
+    openAt('/admin/timecards?user_id=7&period=2026-11-01')
+    expect(await screen.findByRole('list', { name: 'Days in Nov 1–15' })).toBeInTheDocument()
+    const reports = apiMock.getHoursReport.mock.calls.length
+    const entries = apiMock.getTimeEntries.mock.calls.length
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    await waitFor(() => expect(apiMock.getTimeEntries.mock.calls.length).toBeGreaterThan(entries))
+    expect(apiMock.getHoursReport.mock.calls.length).toBeGreaterThan(reports)
+  })
+
+  it('doesn’t refresh the timecard under an open Fix clock-out, and keeps what was typed', async () => {
+    openAt('/admin/timecards?user_id=7&period=2026-11-01')
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix clock-out' }))
+    fireEvent.change(screen.getByLabelText(/Why the change/), { target: { value: 'Forgot' } })
+    const entries = apiMock.getTimeEntries.mock.calls.filter(([params]) => params.user_id === 7).length
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(apiMock.getTimeEntries.mock.calls.filter(([params]) => params.user_id === 7)).toHaveLength(entries)
+    expect(screen.getByLabelText(/Why the change/)).toHaveValue('Forgot')
+  })
+
+  it('doesn’t refresh under an open Log missed time sheet', async () => {
+    openAt('/admin/timecards?user_id=7&period=2026-11-01')
+    fireEvent.click(await screen.findByRole('button', { name: 'Log missed time for Caleb' }))
+    const reports = apiMock.getHoursReport.mock.calls.length
+    const entries = apiMock.getTimeEntries.mock.calls.length
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(apiMock.getHoursReport.mock.calls.length).toBe(reports)
+    expect(apiMock.getTimeEntries.mock.calls.length).toBe(entries)
+  })
+
+  it('reloads the person’s time when a missed-time save can’t be confirmed', async () => {
+    apiMock.createTimeEntry.mockResolvedValue({ error: 'Failed to fetch', errors: [] })
+    openAt('/admin/timecards?user_id=7&period=2026-11-01')
+    fireEvent.click(await screen.findByRole('button', { name: 'Log missed time for Caleb' }))
+    fireEvent.change(within(screen.getByRole('dialog', { name: 'Log missed time' })).getByLabelText(/^Day/), { target: { value: '2026-11-11' } })
+    const entries = apiMock.getTimeEntries.mock.calls.length
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add 8.0h for Caleb' })) })
+    expect(screen.getByText("We couldn't confirm this was saved. Check the timecard before adding it again.")).toBeInTheDocument()
+    await waitFor(() => expect(apiMock.getTimeEntries.mock.calls.length).toBeGreaterThan(entries))
+    expect(screen.getByRole('dialog', { name: 'Log missed time' })).toBeInTheDocument()
+  })
+
+  it('waits for a scheduled shift before Log missed time can open, then opens it filled in', async () => {
+    let resolveSchedule: (value: unknown) => void = () => undefined
+    apiMock.getSchedule.mockReturnValue(new Promise((resolve) => { resolveSchedule = resolve }))
+    openAt('/admin/timecards?prefill=true&schedule_id=4&user_id=7')
+    const log = await screen.findByRole('button', { name: 'Log missed time for Caleb' })
+    expect(log).toBeDisabled()
+    expect(log).toHaveAttribute('title', 'Loading the scheduled shift…')
+    await act(async () => {
+      resolveSchedule({ data: { schedule: { id: 4, user_id: 7, work_date: '2026-11-11', start_time: '06:00', end_time: '14:00', formatted_time_range: '6:00 AM – 2:00 PM', notes: null } } })
+    })
+    const sheet = await screen.findByRole('dialog', { name: 'Log missed time' })
+    expect(within(sheet).getByLabelText(/^Day/)).toHaveValue('2026-11-11')
+    expect(within(sheet).getByLabelText(/^Start/)).toHaveValue('06:00')
+  })
+
+  it('shows an overnight shift from Oct 31 on Nov 1 with only November’s hours, matching the summary', async () => {
+    const overnight = entry({
+      id: 70, work_date: '2026-10-31', start_time: '22:30', end_time: '06:30', formatted_start_time: '10:30 PM', formatted_end_time: '6:30 AM',
+      hours: 8, clock_in_at: '2026-10-31T22:30:00+10:00', clock_out_at: '2026-11-01T06:30:00+10:00',
+      user: { ...OPEN.user, id: 9, full_name: 'Ethan Cruz', display_name: 'Ethan Cruz' },
+    })
+    apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number; start_date?: string }) => ({
+      data: { time_entries: params.user_id === 9 && params.start_date === '2026-10-31' ? [overnight] : [], pagination: { total_pages: 1 } },
+    }))
+    apiMock.getHoursReport.mockImplementation(async () => ({ data: { summary_only: true, employees: [{ ...summaryRow(9, 6.5), entries_count: 1 }] } }))
+    openAt('/admin/timecards?user_id=9&period=2026-11-01')
+    const days = await screen.findByRole('list', { name: 'Days in Nov 1–15' })
+    const nov1 = within(days).getByRole('article', { name: 'Sunday, November 1' })
+    expect(nov1).toHaveTextContent('10:30p–6:30a')
+    expect(nov1).toHaveTextContent('Continues from Sat, Oct 31 · 6.5h in this period')
+    expect(within(nov1).getByRole('button', { name: /Edit shift/ })).toHaveAttribute('id', 'timecard-entry-70-continued')
+    expect(screen.getByText('Approved', { selector: 'dt' }).closest('dl')).toHaveTextContent('Approved6.5h')
+  })
+
+  it('shows a loading state for a linked person while people load', async () => {
+    let resolveUsers: (value: unknown) => void = () => undefined
+    apiMock.getUsers.mockReturnValue(new Promise((resolve) => { resolveUsers = resolve }))
+    openAt('/admin/timecards?user_id=7&period=2026-11-01')
+    expect(await screen.findByLabelText('Loading the timecard')).toBeInTheDocument()
+    await act(async () => { resolveUsers({ data: { users: USERS } }) })
+    expect(await screen.findByRole('heading', { level: 2, name: 'Caleb Perez' })).toBeInTheDocument()
+  })
+
 
   it('after a conflict, reloads the shift and saves with its current version', async () => {
     apiMock.updateTimeEntry
@@ -220,7 +340,7 @@ describe('Timecards on a phone', () => {
     expect(apiMock.updateTimeEntry).toHaveBeenLastCalledWith(55, expect.objectContaining({ expected_version: 4 }), 'Corrected clock-out: Forgot')
 
     // Someone else changed it meanwhile; the reload brings version 5.
-    apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number; start_date?: string }) => ({
+    apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number; start_date?: string; end_date?: string }) => ({
       data: { time_entries: params.user_id === 7 ? [CALEB_ENTRIES[0], CALEB_ENTRIES[1], { ...OPEN, version: 5 }] : [], pagination: { total_pages: 1 } },
     }))
     fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))

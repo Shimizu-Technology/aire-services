@@ -16,6 +16,9 @@ export interface PeoplePickerProps {
   onFilterChange: (filter: PeopleFilter) => void
   error?: string | null
   onRetry?: () => void
+  /** The hours report failed: hours and "needs a look" flags are unknown. */
+  summaryError?: string | null
+  onRetrySummary?: () => void
 }
 
 // "tasi" finds "Tåsi"; case, accents and apostrophes don't matter.
@@ -31,12 +34,13 @@ function pillFor(person: TimecardPersonRow): { tone: StatusTone; label: string }
 }
 
 /** Finds one person: search, "Needs a look" first, then departments. */
-export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterChange, error, onRetry }: PeoplePickerProps) {
+export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterChange, error, onRetry, summaryError = null, onRetrySummary }: PeoplePickerProps) {
   const ids = useId()
   const [query, setQuery] = useState('')
   const needsLook = useMemo(() => people?.filter(person => person.needsLook) ?? [], [people])
   const groups = useMemo(() => [...new Set(people?.flatMap(person => person.groups) ?? [])].sort(), [people])
-  const active = filter ?? (needsLook.length > 0 ? 'needs' : 'all')
+  // Without the report nobody can be said to need a look (or not), so the list starts on everyone.
+  const active = filter ?? (!summaryError && needsLook.length > 0 ? 'needs' : 'all')
 
   const shown = useMemo(() => {
     if (!people) return []
@@ -68,12 +72,18 @@ export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterCha
         />
       </div>
       <div role="group" aria-label="Show" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-        <FilterChip selected={active === 'needs'} onClick={() => toggle('needs')} count={people ? needsLook.length : undefined}>Needs a look</FilterChip>
+        <FilterChip selected={active === 'needs'} onClick={() => toggle('needs')} count={people && !summaryError ? needsLook.length : undefined}>Needs a look</FilterChip>
         {groups.map(group => <FilterChip key={group} selected={active === group} onClick={() => toggle(group)}>{group}</FilterChip>)}
       </div>
 
+      {summaryError && !error && (
+        <ErrorState title="Couldn't load who needs a look." description="Hours and waiting time aren't shown until it loads." onRetry={onRetrySummary} />
+      )}
       {error ? (
         <ErrorState title="Couldn't load people." description={error} onRetry={onRetry} />
+      ) : summaryError && active === 'needs' && !query ? (
+        // The error above already says why; an empty "Nobody needs a look" here would be a false all-clear.
+        null
       ) : !people ? (
         <div aria-busy="true" aria-label="Loading people" className="space-y-2 rounded-card border border-line bg-surface p-3">
           {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} height={44} className="w-full" />)}

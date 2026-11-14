@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, Plus } from 'lucide-react'
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
@@ -16,6 +16,7 @@ import { isIsoDate } from '../../lib/payrollPeriods'
 import { buildPeopleRows, formatHours, personName } from '../../lib/timecards'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { useMediaQuery } from '../../lib/useMediaQuery'
+import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 
 type View = 'person' | 'everyone'
 
@@ -61,9 +62,12 @@ export default function Timecards() {
   const refresh = useCallback(() => setRevision(value => value + 1), [])
   const [users, setUsers] = useState<{ list: UserSummary[] | null; error: string | null }>({ list: null, error: null })
   const [usersRetry, setUsersRetry] = useState(0)
-  const [summary, setSummary] = useState<{ key: string; report: TimecardSummaryResponse | null }>({ key: '', report: null })
+  const [summary, setSummary] = useState<{ periodStart: string; report: TimecardSummaryResponse | null; error: string | null }>({ periodStart: '', report: null, error: null })
+  const [summaryRetry, setSummaryRetry] = useState(0)
+  // Background refreshes of the people list (tab return, every 60s).
+  const [pollTick, setPollTick] = useState(0)
   const [workers, setWorkers] = useState<WorkerStatus[]>([])
-  const [categories, setCategories] = useState<TimeCategory[]>([])
+  const [categories, setCategories] = useState<TimeCategory[] | null>(null)
   const [categoriesError, setCategoriesError] = useState<string | null>(null)
   const [categoriesRetry, setCategoriesRetry] = useState(0)
   const [lockAt, setLockAt] = useState<{ start: string; at: string } | null>(null)
@@ -102,18 +106,24 @@ export default function Timecards() {
   }, [])
 
   const { start: periodStart, end: periodEnd } = period
-  const summaryKey = `${periodStart}:${revision}`
+  const summaryKey = `${periodStart}:${revision}:${summaryRetry}:${pollTick}`
   useEffect(() => {
     let cancelled = false
     const range = { start: periodStart, end: periodEnd }
     void Promise.all([timecardsApi.peopleSummary(range), timecardsApi.whosWorking()]).then(([report, working]) => {
       if (cancelled) return
-      // Without the report the list still works, just without hours and flags.
-      setSummary({ key: summaryKey, report: report.data ?? null })
+      // Without the report the list still works, but it can't say who needs a look.
+      setSummary({ periodStart, report: report.data ?? null, error: report.data ? null : report.error ?? 'Unknown error' })
       if (working.data) setWorkers(working.data.workers)
     })
     return () => { cancelled = true }
   }, [periodEnd, periodStart, summaryKey])
+
+  // Keep the list current: on returning to the tab and every 60 seconds, but
+  // not while the Log missed time sheet is open.
+  const holdRefresh = useRef(false)
+  useEffect(() => { holdRefresh.current = logPrefill !== null }, [logPrefill])
+  useEffect(() => startVisibilityAwarePolling(() => { if (!holdRefresh.current) setPollTick(value => value + 1) }, 60_000), [])
 
   // A link to one shift (Who's Working, Today, the person page) opens that
   // person's timecard on the shift's pay period.
@@ -160,10 +170,12 @@ export default function Timecards() {
     else params.delete('view')
   })
 
+  // A refresh of the same period keeps the list on screen while it loads.
   const people = useMemo(() => {
-    if (!users.list || summary.key !== summaryKey) return null
+    if (!users.list || summary.periodStart !== periodStart) return null
     return buildPeopleRows(users.list, summary.report?.employees ?? null, workers, today)
-  }, [summary, summaryKey, today, users.list, workers])
+  }, [periodStart, summary, today, users.list, workers])
+  const summaryError = summary.periodStart === periodStart ? summary.error : null
 
   const selectedUser = userId ? users.list?.find(user => user.id === userId) ?? null : null
   const selectedRow = people?.find(row => row.id === userId)
@@ -212,8 +224,17 @@ export default function Timecards() {
   const prefillError = prefillScheduleId !== null && (!positiveId(prefillScheduleId) || !userId)
     ? 'This shift link is incomplete. Open Log time from the schedule again.'
     : prefillFailure
+  const prefillLoading = prefillScheduleId !== null && !prefillError
+
+  // Fixing a clock-out and logging missed time both need the work categories.
+  const categoriesBlocked = categoriesError
+    ? "Work categories didn't load. Try again at the top of the page."
+    : categories === null ? 'Loading work categories…' : null
+  // A scheduled shift fills the sheet when it loads; opening it before then would lose that.
+  const logBlocked = categoriesBlocked ?? (prefillLoading ? 'Loading the scheduled shift…' : null)
 
   const openLog = (prefill: MissedTimePrefill = {}) => setLogPrefill({ personId: showEveryone ? null : person?.id ?? null, ...prefill })
+  const workCategories = categories ?? []
   const onLogged = (who: MissedTimePerson, hours: number) => {
     setLogPrefill(null)
     toast.show({ message: `Added ${formatHours(hours)} for ${who.firstName}. It's waiting in Approvals.` })
@@ -247,7 +268,10 @@ export default function Timecards() {
       person={person}
       period={period}
       onPeriodChange={changePeriod}
-      categories={categories}
+      categories={workCategories}
+      blockedReason={categoriesBlocked}
+      logMissedTimeBlockedReason={logBlocked}
+      pauseRefresh={logPrefill !== null}
       focusEntryId={linkError ? null : entryId}
       lockAt={lock}
       refreshKey={revision}
@@ -286,7 +310,7 @@ export default function Timecards() {
         actions={desktop ? (
           <>
             <SegmentedControl label="Show" options={[{ value: 'person', label: 'One person' }, { value: 'everyone', label: 'Everyone' }]} value={view} onChange={changeView} />
-            <Button icon={<Plus className="size-4" />} onClick={() => openLog()} disabled={!users.list}>Log missed time</Button>
+            <Button icon={<Plus className="size-4" />} onClick={() => openLog()} disabled={!users.list || !!logBlocked} title={logBlocked ?? undefined}>Log missed time</Button>
           </>
         ) : undefined}
       />
@@ -305,12 +329,12 @@ export default function Timecards() {
         <EveryoneWeek
           date={weekDate}
           onDateChange={(next) => update(params => { params.delete('entry_id'); params.set('date', next) })}
-          categories={categories}
+          categories={workCategories}
           refreshKey={revision}
           onChanged={refresh}
           onOpenPerson={(id, day) => choosePerson(id, payPeriodContaining(day))}
           onAddEntry={(day) => openLog({ personId: null, workDate: day })}
-          addDisabled={!users.list}
+          addDisabled={!users.list || !!logBlocked}
         />
       ) : desktop ? (
         <div className="grid grid-cols-[320px_minmax(0,1fr)] items-start gap-6">
@@ -322,6 +346,8 @@ export default function Timecards() {
             onFilterChange={(filter) => update(params => params.set('filter', filter), true)}
             error={users.error}
             onRetry={() => setUsersRetry(value => value + 1)}
+            summaryError={summaryError}
+            onRetrySummary={() => setSummaryRetry(value => value + 1)}
           />
           {userId ? personPane : <EmptyState title="Pick a person to see their pay period." description="People who need a look are listed first." />}
         </div>
@@ -334,6 +360,8 @@ export default function Timecards() {
           onFilterChange={(filter) => update(params => params.set('filter', filter), true)}
           error={users.error}
           onRetry={() => setUsersRetry(value => value + 1)}
+          summaryError={summaryError}
+          onRetrySummary={() => setSummaryRetry(value => value + 1)}
         />
       )}
 
@@ -341,10 +369,12 @@ export default function Timecards() {
         open={logPrefill !== null}
         onClose={() => setLogPrefill(null)}
         people={missedTimePeople}
-        categories={categories}
+        categories={workCategories}
         prefill={logPrefill ?? {}}
         today={today}
         onSaved={onLogged}
+        onUncertain={refresh}
+        blockedReason={categoriesBlocked}
       />
     </div>
   )
