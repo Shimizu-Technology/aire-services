@@ -136,6 +136,31 @@ it('never infers Paid from approval or a prepared paycheck', () => {
   ).toBe('2026-11-25')
 })
 
+it('keeps a paid period badge when its only unpaid entry was denied', () => {
+  const paid = shift({
+    approval_status: 'approved',
+    payroll_status: {
+      status: 'payment_issued',
+      label: 'Paid',
+      paid_hours: 3,
+      held_hours: 0,
+      paychecks: [{ statement_id: '1', pay_date: '2026-11-25' }],
+    },
+  })
+  const denied = shift({
+    id: 42,
+    approval_status: 'denied',
+    payroll_status: {
+      status: 'not_payable',
+      label: 'Denied',
+      paid_hours: 0,
+      held_hours: 0,
+    },
+  })
+  expect(periodPaidDate([paid, denied])).toBe('2026-11-25')
+  expect(periodPaidDate([denied])).toBeNull()
+})
+
 it('does not spend the browser acquisition timeout while a permission prompt is pending', async () => {
   vi.useFakeTimers()
   let failed!: PositionErrorCallback

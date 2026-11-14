@@ -177,8 +177,9 @@ export function displayPeriodTotals(entries: TimeEntry[], period: PayPeriod) {
 
 /** Only a paid payload with a pay date can label the whole period Paid. */
 export function periodPaidDate(entries: TimeEntry[]) {
-  if (entries.some((entry) => entry.status !== 'completed')) return null
-  const completed = entries.filter(
+  const payable = entries.filter((entry) => entry.approval_status !== 'denied')
+  if (payable.some((entry) => entry.status !== 'completed')) return null
+  const completed = payable.filter(
     (entry) => entry.status === 'completed' && entry.hours > 0,
   )
   if (
