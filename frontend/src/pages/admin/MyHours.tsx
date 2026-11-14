@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeCategory, TimeEntry, UserSummary } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
+import { outcomeUnknown } from '../../lib/api/timecards'
 import { addDateDays } from '../../lib/dateUtils'
 import {
   currentPayPeriod,
@@ -15,7 +16,11 @@ import {
 } from '../../lib/employeePresentation'
 import { timecardDays } from '../../lib/timecards'
 import { isIsoDate } from '../../lib/payrollPeriods'
-import { weeksAround, withOvertimeHours } from '../../lib/myTime'
+import {
+  approverNamesFor,
+  weeksAround,
+  withOvertimeHours,
+} from '../../lib/myTime'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import { HoursSummary } from '../../components/myhours/HoursSummary'
 import { ShiftSheet } from '../../components/myhours/ShiftSheet'
@@ -27,6 +32,8 @@ import {
   PageHeader,
   PeriodStepper,
   StatusPill,
+  useConfirm,
+  useToast,
 } from '../../components/ui'
 
 export default function MyHours() {
@@ -48,7 +55,8 @@ export default function MyHours() {
   const [form, setForm] = useState<TimeEntry | 'new' | null>(null)
   const [week, setWeek] = useState<TimeEntry[]>([])
   const [weekError, setWeekError] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [confirm, confirmDialog] = useConfirm()
+  const toast = useToast()
   const viewerId = currentUser?.id
   const key = `${viewerId}:${period.start}`
   const latestLoad = useRef(0)
@@ -128,17 +136,42 @@ export default function MyHours() {
   }, [detail, viewerId])
   const days = timecardDays(entries, period)
   const visibleEntries = [...days.values()].flat().map((item) => item.entry)
-  const groups =
-    people.find((person) => person.id === viewerId)?.approval_group_keys ?? []
-  const approverNames = people
-    .filter(
-      (person) =>
-        person.role === 'manager' &&
-        person.is_active &&
-        person.id !== viewerId &&
-        person.approval_group_keys?.some((group) => groups.includes(group)),
-    )
-    .map((person) => person.first_name || person.full_name)
+  const approverNames = approverNamesFor(people, viewerId)
+  // Time you added yourself can be taken back until someone approves it.
+  const removable = (entry: TimeEntry) =>
+    entry.entry_method === 'manual' &&
+    entry.status === 'completed' &&
+    entry.approval_status === 'pending' &&
+    !entry.admin_override &&
+    entry.user.id === viewerId
+  const remove = async (entry: TimeEntry) => {
+    const day = employeeDate(entry.work_date, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    })
+    const range = `${entry.formatted_start_time ?? entry.start_time}–${entry.formatted_end_time ?? entry.end_time}`
+    const ok = await confirm({
+      title: 'Remove this shift?',
+      description: `Your ${range} shift on ${day} will be deleted. It hasn't been approved, so nothing else changes.`,
+      tone: 'danger',
+      confirmLabel: 'Remove shift',
+      cancelLabel: 'Keep it',
+    })
+    if (!ok) return
+    const result = await myTimeApi.removeShift(entry.id)
+    if (!result.error) {
+      setDetail(null)
+      toast.show({ message: `Removed your ${day} shift.` })
+    } else
+      toast.show({
+        tone: 'danger',
+        message: outcomeUnknown(result)
+          ? "We couldn't confirm the shift was removed. Check My Hours before trying again."
+          : `${result.error} Nothing was removed.`,
+      })
+    void currentLoad.current?.()
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -154,11 +187,6 @@ export default function MyHours() {
           setForm(null)
         }}
       />
-      {message && (
-        <p role="status" className="text-body text-ink">
-          {message}
-        </p>
-      )}
       {categoriesError && !form && (
         <ErrorState
           title="Couldn't load your work types."
@@ -181,6 +209,9 @@ export default function MyHours() {
             period={period}
             approverNames={approverNames}
           />
+          <Button fullWidth variant="secondary" onClick={() => setForm('new')}>
+            Add time I forgot to clock
+          </Button>
           {days.size === 0 ? (
             <EmptyState title="No time recorded this pay period." />
           ) : (
@@ -245,9 +276,6 @@ export default function MyHours() {
                 ))}
             </ul>
           )}
-          <Button variant="ghost" onClick={() => setForm('new')}>
-            Add time I forgot to clock
-          </Button>
         </>
       )}
       {detail && (
@@ -260,6 +288,9 @@ export default function MyHours() {
             setForm(detail)
             setDetail(null)
           }}
+          onRemove={
+            removable(detail) ? () => void remove(detail) : undefined
+          }
         />
       )}
       {form && (
@@ -274,12 +305,18 @@ export default function MyHours() {
             void currentLoad.current?.()
           }}
           onSaved={() => {
+            toast.show({
+              message:
+                form === 'new'
+                  ? 'Your time was added and sent for approval.'
+                  : 'Your fix was sent for approval.',
+            })
             setForm(null)
-            setMessage('Your time was saved and sent for approval.')
             void currentLoad.current?.()
           }}
         />
       )}
+      {confirmDialog}
     </div>
   )
 }

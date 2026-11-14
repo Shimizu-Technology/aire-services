@@ -42,9 +42,11 @@ export function ShiftForm({
 }) {
   const online = useOnlineStatus()
   const [entry, setEntry] = useState(initialEntry)
-  const [date, setDate] = useState(entry?.work_date ?? todayInGuam())
-  const [start, setStart] = useState(entry?.start_time ?? '08:00')
-  const [end, setEnd] = useState(entry?.end_time ?? '17:00')
+  // Added time starts blank: a prefilled day and 8–5 got saved on top of
+  // shifts already worked. The API also refuses overlapping time.
+  const [date, setDate] = useState(entry?.work_date ?? '')
+  const [start, setStart] = useState(entry?.start_time ?? '')
+  const [end, setEnd] = useState(entry?.end_time ?? '')
   const [breakMinutes, setBreakMinutes] = useState(entry?.break_minutes ?? 0)
   const [breaks, setBreaks] = useState(() => editableBreaks(entry))
   const detailedBreaks = !!entry?.breaks.length
@@ -78,12 +80,19 @@ export function ShiftForm({
     start === entry.start_time &&
     end === entry.end_time &&
     totalBreakMinutes === (entry.break_minutes ?? 0)
+  const timesChosen = !!start && !!end
   const hours = unchangedTime
     ? entry.hours
-    : Math.max(0, (minutesBetween(start, end) - totalBreakMinutes) / 60)
+    : timesChosen
+      ? Math.max(0, (minutesBetween(start, end) - totalBreakMinutes) / 60)
+      : 0
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!online || saving || uncertain) return
+    if (!entry && (!date || !timesChosen)) {
+      setError('Pick the day, then the times you worked.')
+      return
+    }
     if (
       !category ||
       !date ||
@@ -194,125 +203,139 @@ export function ShiftForm({
         >
           {entry
             ? 'Send fix for approval'
-            : `Add ${hours.toFixed(1)}h for approval`}
+            : hours > 0
+              ? `Add ${hours.toFixed(1)}h for approval`
+              : 'Add time for approval'}
         </Button>
       }
     >
-      <form id="my-shift-form" onSubmit={submit} className="space-y-4">
-        <Field label="Day" required>
+      <form
+        id="my-shift-form"
+        noValidate
+        onSubmit={submit}
+        className="space-y-4"
+      >
+        <Field label={entry ? 'Day' : 'Which day?'} required>
           <Input
             type="date"
             max={todayInGuam()}
             value={date}
             disabled={!!entry}
-            onChange={(event) => setDate(event.target.value)}
+            onChange={(event) => {
+              setDate(event.target.value)
+              setError(null)
+            }}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Clock in" required>
-            <Input
-              type="time"
-              value={start}
-              onChange={(event) => setStart(event.target.value)}
-            />
-          </Field>
-          <Field
-            label="Clock out"
-            required
-            help={end < start ? 'Ends the next day' : undefined}
-          >
-            <Input
-              type="time"
-              enterKeyHint="done"
-              value={end}
-              onChange={(event) => setEnd(event.target.value)}
-            />
-          </Field>
-        </div>
-        {detailedBreaks ? (
-          <fieldset className="space-y-3">
-            <legend className="text-body-sm font-medium">Breaks</legend>
-            {breaks.map((row, index) => (
-              <div
-                key={row.id}
-                className="space-y-2 rounded-control border border-line p-3"
+        {date && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Clock in" required>
+                <Input
+                  type="time"
+                  value={start}
+                  onChange={(event) => setStart(event.target.value)}
+                />
+              </Field>
+              <Field
+                label="Clock out"
+                required
+                help={end < start ? 'Ends the next day' : undefined}
               >
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label={`Break ${index + 1} start`}>
-                    <Input
-                      type="time"
-                      required
-                      value={row.start_time}
-                      onChange={(event) =>
-                        setBreaks((items) =>
-                          items.map((item, n) =>
-                            n === index
-                              ? { ...item, start_time: event.target.value }
-                              : item,
-                          ),
-                        )
+                <Input
+                  type="time"
+                  enterKeyHint="done"
+                  value={end}
+                  onChange={(event) => setEnd(event.target.value)}
+                />
+              </Field>
+            </div>
+            {detailedBreaks ? (
+              <fieldset className="space-y-3">
+                <legend className="text-body-sm font-medium">Breaks</legend>
+                {breaks.map((row, index) => (
+                  <div
+                    key={row.id}
+                    className="space-y-2 rounded-control border border-line p-3"
+                  >
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label={`Break ${index + 1} start`}>
+                        <Input
+                          type="time"
+                          required
+                          value={row.start_time}
+                          onChange={(event) =>
+                            setBreaks((items) =>
+                              items.map((item, n) =>
+                                n === index
+                                  ? { ...item, start_time: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                      </Field>
+                      <Field label={`Break ${index + 1} end`}>
+                        <Input
+                          type="time"
+                          required
+                          value={row.end_time}
+                          onChange={(event) =>
+                            setBreaks((items) =>
+                              items.map((item, n) =>
+                                n === index
+                                  ? { ...item, end_time: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                      </Field>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        setBreaks((items) => items.filter((_, n) => n !== index))
                       }
-                    />
-                  </Field>
-                  <Field label={`Break ${index + 1} end`}>
-                    <Input
-                      type="time"
-                      required
-                      value={row.end_time}
-                      onChange={(event) =>
-                        setBreaks((items) =>
-                          items.map((item, n) =>
-                            n === index
-                              ? { ...item, end_time: event.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                  </Field>
-                </div>
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    setBreaks((items) => items.filter((_, n) => n !== index))
-                  }
-                >
-                  Remove break {index + 1}
-                </Button>
-              </div>
-            ))}
-          </fieldset>
-        ) : (
-          <Field label="Break minutes">
-            <Input
-              type="number"
-              min="0"
-              max="1440"
-              inputMode="numeric"
-              value={breakMinutes}
-              onChange={(event) => setBreakMinutes(Number(event.target.value))}
-            />
-          </Field>
+                    >
+                      Remove break {index + 1}
+                    </Button>
+                  </div>
+                ))}
+              </fieldset>
+            ) : (
+              <Field label="Break minutes">
+                <Input
+                  type="number"
+                  min="0"
+                  max="1440"
+                  inputMode="numeric"
+                  value={breakMinutes}
+                  onChange={(event) => setBreakMinutes(Number(event.target.value))}
+                />
+              </Field>
+            )}
+            <Field label="Work" required>
+              <Select
+                value={category}
+                onChange={(event) => setCategory(Number(event.target.value))}
+              >
+                <option value="0">Choose work</option>
+                {categories.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={entry ? 'What happened?' : 'Note'} required={!!entry}>
+              <Textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+              />
+            </Field>
+          </>
         )}
-        <Field label="Work" required>
-          <Select
-            value={category}
-            onChange={(event) => setCategory(Number(event.target.value))}
-          >
-            <option value="0">Choose work</option>
-            {categories.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={entry ? 'What happened?' : 'Note'} required={!!entry}>
-          <Textarea
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-          />
-        </Field>
         {categoriesLoading ? (
           <p role="status">Loading your work types…</p>
         ) : categoriesError ? (
