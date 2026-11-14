@@ -148,3 +148,90 @@ it('does not leave a created row looking unsaved after a later row fails', async
   await user.click(within(blankRow).getByRole('button', { name: 'Delete work category' }))
   await waitFor(() => expect(screen.queryAllByText('You have unsaved changes')).toHaveLength(0))
 })
+
+const planning = { id: 2, name: 'Planning', description: null, is_active: true, deletable: true }
+
+// The create reached the server but its answer never reached the page.
+for (const [label, lost] of [
+  ['no status', { error: 'Failed to fetch' }],
+  ['a server error', { error: 'Bad gateway', status: 502 }],
+  ['an unreadable success', { error: 'Server returned an invalid response (200)', status: 200 }],
+] as const) {
+  it(`adopts the saved row after a lost create (${label}) instead of offering to delete it`, async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Add kind of work' }))
+    await user.type(screen.getByLabelText('Work name 2'), 'Planning')
+    mocks.create.mockResolvedValue(lost)
+    mocks.categories.mockResolvedValue({ data: { time_categories: [flight, planning] } })
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't confirm what was saved")
+    expect(screen.queryByLabelText('Work name 3')).toBeNull()
+    expect(screen.getByLabelText('Work name 2')).toHaveValue('Planning')
+    expect(screen.queryAllByText('You have unsaved changes')).toHaveLength(0)
+
+    // The next Save must not treat the saved Planning row as something the admin removed.
+    await user.type(screen.getByLabelText('Department 1'), ' Team')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalled())
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(mocks.create).toHaveBeenCalledTimes(1)
+    expect(mocks.remove).not.toHaveBeenCalled()
+  })
+}
+it('resets to the server list when a lost create cannot be matched to one new row', async () => {
+  const user = userEvent.setup()
+  renderPage()
+  await user.click(await screen.findByRole('button', { name: 'Add kind of work' }))
+  await user.type(screen.getByLabelText('Work name 2'), 'Planning')
+  await user.click(screen.getByRole('button', { name: 'Add kind of work' }))
+  await user.type(screen.getByLabelText('Work name 3'), 'Planning')
+  mocks.create.mockResolvedValue({ error: 'Failed to fetch' })
+  mocks.categories.mockResolvedValue({ data: { time_categories: [flight, planning] } })
+
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    "We couldn't confirm what was saved. This is what's saved now; check it and make any changes again.",
+  )
+  expect(screen.queryByLabelText('Work name 3')).toBeNull()
+  expect(screen.getByLabelText('Work name 2')).toHaveValue('Planning')
+  expect(screen.queryAllByText('You have unsaved changes')).toHaveLength(0)
+  expect(mocks.create).toHaveBeenCalledTimes(1)
+})
+it('shows a row that appeared on the server and never offers to delete it', async () => {
+  const user = userEvent.setup()
+  renderPage()
+  await user.click(await screen.findByRole('button', { name: 'Add kind of work' }))
+  mocks.create.mockResolvedValue({ error: "Name can't be blank", status: 422 })
+  mocks.categories.mockResolvedValue({
+    data: { time_categories: [flight, { ...planning, id: 9, name: 'Fuel truck' }] },
+  })
+
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('New in the list: Fuel truck.')
+  expect(screen.getByDisplayValue('Fuel truck')).toBeInTheDocument()
+  await user.type(screen.getByLabelText('Department 1'), ' Team')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalled())
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(mocks.remove).not.toHaveBeenCalled()
+})
+it('keeps Save off until the list is reloaded when the server cannot be re-read', async () => {
+  const user = userEvent.setup()
+  renderPage()
+  await user.click(await screen.findByRole('button', { name: 'Add kind of work' }))
+  await user.type(screen.getByLabelText('Work name 2'), 'Planning')
+  mocks.create.mockResolvedValue({ error: 'Failed to fetch' })
+  mocks.categories.mockRejectedValue(new Error('offline'))
+
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Reload the page to see what is saved')
+
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Reload the page to see what is saved')
+  expect(mocks.create).toHaveBeenCalledTimes(1)
+})

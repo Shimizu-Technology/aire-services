@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type AdminAppSettingsResponse } from '../../../lib/api'
 import { settingsApi } from '../../../lib/api/settings'
@@ -71,6 +71,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [confirm, dialog] = useConfirm()
+  const requireBeforeSchedulesOff = useRef<string | null>(null)
   const baseline = {
     ...data?.settings,
     pay_stub_request_notification_emails: savedEmails,
@@ -215,6 +216,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
         ? await settingsApi.save(settings)
         : { data: data! }
       if (result.data) {
+        requireBeforeSchedulesOff.current = null
         setData(result.data)
         setDraft({
           ...result.data.settings,
@@ -262,24 +264,28 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
     }
   }
 
-  const setSwitch = (key: string, checked: boolean) =>
-    setDraft((previous) => {
-      const next = { ...previous, [key]: String(checked) }
-      if (key === 'schedules_enabled') {
-        // Require cannot stay on without schedules; coming back restores what was saved.
-        if (!checked && previous.schedule_required_for_clock_in === 'true')
-          next.schedule_required_for_clock_in = 'false'
-        if (checked && baseline.schedules_enabled === 'true')
-          next.schedule_required_for_clock_in = baseline.schedule_required_for_clock_in
+  const setSwitch = (key: string, checked: boolean) => {
+    const next = { ...draft, [key]: String(checked) }
+    if (key === 'schedules_enabled') {
+      // Require cannot stay on without schedules. Switching schedules back on
+      // restores Require to what it was just before they were switched off.
+      if (!checked) {
+        requireBeforeSchedulesOff.current = draft.schedule_required_for_clock_in ?? 'false'
+        next.schedule_required_for_clock_in = 'false'
+      } else if (requireBeforeSchedulesOff.current !== null) {
+        next.schedule_required_for_clock_in = requireBeforeSchedulesOff.current
+        requireBeforeSchedulesOff.current = null
       }
-      return next
-    })
+    }
+    setDraft(next)
+  }
   const unsaved = useUnsavedChanges({
     dirty,
     what: title,
     saving,
     onSave: () => void save(),
     onDiscard: () => {
+      requireBeforeSchedulesOff.current = null
       setDraft({ ...baseline })
       setError('')
       setMessage('')
