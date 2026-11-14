@@ -270,7 +270,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     get "/api/v1/admin/hours_report/pdf", params: filters.merge(acknowledge_draft: true), headers: auth_headers
     expect(response).to have_http_status(:ok)
     expect(pdf_text).to include(
-      "Included hours ready - period review remains", "1 included entries; 4 excluded entries",
+      "Draft — 1 shift is still waiting for approval. Only approved hours are included.", "1 included entries; 4 excluded entries",
       "Period review: 1 pending approval, 1 denied, 1 pending overtime review, 1 open clock",
       "Excluded work: 1 pending approval, 1 denied, 1 pending overtime review, 1 open clock",
       "Category ID: #{category.id}", "Approval status: Approved or standard",
@@ -285,7 +285,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     get "/api/v1/admin/hours_report/pdf", params: filters.merge(user_id: employee.id, acknowledge_draft: true), headers: auth_headers
     expect(response).to have_http_status(:ok)
     expect(pdf_text).to include(
-      "Included hours ready - period review remains", "2 included entries; 3 excluded entries",
+      "Draft — 1 shift is still waiting for approval. Only approved hours are included.", "2 included entries; 3 excluded entries",
       "1 pending approval", "1 denied", "1 pending overtime review", "1 open clock",
       "Employee ID: #{employee.id}", "Counts refer to the selected staff/date scope"
     )
@@ -454,7 +454,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(response).to have_http_status(:ok)
     expect(ReportExport.last.readiness_status).to eq("draft")
     expect(pdf_text).to include(
-      "Draft - category review needed", "1 included entries; 3 excluded entries",
+      "Draft — 1 shift is still waiting for approval. Only approved hours are included.", "1 included entries; 3 excluded entries",
       "Period review: 1 pending approval, 1 denied, 1 open clock",
       "Excluded work: 1 pending approval, 1 denied, 1 open clock",
       "Employee ID: #{employee.id}", "Counts refer to the selected staff/date scope"
@@ -486,7 +486,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(response).to have_http_status(:ok)
     expect(ReportExport.last).to have_attributes(export_type: "payroll_hours_pdf", readiness_status: "draft")
     expect(pdf_text).to include(
-      "Draft - category review needed", "1 included entries; 3 excluded entries",
+      "Draft — 1 shift is still waiting for approval. Only approved hours are included.", "1 included entries; 3 excluded entries",
       "Period review: 1 pending approval, 1 denied, 1 open clock",
       "Excluded work: 1 pending approval, 1 denied, 1 open clock",
       "Approval status: Approved or standard", "Counts refer to the selected staff/date scope"

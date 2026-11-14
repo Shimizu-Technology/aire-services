@@ -64,7 +64,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     get "/api/v1/admin/hours_report/pdf", params: range.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     text = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
-    expect(text).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50", "Needs review")
+    expect(text).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50", "Needs review", "Draft — 1 shift and 3.50h of overtime are still waiting for approval. Only approved hours are included.")
     get "/api/v1/admin/hours_report/pdf", params: range.merge(user_id: worker.id, acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     employee_pdf = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
@@ -108,6 +108,26 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     reader = PDF::Reader.new(StringIO.new(response.body))
     expect(reader.info[:Title]).to start_with("Filtered —")
     expect(reader.pages.map(&:text).join(" ").gsub(/\s+/, " ")).to include(Reports::HoursReportDisclosure::APPROVAL_FACTS_NOTE)
+  end
+
+  it "marks a zero-included pending-filter PDF as draft and discloses the empty selection" do
+    get "/api/v1/admin/hours_report/pdf", params: range.merge(approval_status: "pending", acknowledge_draft: true), headers: headers
+    expect(response).to have_http_status(:ok)
+    text = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
+    expect(text).to include("Draft — 1 shift and 3.50h of overtime are still waiting for approval.",
+      "No included entries match this selection.", "0 included entries")
+    expect(text).not_to include("Included hours ready")
+  end
+
+  it "uses ready wording only after actual waiting hours are resolved, ignoring stale OT flags" do
+    TimeEntry.where(user: worker).delete_all
+    row = shift(2, 8)
+    row.update_columns(overtime_status: "pending")
+    get "/api/v1/admin/hours_report/pdf", params: range, headers: headers
+    expect(response).to have_http_status(:ok)
+    text = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
+    expect(text).to include("Included hours ready — nothing is waiting for approval.")
+    expect(text).not_to include("Draft —")
   end
 
   it "keeps frozen export bytes, payload and checksum unchanged when live reports are generated" do
