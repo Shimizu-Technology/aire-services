@@ -190,6 +190,20 @@ describe('Employment', () => {
     await waitFor(() => expect(mocks.reactivate).toHaveBeenLastCalledWith(7, 5))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Reactivate…' })).not.toBeInTheDocument())
   })
+  it('clears an ordinary reactivation error after a successful retry', async () => {
+    mocks.reactivate.mockResolvedValueOnce({ error: 'Temporarily unavailable', status: 503 })
+    open(<EmploymentTab user={{ ...person, employment_status: 'terminated', is_active: false }} onSaved={onSaved} />)
+    const confirm = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Reactivate…' }))
+      fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Reactivate' }))
+    }
+    confirm()
+    await screen.findByText('Temporarily unavailable')
+    expect(screen.queryByRole('button', { name: 'Reload person' })).not.toBeInTheDocument()
+    confirm()
+    await waitFor(() => expect(screen.queryByText('Temporarily unavailable')).not.toBeInTheDocument())
+    expect(onSaved).toHaveBeenCalledWith(person, undefined)
+  })
   it('reactivates with the loaded version and preserves the new PIN response', async () => {
     mocks.reactivate.mockResolvedValue({ data: { user: person, kiosk_pin: '123456' } })
     open(<EmploymentTab user={{ ...person, employment_status: 'terminated', is_active: false, termination_effective_on: '2026-11-11', terminated_by: { id: 2, full_name: 'Chels Santos' } }} onSaved={onSaved} />)

@@ -65,7 +65,7 @@ export function EmploymentTab({ user: incomingUser, onSaved }: { user: AdminUser
     const response = await peopleApi.reactivate(user.id, user.admin_edit_version ?? 0)
     setRestoring(false)
     setReactivating(false)
-    if (response.data) accept(response.data.user, response.data.kiosk_pin)
+    if (response.data) { edit.clearError(); accept(response.data.user, response.data.kiosk_pin) }
     else edit.fail(response.error || "Couldn't reactivate this person.", response.status)
   }
   return <div className="max-w-[55rem] space-y-4 pb-24 lg:pb-0">
