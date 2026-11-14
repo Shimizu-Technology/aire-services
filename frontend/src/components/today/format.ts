@@ -1,5 +1,6 @@
 import { formatBusinessTime, formatDateOnly } from '../../lib/dateUtils'
 import { lockDistance } from '../../lib/lockTime'
+import { formatPayPeriod } from '../../lib/payPeriods'
 import type { PayrollLockControl } from '../../lib/api'
 import type { AttentionPeriod } from '../../lib/api/attention'
 import type { StatusTone } from '../ui'
@@ -15,6 +16,10 @@ export const dayLabel = (date: string) => formatDateOnly(date, { weekday: 'short
 
 /** "Nov 1" from a work date. */
 export const monthDay = (date: string) => formatDateOnly(date, { month: 'short', day: 'numeric' })
+
+/** "Nov 1–15" for a pay period's dates. */
+export const periodLabel = (period: { start_date: string; end_date: string }) =>
+  formatPayPeriod({ start: period.start_date, end: period.end_date })
 
 /** "Wednesday, November 11" for the page subtitle. */
 export const longDay = (now: Date) => guam(now, { weekday: 'long', month: 'long', day: 'numeric' })
@@ -48,6 +53,18 @@ export interface LockStatus {
 
 const LOCKED_STATES: AttentionPeriod['handoff_state'][] = ['locked', 'received', 'in_run', 'paid']
 
+/** The hours were already handed to Payroll, so there is no lock time to count down to. */
+export const isLocked = (period: AttentionPeriod | null) => Boolean(period && LOCKED_STATES.includes(period.handoff_state))
+
+/** "in 5 hours" or "in 40 minutes" inside a day; whole days and "tomorrow" beyond. */
+function countdown(cutoffAt: string, now: Date) {
+  const remaining = Date.parse(cutoffAt) - now.getTime()
+  if (remaining >= DAY_MS) return lockDistance(cutoffAt, now)
+  const minutes = Math.round(remaining / 60_000)
+  if (minutes < 60) return `in ${plural(minutes, 'minute')}`
+  return `in ${plural(Math.round(minutes / 60), 'hour')}`
+}
+
 /**
  * The pay period card's pill. Waiting while the lock is more than a day away,
  * needs-fix inside 24 hours, and "Locking now" once Lock now was used or the
@@ -59,7 +76,7 @@ export function lockStatus(
   cutoffAt: string | null,
   now: Date,
 ): LockStatus {
-  if (period && LOCKED_STATES.includes(period.handoff_state)) return { label: period.label, tone: 'approved', locking: false }
+  if (period && isLocked(period)) return { label: period.label, tone: 'approved', locking: false }
   if (control?.status === 'failed') return { label: 'Lock failed', tone: 'needs-fix', locking: false }
   if (!cutoffAt) return { label: null, tone: 'off', locking: false }
 
@@ -69,7 +86,7 @@ export function lockStatus(
     return { label: 'Locking now', tone: 'info', locking: true }
   }
   return {
-    label: `Locks ${lockDistance(cutoffAt, now)}`,
+    label: `Locks ${countdown(cutoffAt, now)}`,
     tone: remaining < DAY_MS ? 'needs-fix' : 'waiting',
     locking: false,
   }

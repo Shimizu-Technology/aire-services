@@ -5,7 +5,7 @@ import type { PayrollConnectionStatus } from '../../lib/api/attention'
 import { Skeleton } from '../ui/Skeleton'
 import { ErrorState } from '../ui'
 import { businessDateISO } from '../../lib/dateUtils'
-import { dayLabel, monthDay, plural, timeLabel } from './format'
+import { monthDay, periodLabel, plural, timeLabel } from './format'
 import { PAYROLL_CONNECTION_HREF } from './links'
 
 /** "7:05 PM" for today, "Nov 10, 7:05 PM" for an earlier day. */
@@ -42,7 +42,7 @@ function Details({ connection, now }: { connection: PayrollConnectionStatus; now
   const facts = [
     connection.last_publication ? `Last heard from ${heardAt(connection.last_publication.published_at, now)}` : 'Not heard from Cornerstone Payroll yet',
     delivery?.period && delivery.delivered_at
-      ? `${monthDay(delivery.period.start_date)}–${monthDay(delivery.period.end_date)} locked and received ${dayLabel(businessDateISO(new Date(delivery.delivered_at)))}`
+      ? `${periodLabel(delivery.period)} locked and received ${monthDay(businessDateISO(new Date(delivery.delivered_at)))}`
       : null,
   ].filter(Boolean)
 

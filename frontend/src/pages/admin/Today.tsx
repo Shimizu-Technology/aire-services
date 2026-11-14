@@ -76,7 +76,7 @@ export default function Today() {
             {attentionLoad === 'error' && (
               <ErrorState title="Couldn't load what needs attention." description={attention.error} onRetry={retry.attention} />
             )}
-            {attentionLoad === 'ready' && rows.length > 0 && <AttentionList items={rows} onChanged={retry.attention} />}
+            {attentionLoad === 'ready' && <AttentionList items={rows} onChanged={retry.attention} />}
             {attentionLoad === 'ready' && rows.length === 0 && (
               <EmptyState
                 icon={<CircleCheck />}

@@ -26,6 +26,7 @@ import {
   hoursLabel,
   leaveKind,
   monthDay,
+  periodLabel,
   plural,
   timeLabel,
 } from './format'
@@ -46,7 +47,7 @@ function overtimeMeta(item: OvertimeAttentionItem) {
 }
 
 function problemRow(item: PayrollProblemAttentionItem): { text: ReactNode; meta?: string; tone: AttentionTone } {
-  const range = item.period ? `${monthDay(item.period.start_date)}–${monthDay(item.period.end_date)}` : 'this pay period'
+  const range = item.period ? periodLabel(item.period) : 'this pay period'
   const change = item.change
   switch (item.problem) {
     case 'lock_failed':
@@ -103,6 +104,7 @@ export interface AttentionListProps {
  * Today's one list of what needs a person, in the API's order: payroll
  * blockers first, then requests. Every row has one action that opens the
  * page where the work is done; Reset PIN is the one that finishes in place.
+ * Stay mounted when the list empties: the new PIN is still on screen.
  */
 export function AttentionList({ items, onChanged }: AttentionListProps) {
   const toast = useToast()
@@ -167,7 +169,7 @@ export function AttentionList({ items, onChanged }: AttentionListProps) {
             key={item.key}
             tone="bad"
             icon={<Tag />}
-            meta={`${monthDay(item.period.start_date)}–${monthDay(item.period.end_date)} · the lock needs a category on every shift`}
+            meta={`${periodLabel(item.period)} · the lock needs a category on every shift`}
             action={<ActionLink to={missingCategoryHref(item.entry_ids[0])}>Fix</ActionLink>}
           >
             <b>{plural(item.count, 'shift')}</b> with no work category
@@ -235,9 +237,11 @@ export function AttentionList({ items, onChanged }: AttentionListProps) {
 
   return (
     <>
-      <ul className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
-        {items.map(row)}
-      </ul>
+      {items.length > 0 && (
+        <ul className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
+          {items.map(row)}
+        </ul>
+      )}
       <Sheet
         open={result !== null}
         onClose={() => setResult(null)}

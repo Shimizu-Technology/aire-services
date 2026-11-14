@@ -6,7 +6,7 @@ import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { currentPayPeriod, formatPayPeriod } from '../../lib/payPeriods'
 import { Skeleton } from '../ui/Skeleton'
 import { ProgressSplit, StatusPill, buttonClasses } from '../ui'
-import { dayLabel, hoursLabel, lockStatus, lockTimeLabel, plural } from './format'
+import { dayLabel, hoursLabel, isLocked, lockStatus, lockTimeLabel, plural } from './format'
 import { approvalsHref, payrollHref } from './links'
 
 type Load = 'loading' | 'error' | 'ready'
@@ -58,7 +58,7 @@ export function PayPeriodCard({ period, periodLoad, lock, lockLoad, now, onRetry
   const range = dates
     ? { start: dates.start_date, end: dates.end_date }
     : currentPayPeriod(now)
-  const cutoffAt = lock?.cutoff_at ?? (lockLoad === 'ready' ? period?.cutoff_at ?? null : null)
+  const cutoffAt = isLocked(period) ? null : lock?.cutoff_at ?? (lockLoad === 'ready' ? period?.cutoff_at ?? null : null)
   const status = lockStatus(period, lock, cutoffAt, now)
   const payDate = lock?.period.pay_date ?? period?.pay_date ?? null
   const waiting = period && period.waiting_count > 0
