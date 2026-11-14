@@ -230,6 +230,21 @@ RSpec.describe "Versioned person editing and employment", type: :request do
     expect(failure.metadata).to include("local_changes_saved" => true, "clerk_sync_error" => "Clerk unavailable")
   end
 
+  it "does not re-open an old paid week with legacy nil/none overtime flags" do
+    zone = ActiveSupport::TimeZone["Pacific/Guam"]
+    batch = create(:payroll_batch, start_date: Date.new(2025, 6, 1), end_date: Date.new(2025, 6, 15))
+    [ 10, 10, 10, 10, 5 ].each_with_index do |hours, index|
+      from = zone.local(2025, 6, 2 + index, 7)
+      row = create(:time_entry, user: worker, status: "completed", entry_method: "clock", work_date: from.to_date,
+        start_time: from, end_time: from + hours.hours, hours: hours, approval_status: "approved")
+      row.update_columns(overtime_status: index == 4 ? nil : "none", allocation_contract_version: nil, overtime_allocation_signature: nil)
+      batch.payroll_batch_entries.create!(source_time_entry_id: row.id, source_user_id: worker.id, source_kind: "current",
+        work_date: row.work_date, week_start: Date.new(2025, 6, 1), line_key: "paid-#{index}", regular_hours: hours, overtime_hours: 0, total_hours: hours)
+    end
+    get "/api/v1/admin/users/#{worker.id}/termination_preview", headers: headers
+    expect(response.parsed_body.fetch("preview")).to include("waiting_shifts" => 0, "waiting_hours" => 0.0, "waiting_overtime_hours" => 0.0)
+  end
+
   it "previews waiting time separately from overtime, open clocks, live links and open leave" do
     zone = ActiveSupport::TimeZone["Pacific/Guam"]
     [ 10, 10, 10, 7, 5 ].each_with_index do |hours, index|

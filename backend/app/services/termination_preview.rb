@@ -6,7 +6,12 @@ class TerminationPreview
   end
 
   def self.for(user, effective_on:)
-    entries = user.time_entries.where(status: "completed").includes(:time_entry_breaks).to_a
+    completed = user.time_entries.where(status: "completed")
+    # As with scheduled batches, frozen historical wages return to review only
+    # through an explicit active settlement case. Never re-gate paid history.
+    unrepresented = completed.where.not(id: PayrollBatchEntry.effective.select(:source_time_entry_id))
+    reopened = completed.where(id: PayrollSettlementCase.active.select(:source_time_entry_id))
+    entries = unrepresented.or(reopened).includes(:time_entry_breaks).to_a
     calculator = Payroll::ApprovalHours.for_entries(entries)
     rows = entries.map { |entry| calculator.for(entry) }
     hours = Payroll::ApprovalHours.sum(rows)
