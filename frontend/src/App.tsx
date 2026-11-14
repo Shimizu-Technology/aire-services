@@ -37,7 +37,7 @@ const MyPayStatement = lazy(() => import('./pages/admin/MyPayStatement'))
 const MyPayPreview = lazy(() => import('./pages/admin/MyPayPreview'))
 const PayStubs = lazy(() => import('./pages/admin/PayStubs'))
 const PayStubLink = lazy(() => import('./pages/aire/PayStubLink'))
-const MyTimeHome = lazy(() => import('./pages/admin/EmployeeClockRoute'))
+const MyTime = lazy(() => import('./pages/admin/MyTime'))
 const MyHours = lazy(() => import('./pages/admin/MyHours'))
 const EmployeeLeaveRoute = lazy(() => import('./pages/admin/EmployeeLeaveRoute'))
 const WebsiteLayout = lazy(() => import('./pages/admin/Website'))
@@ -119,7 +119,7 @@ const routes = createRoutesFromElements(
           <Route path="reports" element={<ProtectedRoute requiredCapability="export_hours_reports"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="reports" section="reports" /></Suspense></ProtectedRoute>} />
           <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><EmployeeLeaveRoute /></Suspense>} />
           <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><MyHours /></Suspense>} />
-          <Route path="my-time" element={<Suspense fallback={<AdminLoadingFallback />}><MyTimeHome /></Suspense>} />
+          <Route path="my-time" element={<Suspense fallback={<AdminLoadingFallback />}><MyTime /></Suspense>} />
           <Route path="time" element={<LegacyTimeRedirect />} />
           {/* Hidden unless "Use schedules" is on in Settings. */}
           <Route path="schedule" element={<SchedulesGate><Suspense fallback={<AdminLoadingFallback />}><Schedule /></Suspense></SchedulesGate>} />

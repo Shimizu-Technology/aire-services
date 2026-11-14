@@ -59,7 +59,7 @@ RSpec.describe "Role-based access", type: :request do
           expect(json.fetch("time_entries").map { |row| row["id"] }).to include(entry.id)
 
           post "/api/v1/time_entries",
-               params: { time_entry: { user_id: worker.id, work_date: Date.current.iso8601, start_time: "09:00", end_time: "12:00", description: "Logged for Ana", time_category_id: category.id } },
+               params: { time_entry: { user_id: worker.id, work_date: Date.current.iso8601, start_time: "17:00", end_time: "20:00", description: "Logged for Ana", time_category_id: category.id } },
                headers: headers_for(actor)
           expect(response).to have_http_status(:created)
           expect(json.dig("time_entry", "user", "id")).to eq(worker.id)

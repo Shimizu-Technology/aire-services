@@ -26,18 +26,18 @@ function renderPicker(filter: string | null, people = PEOPLE) {
 }
 
 describe('PeoplePicker', () => {
-  it('starts on Needs a look, with one plain state per person', () => {
+  it('starts on People to check, with one plain state per person', () => {
     const { names } = renderPicker(null)
-    expect(screen.getByRole('button', { name: /Needs a look/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /People to check/ })).toHaveAttribute('aria-pressed', 'true')
     expect(names()).toEqual(['Caleb Perez', 'Ethan Cruz', 'Jun Santos'])
     expect(screen.getByText('Still clocked in')).toBeInTheDocument()
-    expect(screen.getByText('OT waiting')).toBeInTheDocument()
+    expect(screen.getByText('Overtime waiting')).toBeInTheDocument()
     expect(screen.getByText('2 waiting')).toBeInTheDocument()
   })
 
   it('starts on everyone when nobody needs a look', () => {
     const { names } = renderPicker(null, [row(3, 'Grace Torres', { openClock: 'live' }), row(5, 'Isabella Tenorio')])
-    expect(screen.getByRole('button', { name: /Needs a look/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /People to check/ })).toHaveAttribute('aria-pressed', 'false')
     expect(names()).toEqual(['Grace Torres', 'Isabella Tenorio'])
     expect(screen.getByText('On the clock')).toBeInTheDocument()
   })

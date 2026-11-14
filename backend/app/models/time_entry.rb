@@ -16,6 +16,7 @@ class TimeEntry < ApplicationRecord
   MAX_CLOCK_SPAN = 24.hours
   ADMINISTRATOR_CORRECTION_NOTE = "Needs administrator correction: clock spans 24 hours or more; confirm punches and breaks before approval".freeze
   AUTO_APPROVAL_NOTE = "Auto-approved: ordinary shift".freeze
+  EMPLOYEE_DELETE_REFUSAL = "You can only remove time you added that hasn't been approved yet. Ask your manager to change other shifts.".freeze
 
   ENTRY_METHODS = %w[clock manual].freeze
   CLOCK_SOURCES = %w[kiosk mobile admin legacy].freeze
@@ -84,8 +85,22 @@ class TimeEntry < ApplicationRecord
     acting_user.can_manage_team_time? || user_id == acting_user.id
   end
 
+  # Supervisors may delete any shift. Everyone else may only take back time
+  # they added by hand that is still waiting and that payroll hasn't locked.
   def deletable_by?(acting_user)
-    editable_by?(acting_user)
+    return true if acting_user.can_manage_team_time?
+
+    # admin_override marks time a supervisor added on their behalf.
+    user_id == acting_user.id && manual_entry? && !admin_override? && status == "completed" &&
+      approval_status == "pending" && !payroll_locked?
+  end
+
+  # Past a published lock, in a finalized payroll period, or referenced by a
+  # finalized payroll batch or an export that protects it.
+  def payroll_locked?
+    finalized_payroll_batches.exists? || active_payroll_exports.exists? ||
+      PayrollBatch.where.not(finalized_at: nil).where("start_date <= :date AND end_date >= :date", date: work_date).exists? ||
+      Payroll::EntryCutoffWarnings.call([ self ]).include?(id)
   end
 
   def clock_entry?

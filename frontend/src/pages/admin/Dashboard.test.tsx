@@ -1,9 +1,9 @@
 vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import Dashboard, { MyTimeHome } from './Dashboard'
+import Dashboard from './Dashboard'
 vi.mock('./Today', () => ({ default: () => <h1>Today page</h1> }))
 const mocks = vi.hoisted(() => ({ getWhosWorking: vi.fn(), getPendingApprovals: vi.fn(), getSchedules: vi.fn(), getUsers: vi.fn(), getPayrollBatches: vi.fn(), getPayrollCutoff: vi.fn(), getMySchedule: vi.fn(), getTimeEntries: vi.fn(), role: 'manager', schedulesEnabled: false }))
 vi.mock('../../lib/api', () => ({ api: mocks }))
@@ -21,27 +21,6 @@ describe('Dashboard unavailable snapshots (manager view)', () => {
     mocks.role = 'manager'
     mocks.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [] } })
     mocks.getPayrollCutoff.mockResolvedValue({ data: { cutoff: { period: null, stage: 'none' } } })
-  })
-  it('requests the employee activity for Guam today after month end', async () => {
-    mocks.role = 'employee'
-    mocks.getMySchedule.mockResolvedValue({ data: { schedules: [] } })
-    mocks.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-10-31T14:30:00Z'))
-    try {
-      open()
-      await waitFor(() => expect(mocks.getTimeEntries).toHaveBeenCalledWith({ date: '2026-11-01', per_page: 20, user_id: 9 }))
-    } finally {
-      mocks.role = 'manager'
-      vi.useRealTimers()
-    }
-  })
-  it("shows a supervisor only their own clock-ins under Today's Activity", async () => {
-    mocks.role = 'manager'
-    mocks.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
-    render(<MemoryRouter><MyTimeHome /></MemoryRouter>)
-    await waitFor(() => expect(mocks.getTimeEntries).toHaveBeenCalled())
-    for (const [params] of mocks.getTimeEntries.mock.calls) expect(params).toMatchObject({ user_id: 9 })
   })
   it('does not report operational clearance when one endpoint returns an error', async () => {
     mocks.getPendingApprovals.mockResolvedValueOnce({ error: 'Approvals unavailable' })
@@ -160,55 +139,21 @@ describe('Dashboard route split', () => {
     expect(screen.queryByRole('heading', { name: 'Today page' })).not.toBeInTheDocument()
   })
 
-  it('keeps My Time for an employee', async () => {
+  it('sends an employee to the Clock', async () => {
     mocks.role = 'employee'
     try {
-      open()
-      expect(await screen.findByRole('heading', { level: 1, name: 'My Time' })).toBeInTheDocument()
+      render(
+        <MemoryRouter initialEntries={['/admin']}>
+          <Routes>
+            <Route path="/admin" element={<Dashboard />} />
+            <Route path="/admin/my-time" element={<h1>Clock page</h1>} />
+          </Routes>
+        </MemoryRouter>,
+      )
+      expect(await screen.findByRole('heading', { name: 'Clock page' })).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Today page' })).not.toBeInTheDocument()
     } finally {
       mocks.role = 'manager'
-    }
-  })
-})
-
-describe('My Time', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.getMySchedule.mockResolvedValue({ data: { schedules: [] } })
-    mocks.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
-  })
-
-  it.each([
-    ['employee', '/admin/my-hours'],
-    ['manager', '/admin/timecards?user_id=9'],
-  ])('links a %s to their own hours and leave, without schedules while they are off', async (role, hoursHref) => {
-    mocks.role = role
-    try {
-      render(<MemoryRouter><MyTimeHome /></MemoryRouter>)
-      expect(screen.getByRole('heading', { level: 1, name: 'My Time' })).toBeInTheDocument()
-      expect(await screen.findByRole('link', { name: /My Hours/ })).toHaveAttribute('href', hoursHref)
-      expect(screen.getByRole('link', { name: /Request Leave/ })).toHaveAttribute('href', '/admin/leave')
-      expect(screen.queryByRole('heading', { name: 'My Upcoming Schedule' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: /Full Schedule/ })).not.toBeInTheDocument()
-      await waitFor(() => expect(mocks.getTimeEntries).toHaveBeenCalled())
-      expect(mocks.getMySchedule).not.toHaveBeenCalled()
-    } finally {
-      mocks.role = 'manager'
-    }
-  })
-
-  it('shows upcoming shifts and the full schedule when schedules are on', async () => {
-    mocks.role = 'employee'
-    mocks.schedulesEnabled = true
-    try {
-      render(<MemoryRouter><MyTimeHome /></MemoryRouter>)
-      expect(await screen.findByRole('heading', { name: 'My Upcoming Schedule' })).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: /Full Schedule/ })).toHaveAttribute('href', '/admin/schedule')
-      expect(mocks.getMySchedule).toHaveBeenCalledTimes(1)
-    } finally {
-      mocks.role = 'manager'
-      mocks.schedulesEnabled = false
     }
   })
 })
