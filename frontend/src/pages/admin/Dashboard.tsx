@@ -98,7 +98,7 @@ export function MyTimeHome() {
       ])
 
       if (scheduleRes?.data?.schedules) setMySchedule(scheduleRes.data.schedules)
-      if (entriesRes.data?.time_entries) setTodayEntries(entriesRes.data.time_entries)
+      if (entriesRes?.data?.time_entries) setTodayEntries(entriesRes.data.time_entries)
     } catch {
       // Employee dashboard is best-effort.
     } finally {
