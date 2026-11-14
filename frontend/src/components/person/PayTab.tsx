@@ -1,20 +1,19 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronDown, Send } from 'lucide-react'
 import { api, type AdminUser } from '../../lib/api'
 import { peopleApi, type PayPeriodState } from '../../lib/api/people'
-import { employeeEvidenceApi, type EmployeeEvidence, type EvidencePeriod } from '../../lib/employeeEvidenceApi'
+import { employeeEvidenceApi, type EvidencePeriod } from '../../lib/employeeEvidenceApi'
 import { formatPayPeriod } from '../../lib/payPeriods'
 import { HANDOFF_STATE_LABELS, PERSON_TOTAL_LABELS, isLockedState, showsNotMatched } from '../../lib/payrollTerms'
-import { payStubsApi, type PayStubDate } from '../../lib/payStubsApi'
+import { payStubsApi } from '../../lib/payStubsApi'
 import { formatHours } from '../../lib/timecards'
 import { monthDay } from '../today/format'
 import { Button, EmptyState, ErrorState, StatusPill, Switch } from '../ui'
 import { Skeleton } from '../ui/Skeleton'
 import { PeriodEvidence } from './PeriodEvidence'
 import { firstName } from './personFormat'
-
-type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T }
+import { dataOrThrow, useLoadable } from './useLoadable'
 
 const PERIOD_PAGE = '12'
 const RECENT_PAYCHECKS = 6
@@ -67,12 +66,8 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
   const first = firstName(user)
   const [saving, setSaving] = useState(false)
   const [myPayError, setMyPayError] = useState<string | null>(null)
-  const [paychecks, setPaychecks] = useState<Loadable<PayStubDate[]>>({ status: 'loading' })
-  const [evidence, setEvidence] = useState<Loadable<{ identity: Pick<EmployeeEvidence, 'employee' | 'integration'>; periods: EvidencePeriod[]; next: string | null }>>({ status: 'loading' })
-  const [states, setStates] = useState<{ periods: PayPeriodState[] | null; error: string | null }>({ periods: null, error: null })
-  const [cursor, setCursor] = useState('')
-  const [loadingMore, setLoadingMore] = useState(false)
   const [retry, setRetry] = useState({ paychecks: 0, periods: 0 })
+  const [older, setOlder] = useState<{ key: string; periods: EvidencePeriod[]; next: string | null; loading: boolean; error: string | null } | null>(null)
   // A link naming a period (?tab=pay&period=…) opens its technical details.
   const linkedPeriod = searchParams.get('period')
   const linkedEntry = searchParams.get('entry')
@@ -80,52 +75,51 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
   const sourceUserUuid = searchParams.get('source_user_uuid') || ''
   const sourceInstanceId = searchParams.get('source_instance_id') || ''
 
-  useEffect(() => {
-    if (!onSendStub) return
-    const controller = new AbortController()
-    setPaychecks({ status: 'loading' })
-    payStubsApi.statements(user.id, controller.signal)
-      .then((result) => setPaychecks({ status: 'ready', value: result.statements }))
-      .catch((reason) => { if (!controller.signal.aborted) setPaychecks({ status: 'error', message: reason instanceof Error ? reason.message : "Couldn't load paychecks." }) })
-    return () => controller.abort()
-  }, [user.id, onSendStub, retry.paychecks])
-
-  useEffect(() => {
-    let cancelled = false
-    void peopleApi.payPeriods().then((response) => {
-      if (!cancelled) setStates(response.data ? { periods: response.data.periods, error: null } : { periods: null, error: response.error ?? "Couldn't load pay period status." })
-    })
-    return () => { cancelled = true }
-  }, [retry.periods])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    if (!cursor) setEvidence({ status: 'loading' })
+  const paychecks = useLoadable(
+    onSendStub ? `${user.id}:${retry.paychecks}` : null,
+    async (signal) => (await payStubsApi.statements(user.id, signal)).statements,
+    "Couldn't load paychecks.",
+  )
+  const states = useLoadable(
+    String(retry.periods),
+    async () => dataOrThrow(await peopleApi.payPeriods(), "Couldn't load pay period status.").periods,
+    "Couldn't load pay period status.",
+  )
+  const loadPeriods = async (cursor: string, signal?: AbortSignal) => {
     const filter = new URLSearchParams({ per_page: PERIOD_PAGE })
     if (cursor) filter.set('cursor', cursor)
-    employeeEvidenceApi.periods(String(user.id), filter, controller.signal).then((result) => {
-      if (result.employee.id !== String(user.id)) throw new Error('Employee evidence identity does not match this record.')
-      if ((sourceUserUuid && result.employee.payroll_integration_id !== sourceUserUuid) || (sourceInstanceId && result.integration.source_instance_id !== sourceInstanceId)) {
-        throw new Error('This saved employee link no longer matches the source installation or employee. Return to payroll and refresh the connection evidence.')
-      }
-      setEvidence((previous) => ({
-        status: 'ready',
-        value: {
-          identity: { employee: result.employee, integration: result.integration },
-          periods: cursor && previous.status === 'ready' ? [...previous.value.periods, ...result.periods] : result.periods,
-          next: result.pagination.next_cursor,
-        },
-      }))
-    }).catch((reason) => { if (!controller.signal.aborted) setEvidence({ status: 'error', message: reason instanceof Error ? reason.message : "Couldn't load pay periods." }) })
-      .finally(() => { if (!controller.signal.aborted) setLoadingMore(false) })
-    return () => controller.abort()
-  }, [user.id, cursor, sourceUserUuid, sourceInstanceId, retry.periods])
+    const result = await employeeEvidenceApi.periods(String(user.id), filter, signal)
+    if (result.employee.id !== String(user.id)) throw new Error('Employee evidence identity does not match this record.')
+    if ((sourceUserUuid && result.employee.payroll_integration_id !== sourceUserUuid) || (sourceInstanceId && result.integration.source_instance_id !== sourceInstanceId)) {
+      throw new Error('This saved employee link no longer matches the source installation or employee. Return to payroll and refresh the connection evidence.')
+    }
+    return result
+  }
+  const firstPageKey = `${user.id}:${sourceUserUuid}:${sourceInstanceId}:${retry.periods}`
+  const evidence = useLoadable(firstPageKey, async (signal) => {
+    const result = await loadPeriods('', signal)
+    return { identity: { employee: result.employee, integration: result.integration }, periods: result.periods, next: result.pagination.next_cursor }
+  }, "Couldn't load pay periods.")
+  const more = older?.key === firstPageKey ? older : null
+  const nextCursor = more ? more.next : evidence.status === 'ready' ? evidence.value.next : null
+
+  const loadOlder = async () => {
+    if (!nextCursor) return
+    const key = firstPageKey
+    setOlder({ key, periods: more?.periods ?? [], next: nextCursor, loading: true, error: null })
+    try {
+      const result = await loadPeriods(nextCursor)
+      setOlder({ key, periods: [...(more?.periods ?? []), ...result.periods], next: result.pagination.next_cursor, loading: false, error: null })
+    } catch (reason) {
+      setOlder({ key, periods: more?.periods ?? [], next: nextCursor, loading: false, error: reason instanceof Error ? reason.message : "Couldn't load older pay periods." })
+    }
+  }
 
   const rows: PeriodRow[] = useMemo(() => {
     if (evidence.status !== 'ready') return []
-    const byStart = new Map((states.periods ?? []).map(period => [period.start_date, period]))
-    return evidence.value.periods.map(period => ({ evidence: period, state: byStart.get(period.start_date) ?? null }))
-  }, [evidence, states.periods])
+    const byStart = new Map((states.status === 'ready' ? states.value : []).map(period => [period.start_date, period]))
+    return [...evidence.value.periods, ...(more?.periods ?? [])].map(period => ({ evidence: period, state: byStart.get(period.start_date) ?? null }))
+  }, [evidence, states, more])
 
   const toggleMyPay = async (enabled: boolean) => {
     setSaving(true)
@@ -203,7 +197,7 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
       )}
 
       <Section title="Pay periods">
-        {states.error && (
+        {states.status === 'error' && (
           <p role="status" className="mb-2 text-body-sm text-ink-muted">
             Couldn't load where each period is in payroll, so only hours show.{' '}
             <button type="button" className="font-semibold text-primary underline" onClick={() => setRetry(value => ({ ...value, periods: value.periods + 1 }))}>Try again</button>
@@ -267,12 +261,13 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
             })}
           </ul>
         )}
-        {evidence.status === 'ready' && evidence.value.next && (
+        {more?.error && <p role="alert" className="mt-3 text-body-sm text-danger">{more.error}</p>}
+        {evidence.status === 'ready' && nextCursor && (
           <Button
             variant="secondary"
             className="mt-3"
-            loading={loadingMore}
-            onClick={() => { setLoadingMore(true); setCursor(evidence.value.next ?? '') }}
+            loading={more?.loading}
+            onClick={() => void loadOlder()}
           >
             Older pay periods
           </Button>

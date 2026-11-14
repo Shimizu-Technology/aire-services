@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
 import { formatWorkDate } from '../../lib/dateUtils'
@@ -7,6 +7,7 @@ import { coverageStateLabel, historicalReasonLabel, identityStateLabel, receiptS
 import { PERSON_TOTAL_LABELS, type PersonTotal } from '../../lib/payrollTerms'
 import { Button, ErrorState } from '../ui'
 import { Skeleton } from '../ui/Skeleton'
+import { useLoadable } from './useLoadable'
 
 const h = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}h`
 
@@ -41,26 +42,21 @@ interface PeriodEvidenceProps {
  * the lines payroll covered, and follow-ups. For reconciling with Cornerstone.
  */
 export function PeriodEvidence({ userId, period, identity, showNotMatched, focusEntryId = null, shiftHref }: PeriodEvidenceProps) {
-  const [detail, setDetail] = useState<EvidencePeriod | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [cursor, setCursor] = useState('')
   const [retry, setRetry] = useState(0)
   const [openEntry, setOpenEntry] = useState<string | null>(focusEntryId)
 
-  useEffect(() => {
-    const controller = new AbortController()
-    setDetail(null)
-    setError(null)
+  const loaded = useLoadable(`${userId}:${period.id}:${cursor}:${retry}`, async (signal) => {
     const filter = new URLSearchParams()
     if (cursor) filter.set('detail_cursor', cursor)
-    employeeEvidenceApi.period(String(userId), period.id, filter, controller.signal).then((result) => {
-      if (result.period.id !== period.id || result.employee.id !== String(userId) || result.employee.payroll_integration_id !== identity.employee.payroll_integration_id || result.integration.source_instance_id !== identity.integration.source_instance_id) {
-        throw new Error('Period evidence identity changed. Reload the page before continuing.')
-      }
-      setDetail(result.period)
-    }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Unable to load this period.') })
-    return () => controller.abort()
-  }, [userId, period.id, identity.employee.payroll_integration_id, identity.integration.source_instance_id, cursor, retry])
+    const result = await employeeEvidenceApi.period(String(userId), period.id, filter, signal)
+    if (result.period.id !== period.id || result.employee.id !== String(userId) || result.employee.payroll_integration_id !== identity.employee.payroll_integration_id || result.integration.source_instance_id !== identity.integration.source_instance_id) {
+      throw new Error('Period evidence identity changed. Reload the page before continuing.')
+    }
+    return result.period
+  }, 'Unable to load this period.')
+  const detail = loaded.status === 'ready' ? loaded.value : null
+  const error = loaded.status === 'error' ? loaded.message : null
 
   const totals = period.summary
   const rows: Array<[PersonTotal, number]> = [

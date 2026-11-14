@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, ChevronRight } from 'lucide-react'
-import type { AdminUser, AuditLogEntry, LeaveRequest, TimeEntry } from '../../lib/api'
+import type { AdminUser, LeaveRequest, TimeEntry } from '../../lib/api'
 import { peopleApi } from '../../lib/api/people'
 import { timecardsApi, type TimecardSummaryEmployee } from '../../lib/api/timecards'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
@@ -12,8 +12,7 @@ import { formatHours, guamDate, isApprovedTime, isOpenClock, timecardDays } from
 import { dayLabel, monthDay, timeLabel } from '../today/format'
 import { Button, EmptyState, ErrorState, type MenuItem } from '../ui'
 import { Skeleton } from '../ui/Skeleton'
-
-type Loadable<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T }
+import { dataOrThrow, useLoadable } from './useLoadable'
 
 const RECENT_ACTIVITY = 5
 const LEAVE_KINDS: Record<LeaveRequest['leave_type'], string> = {
@@ -92,41 +91,23 @@ const card = 'rounded-card border border-line bg-surface'
 
 /** This pay period, what's coming up and what changed lately, for one person. */
 export function OverviewTab({ user, period, today, timecardHref, activityHref, focusActivity = false, quickActions }: OverviewTabProps) {
-  const [numbers, setNumbers] = useState<Loadable<PeriodNumbers>>({ status: 'loading' })
-  const [leave, setLeave] = useState<Loadable<LeaveRequest[]>>({ status: 'loading' })
-  const [activity, setActivity] = useState<Loadable<AuditLogEntry[]>>({ status: 'loading' })
   const [retry, setRetry] = useState({ numbers: 0, leave: 0, activity: 0 })
 
-  useEffect(() => {
-    let cancelled = false
-    setNumbers({ status: 'loading' })
-    void Promise.all([timecardsApi.personEntries(user.id, period), timecardsApi.personSummary(user.id, period)]).then(([entries, summary]) => {
-      if (cancelled) return
-      if (!entries.data) { setNumbers({ status: 'error', message: entries.error ?? "Couldn't load the shifts." }); return }
-      const row = summary.data?.employees.find(employee => employee.id === user.id) ?? null
-      setNumbers({ status: 'ready', value: periodNumbers(entries.data, row, period) })
-    })
-    return () => { cancelled = true }
-  }, [user.id, period, retry.numbers])
-
-  useEffect(() => {
-    let cancelled = false
-    setLeave({ status: 'loading' })
-    void peopleApi.upcomingLeave(user.id, today).then((response) => {
-      if (cancelled) return
-      setLeave(response.data ? { status: 'ready', value: response.data } : { status: 'error', message: response.error ?? "Couldn't load leave." })
-    })
-    return () => { cancelled = true }
-  }, [user.id, today, retry.leave])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    setActivity({ status: 'loading' })
-    employeeEvidenceApi.activity(String(user.id), 1, controller.signal)
-      .then((result) => setActivity({ status: 'ready', value: result.audit_logs.slice(0, RECENT_ACTIVITY) }))
-      .catch((reason) => { if (!controller.signal.aborted) setActivity({ status: 'error', message: reason instanceof Error ? reason.message : "Couldn't load activity." }) })
-    return () => controller.abort()
-  }, [user.id, retry.activity])
+  const numbers = useLoadable(`${user.id}:${period.start}:${retry.numbers}`, async () => {
+    const [entries, summary] = await Promise.all([timecardsApi.personEntries(user.id, period), timecardsApi.personSummary(user.id, period)])
+    const row = summary.data?.employees.find(employee => employee.id === user.id) ?? null
+    return periodNumbers(dataOrThrow(entries, "Couldn't load the shifts."), row, period)
+  }, "Couldn't load the shifts.")
+  const leave = useLoadable(
+    `${user.id}:${today}:${retry.leave}`,
+    async () => dataOrThrow(await peopleApi.upcomingLeave(user.id, today), "Couldn't load leave."),
+    "Couldn't load leave.",
+  )
+  const activity = useLoadable(
+    `${user.id}:${retry.activity}`,
+    async (signal) => (await employeeEvidenceApi.activity(String(user.id), 1, signal)).audit_logs.slice(0, RECENT_ACTIVITY),
+    "Couldn't load activity.",
+  )
 
   // An old Activity link lands here; bring Recent activity into view once it's drawn.
   const activityReady = activity.status !== 'loading'

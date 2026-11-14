@@ -9,6 +9,7 @@ import { PersonHeader } from '../../components/person/PersonHeader'
 import { ResetPinSheet } from '../../components/person/ResetPinSheet'
 import { TimeTab } from '../../components/person/TimeTab'
 import { personName } from '../../components/person/personFormat'
+import { dataOrThrow, useLoadable } from '../../components/person/useLoadable'
 import SendPayStubDialog from '../../components/pay-stubs/SendPayStubDialog'
 import { EmptyState, ErrorState, Tabs, buttonClasses, useConfirm, useToast, type MenuItem } from '../../components/ui'
 import { Skeleton } from '../../components/ui/Skeleton'
@@ -18,8 +19,6 @@ import { peopleApi } from '../../lib/api/people'
 import { LEGACY_TAB_ALIASES, linkedId, safeAdminReturn, type PersonTab } from '../../lib/employeeWorkspace'
 import { currentPayPeriod, todayInGuam } from '../../lib/payPeriods'
 import { useCapabilities } from '../../lib/useCapabilities'
-
-type Loaded = { status: 'loading' } | { status: 'missing' } | { status: 'error'; message: string } | { status: 'ready'; user: AdminUser }
 
 const TAB_ITEMS: Array<{ value: PersonTab; label: string }> = [
   { value: 'overview', label: 'Overview' },
@@ -49,24 +48,19 @@ export default function Person() {
   const period = useMemo(() => currentPayPeriod(), [])
   // Read once: the tab rewrites ?tab=activity to overview on arrival.
   const [focusActivity] = useState(() => searchParams.get('tab') === 'activity' || location.hash === '#activity')
-  const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   const [retry, setRetry] = useState(0)
   const [myPayForEveryone, setMyPayForEveryone] = useState<boolean | null>(null)
   const [sending, setSending] = useState(false)
   const [resettingPin, setResettingPin] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    if (!userId) { setLoaded({ status: 'missing' }); return }
-    setLoaded({ status: 'loading' })
-    void peopleApi.person(userId).then((response) => {
-      if (cancelled) return
-      if (response.data?.user) setLoaded({ status: 'ready', user: response.data.user })
-      else if (response.status === 404) setLoaded({ status: 'missing' })
-      else setLoaded({ status: 'error', message: response.error ?? 'Unknown error' })
-    })
-    return () => { cancelled = true }
-  }, [userId, retry])
+  const personKey = userId ? `${userId}:${retry}` : null
+  // Null for a 404: there's no such person.
+  const loaded = useLoadable(personKey, async () => {
+    const response = await peopleApi.person(userId!)
+    if (response.status === 404) return null
+    return dataOrThrow(response, 'Unknown error').user
+  }, 'Unknown error')
+  // The person after a change on this page (My Pay, a new PIN), until the next load.
+  const [latest, setLatest] = useState<{ key: string; user: AdminUser } | null>(null)
 
   const canManageMyPay = capabilities.manage_my_pay_access
   useEffect(() => {
@@ -78,23 +72,23 @@ export default function Person() {
     return () => { cancelled = true }
   }, [canManageMyPay])
 
-  const user = loaded.status === 'ready' ? loaded.user : null
+  const user = latest && latest.key === personKey ? latest.user : loaded.status === 'ready' ? loaded.value : null
   const name = user ? personName(user) : ''
   useEffect(() => { document.title = name ? `${name} | AIRE Team` : 'Team | AIRE Ops' }, [name])
 
   // A quiet reload after a change elsewhere on the page (a new PIN).
   const refreshUser = useCallback(() => {
-    if (!userId) return
+    if (!userId || !personKey) return
     void peopleApi.person(userId).then((response) => {
-      if (response.data?.user) setLoaded({ status: 'ready', user: response.data.user })
+      if (response.data?.user) setLatest({ key: personKey, user: response.data.user })
     })
-  }, [userId])
+  }, [personKey, userId])
 
   const returnTo = safeAdminReturn(searchParams.get('return_to'))
   const backLabel = returnTo.split('?')[0] === '/admin/users' ? 'Team' : 'Back'
   const currentPath = `${location.pathname}${location.search}`
 
-  if (loaded.status === 'missing') {
+  if (!userId || (loaded.status === 'ready' && loaded.value === null)) {
     return (
       <EmptyState
         className="mt-6"
@@ -188,7 +182,7 @@ export default function Person() {
                 canManageMyPay={canManageMyPay}
                 previewHref={previewHref}
                 onSendStub={sendStub}
-                onUserChange={(next) => setLoaded({ status: 'ready', user: next })}
+                onUserChange={(next) => { if (personKey) setLatest({ key: personKey, user: next }) }}
               />
             )
           }

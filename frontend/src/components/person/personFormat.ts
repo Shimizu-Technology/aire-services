@@ -49,6 +49,7 @@ export function teamState(user: AdminUser, onTheClock: boolean): { label: string
 export function employmentPill(user: AdminUser): { label: string; tone: StatusTone } {
   if (user.employment_status === 'terminated') return { label: 'Ended', tone: 'off' }
   if (user.employment_status === 'inactive') return { label: 'Inactive', tone: 'off' }
-  if (user.is_pending) return { label: user.email ? "Hasn't signed in yet" : 'Active', tone: user.email ? 'waiting' : 'approved' }
+  // An invited person who hasn't signed in yet; kiosk-only people are never pending.
+  if (user.is_pending) return { label: "Hasn't signed in yet", tone: 'waiting' }
   return { label: 'Active', tone: 'approved' }
 }
