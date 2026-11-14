@@ -12,6 +12,7 @@ module Api
         before_action :set_user,
                       only: [
                         :show,
+                        :termination_preview,
                         :update,
                         :destroy,
                         :terminate,
@@ -23,6 +24,15 @@ module Api
                       ]
         before_action :require_access_change_permission!, only: [ :destroy, :terminate, :reactivate, :resend_invite, :reset_kiosk_pin ]
         rescue_from MediaUploadValidation::InvalidMediaUpload, with: :invalid_media_upload
+        rescue_from MyPayAccess::InactivePerson do |error|
+          render json: { error: error.message }, status: :unprocessable_entity
+        end
+        rescue_from JSON::ParserError do
+          render json: { error: "Person changes must be valid JSON." }, status: :bad_request
+        end
+        rescue_from AdminPersonEdit::Conflict do |error|
+          render json: { error: error.message }, status: :conflict
+        end
 
         def index
           @users = User
@@ -120,6 +130,17 @@ module Api
         end
 
         def update
+          # Multipart employment saves keep the photo and all fields atomic.
+          if params.key?(:person_edit)
+            parsed = JSON.parse(params[:person_edit].to_s)
+            return render json: { error: "Person changes must be a JSON object." }, status: :bad_request unless parsed.is_a?(Hash)
+
+            params.merge!(parsed)
+          end
+          # Refuse an already-stale form before evaluating its old role or
+          # access choices. The authoritative check repeats under the row lock.
+          AdminPersonEdit.check!(@user, params[:admin_edit_version])
+          validate_media_upload!(params[:photo], media_type: "image", attachment_name: :photo) if params[:photo].present?
           if @user.id == current_user.id && params[:role].present? && params[:role] != current_user.role
             return render json: { error: "You cannot change your own role" }, status: :unprocessable_entity
           end
@@ -148,13 +169,22 @@ module Api
           end
 
           clerk_attributes = {}
-          previous_state = nil
+          clerk_before = {}
           access_configuration = nil
 
           begin
             ActiveRecord::Base.transaction do
               with_approval_group_lock_if_needed do
                 with_admin_transition_lock_if_needed do
+                  AdminPersonEdit.check!(@user, params[:admin_edit_version])
+                  if access_change_requested? && !current_user.can_change_access_for?(@user)
+                    render_owner_required
+                    raise ActiveRecord::Rollback
+                  end
+                  if @user.terminated?
+                    render json: { error: "Reactivate this person before changing their setup." }, status: :unprocessable_entity
+                    raise ActiveRecord::Rollback
+                  end
                   last_admin_error = validate_last_admin_transition
                   if last_admin_error
                     render json: { error: last_admin_error }, status: :unprocessable_entity
@@ -167,9 +197,11 @@ module Api
                   permitted = payload.fetch(:local_attributes)
                   clerk_attributes = payload.fetch(:clerk_attributes)
                   StagingOutboundPolicy.clerk_target!(id: @user.clerk_id) if clerk_attributes.present?
-                  previous_state = snapshot_local_user_state(@user) if clerk_attributes.present?
 
+                  clerk_before = @user.attributes.slice(*clerk_attributes.keys.map(&:to_s))
+                  previous_groups = @user.approval_group_keys.sort
                   @user.assign_attributes(permitted)
+                  @user.admin_edit_version += 1
                   access_configuration = UserAccessConfiguration.new(
                     user: @user,
                     attributes: access_params.to_h,
@@ -178,7 +210,14 @@ module Api
                   access_configuration.apply!
                   if params.key?(:approval_group) || params.key?(:approval_groups)
                     sync_approval_groups(@user, normalized_approval_groups(params.key?(:approval_groups) ? params[:approval_groups] : params[:approval_group]))
+                    next_groups = @user.approval_group_keys.sort
+                    if previous_groups != next_groups
+                      AuditLog.record!(action: "user.updated", auditable: @user, actor: current_user,
+                        event_category: "users", changes: { approval_groups: [ previous_groups, next_groups ] })
+                    end
                   end
+                  MyPayAccess.set_for_user!(user: @user, enabled: boolean_param(:my_pay_enabled), actor: current_user) if params.key?(:my_pay_enabled)
+                  save_person_photo!
                 end
               end
             end
@@ -194,21 +233,17 @@ module Api
 
           return if performed?
 
+          purge_person_photos!
+          notice = nil
           if clerk_attributes.present?
             begin
               ClerkUserService.update_user!(clerk_user_id: @user.clerk_id, **clerk_attributes)
-            rescue ClerkUserService::Error, StagingOutboundPolicy::Blocked => e
-              begin
-                restore_local_user_state!(@user, previous_state)
-              rescue StandardError => rollback_error
-                Rails.logger.error(
-                  "Failed to roll back local user changes after Clerk sync error for user #{@user.id}: #{rollback_error.message}"
-                )
-                return render json: { error: "Clerk sync failed after saving local changes, and automatic rollback could not be completed. Manual intervention is required." }, status: :internal_server_error
-              end
-
-              status = e.is_a?(StagingOutboundPolicy::Blocked) ? :service_unavailable : :unprocessable_entity
-              return render json: { error: e.message }, status: status
+            rescue ClerkUserService::Error => e
+              notice = "Changes saved in AIRE, but the name could not sync to Clerk. Try again later."
+              AuditLog.record!(action: "user.clerk_sync_failed", auditable: @user, actor: current_user,
+                event_category: "users", outcome: "failed",
+                changes: clerk_attributes.to_h { |field, value| [ field, [ clerk_before[field.to_s], value ] ] },
+                metadata: { local_changes_saved: true, clerk_sync_error: e.message })
             end
           end
 
@@ -221,7 +256,8 @@ module Api
             user: serialize_user(@user.reload),
             invitation_email_sent: invitation_email_sent == :captured ? false : invitation_email_sent,
             **(invitation_email_sent == :captured ? { invitation_email_captured: true } : {}),
-            kiosk_pin: access_configuration&.generated_pin
+            kiosk_pin: access_configuration&.generated_pin,
+            notice: notice
           }
         end
 
@@ -247,6 +283,13 @@ module Api
           }, status: :unprocessable_entity
         end
 
+        def termination_preview
+          effective_on = termination_effective_on
+          return unless effective_on
+
+          render json: { preview: TerminationPreview.for(@user, effective_on: effective_on) }
+        end
+
         def terminate
           if @user.id == current_user.id
             return render json: { error: "You cannot terminate your own account" }, status: :unprocessable_entity
@@ -265,11 +308,7 @@ module Api
 
           begin
             ActiveRecord::Base.transaction do
-              if @user.administrator?
-                User.with_admin_access_lock { terminate_user_under_lock(effective_on) }
-              else
-                terminate_user_under_lock(effective_on)
-              end
+              User.with_admin_access_lock { terminate_user_under_lock(effective_on) }
             end
           rescue ActiveRecord::RecordInvalid => e
             return render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
@@ -281,36 +320,47 @@ module Api
         end
 
         def reactivate
-          if @user.is_active? && !@user.terminated?
-            return render json: { user: serialize_user(@user) }
-          end
+          pin = nil
+          User.transaction do
+            User.with_admin_access_lock do
+              @user.with_lock(User::EMPLOYEE_ROW_LOCK) do
+                AdminPersonEdit.check!(@user, params[:admin_edit_version]) if params.key?(:admin_edit_version)
+                return render_owner_required unless current_user.can_change_access_for?(@user)
+                next if @user.is_active? && !@user.terminated?
 
-          begin
-            ActiveRecord::Base.transaction do
-              previous_status = @user.employment_status
-              @user.update!(
-                is_active: true,
-                terminated_at: nil,
-                termination_effective_on: nil,
-                termination_reason: nil,
-                terminated_by: nil
-              )
-              AuditLog.record!(
-                action: "admin.users.reactivate",
-                auditable: @user,
-                actor: current_user,
-                event_category: "users",
-                changes: {
-                  is_active: [ false, true ],
-                  employment_status: [ previous_status, "active" ]
-                }
-              )
+                previous_status = @user.employment_status
+                restored = @user.termination_access_snapshot
+                personal = restored.fetch("personal_access_enabled", @user.personal_access_enabled?)
+                tracking = restored.fetch("time_tracking_enabled", @user.time_tracking_enabled?)
+                kiosk = restored.present? ? restored.fetch("kiosk_enabled", tracking) : @user.kiosk_enabled?
+                before = @user.attributes.slice("is_active", "personal_access_enabled", "time_tracking_enabled", "kiosk_enabled")
+                # A revoked PIN is never restored. Kiosk-only staff get a new
+                # one-time PIN; personal accounts choose theirs on sign-in.
+                @user.kiosk_pin = nil
+                @user.kiosk_pin_digest = nil
+                @user.kiosk_pin_lookup_hash = nil
+                @user.kiosk_pin_last_rotated_at = nil
+                @user.kiosk_failed_attempts_count = 0
+                @user.kiosk_locked_until = nil
+                if kiosk && !personal
+                  pin = format("%06d", SecureRandom.random_number(1_000_000))
+                  @user.kiosk_pin = pin
+                  @user.kiosk_pin_last_rotated_at = Time.current
+                end
+                @user.update!(is_active: true, personal_access_enabled: personal, time_tracking_enabled: tracking,
+                  kiosk_enabled: kiosk, terminated_at: nil, termination_effective_on: nil,
+                  termination_reason: nil, terminated_by: nil, termination_access_snapshot: {},
+                  admin_edit_version: @user.admin_edit_version + 1)
+                changes = before.to_h { |key, value| [ key, [ value, @user.public_send(key) ] ] }
+                changes["employment_status"] = [ previous_status, "active" ]
+                AuditLog.record!(action: "admin.users.reactivate", auditable: @user, actor: current_user,
+                  event_category: "users", changes: changes)
+              end
             end
-          rescue ActiveRecord::RecordInvalid => e
-            return render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
           end
-
-          render json: { user: serialize_user(@user.reload) }
+          render json: { user: serialize_user(@user.reload), kiosk_pin: pin }
+        rescue ActiveRecord::RecordInvalid => e
+          render json: { error: e.record.errors.full_messages.join(", ") }, status: :unprocessable_entity
         end
 
         def resend_invite
@@ -338,21 +388,31 @@ module Api
         end
 
         def reset_kiosk_pin
-          return render json: { error: "Kiosk PINs are only available for staff users" }, status: :unprocessable_entity unless @user.staff?
-          return render json: { error: "Enable time tracking before setting a kiosk PIN" }, status: :unprocessable_entity unless @user.time_tracking_enabled?
-          return render json: { error: "Assign at least one active work category before setting a kiosk PIN" }, status: :unprocessable_entity if @user.assigned_time_categories.active.none?
-          return render json: { error: "Clock this person out before changing their kiosk access" }, status: :unprocessable_entity if @user.time_entries.where(status: %w[clocked_in on_break]).exists?
+          pin = nil
+          User.transaction do
+            User.with_admin_access_lock do
+              @user.with_lock(User::EMPLOYEE_ROW_LOCK) do
+                AdminPersonEdit.check!(@user, params[:admin_edit_version])
+                return render_owner_required unless current_user.can_change_access_for?(@user)
+                return render json: { error: "Reactivate this person before resetting their kiosk PIN." }, status: :unprocessable_entity unless @user.is_active? && !@user.terminated?
+                return render json: { error: "Kiosk PINs are only available for staff users" }, status: :unprocessable_entity unless @user.staff?
+                return render json: { error: "Enable time tracking and kiosk access before setting a kiosk PIN" }, status: :unprocessable_entity unless @user.time_tracking_enabled? && @user.kiosk_enabled?
+                return render json: { error: "Assign at least one active work category before setting a kiosk PIN" }, status: :unprocessable_entity if @user.assigned_time_categories.active.none?
+                return render json: { error: "Clock this person out before changing their kiosk access" }, status: :unprocessable_entity if @user.time_entries.where(status: %w[clocked_in on_break]).exists?
 
-          pin = params[:pin].presence || format("%06d", SecureRandom.random_number(1_000_000))
+                pin = params[:pin].presence || format("%06d", SecureRandom.random_number(1_000_000))
+                version = @user.admin_edit_version
+                @user.admin_edit_version += 1
+                @user.skip_kiosk_pin_presence_validation = true
+                @user.rotate_kiosk_pin!(pin)
+                AuditLog.record!(action: "user.kiosk_pin_reset", auditable: @user, actor: current_user,
+                  event_category: "users", changes: { admin_edit_version: [ version, @user.admin_edit_version ] },
+                  metadata: { redacted_fields: [ "kiosk_pin" ] })
+              end
+            end
+          end
 
-          @user.skip_kiosk_pin_presence_validation = true
-          @user.rotate_kiosk_pin!(pin)
-
-          render json: {
-            user: serialize_user(@user.reload),
-            kiosk_pin: pin,
-            message: "Kiosk PIN reset for #{@user.full_name}"
-          }
+          render json: { user: serialize_user(@user.reload), kiosk_pin: pin, message: "Kiosk PIN reset for #{@user.full_name}" }
         rescue ActiveRecord::RecordInvalid => e
           messages = e.record.errors.map { |err| err.attribute == :kiosk_pin_lookup_hash && err.type == :taken ? err.message : err.full_message }
           render json: { error: messages.join(", ") }, status: :unprocessable_entity
@@ -364,15 +424,25 @@ module Api
 
           validate_media_upload!(upload, media_type: "image", attachment_name: :photo)
 
-          replaced_blob = @user.public_team_photo.blob if @user.public_team_photo.attached?
-          @user.public_team_photo.attach(upload)
-          replaced_blob&.purge_later
+          @user.with_lock(User::EMPLOYEE_ROW_LOCK) do
+            AdminPersonEdit.check!(@user, params[:admin_edit_version]) if params.key?(:admin_edit_version)
+            params[:photo] = upload
+            save_person_photo!
+            @user.update!(admin_edit_version: @user.admin_edit_version + 1)
+          end
+          purge_person_photos!
 
           render json: { user: serialize_user(@user.reload) }
         end
 
         def destroy_public_team_photo
-          @user.public_team_photo.purge_later if @user.public_team_photo.attached?
+          @user.with_lock(User::EMPLOYEE_ROW_LOCK) do
+            AdminPersonEdit.check!(@user, params[:admin_edit_version]) if params.key?(:admin_edit_version)
+            params[:remove_photo] = true
+            save_person_photo!
+            @user.update!(admin_edit_version: @user.admin_edit_version + 1)
+          end
+          purge_person_photos!
 
           render json: { user: serialize_user(@user.reload) }
         end
@@ -419,6 +489,8 @@ module Api
             role: user.role,
             assignable_roles: current_user.roles_assignable_to(user),
             can_change_access: current_user.can_change_access_for?(user),
+            admin_edit_version: user.admin_edit_version,
+            public_team_bio: user.public_team_bio,
             my_pay_enabled: user.my_pay_enabled?,
             staff_title: user.staff_title,
             is_intern: user.is_intern,
@@ -467,61 +539,6 @@ module Api
             name: utc.time_category.name,
             key: utc.time_category.key
           }
-        end
-
-        # Snapshot only the local fields we mutate before Clerk sync, plus
-        # assigned time categories, so rollback restores the exact pre-sync state.
-        def snapshot_local_user_state(user)
-          {
-            attributes: user.attributes.slice(
-              "email",
-              "first_name",
-              "last_name",
-              "staff_title",
-              "is_intern",
-              "role",
-              "personal_access_enabled",
-              "profile_source",
-              "time_tracking_enabled",
-              "kiosk_enabled",
-              "kiosk_pin_digest",
-              "kiosk_pin_lookup_hash",
-              "kiosk_pin_last_rotated_at",
-              "kiosk_failed_attempts_count",
-              "kiosk_locked_until",
-              "approval_group",
-              "is_active",
-              "public_team_enabled",
-              "public_team_name",
-              "public_team_title",
-              "public_team_sort_order",
-              "public_team_photo_position_x",
-              "public_team_photo_position_y",
-              "updated_at"
-            ),
-            time_categories: user.user_time_categories.pluck(:time_category_id, :hourly_rate_cents),
-            approval_groups: user.user_approval_groups.order(:id).pluck(:approval_group)
-          }
-        end
-
-        def restore_local_user_state!(user, snapshot)
-          ActiveRecord::Base.transaction do
-            user.reload
-            user.update_columns(snapshot.fetch(:attributes))
-            restore_user_time_categories!(user, snapshot.fetch(:time_categories))
-            sync_approval_groups(user, snapshot.fetch(:approval_groups))
-          end
-        end
-
-        def restore_user_time_categories!(user, time_categories)
-          desired_ids = time_categories.map(&:first)
-          user.user_time_categories.where.not(time_category_id: desired_ids).destroy_all
-
-          time_categories.each do |time_category_id, hourly_rate_cents|
-            assignment = user.user_time_categories.find_or_initialize_by(time_category_id: time_category_id)
-            assignment.hourly_rate_cents = hourly_rate_cents
-            assignment.save!
-          end
         end
 
         def send_invitation_email(user)
@@ -646,6 +663,10 @@ module Api
             permitted[:public_team_name] = params[:public_team_name].to_s.strip.presence
           end
 
+          if params.key?(:public_team_bio)
+            permitted[:public_team_bio] = params[:public_team_bio].to_s.strip.presence
+          end
+
           if params.key?(:public_team_title)
             permitted[:public_team_title] = params[:public_team_title].to_s.strip.presence
           end
@@ -693,15 +714,38 @@ module Api
           ActiveModel::Type::Boolean.new.cast(params[key])
         end
 
-        def with_admin_transition_lock_if_needed
-          if @user.administrator? && @user.is_active? && @user.personal_access_enabled?
-            return User.with_admin_access_lock do
-              @user.reload
-              yield
-            end
+        def with_admin_transition_lock_if_needed(&block)
+          # Access/role transitions serialize before locking any employee row.
+          # Plain Employment/profile edits cannot remove the last administrator.
+          if %i[role personal_access_enabled is_active].any? { |key| params.key?(key) }
+            User.with_admin_access_lock { @user.with_lock(User::EMPLOYEE_ROW_LOCK, &block) }
+          else
+            @user.with_lock(User::EMPLOYEE_ROW_LOCK, &block)
           end
+        end
 
-          yield
+        def save_person_photo!
+          old_blob = @user.public_team_photo.blob if @user.public_team_photo.attached?
+          before = old_blob&.id
+          if params[:photo].present?
+            @user.public_team_photo.attach(params[:photo])
+          elsif boolean_param(:remove_photo)
+            @user.public_team_photo.detach
+          else
+            return
+          end
+          after = @user.public_team_photo.blob_id if @user.public_team_photo.attached?
+          if before != after
+            (@person_photo_blobs_to_purge ||= []) << old_blob if old_blob
+            AuditLog.record!(action: "user.updated", auditable: @user, actor: current_user,
+              event_category: "users", changes: { public_team_photo: [ before, after ] })
+          end
+        end
+
+        # Run only after the edit transaction commits. New uploads are attached
+        # last; ActiveStorage uploads their bytes in its after-commit callback.
+        def purge_person_photos!
+          Array(@person_photo_blobs_to_purge).each(&:purge_later)
         end
 
         # Owners and admins keep the app administrable: the last active owner
@@ -739,6 +783,12 @@ module Api
         def terminate_user_under_lock(effective_on)
           @user.with_lock(User::EMPLOYEE_ROW_LOCK) do
             @user.reload
+            AdminPersonEdit.check!(@user, params[:admin_edit_version]) if params.key?(:admin_edit_version)
+            return render_owner_required unless current_user.can_change_access_for?(@user)
+            if params.key?(:confirm_name) && params[:confirm_name].to_s != @user.full_name
+              render json: { error: "Type the person's full name to confirm." }, status: :unprocessable_entity
+              return
+            end
             if @user.terminated?
               render json: { error: "This employee is already terminated" }, status: :unprocessable_entity
               return
@@ -761,7 +811,14 @@ module Api
 
             previous_status = @user.employment_status
             previously_active = @user.is_active?
+            access_before = @user.attributes.slice("personal_access_enabled", "time_tracking_enabled", "kiosk_enabled", "my_pay_enabled", "public_team_enabled")
+            @user.kiosk_pin = nil
             @user.update!(
+              termination_access_snapshot: @user.attributes.slice("personal_access_enabled", "time_tracking_enabled", "kiosk_enabled"),
+              personal_access_enabled: false, kiosk_enabled: false, time_tracking_enabled: false, my_pay_enabled: false,
+              kiosk_pin_digest: nil, kiosk_pin_lookup_hash: nil, kiosk_pin_last_rotated_at: nil,
+              kiosk_failed_attempts_count: 0, kiosk_locked_until: nil,
+              admin_edit_version: @user.admin_edit_version + 1,
               is_active: false,
               public_team_enabled: false,
               terminated_at: Time.current,
@@ -778,9 +835,17 @@ module Api
                 is_active: [ previously_active, false ],
                 employment_status: [ previous_status, "terminated" ],
                 termination_effective_on: [ nil, effective_on.iso8601 ]
-              }
+              }.merge(access_before.to_h { |key, value| [ key, [ value, @user.public_send(key) ] ] })
             )
             ::PayDocuments::LinkRevoker.revoke_for_termination!(worker: @user, actor: current_user)
+            TerminationPreview.open_leave(@user, effective_on: effective_on).order(:id).lock.each do |leave|
+              before = leave.status
+              leave.update!(status: "cancelled", cancelled_by: current_user, cancelled_at: Time.current,
+                review_note: "Closed when employment ended.")
+              AuditLog.record!(action: "leave_request.cancelled", auditable: leave, actor: current_user,
+                event_category: "leave", changes: { status: [ before, "cancelled" ] },
+                metadata: { target_user_id: @user.id, reason: "employment_ended", effective_on: effective_on.iso8601 })
+            end
           end
         end
 

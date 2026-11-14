@@ -27,6 +27,7 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
         :employee,
         first_name: "First",
         public_team_name: "Captain First",
+        public_team_bio: "Flight safety instructor.",
         public_team_enabled: true,
         public_team_title: "Certified Flight Instructor",
         public_team_sort_order: 1
@@ -40,6 +41,7 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
           {
             id: first_user.id,
             name: "Captain First",
+            bio: "Flight safety instructor.",
             title: "Certified Flight Instructor",
             photo_url: nil,
             photo_thumb_url: nil,
@@ -50,6 +52,7 @@ RSpec.describe "Api::V1::TeamMembers", type: :request do
           {
             id: second_user.id,
             name: "Second User",
+            bio: nil,
             title: "Chief Instructor",
             photo_url: nil,
             photo_thumb_url: nil,

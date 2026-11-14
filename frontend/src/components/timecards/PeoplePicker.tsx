@@ -4,14 +4,14 @@ import { formatHours, type TimecardPersonRow } from '../../lib/timecards'
 import { Avatar, EmptyState, ErrorState, FilterChip, ListGroup, ListRow, StatusPill, type StatusTone } from '../ui'
 import { Skeleton } from '../ui/Skeleton'
 
-/** "needs" (Needs a look), "all", or a department label. */
+/** "needs" (People to check), "all", or a department label. */
 export type PeopleFilter = string
 
 export interface PeoplePickerProps {
   people: TimecardPersonRow[] | null
   selectedId: number | null
   onSelect: (person: TimecardPersonRow) => void
-  /** From the URL; null means the default (Needs a look when anyone does). */
+  /** From the URL; null means the default (People to check when anyone does). */
   filter: PeopleFilter | null
   onFilterChange: (filter: PeopleFilter) => void
   error?: string | null
@@ -27,13 +27,13 @@ const fold = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu
 function pillFor(person: TimecardPersonRow): { tone: StatusTone; label: string } | null {
   if (person.employmentStatus === 'terminated') return { tone: 'off', label: 'Employment ended' }
   if (person.openClock === 'stale') return { tone: 'needs-fix', label: 'Still clocked in' }
-  if (person.overtimeWaitingCount > 0) return { tone: 'waiting', label: 'OT waiting' }
+  if (person.overtimeWaitingCount > 0) return { tone: 'waiting', label: 'Overtime waiting' }
   if (person.waitingCount > 0) return { tone: 'waiting', label: `${person.waitingCount} waiting` }
   if (person.openClock === 'live') return { tone: 'info', label: 'On the clock' }
   return null
 }
 
-/** Finds one person: search, "Needs a look" first, then departments. */
+/** Finds one person: search, "People to check" first, then departments. */
 export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterChange, error, onRetry, summaryError = null, onRetrySummary }: PeoplePickerProps) {
   const ids = useId()
   const [query, setQuery] = useState('')
@@ -72,7 +72,7 @@ export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterCha
         />
       </div>
       <div role="group" aria-label="Show" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-        <FilterChip selected={active === 'needs'} onClick={() => toggle('needs')} count={people && !summaryError ? needsLook.length : undefined}>Needs a look</FilterChip>
+        <FilterChip selected={active === 'needs'} onClick={() => toggle('needs')} count={people && !summaryError ? needsLook.length : undefined}>People to check</FilterChip>
         {groups.map(group => <FilterChip key={group} selected={active === group} onClick={() => toggle(group)}>{group}</FilterChip>)}
       </div>
 

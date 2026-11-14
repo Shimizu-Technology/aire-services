@@ -37,14 +37,14 @@ export function PersonHeader({ user, myPayOn, backTo, backLabel, onSendStub, men
             <h1 className="text-heading font-semibold text-ink [overflow-wrap:anywhere]">{name}</h1>
             {line && <p className="mt-0.5 text-body-sm text-ink-muted [overflow-wrap:anywhere]">{line}</p>}
             <ul aria-label="Status" className="mt-2 flex flex-wrap gap-1.5">
-              <li><StatusPill tone={status.tone}>{status.label}</StatusPill></li>
-              {myPayOn && <li><StatusPill tone="info">My Pay on</StatusPill></li>}
-              <li><StatusPill tone="off">{signInLabel(user)}</StatusPill></li>
+              <li className="max-w-full"><StatusPill tone={status.tone} className="[&>span:last-child]:whitespace-normal!">{status.label}</StatusPill></li>
+              {myPayOn && <li className="max-w-full"><StatusPill tone="info" className="[&>span:last-child]:whitespace-normal!">My Pay on</StatusPill></li>}
+              <li className="max-w-full"><StatusPill tone="off" className="[&>span:last-child]:whitespace-normal!">{signInLabel(user)}</StatusPill></li>
             </ul>
           </div>
         </div>
         {(onSendStub || menuItems.length > 0) && (
-          <div className="flex items-center gap-2">
+          <div className="flex max-w-full flex-wrap items-center gap-2">
             {onSendStub && (
               <Button
                 variant="secondary"

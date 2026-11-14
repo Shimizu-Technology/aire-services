@@ -321,9 +321,11 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         work_date = Date.new(2026, 4, 30)
 
         travel_to guam.local(2026, 4, 30, 10, 0, 0) do
+          # Not `employee`: their `entry` is dated today, after this April clock,
+          # and an open clock overlaps everything after it started.
           active_entry = create(
             :time_entry,
-            user: employee,
+            user: other_employee,
             work_date: work_date,
             entry_method: "clock",
             status: "clocked_in",
@@ -567,7 +569,8 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
 
   # ── DESTROY ──────────────────────────────────────────────────────────
   describe "DELETE /api/v1/time_entries/:id" do
-    let!(:entry) { create(:time_entry, user: employee) }
+    # Added by hand and still waiting: the only time an employee may remove.
+    let!(:entry) { create(:time_entry, user: employee, entry_method: "manual", approval_status: "pending") }
 
     context "owner deletes own entry" do
       it "succeeds" do

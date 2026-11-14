@@ -48,6 +48,7 @@ function TeamCard({ member, index }: { member: PublicTeamMember; index: number }
       <div className="p-5 sm:p-6">
         <h3 className="text-xl font-bold tracking-tight text-slate-950">{member.name}</h3>
         <p className="mt-2 text-sm leading-7 text-slate-600">{member.title}</p>
+        {member.bio && <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-600 [overflow-wrap:anywhere]">{member.bio}</p>}
       </div>
     </article>
   )
@@ -62,6 +63,7 @@ function TextRosterCard({ member }: { member: PublicTeamMember }) {
       <div className="min-w-0">
         <h3 className="font-bold leading-snug text-slate-950">{member.name}</h3>
         <p className="mt-1 text-sm leading-6 text-slate-600">{member.title}</p>
+        {member.bio && <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-600 [overflow-wrap:anywhere]">{member.bio}</p>}
       </div>
     </article>
   )

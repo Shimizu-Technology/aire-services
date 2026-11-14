@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api, setAuthTokenGetter, type LeaveRequest } from '../../lib/api'
 import MyLeave from './MyLeave'
+import { ToastProvider } from '../../components/ui'
 import { todayInGuam } from '../../lib/payPeriods'
 import { myTimeApi } from '../../lib/api/myTime'
 
@@ -54,7 +55,9 @@ afterEach(() => {
 const open = () =>
   render(
     <MemoryRouter>
-      <MyLeave />
+      <ToastProvider>
+        <MyLeave />
+      </ToastProvider>
     </MemoryRouter>,
   )
 
@@ -166,8 +169,64 @@ it('cancels only a pending request owned by the viewer', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel request' }))
   await waitFor(() => expect(cancel).toHaveBeenCalledWith(9))
   expect(
-    await screen.findByText('Your request was cancelled.'),
+    await screen.findByText('Cancelled your Dec 1 request.'),
   ).toBeInTheDocument()
+})
+
+it('can undo a cancellation by sending the same request again', async () => {
+  vi.spyOn(myTimeApi, 'cancelLeave').mockResolvedValue({
+    data: { leave_request: { ...request, status: 'cancelled' } },
+    status: 200,
+  })
+  const send = vi.spyOn(myTimeApi, 'requestLeave').mockResolvedValue({
+    data: { leave_request: { ...request, id: 10 } },
+    status: 201,
+  })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel request' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith({
+      leave_type: 'paid_time_off',
+      start_date: '2026-12-01',
+      end_date: '2026-12-01',
+      reason: 'Family visit',
+    }),
+  )
+  expect(
+    await screen.findByText('Your request is back and waiting for approval.'),
+  ).toBeInTheDocument()
+})
+
+it('puts Request time off above the list', async () => {
+  open()
+  const button = await screen.findByRole('button', { name: 'Request time off' })
+  const first = await screen.findByText('Paid time off')
+  expect(
+    button.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+})
+
+it('says so when the end date is before the start date', async () => {
+  const send = vi.spyOn(myTimeApi, 'requestLeave')
+  open()
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Request time off' }),
+    ).toBeEnabled(),
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Request time off' }))
+  fireEvent.change(screen.getByLabelText(/Start date/), {
+    target: { value: '2026-12-10' },
+  })
+  fireEvent.change(screen.getByLabelText(/End date/), {
+    target: { value: '2026-12-08' },
+  })
+  expect(
+    screen.getByText("The end date can't be before the start date."),
+  ).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+  expect(send).not.toHaveBeenCalled()
 })
 
 it('shows approved days in the current month only when those requests exist', async () => {

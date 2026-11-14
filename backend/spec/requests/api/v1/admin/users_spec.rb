@@ -207,7 +207,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
   describe "PATCH /api/v1/admin/users/:id" do
     it "updates approval group" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: { approval_group: "ops_maintenance" },
+            params: { admin_edit_version: employee.reload.admin_edit_version, approval_group: "ops_maintenance" },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:ok)
@@ -219,7 +219,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       employee.update!(approval_group: "cfi")
 
       patch "/api/v1/admin/users/#{employee.id}",
-            params: { approval_group: "unassigned" },
+            params: { admin_edit_version: employee.reload.admin_edit_version, approval_group: "unassigned" },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:ok)
@@ -229,7 +229,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
 
     it "updates public Team page profile fields" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: {
+            params: { admin_edit_version: employee.reload.admin_edit_version,
               staff_title: "Certified Flight Instructor",
               public_team_enabled: true,
               public_team_name: "Captain Test",
@@ -254,7 +254,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
 
     it "updates public Team page photo focal point" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: {
+            params: { admin_edit_version: employee.reload.admin_edit_version,
               public_team_photo_position_x: 48,
               public_team_photo_position_y: 28
             },
@@ -271,7 +271,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
 
     it "rejects invalid public Team page photo focal points" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: { public_team_photo_position_y: 125 },
+            params: { admin_edit_version: employee.reload.admin_edit_version, public_team_photo_position_y: 125 },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
@@ -283,7 +283,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       allow(ClerkUserService).to receive(:update_user!)
 
       patch "/api/v1/admin/users/#{employee.id}",
-            params: {
+            params: { admin_edit_version: employee.reload.admin_edit_version,
               email: employee.email,
               first_name: employee.first_name,
               last_name: employee.last_name,
@@ -304,7 +304,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
 
     it "requires a public title when showing a user on the Team page" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: {
+            params: { admin_edit_version: employee.reload.admin_edit_version,
               public_team_enabled: true,
               public_team_title: "",
               staff_title: ""
@@ -317,7 +317,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
 
     it "allows a staff title to satisfy public Team page requirements" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: {
+            params: { admin_edit_version: employee.reload.admin_edit_version,
               public_team_enabled: true,
               public_team_title: "",
               staff_title: "Lead CFI"
@@ -344,7 +344,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       category = create(:time_category, name: "Ground Training Hours")
 
       patch "/api/v1/admin/users/#{kiosk_only_user.id}",
-            params: {
+            params: { admin_edit_version: kiosk_only_user.reload.admin_edit_version,
               first_name: "Updated",
               last_name: "Pilot",
               role: "employee",
@@ -381,7 +381,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       category = create(:time_category, name: "Ground Training Hours")
 
       patch "/api/v1/admin/users/#{invited_user.id}",
-            params: {
+            params: { admin_edit_version: invited_user.reload.admin_edit_version,
               email: "updated.pilot@example.com",
               role: "employee",
               approval_group: "cfi",
@@ -405,7 +405,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
 
     it "does not allow clearing email for an activated Clerk user" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: { email: "" },
+            params: { admin_edit_version: employee.reload.admin_edit_version, email: "" },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
@@ -417,7 +417,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       allow(ClerkUserService).to receive(:update_user!).and_return(true)
 
       patch "/api/v1/admin/users/#{employee.id}",
-            params: {
+            params: { admin_edit_version: employee.reload.admin_edit_version,
               first_name: "Updated",
               last_name: "User"
             },
@@ -435,35 +435,32 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       )
     end
 
-    it "rolls back local name changes when Clerk sync fails" do
-      original_updated_at = employee.updated_at
-
+    it "preserves local name changes with a notice when Clerk sync fails" do
       allow(ClerkUserService).to receive(:update_user!).and_raise(
         ClerkUserService::RequestError,
         "Clerk request failed: upstream unavailable"
       )
 
       patch "/api/v1/admin/users/#{employee.id}",
-            params: {
+            params: { admin_edit_version: employee.reload.admin_edit_version,
               first_name: "Updated",
               public_team_enabled: true,
               public_team_title: "Certified Flight Instructor"
             },
             headers: auth_headers_for[admin]
 
-      expect(response).to have_http_status(:unprocessable_entity)
-      expect(json[:error]).to match(/upstream unavailable/i)
+      expect(response).to have_http_status(:ok)
+      expect(json[:notice]).to include("Changes saved in AIRE", "could not sync to Clerk")
       expect(employee.reload).to have_attributes(
-        first_name: "Test",
-        public_team_enabled: false,
-        public_team_title: nil
+        first_name: "Updated",
+        public_team_enabled: true,
+        public_team_title: "Certified Flight Instructor"
       )
-      expect(employee.updated_at.to_i).to eq(original_updated_at.to_i)
     end
 
     it "does not allow changing email for an activated Clerk user" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: { email: "new.email@example.com" },
+            params: { admin_edit_version: employee.reload.admin_edit_version, email: "new.email@example.com" },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
@@ -483,7 +480,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       kiosk_only_user.user_time_categories.create!(time_category: category)
 
       patch "/api/v1/admin/users/#{kiosk_only_user.id}",
-            params: {
+            params: { admin_edit_version: kiosk_only_user.reload.admin_edit_version,
               email: "new.invite@example.com",
               personal_access_enabled: true,
               time_category_ids: [ category.id ]
@@ -514,7 +511,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
       allow(EmailService).to receive(:send_invitation_email)
 
       patch "/api/v1/admin/users/#{kiosk_only_user.id}",
-            params: { send_invitation: true },
+            params: { admin_edit_version: kiosk_only_user.reload.admin_edit_version, send_invitation: true },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
@@ -525,7 +522,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
 
     it "requires the termination workflow instead of a bare deactivation" do
       patch "/api/v1/admin/users/#{employee.id}",
-            params: { is_active: false },
+            params: { admin_edit_version: employee.reload.admin_edit_version, is_active: false },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)
@@ -535,7 +532,7 @@ RSpec.describe "Api::V1::Admin::Users", type: :request do
 
     it "does not let admins deactivate themselves" do
       patch "/api/v1/admin/users/#{admin.id}",
-            params: { is_active: false },
+            params: { admin_edit_version: admin.reload.admin_edit_version, is_active: false },
             headers: auth_headers_for[admin]
 
       expect(response).to have_http_status(:unprocessable_entity)

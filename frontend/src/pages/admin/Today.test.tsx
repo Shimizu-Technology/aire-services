@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../lib/api', () => ({
   api: { getPayrollCutoff: mocks.getPayrollCutoff, getWhosWorking: mocks.getWhosWorking, resetKioskPin: mocks.resetKioskPin },
 }))
+vi.mock('../../lib/api/people', () => ({ peopleApi: { person: vi.fn(async () => ({ data: { user: { admin_edit_version: 3 } } })), resetPin: mocks.resetKioskPin } }))
 vi.mock('../../lib/api/attention', () => ({ attentionApi: { attention: mocks.attention, connection: mocks.connection } }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ userRole: mocks.role, isClerkEnabled: true }) }))
 
@@ -257,7 +258,7 @@ describe('Today', () => {
       await open()
       const card = screen.getByRole('region', { name: 'Payroll connection' })
       expect(within(card).getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
-      expect(within(card).getByText(/Last heard from 7:05 PM/)).toBeInTheDocument()
+      expect(within(card).getByText(/Last confirmed receipt: Nov 11, 2026, 7:00 PM/)).toBeInTheDocument()
     })
 
     it('leaves the connection card, and its request, to desktop', async () => {
@@ -332,7 +333,7 @@ describe('Today', () => {
       expect(mocks.resetKioskPin).not.toHaveBeenCalled()
       await act(async () => { fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Reset PIN' })) })
       await settle()
-      expect(mocks.resetKioskPin).toHaveBeenCalledWith(11)
+      expect(mocks.resetKioskPin).toHaveBeenCalledWith(11, 3)
       expect(screen.getByRole('dialog', { name: 'New kiosk PIN for Kai Blas' })).toHaveTextContent('482913')
       expect(screen.queryByText('Kai Blas kiosk PIN locked')).not.toBeInTheDocument()
       expect(screen.getByText('Nothing needs you right now')).toBeInTheDocument()

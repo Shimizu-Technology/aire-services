@@ -2704,6 +2704,9 @@ CREATE TABLE public.users (
     termination_reason text,
     terminated_by_id bigint,
     my_pay_enabled boolean DEFAULT false NOT NULL,
+    admin_edit_version integer DEFAULT 0 NOT NULL,
+    public_team_bio text,
+    termination_access_snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT check_public_team_photo_position_x_range CHECK (((public_team_photo_position_x >= 0) AND (public_team_photo_position_x <= 100))),
     CONSTRAINT check_public_team_photo_position_y_range CHECK (((public_team_photo_position_y >= 0) AND (public_team_photo_position_y <= 100))),
     CONSTRAINT check_users_kiosk_matches_time_tracking CHECK ((kiosk_enabled = time_tracking_enabled)),
@@ -6129,6 +6132,7 @@ ALTER TABLE ONLY public.payroll_settlement_cases
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20261114010000'),
 ('20261111120000'),
 ('20261111000000'),
 ('20261110120000'),

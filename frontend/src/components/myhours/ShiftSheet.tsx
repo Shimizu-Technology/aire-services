@@ -12,12 +12,15 @@ export function ShiftSheet({
   weekUnavailable,
   onClose,
   onFix,
+  onRemove,
 }: {
   entry: TimeEntry
   weekEntries: TimeEntry[]
   weekUnavailable: boolean
   onClose: () => void
   onFix: () => void
+  /** Only for time the viewer added that is still waiting. */
+  onRemove?: () => void
 }) {
   const source =
     entry.entry_method === 'manual'
@@ -41,9 +44,16 @@ export function ShiftSheet({
       })}
       footer={
         entry.status === 'completed' ? (
-          <Button fullWidth variant="secondary" onClick={onFix}>
-            Ask for a fix
-          </Button>
+          <div className="space-y-2">
+            <Button fullWidth variant="secondary" onClick={onFix}>
+              Ask for a fix
+            </Button>
+            {onRemove && (
+              <Button fullWidth variant="ghost" onClick={onRemove}>
+                Remove this shift
+              </Button>
+            )}
+          </div>
         ) : undefined
       }
     >

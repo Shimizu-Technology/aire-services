@@ -11,7 +11,7 @@ import {
   Tag,
   TriangleAlert,
 } from 'lucide-react'
-import { api } from '../../lib/api'
+import { peopleApi } from '../../lib/api/people'
 import type {
   AttentionItemData,
   ClockAttentionItem,
@@ -122,7 +122,9 @@ export function AttentionList({ items, onChanged }: AttentionListProps) {
     if (!confirmed) return
     setResetting(id)
     try {
-      const response = await api.resetKioskPin(id)
+      const loaded = await peopleApi.person(id)
+      if (!loaded.data) throw new Error(loaded.error || "Couldn't load person")
+      const response = await peopleApi.resetPin(id, loaded.data.user.admin_edit_version ?? 0)
       if (response.data) {
         setResult({ name, pin: response.data.kiosk_pin })
         onChanged()

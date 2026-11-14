@@ -377,105 +377,15 @@ describe('Users filters', () => {
     expect(screen.getByRole('switch', { name: 'My Pay on for everyone' })).toBeInTheDocument()
   })
 
-  it.each([
-    [{ invitation_email_sent: false, invitation_email_captured: true }, 'Captured in staging (not sent)'],
-    [{ invitation_email_sent: true }, 'Invitation submitted to the email provider'],
-    [{ invitation_email_sent: false }, 'Invitation email failed'],
-  ])('reports the outcome when an edit requests an invitation: %j', async (outcome, message) => {
-    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ is_pending: true, has_clerk_account: false })] } })
-    apiMock.updateUser.mockResolvedValueOnce({ data: { user: makeUser({}), ...outcome } })
-    render(<MemoryRouter initialEntries={['/?status=pending&edit_user_id=1']}><Users /></MemoryRouter>)
-    fireEvent.click(await screen.findByLabelText('Send invitation when these changes are saved'))
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
-    expect(await screen.findByRole('status')).toHaveTextContent(message)
-    expect(apiMock.updateUser).toHaveBeenCalledWith(1, expect.objectContaining({ send_invitation: true }))
-  })
-
-  it('keeps time tracking and kiosk access enabled when changing a user to kiosk-only', async () => {
-    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=1']}><Users /></MemoryRouter>)
-
-    const dialog = await screen.findByRole('dialog', { name: /edit alice pilot/i })
-    const personalAccess = within(dialog).getByRole('checkbox', { name: /^personal sign-in/i })
-    fireEvent.click(personalAccess)
-
-    const timeTracking = within(dialog).getByRole('checkbox', { name: /^tracks work hours/i })
-    expect(personalAccess).not.toBeChecked()
-    expect(timeTracking).toBeChecked()
-    expect(timeTracking).toBeDisabled()
-    expect(within(dialog).getByText(/kiosk access is included/i)).toBeInTheDocument()
-    expect(within(dialog).queryByRole('checkbox', { name: /^kiosk access/i })).not.toBeInTheDocument()
-
-    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }))
-
-    expect(apiMock.updateUser).toHaveBeenCalledWith(1, expect.objectContaining({
-      personal_access_enabled: false,
-      time_tracking_enabled: true,
-      kiosk_enabled: true,
-      time_category_ids: [1],
-    }))
-  })
-
   afterEach(() => vi.useRealTimers())
 
-  it('uses the termination workflow and explains that history is preserved', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-09-22T15:30:00Z'))
-    const terminated = makeUser({
-      id: 1,
-      full_name: 'Alice Pilot',
-      display_name: 'Alice Pilot',
-      is_active: false,
-      employment_status: 'terminated',
-      termination_effective_on: '2026-09-21',
-      terminated_at: '2026-09-22T00:00:00Z',
-    })
-    apiMock.terminateUser.mockResolvedValueOnce({ data: { user: terminated } })
-    render(<MemoryRouter initialEntries={['/admin/users?status=all&edit_user_id=1']}><Users /></MemoryRouter>)
 
-    fireEvent.click(within(await screen.findByRole('dialog', { name: /edit alice pilot/i })).getByRole('button', { name: /terminate employment/i }))
 
-    const dialog = screen.getByRole('dialog', { name: /terminate alice pilot/i })
-    expect(within(dialog).getByText(/time entries, schedules, payroll trail, and historical reports stay intact/i)).toBeInTheDocument()
-    await waitFor(() => expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveFocus())
-    expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveValue('2026-09-23')
-    expect(within(dialog).getByLabelText(/last day of employment/i)).toHaveAttribute('max', '2026-09-23')
-    fireEvent.change(within(dialog).getByLabelText(/last day of employment/i), { target: { value: '2026-09-21' } })
-    fireEvent.change(within(dialog).getByLabelText(/internal note/i), { target: { value: 'Employment ended' } })
-    fireEvent.click(within(dialog).getByRole('button', { name: /confirm termination/i }))
-
-    await waitFor(() => expect(apiMock.terminateUser).toHaveBeenCalledWith(1, {
-      effective_on: '2026-09-21',
-      reason: 'Employment ended',
-    }))
-    await waitFor(() => expect(within(rowFor('Alice Pilot')).getByText('Ended')).toBeInTheDocument())
-  })
-
-  it('reactivates a terminated employee and updates their status in place', async () => {
-    const terminated = makeUser({
-      id: 1,
-      full_name: 'Alice Pilot',
-      display_name: 'Alice Pilot',
-      email: 'alice@aire.test',
-      is_active: false,
-      employment_status: 'terminated',
-      termination_effective_on: '2026-09-21',
-      terminated_at: '2026-09-22T00:00:00Z',
-    })
-    const reactivated = makeUser({
-      id: 1,
-      full_name: 'Alice Pilot',
-      display_name: 'Alice Pilot',
-      email: 'alice@aire.test',
-    })
-    apiMock.getAdminUsers.mockResolvedValueOnce({ data: { users: [terminated] } })
-    apiMock.reactivateUser.mockResolvedValueOnce({ data: { user: reactivated } })
-    render(<MemoryRouter initialEntries={['/admin/users?status=all&edit_user_id=1']}><Users /></MemoryRouter>)
-
-    expect(await screen.findByText('Ended')).toBeInTheDocument()
-    fireEvent.click(within(await screen.findByRole('dialog', { name: /edit alice pilot/i })).getByRole('button', { name: /reactivate user/i }))
-
-    await waitFor(() => expect(apiMock.reactivateUser).toHaveBeenCalledWith(1))
-    await waitFor(() => expect(within(rowFor('Alice Pilot')).queryByText('Ended')).not.toBeInTheDocument())
+  it('redirects the retired edit deep link to Access and preserves safe return context', async () => {
+    function Address() { const location = useLocation(); return <output aria-label="Directory address">{location.pathname}{location.search}</output> }
+    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=1&return_to=%2Fadmin%2Fusers%3Fsearch%3DAlice']}><Users /><Address /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByLabelText('Directory address')).toHaveTextContent('/admin/users/1?tab=access&return_to=%2Fadmin%2Fusers%3Fsearch%3DAlice'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('reports directory errors with retry rather than a false empty team', async () => {
@@ -508,15 +418,6 @@ describe('Users filters', () => {
     expect(trigger).toHaveFocus()
   })
 
-  it('removes the edit deep link on close and preserves directory filters', async () => {
-    function Address() { return <output aria-label="Directory address">{useLocation().search}</output> }
-    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=1&search=Alice']}><Users /><Address /></MemoryRouter>)
-    const dialog = await screen.findByRole('dialog', { name: /edit alice pilot/i })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Directory address')).toHaveTextContent('?search=Alice')
-    expect(screen.getByLabelText('Directory address')).not.toHaveTextContent('edit_user_id')
-  })
 
 })
 
@@ -570,38 +471,8 @@ describe('Users roles and My Pay', () => {
     expect(within(dialog).getByRole('radio', { name: /kiosk only/i })).toBeDisabled()
   })
 
-  it('moves an employee to manager with the picker', async () => {
-    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=12']}><Users /></MemoryRouter>)
-    const dialog = await screen.findByRole('dialog', { name: /edit ana worker/i })
-    fireEvent.click(within(dialog).getByRole('radio', { name: /^Manager/ }))
-    expect(within(dialog).getByRole('checkbox', { name: /^personal sign-in/i })).toBeDisabled()
-    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }))
-    await waitFor(() => expect(apiMock.updateUser).toHaveBeenCalledWith(12, expect.objectContaining({ role: 'manager' })))
-  })
 
-  it("keeps an admin from changing an owner's role or access", async () => {
-    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=10']}><Users /></MemoryRouter>)
-    const dialog = await screen.findByRole('dialog', { name: /edit leon owner/i })
-    expect(within(dialog).queryByRole('radio', { name: /^Owner/ })).not.toBeInTheDocument()
-    expect(within(dialog).getByText('Only an owner can change an owner’s or admin’s role.')).toBeInTheDocument()
-    expect(within(dialog).getByRole('checkbox', { name: /^personal sign-in/i })).toBeDisabled()
-    expect(within(dialog).queryByRole('button', { name: /terminate employment/i })).not.toBeInTheDocument()
-  })
 
-  it("saves an owner's profile without touching their sign-in, kiosk or PIN", async () => {
-    const pendingOwner = { ...owner, time_tracking_enabled: true }
-    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [pendingOwner, manager, worker] } })
-    apiMock.updateUser.mockResolvedValue({ data: { user: pendingOwner } })
-    render(<MemoryRouter initialEntries={['/admin/users?edit_user_id=10']}><Users /></MemoryRouter>)
-    const dialog = await screen.findByRole('dialog', { name: /edit leon owner/i })
-    expect(within(dialog).getByRole('checkbox', { name: /^tracks work hours/i })).toBeDisabled()
-    fireEvent.click(within(dialog).getByRole('button', { name: /save changes/i }))
-    await waitFor(() => expect(apiMock.updateUser).toHaveBeenCalled())
-    const payload = apiMock.updateUser.mock.calls[0][1]
-    for (const key of ['email', 'personal_access_enabled', 'time_tracking_enabled', 'kiosk_enabled', 'kiosk_pin', 'send_invitation']) {
-      expect(payload).not.toHaveProperty(key)
-    }
-  })
 
   it('turns one person’s My Pay on from the list', async () => {
     render(<MemoryRouter><Users /></MemoryRouter>)
@@ -612,6 +483,18 @@ describe('Users roles and My Pay', () => {
     fireEvent.click(toggle)
     await waitFor(() => expect(apiMock.setUserMyPay).toHaveBeenCalledWith(12, true))
     await waitFor(() => expect(within(rowFor('Ana Worker')).getByRole('switch', { name: 'My Pay for Ana Worker' })).toHaveAttribute('aria-checked', 'true'))
+  })
+
+  it('disables My Pay for inactive people and explains how to restore it', async () => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ full_name: 'Casey Inactive', display_name: 'Casey Inactive', is_active: false })] } })
+    render(<MemoryRouter initialEntries={['/admin/users?status=inactive']}><Users /></MemoryRouter>)
+    await screen.findByText('Casey Inactive')
+    const row = rowFor('Casey Inactive')
+    const toggle = within(row).getByRole('switch', { name: 'My Pay for Casey Inactive' })
+    expect(toggle).toBeDisabled()
+    expect(row).toHaveTextContent('Reactivate before turning on My Pay.')
+    fireEvent.click(toggle)
+    expect(apiMock.setUserMyPay).not.toHaveBeenCalled()
   })
 
   it('asks before turning My Pay on for everyone', async () => {

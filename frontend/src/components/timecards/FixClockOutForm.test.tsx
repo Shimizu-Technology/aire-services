@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TimeEntry } from '../../lib/api'
 import { FixClockOutForm } from './FixClockOutForm'
+import { ToastProvider } from '../ui'
 
 const apiMock = vi.hoisted(() => ({ updateTimeEntry: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: apiMock }))
@@ -26,7 +27,7 @@ function renderForm(entry = openEntry(), withCategories = categories) {
   const onSaved = vi.fn()
   const onCancel = vi.fn()
   const onReload = vi.fn()
-  const view = render(<FixClockOutForm entry={entry} categories={withCategories} onSaved={onSaved} onCancel={onCancel} onReload={onReload} />)
+  const view = render(<FixClockOutForm entry={entry} categories={withCategories} onSaved={onSaved} onCancel={onCancel} onReload={onReload} />, { wrapper: ToastProvider })
   return { onSaved, onCancel, onReload, view }
 }
 
@@ -72,6 +73,7 @@ describe('FixClockOutForm', () => {
       review_action: 'end_clock', expected_version: 4, stop_date: '2026-11-11', end_time: '06:30', time_category_id: 3,
     }, 'Corrected clock-out: Forgot to clock out, confirmed with Caleb')
     expect(onSaved).toHaveBeenCalled()
+    expect(screen.getByText("Saved. Caleb's Tue shift is back in Approvals.")).toBeInTheDocument()
   })
 
   it('keeps the shift on its own day when the clock-out is later the same day', async () => {

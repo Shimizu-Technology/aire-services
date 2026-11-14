@@ -32,7 +32,7 @@ const reportShift = (id: number, hours: number, overrides: Record<string, unknow
   id, work_date: '2026-11-02', total_hours: hours, overtime_hours: 0, overtime_status: 'none', approval_status: 'approved', entry_method: 'clock', quality_flags: [], ...overrides,
 })
 const summaryRow = (id: number, hours: number, issues: Record<string, number> = {}, excluded: ReturnType<typeof reportShift>[] = []) => ({
-  id, total_hours: hours, overtime_hours: 0, entries_count: hours > 0 ? 2 : 0,
+  id, payroll_hours: { approved_regular_hours: hours, approved_overtime_hours: 0, approved_hours: hours, time_waiting_hours: excluded.filter(row => row.approval_status === 'pending').reduce((sum, row) => sum + row.total_hours, 0), overtime_waiting_hours: 0 }, total_hours: hours, overtime_hours: 0, entries_count: hours > 0 ? 2 : 0,
   days: hours > 0 ? [{ work_date: '2026-11-02', entries: [reportShift(900 + id, hours)] }] : [],
   excluded_entries: excluded,
   issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, ...issues },
@@ -109,11 +109,11 @@ afterEach(() => {
 })
 
 describe('Timecards on a phone', () => {
-  it('opens on "Needs a look" with the lock date, and a search looks through everyone', async () => {
+  it('opens on "People to check" with the lock date, and a search looks through everyone', async () => {
     openAt('/admin/timecards')
     expect(await screen.findByRole('heading', { level: 1, name: 'Timecards' })).toBeInTheDocument()
     expect(await screen.findByText('Nov 1–15 · locks Wed, Nov 18')).toBeInTheDocument()
-    const needs = await screen.findByRole('button', { name: /Needs a look/ })
+    const needs = await screen.findByRole('button', { name: /People to check/ })
     expect(needs).toHaveAttribute('aria-pressed', 'true')
     expect(needs).toHaveTextContent('1')
     const people = await screen.findByRole('list', { name: 'People' })
@@ -233,8 +233,8 @@ describe('Timecards on a phone', () => {
     expect(await screen.findByText("Couldn't load who needs a look.")).toBeInTheDocument()
     expect(screen.queryByText('Nobody needs a look.')).not.toBeInTheDocument()
     expect(screen.queryByText(/nothing waiting/i)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Needs a look/ })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: /Needs a look/ })).not.toHaveTextContent(/\d/)
+    expect(screen.getByRole('button', { name: /People to check/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /People to check/ })).not.toHaveTextContent(/\d/)
     fireEvent.click(within(screen.getByText("Couldn't load who needs a look.").closest('[role=alert]') as HTMLElement).getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(screen.queryByText("Couldn't load who needs a look.")).not.toBeInTheDocument())
     expect(await screen.findByText('Still clocked in')).toBeInTheDocument()
@@ -313,7 +313,7 @@ describe('Timecards on a phone', () => {
       ] : [], pagination: { total_pages: 1 } },
     }))
     apiMock.getHoursReport.mockImplementation(async () => ({ data: { employees: [{
-      ...summaryRow(9, 0), total_hours: 57.5, overtime_hours: 6,
+      ...summaryRow(9, 0), payroll_hours: { approved_regular_hours: 51.5, approved_overtime_hours: 0, approved_hours: 51.5, time_waiting_hours: 11.5, overtime_waiting_hours: 6 }, total_hours: 57.5, overtime_hours: 6,
       days: days.map((date, index) => ({ work_date: date, entries: [reportShift(80 + index, 11.5, { work_date: date, ...(date === '2026-11-06' ? { overtime_hours: 6, overtime_status: 'pending' } : {}) })] })),
       excluded_entries: [reportShift(90, 11.5, { work_date: '2026-11-11', approval_status: 'pending' })],
     }] } }))
@@ -478,7 +478,7 @@ describe('Timecards on a desktop', () => {
         return { data: { summary_only: true, employees: [{ ...summaryRow(9, 0, { pending_count: 1, pending_overtime_count: 1 }), total_hours: 57.5, overtime_hours: 6, waiting_hours: 11.5, entries_count: 6 }] } }
       }
       return { data: { employees: [{
-        ...summaryRow(9, 0), total_hours: 57.5, overtime_hours: 6,
+        ...summaryRow(9, 0), payroll_hours: { approved_regular_hours: 51.5, approved_overtime_hours: 0, approved_hours: 51.5, time_waiting_hours: 11.5, overtime_waiting_hours: 6 }, total_hours: 57.5, overtime_hours: 6,
         days: days.map((date, index) => ({ work_date: date, entries: [reportShift(80 + index, 11.5, { work_date: date, ...(date === '2026-11-06' ? { overtime_hours: 6, overtime_status: 'pending' } : {}) })] })),
         excluded_entries: [reportShift(90, 11.5, { work_date: '2026-11-11', approval_status: 'pending' })],
       }] } }

@@ -111,7 +111,8 @@ function AdminShell() {
             <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 lg:inline-flex">
               {`${workspaceLabel} workspace`}
             </div>
-            <Link to="/" className="inline-flex min-h-11 items-center text-sm text-slate-500 hover:text-slate-900">View site</Link>
+            {/* Employees have no use for the marketing site from here. */}
+            {capabilities.manage_team_time && <Link to="/" className="inline-flex min-h-11 items-center text-sm text-slate-500 hover:text-slate-900">View site</Link>}
             {isClerkEnabled && (
               <SignedIn>
                 <AccountButton />

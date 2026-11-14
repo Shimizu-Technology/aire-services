@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { Link, MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '../../lib/api'
@@ -6,6 +13,7 @@ import { myTimeApi } from '../../lib/api/myTime'
 import { categories, shift } from '../../test/employeeFixtures'
 import { HoursSummary } from '../../components/myhours/HoursSummary'
 import MyHours from './MyHours'
+import { ToastProvider } from '../../components/ui'
 
 vi.mock('../../contexts/AuthContext', () => ({
   useAuthContext: () => ({ currentUser: { id: 5 } }),
@@ -36,9 +44,23 @@ afterEach(() => {
 const open = () =>
   render(
     <MemoryRouter initialEntries={['/admin/my-hours?period=2026-11-01']}>
-      <MyHours />
+      <ToastProvider>
+        <MyHours />
+      </ToastProvider>
     </MemoryRouter>,
   )
+// Added time starts blank: the day first, then the times.
+const fillAddedTime = (date = '2026-11-13') => {
+  fireEvent.change(screen.getByLabelText(/Which day\?/), {
+    target: { value: date },
+  })
+  fireEvent.change(screen.getByLabelText(/^Clock in/), {
+    target: { value: '08:00' },
+  })
+  fireEvent.change(screen.getByLabelText(/^Clock out/), {
+    target: { value: '17:00' },
+  })
+}
 
 it('shows one approval pill for unknown payroll, keeping overtime on the shift', async () => {
   vi.mocked(myTimeApi.entries).mockResolvedValue({
@@ -112,7 +134,7 @@ it('Ask for a fix sends the existing employee edit and its reason', async () => 
       'Phone died before I stopped.',
     ),
   )
-  expect(await screen.findByText(/Your time was saved/)).toBeInTheDocument()
+  expect(await screen.findByText('Your fix was sent for approval.')).toBeInTheDocument()
   expect(myTimeApi.entry).toHaveBeenCalledWith(41)
   expect(vi.mocked(myTimeApi.entry).mock.invocationCallOrder[0]).toBeLessThan(
     update.mock.invocationCallOrder[0],
@@ -229,6 +251,7 @@ it('adds forgotten time for the viewer without accepting another user id', async
   expect(
     screen.queryByRole('combobox', { name: 'Who worked' }),
   ).not.toBeInTheDocument()
+  fillAddedTime()
   fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
   await waitFor(() => expect(create).toHaveBeenCalled())
   expect(create.mock.calls[0][0]).not.toHaveProperty('user_id')
@@ -242,6 +265,7 @@ it('holds a forgotten-time form after an uncertain save', async () => {
   fireEvent.click(
     await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
   )
+  fillAddedTime()
   fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
   expect(await screen.findByRole('alert')).toHaveTextContent('check My Hours')
   expect(
@@ -297,6 +321,7 @@ it('retries failed work types inside a forgotten-time sheet', async () => {
     screen.queryByText('Ask Chels to set up your work types.'),
   ).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  fillAddedTime()
   await screen.findByRole('option', { name: 'Ground School' })
   fireEvent.change(screen.getByLabelText(/Work/), { target: { value: '2' } })
   expect(
@@ -315,7 +340,9 @@ it('refreshes the current period when an older period’s save finishes after na
   render(
     <MemoryRouter initialEntries={['/admin/my-hours?period=2026-11-01']}>
       <Link to="/admin/my-hours?period=2026-10-16">Earlier period</Link>
-      <MyHours />
+      <ToastProvider>
+        <MyHours />
+      </ToastProvider>
     </MemoryRouter>,
   )
   fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
@@ -354,4 +381,129 @@ it('asks for an actual correction before sending an empty employee edit', async 
     'Change a time, break or work type',
   )
   expect(update).not.toHaveBeenCalled()
+})
+
+it('asks which day first and never prefills added time', async () => {
+  const create = vi.spyOn(api, 'createTimeEntry')
+  open()
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
+  )
+  const sheet = screen.getByRole('dialog', {
+    name: 'Add time I forgot to clock',
+  })
+  expect(within(sheet).getByLabelText(/Which day\?/)).toHaveValue('')
+  expect(within(sheet).queryByLabelText(/^Clock in/)).toBeNull()
+  fireEvent.change(within(sheet).getByLabelText(/Which day\?/), {
+    target: { value: '2026-11-13' },
+  })
+  expect(within(sheet).getByLabelText(/^Clock in/)).toHaveValue('')
+  expect(within(sheet).getByLabelText(/^Clock out/)).toHaveValue('')
+  fireEvent.click(
+    within(sheet).getByRole('button', { name: 'Add time for approval' }),
+  )
+  expect(within(sheet).getByRole('alert')).toHaveTextContent(
+    'Pick the day, then the times you worked.',
+  )
+  expect(create).not.toHaveBeenCalled()
+})
+
+it('shows the overlap refusal in the form, keeping what was typed', async () => {
+  const overlap =
+    'This overlaps your 7:00 AM–1:20 PM shift on Sat, Nov 14. Change the times or pick another day.'
+  vi.spyOn(api, 'createTimeEntry').mockResolvedValue({
+    error: overlap,
+    status: 422,
+  })
+  open()
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
+  )
+  fillAddedTime('2026-11-14')
+  fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
+  const sheet = screen.getByRole('dialog', {
+    name: 'Add time I forgot to clock',
+  })
+  expect(await within(sheet).findByRole('alert')).toHaveTextContent(overlap)
+  expect(within(sheet).getByLabelText(/^Clock in/)).toHaveValue('08:00')
+  expect(
+    within(sheet).getByRole('button', { name: /Add 9.0h for approval/ }),
+  ).toBeEnabled()
+})
+
+it('puts Add time right under the summary and confirms a save with a toast', async () => {
+  vi.spyOn(api, 'createTimeEntry').mockResolvedValue({
+    data: { time_entry: shift({ entry_method: 'manual' }) },
+    status: 201,
+  })
+  open()
+  const add = await screen.findByRole('button', {
+    name: 'Add time I forgot to clock',
+  })
+  const summary = screen.getByRole('region', { name: 'Pay period summary' })
+  const firstShift = screen.getByRole('button', { name: /8:00 AM/ })
+  expect(summary.nextElementSibling).toBe(add)
+  expect(
+    add.compareDocumentPosition(firstShift) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  fireEvent.click(add)
+  fillAddedTime()
+  fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
+  expect(
+    await screen.findByText('Your time was added and sent for approval.'),
+  ).toBeVisible()
+})
+
+it('labels a shift with a pending fix request', async () => {
+  vi.mocked(myTimeApi.entries).mockResolvedValue({
+    data: [
+      shift({
+        approval_reasons: [{ key: 'employee_edited', label: 'Employee edited' }],
+      }),
+    ],
+  })
+  open()
+  expect(
+    await screen.findByRole('button', { name: /8:00 AM/ }),
+  ).toHaveTextContent('Fix requested — waiting for approval')
+})
+
+it('lets you remove time you added while it is still waiting', async () => {
+  const added = shift({
+    id: 77,
+    entry_method: 'manual',
+    clock_source: null,
+    clock_in_at: null,
+    clock_out_at: null,
+  })
+  vi.mocked(myTimeApi.entries).mockResolvedValue({ data: [added] })
+  const removeShift = vi
+    .spyOn(myTimeApi, 'removeShift')
+    .mockResolvedValue({ data: null })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Remove this shift' }))
+  const confirm = screen.getByRole('alertdialog', { name: 'Remove this shift?' })
+  expect(confirm).toHaveTextContent(
+    "Your 8:00 AM–11:00 AM shift on Sat, Nov 14 will be deleted. It hasn't been approved, so nothing else changes.",
+  )
+  vi.mocked(myTimeApi.entries).mockResolvedValue({ data: [] })
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Remove shift' }))
+  expect(
+    await screen.findByText('Removed your Sat, Nov 14 shift.'),
+  ).toBeVisible()
+  expect(removeShift).toHaveBeenCalledWith(77)
+  expect(await screen.findByText('No time recorded this pay period.')).toBeVisible()
+})
+
+it.each([
+  ['a clocked shift', shift()],
+  ['approved added time', shift({ entry_method: 'manual', approval_status: 'approved' })],
+  ['time a manager added', shift({ entry_method: 'manual', admin_override: true })],
+])('offers no Remove for %s', async (_label, entry) => {
+  vi.mocked(myTimeApi.entries).mockResolvedValue({ data: [entry] })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  expect(screen.getByRole('button', { name: 'Ask for a fix' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Remove this shift' })).toBeNull()
 })

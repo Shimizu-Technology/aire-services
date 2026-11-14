@@ -12,9 +12,11 @@ import guideFixture from '../../test/fixtures/access-guide.json'
 
 const fixture = guideFixture as unknown as AccessGuideResponse
 
-const apiMock = vi.hoisted(() => ({ getAccessGuide: vi.fn() }))
+const apiMock = vi.hoisted(() => ({ getAccessGuide: vi.fn(), getUsers: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: apiMock }))
-const authMock = vi.hoisted(() => ({ value: { isClerkEnabled: true, userRole: 'admin' as string | null } }))
+const authMock = vi.hoisted(() => ({
+  value: { isClerkEnabled: true, userRole: 'admin' as string | null, currentUser: null as null | { id: number; my_pay_enabled?: boolean } },
+}))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => authMock.value }))
 
 function guideAs(role: string, overrides: Partial<AccessGuideResponse> = {}): AccessGuideResponse {
@@ -65,7 +67,10 @@ function matrixFromTable() {
 describe('Roles & access', () => {
   beforeEach(() => {
     apiMock.getAccessGuide.mockReset()
+    apiMock.getUsers.mockReset()
+    apiMock.getUsers.mockResolvedValue({ data: { users: [] } })
     authMock.value.userRole = 'admin'
+    authMock.value.currentUser = null
   })
 
   it('titles the page for the signed-in role while it loads', () => {
@@ -157,11 +162,38 @@ describe('Roles & access', () => {
     expect(within(note).queryByRole('link')).toBeNull()
   })
 
-  it('gives employees the same view, starting with their role', async () => {
-    expect(await renderAs('employee')).toHaveTextContent('What can I do?')
-    expect(screen.getByText(/You're an Employee/)).toBeInTheDocument()
-    expect(screen.getAllByRole('article')[0]).toHaveAccessibleName(/^Employee/)
-    expect(screen.getByRole('region', { name: 'Everyone who signs in can' })).toHaveTextContent('Request leave')
+  it('gives employees a short help page, naming their department managers', async () => {
+    authMock.value.userRole = 'employee'
+    authMock.value.currentUser = { id: 5, my_pay_enabled: true }
+    apiMock.getUsers.mockResolvedValue({
+      data: {
+        users: [
+          { id: 5, role: 'employee', is_active: true, first_name: 'Ethan', full_name: 'Ethan Cruz', approval_group_keys: ['cfi'] },
+          { id: 7, role: 'manager', is_active: true, first_name: 'Roke', full_name: 'Roke Aguon', approval_group_keys: ['cfi'] },
+          { id: 8, role: 'manager', is_active: true, first_name: 'Mindy', full_name: 'Mindy Diaz', approval_group_keys: ['cfi', 'ops'] },
+          { id: 9, role: 'manager', is_active: true, first_name: 'Caleb', full_name: 'Caleb Ops', approval_group_keys: ['ops'] },
+        ],
+      },
+    })
+    render(<RolesAccess />, { wrapper: MemoryRouter })
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('What can I do?')
+    expect(await screen.findByText('Ask Roke or Mindy.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Clock' })).toHaveAttribute('href', '/admin/my-time')
+    expect(screen.getByRole('heading', { name: 'Fix a shift' }).parentElement).toHaveTextContent('Go to Hours, tap the shift, then Ask for a fix.')
+    expect(screen.getByRole('link', { name: 'Hours' })).toHaveAttribute('href', '/admin/my-hours')
+    expect(screen.getByRole('link', { name: 'Leave' })).toHaveAttribute('href', '/admin/leave')
+    expect(screen.getByRole('link', { name: 'My Pay' })).toHaveAttribute('href', '/admin/pay')
+    expect(screen.queryByRole('table')).toBeNull()
+    expect(screen.queryByText(/Can't/)).toBeNull()
+    expect(apiMock.getAccessGuide).not.toHaveBeenCalled()
+  })
+
+  it('leaves My Pay out of the help page while it is off, and falls back to "your manager"', async () => {
+    authMock.value.userRole = 'employee'
+    authMock.value.currentUser = { id: 5, my_pay_enabled: false }
+    render(<RolesAccess />, { wrapper: MemoryRouter })
+    expect(await screen.findByText('Ask your manager.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'My Pay' })).toBeNull()
   })
 
   it('lists the rules that always apply', async () => {

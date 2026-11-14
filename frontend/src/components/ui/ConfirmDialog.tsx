@@ -15,6 +15,7 @@ export interface ConfirmDialogProps {
   details?: ReactNode
   /** A verb for the action, e.g. "Delete shift" or "Approve 12 entries". */
   confirmLabel: string
+  confirmDisabled?: boolean
   cancelLabel?: string
   /** `danger` uses a red action and focuses Cancel first. */
   tone?: 'default' | 'danger'
@@ -37,6 +38,7 @@ function OpenConfirmDialog({
   details,
   confirmLabel,
   cancelLabel = 'Cancel',
+  confirmDisabled = false,
   tone = 'default',
   busy = false,
   requireText,
@@ -63,7 +65,7 @@ function OpenConfirmDialog({
         aria-labelledby={`${ids}-title`}
         aria-describedby={description || details ? `${ids}-body` : undefined}
         tabIndex={-1}
-        className="w-full max-w-md rounded-card bg-surface p-5 shadow-2xl transition duration-200 ease-out-strong starting:translate-y-2 starting:scale-[0.98] starting:opacity-0 motion-reduce:transform-none sm:p-6"
+        className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-card bg-surface p-5 shadow-2xl transition duration-200 ease-out-strong starting:translate-y-2 starting:scale-[0.98] starting:opacity-0 motion-reduce:transform-none sm:p-6"
       >
         <div className="flex gap-3">
           {danger && (
@@ -108,7 +110,7 @@ function OpenConfirmDialog({
             variant={danger ? 'danger' : 'primary'}
             onClick={onConfirm}
             loading={busy}
-            disabled={blocked}
+            disabled={blocked || confirmDisabled}
             className="w-full sm:w-auto"
           >
             {confirmLabel}

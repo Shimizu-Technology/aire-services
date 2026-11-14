@@ -133,7 +133,7 @@ export function DayRow({ date, today, items, categories, readOnly = false, block
                 <span className="text-right text-body-sm font-semibold tabular-nums text-ink [grid-area:hours]">{entry.status === 'completed' ? formatHours(item.hours) : ''}</span>
                 <span className="text-body-sm text-ink-muted [grid-area:detail]">{detail}</span>
                 <span className="flex flex-wrap gap-1 [grid-area:pills] sm:justify-end">
-                  {entry.overtime_status === 'pending' && <StatusPill tone="waiting">OT waiting</StatusPill>}
+                  {entry.overtime_status === 'pending' && <StatusPill tone="waiting">Overtime waiting</StatusPill>}
                   <StatusPill tone={status.tone}>{status.label}</StatusPill>
                 </span>
               </span>

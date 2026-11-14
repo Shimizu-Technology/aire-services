@@ -109,7 +109,7 @@ RSpec.describe "AIRE kiosk", type: :request do
 
   it "allows admins to reset a kiosk PIN" do
     post "/api/v1/admin/users/#{employee.id}/reset_kiosk_pin",
-         params: { pin: "731249" },
+         params: { pin: "731249", admin_edit_version: employee.reload.admin_edit_version },
          headers: { "Authorization" => "Bearer test_token_#{admin.id}" }
 
     expect(response).to have_http_status(:ok)

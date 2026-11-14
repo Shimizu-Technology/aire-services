@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CalendarClock, KeyRound, Send, Wallet } from 'lucide-react'
-import { AccessSummary } from '../../components/person/AccessSummary'
-import { EmploymentSummary } from '../../components/person/EmploymentSummary'
+import { AccessTab } from '../../components/person/AccessTab'
+import { EmploymentTab } from '../../components/person/EmploymentTab'
 import { OverviewTab } from '../../components/person/OverviewTab'
 import { PayTab } from '../../components/person/PayTab'
 import { PersonHeader } from '../../components/person/PersonHeader'
@@ -11,7 +11,7 @@ import { TimeTab } from '../../components/person/TimeTab'
 import { personName } from '../../components/person/personFormat'
 import { dataOrThrow, useLoadable } from '../../components/person/useLoadable'
 import SendPayStubDialog from '../../components/pay-stubs/SendPayStubDialog'
-import { EmptyState, ErrorState, Tabs, buttonClasses, useConfirm, useToast, type MenuItem } from '../../components/ui'
+import { EmptyState, ErrorState, Sheet, Button, Tabs, buttonClasses, useConfirm, useToast, type MenuItem } from '../../components/ui'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { api, type AdminUser } from '../../lib/api'
@@ -54,6 +54,7 @@ export default function Person() {
   const [focusActivity] = useState(() => searchParams.get('tab') === 'activity' || location.hash === '#activity')
   const [retry, setRetry] = useState(0)
   const [myPayRetry, setMyPayRetry] = useState(0)
+  const [generatedPin, setGeneratedPin] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [resettingPin, setResettingPin] = useState(false)
   const personKey = userId ? `${userId}:${retry}` : null
@@ -142,9 +143,8 @@ export default function Person() {
   const ended = user.employment_status === 'terminated'
   const canChangeAccess = user.can_change_access !== false
   const previewHref = capabilities.preview_pay && currentUser?.my_pay_preview_enabled ? `/admin/pay-preview/${user.id}` : null
-  const canResetPin = user.time_tracking_enabled && Boolean(user.kiosk_enabled) && canChangeAccess && !ended
+  const canResetPin = user.time_tracking_enabled && Boolean(user.kiosk_enabled) && canChangeAccess && !ended && user.is_active
   const sendStub = capabilities.send_pay_statements ? () => setSending(true) : undefined
-  const editHref = `/admin/users?${new URLSearchParams({ edit_user_id: String(user.id), return_to: currentPath })}`
   const activityHref = `/admin/activity?${new URLSearchParams({ subject_type: 'User', subject_id: String(user.id), return_to: currentPath })}`
   const tabHref = (tab: PersonTab, extra: Record<string, string> = {}) => {
     const next = new URLSearchParams({ tab, ...extra })
@@ -185,7 +185,7 @@ export default function Person() {
     <div className="space-y-5">
       <PersonHeader
         user={user}
-        myPayOn={user.my_pay_enabled || myPayForEveryone ? true : myPayForEveryone === null && canManageMyPay ? null : false}
+        myPayOn={!user.is_active ? false : user.my_pay_enabled || myPayForEveryone ? true : myPayForEveryone === null && canManageMyPay ? null : false}
         backTo={returnTo}
         backLabel={backLabel}
         onSendStub={sendStub}
@@ -217,9 +217,10 @@ export default function Person() {
           }
           if (tab === 'access') {
             return (
-              <AccessSummary
+              <AccessTab
+                key={`${user.id}:access`}
                 user={user}
-                editHref={editHref}
+                onSaved={(next, pin) => { if (personKey) setLatest({ key: personKey, user: next }); if (pin) setGeneratedPin(pin) }}
                 myPayForEveryone={myPayForEveryone}
                 myPayError={myPayError}
                 onResetPin={canResetPin ? () => setResettingPin(true) : undefined}
@@ -227,7 +228,7 @@ export default function Person() {
               />
             )
           }
-          if (tab === 'employment') return <EmploymentSummary user={user} editHref={editHref} />
+          if (tab === 'employment') return <EmploymentTab key={`${user.id}:employment`} user={user} onSaved={(next, pin) => { if (personKey) setLatest({ key: personKey, user: next }); if (pin) setGeneratedPin(pin) }} />
           return (
             <OverviewTab
               user={user}
@@ -253,10 +254,14 @@ export default function Person() {
       <ResetPinSheet
         open={resettingPin}
         userId={user.id}
+        version={user.admin_edit_version ?? 0}
         name={name}
         onClose={() => setResettingPin(false)}
         onReset={refreshUser}
       />
+      <Sheet open={Boolean(generatedPin)} title="New kiosk PIN" onClose={() => setGeneratedPin(null)} footer={<Button onClick={() => setGeneratedPin(null)}>Done</Button>}>
+        <p className="text-body-sm">Share this PIN privately. It is shown only once.</p><p className="mt-3 font-mono text-title tracking-widest">{generatedPin}</p>
+      </Sheet>
       {confirmDialog}
     </div>
   )

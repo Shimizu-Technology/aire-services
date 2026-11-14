@@ -85,6 +85,7 @@ class User < ApplicationRecord
   validates :public_team_photo_position_x, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
   validates :public_team_photo_position_y, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }
   validates :role, inclusion: { in: ROLES }
+  validates :public_team_bio, length: { maximum: 5_000 }, allow_blank: true
   validates :termination_reason, length: { maximum: 1_000 }, allow_blank: true
   validate :approval_group_must_be_configured
   validate :public_team_profile_is_complete
@@ -483,7 +484,7 @@ class User < ApplicationRecord
   end
 
   def admins_require_personal_access
-    return unless supervisor?
+    return unless supervisor? && !terminated?
     return if personal_access_enabled?
 
     errors.add(:personal_access_enabled, "must be enabled for #{role.pluralize}")

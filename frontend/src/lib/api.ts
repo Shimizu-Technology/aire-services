@@ -622,6 +622,7 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
+  payroll_hours_by_date?: Array<PayrollApprovalHours & { work_date: string }> | null;
   payroll_cutoff_missed?: boolean;
   payroll_status?: EmployeePayrollStatus | null;
   version?: number;
@@ -940,7 +941,17 @@ export interface PendingApprovalsResponse {
   sort?: { field: string; direction: 'asc' | 'desc' };
 }
 
+/** The lock's approval gate, calculated by Payroll::ApprovalHours on the API. */
+export interface PayrollApprovalHours {
+  approved_regular_hours: number;
+  approved_overtime_hours: number;
+  approved_hours: number;
+  time_waiting_hours: number;
+  overtime_waiting_hours: number;
+}
+
 export interface HoursReportEntry {
+  payroll_hours?: PayrollApprovalHours;
   id: number;
   version?: number;
   work_date: string;
@@ -1113,6 +1124,9 @@ export interface HoursReportWeek {
 }
 
 export interface HoursReportEmployee {
+  worked_hours?: number;
+  payroll_hours?: PayrollApprovalHours;
+  approval_complete?: boolean;
   id: number;
   email: string | null;
   first_name: string | null;
@@ -1180,6 +1194,8 @@ export interface HoursReportResponse {
   quality: HoursReportQuality;
   filters: HoursReportFilters;
   summary: {
+    worked_hours?: number;
+    payroll_hours?: PayrollApprovalHours;
     employee_count: number;
     total_hours: number;
     regular_hours: number;
@@ -2272,3 +2288,13 @@ export const api = {
   getScheduleTimePresets: () =>
     fetchApi<ScheduleTimePresetsResponse>('/api/v1/schedule_time_presets'),
 };
+
+// Person-edit fields introduced after the Team/person shell.
+export interface AdminUser {
+  admin_edit_version?: number;
+  public_team_bio?: string | null;
+}
+
+export interface PublicTeamMember {
+  bio?: string | null;
+}

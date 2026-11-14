@@ -6,15 +6,15 @@ import { allItems } from '../../test/fixtures/today'
 import { ToastProvider } from '../ui'
 import { AttentionList } from './AttentionList'
 
-const apiMock = vi.hoisted(() => ({ resetKioskPin: vi.fn() }))
-vi.mock('../../lib/api', () => ({ api: apiMock }))
+const apiMock = vi.hoisted(() => ({ resetPin: vi.fn(), person: vi.fn() }))
+vi.mock('../../lib/api/people', () => ({ peopleApi: apiMock }))
 
 function renderList(items = allItems, onChanged = vi.fn()) {
   render(<MemoryRouter><ToastProvider><AttentionList items={items} onChanged={onChanged} /></ToastProvider></MemoryRouter>)
   return { onChanged }
 }
 
-beforeEach(() => apiMock.resetKioskPin.mockReset())
+beforeEach(() => { apiMock.resetPin.mockReset(); apiMock.person.mockResolvedValue({ data: { user: { admin_edit_version: 3 } } }) })
 
 describe('AttentionList', () => {
   it('lists the rows in the order the API sends them, one sentence each', () => {
@@ -111,12 +111,12 @@ describe('AttentionList', () => {
     const answer = (name: string) => act(async () => { fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name })) })
 
     it('asks first, and resets nothing until it is confirmed', async () => {
-      apiMock.resetKioskPin.mockResolvedValue({ data: { kiosk_pin: '482913' } })
+      apiMock.resetPin.mockResolvedValue({ data: { kiosk_pin: '482913' } })
       renderList(pinItem)
       await clickReset()
       const dialog = screen.getByRole('alertdialog', { name: "Reset Kai Blas's kiosk PIN?" })
       expect(dialog).toHaveTextContent('Their old PIN stops working right away.')
-      expect(apiMock.resetKioskPin).not.toHaveBeenCalled()
+      expect(apiMock.resetPin).not.toHaveBeenCalled()
       expect(within(dialog).getByRole('button', { name: 'Reset PIN' })).toBeInTheDocument()
     })
 
@@ -124,7 +124,7 @@ describe('AttentionList', () => {
       const { onChanged } = renderList(pinItem)
       await clickReset()
       await answer('Cancel')
-      expect(apiMock.resetKioskPin).not.toHaveBeenCalled()
+      expect(apiMock.resetPin).not.toHaveBeenCalled()
       expect(onChanged).not.toHaveBeenCalled()
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -132,11 +132,11 @@ describe('AttentionList', () => {
     })
 
     it('resets after confirming, shows the new PIN once and asks the page to reload', async () => {
-      apiMock.resetKioskPin.mockResolvedValue({ data: { kiosk_pin: '482913' } })
+      apiMock.resetPin.mockResolvedValue({ data: { kiosk_pin: '482913' } })
       const { onChanged } = renderList(pinItem)
       await clickReset()
       await answer('Reset PIN')
-      expect(apiMock.resetKioskPin).toHaveBeenCalledWith(11)
+      expect(apiMock.resetPin).toHaveBeenCalledWith(11, 3)
       expect(onChanged).toHaveBeenCalledTimes(1)
       const sheet = screen.getByRole('dialog', { name: 'New kiosk PIN for Kai Blas' })
       expect(sheet).toHaveTextContent('482913')
@@ -146,7 +146,7 @@ describe('AttentionList', () => {
     })
 
     it('keeps the row and says why when the reset is refused', async () => {
-      apiMock.resetKioskPin.mockResolvedValue({ error: 'Clock this person out before changing their kiosk access', status: 422 })
+      apiMock.resetPin.mockResolvedValue({ error: 'Clock this person out before changing their kiosk access', status: 422 })
       const { onChanged } = renderList(pinItem)
       await clickReset()
       await answer('Reset PIN')
