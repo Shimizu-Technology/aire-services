@@ -4,6 +4,7 @@ import { SignedIn } from '@clerk/clerk-react'
 import { PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { api } from '../../lib/api'
+import { rememberedDepartment } from '../../lib/approvalsFilters'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
@@ -26,7 +27,7 @@ const desktopSidebarStorageKey = 'aire-admin-sidebar-collapsed'
 const APPROVAL_BADGE_REFRESH_MS = 60_000
 
 /** Items waiting on the signed-in supervisor, for the Approvals badge. Refreshed on navigation and every minute. */
-function usePendingApprovalCount(enabled: boolean) {
+function usePendingApprovalCount(enabled: boolean, department: string) {
   const [count, setCount] = useState(0)
   const location = useLocation()
 
@@ -34,13 +35,13 @@ function usePendingApprovalCount(enabled: boolean) {
     if (!enabled) return
     let active = true
     const load = async () => {
-      const response = await api.getPendingApprovals({ page: 1, per_page: 1 })
+      const response = await api.getPendingApprovals({ page: 1, per_page: 1, ...(department !== 'all' ? { approval_group: department } : {}) })
       if (active && response.data) setCount(response.data.summary?.entry_count ?? 0)
     }
     void load().catch(() => undefined)
     const stop = startVisibilityAwarePolling(load, APPROVAL_BADGE_REFRESH_MS)
     return () => { active = false; stop() }
-  }, [enabled, location.pathname])
+  }, [enabled, location.pathname, department])
 
   return enabled ? count : 0
 }
@@ -76,7 +77,8 @@ function AdminShell() {
   }), [capabilities, currentUser, isClerkEnabled])
   const groups = useMemo(() => navigationGroups(navigationOptions), [navigationOptions])
   const tabBar = useMemo(() => tabBarLayout(navigationOptions), [navigationOptions])
-  const backgroundApprovalCount = usePendingApprovalCount(capabilities.approve_time)
+  const badgeDepartment = rememberedDepartment(currentUser?.id, isAdmin ? 'all' : currentUser?.approval_group || 'all')
+  const backgroundApprovalCount = usePendingApprovalCount(capabilities.approve_time, badgeDepartment)
   const { approvalCount: scopedApprovalCount } = useShellChrome()
   const approvalCount = scopedApprovalCount ?? backgroundApprovalCount
   const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)

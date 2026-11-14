@@ -9,7 +9,11 @@ import { ToastProvider } from '../../components/ui'
 import Approvals from './Approvals'
 import { reviewEntry } from '../../test/approvalFixtures'
 const auth = vi.hoisted(() => ({
-  currentUser: { id: 10, approval_group: 'cfi', time_tracking_enabled: true },
+  currentUser: {
+    id: 10,
+    approval_group: 'cfi' as string | null,
+    time_tracking_enabled: true,
+  },
   isClerkEnabled: true,
   userRole: 'manager',
 }))
@@ -74,6 +78,7 @@ const renderInbox = (url = '/admin/approvals') =>
 beforeEach(() => {
   vi.clearAllMocks()
   auth.userRole = 'manager'
+  auth.currentUser.approval_group = 'cfi'
   vi.mocked(payStubsApi.requests).mockResolvedValue({ requests: [], open_count: 0 })
   localStorage.clear()
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
@@ -454,6 +459,7 @@ it('keeps zero-hour pending overtime out of every ordinary approval payload', as
 })
 
 it('defaults to the manager department, follows its clock banners, and shows the configured hour limit', async () => {
+  auth.currentUser.approval_group = null
   const { data } = response()
   vi.mocked(approvalsApi.pending).mockResolvedValue({
     data: {
@@ -468,7 +474,11 @@ it('defaults to the manager department, follows its clock banners, and shows the
   })
   vi.mocked(api.getUsers).mockResolvedValue({
     data: {
-      users: [person(1, 'cfi'), person(2, 'ops')] as import('../../lib/api').UserSummary[],
+      users: [
+        person(1, 'cfi'),
+        person(2, 'ops'),
+        person(10, 'cfi'),
+      ] as import('../../lib/api').UserSummary[],
       approval_groups: [
         { key: 'cfi', label: 'CFI' },
         { key: 'ops', label: 'Ops/Maint' },

@@ -545,3 +545,12 @@ it('uses the inbox scoped count for both shell badges and provides a skip target
   expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveAttribute('href', '#admin-content')
   expect(document.getElementById('admin-content')).toHaveAttribute('tabindex', '-1')
 })
+
+it('keeps the last inbox department on the badge after opening own Leave', async () => {
+  signIn('manager')
+  localStorage.setItem('aire.approvals.department.9', 'cfi')
+  renderLayout('/admin/leave?mine=1')
+  await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith({
+    page: 1, per_page: 1, approval_group: 'cfi',
+  }))
+})

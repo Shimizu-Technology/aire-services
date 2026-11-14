@@ -110,12 +110,6 @@ function ApprovalsInbox() {
   }, [])
   const online = useOnlineStatus()
   const [query, setQuery] = useSearchParams()
-  const requestedDepartment =
-    query.get('dept') ||
-    rememberedDepartment(
-      currentUser?.id,
-      capabilities.manage_settings ? 'all' : currentUser?.approval_group || 'all',
-    )
   const groupBy = query.get('group') === 'day' ? 'day' : 'person'
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [review, setReview] = useState<ReviewEntry | null>(null)
@@ -129,6 +123,15 @@ function ApprovalsInbox() {
   const [groups, setGroups] = useState<ApprovalGroupOption[]>([])
   const [peopleLoading, setPeopleLoading] = useState(true)
   const [peopleError, setPeopleError] = useState('')
+  const viewerDepartment =
+    people.find((person) => person.id === currentUser?.id)?.approval_group_keys?.[0] ??
+    currentUser?.approval_group
+  const requestedDepartment =
+    query.get('dept') ||
+    rememberedDepartment(
+      currentUser?.id,
+      capabilities.manage_settings ? 'all' : viewerDepartment || 'all',
+    )
   const department =
     !peopleLoading &&
     !peopleError &&
@@ -267,9 +270,8 @@ function ApprovalsInbox() {
     }
   }, [loadExtras, loadPeople])
   useEffect(() => {
-    if (!peopleLoading && !peopleError && department !== requestedDepartment)
-      rememberDepartment(currentUser?.id, 'all')
-  }, [peopleLoading, peopleError, department, requestedDepartment, currentUser?.id])
+    if (!peopleLoading && !peopleError) rememberDepartment(currentUser?.id, department)
+  }, [peopleLoading, peopleError, department, currentUser?.id])
 
   const changeQuery = async (next: URLSearchParams) => {
     if (changing.current || batches.busy) return
