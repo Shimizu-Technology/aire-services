@@ -33,6 +33,8 @@ vi.mock('../../lib/api/myTime', () => ({
   },
 }))
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-14T12:00:00+10:00'))
   vi.clearAllMocks()
   polling.tick = null
   localStorage.clear()
@@ -47,7 +49,10 @@ beforeEach(() => {
   })
   vi.mocked(myTimeApi.entries).mockResolvedValue({ data: [shift()] })
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
 const open = async () => {
   render(
     <MemoryRouter>

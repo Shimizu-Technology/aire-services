@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import { expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ClockStatus } from '../../lib/api'
 import { categories, clockStatus, shift } from '../../test/employeeFixtures'
 import MyTime from '../../pages/admin/MyTime'
@@ -39,6 +39,12 @@ vi.mock('@clerk/clerk-react', () => ({
   UserButton: () => null,
   useClerk: () => ({ openUserProfile: vi.fn(), signOut: vi.fn() }),
 }))
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-14T12:00:00+10:00'))
+})
+afterEach(() => vi.useRealTimers())
 
 it('keeps the employee header and tabs mounted while Clock loads, punches and reconciles', async () => {
   let finishInitial!: (value: { data: ClockStatus }) => void

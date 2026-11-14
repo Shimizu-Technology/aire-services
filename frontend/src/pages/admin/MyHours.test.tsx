@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Link, MemoryRouter } from 'react-router-dom'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
 import { categories, shift } from '../../test/employeeFixtures'
@@ -12,6 +12,8 @@ vi.mock('../../contexts/AuthContext', () => ({
 }))
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-14T12:00:00+10:00'))
   vi.restoreAllMocks()
   vi.spyOn(myTimeApi, 'entries').mockResolvedValue({ data: [shift()] })
   vi.spyOn(myTimeApi, 'categories').mockResolvedValue({
@@ -22,6 +24,11 @@ beforeEach(() => {
     data: { users: [] },
     status: 200,
   })
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 const open = () =>
   render(

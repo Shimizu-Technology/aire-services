@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api, type LeaveRequest } from '../../lib/api'
 import MyLeave from './MyLeave'
 import { todayInGuam } from '../../lib/payPeriods'
@@ -30,6 +30,8 @@ const request = {
   review_note: null,
 } as LeaveRequest
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-14T12:00:00+10:00'))
   vi.restoreAllMocks()
   vi.spyOn(api, 'getLeaveRequests').mockResolvedValue({
     data: {
@@ -43,6 +45,11 @@ beforeEach(() => {
     },
     status: 200,
   })
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 const open = () =>
   render(
