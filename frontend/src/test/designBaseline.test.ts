@@ -13,6 +13,8 @@ const SUB_12PX_TEXT = /text-\[(?:\d|1[01])(?:\.\d+)?px\]/g
 // public marketing pages). Counts can only go down; remove a file once it's 0.
 const SUB_12PX_PENDING: Record<string, number> = {
   '../components/layouts/Footer.tsx': 1,
+  // The payroll records and manual tools moved here from PayrollRuns.tsx unchanged.
+  '../components/payroll/PayrollRecords.tsx': 2,
   // 12px wraps the uppercase chips and grows every card; fix in the approvals redesign.
   '../components/time-tracking/ApprovalQueue.tsx': 5,
   // Not verified with a live clock-in; fix with the employee home polish.
@@ -23,7 +25,6 @@ const SUB_12PX_PENDING: Record<string, number> = {
   '../components/time-tracking/WeekGrid.tsx': 10,
   '../components/time-tracking/WhosWorking.tsx': 18,
   '../pages/admin/ActivityHistory.tsx': 3,
-  '../pages/admin/PayrollRuns.tsx': 2,
   '../pages/admin/TimeTracking.tsx': 17,
   '../pages/aire/AireHome.tsx': 2,
 }
@@ -35,7 +36,6 @@ const HAND_ROLLED_DIALOG = /role=(?:"dialog"|\{[^}]*["']dialog["'])/g
 const HAND_ROLLED_BOTTOM_BAR = /\bfixed\b[^"'`]*\bbottom-0\b/g
 const HAND_ROLLED_OVERLAY_PENDING: Record<string, number> = {
   '../pages/admin/ActivityHistory.tsx': 1,
-  '../pages/admin/PayrollRuns.tsx': 2,
   '../pages/admin/Schedule.tsx': 1,
   '../pages/admin/TimeTracking.tsx': 2,
   '../pages/admin/Users.tsx': 4,
