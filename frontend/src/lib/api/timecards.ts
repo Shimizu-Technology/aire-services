@@ -1,5 +1,6 @@
 import { api } from '../api'
 import type { HoursReportDay, HoursReportEmployee, HoursReportParams, HoursReportResponse, TimeEntry } from '../api'
+import { addDateDays } from '../dateUtils'
 import type { PayPeriod } from '../payPeriods'
 
 // Timecards' reads and writes. Every call goes through the shared `api`
@@ -16,6 +17,15 @@ export type TimecardSummaryResponse = Omit<HoursReportResponse, 'employees'> & {
 }
 
 type Result<T> = { data?: T; error?: string; status?: number; code?: string }
+
+/**
+ * True when a write's outcome is unknown: no answer reached us (network error,
+ * timeout) or the answer wasn't the API's own. Only a real API refusal means
+ * nothing was saved.
+ */
+export function outcomeUnknown(response: { error?: string; status?: number }) {
+  return !response.status || /^Server returned an (invalid|empty) response/.test(response.error ?? '')
+}
 
 // The API caps a page at 500 rows; a person's pay period is far smaller, and a
 // team week needs a few pages at most. Past the limit it's an error, never a
@@ -49,9 +59,12 @@ function summaryReport(period: PayPeriod, userId?: number): Promise<Result<Timec
 }
 
 export const timecardsApi = {
-  /** Every shift one person has in a pay period, newest first. */
+  /**
+   * Every shift one person has in a pay period, plus the day before it, whose
+   * overnight shifts can run into the period's first day.
+   */
   personEntries: (userId: number, period: PayPeriod) =>
-    allEntries({ user_id: userId, start_date: period.start, end_date: period.end }),
+    allEntries({ user_id: userId, start_date: addDateDays(period.start, -1), end_date: period.end }),
 
   /** Everyone's shifts for the Sunday-to-Saturday week starting `weekStart`. */
   teamWeek: (weekStart: string) => allEntries({ week: weekStart }),

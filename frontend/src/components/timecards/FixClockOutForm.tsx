@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import type { TimeEntry } from '../../lib/api'
-import { timecardsApi } from '../../lib/api/timecards'
+import { outcomeUnknown, timecardsApi } from '../../lib/api/timecards'
 import { formatDateOnly } from '../../lib/dateUtils'
 import { formatHours, guamDate, previewClockOut } from '../../lib/timecards'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
@@ -12,8 +12,10 @@ export interface FixClockOutFormProps {
   categories: Array<{ id: number; name: string }>
   onCancel: () => void
   onSaved: () => void
-  /** After a conflict: close the form and load the shift's current version. */
+  /** After a conflict or an unknown outcome: close the form and load the shift's current version. */
   onReload: () => void
+  /** Why it can't be saved right now, e.g. the work categories didn't load. */
+  blockedReason?: string | null
 }
 
 const dayLabel = (date: string) => formatDateOnly(date, { weekday: 'short', month: 'short', day: 'numeric' })
@@ -23,7 +25,7 @@ const dayLabel = (date: string) => formatDateOnly(date, { weekday: 'short', mont
  * day the API will save it (10:30 PM to 6:30 AM ends the next morning), and the
  * total shows before Save so a wrong day is visible.
  */
-export function FixClockOutForm({ entry, categories, onCancel, onSaved, onReload }: FixClockOutFormProps) {
+export function FixClockOutForm({ entry, categories, onCancel, onSaved, onReload, blockedReason = null }: FixClockOutFormProps) {
   const ids = useId()
   const online = useOnlineStatus()
   const timeRef = useRef<HTMLInputElement>(null)
@@ -35,7 +37,9 @@ export function FixClockOutForm({ entry, categories, onCancel, onSaved, onReload
   const categoryId = categoryChoice || (keepsCategory ? String(entry.time_category?.id) : assigned.length === 1 ? String(assigned[0].id) : '')
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState<{ endTime?: string; category?: string; reason?: string }>({})
-  const [failure, setFailure] = useState<{ message: string; stale: boolean } | null>(null)
+  // `needsReload`: this version of the shift can't be saved again (it changed, or
+  // a save may already have gone through), so Save waits for a fresh copy.
+  const [failure, setFailure] = useState<{ message: string; needsReload: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { timeRef.current?.focus() }, [])
@@ -58,8 +62,13 @@ export function FixClockOutForm({ entry, categories, onCancel, onSaved, onReload
     const response = await timecardsApi.fixClockOut(entry, { stopDate: preview.stopDate, endTime, timeCategoryId: Number(categoryId), reason })
     setSaving(false)
     if (response.error) {
-      const stale = response.status === 409
-      setFailure({ stale, message: stale ? 'This shift changed since you opened it. Nothing was saved.' : response.error })
+      if (outcomeUnknown(response)) {
+        setFailure({ needsReload: true, message: "We couldn't confirm the clock-out was saved. Reload this shift to check before trying again." })
+      } else if (response.status === 409) {
+        setFailure({ needsReload: true, message: 'This shift changed since you opened it. Nothing was saved.' })
+      } else {
+        setFailure({ needsReload: false, message: `${response.error} Nothing was saved.` })
+      }
       return
     }
     onSaved()
@@ -103,15 +112,24 @@ export function FixClockOutForm({ entry, categories, onCancel, onSaved, onReload
         {preview && !preview.problem ? <><span className="font-semibold text-ink">Total {formatHours(preview.hours)}.</span> </> : null}
         Goes back to Approvals as a corrected clock-out.
       </p>
+      {blockedReason && <p role="alert" className="rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-body-sm text-amber-900">{blockedReason}</p>}
       {failure && (
         <div role="alert" className="rounded-control border border-red-200 bg-danger-soft px-3 py-2 text-body-sm text-red-900">
           {failure.message}
-          {failure.stale && <Button variant="secondary" size="sm" onClick={onReload} className="mt-2 block">Reload this shift</Button>}
+          {failure.needsReload && <Button variant="secondary" size="sm" onClick={onReload} className="mt-2 block">Reload this shift</Button>}
         </div>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" loading={saving} disabled={!online} title={online ? undefined : 'Reconnect to save'}>Save clock-out</Button>
-        <Button variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
+        <Button
+          type="submit"
+          loading={saving}
+          disabled={!online || !!blockedReason || !!failure?.needsReload}
+          title={!online ? 'Reconnect to save' : blockedReason ?? (failure?.needsReload ? 'Reload this shift first' : undefined)}
+        >
+          Save clock-out
+        </Button>
+        {/* After a conflict, closing also reloads, so reopening never starts from the old version. */}
+        <Button variant="secondary" onClick={failure?.needsReload ? onReload : onCancel} disabled={saving}>Cancel</Button>
       </div>
     </form>
   )

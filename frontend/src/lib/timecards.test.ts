@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { UserSummary, WorkerStatus } from './api'
 import type { TimecardSummaryEmployee } from './api/timecards'
-import { buildPeopleRows, clockOutDate, manualShiftHours, previewClockOut, shortClock } from './timecards'
+import type { TimeEntry } from './api'
+import { buildPeopleRows, clockOutDate, entrySegments, manualShiftHours, previewClockOut, shortClock, timecardDays } from './timecards'
 
 const NOW = new Date('2026-11-12T09:00:00+10:00')
 const openClock = (clockInAt: string, overrides: Partial<Parameters<typeof previewClockOut>[0]> = {}) => ({
@@ -101,5 +102,47 @@ describe('buildPeopleRows', () => {
   it('lists everyone current without hours when the summary is unavailable', () => {
     const rows = buildPeopleRows([user(1, 'Caleb Perez'), user(2, 'Old Timer', { employment_status: 'terminated' })], null, [], '2026-11-12')
     expect(rows).toEqual([expect.objectContaining({ name: 'Caleb Perez', approvedHours: null })])
+  })
+})
+
+describe('overnight shifts across a pay period edge', () => {
+  // Approved Sat, Oct 31 10:30 PM to Sun, Nov 1 6:30 AM: 1.5h in October, 6.5h in November.
+  const overnight = {
+    id: 90, work_date: '2026-10-31', start_time: '22:30', end_time: '06:30', hours: 8, status: 'completed', breaks: [],
+    entry_method: 'clock', approval_status: 'approved', clock_in_at: '2026-10-31T22:30:00+10:00',
+  } as unknown as TimeEntry
+  const october = { start: '2026-10-16', end: '2026-10-31' }
+  const november = { start: '2026-11-01', end: '2026-11-15' }
+
+  it('splits at midnight like the hours report', () => {
+    expect(entrySegments(overnight)).toEqual([{ date: '2026-10-31', hours: 1.5 }, { date: '2026-11-01', hours: 6.5 }])
+  })
+
+  it('takes a break off the side it fell on', () => {
+    const withBreak = { ...overnight, hours: 7.5, breaks: [{ id: 1, start_time: '2026-11-01T02:00:00+10:00', end_time: '2026-11-01T02:30:00+10:00', duration_minutes: 30, active: false }] } as unknown as TimeEntry
+    expect(entrySegments(withBreak)).toEqual([{ date: '2026-10-31', hours: 1.5 }, { date: '2026-11-01', hours: 6 }])
+  })
+
+  it('shows October its 1.5h on Oct 31', () => {
+    const days = timecardDays([overnight], october)
+    expect(days.get('2026-10-31')).toEqual([{ entry: overnight, hours: 1.5, continuesFrom: null, partial: true }])
+    expect(days.has('2026-11-01')).toBe(false)
+  })
+
+  it('shows November its 6.5h on Nov 1, as a continuation of the same entry', () => {
+    const days = timecardDays([overnight], november)
+    expect(days.get('2026-11-01')).toEqual([{ entry: overnight, hours: 6.5, continuesFrom: '2026-10-31', partial: true }])
+    expect(days.has('2026-10-31')).toBe(false)
+  })
+
+  it('leaves out a day-before shift that ends by midnight', () => {
+    const dayShift = { ...overnight, id: 91, start_time: '07:00', end_time: '15:00' } as unknown as TimeEntry
+    expect(timecardDays([dayShift], november).size).toBe(0)
+  })
+
+  it('keeps an overnight shift inside the period whole, on its own day', () => {
+    const inside = { ...overnight, id: 92, work_date: '2026-11-05' } as unknown as TimeEntry
+    const days = timecardDays([inside], november)
+    expect(days.get('2026-11-05')).toEqual([{ entry: inside, hours: 8, continuesFrom: null, partial: false }])
   })
 })

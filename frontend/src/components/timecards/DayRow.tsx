@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import type { TimeEntry } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import { formatDateOnly } from '../../lib/dateUtils'
-import { formatHours, hoursSince, isOpenClock, shortClock } from '../../lib/timecards'
+import { formatHours, hoursSince, isOpenClock, shortClock, type TimecardDayItem } from '../../lib/timecards'
 import { Button, StatusPill, type StatusTone } from '../ui'
 import { FixClockOutForm } from './FixClockOutForm'
 
@@ -11,10 +11,16 @@ export interface DayRowProps {
   date: string
   /** Guam today, YYYY-MM-DD. */
   today: string
-  entries: TimeEntry[]
+  /** The day's shifts, with this period's hours of each. */
+  items: TimecardDayItem[]
   categories: Array<{ id: number; name: string }>
   /** No taps open anything and no fix is offered (a former employee). */
   readOnly?: boolean
+  /**
+   * Why shifts can't be opened or fixed right now: a fresh copy is loading
+   * after a change, or the work categories didn't load. Shown as the reason.
+   */
+  blockedReason?: string | null
   /** The entry a link pointed at; its shift is highlighted. */
   highlightedEntryId?: number | null
   /** The open clock whose inline fix is showing. */
@@ -31,11 +37,23 @@ function statusFor(entry: TimeEntry, today: string): { tone: StatusTone; label: 
   return { tone: 'approved', label: 'Approved' }
 }
 
+const shortDay = (date: string) => formatDateOnly(date, { weekday: 'short', month: 'short', day: 'numeric' })
+
+/** The secondary line: the work, and how much of an overnight shift counts in this period. */
+function detailFor({ entry, hours, continuesFrom, partial }: TimecardDayItem) {
+  if (continuesFrom) return `Continues from ${shortDay(continuesFrom)} · ${formatHours(hours)} in this period`
+  return [
+    entry.time_category?.name ?? 'No work category',
+    entry.entry_method === 'manual' && 'added',
+    partial && `${formatHours(entry.hours)} shift, ${formatHours(hours)} in this period`,
+  ].filter(Boolean).join(' · ')
+}
+
 /**
  * One day of a pay period: a thin "Day off" line, the day's shifts, or a
  * forgotten clock with its fix in place. An article labelled with its date.
  */
-export function DayRow({ date, today, entries, categories, readOnly = false, highlightedEntryId, fixingEntryId, onFix, onOpen, onSaved }: DayRowProps) {
+export function DayRow({ date, today, items, categories, readOnly = false, blockedReason = null, highlightedEntryId, fixingEntryId, onFix, onOpen, onSaved }: DayRowProps) {
   const articleRef = useRef<HTMLElement>(null)
   const weekday = formatDateOnly(date, { weekday: 'short' })
   const label = formatDateOnly(date, { weekday: 'long', month: 'long', day: 'numeric' })
@@ -47,7 +65,7 @@ export function DayRow({ date, today, entries, categories, readOnly = false, hig
     </div>
   )
 
-  if (entries.length === 0) {
+  if (items.length === 0) {
     return (
       <article ref={articleRef} aria-label={label} className="flex min-h-11 items-center gap-3 px-3.5 py-1.5 pointer-fine:min-h-10 pointer-fine:px-4">
         {dateColumn}
@@ -63,13 +81,14 @@ export function DayRow({ date, today, entries, categories, readOnly = false, hig
     requestAnimationFrame(() => articleRef.current?.focus())
   }
 
-  const fixingEntry = entries.find(entry => entry.id === fixingEntryId)
+  const fixingEntry = items.find(item => item.entry.id === fixingEntryId)?.entry
   return (
     <article ref={articleRef} tabIndex={-1} aria-label={label} className="px-3.5 py-2 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary pointer-fine:px-4">
       <div className="flex gap-3">
         <div className="pt-2.5">{dateColumn}</div>
         <div className="min-w-0 flex-1 space-y-1">
-          {entries.map((entry) => {
+          {items.map((item) => {
+            const { entry } = item
             const status = statusFor(entry, today)
             const highlighted = highlightedEntryId === entry.id
             const forgotten = isOpenClock(entry) && entry.work_date < today
@@ -87,7 +106,9 @@ export function DayRow({ date, today, entries, categories, readOnly = false, hig
                         {[entry.time_category?.name, entry.clock_in_at && `still clocked in ${formatHours(hoursSince(entry.clock_in_at))}`].filter(Boolean).join(' · ')}
                       </p>
                     </div>
-                    {!readOnly && !fixing && <Button size="sm" onClick={() => onFix(entry)}>Fix clock-out</Button>}
+                    {!readOnly && !fixing && (
+                      <Button size="sm" onClick={() => onFix(entry)} disabled={!!blockedReason} title={blockedReason ?? undefined}>Fix clock-out</Button>
+                    )}
                     {readOnly && <StatusPill tone={status.tone}>{status.label}</StatusPill>}
                   </div>
                 </div>
@@ -97,16 +118,15 @@ export function DayRow({ date, today, entries, categories, readOnly = false, hig
             const range = entry.formatted_end_time
               ? `${shortClock(entry.formatted_start_time)}–${shortClock(entry.formatted_end_time)}`
               : `${shortClock(entry.formatted_start_time)} – on the clock`
+            const detail = detailFor(item)
             const content = (
               <>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-body font-medium text-ink pointer-fine:text-body-sm">{range}</span>
-                  <span className="block truncate text-body-sm text-ink-muted">
-                    {[entry.time_category?.name ?? 'No work category', entry.entry_method === 'manual' && 'added'].filter(Boolean).join(' · ')}
-                  </span>
+                  <span className="block text-body-sm text-ink-muted">{detail}</span>
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="text-body-sm font-semibold tabular-nums text-ink">{entry.status === 'completed' ? formatHours(entry.hours) : ''}</span>
+                  <span className="text-body-sm font-semibold tabular-nums text-ink">{entry.status === 'completed' ? formatHours(item.hours) : ''}</span>
                   <span className="flex gap-1">
                     {entry.overtime_status === 'pending' && <StatusPill tone="waiting">OT waiting</StatusPill>}
                     <StatusPill tone={status.tone}>{status.label}</StatusPill>
@@ -115,16 +135,20 @@ export function DayRow({ date, today, entries, categories, readOnly = false, hig
               </>
             )
             const rowClass = cx('flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left', highlighted && 'bg-cyan-50 ring-2 ring-inset ring-cyan-400')
+            // A continuing shift keeps its own entry, so the id stays unique per day.
+            const rowId = item.continuesFrom ? `timecard-entry-${entry.id}-continued` : `timecard-entry-${entry.id}`
             return readOnly ? (
-              <div key={entry.id} id={`timecard-entry-${entry.id}`} className={rowClass}>{content}</div>
+              <div key={entry.id} id={rowId} className={rowClass}>{content}</div>
             ) : (
               <button
                 key={entry.id}
-                id={`timecard-entry-${entry.id}`}
+                id={rowId}
                 type="button"
                 onClick={() => onOpen(entry)}
-                aria-label={`${range}, ${entry.time_category?.name ?? 'no work category'}, ${entry.status === 'completed' ? formatHours(entry.hours) : 'on the clock'}, ${status.label}. Edit shift`}
-                className={cx(rowClass, 'min-h-11 hover:bg-surface-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary')}
+                disabled={!!blockedReason}
+                title={blockedReason ?? undefined}
+                aria-label={`${range}, ${detail}, ${entry.status === 'completed' ? formatHours(item.hours) : 'on the clock'}, ${status.label}. Edit shift`}
+                className={cx(rowClass, 'min-h-11 hover:bg-surface-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-70')}
               >
                 {content}
                 <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-ink-subtle" />
@@ -134,7 +158,16 @@ export function DayRow({ date, today, entries, categories, readOnly = false, hig
         </div>
       </div>
       {/* Full width under the day, so the fields have room on a phone. */}
-      {fixingEntry && !readOnly && <FixClockOutForm entry={fixingEntry} categories={categories} onCancel={() => closeFix(false)} onSaved={() => closeFix(true)} onReload={() => closeFix(true)} />}
+      {fixingEntry && !readOnly && (
+        <FixClockOutForm
+          entry={fixingEntry}
+          categories={categories}
+          blockedReason={blockedReason}
+          onCancel={() => closeFix(false)}
+          onSaved={() => closeFix(true)}
+          onReload={() => closeFix(true)}
+        />
+      )}
     </article>
   )
 }

@@ -72,6 +72,69 @@ export function previewClockOut(entry: Pick<TimeEntry, 'clock_in_at' | 'start_ti
   return { stopDate, breakMinutes, hours, problem }
 }
 
+const HOUR = 3_600_000
+const round2 = (value: number) => Math.round(value * 100) / 100
+
+/**
+ * A completed shift's paid hours by Guam day, split at midnight the way the
+ * hours report splits it (Payroll::PayableIntervals): time on each side, less
+ * the breaks on that side, scaled so the parts add up to the shift's hours.
+ */
+export function entrySegments(entry: Pick<TimeEntry, 'work_date' | 'start_time' | 'end_time' | 'hours' | 'breaks' | 'status'>): Array<{ date: string; hours: number }> {
+  const whole = [{ date: entry.work_date, hours: entry.hours }]
+  if (entry.status !== 'completed' || !entry.start_time || !entry.end_time) return whole
+  const from = guamInstant(entry.work_date, entry.start_time).getTime()
+  let to = guamInstant(entry.work_date, entry.end_time).getTime()
+  if (to <= from) to += 24 * HOUR
+  const nextDay = addDateDays(entry.work_date, 1)
+  const midnight = guamInstant(nextDay, '00:00').getTime()
+  if (to <= midnight) return whole
+  const worked = (start: number, end: number) => (end - start) - entry.breaks.reduce((sum, row) => {
+    if (!row.end_time) return sum
+    return sum + Math.max(0, Math.min(end, Date.parse(row.end_time)) - Math.max(start, Date.parse(row.start_time)))
+  }, 0)
+  const before = worked(from, midnight)
+  const after = worked(midnight, to)
+  const first = before + after > 0 ? round2(entry.hours * before / (before + after)) : 0
+  return [{ date: entry.work_date, hours: first }, { date: nextDay, hours: round2(entry.hours - first) }]
+}
+
+export interface TimecardDayItem {
+  entry: TimeEntry
+  /** This period's hours of the shift. */
+  hours: number
+  /** The shift's own date, when this is the part of an earlier shift that runs into the period. */
+  continuesFrom: string | null
+  /** The shift crosses the period's edge, so `hours` is only this period's part. */
+  partial: boolean
+}
+
+/**
+ * Each day's shifts for a pay period. A shift that started the day before the
+ * period and ran past midnight shows on the day it continues into, with only
+ * the hours that fall in this period, as the hours report counts them.
+ */
+export function timecardDays(entries: TimeEntry[], period: { start: string; end: string }) {
+  const days = new Map<string, TimecardDayItem[]>()
+  const inPeriod = (date: string) => date >= period.start && date <= period.end
+  for (const entry of entries) {
+    const segments = entrySegments(entry)
+    const here = segments.filter(segment => inPeriod(segment.date))
+    if (here.length === 0) continue
+    const date = inPeriod(entry.work_date) ? entry.work_date : here[0].date
+    const item: TimecardDayItem = {
+      entry,
+      hours: round2(here.reduce((sum, segment) => sum + segment.hours, 0)),
+      continuesFrom: date === entry.work_date ? null : entry.work_date,
+      partial: here.length < segments.length,
+    }
+    days.set(date, [...(days.get(date) ?? []), item])
+  }
+  const order = (item: TimecardDayItem) => (item.continuesFrom ? '' : item.entry.clock_in_at ?? item.entry.start_time ?? '')
+  for (const list of days.values()) list.sort((a, b) => order(a).localeCompare(order(b)) || a.entry.id - b.entry.id)
+  return days
+}
+
 /** Hours for a typed-in shift, as the API counts them. An end before the start runs past midnight. */
 export function manualShiftHours(start: string, end: string, breakMinutes: number | null) {
   if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return 0

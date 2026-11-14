@@ -22,10 +22,11 @@ beforeEach(() => {
 })
 afterEach(() => restore())
 
-function renderSheet(prefill: MissedTimePrefill) {
+function renderSheet(prefill: MissedTimePrefill, blockedReason: string | null = null) {
   const onSaved = vi.fn()
-  render(<LogMissedTimeSheet open onClose={vi.fn()} people={people} categories={categories} prefill={prefill} today="2026-11-12" onSaved={onSaved} />)
-  return { onSaved, dialog: screen.getByRole('dialog', { name: 'Log missed time' }) }
+  const onUncertain = vi.fn()
+  render(<LogMissedTimeSheet open onClose={vi.fn()} people={people} categories={categories} prefill={prefill} today="2026-11-12" onSaved={onSaved} onUncertain={onUncertain} blockedReason={blockedReason} />)
+  return { onSaved, onUncertain, dialog: screen.getByRole('dialog', { name: 'Log missed time' }) }
 }
 
 describe('LogMissedTimeSheet', () => {
@@ -81,10 +82,38 @@ describe('LogMissedTimeSheet', () => {
   })
 
   it('says nothing was saved when the API refuses', async () => {
-    apiMock.createTimeEntry.mockResolvedValue({ error: 'Choose an active work category assigned to this person' })
+    apiMock.createTimeEntry.mockResolvedValue({ error: 'Choose an active work category assigned to this person', status: 422 })
     const { onSaved } = renderSheet({ personId: 7, workDate: '2026-11-11' })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add 8.0h for Caleb' })) })
     expect(screen.getByRole('alert')).toHaveTextContent('Choose an active work category assigned to this person Nothing was saved.')
     expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('doesn’t claim nothing was saved when the answer never came back', async () => {
+    // fetchApi's network failure: an error and no HTTP status.
+    apiMock.createTimeEntry.mockResolvedValue({ error: 'Failed to fetch', errors: [] })
+    const { onSaved, onUncertain } = renderSheet({ personId: 7, workDate: '2026-11-11' })
+    fireEvent.change(screen.getByLabelText(/^Note/), { target: { value: 'Phone died' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add 8.0h for Caleb' })) })
+    expect(screen.getByRole('alert')).toHaveTextContent("We couldn't confirm this was saved. Check the timecard before adding it again.")
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Nothing was saved')
+    expect(onUncertain).toHaveBeenCalledWith(people[1])
+    expect(onSaved).not.toHaveBeenCalled()
+    // What was typed stays, so nothing has to be entered again.
+    expect(screen.getByLabelText(/^Note/)).toHaveValue('Phone died')
+    expect(screen.getByLabelText(/^Day/)).toHaveValue('2026-11-11')
+  })
+
+  it('treats an unreadable server answer as unknown too', async () => {
+    apiMock.createTimeEntry.mockResolvedValue({ error: 'Server returned an invalid response (502)', status: 502 })
+    renderSheet({ personId: 7, workDate: '2026-11-11' })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add 8.0h for Caleb' })) })
+    expect(screen.getByRole('alert')).toHaveTextContent("We couldn't confirm this was saved.")
+  })
+
+  it('can’t save while the work categories are missing, and says why', () => {
+    renderSheet({ personId: 7, workDate: '2026-11-11' }, "Work categories didn't load. Try again at the top of the page.")
+    expect(screen.getByRole('alert')).toHaveTextContent("Work categories didn't load.")
+    expect(screen.getByRole('button', { name: 'Add 8.0h for Caleb' })).toBeDisabled()
   })
 })

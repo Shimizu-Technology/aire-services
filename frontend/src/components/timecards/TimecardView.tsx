@@ -4,7 +4,8 @@ import type { TimeEntry } from '../../lib/api'
 import { timecardsApi, type TimecardSummaryEmployee } from '../../lib/api/timecards'
 import { formatDateOnly } from '../../lib/dateUtils'
 import { formatPayPeriod, payPeriodDays, todayInGuam, type PayPeriod } from '../../lib/payPeriods'
-import { formatHours, isApprovedTime, isOpenClock } from '../../lib/timecards'
+import { formatHours, isApprovedTime, isOpenClock, timecardDays } from '../../lib/timecards'
+import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from '../time-tracking/EditTimeEntryModal'
 import { Avatar, Button, EmptyState, ErrorState, PeriodStepper } from '../ui'
 import { Skeleton } from '../ui/Skeleton'
@@ -36,6 +37,12 @@ export interface TimecardViewProps {
   onChanged?: () => void
   /** Shows "Log missed time for …" under the days. */
   onLogMissedTime?: () => void
+  /** Why Log missed time can't open yet (e.g. a scheduled shift is loading). */
+  logMissedTimeBlockedReason?: string | null
+  /** Why no shift can be fixed or edited right now (e.g. work categories didn't load). */
+  blockedReason?: string | null
+  /** Hold the background refresh, e.g. while the page's Log missed time sheet is open. */
+  pauseRefresh?: boolean
   /** Beside the name, e.g. a ⋯ Menu. */
   actions?: ReactNode
   /** Above the name, e.g. a back link. */
@@ -62,18 +69,22 @@ function futureLine(days: string[]) {
  */
 export function TimecardView({
   person, period, onPeriodChange, categories, focusEntryId = null, lockAt, refreshKey = 0,
-  onChanged, onLogMissedTime, actions, backLink, today: todayProp,
+  onChanged, onLogMissedTime, logMissedTimeBlockedReason = null, blockedReason = null, pauseRefresh = false, actions, backLink, today: todayProp,
 }: TimecardViewProps) {
   const today = todayProp ?? todayInGuam()
   const readOnly = person.employmentStatus === 'terminated'
-  const [state, setState] = useState<{ key: string; entries: TimeEntry[] | null; summary: TimecardSummaryEmployee | null; error: string | null }>({ key: '', entries: null, summary: null, error: null })
+  const [state, setState] = useState<{ key: string; revision: number; entries: TimeEntry[] | null; summary: TimecardSummaryEmployee | null; summaryFailed: boolean; error: string | null }>({ key: '', revision: 0, entries: null, summary: null, summaryFailed: false, error: null })
   const [revision, setRevision] = useState(0)
+  // Background refreshes (tab return, every 60s) count up here.
+  const [tick, setTick] = useState(0)
+  // Set by a write or a reload: shifts can't be fixed or edited again until this revision arrives.
+  const [awaitRevision, setAwaitRevision] = useState(0)
   const [editing, setEditing] = useState<TimeEntry | null>(null)
   // The fix the viewer opened or closed for this link; until then a linked forgotten clock shows its fix.
   const [fixChoice, setFixChoice] = useState<{ focus: number | null; id: number | null } | null>(null)
   const scrolledTo = useRef<number | null>(null)
   const { start: periodStart, end: periodEnd } = period
-  const requestKey = `${person.id}:${periodStart}:${refreshKey}:${revision}`
+  const requestKey = `${person.id}:${periodStart}:${refreshKey}:${revision}:${tick}`
   // A refresh of the same person and period keeps the days on screen, so the
   // row the viewer was on (and its focus) stays put while the new data loads.
   const loaded = state.key === requestKey || (state.entries !== null && state.key.startsWith(`${person.id}:${periodStart}:`))
@@ -85,25 +96,35 @@ export function TimecardView({
       if (cancelled) return
       setState({
         key: requestKey,
+        revision,
         entries: entries.data ?? null,
         // The report is optional here: without it the totals come from the shifts.
         summary: summary.data?.employees.find(row => row.id === person.id) ?? null,
+        summaryFailed: !summary.data,
         error: entries.data ? null : entries.error ?? "Couldn't load the shifts.",
       })
     })
     return () => { cancelled = true }
-  }, [person.id, periodStart, periodEnd, requestKey])
+  }, [person.id, periodStart, periodEnd, requestKey, revision])
 
-  const reload = useCallback(() => setRevision(value => value + 1), [])
+  const reload = useCallback(() => {
+    const next = revision + 1
+    setRevision(next)
+    setAwaitRevision(next)
+  }, [revision])
   const afterWrite = useCallback(() => { reload(); onChanged?.() }, [onChanged, reload])
+  const loading = state.revision < awaitRevision
 
-  const entries = useMemo(() => (loaded ? state.entries : null) ?? [], [loaded, state.entries])
-  const byDay = useMemo(() => {
-    const map = new Map<string, TimeEntry[]>()
-    for (const entry of entries) map.set(entry.work_date, [...(map.get(entry.work_date) ?? []), entry])
-    for (const list of map.values()) list.sort((a, b) => (a.clock_in_at ?? a.start_time ?? '').localeCompare(b.clock_in_at ?? b.start_time ?? '') || a.id - b.id)
-    return map
-  }, [entries])
+  // Refresh on returning to the tab and every 60 seconds, but never under an
+  // open fix, shift editor or Log missed time sheet.
+  const holdRefresh = useRef(false)
+  useEffect(() => startVisibilityAwarePolling(() => { if (!holdRefresh.current) setTick(value => value + 1) }, 60_000), [])
+
+  const allEntries = useMemo(() => (loaded ? state.entries : null) ?? [], [loaded, state.entries])
+  const byDay = useMemo(() => timecardDays(allEntries, { start: periodStart, end: periodEnd }), [allEntries, periodStart, periodEnd])
+  // The shifts with time in this period (the list also holds the day before).
+  const items = useMemo(() => [...byDay.values()].flat(), [byDay])
+  const entries = useMemo(() => items.map(item => item.entry), [items])
   const forgotten = entries.filter(entry => isOpenClock(entry) && entry.work_date < today).sort((a, b) => a.work_date.localeCompare(b.work_date))
 
   // A link to a forgotten clock (Today, Who's Working) opens its fix.
@@ -111,6 +132,8 @@ export function TimecardView({
   const autoFixId = linked && !readOnly && isOpenClock(linked) && linked.work_date < today ? linked.id : null
   const fixingId = fixChoice && fixChoice.focus === focusEntryId ? fixChoice.id : autoFixId
   const setFixingId = (id: number | null) => setFixChoice({ focus: focusEntryId, id })
+  useEffect(() => { holdRefresh.current = pauseRefresh || fixingId !== null || editing !== null }, [pauseRefresh, fixingId, editing])
+  const rowsBlocked = blockedReason ?? (loading ? 'Loading the latest copy of these shifts…' : null)
 
   useEffect(() => {
     if (!linked || scrolledTo.current === linked.id) return
@@ -118,8 +141,9 @@ export function TimecardView({
     requestAnimationFrame(() => document.getElementById(`timecard-entry-${linked.id}`)?.scrollIntoView?.({ block: 'center' }))
   }, [linked])
 
-  const waitingHours = entries.filter(entry => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, entry) => sum + entry.hours, 0)
-  const approvedHours = state.summary && loaded ? state.summary.total_hours : entries.filter(isApprovedTime).reduce((sum, entry) => sum + entry.hours, 0)
+  // The same in-period hours the day rows show.
+  const waitingHours = items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
+  const approvedHours = state.summary && loaded ? state.summary.total_hours : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
   const overtimeHours = loaded ? state.summary?.overtime_hours ?? 0 : 0
   const overtimeWaiting = entries.filter(entry => entry.overtime_status === 'pending').length
 
@@ -169,7 +193,8 @@ export function TimecardView({
             <div className="px-2 py-3">
               <dt className="text-caption text-ink-muted">Overtime</dt>
               <dd className="text-title font-semibold tabular-nums text-ink">
-                {overtimeHours > 0 ? formatHours(overtimeHours) : '—'}
+                {/* Without the report, overtime is unknown, not zero. */}
+                {state.summaryFailed ? <span className="block text-body-sm font-normal text-ink-muted">Didn't load</span> : overtimeHours > 0 ? formatHours(overtimeHours) : '—'}
                 {overtimeWaiting > 0 && <span className="block text-caption font-normal text-amber-900">{overtimeWaiting} waiting</span>}
               </dd>
             </div>
@@ -188,7 +213,7 @@ export function TimecardView({
           {entries.length === 0 ? (
             <EmptyState
               title={`No time recorded for ${person.firstName} in ${periodLabel}.`}
-              action={onLogMissedTime && !readOnly ? <Button variant="secondary" icon={<Plus className="size-4" />} onClick={onLogMissedTime}>Log missed time</Button> : undefined}
+              action={onLogMissedTime && !readOnly ? <Button variant="secondary" icon={<Plus className="size-4" />} onClick={onLogMissedTime} disabled={!!logMissedTimeBlockedReason} title={logMissedTimeBlockedReason ?? undefined}>Log missed time</Button> : undefined}
             />
           ) : (
             <div className="overflow-hidden rounded-card border border-line bg-surface">
@@ -198,9 +223,10 @@ export function TimecardView({
                     <DayRow
                       date={date}
                       today={today}
-                      entries={byDay.get(date) ?? []}
+                      items={byDay.get(date) ?? []}
                       categories={categories}
                       readOnly={readOnly}
+                      blockedReason={rowsBlocked}
                       highlightedEntryId={focusEntryId}
                       fixingEntryId={fixingId}
                       onFix={(entry) => setFixingId(entry?.id ?? null)}
@@ -217,7 +243,7 @@ export function TimecardView({
           )}
 
           {onLogMissedTime && !readOnly && entries.length > 0 && (
-            <Button variant="secondary" fullWidth icon={<Plus className="size-4" />} onClick={onLogMissedTime}>
+            <Button variant="secondary" fullWidth icon={<Plus className="size-4" />} onClick={onLogMissedTime} disabled={!!logMissedTimeBlockedReason} title={logMissedTimeBlockedReason ?? undefined}>
               Log missed time for {person.firstName}
             </Button>
           )}

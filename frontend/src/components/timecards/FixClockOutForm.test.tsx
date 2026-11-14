@@ -126,4 +126,38 @@ describe('FixClockOutForm', () => {
     expect(screen.getByText(/in the future/)).toBeInTheDocument()
     expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
   })
+
+  it('after a conflict, won’t save the old version again, and Cancel reloads', async () => {
+    apiMock.updateTimeEntry.mockResolvedValue({ error: 'This entry changed. Reload it before submitting the correction', status: 409, code: 'stale_entry' })
+    const { onCancel, onReload } = renderForm()
+    fireEvent.change(screen.getByLabelText(/Clocked out/), { target: { value: '06:30' } })
+    fireEvent.change(screen.getByLabelText(/Why the change/), { target: { value: 'Forgot' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save clock-out' })) })
+    expect(screen.getByRole('button', { name: 'Save clock-out' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onReload).toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(apiMock.updateTimeEntry).toHaveBeenCalledTimes(1)
+  })
+
+  it('says it couldn’t confirm the save when the answer never came back', async () => {
+    apiMock.updateTimeEntry.mockResolvedValue({ error: 'Failed to fetch', errors: [] })
+    renderForm()
+    fireEvent.change(screen.getByLabelText(/Clocked out/), { target: { value: '06:30' } })
+    fireEvent.change(screen.getByLabelText(/Why the change/), { target: { value: 'Forgot' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save clock-out' })) })
+    expect(screen.getByRole('alert')).toHaveTextContent("We couldn't confirm the clock-out was saved. Reload this shift to check before trying again.")
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Nothing was saved')
+    expect(screen.getByRole('button', { name: 'Save clock-out' })).toBeDisabled()
+  })
+
+  it('says nothing was saved only for a real refusal', async () => {
+    apiMock.updateTimeEntry.mockResolvedValue({ error: 'Clock-out must be after clock-in', status: 422 })
+    renderForm()
+    fireEvent.change(screen.getByLabelText(/Clocked out/), { target: { value: '06:30' } })
+    fireEvent.change(screen.getByLabelText(/Why the change/), { target: { value: 'Forgot' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save clock-out' })) })
+    expect(screen.getByRole('alert')).toHaveTextContent('Clock-out must be after clock-in Nothing was saved.')
+    expect(screen.getByRole('button', { name: 'Save clock-out' })).toBeEnabled()
+  })
 })

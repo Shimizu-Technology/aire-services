@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { timecardsApi } from '../../lib/api/timecards'
+import { outcomeUnknown, timecardsApi } from '../../lib/api/timecards'
 import { formatHours, manualShiftHours } from '../../lib/timecards'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { Button, Field, Input, PersonPicker, Select, Sheet, Textarea } from '../ui'
@@ -31,6 +31,10 @@ export interface LogMissedTimeSheetProps {
   today: string
   /** After the shift is saved, with the hours it adds. */
   onSaved: (person: MissedTimePerson, hours: number) => void
+  /** When a save's outcome is unknown, so the page can reload that person's time. */
+  onUncertain?: (person: MissedTimePerson) => void
+  /** Why it can't be saved right now, e.g. the work categories didn't load. */
+  blockedReason?: string | null
 }
 
 const BREAKS = [
@@ -52,7 +56,7 @@ export function LogMissedTimeSheet(props: LogMissedTimeSheetProps) {
   return <LogMissedTimeForm {...props} />
 }
 
-function LogMissedTimeForm({ onClose, people, categories, prefill, today, onSaved }: LogMissedTimeSheetProps) {
+function LogMissedTimeForm({ onClose, people, categories, prefill, today, onSaved, onUncertain, blockedReason = null }: LogMissedTimeSheetProps) {
   const online = useOnlineStatus()
   const [personId, setPersonId] = useState<number | null>(prefill.personId && people.some(person => person.id === prefill.personId) ? prefill.personId : null)
   const person = people.find(row => row.id === personId) ?? null
@@ -64,7 +68,7 @@ function LogMissedTimeForm({ onClose, people, categories, prefill, today, onSave
   const [categoryChoice, setCategoryChoice] = useState('')
   const [note, setNote] = useState(prefill.note ?? '')
   const [errors, setErrors] = useState<{ person?: string; workDate?: string; time?: string; category?: string }>({})
-  const [failure, setFailure] = useState<string | null>(null)
+  const [failure, setFailure] = useState<{ message: string; saved: 'no' | 'unknown' } | null>(null)
   const [saving, setSaving] = useState(false)
 
   // One assigned category needs no choice; a choice that isn't assigned to this person doesn't count.
@@ -79,16 +83,26 @@ function LogMissedTimeForm({ onClose, people, categories, prefill, today, onSave
     if (!workDate) next.workDate = 'Choose the day.'
     else if (workDate > today) next.workDate = "That day hasn't happened yet."
     if (hours <= 0) next.time = 'Check the start, end and break: this shift has no hours.'
-    if (person && !categoryId) next.category = assigned.length === 0 ? `${person.firstName} has no work categories. Assign one in Team first.` : 'Choose the work.'
+    if (person && !categoryId && !blockedReason) next.category = assigned.length === 0 ? `${person.firstName} has no work categories. Assign one in Team first.` : 'Choose the work.'
     setErrors(next)
     setFailure(null)
-    if (Object.keys(next).length > 0 || !person) return
+    if (Object.keys(next).length > 0 || !person || blockedReason) return
     setSaving(true)
     const response = await timecardsApi.logMissedTime({
       userId: person.id, workDate, startTime, endTime, breakMinutes: breakMinutes || null, timeCategoryId: Number(categoryId), note,
     })
     setSaving(false)
-    if (response.error) { setFailure(response.error); return }
+    if (response.error) {
+      // A lost answer may still have saved the shift: say so, keep what was
+      // typed, and reload their time rather than inviting a duplicate.
+      if (outcomeUnknown(response)) {
+        setFailure({ saved: 'unknown', message: "We couldn't confirm this was saved. Check the timecard before adding it again." })
+        onUncertain?.(person)
+      } else {
+        setFailure({ saved: 'no', message: `${response.error} Nothing was saved.` })
+      }
+      return
+    }
     onSaved(person, hours)
   }
 
@@ -103,13 +117,14 @@ function LogMissedTimeForm({ onClose, people, categories, prefill, today, onSave
       footer={(
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button type="submit" form={formId} loading={saving} disabled={!online || !person} title={!online ? 'Reconnect to save' : !person ? 'Choose who worked first' : undefined}>
+          <Button type="submit" form={formId} loading={saving} disabled={!online || !person || !!blockedReason} title={!online ? 'Reconnect to save' : blockedReason ?? (!person ? 'Choose who worked first' : undefined)}>
             {person ? `Add ${formatHours(hours)} for ${person.firstName}` : 'Add shift'}
           </Button>
         </div>
       )}
     >
       <form id={formId} onSubmit={submit} noValidate className="space-y-4">
+        {blockedReason && <p role="alert" className="rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-body-sm text-amber-900">{blockedReason}</p>}
         <div>
           <PersonPicker
             label="Who worked"
@@ -147,7 +162,7 @@ function LogMissedTimeForm({ onClose, people, categories, prefill, today, onSave
         <Field label="Note">
           <Textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Phone died, worked the ramp" />
         </Field>
-        {failure && <p role="alert" className="rounded-control border border-red-200 bg-danger-soft px-3 py-2 text-body-sm text-red-900">{failure} Nothing was saved.</p>}
+        {failure && <p role="alert" className="rounded-control border border-red-200 bg-danger-soft px-3 py-2 text-body-sm text-red-900">{failure.message}</p>}
       </form>
     </Sheet>
   )
