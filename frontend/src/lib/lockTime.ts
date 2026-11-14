@@ -1,3 +1,5 @@
+import type { PayrollLockPendingChange } from './api'
+
 // AIRE locks on Guam time, which has no daylight saving: UTC+10 all year.
 const GUAM = 'Pacific/Guam'
 const GUAM_OFFSET = '+10:00'
@@ -42,4 +44,19 @@ export function fromGuamInput(value: string) {
 /** The first whole minute at least 15 minutes after now, as Cornerstone requires for a new lock time. */
 export function earliestLockChange(now: Date) {
   return new Date(Math.ceil((now.getTime() + 15 * 60_000) / 60_000) * 60_000)
+}
+
+/** What a lock change asked for: "Lock now", "the change to Sat, Nov 22 at 5:00 PM". */
+export function changeTarget(change: PayrollLockPendingChange) {
+  return change.action === 'lock_now' ? 'Lock now'
+    : change.action === 'reset' ? 'the reset to the default time'
+      : change.cutoff_at ? `the change to ${formatLockTime(change.cutoff_at)}` : 'the change'
+}
+
+/** Why a refused or expired change didn't apply. The pay period page's banner uses the same words. */
+export function lockChangeHeadline(change: PayrollLockPendingChange) {
+  const target = changeTarget(change)
+  return change.state === 'expired'
+    ? `${target.charAt(0).toUpperCase()}${target.slice(1)} didn’t arrive from Cornerstone Payroll in time, so AIRE didn’t apply it.`
+    : `AIRE couldn’t apply ${target}${change.error ? `: ${change.error}` : '.'}`
 }

@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import PayrollRuns from './PayrollRuns'
+import PayrollRuns from './PayrollRecords'
 
 const apiMock = vi.hoisted(() => ({
   getPayrollBatches: vi.fn(),
@@ -316,7 +316,7 @@ describe('PayrollRuns', () => {
 
     renderPayrollRuns()
 
-    expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
+    expect(await screen.findByText('Late hours (added to the next payroll)')).toBeInTheDocument()
     expect(screen.getAllByText(LATE_HOURS_NOTICE, { exact: false }).length).toBeGreaterThan(0)
     expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
   })
@@ -385,7 +385,7 @@ describe('PayrollRuns', () => {
     } })
     renderPayrollRuns()
     await screen.findByText('Completed OT worker')
-    const queue = screen.getByRole('region', { name: 'Carryover queue' })
+    const queue = screen.getByRole('region', { name: 'Hours carried to a later period' })
     expect(queue).toHaveTextContent('1 active item')
     const history = within(queue).getByRole('region', { name: 'Recorded history' })
     expect(history).toHaveTextContent('Completed OT worker')
@@ -411,7 +411,7 @@ describe('PayrollRuns', () => {
     } })
     renderPayrollRuns()
     await screen.findByText('Retained paid worker')
-    expect(screen.getByRole('region', { name: 'Carryover queue' })).toHaveTextContent('0 active items')
+    expect(screen.getByRole('region', { name: 'Hours carried to a later period' })).toHaveTextContent('0 active items')
     expect(screen.getByText('No unpaid carryover items need attention.')).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Recorded history' })).toHaveTextContent('Retained paid worker')
   })
@@ -426,7 +426,7 @@ describe('PayrollRuns', () => {
     } })
     renderPayrollRuns()
     await screen.findByText('Visible paid record')
-    expect(screen.getByRole('region', { name: 'Carryover queue' })).toHaveTextContent('1 active item')
+    expect(screen.getByRole('region', { name: 'Hours carried to a later period' })).toHaveTextContent('1 active item')
     expect(screen.queryByText('No unpaid carryover items need attention.')).not.toBeInTheDocument()
     expect(screen.getByText(/Showing the first 250 carryover records/)).toBeInTheDocument()
   })
@@ -446,19 +446,19 @@ describe('PayrollRuns', () => {
     renderPayrollRuns()
     expect(await screen.findByText('Scheduled for supplemental payroll')).toBeInTheDocument()
     expect(screen.getByText(/Complete that run and record its payment/)).toBeInTheDocument()
-    expect(screen.queryByText('Ready for next cutoff')).not.toBeInTheDocument()
+    expect(screen.queryByText('Late hours (added to the next payroll)')).not.toBeInTheDocument()
     expect(screen.queryByText(/AIRE will include it automatically/)).not.toBeInTheDocument()
   })
 
   it.each([
     ['awaiting_approval', 'Needs approval'],
     ['needs_review', 'Needs payroll review'],
-    ['ready_for_next_batch', 'Ready for next cutoff'],
+    ['ready_for_next_batch', 'Late hours (added to the next payroll)'],
     ['scheduled_supplemental', 'Scheduled for supplemental payroll'],
     ['payment_issued', 'Paid'],
-    ['committed', 'Payroll committed'],
-    ['partially_allocated', 'Partially assigned to payroll'],
-    ['partially_paid', 'Partially paid'],
+    ['committed', 'In a payroll run'],
+    ['partially_allocated', 'Partly in payroll'],
+    ['partially_paid', 'Partly paid'],
     ['payment_attested_pending_evidence', 'Payment reported; evidence pending'],
     ['not_payable', null],
   ])('uses the current %s projection for a historical denied approval card', async (status, label) => {
@@ -481,7 +481,7 @@ describe('PayrollRuns', () => {
     } })
     renderPayrollRuns()
     await screen.findByText('Other carryover worker')
-    const queue = screen.getByRole('region', { name: 'Carryover queue' })
+    const queue = screen.getByRole('region', { name: 'Hours carried to a later period' })
     if (label) {
       const card = screen.getByText('Formerly denied worker').closest('article')!
       expect(within(card).getByText(label, { selector: 'span' })).toBeInTheDocument()
@@ -494,7 +494,7 @@ describe('PayrollRuns', () => {
     } else {
       expect(screen.queryByText('Formerly denied worker')).not.toBeInTheDocument()
       expect(queue).toHaveTextContent('1 active item')
-      expect(queue).toHaveTextContent('Closed unpaid')
+      expect(queue).toHaveTextContent('Closed without pay')
     }
     expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
   })
@@ -517,7 +517,7 @@ describe('PayrollRuns', () => {
     await screen.findByText('Valid pending worker')
     const history = screen.getByRole('region', { name: 'Recorded history' })
     expect(history).toHaveTextContent('Invalid training record')
-    expect(history).toHaveTextContent('Closed unpaid')
+    expect(history).toHaveTextContent('Closed without pay')
     expect(history).toHaveTextContent('1.00 hrs')
     expect(history).toHaveTextContent('Duplicate training input; no wages owed')
     expect(history).toHaveTextContent('Synthetic Reviewer')
@@ -526,7 +526,7 @@ describe('PayrollRuns', () => {
     expect(history).not.toHaveTextContent('paid in retained payment evidence')
     expect(history).not.toHaveTextContent('outstanding')
     expect(history).not.toHaveTextContent('Valid pending worker')
-    expect(screen.getByRole('region', { name: 'Carryover queue' })).toHaveTextContent('1 active item')
+    expect(screen.getByRole('region', { name: 'Hours carried to a later period' })).toHaveTextContent('1 active item')
     expect(apiMock.finalizePayrollBatch).not.toHaveBeenCalled()
   })
 
@@ -562,10 +562,10 @@ describe('PayrollRuns', () => {
     } })
     renderPayrollRuns()
     expect(await screen.findByText('Formerly denied worker')).toBeInTheDocument()
-    const queue = screen.getByRole('region', { name: 'Carryover queue' })
+    const queue = screen.getByRole('region', { name: 'Hours carried to a later period' })
     expect(within(queue).getAllByRole('article')).toHaveLength(4)
     expect(queue).toHaveTextContent('4 active items')
-    expect(within(queue).getAllByText('Ready for next cutoff', { selector: 'span' })).toHaveLength(4)
+    expect(within(queue).getAllByText('Late hours (added to the next payroll)', { selector: 'span' })).toHaveLength(4)
   })
 
   it('explains post-cutoff edits and deletions in plain language', async () => {
@@ -646,7 +646,7 @@ describe('PayrollRuns', () => {
 
     renderPayrollRuns()
 
-    expect(await screen.findByText('Partially paid')).toBeInTheDocument()
+    expect(await screen.findByText('Partly paid')).toBeInTheDocument()
     expect(screen.getByText('6.00 hrs paid · 2.00 hrs outstanding')).toBeInTheDocument()
     expect(screen.getByText(/remaining hours stay visible/)).toBeInTheDocument()
   })
@@ -1039,7 +1039,7 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Finalize payroll batch' }))
 
-    expect(await screen.findByText('Ready for next cutoff')).toBeInTheDocument()
+    expect(await screen.findByText('Late hours (added to the next payroll)')).toBeInTheDocument()
     await act(async () => {
       resolveInitialCarryovers({ data: {
         items: [],
@@ -1049,7 +1049,7 @@ describe('PayrollRuns', () => {
       await initialCarryovers
     })
 
-    expect(screen.getByText('Ready for next cutoff')).toBeInTheDocument()
+    expect(screen.getByText('Late hours (added to the next payroll)')).toBeInTheDocument()
     expect(screen.queryByText('No unpaid carryover items need attention.')).not.toBeInTheDocument()
   })
 

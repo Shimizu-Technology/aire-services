@@ -31,6 +31,7 @@ const RolesAccess = lazy(() => import('./pages/admin/RolesAccess'))
 const Media = lazy(() => import('./pages/admin/Media'))
 const ActivityHistory = lazy(() => import('./pages/admin/ActivityHistory'))
 const PayrollRuns = lazy(() => import('./pages/admin/PayrollRuns'))
+const PayrollRecords = lazy(() => import('./components/payroll/PayrollRecords'))
 const PayrollAccountLink = lazy(() => import('./pages/admin/PayrollAccountLink'))
 const MyPay = lazy(() => import('./pages/admin/MyPay'))
 const MyPayStatement = lazy(() => import('./pages/admin/MyPayStatement'))
@@ -154,6 +155,9 @@ const routes = createRoutesFromElements(
               </ProtectedRoute>
             }
           />
+          {/* Past pay periods, and every payroll record with the manual tools. */}
+          <Route path="payroll/periods/:start" element={<ProtectedRoute requiredCapability="manage_payroll"><Suspense fallback={<AdminLoadingFallback />}><PayrollRuns /></Suspense></ProtectedRoute>} />
+          <Route path="payroll/records" element={<ProtectedRoute requiredCapability="manage_payroll"><Suspense fallback={<AdminLoadingFallback />}><PayrollRecords /></Suspense></ProtectedRoute>} />
           <Route
             path="payroll-link"
             element={
