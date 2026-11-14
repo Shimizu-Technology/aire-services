@@ -122,8 +122,9 @@ export function usePayPeriodData(requestedStart: string | null): PayPeriodData {
   const period = show.data?.period ?? null
   const range = start ? (period ? { start: period.start_date, end: period.end_date } : payPeriodContaining(start)) : null
   const locked = Boolean(period && isLockedState(period.handoff_state, period.status))
-  // Unpublished dates still preview: they feed the manual tools.
-  const wantsPreview = show.data !== null && !locked
+  // Unpublished dates still preview: they feed the manual tools. A period from
+  // before locking never locks in AIRE, so there's nothing to preview.
+  const wantsPreview = show.data !== null && !locked && period?.handoff_state !== 'before_locking'
   const batchId = locked ? period?.payroll_batch_id ?? null : null
 
   const attention = useBlock(isCurrent && !locked ? 'attention' : null, useCallback(() => attentionApi.attention(), []))

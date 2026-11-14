@@ -225,7 +225,9 @@ describe('pay period page: lock states', () => {
     expect(screen.queryByRole('button', { name: 'Lock now' })).not.toBeInTheDocument()
     expect(mocks.previewPayrollBatch).not.toHaveBeenCalled()
     expect(mocks.getPayrollBatch).toHaveBeenCalledWith('AIRE-PAY-NOV')
-    expect(screen.getByRole('table', { name: 'What AIRE sent to payroll at the lock' })).toBeInTheDocument()
+    const sent = screen.getByRole('table', { name: 'What AIRE sent to payroll at the lock' })
+    // Only people whose hours went; held-back shifts aren't listed at 0h.
+    expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb Perez', 'Total'])
     expect(screen.getByText(/Locked Nov 11/).closest('p')).toHaveTextContent('Locked Nov 11 · pays Wed, Nov 25')
     const carriedList = within(screen.getByRole('region', { name: /Hours carried to a later period/ }))
     expect(carriedList.getByText('Jun Santos').closest('li')).toHaveTextContent('Jun Santos · Wed, Nov 4 · 8.9h→ Next payroll')
@@ -321,6 +323,17 @@ describe('pay period page: past periods and other states', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
     expect(screen.queryByRole('menuitem', { name: /Record payroll/ })).not.toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'All payroll records' })).toBeInTheDocument()
+  })
+
+  it('shows a period from before locking without a checklist or a preview', async () => {
+    const before = periodSummary({ start_date: '2026-10-01', end_date: '2026-10-15', pay_date: '2026-10-25', lock_mode: 'manual', handoff_state: 'before_locking', label: 'Before locking', status: 'scheduled' })
+    publish(periodSummary(), paidPeriod(), before)
+    await open('/admin/payroll/periods/2026-10-01')
+    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Before locking')).toBeInTheDocument()
+    expect(screen.getByText(/paid before AIRE started locking hours/)).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /Before it locks/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /What goes to payroll/ })).not.toBeInTheDocument()
+    expect(mocks.previewPayrollBatch).not.toHaveBeenCalled()
   })
 
   it('refuses a start date that is not the 1st or the 16th', async () => {

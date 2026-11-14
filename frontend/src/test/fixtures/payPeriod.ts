@@ -72,7 +72,8 @@ export function lockedBatch(): PayrollBatchDetail {
   const payload = preview({
     batch_id: 'AIRE-PAY-20261031-OCT', start_date: '2026-10-16', end_date: '2026-10-31', preview: undefined, can_finalize: undefined,
     employees: [{ source_user_id: '7', email: null, display_name: 'Caleb Perez', total_hours: 80, regular_hours: 76, overtime_hours: 4, adjustments: [line('601', '2026-10-20', 76, 4)] }],
-    exclusions: [],
+    // Jun's Oct 30 shift was still waiting at the lock.
+    exclusions: [{ source_time_entry_id: '640', source_user_id: '12', source_user_uuid: null, display_name: 'Jun Santos', email: null, category: null, reason: 'pending_approval', original_work_date: '2026-10-30', held_total_hours: 8.9, held_regular_hours: 8.9, held_overtime_hours: 0, first_excluded_batch_id: 'AIRE-PAY-20261031-OCT' }],
   })
   return {
     id: 'AIRE-PAY-20261031-OCT', start_date: '2026-10-16', end_date: '2026-10-31', cutoff_at: '2026-11-02T07:00:00Z',

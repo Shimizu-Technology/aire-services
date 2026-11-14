@@ -76,6 +76,8 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   const period = show.data?.period ?? null
   const published = show.data !== null && period !== null
   const locked = Boolean(period && isLockedState(period.handoff_state, period.status))
+  // Paid before AIRE locked hours and never frozen here: no checklist and no "if it locked now".
+  const beforeLocking = period?.handoff_state === 'before_locking' && !locked
   const label = range ? periodLabel({ start_date: range.start, end_date: range.end }) : null
 
   useEffect(() => {
@@ -96,7 +98,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   const currentStart = periods.data?.current_start_date ?? null
   const returnTo = `${location.pathname}${location.search}`
   const payload = locked ? batch.data?.payload ?? null : preview.data
-  const payloadLoad = locked ? (period?.payroll_batch_id ? blockLoad(batch) : null) : blockLoad(preview)
+  const payloadLoad = beforeLocking ? null : locked ? (period?.payroll_batch_id ? blockLoad(batch) : null) : blockLoad(preview)
 
   const exportReport = async (kind: 'pdf' | 'csv' | 'locked_csv', acknowledgeDraft = false) => {
     if (!range) return
@@ -190,15 +192,12 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
           paused={paused}
           connectionPill={connectionPill}
           now={now}
-          actions={<Menu label="More payroll actions" title="More" items={menuItems} triggerVariant="secondary" />}
         >
-          <PeriodStepper
-            className="mt-3 max-w-xs"
-            period={range}
-            onChange={goToPeriod}
-            max={currentStart ?? undefined}
-            now={now}
-          />
+          {/* The overflow sits beside the stepper so it never wraps onto a row of its own on a phone. */}
+          <div className="mt-3 flex items-center gap-2">
+            <PeriodStepper className="w-full max-w-xs" period={range} onChange={goToPeriod} max={currentStart ?? undefined} now={now} />
+            <Menu label="More payroll actions" title="More" items={menuItems} triggerVariant="secondary" className="shrink-0" />
+          </div>
         </PeriodHeader>
       ) : (
         <Skeleton className="h-20 w-full" />
@@ -229,7 +228,14 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <div className="min-w-0 space-y-6">
-          {range && show.data && !locked && (published || isCurrent) && (
+          {beforeLocking && range && (
+            <p className="rounded-card border border-line bg-surface px-4 py-3 text-body-sm text-ink-muted">
+              This pay period was paid before AIRE started locking hours, so nothing was sent from here.{' '}
+              <Link className="font-semibold text-primary underline" to={withPayrollPeriod(PAYROLL_RECORDS_PATH, range)}>See its payroll records</Link>
+            </p>
+          )}
+
+          {range && show.data && !locked && !beforeLocking && (published || isCurrent) && (
             <BeforeLockChecklist
               range={range}
               attention={attention.data}

@@ -89,7 +89,7 @@ describe('What goes to payroll', () => {
   })
 
   it('reads a frozen batch the same way', () => {
-    expect(personRows(lockedBatch().payload).map(row => [row.name, row.regular, row.overtime])).toEqual([['Caleb Perez', 76, 4]])
+    expect(personRows(lockedBatch().payload).map(row => [row.name, row.regular, row.overtime, row.waiting])).toEqual([['Caleb Perez', 76, 4, 0], ['Jun Santos', 0, 0, 8.9]])
   })
 })
 

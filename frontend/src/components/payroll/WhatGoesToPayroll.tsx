@@ -81,7 +81,8 @@ export interface WhatGoesToPayrollProps {
 
 /** Per person: approved regular and overtime, still waiting, and the days behind them on request. */
 export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlightEntry = null, returnTo, exporting, onExport }: WhatGoesToPayrollProps) {
-  const rows = personRows(payload)
+  // A locked period lists only people whose hours went; shifts held back at the lock show under carried hours.
+  const rows = personRows(payload).filter(row => !locked || row.lines.length > 0)
   const wide = useMediaQuery('(min-width: 640px)')
   const [open, setOpen] = useState<Set<string>>(() => new Set(initialOpen ? [initialOpen] : []))
   const toggle = (id: string) => setOpen(current => {
