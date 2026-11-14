@@ -98,3 +98,28 @@ Counts use the six requested acceptance scenarios, each requiring both viewports
 The external plan's additional employee/person evidence journeys also remain unrun in the browser; frozen export protection retains the passing regression-spec evidence. Native mobile behavior and real Clerk/Cornerstone delivery are out of scope.
 
 Cleanup completed: exact claimed Puma PID 97611 and Vite PID 98874 terminated, preview tab `tab_34_e60e53fc-08fc-48e4-b927-3d2799347d0a` closed and released, lifecycle reports no active owned resources. The local QA database was dropped after verifying no remaining connections; an explicit catalog query confirms it is absent. Shared PostgreSQL and other borrowed services remain untouched. The verified fixture backup and external harness/evidence are retained for the next attempt. No merge or deployment.
+
+
+## Mac mini acceptance and final presentation fixes — 2026-11-15
+
+The lead reports browser QA on `a2e19fb` passed **all seven checks at both 1280 and 390** on the Mac mini. Screen, downloaded CSV/PDF and the independent database calculation agree at **1,590.28 / 241.01 / 10.68**; the Filtered — prefix works. This supersedes the earlier load-blocked MacBook attempt for that head. It is lead-executed evidence; the implementation agent did not operate the mini.
+
+Four presentation findings were fixed in separate pushed checkpoints:
+
+| Finding | Checkpoint | Result |
+| --- | --- | --- |
+| PDF category readiness sounded payroll-ready while approval waited | `d1bb519` | Banner says Draft, names waiting shifts/OT and says only approved hours are included. Empty selections explicitly say no included entries match. Ready requires no actual waiting/open clocks and complete category checks. |
+| Report row/page and PDF row status differed from CSV | `8deb41d` | Review status is Complete or Draft - needs review under the CSV's same ready + approval_complete rule. Report banner also says Draft for waiting hours/open clocks. Payroll lifecycle remains a separate status. |
+| Settings home tile exposed raw Delivery problem | `90d5d0d` | Tile uses payrollConnectionCopy's title, like Today and connection details. |
+| Employee table cut off Payroll/Review at 1280 | `0525ad8` | Eight fixed-width columns with wrapping headers/cells, half the horizontal cell padding, a dedicated waiting column, and no 980px minimum. Staff type, Entries and Breaks move into employee metadata; work categories remain in row detail. Mobile card markup/layout stays unchanged apart from the requested draft wording. |
+
+Comparison with `origin/main` (`ceb079f`): main already has an 11-column table with `min-w-[980px]` and horizontal scrolling. The PR had not added table columns, but its longer approved headers and waiting text increased the intrinsic width. The new desktop layout removes that width constraint and prioritizes the payroll/approval facts. Runtime verification is still needed to establish the actual rendered result.
+
+Acceptance for the final presentation patch: default and zero-included/pending PDFs say Draft; Jared's page/PDF row says Draft; Settings home/detail/Today titles match; all eight desktop columns (including both waiting figures and Payroll) are visible at 1280 with no sideways scroll; the employee drawer still exposes work categories/entries. Local focused tests passed: 52 report frontend tests, 20 Settings/helper tests, 29 final targeted request examples (including frozen bytes/capture protection). Final gate results are recorded below.
+
+MacBook load was **75.49** at the start of these fixes, **71.24** after layout edits, then **1,023.24** during gates. No server/tab was started: the required <40 condition for a 1280 render was not met. **The lead must recheck the new presentation at 1280 on the mini before merge**, including default/pending PDFs, Jared's row and the Settings home tile. Prior browser acceptance does not cover this patch. No payroll calculation, frozen download, ReportExport capture, migration or held PR194 branch change.
+
+The test-only QA database was recreated for RSpec and dropped after the passing request suite, with no remaining connections. External fixture backups/harness remain available. No API/Vite server, tab, worker, real email or production database connection was used in this final patch.
+
+
+Final presentation gates on runtime implementation `0525ad8`: **tsc, lint, full Vitest (122 files / 1,388 tests, maxWorkers=4), build, RuboCop (639 files / no offenses), targeted RSpec (29 examples / zero failures)** all passed. Impeccable advisory: `[]`. Evidence logs are retained outside Git in `/Users/leonshimizu/Desktop/ShimizuTechnology/output/aire-payroll-numbers-polish-20261115/`. No full local RSpec was added for this presentation-only patch; CI runs the full suite. The final ledger commit changes documentation only. Lifecycle cleanup/status reports no active owned resources; local QA DB absence is verified. PR remains draft and held for the lead; no merge/deployment.
