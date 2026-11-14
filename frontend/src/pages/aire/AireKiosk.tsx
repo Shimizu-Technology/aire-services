@@ -400,6 +400,49 @@ export default function AireKiosk() {
     ...(canSwitchCategory ? ['switch_category' as const] : []),
   ]
 
+  const supervisorPanel = (
+    <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm">
+            <div>
+              <p className="font-semibold text-white">
+                {kioskUnlocked ? 'Kiosk unlocked' : 'Kiosk locked'}
+              </p>
+              <p className="mt-1 text-slate-400">
+                {!isClerkEnabled
+                  ? 'Local development mode is bypassing the admin unlock requirement.'
+                  : kioskAccessSession
+                    ? `Unlocked by ${kioskAccessSession.unlockedBy} until ${new Date(kioskAccessSession.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}.`
+                    : 'A manager or admin unlocks this kiosk before staff can enter a PIN.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {kioskUnlocked ? (
+                <button
+                  onClick={handleLock}
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+                >
+                  Lock kiosk
+                </button>
+              ) : canUnlockKiosk ? (
+                <button
+                  onClick={handleUnlock}
+                  disabled={unlocking || (isClerkEnabled && !isSignedIn)}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    unlocking || (isClerkEnabled && !isSignedIn)
+                      ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                      : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
+                  }`}
+                >
+                  {unlocking ? 'Unlocking…' : 'Unlock kiosk'}
+                </button>
+              ) : (
+                <Link to="/admin" className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10">
+                  Manager or admin unlock
+                </Link>
+              )}
+            </div>
+          </div>
+  )
+
   if (!canViewKiosk) {
     return (
       <div className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 md:px-6 [-webkit-tap-highlight-color:transparent]">
@@ -467,7 +510,13 @@ export default function AireKiosk() {
         <Link to="/" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Home</Link>
       </div>}
       <div className={`mx-auto grid w-full gap-8 px-4 pb-8 pt-4 md:px-6 ${employee ? 'max-w-2xl' : 'max-w-6xl md:grid-cols-[1.15fr_1fr]'}`}>
-        <section className="order-2 md:order-1 rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
+        <section className={`order-2 md:order-1 rounded-3xl border border-slate-800 bg-slate-900/60 p-5 md:p-8 ${employee && !requestingStub ? 'pb-52 lg:pb-8' : ''}`}>
+          {employee ? (
+            <header className="flex items-center justify-between gap-3 text-sm">
+              <h1 className="font-semibold text-cyan-300">AIRE kiosk</h1>
+              <p className="tabular-nums text-slate-300">Guam · {now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
+            </header>
+          ) : <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
@@ -487,48 +536,11 @@ export default function AireKiosk() {
           <p className={`mt-3 max-w-xl text-sm text-slate-300 md:text-base ${employee ? 'hidden' : ''}`}>
             Enter your staff PIN to clock in or out.
           </p>
+          </>}
 
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm">
-            <div>
-              <p className="font-semibold text-white">
-                {kioskUnlocked ? 'Kiosk unlocked' : 'Kiosk locked'}
-              </p>
-              <p className="mt-1 text-slate-400">
-                {!isClerkEnabled
-                  ? 'Local development mode is bypassing the admin unlock requirement.'
-                  : kioskAccessSession
-                    ? `Unlocked by ${kioskAccessSession.unlockedBy} until ${new Date(kioskAccessSession.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}.`
-                    : 'A manager or admin unlocks this kiosk before staff can enter a PIN.'}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {kioskUnlocked ? (
-                <button
-                  onClick={handleLock}
-                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
-                >
-                  Lock kiosk
-                </button>
-              ) : canUnlockKiosk ? (
-                <button
-                  onClick={handleUnlock}
-                  disabled={unlocking || (isClerkEnabled && !isSignedIn)}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                    unlocking || (isClerkEnabled && !isSignedIn)
-                      ? 'cursor-not-allowed bg-slate-800 text-slate-500'
-                      : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
-                  }`}
-                >
-                  {unlocking ? 'Unlocking…' : 'Unlock kiosk'}
-                </button>
-              ) : (
-                <Link to="/admin" className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10">
-                  Manager or admin unlock
-                </Link>
-              )}
-            </div>
-          </div>
+          {!employee && supervisorPanel}
 
+          <div className={employee && !requestingStub ? 'min-h-[calc(100svh-5rem)] lg:min-h-0' : undefined}>
           <div className={`mt-8 rounded-3xl border p-5 ${status?.clocked_in ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-slate-800 bg-slate-950/70'}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -585,7 +597,7 @@ export default function AireKiosk() {
             </div>
           )}
 
-          {employee && !requestingStub && <div className="mt-8"><ClockActions inline>
+          {employee && !requestingStub && <div className="mt-8"><ClockActions kiosk>
             <button onClick={() => runAction(primaryAction)} disabled={!primaryEnabled || !!actionLoading || loading}
               className="min-h-14 w-full rounded-2xl bg-cyan-400 px-5 py-4 text-lg font-semibold text-slate-950 disabled:opacity-50 active:scale-[.97]">
               {actionLoading === primaryAction ? `${formatActionLabel(primaryAction)}...` : formatActionLabel(primaryAction)}
@@ -598,6 +610,18 @@ export default function AireKiosk() {
             </div>
           </ClockActions></div>}
 
+          {error && (
+            <p className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>
+          )}
+
+          {success && (
+            <p className="mt-6 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</p>
+          )}
+
+          </div>
+
+          {employee && supervisorPanel}
+
           {employee && kioskToken && payStubRequestsEnabled && !requestingStub && (
             <button
               type="button"
@@ -609,13 +633,7 @@ export default function AireKiosk() {
             </button>
           )}
 
-          {error && (
-            <p className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>
-          )}
 
-          {success && (
-            <p className="mt-6 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</p>
-          )}
 
           <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
             Your name clears after 30 seconds without activity, or 8 seconds after a successful action.

@@ -180,3 +180,15 @@ it.each([undefined, 500])('re-reads unknown outcome %s before another punch', as
   await act(async () => { resolve({ data: { employee, kiosk_token: 'refreshed', current_status: working, available_categories: [category] } }) })
   expect(screen.getByRole('button', { name: 'Clock Out' })).toBeEnabled()
 })
+
+
+it('renders the verified primary action before the supervisor controls', async () => {
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  const action = screen.getByRole('button', { name: 'Clock In' })
+  const lock = screen.getByRole('button', { name: 'Lock kiosk' })
+  expect(action.compareDocumentPosition(lock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(action.parentElement).toHaveClass('fixed', 'bottom-0')
+  expect(screen.getByRole('heading', { name: 'AIRE kiosk' })).toBeInTheDocument()
+  expect(screen.getByText(/Guam ·/)).toBeInTheDocument()
+})
