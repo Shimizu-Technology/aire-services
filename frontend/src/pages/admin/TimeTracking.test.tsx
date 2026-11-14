@@ -114,6 +114,7 @@ function prepareLinkedReport(employeeChanges: Partial<HoursReportEmployee> = {})
   apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [{ id: 3, name: 'Operations' }] } })
   apiMock.getUsers.mockResolvedValue({ data: { users: [{ id: 7, display_name: 'Casey Employee', time_category_ids: [3] }] } })
   apiMock.updateTimeEntry.mockResolvedValue({ data: { time_entry: { ...entry, description: 'Saved change' } } })
+  if (employeeChanges.payroll_hours) report.summary.payroll_hours = employeeChanges.payroll_hours
   const query = new URLSearchParams({ tab: 'reports', start_date: report.start_date, end_date: report.end_date, user_id: '7', entry_id: '90', return_to: '/admin/users/7?tab=hours&period=2026-08-16' })
   render(<MemoryRouter initialEntries={[`/admin/time?${query}`]}><TimeRouteHarness /></MemoryRouter>)
 }
@@ -147,6 +148,23 @@ describe('TimeTracking routed report periods', () => {
     prepareLinkedReport({ overtime_hours: 3.42, approval_complete: false, payroll_hours: { ...approvedHours(4), overtime_waiting_hours: 3.42 } })
     await screen.findByRole('button', { name: 'Review hours for Casey Employee' })
     expect(screen.queryByTitle('View weekly overtime breakdown')).not.toBeInTheDocument()
+  })
+
+  it('labels an approved shift with waiting overtime as Draft on desktop and mobile', async () => {
+    prepareLinkedReport({ approval_complete: false, payroll_hours: { ...approvedHours(4), overtime_waiting_hours: 3.42 } })
+    const row = (await screen.findByRole('button', { name: 'Review hours for Casey Employee' })).closest('tr')!
+    expect(within(row).getByText('Draft - needs review')).toBeInTheDocument()
+    expect(screen.getAllByText('Draft - needs review')).toHaveLength(3) // banner, desktop row, mobile card
+    expect(screen.queryByText('Ready for cutoff')).not.toBeInTheDocument()
+    const mobileCard = screen.getByRole('button', { name: /Casey Employee.*Approved regular/ })
+    expect(within(mobileCard).getByText('Draft - needs review')).toBeInTheDocument()
+  })
+
+  it('labels completed approval review consistently even with stale pending-OT flags', async () => {
+    prepareLinkedReport({ issues: { pending_count: 0, denied_count: 1, pending_overtime_count: 1, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0 } })
+    const row = (await screen.findByRole('button', { name: 'Review hours for Casey Employee' })).closest('tr')!
+    expect(within(row).getByText('Complete')).toBeInTheDocument()
+    expect(within(row).queryByText('Draft - needs review')).not.toBeInTheDocument()
   })
 
   it.each([
@@ -834,7 +852,7 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
-    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Approved for payroll.*6\.10h.*Ready/i })
+    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Approved for payroll.*6\.10h.*Complete/i })
     expect(employeeCard).toBeInTheDocument()
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
     fireEvent.click(employeeCard)
@@ -909,7 +927,7 @@ describe('TimeTracking routed report periods', () => {
     expect(qualityPanel).not.toBeNull()
     expect(within(qualityPanel!).getByText('Missing categories')).toBeInTheDocument()
     expect(within(qualityPanel!).getByText('1')).toBeInTheDocument()
-    expect(screen.getAllByText('Missing category', { exact: true }).length).toBeGreaterThan(0)
+    expect(screen.getAllByTitle('Missing category').length).toBeGreaterThan(0)
     expect(await screen.findByRole('row', { name: /Sun, Aug 16 Legacy Entry.*Uncategorized.*3.00.*Edit/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     expect(await screen.findByRole('heading', { name: 'Edit Time Entry' })).toBeInTheDocument()
@@ -920,7 +938,7 @@ describe('TimeTracking routed report periods', () => {
     report.summary = { ...report.summary, allocation_hold_count: 1, uncategorized_count: missing }
     apiMock.getHoursReport.mockResolvedValue({ data: report })
     render(<MemoryRouter initialEntries={['/admin/time?tab=reports&start_date=2026-08-01&end_date=2026-08-15']}><TimeRouteHarness /></MemoryRouter>)
-    await screen.findByText('Action required before cutoff')
+    await screen.findByText('Draft - needs review')
     expect(screen.getByText(/Overnight time or break placement needs administrator review/)).toBeInTheDocument()
     if (missing > 0) {
       expect(screen.getByText(/2 approved entries are missing a work category/)).toBeInTheDocument()

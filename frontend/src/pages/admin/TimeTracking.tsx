@@ -329,19 +329,11 @@ function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecy
 }
 
 function EmployeeReviewBadge({ employee }: { employee: HoursReportEmployee }) {
-  if (employee.issues.uncategorized_count > 0) {
-    return <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">Missing category</span>
-  }
-
-  if (employee.issues.pending_count + employee.issues.denied_count + employee.issues.pending_overtime_count + employee.issues.denied_overtime_count + employee.issues.open_clock_count > 0) {
-    return <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Excluded work</span>
-  }
-
   if (employee.ready && employee.approval_complete) {
-    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Ready</span>
+    return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Complete</span>
   }
 
-  return <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Needs review</span>
+  return <span title={employee.issues.uncategorized_count > 0 ? 'Missing category' : undefined} className="inline-flex rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Draft - needs review</span>
 }
 
 function EmploymentStatusBadge({ employee }: { employee: HoursReportEmployee }) {
@@ -1142,6 +1134,9 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
     : visibleTotalHours
 
   const reportSummary = hoursReport?.summary ?? { total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0, entries_count: 0, employee_count: 0, pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, payroll_statuses: {} }
+  const reportHasWaiting = (reportSummary.payroll_hours?.time_waiting_hours ?? 0) > 0
+    || (reportSummary.payroll_hours?.overtime_waiting_hours ?? 0) > 0
+    || reportSummary.open_clock_count > 0
   const hoursSummaryRows = hoursReport?.employees ?? []
   const reportByCategory = hoursReport?.breakdowns?.by_category ?? []
   const reportBySource = hoursReport?.breakdowns?.by_source ?? []
@@ -2116,13 +2111,14 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             <div className={`rounded-xl border px-4 py-3 ${
               !hoursReport.ready
                 ? 'border-red-200 bg-red-50 text-red-900'
-                : excludedEntryCount > 0
+                : reportHasWaiting || excludedEntryCount > 0
                   ? 'border-amber-200 bg-amber-50 text-amber-900'
                   : 'border-emerald-200 bg-emerald-50 text-emerald-900'
             }`}>
               <div className="font-semibold">
-                {!hoursReport.ready ? 'Action required before cutoff' : excludedEntryCount > 0 ? 'Ready for cutoff with excluded entries' : 'Ready for cutoff'}
+                {!hoursReport.ready || reportHasWaiting ? 'Draft - needs review' : 'Complete - approved hours ready'}
               </div>
+              {reportHasWaiting && <p className="mt-1 text-sm">Time or overtime is still waiting for approval, or a clock is still open. Only approved hours are included in payroll totals.</p>}
               <p className="mt-1 text-sm leading-relaxed">
                 {!hoursReport.ready
                   ? [

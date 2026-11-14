@@ -113,7 +113,7 @@ module Reports
           hours(employee.dig(:payroll_hours, :approved_overtime_hours)),
           hours(employee.dig(:payroll_hours, :approved_hours)),
           hours(employee.dig(:payroll_hours, :overtime_waiting_hours)),
-          employee[:ready] && employee[:approval_complete] ? "Complete" : "Needs review"
+          employee[:ready] && employee[:approval_complete] ? "Complete" : "Draft - needs review"
         ]
       end
       rows << [ { content: "No matching employees or time entries for this report.", colspan: 8 } ] if employees.empty?

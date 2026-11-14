@@ -64,7 +64,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     get "/api/v1/admin/hours_report/pdf", params: range.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     text = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
-    expect(text).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50", "Needs review", "Draft — 1 shift and 3.50h of overtime are still waiting for approval. Only approved hours are included.")
+    expect(text).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50", "Draft - needs review", "Draft — 1 shift and 3.50h of overtime are still waiting for approval. Only approved hours are included.")
     get "/api/v1/admin/hours_report/pdf", params: range.merge(user_id: worker.id, acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     employee_pdf = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
