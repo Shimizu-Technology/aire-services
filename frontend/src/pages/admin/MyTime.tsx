@@ -7,6 +7,7 @@ import { myTimeApi } from '../../lib/api/myTime'
 import { outcomeUnknown } from '../../lib/api/timecards'
 import {
   chooseLastCategory,
+  displayPeriodTotals,
   clockTime,
   needsClockOutConfirm,
   OFFLINE_CLOCK,
@@ -248,7 +249,7 @@ export default function MyTime() {
     else void punch('out')
   }
   const blocked = busy || !online || mustRefresh
-  const totals = periodTotals(entries, period)
+  const totals = displayPeriodTotals(entries, period)
   const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
   const recordedBreak =
     !!status?.breaks.length ||

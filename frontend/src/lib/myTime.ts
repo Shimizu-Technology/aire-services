@@ -133,6 +133,18 @@ export function periodTotals(entries: TimeEntry[], period: PayPeriod) {
   return { total: approved + waiting, approved, waiting }
 }
 
+/** Keep the displayed tenths additive; retain exact hours for clock math. */
+export function displayPeriodTotals(entries: TimeEntry[], period: PayPeriod) {
+  const totals = periodTotals(entries, period)
+  const approvedTenths = Math.round(totals.approved * 10)
+  const waitingTenths = Math.round(totals.waiting * 10)
+  return {
+    total: (approvedTenths + waitingTenths) / 10,
+    approved: approvedTenths / 10,
+    waiting: waitingTenths / 10,
+  }
+}
+
 /** Only a paid payload with a pay date can label the whole period Paid. */
 export function periodPaidDate(entries: TimeEntry[]) {
   if (entries.some((entry) => entry.status !== 'completed')) return null

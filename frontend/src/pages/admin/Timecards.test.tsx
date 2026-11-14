@@ -168,7 +168,8 @@ describe('Timecards on a phone', () => {
     // Focus moves in an effect after the form mounts; a slow runner can see the form first.
     await waitFor(() => expect(within(fix).getByLabelText(/Clocked out/)).toHaveFocus())
     expect(screen.getByRole('heading', { level: 2, name: 'Caleb Perez' })).toBeInTheDocument()
-    expect(search().get('period')).toBe('2026-11-01')
+    // The linked-entry read canonicalizes the URL independently of form focus.
+    await waitFor(() => expect(search().get('period')).toBe('2026-11-01'))
   })
 
   it('finds the person and period from the shift when a link only names the shift', async () => {

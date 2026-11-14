@@ -1,5 +1,5 @@
 import type { TimeEntry } from '../../lib/api'
-import { periodPaidDate, periodTotals } from '../../lib/myTime'
+import { periodPaidDate, displayPeriodTotals } from '../../lib/myTime'
 import type { PayPeriod } from '../../lib/payPeriods'
 import { employeeDate } from '../../lib/employeePresentation'
 import { ProgressSplit, StatusPill } from '../ui'
@@ -13,7 +13,7 @@ export function HoursSummary({
   period: PayPeriod
   approverNames?: string[]
 }) {
-  const totals = periodTotals(entries, period)
+  const totals = displayPeriodTotals(entries, period)
   const paidDate = periodPaidDate(entries)
   return (
     <section

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { categories, clockStatus, shift } from '../test/employeeFixtures'
 import {
   chooseLastCategory,
+  displayPeriodTotals,
   LOCATION_TIMEOUT,
   needsClockOutConfirm,
   periodPaidDate,
@@ -159,4 +160,19 @@ it('excludes denied hours and treats completed null approvals explicitly as wait
   const totals = periodTotals(entries, { start: '2026-11-01', end: '2026-11-15' })
   expect(totals).toEqual({ total: 10, approved: 3, waiting: 7 })
   expect(totals.total).toBe(totals.approved + totals.waiting)
+})
+
+it('keeps the displayed total equal to approved plus waiting after rounding to tenths', () => {
+  const entries = [
+    shift({ id: 1, hours: 57.5, approval_status: 'approved' }),
+    shift({ id: 2, hours: 12.55, approval_status: 'pending' }),
+    shift({ id: 3, hours: 2, approval_status: 'denied' }),
+  ]
+  const period = { start: '2026-11-01', end: '2026-11-15' }
+  expect(displayPeriodTotals(entries, period)).toEqual({
+    total: 70.1,
+    approved: 57.5,
+    waiting: 12.6,
+  })
+  expect(periodTotals(entries, period).total).toBeCloseTo(70.05)
 })
