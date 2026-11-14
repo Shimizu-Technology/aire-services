@@ -190,7 +190,7 @@ module Payroll
       else
         days = build_days(countable_period_entries, overtime_allocations)
         categories = build_categories(countable_period_entries, overtime_allocations)
-        weeks = build_weeks(user_context_entries, countable_period_entries, overtime_allocations)
+        weeks = build_weeks(user_context_entries, countable_period_entries, overtime_allocations, @approval_entries_by_user.fetch(user.id, []))
         day_totals = days
       end
       # Readiness is a control concern, not a display filter. Calculate it from
@@ -294,19 +294,23 @@ module Payroll
       end.sort_by { |row| [ row[:name], row[:id].to_i ] }
     end
 
-    def build_weeks(context_entries, period_report_entries, allocations)
+    def build_weeks(context_entries, period_report_entries, allocations, approval_entries)
       report_entry_ids = period_report_entries.map(&:id).to_set
+      approval_entries_by_week = approval_entries.group_by { |entry| entry.work_date.beginning_of_week(:sunday) }
 
       context_entries.group_by { |entry| entry.work_date.beginning_of_week(:sunday) }.sort_by { |date, _| date }.map do |week_start, week_entries|
         week_end = week_start.end_of_week(:sunday)
         countable = week_entries.select { |entry| countable?(entry) }
         period_entries = countable.select { |entry| report_entry_ids.include?(entry.id) }
         context_entries_for_week = countable.reject { |entry| report_entry_ids.include?(entry.id) }
-        next if period_entries.empty?
+        # Approval quantities use the same status-independent selection as the
+        # employee totals, even when this week's worked rows are filtered out.
+        weekly_payroll_hours = payroll_hours_for(approval_entries_by_week.fetch(week_start, []))
+        next if period_entries.empty? && weekly_payroll_hours.values.all?(&:zero?)
 
         context_hours = round_hours(context_entries_for_week.sum { |entry| entry.hours.to_f })
         {
-          payroll_hours: payroll_hours_for(period_entries),
+          payroll_hours: weekly_payroll_hours,
           week_start: week_start.iso8601,
           week_end: week_end.iso8601,
           weekly_total_hours: round_hours(countable.sum { |entry| entry.hours.to_f }),

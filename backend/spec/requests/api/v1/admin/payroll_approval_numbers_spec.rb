@@ -130,6 +130,31 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     expect(text).not_to include("Draft —")
   end
 
+  [ { approval_status: "denied" }, { overtime_status: "pending" } ].each do |status_filter|
+    it "keeps weekly approvals additive and approved weeks visible under #{status_filter}" do
+      shift(15, 6.25)
+      report = Payroll::HoursReportBuilder.new(range.merge(status_filter).merge(user_id: worker.id)).call
+      employee = report[:employees].first
+      weeks = employee.fetch(:weeks)
+      expect(Payroll::ApprovalHours.sum(weeks.pluck(:payroll_hours))).to eq(employee[:payroll_hours])
+      expect(weeks.find { |week| week[:week_start] == "2026-11-01" }.dig(:payroll_hours, :approved_hours)).to eq(40.0)
+      retained = weeks.find { |week| week[:week_start] == "2026-11-15" }
+      expect(retained).to include(period_hours: 0.0, regular_hours: 0.0, overtime_hours: 0.0)
+      expect(retained.dig(:payroll_hours, :approved_hours)).to eq(6.25)
+      expect(employee[:days].flat_map { |day| day[:entries] }.map { |entry| entry[:id] })
+        .to eq(status_filter.key?(:approval_status) ? [] : [ @overtime.id ])
+
+      # Render the same filtered report through both documents; the selected
+      # employee endpoint intentionally uses its broader full-ledger selection.
+      [ Reports::EmployeeTimesheetPdf, Reports::PayrollHoursPdf ].each do |renderer|
+        export = ReportExport.capture!(export_type: "employee_timesheet_pdf", report: report, generated_by: admin)
+        bytes = renderer.new(report: report, export: export, generated_by: admin).render
+        text = PDF::Reader.new(StringIO.new(bytes)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
+        expect(text).to match(/Nov 15, 2026 to Nov 21, 2026 6\.25 6\.25 0\.00 6\.25/)
+      end
+    end
+  end
+
   it "keeps frozen export bytes, payload and checksum unchanged when live reports are generated" do
     post "/api/v1/admin/payroll_batches", params: range, headers: headers
     expect(response).to have_http_status(:created)
