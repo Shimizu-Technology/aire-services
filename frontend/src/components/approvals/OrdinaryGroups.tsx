@@ -16,7 +16,7 @@ export default function OrdinaryGroups({ rows, groupBy, selected, onSelect, onAp
     const index = buttons.findIndex(button => button.getAttribute('aria-label') === `Approve ${entries.length} shifts for ${title}`)
     const next = buttons[index + 1] ?? buttons[index - 1]
     await onApprove(entries, title)
-    if (next?.isConnected) next.focus()
+    window.requestAnimationFrame(() => { if (next?.isConnected && !next.disabled) next.focus() })
   }
   return <div ref={root}><ListGroup label={`Ordinary shifts by ${groupBy}`} className="overscroll-contain">
     {[...groups].map(([key, entries]) => {
