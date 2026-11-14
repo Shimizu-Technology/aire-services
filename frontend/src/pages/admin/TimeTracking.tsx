@@ -2110,7 +2110,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
             <ReportMetric label="Overtime waiting for approval" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.overtime_waiting_hours) : 'Unavailable'} tone="warning" />
             <ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} />
           </div>
-          <p className="text-sm text-text-muted">Waiting hours are not included in payroll totals. Entry details below show worked hours.</p>
+          <p className="text-sm text-text-muted">Waiting hours are not included in payroll totals. Approval totals include all approval statuses; status filters narrow the worked-hour details below.</p>
 
           {hoursReport && (
             <div className={`rounded-xl border px-4 py-3 ${
