@@ -138,7 +138,12 @@ export function TimecardView({
   useEffect(() => {
     if (!linked || scrolledTo.current === linked.id) return
     scrolledTo.current = linked.id
-    requestAnimationFrame(() => document.getElementById(`timecard-entry-${linked.id}`)?.scrollIntoView?.({ block: 'center' }))
+    // A shift from the day before the period shows only as its continuation.
+    requestAnimationFrame(() => {
+      const row = document.getElementById(`timecard-entry-${linked.id}`)
+        ?? document.getElementById(`timecard-entry-${linked.id}-continued`)
+      row?.scrollIntoView?.({ block: 'center' })
+    })
   }, [linked])
 
   // The same in-period hours the day rows show.

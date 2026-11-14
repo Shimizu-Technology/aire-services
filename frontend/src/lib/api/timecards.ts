@@ -20,11 +20,13 @@ type Result<T> = { data?: T; error?: string; status?: number; code?: string }
 
 /**
  * True when a write's outcome is unknown: no answer reached us (network error,
- * timeout) or the answer wasn't the API's own. Only a real API refusal means
- * nothing was saved.
+ * timeout), the answer wasn't the API's own, or the server failed (a 5xx, such
+ * as a 502 while a deploy restarts it, can arrive after the write committed).
+ * Only a real API refusal means nothing was saved.
  */
 export function outcomeUnknown(response: { error?: string; status?: number }) {
-  return !response.status || /^Server returned an (invalid|empty) response/.test(response.error ?? '')
+  if (!response.status || response.status >= 500) return true
+  return /^Server returned an (invalid|empty) response/.test(response.error ?? '')
 }
 
 // The API caps a page at 500 rows; a person's pay period is far smaller, and a

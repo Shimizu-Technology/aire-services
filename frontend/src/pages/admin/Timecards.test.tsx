@@ -316,6 +316,29 @@ describe('Timecards on a phone', () => {
     expect(screen.getByText('Approved', { selector: 'dt' }).closest('dl')).toHaveTextContent('Approved6.5h')
   })
 
+  it('scrolls a link to a shift shown only as its continuation to that row', async () => {
+    const overnight = entry({
+      id: 71, work_date: '2026-10-31', start_time: '22:30', end_time: '06:30', formatted_start_time: '10:30 PM', formatted_end_time: '6:30 AM',
+      hours: 8, clock_in_at: '2026-10-31T22:30:00+10:00', clock_out_at: '2026-11-01T06:30:00+10:00',
+      user: { ...OPEN.user, id: 9, full_name: 'Ethan Cruz', display_name: 'Ethan Cruz' },
+    })
+    apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number; start_date?: string }) => ({
+      data: { time_entries: params.user_id === 9 && params.start_date === '2026-10-31' ? [overnight] : [], pagination: { total_pages: 1 } },
+    }))
+    apiMock.getHoursReport.mockImplementation(async () => ({ data: { summary_only: true, employees: [{ ...summaryRow(9, 6.5), entries_count: 1 }] } }))
+    apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: overnight } })
+    const scrolled: string[] = []
+    const scrollIntoView = vi.fn(function (this: HTMLElement) { scrolled.push(this.id) })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    try {
+      openAt('/admin/timecards?user_id=9&period=2026-11-01&entry_id=71')
+      await screen.findByRole('list', { name: 'Days in Nov 1–15' })
+      await waitFor(() => expect(scrolled).toEqual(['timecard-entry-71-continued']))
+    } finally {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    }
+  })
+
   it('shows a loading state for a linked person while people load', async () => {
     let resolveUsers: (value: unknown) => void = () => undefined
     apiMock.getUsers.mockReturnValue(new Promise((resolve) => { resolveUsers = resolve }))
