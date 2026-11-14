@@ -105,6 +105,19 @@ beforeEach(() => {
   signIn('employee')
 })
 
+describe('AdminLayout landmarks', () => {
+  it('puts the brand, workspace and account controls inside one banner landmark (N5)', () => {
+    signIn('manager')
+    renderLayout()
+    const banner = screen.getByRole('banner')
+    expect(within(banner).getByRole('link', { name: 'AIRE Ops' })).toBeInTheDocument()
+    expect(within(banner).getByText('Manager workspace', { selector: 'div' })).toBeInTheDocument()
+    expect(within(banner).getByRole('link', { name: 'View site' })).toBeInTheDocument()
+    expect(banner.parentElement).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('banner')).toHaveLength(1)
+  })
+})
+
 describe('AdminLayout sidebar by role', () => {
   it('gives owners and admins the week’s work, then admin pages, then their own time', () => {
     for (const role of ['owner', 'admin'] as const) {

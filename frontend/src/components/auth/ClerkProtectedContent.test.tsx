@@ -93,4 +93,30 @@ describe('ClerkProtectedContent', () => {
     render(<ClerkProtectedContent requiredCapability="approve_time"><div>Approvals</div></ClerkProtectedContent>)
     expect(screen.getByText('Approvals')).toBeInTheDocument()
   })
+
+  it.each([
+    ['manager', 'Back to Approvals', '/admin/approvals'],
+    ['employee', 'Open My Time', '/admin/my-time'],
+  ] as const)('sends a denied %s back to their own work area, with the public site as a small link (N6)', (role, label, href) => {
+    authMock.app.userRole = role
+    render(<ClerkProtectedContent requiredCapability="manage_settings"><div>Settings</div></ClerkProtectedContent>)
+    expect(screen.getByRole('heading', { name: 'Access Denied' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', href)
+    expect(screen.queryByRole('link', { name: 'Return to Home' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View public website' })).toHaveAttribute('href', '/')
+  })
+
+  it('names the owner and admin work area too', () => {
+    authMock.app.userRole = 'admin'
+    authMock.app.authError = 'Your account was disabled.'
+    render(<ClerkProtectedContent><div>Admin</div></ClerkProtectedContent>)
+    expect(screen.getByRole('link', { name: 'Back to Today' })).toHaveAttribute('href', '/admin')
+  })
+
+  it('offers only the public website when the account has no role at all', () => {
+    authMock.app.userRole = null
+    render(<ClerkProtectedContent><div>Admin</div></ClerkProtectedContent>)
+    expect(screen.getByRole('link', { name: 'View public website' })).toHaveAttribute('href', '/')
+    expect(screen.queryByRole('link', { name: /Back to|Open My Time/ })).not.toBeInTheDocument()
+  })
 })
