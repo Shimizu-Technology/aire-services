@@ -126,6 +126,7 @@ it('can correct a one-minute shift without rewriting its original punch times', 
   fireEvent.change(screen.getByLabelText(/What happened/), {
     target: { value: 'Wrong work type.' },
   })
+  fireEvent.change(screen.getByLabelText(/^Work/), { target: { value: '1' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
   await waitFor(() => expect(update).toHaveBeenCalled())
   expect(update.mock.calls[0][1]).not.toHaveProperty('start_time')
@@ -168,7 +169,7 @@ it('holds a forgotten-time form after an uncertain save', async () => {
   expect(create).toHaveBeenCalledTimes(1)
 })
 
-it('keeps stored break precision on a reason-only correction', async () => {
+it('keeps stored break precision when only the work type changes', async () => {
   const entry = shift({
     break_minutes: 1,
     breaks: [
@@ -191,9 +192,14 @@ it('keeps stored break precision on a reason-only correction', async () => {
   fireEvent.change(screen.getByLabelText(/What happened/), {
     target: { value: 'Please check this shift.' },
   })
+  fireEvent.change(screen.getByLabelText(/^Work/), { target: { value: '1' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
   await waitFor(() =>
-    expect(update).toHaveBeenCalledWith(41, {}, 'Please check this shift.'),
+    expect(update).toHaveBeenCalledWith(
+      41,
+      { time_category_id: 1 },
+      'Please check this shift.',
+    ),
   )
 })
 
@@ -236,6 +242,7 @@ it('refreshes the current period when an older period’s save finishes after na
   fireEvent.change(screen.getByLabelText(/What happened/), {
     target: { value: 'Please check this shift.' },
   })
+  fireEvent.change(screen.getByLabelText(/^Work/), { target: { value: '1' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
   fireEvent.click(screen.getByRole('link', { name: 'Earlier period' }))
   await screen.findByText('No time recorded this pay period.')
@@ -251,4 +258,19 @@ it('refreshes the current period when an older period’s save finishes after na
   expect(
     screen.getByText('No time recorded this pay period.'),
   ).toBeInTheDocument()
+})
+
+it('asks for an actual correction before sending an empty employee edit', async () => {
+  const update = vi.spyOn(api, 'updateTimeEntry')
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Ask for a fix' }))
+  fireEvent.change(screen.getByLabelText(/What happened/), {
+    target: { value: 'Please check this shift.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Change a time, break or work type',
+  )
+  expect(update).not.toHaveBeenCalled()
 })

@@ -91,6 +91,15 @@ export function ShiftForm({
       setError('Check the day, times and work. For a fix, say what happened.')
       return
     }
+    if (
+      entry &&
+      unchangedTime &&
+      !breaksChanged &&
+      category === entry.time_category?.id
+    ) {
+      setError('Change a time, break or work type before sending a fix.')
+      return
+    }
     setSaving(true)
     setError(null)
     const change = {
