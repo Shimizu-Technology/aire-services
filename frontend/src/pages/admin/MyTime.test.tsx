@@ -740,6 +740,10 @@ describe('supervisors', () => {
     expect(
       screen.getByRole('link', { name: /My hours in Timecards/ }),
     ).toHaveAttribute('href', '/admin/timecards?user_id=5')
+    // A supervisor can read the team's time; this page only ever asks for theirs.
+    expect(myTimeApi.entries).toHaveBeenCalled()
+    for (const [userId] of vi.mocked(myTimeApi.entries).mock.calls)
+      expect(userId).toBe(5)
   })
 
   it('can clock in early after a confirm that says why it was refused', async () => {
