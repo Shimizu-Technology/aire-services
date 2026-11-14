@@ -165,7 +165,8 @@ describe('Timecards on a phone', () => {
   ])('opens the Fix clock-out link from %s on the right person, period and shift', async (_from, url) => {
     openAt(url)
     const fix = await screen.findByRole('form', { name: 'Fix clock-out · Tue, Nov 10' })
-    expect(within(fix).getByLabelText(/Clocked out/)).toHaveFocus()
+    // Focus moves in an effect after the form mounts; a slow runner can see the form first.
+    await waitFor(() => expect(within(fix).getByLabelText(/Clocked out/)).toHaveFocus())
     expect(screen.getByRole('heading', { level: 2, name: 'Caleb Perez' })).toBeInTheDocument()
     expect(search().get('period')).toBe('2026-11-01')
   })
