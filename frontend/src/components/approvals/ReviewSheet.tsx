@@ -36,7 +36,7 @@ export default function ReviewSheet({
   onSelectEntry?: (entry: ReviewEntry) => void
   onClose: (saved?: boolean, message?: string) => void
   onApprove: (items: ReviewItem[], label: string) => Promise<ApprovalResult>
-  onReload: () => Promise<void>
+  onReload: () => Promise<ReadonlyMap<number, number> | void>
   busy: boolean
   categories: TimeCategory[]
   onDirty: (dirty: boolean) => void
@@ -175,7 +175,7 @@ export default function ReviewSheet({
   const reloadDecision = async () => {
     setSaving(true)
     try {
-      await onReload()
+      const confirmed = await onReload()
       const fresh = await api.getTimeEntry(entry.id)
       if (!fresh.data) {
         setError(fresh.error || "Couldn't reload this shift. Try again.")
@@ -186,6 +186,7 @@ export default function ReviewSheet({
       if (
         unknown &&
         decision &&
+        confirmed?.get(entry.id) === row.version &&
         (!decision.approve_time || row.approval_status === 'approved') &&
         (!decision.approve_overtime || row.overtime_status === 'approved')
       ) {

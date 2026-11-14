@@ -27,6 +27,8 @@ export default function LeaveRequestsList({
 }) {
   const online = useOnlineStatus()
   const toast = useToast()
+  const [overlapError, setOverlapError] = useState(false)
+  const [overlapAttempt, setOverlapAttempt] = useState(0)
   const [approved, setApproved] = useState<LeaveRequest[]>([])
   const [declining, setDeclining] = useState<LeaveRequest | null>(null)
   const [note, setNote] = useState('')
@@ -49,10 +51,18 @@ export default function LeaveRequestsList({
         setApproved([])
         return
       }
+      setOverlapError(false)
+      setApproved([])
       const rows: LeaveRequest[] = []
       for (let page = 1; ; page++) {
-        const response = await approvalsApi.approvedLeave(rangeStart, rangeEnd, page)
-        if (!response.data || !active) return
+        const response = await approvalsApi
+          .approvedLeave(rangeStart, rangeEnd, page)
+          .catch(() => ({ data: undefined }))
+        if (!active) return
+        if (!response.data) {
+          setOverlapError(true)
+          return
+        }
         rows.push(...response.data.leave_requests)
         if (page >= response.data.pagination.total_pages) break
       }
@@ -62,7 +72,7 @@ export default function LeaveRequestsList({
     return () => {
       active = false
     }
-  }, [requestKey, rangeStart, rangeEnd])
+  }, [requestKey, rangeStart, rangeEnd, overlapAttempt])
   const save = async (request: LeaveRequest, decline = false) => {
     if (lock.current || !online || request.user.id === viewerId) return
     lock.current = true
@@ -93,6 +103,18 @@ export default function LeaveRequestsList({
       {error && (
         <p role="alert" className="text-body-sm text-danger">
           {error}
+        </p>
+      )}
+      {overlapError && (
+        <p className="text-body-sm text-ink-muted">
+          Couldn't check overlaps.{' '}
+          <button
+            type="button"
+            className="min-h-11 font-semibold text-primary underline"
+            onClick={() => setOverlapAttempt((value) => value + 1)}
+          >
+            Try again
+          </button>
         </p>
       )}
       <ListGroup label="Leave requests">

@@ -29,7 +29,7 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 vi.mock('../../lib/api/approvals', () => ({
-  approvalsApi: { pending: vi.fn(), review: vi.fn(), undo: vi.fn() },
+  approvalsApi: { pending: vi.fn(), review: vi.fn(), undo: vi.fn(), approvedLeave: vi.fn() },
 }))
 vi.mock('../../lib/payStubsApi', () => ({
   payStubsApi: { requests: vi.fn().mockResolvedValue({ requests: [] }) },
@@ -101,6 +101,12 @@ beforeEach(() => {
     },
   })
   vi.mocked(api.getWhosWorking).mockResolvedValue({ data: { workers: [] } })
+  vi.mocked(approvalsApi.approvedLeave).mockResolvedValue({
+    data: {
+      leave_requests: [],
+      pagination: { current_page: 1, per_page: 100, total_pages: 1, total_count: 0 },
+    },
+  })
   vi.mocked(approvalsApi.pending).mockResolvedValue(response())
   vi.mocked(approvalsApi.review).mockResolvedValue({
     data: {
@@ -500,6 +506,7 @@ it('defaults to the manager department, follows its clock banners, and shows the
   await screen.findByText(/under 10 hours/)
   expect(approvalsApi.pending).toHaveBeenCalledWith(
     expect.objectContaining({ approval_group: 'cfi' }),
+    expect.any(AbortSignal),
   )
   expect(screen.getByRole('tab', { name: 'CFI' })).toHaveAttribute('aria-selected', 'true')
   expect(screen.getByText('Clock Person 1')).toBeInTheDocument()
@@ -538,10 +545,56 @@ it('explains default badge versus Today and keeps Everyone and Unassigned direct
   await waitFor(() =>
     expect(approvalsApi.pending).toHaveBeenCalledWith(
       expect.objectContaining({ approval_group: 'unassigned' }),
+      expect.any(AbortSignal),
     ),
   )
   fireEvent.click(screen.getByRole('tab', { name: 'Everyone' }))
   await waitFor(() =>
     expect(vi.mocked(approvalsApi.pending).mock.lastCall?.[0].approval_group).toBeUndefined(),
+  )
+})
+
+it('keeps the initial pay-stub failure and retry reachable instead of falling back to time', async () => {
+  vi.mocked(payStubsApi.requests)
+    .mockRejectedValueOnce(new Error('Unavailable'))
+    .mockResolvedValue({ requests: [stubRequest], open_count: 1 })
+  renderInbox('/admin/approvals?kind=stubs&dept=all')
+  expect(await screen.findByText("Couldn't load pay stub requests.")).toBeInTheDocument()
+  expect(screen.queryByText('Ordinary shifts · 3 · 24.0h')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  expect(
+    await screen.findByText('An owner or admin needs to send this one'),
+  ).toBeInTheDocument()
+})
+it('applies the leave date range to visible requests and the Leave count', async () => {
+  const request = (id: number, start: string, end: string) =>
+    ({
+      id,
+      user: { id, full_name: `Leave person ${id}` },
+      leave_type: 'sick',
+      start_date: start,
+      end_date: end,
+      total_days: 1,
+      reason: `Request ${id}`,
+    }) as import('../../lib/api').LeaveRequest
+  vi.mocked(api.getLeaveRequests).mockResolvedValue({
+    data: {
+      leave_requests: [
+        request(1, '2026-11-10', '2026-11-11'),
+        request(2, '2026-11-20', '2026-11-22'),
+        request(3, '2026-11-23', '2026-11-24'),
+      ],
+      pagination: { current_page: 1, total_pages: 1, per_page: 100, total_count: 3 },
+    },
+  })
+  renderInbox(
+    '/admin/approvals?kind=leave&dept=all&start_date=2026-11-21&end_date=2026-11-22',
+  )
+  expect(await screen.findByText('Request 2')).toBeInTheDocument()
+  expect(screen.queryByText('Request 1')).not.toBeInTheDocument()
+  expect(screen.queryByText('Request 3')).not.toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Leave 1' })).toHaveAttribute(
+    'aria-selected',
+    'true',
   )
 })

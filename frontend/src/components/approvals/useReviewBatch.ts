@@ -35,13 +35,19 @@ function validBatch(data: unknown): data is ReviewBatch {
     Number(batch.approved_count) >= 0 &&
     Array.isArray(batch.time_entries) &&
     batch.time_entries.every(
-      row =>
-        row && typeof row === 'object' && Number.isInteger(row.id) && Number.isInteger(row.version),
+      (row) =>
+        row &&
+        typeof row === 'object' &&
+        Number.isInteger(row.id) &&
+        Number.isInteger(row.version),
     )
   )
 }
 
-export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: number[]) => void) {
+export function useReviewBatch(
+  reload: () => Promise<void>,
+  onCommitted?: (ids: number[]) => void,
+) {
   const toast = useToast()
   const lock = useRef(false)
   const retryKeys = useRef(new Map<string, string>())
@@ -50,10 +56,10 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
   const [notice, setNotice] = useState('')
   const [undoBatches, setUndoBatches] = useState<SucceededBatch[]>([])
   const remember = (batch: SucceededBatch, items: readonly ReviewItem[]) => {
-    setUndoBatches(current =>
-      current.some(row => row.id === batch.id) ? current : [...current, batch],
+    setUndoBatches((current) =>
+      current.some((row) => row.id === batch.id) ? current : [...current, batch],
     )
-    onCommitted?.(items.map(item => item.id))
+    onCommitted?.(items.map((item) => item.id))
   }
   const batchFor = (
     data: { review_batch_id: string; undo_expires_at: string },
@@ -66,8 +72,8 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
     people: [
       ...new Map(
         rows
-          .filter(row => items.some(item => item.id === row.id))
-          .map(row => [row.user.id, { id: row.user.id, name: row.user.full_name }]),
+          .filter((row) => items.some((item) => item.id === row.id))
+          .map((row) => [row.user.id, { id: row.user.id, name: row.user.full_name }]),
       ).values(),
     ],
   })
@@ -86,7 +92,7 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
           response.code === 'already_undone'
         ) {
           count += response.data?.undone_count ?? 0
-          setUndoBatches(current => current.filter(row => row.id !== batch.id))
+          setUndoBatches((current) => current.filter((row) => row.id !== batch.id))
         } else {
           errors.push(
             unknownOutcome(response.status)
@@ -95,7 +101,10 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
           )
         }
       }
-      const message = [count ? `Moved ${count} ${count === 1 ? 'shift' : 'shifts'} back to waiting.` : '', ...errors]
+      const message = [
+        count ? `Moved ${count} ${count === 1 ? 'shift' : 'shifts'} back to waiting.` : '',
+        ...errors,
+      ]
         .filter(Boolean)
         .join(' ')
       setNotice(message)
@@ -107,13 +116,16 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
     }
   }
   const refresh = async () => {
+    const confirmed = new Map<number, number>()
     if (lock.current || !navigator.onLine) return
     lock.current = true
     setBusy(true)
     try {
       await reload()
       for (const [fingerprint, request] of uncertain.current) {
-        const states = await Promise.all(request.items.map(item => approvalsApi.entry(item.id)))
+        const states = await Promise.all(
+          request.items.map((item) => approvalsApi.entry(item.id)),
+        )
         // Only replay once all requested decisions are already saved. If the
         // first request never committed, this check prevents Reload approving
         // pending time. The same key then recovers the committed batch + Undo.
@@ -144,12 +156,14 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
         remember(batchFor(response.data, request.items, request.rows), request.items)
         uncertain.current.delete(fingerprint)
         retryKeys.current.delete(fingerprint)
+        response.data.time_entries.forEach((row) => confirmed.set(row.id, row.version))
         setNotice('Confirmed this approval saved. Undo is available below.')
       }
     } finally {
       lock.current = false
       setBusy(false)
     }
+    return confirmed
   }
   const approve = async (
     items: readonly ReviewItem[],
@@ -206,7 +220,8 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
       }
       if (succeeded.length) {
         toast.show({
-          message: result === 'ok' ? label : `Approved ${approved} of ${items.length} shifts.`,
+          message:
+            result === 'ok' ? label : `Approved ${approved} of ${items.length} shifts.`,
           duration: 10_000,
           action: {
             label: 'Undo',

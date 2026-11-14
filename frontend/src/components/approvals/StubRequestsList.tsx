@@ -105,7 +105,7 @@ export default function StubRequestsList({
           />
         ))}
       </ListGroup>
-      {sending && online && (
+      {sending && (
         <SendPayStubDialog
           request={sending}
           canChooseRecipient={canChooseRecipient}

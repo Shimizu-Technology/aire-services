@@ -23,6 +23,7 @@ import {
   approvalSelection,
   exclusionCopy,
   isOrdinary,
+  leaveMatchesDates,
   pendingParams,
   rememberDepartment,
   rememberedDepartment,
@@ -427,14 +428,20 @@ function ApprovalsInbox() {
       person?.approval_group_keys ?? (person?.approval_group ? [person.approval_group] : [])
     return department === 'unassigned' ? keys.length === 0 : keys.includes(department)
   }
-  const visibleLeave = leave.filter((request) => matchesPerson(request.user.id))
+  const visibleLeave = leave.filter(
+    (request) => matchesPerson(request.user.id) && leaveMatchesDates(request, query),
+  )
   const visibleStubs = stubs.filter((request) => matchesPerson(request.worker.id))
   const showStubs = capabilities.send_pay_statements && visibleStubs.length > 0
   const kind: ApprovalKind =
     query.get('kind') === 'leave'
       ? 'leave'
       : query.get('kind') === 'stubs' &&
-          (showStubs || peopleLoading || Boolean(peopleError) || extrasLoading)
+          (showStubs ||
+            peopleLoading ||
+            Boolean(peopleError) ||
+            extrasLoading ||
+            Boolean(extrasError.stubs))
         ? 'stubs'
         : 'time'
   const lock = approvalLockCopy(cutoff)

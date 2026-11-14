@@ -319,3 +319,32 @@ it('uses singular shift copy when Undo restores one shift', async () => {
   })
   expect(result.current.notice).toBe('Moved 1 shift back to waiting.')
 })
+
+it('returns only the original replay’s saved entry versions as confirmation', async () => {
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({ error: 'Unavailable', status: 503 })
+  const { result } = renderHook(() => useReviewBatch(vi.fn()), { wrapper })
+  await act(async () => {
+    await result.current.approve(items(1), 100, 'Approved')
+  })
+  vi.mocked(approvalsApi.entry).mockResolvedValue({
+    data: { time_entry: reviewEntry(1, 1, { version: 7, approval_status: 'approved' }) },
+  })
+  vi.mocked(approvalsApi.review).mockResolvedValue({
+    data: {
+      review_batch_id: 'original',
+      undo_expires_at: '2099-11-14T00:00:00Z',
+      approved_count: 1,
+      time_entries: [
+        { id: 1, version: 7, approval_status: 'approved', overtime_status: 'none' },
+      ],
+    },
+  })
+  let confirmed: ReadonlyMap<number, number> | undefined
+  await act(async () => {
+    confirmed = await result.current.refresh()
+  })
+  expect(confirmed?.get(1)).toBe(7)
+  expect(vi.mocked(approvalsApi.review).mock.calls[1][1]).toBe(
+    vi.mocked(approvalsApi.review).mock.calls[0][1],
+  )
+})

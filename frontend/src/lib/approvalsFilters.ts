@@ -3,7 +3,10 @@ import type { ReviewEntry, ReviewItem } from './api/approvals'
 import { businessWeekStart } from './dateUtils'
 import { parsePayPeriodStart } from './payPeriods'
 
-export function pendingParams(query: URLSearchParams, department: string): PendingApprovalsParams {
+export function pendingParams(
+  query: URLSearchParams,
+  department: string,
+): PendingApprovalsParams {
   const params: Record<string, string | number> = {
     per_page: 500,
     sort: 'work_date',
@@ -71,7 +74,7 @@ export function approvalSelection(rows: readonly ReviewEntry[]): ApprovalSelecti
   if (
     !rows.length ||
     !rows.every(isOrdinary) ||
-    new Set(rows.map(row => row.id)).size !== rows.length
+    new Set(rows.map((row) => row.id)).size !== rows.length
   )
     throw new Error('Choose ordinary shifts from the current list.')
   const people = new Map<number, { id: number; name: string; count: number }>()
@@ -86,7 +89,7 @@ export function approvalSelection(rows: readonly ReviewEntry[]): ApprovalSelecti
   }
   return {
     rows: [...rows],
-    items: rows.map(row => ({
+    items: rows.map((row) => ({
       id: row.id,
       version: row.version,
       approve_time: true,
@@ -94,7 +97,7 @@ export function approvalSelection(rows: readonly ReviewEntry[]): ApprovalSelecti
     })),
     people: [...people.values()],
     hours: rows.reduce((sum, row) => sum + row.hours, 0),
-    dates: rows.map(row => row.work_date).sort(),
+    dates: rows.map((row) => row.work_date).sort(),
   }
 }
 export function exclusionCopy(rows: ReviewEntry[]) {
@@ -104,10 +107,12 @@ export function exclusionCopy(rows: ReviewEntry[]) {
   return [...people]
     .map(([name, entries]) => {
       const reasons = [
-        ...new Set(entries.flatMap(entry => entry.exceptions.map(reason => reason.label))),
+        ...new Set(
+          entries.flatMap((entry) => entry.exceptions.map((reason) => reason.label)),
+        ),
       ]
       const overtime = entries
-        .filter(entry => entry.overtime_status === 'pending')
+        .filter((entry) => entry.overtime_status === 'pending')
         .reduce((sum, entry) => sum + (entry.pending_overtime_hours ?? 0), 0)
       return `${name}: ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} · ${reasons.join(', ')}${overtime > 0 ? ` · ${overtime.toFixed(1)}h overtime waiting` : ''}`
     })
@@ -120,11 +125,13 @@ export function approvalChunks(
   limit: number,
   rows: readonly ReviewEntry[] = [],
 ): ReviewItem[][] {
-  const byId = new Map(rows.map(row => [row.id, row]))
+  const byId = new Map(rows.map((row) => [row.id, row]))
   const groups = new Map<string, ReviewItem[]>()
   for (const item of items) {
     const row = byId.get(item.id)
-    const key = row ? `${row.user.id}/${businessWeekStart(row.work_date)}` : `entry/${item.id}`
+    const key = row
+      ? `${row.user.id}/${businessWeekStart(row.work_date)}`
+      : `entry/${item.id}`
     groups.set(key, [...(groups.get(key) ?? []), item])
   }
   const chunks: ReviewItem[][] = []
@@ -151,4 +158,26 @@ export function isTinyShift(entry: ReviewEntry) {
     return Number.isFinite(duration) && duration >= 0 && duration < 60_000
   }
   return entry.hours >= 0 && entry.hours < 1 / 60
+}
+
+/** Apply the inbox's date modes to a leave interval, including both edges. */
+export function leaveMatchesDates(
+  request: { start_date: string; end_date: string },
+  query: URLSearchParams,
+) {
+  const dates = pendingParams(query, 'all')
+  const lower = [dates.date, dates.since_date, dates.start_date]
+    .filter(Boolean)
+    .map(String)
+    .sort()
+    .at(-1)
+  const upper = [dates.date, dates.through_date, dates.end_date]
+    .filter(Boolean)
+    .map(String)
+    .sort()[0]
+  return (
+    (!lower || !upper || lower <= upper) &&
+    (!lower || request.end_date >= lower) &&
+    (!upper || request.start_date <= upper)
+  )
 }

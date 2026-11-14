@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import type { LeaveRequest } from '../../lib/api'
 import { approvalsApi } from '../../lib/api/approvals'
@@ -108,4 +108,47 @@ it('uses human leave dates and singular days, including overlapping people', asy
   ).toBeInTheDocument()
   expect(screen.getByText(/Paid time off · Sat, Nov 21 · 1 day/)).toBeInTheDocument()
   expect(screen.queryByText(/1 days|2026–/)).not.toBeInTheDocument()
+})
+
+it('quietly reports a failed overlap page and retries without presenting partial context', async () => {
+  const request = {
+    id: 5,
+    user: { id: 5, full_name: 'Ethan Cruz' },
+    leave_type: 'sick',
+    start_date: '2026-11-21',
+    end_date: '2026-11-21',
+    total_days: 1,
+  } as LeaveRequest
+  const other = {
+    ...request,
+    id: 6,
+    user: { ...request.user, id: 6, full_name: 'Grace Torres' },
+  }
+  const page = (rows: LeaveRequest[], pages: number) => ({
+    data: {
+      leave_requests: rows,
+      pagination: {
+        current_page: 1,
+        per_page: 100,
+        total_pages: pages,
+        total_count: rows.length,
+      },
+    },
+  })
+  vi.mocked(approvalsApi.approvedLeave)
+    .mockReset()
+    .mockResolvedValueOnce(page([other], 2))
+    .mockResolvedValueOnce({ error: 'Unavailable' })
+    .mockResolvedValue(page([other], 1))
+  render(
+    <ToastProvider>
+      <LeaveRequestsList requests={[request]} onChanged={vi.fn()} />
+    </ToastProvider>,
+  )
+  expect(await screen.findByText(/Couldn't check overlaps/)).toBeInTheDocument()
+  expect(screen.queryByText(/Also off/)).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Approve leave for Ethan Cruz' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  expect(await screen.findByText(/Also off: Grace Torres/)).toBeInTheDocument()
+  expect(screen.queryByText(/Couldn't check overlaps/)).not.toBeInTheDocument()
 })

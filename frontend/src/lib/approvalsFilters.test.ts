@@ -4,10 +4,12 @@ import {
   approvalSelection,
   exclusionCopy,
   isOrdinary,
+  leaveMatchesDates,
   pendingParams,
 } from './approvalsFilters'
 import { reviewEntry } from '../test/approvalFixtures'
-const entry = (id: number, overrides = {}) => reviewEntry(id, id, { version: id + 7, ...overrides })
+const entry = (id: number, overrides = {}) =>
+  reviewEntry(id, id, { version: id + 7, ...overrides })
 describe('approval snapshots', () => {
   it('uses exactly the selected displayed rows and versions', () => {
     const displayed = [entry(2), entry(9)]
@@ -25,12 +27,12 @@ describe('approval snapshots', () => {
     { overtime_status: 'pending' },
     { needs_another_approver: true },
     { version: undefined },
-  ])('rejects unsafe batch input %j', overrides => {
+  ])('rejects unsafe batch input %j', (overrides) => {
     expect(isOrdinary(entry(1, overrides))).toBe(false)
     expect(() => approvalSelection([entry(1, overrides)])).toThrow()
   })
   it('does not treat a paged or filtered list as an implicit wider selection', () => {
-    expect(approvalSelection([entry(12)]).items.map(item => item.id)).toEqual([12])
+    expect(approvalSelection([entry(12)]).items.map((item) => item.id)).toEqual([12])
   })
   it('keeps reminder filters and expands a period query', () => {
     expect(
@@ -63,14 +65,14 @@ it('packs a person’s Sunday–Saturday week together across the old boundary',
   rows.push(reviewEntry(100, 100, { work_date: '2026-11-09' }))
   rows.push(reviewEntry(101, 100, { work_date: '2026-11-10' }))
   const chunks = approvalChunks(approvalSelection(rows).items, 100, rows)
-  expect(chunks.map(chunk => chunk.length)).toEqual([99, 2])
-  expect(chunks[1].map(item => item.id)).toEqual([100, 101])
+  expect(chunks.map((chunk) => chunk.length)).toEqual([99, 2])
+  expect(chunks[1].map((item) => item.id)).toEqual([100, 101])
   expect(
     chunks
       .flat()
-      .map(item => item.id)
+      .map((item) => item.id)
       .sort((a, b) => a - b),
-  ).toEqual(rows.map(row => row.id))
+  ).toEqual(rows.map((row) => row.id))
 })
 it('separates Sunday weeks and splits only a group exceeding the API limit', () => {
   const rows = [
@@ -79,14 +81,16 @@ it('separates Sunday weeks and splits only a group exceeding the API limit', () 
     reviewEntry(3, 1, { work_date: '2026-11-16' }),
   ]
   expect(
-    approvalChunks(approvalSelection(rows).items, 2, rows).map(chunk => chunk.map(item => item.id)),
+    approvalChunks(approvalSelection(rows).items, 2, rows).map((chunk) =>
+      chunk.map((item) => item.id),
+    ),
   ).toEqual([[1], [2, 3]])
   expect(
     approvalChunks(
       approvalSelection([reviewEntry(1), reviewEntry(2, 1), reviewEntry(3, 1)]).items,
       2,
       [reviewEntry(1), reviewEntry(2, 1), reviewEntry(3, 1)],
-    ).map(chunk => chunk.length),
+    ).map((chunk) => chunk.length),
   ).toEqual([2, 1])
 })
 
@@ -94,4 +98,24 @@ it('keeps a sub-minute shift out of every ordinary snapshot', () => {
   const tiny = reviewEntry(1, 1, { clock_out_at: '2026-11-09T22:00:30Z', hours: 0.01 })
   expect(isOrdinary(tiny)).toBe(false)
   expect(() => approvalSelection([tiny])).toThrow('Choose ordinary shifts')
+})
+
+it.each([
+  ['date=2026-11-21', true],
+  ['date=2026-11-22', false],
+  ['through_date=2026-11-20', true],
+  ['through_date=2026-11-19', false],
+  ['since_date=2026-11-21', true],
+  ['since_date=2026-11-22', false],
+  ['start_date=2026-11-21&end_date=2026-11-30', true],
+  ['start_date=2026-11-22&end_date=2026-11-30', false],
+  ['period=2026-11-16', true],
+  ['period=2026-11-01', false],
+])('applies inclusive leave overlap for %s', (query, expected) => {
+  expect(
+    leaveMatchesDates(
+      { start_date: '2026-11-20', end_date: '2026-11-21' },
+      new URLSearchParams(query),
+    ),
+  ).toBe(expected)
 })

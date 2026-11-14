@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, X } from 'lucide-react'
+import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { formatPayDate, formatPeriod, runPurposeLabel } from '../../lib/myPayApi'
 import { PayStubError, payStubsApi, type PayStubDate, type PayStubLink, type PayStubRequest, type PayStubWorker } from '../../lib/payStubsApi'
@@ -47,6 +48,7 @@ const secondary = 'inline-flex min-h-11 items-center justify-center rounded-xl b
 const primary = 'inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] duration-100 hover:bg-primary-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none'
 
 export default function SendPayStubDialog({ request, workerId, canChooseRecipient, onClose, onSent }: Props) {
+  const online = useOnlineStatus()
   const ids = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   useDialogFocus(true, dialogRef, onClose)
@@ -98,7 +100,7 @@ export default function SendPayStubDialog({ request, workerId, canChooseRecipien
   const typing = effectiveDestination === 'typed' && typedRequest === null
   const typedMismatch = typing && confirmation.length > 0 && email.trim().toLowerCase() !== confirmation.trim().toLowerCase()
   const recipient = typedRequest ?? (effectiveDestination === 'on_file' ? onFile : email.trim().toLowerCase())
-  const canSend = Boolean(worker) && selected.size > 0 && !sending && !blocked
+  const canSend = online && Boolean(worker) && selected.size > 0 && !sending && !blocked
     && (typedRequest !== null || (effectiveDestination === 'on_file' ? Boolean(onFile) : email.trim().includes('@') && email.trim().toLowerCase() === confirmation.trim().toLowerCase()))
 
   const notOnFileBadge = (
@@ -314,7 +316,7 @@ export default function SendPayStubDialog({ request, workerId, canChooseRecipien
               )}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <button type="button" onClick={onClose} disabled={sending} className={secondary}>Cancel</button>
-                <button type="button" onClick={send} disabled={!canSend} aria-busy={sending} className={primary}>{sending ? 'Sending…' : 'Send secure link'}</button>
+                <button type="button" onClick={send} disabled={!canSend} title={!online ? 'Reconnect to send' : undefined} aria-busy={sending} className={primary}>{sending ? 'Sending…' : 'Send secure link'}</button>
               </div>
             </div>
           </>

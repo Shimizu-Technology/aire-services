@@ -168,10 +168,11 @@ it('hands the active dialog to the editor and restores review when editing close
   expect(screen.getByRole('dialog', { name: 'Review Marcus Quinata' })).toBeInTheDocument()
 })
 
-it('closes an unknown decision as Saved when Reload confirms its requested fields', async () => {
+it('closes an unknown decision as Saved only when replay confirms its saved version', async () => {
   vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
   const config = props()
   config.onApprove.mockResolvedValue('unknown')
+  config.onReload.mockResolvedValue(new Map([[7, 18]]))
   vi.mocked(api.getTimeEntry).mockResolvedValue({
     data: { time_entry: reviewEntry(7, 1, { version: 18, approval_status: 'approved' }) },
   })
@@ -298,4 +299,31 @@ it('navigates the person week while keeping decisions on the selected shift', as
       expect.any(String),
     ),
   )
+})
+
+it('does not report Saved when another approver changed and approved uncertain overtime', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  const config = props()
+  config.entry = { ...config.entry, overtime_status: 'pending', pending_overtime_hours: 6 }
+  config.onApprove.mockResolvedValue('unknown')
+  vi.mocked(api.getTimeEntry).mockResolvedValue({
+    data: {
+      time_entry: reviewEntry(7, 1, {
+        version: 21,
+        approval_status: 'approved',
+        overtime_status: 'approved',
+        hours: 4,
+      }),
+    },
+  })
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Approve time + 6.0h overtime' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+  await waitFor(() =>
+    expect(config.onClose).toHaveBeenCalledWith(
+      true,
+      'This shift changed since you opened it. Nothing was approved.',
+    ),
+  )
+  expect(config.onClose).not.toHaveBeenCalledWith(true, 'Saved')
 })
