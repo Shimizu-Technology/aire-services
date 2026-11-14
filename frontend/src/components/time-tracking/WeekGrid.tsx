@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+import { ArrowRight } from 'lucide-react'
 import { businessDateISO, formatDateOnly } from '../../lib/dateUtils'
 
 // The team week grid (Timecards' Everyone view). Moved out of TimeTracking.tsx
@@ -57,11 +59,32 @@ export default function WeekGrid<T extends WeekGridEntry>({
   openNewEntry,
   addDisabled,
 }: WeekGridProps<T>) {
+  // Below 1280px seven days don't fit readably beside the sidebar, so the week is a
+  // wider canvas that scrolls sideways, with a cue while more days are off to the right.
+  const scroller = useRef<HTMLDivElement>(null)
+  const [moreRight, setMoreRight] = useState(false)
+  useEffect(() => {
+    const node = scroller.current
+    if (!node) return
+    const update = () => setMoreRight(node.scrollWidth - node.clientWidth - node.scrollLeft > 4)
+    update()
+    node.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      node.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [])
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-neutral-warm overflow-hidden hover:shadow-md transition-shadow duration-300">
-      <div className="overflow-x-auto">
+      <p className="flex items-center gap-1.5 border-b border-neutral-warm bg-surface-muted px-3 py-2 text-sm text-ink-muted xl:hidden">
+        Scroll sideways to see every day
+        <ArrowRight className="size-4" aria-hidden="true" />
+      </p>
+      <div className="relative">
+      <div ref={scroller} className="overflow-x-auto">
         {/* Week Header */}
-        <div className="grid min-w-[980px] grid-cols-7 border-b border-neutral-warm lg:min-w-full">
+        <div className="grid min-w-[1020px] grid-cols-7 border-b border-neutral-warm xl:min-w-full">
           {weekDates.map((date, idx) => {
             const dateStr = date
             const isToday = date === businessDateISO()
@@ -89,7 +112,7 @@ export default function WeekGrid<T extends WeekGridEntry>({
         </div>
 
         {/* Week Entries */}
-        <div className="grid min-h-[280px] grid-cols-7 min-w-[980px] sm:min-h-[320px] lg:min-w-full">
+        <div className="grid min-h-[280px] grid-cols-7 min-w-[1020px] sm:min-h-[320px] xl:min-w-full">
           {weekDates.map((date, idx) => {
             const dateStr = date
             const dayEntries = entriesByDate[dateStr] || []
@@ -175,6 +198,10 @@ export default function WeekGrid<T extends WeekGridEntry>({
             )
           })}
         </div>
+      </div>
+      {moreRight && (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-linear-to-l from-white to-transparent xl:hidden" />
+      )}
       </div>
     </div>
   )
