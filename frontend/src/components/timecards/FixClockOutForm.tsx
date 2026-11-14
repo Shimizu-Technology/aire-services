@@ -12,6 +12,8 @@ export interface FixClockOutFormProps {
   categories: Array<{ id: number; name: string }>
   onCancel: () => void
   onSaved: () => void
+  /** After a conflict: close the form and load the shift's current version. */
+  onReload: () => void
 }
 
 const dayLabel = (date: string) => formatDateOnly(date, { weekday: 'short', month: 'short', day: 'numeric' })
@@ -21,14 +23,16 @@ const dayLabel = (date: string) => formatDateOnly(date, { weekday: 'short', mont
  * day the API will save it (10:30 PM to 6:30 AM ends the next morning), and the
  * total shows before Save so a wrong day is visible.
  */
-export function FixClockOutForm({ entry, categories, onCancel, onSaved }: FixClockOutFormProps) {
+export function FixClockOutForm({ entry, categories, onCancel, onSaved, onReload }: FixClockOutFormProps) {
   const ids = useId()
   const online = useOnlineStatus()
   const timeRef = useRef<HTMLInputElement>(null)
   const assigned = categories.filter(category => entry.user.time_category_ids?.includes(category.id))
   const keepsCategory = entry.time_category && assigned.some(category => category.id === entry.time_category?.id)
   const [endTime, setEndTime] = useState('')
-  const [categoryId, setCategoryId] = useState(keepsCategory ? String(entry.time_category?.id) : assigned.length === 1 ? String(assigned[0].id) : '')
+  const [categoryChoice, setCategoryChoice] = useState('')
+  // Worked out from the current categories, which can arrive after the form opens.
+  const categoryId = categoryChoice || (keepsCategory ? String(entry.time_category?.id) : assigned.length === 1 ? String(assigned[0].id) : '')
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState<{ endTime?: string; category?: string; reason?: string }>({})
   const [failure, setFailure] = useState<{ message: string; stale: boolean } | null>(null)
@@ -85,7 +89,7 @@ export function FixClockOutForm({ entry, categories, onCancel, onSaved }: FixClo
         </div>
         {!keepsCategory && (
           <Field label="Work" required error={errors.category}>
-            <Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+            <Select value={categoryId} onChange={(event) => setCategoryChoice(event.target.value)}>
               <option value="">Choose…</option>
               {assigned.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
             </Select>
@@ -101,7 +105,8 @@ export function FixClockOutForm({ entry, categories, onCancel, onSaved }: FixClo
       </p>
       {failure && (
         <div role="alert" className="rounded-control border border-red-200 bg-danger-soft px-3 py-2 text-body-sm text-red-900">
-          {failure.message}{failure.stale && ' Cancel and open it again to see the latest.'}
+          {failure.message}
+          {failure.stale && <Button variant="secondary" size="sm" onClick={onReload} className="mt-2 block">Reload this shift</Button>}
         </div>
       )}
       <div className="flex flex-wrap gap-2">

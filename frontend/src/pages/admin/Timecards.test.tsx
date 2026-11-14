@@ -196,6 +196,52 @@ describe('Timecards on a phone', () => {
     expect(await screen.findByText("Added 8.0h for Caleb. It's waiting in Approvals.")).toBeInTheDocument()
   })
 
+  it('says when work categories fail to load, and retries', async () => {
+    apiMock.getTimeCategories.mockResolvedValueOnce({ error: 'Server returned an invalid response (502)' })
+    openAt('/admin/timecards?user_id=7&period=2026-11-01')
+    const alert = await screen.findByText("Couldn't load work categories.")
+    fireEvent.click(within(alert.closest('[role=alert]') as HTMLElement).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByText("Couldn't load work categories.")).not.toBeInTheDocument())
+    expect(apiMock.getTimeCategories).toHaveBeenCalledTimes(2)
+  })
+
+  it('after a conflict, reloads the shift and saves with its current version', async () => {
+    apiMock.updateTimeEntry
+      .mockResolvedValueOnce({ error: 'This entry changed. Reload it before submitting the correction', status: 409, code: 'stale_entry' })
+      .mockResolvedValueOnce({ data: { time_entry: OPEN } })
+    openAt('/admin/timecards?user_id=7&period=2026-11-01')
+    const fill = async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'Fix clock-out' }))
+      fireEvent.change(screen.getByLabelText(/Clocked out/), { target: { value: '15:30' } })
+      fireEvent.change(screen.getByLabelText(/Why the change/), { target: { value: 'Forgot' } })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save clock-out' })) })
+    }
+    await fill()
+    expect(apiMock.updateTimeEntry).toHaveBeenLastCalledWith(55, expect.objectContaining({ expected_version: 4 }), 'Corrected clock-out: Forgot')
+
+    // Someone else changed it meanwhile; the reload brings version 5.
+    apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number; start_date?: string }) => ({
+      data: { time_entries: params.user_id === 7 ? [CALEB_ENTRIES[0], CALEB_ENTRIES[1], { ...OPEN, version: 5 }] : [], pagination: { total_pages: 1 } },
+    }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Reload this shift' })).not.toBeInTheDocument())
+    await fill()
+    expect(apiMock.updateTimeEntry).toHaveBeenLastCalledWith(55, expect.objectContaining({ expected_version: 5 }), 'Corrected clock-out: Forgot')
+  })
+
+  it('keeps the person for Log missed time when a desktop Everyone link opens on a phone', async () => {
+    openAt('/admin/timecards?user_id=7&period=2026-11-01&view=everyone')
+    fireEvent.click(await screen.findByRole('button', { name: 'Log missed time for Caleb' }))
+    expect(within(screen.getByRole('dialog', { name: 'Log missed time' })).getByRole('button', { name: /Who worked/ })).toHaveTextContent('Caleb Perez')
+  })
+
+  it('keeps the way back to the list when the person can’t be found', async () => {
+    openAt('/admin/timecards?user_id=999&period=2026-11-01')
+    expect(await screen.findByText("We couldn't find that person.")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Timecards' }))
+    expect(search().get('user_id')).toBeNull()
+  })
+
   it('shows a former employee read-only', async () => {
     apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [entry({ id: 80, user: { ...OPEN.user, id: 12 } }), entry({ ...OPEN, id: 81, user: { ...OPEN.user, id: 12 } })], pagination: { total_pages: 1 } } })
     openAt('/admin/timecards?user_id=12&period=2026-11-01')

@@ -22,11 +22,12 @@ function openEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
   }
 }
 
-function renderForm(entry = openEntry()) {
+function renderForm(entry = openEntry(), withCategories = categories) {
   const onSaved = vi.fn()
   const onCancel = vi.fn()
-  render(<FixClockOutForm entry={entry} categories={categories} onSaved={onSaved} onCancel={onCancel} />)
-  return { onSaved, onCancel }
+  const onReload = vi.fn()
+  const view = render(<FixClockOutForm entry={entry} categories={withCategories} onSaved={onSaved} onCancel={onCancel} onReload={onReload} />)
+  return { onSaved, onCancel, onReload, view }
 }
 
 beforeEach(() => {
@@ -94,14 +95,27 @@ describe('FixClockOutForm', () => {
     expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(55, expect.objectContaining({ time_category_id: 4 }), 'Corrected clock-out: Forgot')
   })
 
-  it('says nothing was saved when the shift changed underneath', async () => {
+  it('says nothing was saved when the shift changed underneath, and offers a reload', async () => {
     apiMock.updateTimeEntry.mockResolvedValue({ error: 'This entry changed. Reload it before submitting the correction', status: 409, code: 'stale_entry' })
-    const { onSaved } = renderForm()
+    const { onSaved, onReload } = renderForm()
     fireEvent.change(screen.getByLabelText(/Clocked out/), { target: { value: '06:30' } })
     fireEvent.change(screen.getByLabelText(/Why the change/), { target: { value: 'Forgot' } })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save clock-out' })) })
     expect(screen.getByRole('alert')).toHaveTextContent('This shift changed since you opened it. Nothing was saved.')
     expect(onSaved).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))
+    expect(onReload).toHaveBeenCalled()
+  })
+
+  it('keeps the shift’s category when the categories arrive after the form opens', async () => {
+    const { view } = renderForm(openEntry(), [])
+    expect(screen.getByLabelText(/^Work/)).toBeInTheDocument()
+    view.rerender(<FixClockOutForm entry={openEntry()} categories={categories} onSaved={vi.fn()} onCancel={vi.fn()} onReload={vi.fn()} />)
+    expect(screen.queryByLabelText(/^Work/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/Clocked out/), { target: { value: '06:30' } })
+    fireEvent.change(screen.getByLabelText(/Why the change/), { target: { value: 'Forgot' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save clock-out' })) })
+    expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(55, expect.objectContaining({ time_category_id: 3 }), 'Corrected clock-out: Forgot')
   })
 
   it('refuses a clock-out in the future before asking the API', async () => {

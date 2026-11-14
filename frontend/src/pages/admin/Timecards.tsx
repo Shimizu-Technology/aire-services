@@ -7,6 +7,7 @@ import { LogMissedTimeSheet, type MissedTimePerson, type MissedTimePrefill } fro
 import { PeoplePicker } from '../../components/timecards/PeoplePicker'
 import { TimecardView, type TimecardPerson } from '../../components/timecards/TimecardView'
 import { Button, EmptyState, ErrorState, Menu, OfflineBanner, PageHeader, SegmentedControl, useToast, type MenuItem } from '../../components/ui'
+import { Skeleton } from '../../components/ui/Skeleton'
 import type { TimeCategory, UserSummary, WorkerStatus } from '../../lib/api'
 import { timecardsApi, type TimecardSummaryResponse } from '../../lib/api/timecards'
 import { employeeWorkspaceHref, isWithinRoute, safeAdminReturn } from '../../lib/employeeWorkspace'
@@ -63,6 +64,8 @@ export default function Timecards() {
   const [summary, setSummary] = useState<{ key: string; report: TimecardSummaryResponse | null }>({ key: '', report: null })
   const [workers, setWorkers] = useState<WorkerStatus[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
+  const [categoriesError, setCategoriesError] = useState<string | null>(null)
+  const [categoriesRetry, setCategoriesRetry] = useState(0)
   const [lockAt, setLockAt] = useState<{ start: string; at: string } | null>(null)
   const [link, setLink] = useState<{ entryId: number; error: string | null } | null>(null)
   const linkError = entryId && link?.entryId === entryId ? link.error : null
@@ -79,9 +82,18 @@ export default function Timecards() {
     return () => { cancelled = true }
   }, [usersRetry])
 
+  // Fixing a clock-out and logging missed time both need the work categories.
   useEffect(() => {
     let cancelled = false
-    void timecardsApi.categories().then((response) => { if (!cancelled && response.data) setCategories(response.data.time_categories) })
+    void timecardsApi.categories().then((response) => {
+      if (cancelled) return
+      if (response.data) { setCategories(response.data.time_categories); setCategoriesError(null) } else setCategoriesError(response.error ?? 'Unknown error')
+    })
+    return () => { cancelled = true }
+  }, [categoriesRetry])
+
+  useEffect(() => {
+    let cancelled = false
     void timecardsApi.cutoff().then((response) => {
       const cutoff = response.data?.cutoff
       if (!cancelled && cutoff?.period && cutoff.cutoff_at) setLockAt({ start: cutoff.period.start_date, at: cutoff.cutoff_at })
@@ -201,7 +213,7 @@ export default function Timecards() {
     ? 'This shift link is incomplete. Open Log time from the schedule again.'
     : prefillFailure
 
-  const openLog = (prefill: MissedTimePrefill = {}) => setLogPrefill({ personId: view === 'person' ? person?.id ?? null : null, ...prefill })
+  const openLog = (prefill: MissedTimePrefill = {}) => setLogPrefill({ personId: showEveryone ? null : person?.id ?? null, ...prefill })
   const onLogged = (who: MissedTimePerson, hours: number) => {
     setLogPrefill(null)
     toast.show({ message: `Added ${formatHours(hours)} for ${who.firstName}. It's waiting in Approvals.` })
@@ -223,6 +235,12 @@ export default function Timecards() {
   for (const key of ['user_id', 'view', ...ARRIVAL_PARAMS]) backToList.delete(key)
   const backSearch = backToList.toString()
 
+  const backLink = desktop ? undefined : (
+    <Link to={{ search: backSearch ? `?${backSearch}` : '' }} className="-ml-1 inline-flex min-h-11 items-center gap-1 text-body-sm font-semibold text-primary">
+      <ChevronLeft aria-hidden="true" className="size-4" />Timecards
+    </Link>
+  )
+
   const timecard = person && (
     <TimecardView
       key={person.id}
@@ -236,20 +254,21 @@ export default function Timecards() {
       onChanged={refresh}
       onLogMissedTime={desktop ? undefined : () => openLog()}
       actions={menuItems.length > 0 ? <Menu label={`More for ${person.name}`} items={menuItems} /> : undefined}
-      backLink={desktop ? undefined : (
-        <Link to={{ search: backSearch ? `?${backSearch}` : '' }} className="-ml-1 inline-flex min-h-11 items-center gap-1 text-body-sm font-semibold text-primary">
-          <ChevronLeft aria-hidden="true" className="size-4" />Timecards
-        </Link>
-      )}
+      backLink={backLink}
     />
   )
 
   const missingPerson = userId && users.list && !selectedUser
+  // The back link stays in every state, so a phone can always reach the list.
   const personPane = users.error && userId ? (
-    <ErrorState title="Couldn't load this person." description={users.error} onRetry={() => setUsersRetry(value => value + 1)} />
+    <div className="space-y-4">{backLink}<ErrorState title="Couldn't load this person." description={users.error} onRetry={() => setUsersRetry(value => value + 1)} /></div>
   ) : missingPerson ? (
-    <EmptyState title="We couldn't find that person." description="They may have been removed. Pick someone from the list." />
-  ) : timecard
+    <div className="space-y-4">{backLink}<EmptyState title="We couldn't find that person." description="They may have been removed. Pick someone from the list." /></div>
+  ) : timecard ?? (
+    <div aria-busy="true" aria-label="Loading the timecard" className="space-y-2 rounded-card border border-line bg-surface p-4">
+      {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} height={40} className="w-full" />)}
+    </div>
+  )
 
   return (
     <div className="space-y-5">
@@ -274,6 +293,13 @@ export default function Timecards() {
 
       {linkError && <ErrorState title={linkError} description="Pick the person from the list to see their timecard." />}
       {prefillError && <ErrorState title={prefillError} />}
+      {categoriesError && (
+        <ErrorState
+          title="Couldn't load work categories."
+          description="Fixing a clock-out and logging missed time need them. Nothing else is affected."
+          onRetry={() => setCategoriesRetry(value => value + 1)}
+        />
+      )}
 
       {showEveryone ? (
         <EveryoneWeek

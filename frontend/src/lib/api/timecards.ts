@@ -18,7 +18,8 @@ export type TimecardSummaryResponse = Omit<HoursReportResponse, 'employees'> & {
 type Result<T> = { data?: T; error?: string; status?: number; code?: string }
 
 // The API caps a page at 500 rows; a person's pay period is far smaller, and a
-// team week needs a few pages at most.
+// team week needs a few pages at most. Past the limit it's an error, never a
+// partial list whose totals look complete.
 const PAGE_SIZE = 200
 const MAX_PAGES = 10
 
@@ -28,7 +29,9 @@ async function allEntries(params: Parameters<typeof api.getTimeEntries>[0]): Pro
     const response = await api.getTimeEntries({ ...params, page, per_page: PAGE_SIZE })
     if (!response.data) return { error: response.error || "Couldn't load the shifts.", status: response.status }
     entries.push(...response.data.time_entries)
-    if (page >= (response.data.pagination?.total_pages ?? 1)) break
+    const totalPages = response.data.pagination?.total_pages ?? 1
+    if (totalPages > MAX_PAGES) return { error: `There are more than ${MAX_PAGES * PAGE_SIZE} shifts here, too many to show at once.` }
+    if (page >= totalPages) break
   }
   return { data: entries }
 }

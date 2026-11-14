@@ -134,7 +134,7 @@ export function DayRow({ date, today, entries, categories, readOnly = false, hig
         </div>
       </div>
       {/* Full width under the day, so the fields have room on a phone. */}
-      {fixingEntry && !readOnly && <FixClockOutForm entry={fixingEntry} categories={categories} onCancel={() => closeFix(false)} onSaved={() => closeFix(true)} />}
+      {fixingEntry && !readOnly && <FixClockOutForm entry={fixingEntry} categories={categories} onCancel={() => closeFix(false)} onSaved={() => closeFix(true)} onReload={() => closeFix(true)} />}
     </article>
   )
 }
