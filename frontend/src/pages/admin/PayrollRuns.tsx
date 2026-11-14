@@ -16,7 +16,7 @@ import { periodHref } from '../../components/payroll/payPeriodModel'
 import { HandoffSteps } from '../../components/payroll/HandoffSteps'
 import { PayStubsStep } from '../../components/payroll/PayStubsStep'
 import { PeriodHeader } from '../../components/payroll/PeriodHeader'
-import { blockLoad, usePayPeriodData } from '../../components/payroll/usePayPeriodData'
+import { SLOW_REFRESH_MS, blockLoad, usePayPeriodData } from '../../components/payroll/usePayPeriodData'
 import { WhatGoesToPayroll } from '../../components/payroll/WhatGoesToPayroll'
 import { ConnectionCard, PausedBanner } from '../../components/today/ConnectionCard'
 import { periodLabel } from '../../components/today/format'
@@ -24,6 +24,8 @@ import { Button, ErrorState, Menu, PeriodStepper, useConfirm, type MenuItem, typ
 import { Skeleton } from '../../components/ui/Skeleton'
 
 const PAYROLL_RECORDS_PATH = '/admin/payroll/records'
+// The preview refreshes every 5 minutes; past this, a missed refresh shows.
+const STALE_AFTER_MS = SLOW_REFRESH_MS + 60_000
 
 /**
  * Which pay period an old `/admin/payroll?start_date=…&end_date=…` link means,
@@ -247,10 +249,11 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
               waiting={waiting.data}
               previousStart={show.data.previous_start_date}
               sources={[
-                { load: blockLoad(waiting), loadedAt: waiting.loadedAt },
-                { load: blockLoad(preview), loadedAt: preview.loadedAt },
+                { load: blockLoad(waiting), loadedAt: waiting.loadedAt, maxAgeMs: STALE_AFTER_MS },
+                { load: blockLoad(preview), loadedAt: preview.loadedAt, maxAgeMs: STALE_AFTER_MS },
                 ...(isCurrent ? [{ load: blockLoad(attention), loadedAt: attention.loadedAt }] : []),
               ]}
+              now={now}
               onRetry={() => void refresh()}
             />
           )}
@@ -263,6 +266,8 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
             <WhatGoesToPayroll
               payload={payload}
               locked={locked}
+              received={Boolean(period && ['received', 'in_run', 'paid'].includes(period.handoff_state))}
+              frozenWhenFinalized={period?.handoff_state === 'before_locking'}
               initialOpen={params.get('user_id')}
               highlightEntry={params.get('entry_id')}
               returnTo={returnTo}

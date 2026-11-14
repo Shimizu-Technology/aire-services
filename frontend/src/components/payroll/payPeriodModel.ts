@@ -66,16 +66,29 @@ function overtimeItem(range: PayPeriod, count: number, hours: number | null, peo
   return {
     key: 'overtime',
     status: 'todo',
-    text: hours === null ? `${plural(count, 'shift')} with overtime waiting` : `${hoursLabel(hours)} overtime waiting`,
+    text: hours === null ? `${plural(count, 'shift')} with overtime to review` : `${hoursLabel(hours)} overtime waiting`,
     meta: names(people) || undefined,
     action: { label: 'Review', to: approvalsForPeriodHref(range, { approval_type: 'overtime' }) },
   }
 }
 
-function missingCategoryItem(count: number, to: string): ChecklistEntry {
+/** `scope` names the shifts actually checked, so the done line claims no more than that. */
+function missingCategoryItem(count: number, to: string, scope: 'finished' | 'approved'): ChecklistEntry {
   return count > 0
     ? { key: 'missing_category', status: 'todo', text: `${plural(count, 'shift')} ${count === 1 ? 'has' : 'have'} no work category`, action: { label: 'Fix', to } }
-    : { key: 'missing_category', status: 'done', text: 'Every shift has a work category' }
+    : { key: 'missing_category', status: 'done', text: `Every ${scope} shift has a work category` }
+}
+
+/**
+ * The shift a Fix link should open: an uncategorized line that actually pays
+ * hours (not a correction or a negative line), else Today's first entry.
+ */
+function blockingEntryId(preview: PayrollBatchPayload | null, attentionIds: number[] | undefined) {
+  const lines = preview?.employees.flatMap(employee => employee.adjustments).filter(line => !line.category) ?? []
+  const paying = lines.find(line => line.source_kind !== 'correction' && line.total_hours > 0)
+  if (paying) return paying.source_time_entry_id
+  if (attentionIds?.length) return String(attentionIds[0])
+  return lines[0]?.source_time_entry_id
 }
 
 function lateHoursItem(preview: PayrollBatchPayload, previousStart: string | null): ChecklistEntry {
@@ -123,8 +136,8 @@ const timecardHref = (entryId: string, query: Record<string, string> = {}) =>
  * - Waiting shifts and overtime: pending approvals for the period's dates.
  * - Earlier-day clocks: Today's attention list for the current period, else
  *   the preview's open clocks from before today.
- * - Work categories: the preview's blocking count (what stops the lock,
- *   carried-in work included), else Today's.
+ * - Work categories: the larger of the preview's blocking count (what stops
+ *   the lock, carried-in work included) and Today's (refreshed every minute).
  */
 export function checklistEntries({ range, today, attention, preview, waiting, previousStart }: ChecklistInput): ChecklistEntry[] {
   const forThisPeriod = attention?.period?.start_date === range.start ? attention : null
@@ -146,14 +159,15 @@ export function checklistEntries({ range, today, attention, preview, waiting, pr
 
   if (waiting) items.push(overtimeItem(range, waiting.overtime.count, waiting.overtime.hours, waiting.overtime.people))
 
-  if (preview) {
-    const blocking = preview.employees.flatMap(employee => employee.adjustments).find(line => !line.category)
-    const fallback = forThisPeriod?.items.find((item): item is MissingCategoryAttentionItem => item.type === 'missing_category')
-    const to = blocking ? timecardHref(blocking.source_time_entry_id) : missingCategoryHref(fallback?.entry_ids[0])
-    items.push(missingCategoryItem(preview.issues.missing_category_count, to))
-  } else if (forThisPeriod) {
-    const missing = forThisPeriod.items.find((item): item is MissingCategoryAttentionItem => item.type === 'missing_category')
-    items.push(missingCategoryItem(missing?.count ?? 0, missingCategoryHref(missing?.entry_ids[0])))
+  // The preview counts approved work going to payroll (carried-in included);
+  // Today's list counts this period's finished shifts and refreshes every
+  // minute. The current period takes the larger, so a shift that loses its
+  // category shows up before the next preview.
+  const missing = forThisPeriod?.items.find((item): item is MissingCategoryAttentionItem => item.type === 'missing_category')
+  if (preview || forThisPeriod) {
+    const count = Math.max(preview?.issues.missing_category_count ?? 0, missing?.count ?? 0)
+    const entryId = blockingEntryId(preview, missing?.entry_ids)
+    items.push(missingCategoryItem(count, entryId ? timecardHref(entryId) : missingCategoryHref(undefined), forThisPeriod ? 'finished' : 'approved'))
   }
 
   if (preview) items.push(lateHoursItem(preview, previousStart))
@@ -224,10 +238,13 @@ export function periodFacts(period: PayrollPeriodSummary) {
   ].filter(Boolean).join(' · ')
 }
 
-/** The carried part of a shift (held overtime, say), and the whole shift when that's bigger. */
+/** The carried part of a shift: the overtime for an overtime hold, else the whole shift. The whole shift is added when bigger. */
 export function carriedHours(item: PayrollCarryoverItem): { carried: number; shift: number | null } {
-  const shift = item.current_total_hours
-  return { carried: item.held_total_hours, shift: shift !== null && shift > item.held_total_hours ? shift : null }
+  const current = item.current_total_hours
+  // An overtime hold carries only the overtime; anything else carries the whole shift as it is now.
+  if (!item.exclusion_reason.includes('overtime')) return { carried: current ?? item.held_total_hours, shift: null }
+  const carried = current === null ? item.held_total_hours : Math.min(item.held_total_hours, current)
+  return { carried, shift: current !== null && current > carried ? current : null }
 }
 
 /**

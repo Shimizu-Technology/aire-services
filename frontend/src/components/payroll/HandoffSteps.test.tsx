@@ -56,7 +56,8 @@ describe('HandoffSteps', () => {
     expect(screen.queryByText(/paid/i)).not.toBeInTheDocument()
     unmount()
     render(<MemoryRouter><HandoffSteps period={{ handoff_state: 'before_locking', status: 'finalized', delivery: null, payroll_status: null }} /></MemoryRouter>)
-    expect(screen.getByText("Before locking. AIRE didn't lock hours for this period; its hours were recorded here.")).toBeInTheDocument()
+    // Re-check 2: a finalized one was frozen, just not by the scheduled lock.
+    expect(screen.getByText("Before locking. AIRE's scheduled lock didn't run for this period; the hours were frozen when it was finalized.")).toBeInTheDocument()
   })
 })
 
@@ -86,7 +87,7 @@ describe('stale answers', () => {
   const clear = { range, today: '2026-11-11', attention: null, preview: preview({ employees: [], exclusions: [] }), previousStart: null,
     waiting: { count: 0, hours: 0, overtime: { count: 0, hours: 0, people: [] } } }
   const loadedAt = new Date('2026-11-11T19:41:00+10:00')
-  const renderChecklist = (sources: ChecklistSource[]) => render(<MemoryRouter><BeforeLockChecklist {...clear} sources={sources} onRetry={vi.fn()} /></MemoryRouter>)
+  const renderChecklist = (sources: ChecklistSource[], now = loadedAt) => render(<MemoryRouter><BeforeLockChecklist {...clear} sources={sources} now={now} onRetry={vi.fn()} /></MemoryRouter>)
 
   it('says all clear only when every source just loaded', () => {
     renderChecklist([{ load: 'ready', loadedAt }, { load: 'ready', loadedAt }])
@@ -98,6 +99,13 @@ describe('stale answers', () => {
     expect(screen.getByRole('heading', { name: 'Before it locks' })).toBeInTheDocument()
     expect(screen.queryByText(/all clear/)).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent("Couldn't refresh the checklist · Last updated 7:41 PM. It may not be ready to lock. Try again")
+  })
+
+  // Re-check 1: a preview that missed its 5-minute refresh is out of date even though nothing failed.
+  it('qualifies the lines when a source is older than it should be', () => {
+    renderChecklist([{ load: 'ready', loadedAt, maxAgeMs: 6 * 60_000 }, { load: 'ready', loadedAt }], new Date(loadedAt.getTime() + 7 * 60_000))
+    expect(screen.queryByText(/all clear/)).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Some lines were last updated 7:41 PM. It may not be ready to lock. Refresh')
   })
 
   it('says lines are missing when a source never loaded', () => {

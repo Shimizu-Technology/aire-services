@@ -24,7 +24,10 @@ export function HandoffSteps({ period }: HandoffStepsProps) {
       <h2 id="handoff-steps" className="text-body font-semibold text-ink">Hand-off to Cornerstone Payroll</h2>
       {state === 'before_locking' ? (
         <p className="mt-2 text-body-sm text-ink-muted">
-          {HANDOFF_STATE_LABELS.before_locking}. AIRE didn't lock hours for this period{period.status === 'finalized' ? '; its hours were recorded here' : ''}.
+          {HANDOFF_STATE_LABELS.before_locking}.{' '}
+          {period.status === 'finalized'
+            ? "AIRE's scheduled lock didn't run for this period; the hours were frozen when it was finalized."
+            : "AIRE didn't lock hours for this period."}
         </p>
       ) : (
         <>

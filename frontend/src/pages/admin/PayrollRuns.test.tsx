@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockMatchMedia } from '../../test/matchMedia'
-import { NOW, attention, connection, cutoff, lockControl } from '../../test/fixtures/today'
+import { NOW, allItems, attention, connection, cutoff, lockControl } from '../../test/fixtures/today'
 import { carried, lockedBatch, paidPeriod, periodSummary, periodsIndex, preview } from '../../test/fixtures/payPeriod'
 import type { PayrollPeriodSummary } from '../../lib/api/payrollPeriod'
 import PayrollRuns from './PayrollRuns'
@@ -138,7 +138,7 @@ describe('pay period page: open period', () => {
       ['Review: 31 shifts waiting for approval', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15'],
       ['Fix: 1 person still clocked in from an earlier day', '/admin/timecards?entry_id=812&date=2026-11-10&user_id=7'],
       ['Review: 6h overtime waiting', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
-      ['Fix: 1 shift has no work category', '/admin/timecards?entry_id=640'],
+      ['Fix: 2 shifts have no work category', '/admin/timecards?entry_id=640'],
     ])
     expect(checklist().getByText('Note:').closest('li')).toHaveTextContent('1 shift approved after an earlier lock goes into this payroll')
     expect(screen.getByRole('heading', { name: /Before it locks · 4 things to do/ })).toBeInTheDocument()
@@ -199,6 +199,52 @@ describe('pay period page: open period', () => {
     expect(checklist().getByText('6h overtime waiting')).toBeInTheDocument()
     // Only Ethan's flag has an earlier part.
     expect(within(table).getAllByText(/from earlier periods/)).toHaveLength(1)
+  })
+
+  // Re-check 1: Today's list (every minute) keeps the category line fresh between previews.
+  it('shows a shift that lost its category within a minute, without waiting for the preview', async () => {
+    mocks.attention.mockResolvedValue({ data: attention({ items: [] }) })
+    await open()
+    expect(checklist().getByText('Every finished shift has a work category')).toBeInTheDocument()
+    const previews = mocks.previewPayrollBatch.mock.calls.length
+    mocks.attention.mockResolvedValue({ data: attention({ items: allItems.filter(item => item.type === 'missing_category') }) })
+    await settle(60_000)
+    expect(checklist().getByText('2 shifts have no work category')).toBeInTheDocument()
+    expect(checklist().getByRole('link', { name: /Fix.*no work category/ })).toHaveAttribute('href', '/admin/timecards?entry_id=901')
+    expect(mocks.previewPayrollBatch.mock.calls.length).toBe(previews)
+  })
+
+  // Re-check 9: the preview and the overtime projection are heavy, so they refresh every 5 minutes.
+  it('refreshes the preview and waiting overtime every 5 minutes, not every minute', async () => {
+    await open()
+    const previews = mocks.previewPayrollBatch.mock.calls.length
+    const waiting = mocks.getPendingApprovals.mock.calls.length
+    await settle(60_000)
+    expect(mocks.previewPayrollBatch.mock.calls.length).toBe(previews)
+    expect(mocks.getPendingApprovals.mock.calls.length).toBe(waiting)
+    await settle(4 * 60_000)
+    expect(mocks.previewPayrollBatch.mock.calls.length).toBe(previews + 1)
+    expect(mocks.getPendingApprovals.mock.calls.length).toBe(waiting + 2)
+  })
+
+  it('says when the preview missed its refresh', async () => {
+    // The server's clock moves with the page's, as it does for real.
+    mocks.getPayrollCutoff.mockImplementation(async () => ({ data: cutoff(lockControl(), new Date().toISOString()) }))
+    await open()
+    mocks.previewPayrollBatch.mockReturnValue(new Promise(() => undefined))
+    await settle(7 * 60_000)
+    expect(screen.queryByText(/things to do|all clear/)).not.toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: /Before it locks/ })).getByRole('status')).toHaveTextContent('Some lines were last updated 7:41 PM. It may not be ready to lock.')
+  })
+
+  // Re-check 5: a pending overtime flag with no projected overtime holds nothing back.
+  it('does not list overtime with no projected hours as waiting', async () => {
+    mocks.getPendingApprovals.mockImplementation(async (params: { approval_type?: string }) => params.approval_type === 'overtime'
+      ? { data: { count: 1, pending_entries: [{ id: 905, user: { full_name: 'Ethan Cruz', display_name: 'Ethan' }, pending_overtime_hours: 0 }], summary: { entry_count: 1, total_hours: 8 } } }
+      : pendingApprovals(params))
+    await open()
+    expect(checklist().getByText('No overtime waiting')).toBeInTheDocument()
+    expect(checklist().queryByText(/0h overtime/)).not.toBeInTheDocument()
   })
 
   it('becomes a list of people on a phone', async () => {
@@ -293,7 +339,11 @@ describe('pay period page: lock states', () => {
     expect(screen.queryByRole('button', { name: 'Lock now' })).not.toBeInTheDocument()
     expect(mocks.previewPayrollBatch).not.toHaveBeenCalled()
     expect(mocks.getPayrollBatch).toHaveBeenCalledWith('AIRE-PAY-NOV')
-    const sent = screen.getByRole('table', { name: 'What AIRE sent to payroll at the lock' })
+    // Re-check 3: locked but not received, so nothing claims it was sent.
+    const sent = screen.getByRole('table', { name: 'What AIRE froze at the lock' })
+    expect(screen.getByRole('heading', { name: /What AIRE locked for payroll/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Locked hours (CSV)' })).toBeInTheDocument()
+    expect(screen.queryByText(/What was sent to payroll|went to payroll/)).not.toBeInTheDocument()
     // Only people whose hours went; held-back shifts aren't listed at 0h.
     expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb Perez4h OT held back at the lock', 'Total'])
     // Overtime held back at the lock may be approved since: it isn't called waiting.
@@ -312,7 +362,7 @@ describe('pay period page: lock states', () => {
     // Codex finding 8: the frozen batch is the primary "what was sent" download; the live report is labelled apart.
     const buttons = within(screen.getByRole('region', { name: /What went to payroll/ })).getAllByRole('button').map(button => button.textContent)
     expect(buttons.filter(name => /CSV|PDF/.test(name ?? ''))).toEqual(['What was sent to payroll (CSV)', 'Hours report (live) PDF', 'Hours report (live) CSV'])
-    expect(screen.getByText('The hours AIRE froze at the lock, as in this table.')).toBeInTheDocument()
+    expect(screen.getByText('The hours AIRE froze at the lock, which Payroll confirmed it received, as in this table.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'What was sent to payroll (CSV)' }))
     await settle()
     expect(mocks.downloadPayrollBatch).toHaveBeenCalledWith('AIRE-PAY-20261031-OCT')

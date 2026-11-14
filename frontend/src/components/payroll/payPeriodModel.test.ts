@@ -34,7 +34,7 @@ describe('Before it locks', () => {
       ['approvals', 'todo', '31 shifts waiting for approval', '276.1h', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15'],
       ['open_clocks', 'todo', '1 person still clocked in from an earlier day', caleb.full_name, '/admin/timecards?entry_id=812&date=2026-11-10&user_id=7'],
       ['overtime', 'todo', '6h overtime waiting', ethan.full_name, '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
-      ['missing_category', 'todo', '1 shift has no work category', null, '/admin/timecards?entry_id=640'],
+      ['missing_category', 'todo', '2 shifts have no work category', null, '/admin/timecards?entry_id=640'],
       ['late_hours', 'info', '1 shift approved after the Oct 16–31 lock goes into this payroll', '8.9h', null],
     ])
   })
@@ -46,7 +46,7 @@ describe('Before it locks', () => {
       ['done', 'No shifts waiting for approval'],
       ['done', 'Nobody is still clocked in from an earlier day'],
       ['done', 'No overtime waiting'],
-      ['done', 'Every shift has a work category'],
+      ['done', 'Every finished shift has a work category'],
       ['done', 'No late hours from Oct 16–31 to carry in'],
     ])
     expect(entries.every(entry => !entry.action)).toBe(true)
@@ -67,9 +67,32 @@ describe('Before it locks', () => {
     expect(entries.overtime).toMatchObject({ text: '2h overtime waiting', meta: 'Ethan Cruz' })
   })
 
+  // Re-check 1: Today's list refreshes every minute; the preview every five.
+  it("takes the larger category count, so a shift Today just flagged shows before the next preview", () => {
+    const entries = byKey(checklistEntries(input({ preview: preview() })))
+    expect(entries.missing_category).toMatchObject({ status: 'todo', text: '2 shifts have no work category', action: { to: '/admin/timecards?entry_id=901' } })
+  })
+
+  // Re-check 6: the done line names what was checked.
+  it('says which shifts were checked for a work category', () => {
+    const clear = attention({ items: [] })
+    expect(byKey(checklistEntries(input({ attention: clear }))).missing_category.text).toBe('Every finished shift has a work category')
+    const other = attention({ period: { ...attentionPeriod, start_date: '2026-11-16', end_date: '2026-11-30' } })
+    expect(byKey(checklistEntries(input({ attention: other }))).missing_category.text).toBe('Every approved shift has a work category')
+  })
+
+  // Re-check 7: the Fix link opens a shift that pays hours, not a correction line.
+  it('links Fix to the uncategorized shift that pays hours', () => {
+    const base = uncategorizedCarryIn()
+    const correction = { ...base.employees[0].adjustments[0], source_time_entry_id: '555', source_kind: 'correction' as const, category: null, total_hours: -2, regular_hours: -2 }
+    const employees = base.employees.map((employee, index) => index === 0 ? { ...employee, adjustments: [correction, ...employee.adjustments] } : employee)
+    const entries = byKey(checklistEntries(input({ attention: attention({ items: [] }), preview: { ...base, employees } })))
+    expect(entries.missing_category.action?.to).toBe('/admin/timecards?entry_id=640')
+  })
+
   it('counts overtime shifts without hours when the list was cut short', () => {
     const entries = byKey(checklistEntries(input({ waiting: waiting({ overtime: { count: 3, hours: null, people: ['Ethan Cruz'] } }) })))
-    expect(entries.overtime.text).toBe('3 shifts with overtime waiting')
+    expect(entries.overtime.text).toBe('3 shifts with overtime to review')
   })
 
   // Codex finding 6: an approved shift with overtime pending still waits.
@@ -143,7 +166,13 @@ describe('earlier periods and carried hours', () => {
 
   // Codex finding 7: only the held part was carried.
   it('reports the carried part of a shift, and the whole shift only when bigger', () => {
-    expect(carriedHours(carried({ held_total_hours: 2, current_total_hours: 10 }))).toEqual({ carried: 2, shift: 10 })
-    expect(carriedHours(carried({ held_total_hours: 8.9, current_total_hours: 8.9 }))).toEqual({ carried: 8.9, shift: null })
+    const ot = { exclusion_reason: 'overtime_approved_after_cutoff' }
+    expect(carriedHours(carried({ ...ot, held_total_hours: 2, current_total_hours: 10 }))).toEqual({ carried: 2, shift: 10 })
+    // Re-check 4: edited down after the lock, an overtime hold can't carry more than the shift now has.
+    expect(carriedHours(carried({ ...ot, held_total_hours: 4, current_total_hours: 3 }))).toEqual({ carried: 3, shift: null })
+    // A whole-shift hold carries the shift as it is now, edited up or down.
+    expect(carriedHours(carried({ exclusion_reason: 'approved_after_cutoff', held_total_hours: 8.9, current_total_hours: 9.5 }))).toEqual({ carried: 9.5, shift: null })
+    expect(carriedHours(carried({ exclusion_reason: 'pending_approval', held_total_hours: 8.9, current_total_hours: 6 }))).toEqual({ carried: 6, shift: null })
+    expect(carriedHours(carried({ exclusion_reason: 'open_clock', held_total_hours: 0, current_total_hours: null }))).toEqual({ carried: 0, shift: null })
   })
 })

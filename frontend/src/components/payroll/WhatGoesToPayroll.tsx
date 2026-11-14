@@ -78,6 +78,10 @@ export interface WhatGoesToPayrollProps {
   payload: PayrollBatchPayload
   /** Frozen at the lock, or a live "if it locked now" preview. */
   locked: boolean
+  /** Cornerstone Payroll confirmed it received the frozen hours. Until then nothing claims they were sent. */
+  received?: boolean
+  /** Frozen when a period from before locking was finalized, not at a scheduled lock. */
+  frozenWhenFinalized?: boolean
   /** Opens this person's row (`?user_id=` from older links). */
   initialOpen?: string | null
   /** Highlights one shift (`?entry_id=`). */
@@ -91,7 +95,7 @@ export interface WhatGoesToPayrollProps {
 }
 
 /** Per person: approved regular and overtime, still waiting, and the days behind them on request. */
-export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlightEntry = null, returnTo, exporting, onExport, staleSince, onRetry }: WhatGoesToPayrollProps) {
+export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhenFinalized = false, initialOpen = null, highlightEntry = null, returnTo, exporting, onExport, staleSince, onRetry }: WhatGoesToPayrollProps) {
   // A locked period lists only people whose hours went; shifts held back at the lock show under carried hours.
   const rows = personRows(payload).filter(row => !locked || row.lines.length > 0)
   const wide = useMediaQuery('(min-width: 640px)')
@@ -104,8 +108,9 @@ export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlig
   })
   const totals = rows.reduce((sum, row) => ({ regular: sum.regular + row.regular, overtime: sum.overtime + row.overtime, waiting: sum.waiting + row.waiting }), { regular: 0, overtime: 0, waiting: 0 })
   const paid = rows.filter(row => row.regular + row.overtime > 0).length
-  const title = locked ? 'What went to payroll' : 'What goes to payroll'
-  const caption = locked ? 'What AIRE sent to payroll at the lock' : 'What goes to payroll if it locked now'
+  const title = !locked ? 'What goes to payroll' : received ? 'What went to payroll' : 'What AIRE locked for payroll'
+  const caption = !locked ? 'What goes to payroll if it locked now' : received ? 'What AIRE sent to payroll at the lock' : 'What AIRE froze at the lock'
+  const frozenNote = frozenWhenFinalized ? 'The hours frozen when this period was finalized, as in this table.' : 'The hours AIRE froze at the lock, as in this table.'
   const personHref = (row: PersonRow) => employeeWorkspaceHref(row.id, { tab: 'pay', period: payload.start_date, returnTo })
 
   return (
@@ -225,8 +230,10 @@ export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlig
       <div className="space-y-2 pt-1">
         {locked && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Button size="sm" icon={<Download className="size-4" />} loading={exporting === 'locked_csv'} loadingLabel="Preparing CSV…" disabled={exporting !== null} onClick={() => onExport('locked_csv')}>What was sent to payroll (CSV)</Button>
-            <span className="text-caption text-ink-muted">The hours AIRE froze at the lock, as in this table.</span>
+            <Button size="sm" icon={<Download className="size-4" />} loading={exporting === 'locked_csv'} loadingLabel="Preparing CSV…" disabled={exporting !== null} onClick={() => onExport('locked_csv')}>
+              {received ? 'What was sent to payroll (CSV)' : 'Locked hours (CSV)'}
+            </Button>
+            <span className="text-caption text-ink-muted">{received ? 'The hours AIRE froze at the lock, which Payroll confirmed it received, as in this table.' : frozenNote}</span>
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">

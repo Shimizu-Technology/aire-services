@@ -14,6 +14,9 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import type { PeriodWaiting } from './payPeriodModel'
 
 const REFRESH_MS = 60_000
+// The preview and the overtime projection are heavy server work, so they
+// refresh every 5 minutes (and on focus) instead of every minute.
+export const SLOW_REFRESH_MS = 5 * 60_000
 // Overtime shifts read in one page; more than this and the hours aren't summed.
 const OVERTIME_PAGE = 500
 
@@ -31,15 +34,17 @@ async function fetchWaiting(range: PayPeriod): Promise<Result<PeriodWaiting>> {
   const entries = overtime.data.pending_entries
   const total = overtime.data.summary?.entry_count ?? overtime.data.count
   const complete = entries.length >= total && entries.every(entry => typeof entry.pending_overtime_hours === 'number')
+  // Like the batch builder, a shift whose projected overtime isn't positive
+  // holds nothing back, so it isn't overtime waiting.
+  const positive = entries.filter(entry => (entry.pending_overtime_hours ?? 0) > 0)
+  const person = (entry: typeof entries[number]) => entry.user.full_name || entry.user.display_name
   return {
     data: {
       count: all.data.summary.entry_count,
       hours: all.data.summary.total_hours,
-      overtime: {
-        count: total,
-        hours: complete ? entries.reduce((sum, entry) => sum + (entry.pending_overtime_hours ?? 0), 0) : null,
-        people: entries.map(entry => entry.user.full_name || entry.user.display_name),
-      },
+      overtime: complete
+        ? { count: positive.length, hours: positive.reduce((sum, entry) => sum + (entry.pending_overtime_hours ?? 0), 0), people: positive.map(person) }
+        : { count: total, hours: null, people: entries.map(person) },
     },
   }
 }
@@ -179,17 +184,23 @@ export function usePayPeriodData(requestedStart: string | null): PayPeriodData {
 
   const p = periods.reload, sh = show.reload, at = attention.reload, cu = cutoff.reload, co = connection.reload
   const pr = preview.reload, ba = batch.reload, ca = carryovers.reload, wa = waiting.reload
-  const refreshLight = useCallback(() => Promise.all([p(), sh(), at(), cu(), co(), wa()]).then(() => undefined), [p, sh, at, cu, co, wa])
+  // Every minute: cheap reads, including Today's attention list (which keeps
+  // the category and clock lines fresh between previews).
+  const refreshLight = useCallback(() => Promise.all([p(), sh(), at(), cu(), co()]).then(() => undefined), [p, sh, at, cu, co])
+  // Every 5 minutes: the preview and the overtime projection.
+  const refreshSlow = useCallback(() => Promise.all([pr(), wa()]).then(() => undefined), [pr, wa])
   const refresh = useCallback(
-    () => Promise.all([refreshLight(), pr(), ba(), ca()]).then(() => undefined),
-    [refreshLight, pr, ba, ca],
+    () => Promise.all([refreshLight(), refreshSlow(), ba(), ca()]).then(() => undefined),
+    [refreshLight, refreshSlow, ba, ca],
   )
 
-  const refreshRef = useRef({ refresh, refreshLight })
-  useEffect(() => { refreshRef.current = { refresh, refreshLight } }, [refresh, refreshLight])
+  const refreshRef = useRef({ refresh, refreshLight, refreshSlow })
+  useEffect(() => { refreshRef.current = { refresh, refreshLight, refreshSlow } }, [refresh, refreshLight, refreshSlow])
   useEffect(() => {
     let lastFull = Date.now()
-    const stop = startVisibilityAwarePolling(() => refreshRef.current.refreshLight(), REFRESH_MS)
+    const stopLight = startVisibilityAwarePolling(() => refreshRef.current.refreshLight(), REFRESH_MS)
+    const stopSlow = startVisibilityAwarePolling(() => refreshRef.current.refreshSlow(), SLOW_REFRESH_MS)
+    const stop = () => { stopLight(); stopSlow() }
     const onFocus = () => {
       // A tab return fires focus and visibilitychange together; refresh once.
       if (document.visibilityState === 'hidden' || Date.now() - lastFull < 5_000) return

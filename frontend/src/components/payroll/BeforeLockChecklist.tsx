@@ -10,11 +10,15 @@ export interface ChecklistSource {
   load: InputLoad
   /** When its last good answer arrived. */
   loadedAt: Date | null
+  /** Older than this counts as out of date even when the last refresh worked. */
+  maxAgeMs?: number
 }
 
 export interface BeforeLockChecklistProps extends ChecklistInput {
   /** Every source the checklist needs. Readiness is claimed only when all of them just loaded. */
   sources: ChecklistSource[]
+  /** The page's clock, for the age of each source. */
+  now: Date
   onRetry: () => void
 }
 
@@ -23,11 +27,13 @@ export interface BeforeLockChecklistProps extends ChecklistInput {
  * note. While any source is stale or failed the lines stay up but are
  * qualified, and "all clear" is never claimed.
  */
-export function BeforeLockChecklist({ sources, onRetry, ...input }: BeforeLockChecklistProps) {
+export function BeforeLockChecklist({ sources, now, onRetry, ...input }: BeforeLockChecklistProps) {
   const entries = checklistEntries(input)
   const loading = entries.length === 0 && sources.some(source => source.load === 'loading')
   const failed = entries.length === 0 && sources.some(source => source.load === 'error') && !sources.some(source => source.load === 'loading')
-  const current = sources.every(source => source.load === 'ready')
+  const aged = sources.filter(source => source.load === 'ready' && source.maxAgeMs !== undefined && source.loadedAt !== null
+    && now.getTime() - source.loadedAt.getTime() > source.maxAgeMs)
+  const current = sources.every(source => source.load === 'ready') && aged.length === 0
   const stale = sources.filter(source => source.load === 'stale' || source.load === 'error')
   const oldest = stale.map(source => source.loadedAt).filter((at): at is Date => at !== null).sort((a, b) => a.getTime() - b.getTime())[0] ?? null
   const open = entries.filter(entry => entry.status === 'todo').length
@@ -50,7 +56,13 @@ export function BeforeLockChecklist({ sources, onRetry, ...input }: BeforeLockCh
           <button type="button" onClick={onRetry} className="min-h-11 font-semibold underline pointer-fine:min-h-0">Try again</button>
         </p>
       )}
-      {entries.length > 0 && !current && stale.length === 0 && (
+      {entries.length > 0 && stale.length === 0 && aged.length > 0 && (
+        <p role="status" className="rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-body-sm text-amber-950">
+          Some lines were last updated {timeLabel(aged.map(source => source.loadedAt!).sort((a, b) => a.getTime() - b.getTime())[0])}. It may not be ready to lock.{' '}
+          <button type="button" onClick={onRetry} className="min-h-11 font-semibold underline pointer-fine:min-h-0">Refresh</button>
+        </p>
+      )}
+      {entries.length > 0 && !current && stale.length === 0 && aged.length === 0 && (
         <p className="text-caption text-ink-muted">Still loading some lines.</p>
       )}
       {entries.length > 0 && (
