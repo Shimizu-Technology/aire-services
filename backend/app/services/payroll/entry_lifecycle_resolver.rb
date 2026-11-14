@@ -2,25 +2,29 @@
 
 module Payroll
   class EntryLifecycleResolver
+    # The plain words from the glossary draft (DESIGN.md §5), pending Chels's
+    # confirmation. frontend/src/lib/payrollTerms.ts LIFECYCLE_LABELS holds the
+    # same words; spec/services/payroll/payroll_glossary_spec.rb checks they match.
     LABELS = {
-      "awaiting_approval" => "Awaiting approval",
-      "not_payable" => "Denied / not payable",
-      "ready_for_cutoff" => "Eligible for AIRE cutoff; payment not recorded",
-      "finalized" => "Included in AIRE cutoff",
-      "imported" => "Imported into Cornerstone",
-      "committed" => "Payroll committed",
-      "payment_prepared" => "Payment prepared",
+      "awaiting_approval" => "Waiting for approval",
+      "not_payable" => "Denied, won't be paid",
+      "ready_for_cutoff" => "Approved, not locked yet",
+      "finalized" => "Locked for payroll",
+      "imported" => "Received by Payroll",
+      "committed" => "In a payroll run",
+      "payment_prepared" => "Check prepared",
       "payment_issued" => "Paid",
-      "payment_failed" => "Payment needs attention",
+      "payment_failed" => "Payment problem",
       "payment_voided" => "Payment voided",
-      "payment_cancelled" => "Payment cancelled; payroll remains committed",
-      "partially_paid" => "Partially paid",
-      "partially_prepared" => "Partially prepared",
-      "partially_processed" => "Partially processed",
-      "partially_allocated" => "Partially assigned to payroll",
-      "payment_attested_pending_evidence" => "Payment reported; check evidence pending"
-
+      "payment_cancelled" => "Payment cancelled",
+      "partially_paid" => "Partly paid",
+      "partially_prepared" => "Partly in payroll",
+      "partially_processed" => "Partly in payroll",
+      "partially_allocated" => "Partly in payroll",
+      "payment_attested_pending_evidence" => "Paid outside payroll, details pending"
     }.freeze
+    # Payroll run without the AIRE connection and recorded here (PayrollManualAllocation).
+    MANUAL_PAYROLL_LABEL = "Payroll done outside the connection"
 
     def initialize(entries:, overtime_context_entries: nil, overtime_allocations: nil, weekly_overtime_reviews: nil)
       @entries = Array(entries).uniq(&:id)
@@ -175,7 +179,7 @@ module Payroll
         start_date: allocation.work_date.iso8601,
         end_date: allocation.work_date.iso8601,
         status: status,
-        label: "#{LABELS.fetch(status)} in manual Cornerstone payroll",
+        label: "#{LABELS.fetch(status)} · #{MANUAL_PAYROLL_LABEL}",
         occurred_at: (latest_event&.occurred_at || allocation.voided_at || allocation.issued_at || allocation.created_at).iso8601,
         source_kinds: [ "manual" ],
         total_hours: round_hours(allocation.total_hours),

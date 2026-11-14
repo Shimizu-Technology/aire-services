@@ -1,5 +1,6 @@
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import { ACCOUNTING_CORRECTION_LABEL, ACCOUNTING_CORRECTION_NOTE } from '../../lib/accountingCorrection'
+import { lifecycleLabel } from '../../lib/payrollTerms'
 import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef, Fragment } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
@@ -318,7 +319,7 @@ function PayrollLifecycleBadge({ lifecycle }: { lifecycle?: PayrollEntryLifecycl
   const accounting = lifecycle.accounting_only && lifecycle.status === 'committed'
   const details = accounting ? ACCOUNTING_CORRECTION_NOTE : [lifecycle.payment_method, lifecycle.payment_reference ? `reference ${lifecycle.payment_reference}` : null,
     lifecycle.payment_effective_on ? `paid ${formatDate(lifecycle.payment_effective_on)}` : null].filter(Boolean).join(' · ')
-  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycle.label}</span>
+  return <span title={details || undefined} className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${PAYROLL_STATUS_STYLE[lifecycle.status]}`}>{accounting ? ACCOUNTING_CORRECTION_LABEL : lifecycleLabel(lifecycle)}</span>
 }
 
 function employeePayrollLabel(employee: HoursReportEmployee): PayrollEntryLifecycle | undefined {
