@@ -4,6 +4,8 @@ module Api
   module V1
     class TimeEntriesController < BaseController
       PENDING_APPROVAL_SORTS = %w[work_date created_at employee hours approval_type category].freeze
+      DELETE_LOCK_TIMEOUT = "5s"
+      PAYROLL_BUSY_MESSAGE = "Payroll is working on this period right now. Try again in a minute.".freeze
       PENDING_APPROVAL_DIRECTIONS = %w[asc desc].freeze
       PENDING_APPROVAL_TYPES = %w[time_entry overtime both].freeze
 
@@ -279,8 +281,7 @@ module Api
 
         refused = false
         TimeEntry.transaction do
-          # Re-check under the employee's lock: an approval may have just landed.
-          @time_entry.lock!
+          lock_entry_for_delete!
           unless @time_entry.deletable_by?(current_user)
             refused = true
             raise ActiveRecord::Rollback
@@ -307,6 +308,8 @@ module Api
         return render_delete_refusal if refused
 
         head :no_content
+      rescue ActiveRecord::LockWaitTimeout, ActiveRecord::Deadlocked
+        render json: { error: PAYROLL_BUSY_MESSAGE, code: "payroll_busy" }, status: :conflict
       end
 
       # ── Clock Actions ──
@@ -712,6 +715,22 @@ module Api
       def overtime_ready_for_approval?(entry)
         allocation = ::Payroll::AffectedOvertimeReview.allocation_for(entry)
         allocation.present? && allocation[:hold_reason].blank?
+      end
+
+      # Taken before the delete's eligibility check, so nothing that would make
+      # the entry ineligible can commit in between:
+      # - Payroll finalization holds time_entries IN SHARE MODE until its batch
+      #   commits; ROW EXCLUSIVE conflicts with it, so either this delete
+      #   commits first (the finalizer then never sees the row) or it waits and
+      #   the check reads the finalized batch.
+      # - Approvals take the employee lock and this row; lock! takes both.
+      # - A protecting export takes FOR SHARE on its entries (ReportExport),
+      #   which conflicts with the FOR UPDATE row lock lock! takes.
+      def lock_entry_for_delete!
+        connection = TimeEntry.connection
+        connection.execute("SET LOCAL lock_timeout = #{connection.quote(DELETE_LOCK_TIMEOUT)}")
+        connection.execute("LOCK TABLE time_entries IN ROW EXCLUSIVE MODE")
+        @time_entry.lock!
       end
 
       def render_delete_refusal
