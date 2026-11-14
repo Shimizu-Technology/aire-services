@@ -269,7 +269,9 @@ describe('pay period page: lock states', () => {
     const locked = periodSummary({ status: 'finalized', handoff_state: 'locked', label: 'Locked for payroll', locked_at: '2026-11-11T17:00:04+10:00', payroll_batch_id: 'AIRE-PAY-NOV', hours_source: 'locked' })
     mocks.periods.mockResolvedValue({ data: periodsIndex([locked, paidPeriod()], '2026-11-01') })
     publish(locked, paidPeriod())
-    mocks.getPayrollBatch.mockResolvedValue({ data: { ...lockedBatch(), id: 'AIRE-PAY-NOV' } })
+    const frozen = lockedBatch()
+    const heldOvertime = { ...frozen.payload.exclusions[0], source_time_entry_id: '602', source_user_id: '7', display_name: 'Caleb Perez', reason: 'pending_overtime', original_work_date: '2026-10-21', held_total_hours: 12, held_regular_hours: 8, held_overtime_hours: 4 }
+    mocks.getPayrollBatch.mockResolvedValue({ data: { ...frozen, id: 'AIRE-PAY-NOV', payload: { ...frozen.payload, exclusions: [...frozen.payload.exclusions, heldOvertime] } } })
     mocks.getPayrollCarryovers.mockResolvedValue({ data: { items: [carried({ original_work_date: '2026-11-04' })], summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 1, in_payroll_count: 0, not_payable_count: 0 }, truncated: false } })
     await open()
     expect(steps().getByText('Locked for payroll').closest('li')).toHaveAttribute('aria-current', 'step')
@@ -280,7 +282,10 @@ describe('pay period page: lock states', () => {
     expect(mocks.getPayrollBatch).toHaveBeenCalledWith('AIRE-PAY-NOV')
     const sent = screen.getByRole('table', { name: 'What AIRE sent to payroll at the lock' })
     // Only people whose hours went; held-back shifts aren't listed at 0h.
-    expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb Perez', 'Total'])
+    expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb Perez4h OT held back at the lock', 'Total'])
+    // Overtime held back at the lock may be approved since: it isn't called waiting.
+    expect(within(sent).queryByText(/OT waiting/)).not.toBeInTheDocument()
+    expect(within(sent).getByText('4h OT held back at the lock')).toBeInTheDocument()
     expect(screen.getByText(/Locked Nov 11/).closest('p')).toHaveTextContent('Locked Nov 11 · pays Wed, Nov 25')
     const carriedList = within(screen.getByRole('region', { name: /Hours carried to a later period/ }))
     expect(carriedList.getByText('Jun Santos').closest('li')).toHaveTextContent('Jun Santos · Wed, Nov 4 · 8.9h→ Next payroll')

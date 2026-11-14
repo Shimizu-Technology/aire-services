@@ -26,11 +26,12 @@ const SOURCE_LABELS: Record<PayrollBatchAdjustment['source_kind'], string | null
   correction: 'Correction to an earlier payroll',
 }
 
-function Flags({ row }: { row: PersonRow }) {
+/** On a locked period the flags describe the lock, not now: that time may have been approved since. */
+function Flags({ row, locked }: { row: PersonRow; locked: boolean }) {
   return (
     <>
-      {row.stillClockedIn && <StatusPill tone="needs-fix">Still clocked in</StatusPill>}
-      {row.overtimeWaiting > 0 && <StatusPill tone="waiting">{hoursLabel(row.overtimeWaiting)} OT waiting</StatusPill>}
+      {row.stillClockedIn && <StatusPill tone={locked ? 'off' : 'needs-fix'}>{locked ? 'Clocked in at the lock' : 'Still clocked in'}</StatusPill>}
+      {row.overtimeWaiting > 0 && <StatusPill tone={locked ? 'off' : 'waiting'}>{hoursLabel(row.overtimeWaiting)} OT {locked ? 'held back at the lock' : 'waiting'}</StatusPill>}
       {row.missingCategory && <StatusPill tone="needs-fix">No work category</StatusPill>}
     </>
   )
@@ -136,7 +137,7 @@ export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlig
                       <th scope="row" className="px-3.5 py-2 text-left font-normal">
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <Link to={personHref(row)} className="font-semibold text-ink hover:underline">{row.name}</Link>
-                          <Flags row={row} />
+                          <Flags row={row} locked={locked} />
                         </span>
                       </th>
                       <td className="px-3 py-2 text-right tabular-nums">{hoursLabel(row.regular)}</td>
@@ -191,7 +192,7 @@ export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlig
                     <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-ink-muted">
                       <span className="tabular-nums">{hoursLabel(row.regular + row.overtime)} approved</span>
                       {!locked && row.waiting > 0 && <span className="tabular-nums text-amber-900">{hoursLabel(row.waiting)} waiting</span>}
-                      <Flags row={row} />
+                      <Flags row={row} locked={locked} />
                     </span>
                   </span>
                   {expanded ? <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-ink-muted" /> : <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />}
