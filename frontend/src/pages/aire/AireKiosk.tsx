@@ -22,6 +22,8 @@ const PIN_LENGTH = 8
 const PIN_DISPLAY_LENGTH = 6
 const IDLE_RESET_MS = 30_000
 const SUCCESS_RESET_MS = 8_000
+const SESSION_LIMIT_MS = 5 * 60_000
+const WARNING_MS = 10_000
 const KIOSK_ACCESS_STORAGE_KEY = 'aire_kiosk_access_session'
 
 interface StoredKioskAccessSession {
@@ -111,7 +113,8 @@ export default function AireKiosk() {
   const verifiedPinRef = useRef('')
   const sessionGeneration = useRef(0)
   const warningRequestRef = useRef(0)
-  const idleResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastActivityRef = useRef(0)
+  const employeeExpiresRef = useRef<number | null>(null)
   const successResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const maskedPin = useMemo(() => (pin.length ? '•'.repeat(pin.length) : '—'.repeat(PIN_DISPLAY_LENGTH)), [pin])
@@ -126,6 +129,8 @@ export default function AireKiosk() {
   const canViewKiosk = canUnlockKiosk || kioskUnlocked
 
   const clearSession = useCallback(() => {
+    employeeExpiresRef.current = null
+    lastActivityRef.current = Date.now()
     inFlight.current = false
     coolingUntil.current = 0
     setActionsCooling(false)
@@ -160,29 +165,30 @@ export default function AireKiosk() {
     clearSession()
   }, [clearSession, kioskAccessSession])
 
-  const bumpIdleTimer = () => {
-    setIdleWarning(null)
-    if (idleResetRef.current) clearTimeout(idleResetRef.current)
-    idleResetRef.current = setTimeout(() => {
-      setIdleWarning(10)
-    }, IDLE_RESET_MS)
-  }
-
-  useEffect(() => {
-    bumpIdleTimer()
-    return () => {
-      if (idleResetRef.current) clearTimeout(idleResetRef.current)
+  // Only deliberate session controls call this. A backdrop tap cannot renew identity.
+  const bumpIdleTimer = useCallback(() => {
+    if (employeeExpiresRef.current !== null && Date.now() >= employeeExpiresRef.current) {
+      clearSession()
+      return false
     }
-  }, [pin, employee, kioskToken, selectedCategoryId, status?.status, status?.clocked_in])
+    lastActivityRef.current = Date.now()
+    // The final warning cannot be dismissed or extended beyond the PIN's hard deadline.
+    if (employeeExpiresRef.current === null || employeeExpiresRef.current - Date.now() > WARNING_MS) {
+      setIdleWarning(null)
+    }
+    return true
+  }, [clearSession])
 
   useEffect(() => {
-    if (idleWarning === null) return
-    const timer = setTimeout(() => {
-      if (idleWarning <= 1) clearSession()
-      else setIdleWarning(idleWarning - 1)
-    }, 1000)
-    return () => clearTimeout(timer)
-  }, [idleWarning, clearSession])
+    if (!employee && !pin) return
+    const timer = setInterval(() => {
+      const deadline = Math.min(lastActivityRef.current + IDLE_RESET_MS + WARNING_MS, employeeExpiresRef.current ?? Infinity)
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) clearSession()
+      else setIdleWarning(remaining <= WARNING_MS ? Math.ceil(remaining / 1000) : null)
+    }, 250)
+    return () => clearInterval(timer)
+  }, [employee, pin, clearSession])
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000)
@@ -190,7 +196,8 @@ export default function AireKiosk() {
   }, [])
 
   useEffect(() => {
-    clearExpiredKioskAccessSession()
+    const timer = setTimeout(clearExpiredKioskAccessSession, 0)
+    return () => clearTimeout(timer)
   }, [clearExpiredKioskAccessSession, kioskAccessSession])
 
   useEffect(() => {
@@ -238,6 +245,7 @@ export default function AireKiosk() {
   }
 
   const press = (key: string) => {
+    bumpIdleTimer()
     setError(null)
     setSuccess(null)
 
@@ -263,6 +271,7 @@ export default function AireKiosk() {
   }
 
   const handleVerify = async () => {
+    bumpIdleTimer()
     if (!kioskUnlocked) {
       setError('Kiosk is locked. Ask a manager or admin to unlock it first.')
       return
@@ -295,6 +304,8 @@ export default function AireKiosk() {
       return
     }
 
+    employeeExpiresRef.current = Date.now() + SESSION_LIMIT_MS
+    lastActivityRef.current = Date.now()
     verifiedPinRef.current = pin
     setEmployee(result.data.employee)
     setKioskToken(result.data.kiosk_token)
@@ -314,6 +325,7 @@ export default function AireKiosk() {
   }
 
   const runAction = async (action: KioskAction, confirmed = false) => {
+    if (!bumpIdleTimer()) return
     if (inFlight.current || Date.now() < coolingUntil.current) return
     if (!kioskUnlocked) {
       setError('Kiosk is locked. Ask a manager or admin to unlock it first.')
@@ -340,7 +352,6 @@ export default function AireKiosk() {
       setConfirmSwitch(true)
       return
     }
-    setConfirmSwitch(false)
     const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
     if (action === 'clock_out' && !confirmed && since && needsClockOutConfirm(since)) {
       bumpIdleTimer()
@@ -375,6 +386,7 @@ export default function AireKiosk() {
     const generation = sessionGeneration.current
     const result = await request
     if (generation !== sessionGeneration.current) return
+    setConfirmSwitch(false)
     if (result.error || !result.data) {
       const unknown = outcomeUnknown(result) || !result.error
       // Every refusal refreshes stale kiosk state; uncertain writes are never retried.
@@ -492,7 +504,7 @@ export default function AireKiosk() {
     <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm">
             <div>
               <p className="font-semibold text-white">
-                {kioskUnlocked ? 'Kiosk unlocked' : 'Kiosk locked'}
+                Kiosk locked
               </p>
               <p className="mt-1 text-slate-400">
                 {!isClerkEnabled
@@ -503,14 +515,7 @@ export default function AireKiosk() {
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
-              {kioskUnlocked ? (
-                <button
-                  onClick={() => setConfirmLock(true)}
-                  className="min-h-11 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
-                >
-                  Supervisor
-                </button>
-              ) : canUnlockKiosk ? (
+              {canUnlockKiosk ? (
                 <button
                   onClick={handleUnlock}
                   disabled={unlocking || (isClerkEnabled && !isSignedIn)}
@@ -588,7 +593,7 @@ export default function AireKiosk() {
   }
 
   return (
-    <main onPointerDownCapture={bumpIdleTimer} onKeyDownCapture={bumpIdleTimer} onChangeCapture={bumpIdleTimer} className="min-h-screen bg-slate-950 text-slate-100 [-webkit-tap-highlight-color:transparent]">
+    <main className="min-h-screen bg-slate-950 text-slate-100 [-webkit-tap-highlight-color:transparent]">
       {kioskUnlocked && <div className="mx-auto max-w-6xl px-4 pt-4 md:px-6">
         <PayrollCutoffNotice key={employee?.id ?? 'shared'} kiosk={{ accessToken: kioskAccessToken || '', employeeToken: kioskToken || '', sessionKey: String(employee?.id ?? 'shared'), notice: cutoffNotice }} />
       </div>}
@@ -679,7 +684,7 @@ export default function AireKiosk() {
                 <p className="text-xs text-slate-400">Choose a work type, then tap Switch work.</p>
               )}
               {categories.length === 1 && <p className="text-sm text-slate-200">Working on: {categories[0].name}</p>}
-              <WorkChips dark categories={categories} value={selectedCategoryId} onChange={setSelectedCategoryId} disabled={!!actionLoading} />
+              <WorkChips dark categories={categories} value={selectedCategoryId} onChange={id => { if (bumpIdleTimer()) setSelectedCategoryId(id) }} disabled={!!actionLoading} />
             </div>
           ) : (
             <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-300">
@@ -692,7 +697,7 @@ export default function AireKiosk() {
               className="min-h-14 w-full rounded-2xl bg-cyan-400 px-5 py-4 text-lg font-semibold text-slate-950 disabled:opacity-50 active:scale-[.97]">
               {actionLoading === primaryAction ? `${formatActionLabel(primaryAction)}...` : formatActionLabel(primaryAction)}
             </button>
-            {!status?.clocked_in && !selectedCategoryId && <p className="text-sm text-slate-200">Pick what you're working on</p>}
+            {!status?.clocked_in && status?.can_clock_in !== false && categories.length > 0 && !selectedCategoryId && <p className="text-sm text-slate-200">Pick what you're working on</p>}
             <div className="flex flex-wrap gap-3">
               {secondaryActions.map(action => <button key={action} onClick={() => runAction(action)} disabled={!!actionLoading || loading || actionsCooling}
                 className="min-h-12 flex-1 rounded-xl border border-slate-600 px-4 py-3 font-semibold text-slate-100 disabled:opacity-50">
@@ -711,8 +716,6 @@ export default function AireKiosk() {
 
           </div>
 
-
-
           {employee && kioskToken && payStubRequestsEnabled && !requestingStub && (
             <button
               type="button"
@@ -724,10 +727,8 @@ export default function AireKiosk() {
             </button>
           )}
 
-
-
           <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
-            After 30 seconds without activity, a 10-second warning appears before your name clears. Successful actions clear after 8 seconds.
+            After 30 seconds without activity, a 10-second warning appears before your name clears. Sessions end after 5 minutes. Successful actions clear after 8 seconds.
           </p>
         </section>
 
@@ -768,7 +769,7 @@ export default function AireKiosk() {
           </div>
         </section>}
       </div>
-      <div onPointerDownCapture={bumpIdleTimer} onKeyDownCapture={bumpIdleTimer} onClickCapture={bumpIdleTimer} onScrollCapture={bumpIdleTimer}>
+      <div>
       <ConfirmDialog open={confirmClockOut} onCancel={() => setConfirmClockOut(false)}
         title={`Clock out at ${clockTime(new Date())}?`}
         description={`Worked ${status ? formatElapsed(workedMilliseconds(status), 'short') : '—'}. Check that this is when you stopped working.`}
@@ -776,12 +777,16 @@ export default function AireKiosk() {
         onConfirm={() => void runAction('clock_out', true)} />
       <ConfirmDialog open={confirmSwitch} onCancel={() => setConfirmSwitch(false)}
         title={`Switch work to ${selectedCategory?.name}?`} confirmLabel="Switch work"
+        confirmDisabled={!!actionLoading || loading || actionsCooling}
         onConfirm={() => void runAction('switch_category', true)} />
       <ConfirmDialog open={confirmLock} onCancel={() => setConfirmLock(false)}
         title="Lock the kiosk?" description="Staff can't clock in until a manager unlocks it."
         confirmLabel="Lock kiosk" tone="danger" onConfirm={handleLock} />
       </div>
-      {idleWarning !== null && <div role="status" className="fixed inset-x-3 top-3 z-50 rounded-2xl border border-amber-300 bg-slate-900 p-4 text-center text-lg text-white">Still there? Tap anywhere to keep going ({idleWarning})</div>}
+      {idleWarning !== null && <div className="fixed inset-x-3 top-3 z-[calc(var(--z-dialog)+1)] rounded-2xl border border-amber-300 bg-slate-900 p-4 text-center text-lg text-white">
+        <p role="status">Still there{employee ? `, ${employee.display_name}` : ''}? Tap I'm still here to keep going<span aria-hidden="true"> ({idleWarning})</span></p>
+        <button type="button" onClick={bumpIdleTimer} className="mt-3 min-h-11 rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-slate-950">I'm still here</button>
+      </div>}
     </main>
   )
 }

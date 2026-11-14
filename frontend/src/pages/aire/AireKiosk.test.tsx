@@ -155,7 +155,7 @@ it('clears the employee after 30 seconds idle', async () => {
     await verifyEmployee()
     expect(screen.getByText('Avery Fixture')).toBeInTheDocument()
     await act(async () => { vi.advanceTimersByTime(30_000) })
-    expect(screen.getByRole('status')).toHaveTextContent('Still there?')
+    expect(screen.getByRole('status')).toHaveTextContent('Still there, Avery?')
     for (let i = 0; i < 10; i++) await act(async () => { vi.advanceTimersByTime(1000) })
     expect(screen.getByText('Waiting for PIN')).toBeInTheDocument()
   } finally { vi.useRealTimers() }
@@ -327,29 +327,25 @@ it('corrects stale clock state after a refused punch', async () => {
   expect(screen.getByRole('button', { name: 'Clock out' })).toBeInTheDocument()
 })
 
-it('restarts idle time when confirmation opens at 29s and on sheet interaction', async () => {
+it('empty-space taps in a confirmation do not extend the warning', async () => {
   vi.useFakeTimers()
-  const now = new Date('2026-11-14T03:00:00Z')
-  vi.setSystemTime(now)
+  vi.setSystemTime(new Date('2026-11-14T03:00:00Z'))
   try {
-    mocks.aireKioskVerify.mockResolvedValue({ data: { employee, kiosk_token: 'token', current_status: { ...working, break_minutes: 0, clock_in_at: new Date(+now - 1800000).toISOString() }, available_categories: [category] } })
+    mocks.aireKioskVerify.mockResolvedValue({ data: { employee, kiosk_token: 'token', current_status: { ...working, clock_in_at: '2026-11-14T02:30:00Z' }, available_categories: [category] } })
     render(<MemoryRouter><AireKiosk /></MemoryRouter>)
     await verifyEmployee()
-    await act(async () => { vi.advanceTimersByTime(29000) })
     fireEvent.click(screen.getByRole('button', { name: 'Clock out' }))
-    await act(async () => { vi.advanceTimersByTime(2000) })
-    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
-    await act(async () => { vi.advanceTimersByTime(27000) })
-    fireEvent.pointerDown(screen.getByRole('alertdialog'))
-    await act(async () => { vi.advanceTimersByTime(2000) })
-    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(30000) })
+    const warning = screen.getByRole('status')
+    expect(warning).toHaveTextContent("Still there, Avery? Tap I'm still here to keep going")
+    expect(warning.parentElement).toHaveClass('z-[calc(var(--z-dialog)+1)]')
+    expect(warning.querySelector('[aria-hidden=true]')).toHaveTextContent('(10)')
+    fireEvent.pointerDown(screen.getByRole('main'))
+    fireEvent.click(screen.getByRole('alertdialog'))
     fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Tab' })
-    await act(async () => { vi.advanceTimersByTime(29000) })
-    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
-    await act(async () => { vi.advanceTimersByTime(1000) })
-    for (let i = 0; i < 10; i++) await act(async () => { vi.advanceTimersByTime(1000) })
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(10000) })
     expect(screen.getByText('Waiting for PIN')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   } finally { vi.useRealTimers() }
 })
 
@@ -442,8 +438,8 @@ it('warns during a pay stub draft and keeps it when typing resumes', async () =>
     await verifyEmployee()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Request my pay stub' })) })
     await act(async () => { vi.advanceTimersByTime(30000) })
-    expect(screen.getByRole('status')).toHaveTextContent('Still there?')
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Send request to the office' }), { key: 'Tab' })
+    expect(screen.getByRole('status')).toHaveTextContent('Still there, Avery?')
+    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'avery@example.com' } })
     await act(async () => { vi.advanceTimersByTime(10000) })
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send request to the office' })).toBeInTheDocument()
@@ -465,4 +461,71 @@ it('selecting different work waits for Switch work and confirmation', async () =
   await act(async () => { fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Switch work' })) })
   expect(mocks.aireKioskSwitchCategory).toHaveBeenCalledWith('access', 'token', 2)
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+})
+
+
+it('does not warn on an empty lobby, after clearing digits, or after reset', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-11-14T03:00:00Z'))
+  try {
+    render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+    await act(async () => { vi.advanceTimersByTime(300000) })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    await act(async () => { vi.advanceTimersByTime(30000) })
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await act(async () => { vi.advanceTimersByTime(60000) })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    await verifyEmployee()
+    fireEvent.click(screen.getByRole('button', { name: 'Not you? Reset' }))
+    await act(async () => { vi.advanceTimersByTime(60000) })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  } finally { vi.useRealTimers() }
+})
+
+it('explicitly renews idle time but never extends the five-minute PIN deadline', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-11-14T03:00:00Z'))
+  try {
+    render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+    await verifyEmployee()
+    for (let i = 0; i < 9; i++) {
+      await act(async () => { vi.advanceTimersByTime(30000) })
+      expect(screen.getByRole('status')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: "I'm still here" }))
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    }
+    // At 4:50 the hard-cap warning appears even though idle time was renewed at 4:30.
+    await act(async () => { vi.advanceTimersByTime(20000) })
+    expect(screen.getByRole('status')).toHaveTextContent('(10)')
+    fireEvent.click(screen.getByRole('button', { name: "I'm still here" }))
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(10000) })
+    expect(screen.getByText('Waiting for PIN')).toBeInTheDocument()
+    expect(screen.queryByText('Avery Fixture')).not.toBeInTheDocument()
+  } finally { vi.useRealTimers() }
+})
+
+it.each([[[]], [[category]]])('does not suggest picking work when clock-in is unavailable (%j)', async assigned => {
+  mocks.aireKioskVerify.mockResolvedValue({ data: { employee, kiosk_token: 'token', current_status: { ...idle, can_clock_in: false }, available_categories: assigned } })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  expect(screen.queryByText("Pick what you're working on")).not.toBeInTheDocument()
+})
+
+it('disables Switch work confirmation and controls while switching, then cools actions', async () => {
+  const second = { id: 2, name: 'Flight Instruction' }
+  mocks.aireKioskVerify.mockResolvedValue({ data: { employee, kiosk_token: 'token', current_status: working, available_categories: [category, second] } })
+  let resolve!: (result: unknown) => void
+  mocks.aireKioskSwitchCategory.mockImplementation(() => new Promise(r => { resolve = r }))
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  fireEvent.click(screen.getByRole('radio', { name: second.name }))
+  fireEvent.click(screen.getByRole('button', { name: 'Switch work' }))
+  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Switch work' }))
+  expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Switch work' })).toBeDisabled()
+  await act(async () => { resolve({ data: { employee, current_status: { ...working, time_category: second }, available_categories: [category, second], time_entry: { time_category: second } } }) })
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Clock out' })).toBeDisabled()
 })
