@@ -51,7 +51,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     get "/api/v1/admin/hours_report/summary_csv", params: range, headers: headers
     expect(response).to have_http_status(:ok)
     row = CSV.parse(response.body, headers: true).first
-    expect(row.to_h).to include("Regular Hours" => "40.00", "Overtime Hours" => "0.00", "Total Hours" => "40.00",
+    expect(row.to_h).to include("Approved regular hours" => "40.00", "Approved overtime hours" => "0.00", "Worked hours" => "48.50",
       "Approved for payroll" => "40.00", "Time waiting for approval" => "2.00",
       "Overtime waiting for approval — not included" => "3.50", "Report Status" => "Draft - needs review")
     capture = ReportExport.last
@@ -67,6 +67,24 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     employee_pdf = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
     expect(employee_pdf).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50")
     expect(capture.reload.checksum).to eq(checksum)
+  end
+
+  it "labels filtered summaries and preserves filtered worked hours beside period approval facts" do
+    filters = range.merge(approval_status: "denied")
+    get "/api/v1/admin/hours_report/summary_csv", params: filters, headers: headers
+    expect(response).to have_http_status(:ok)
+    csv = CSV.parse(response.body, headers: true)
+    expect(csv.headers[4..6]).to eq([ "Approved regular hours", "Approved overtime hours", "Approved for payroll" ])
+    expect(csv.headers.count("Approved for payroll")).to eq(1)
+    expect(csv.first.to_h).to include("Worked hours" => "3.00", "Approved for payroll" => "40.00",
+      "Time waiting for approval" => "2.00", "Overtime waiting for approval — not included" => "3.50")
+    expect(response.headers["Content-Disposition"]).to include("Filtered")
+    get "/api/v1/admin/hours_report/pdf", params: filters, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.headers["Content-Disposition"]).to include("Filtered")
+    reader = PDF::Reader.new(StringIO.new(response.body))
+    expect(reader.info[:Title]).to start_with("Filtered —")
+    expect(reader.pages.map(&:text).join(" ").gsub(/\s+/, " ")).to include(Reports::HoursReportDisclosure::APPROVAL_FACTS_NOTE)
   end
 
   it "keeps frozen export bytes, payload and checksum unchanged when live reports are generated" do

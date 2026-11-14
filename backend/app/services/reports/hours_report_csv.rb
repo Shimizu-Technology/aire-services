@@ -13,9 +13,9 @@ module Reports
     ].freeze
 
     SUMMARY_HEADERS = [
-      "Export Reference", "Employee", "Departments", "Employee Type", "Regular Hours",
-      "Overtime Hours", "Total Hours", "Break Hours", "Entries", "Report Status",
-      "Approved for payroll", "Time waiting for approval", "Overtime waiting for approval — not included"
+      "Export Reference", "Employee", "Departments", "Employee Type", "Approved regular hours",
+      "Approved overtime hours", "Approved for payroll", "Break Hours", "Entries", "Report Status",
+      "Time waiting for approval", "Overtime waiting for approval — not included", "Worked hours"
     ].freeze
 
     def self.detailed(report:, export:)
@@ -63,9 +63,9 @@ module Reports
             format_hours(employee[:break_hours]),
             employee[:entries_count],
             employee[:ready] && employee[:approval_complete] ? "Complete" : "Draft - needs review",
-            format_hours(employee.fetch(:payroll_hours).fetch(:approved_hours)),
             format_hours(employee.fetch(:payroll_hours).fetch(:time_waiting_hours)),
-            format_hours(employee.fetch(:payroll_hours).fetch(:overtime_waiting_hours))
+            format_hours(employee.fetch(:payroll_hours).fetch(:overtime_waiting_hours)),
+            format_hours(employee[:worked_hours])
           ])
         end
       end

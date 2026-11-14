@@ -208,6 +208,7 @@ module Payroll
         approval_group_labels: user.approval_group_labels,
         approval_groups: user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } },
         payroll_hours: payroll_hours_for(@approval_entries_by_user.fetch(user.id, [])),
+        worked_hours: round_hours(period_entries.select { |entry| entry.status == "completed" && entry.work_date.between?(start_date, end_date) }.sum { |entry| entry.hours.to_d }),
         total_hours: total_hours,
         regular_hours: regular_hours,
         overtime_hours: overtime_hours,
@@ -446,6 +447,7 @@ module Payroll
       {
         payroll_hours: ApprovalHours.sum(employees.map { |employee| employee[:payroll_hours] }),
         approval_waiting_count: period_entries.select { |entry| @approval_hours.for(entry).values_at(:time_waiting_hours, :overtime_waiting_hours).any?(&:positive?) }.map(&:id).uniq.size,
+        worked_hours: sum(employees, :worked_hours),
         employee_count: employees.size,
         total_hours: sum(employees, :total_hours),
         regular_hours: sum(employees, :regular_hours),

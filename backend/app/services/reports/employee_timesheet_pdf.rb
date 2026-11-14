@@ -43,7 +43,7 @@ module Reports
 
     def metadata
       {
-        Title: "AIRE Employee Timesheet - #{employee[:full_name]}",
+        Title: HoursReportDisclosure.filtered_label(report, "AIRE Employee Timesheet - #{employee[:full_name]}"),
         Author: "AIRE Services",
         Subject: "Employee time entries from #{report[:start_date]} to #{report[:end_date]}",
         Creator: "AIRE Operations"
@@ -54,7 +54,7 @@ module Reports
       top = pdf.cursor
       pdf.fill_color NAVY
       pdf.text_box "AIRE", at: [ 0, top ], width: 150, height: 28, size: 25, style: :bold, character_spacing: 1.2
-      pdf.text_box "EMPLOYEE TIMESHEET", at: [ 260, top - 4 ], width: 280, height: 22, align: :right, size: 15, style: :bold
+      pdf.text_box HoursReportDisclosure.filtered_label(report, "EMPLOYEE TIMESHEET"), overflow: :shrink_to_fit, at: [ 260, top - 4 ], width: 280, height: 22, align: :right, size: 15, style: :bold
       pdf.move_down 32
       pdf.stroke_color CYAN
       pdf.line_width 2
@@ -76,6 +76,8 @@ module Reports
 
     def render_status(pdf)
       HoursReportDisclosure.new(report: report, export: export).render(pdf)
+      pdf.text HoursReportDisclosure::APPROVAL_FACTS_NOTE, size: 7.5
+      pdf.move_down 5
     end
 
     def render_entries(pdf)

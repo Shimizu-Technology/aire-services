@@ -51,7 +51,7 @@ module Api
               Reports::PayrollHoursPdf.new(report: report, export: export, generated_by: current_user).render
             end
             send_data pdf,
-                      filename: "AIRE_Payroll_Hours_#{report[:start_date]}_to_#{report[:end_date]}.pdf",
+                      filename: Reports::HoursReportDisclosure.filtered_label(report, "AIRE_Payroll_Hours_#{report[:start_date]}_to_#{report[:end_date]}.pdf"),
                       type: "application/pdf",
                       disposition: "attachment"
           end
@@ -91,7 +91,7 @@ module Api
             Reports::HoursReportCsv.summary(report: report, export: export)
           end
           send_data csv,
-                    filename: "AIRE_Payroll_Summary_#{report[:start_date]}_to_#{report[:end_date]}.csv",
+                    filename: Reports::HoursReportDisclosure.filtered_label(report, "AIRE_Payroll_Summary_#{report[:start_date]}_to_#{report[:end_date]}.csv"),
                     type: "text/csv; charset=utf-8",
                     disposition: "attachment"
         end
@@ -113,12 +113,14 @@ module Api
         # person and date range. Display filters such as category or source must
         # never silently remove otherwise countable entries from the document.
         def build_timesheet_report
-          ::Payroll::HoursReportBuilder.new(
+          report = ::Payroll::HoursReportBuilder.new(
             start_date: params[:start_date],
             end_date: params[:end_date],
             user_id: params[:user_id],
             approval_status: "approved_or_standard"
           ).call
+          report[:filtered_summary] = Reports::HoursReportDisclosure.filtered_status?(filters: report_params)
+          report
         rescue ArgumentError => e
           render json: { error: e.message }, status: :unprocessable_entity
           nil
@@ -179,7 +181,7 @@ module Api
             Reports::EmployeeTimesheetPdf.new(report: report, export: export, generated_by: current_user).render
           end
           send_data pdf,
-                    filename: "AIRE_Timesheet_#{safe_filename(employee[:full_name])}_#{report[:start_date]}_to_#{report[:end_date]}.pdf",
+                    filename: Reports::HoursReportDisclosure.filtered_label(report, "AIRE_Timesheet_#{safe_filename(employee[:full_name])}_#{report[:start_date]}_to_#{report[:end_date]}.pdf"),
                     type: "application/pdf",
                     disposition: "attachment"
         end

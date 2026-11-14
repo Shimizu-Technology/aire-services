@@ -10,6 +10,17 @@ module Reports
       open_clock_count: "open clock"
     }.freeze
 
+    APPROVAL_FACTS_NOTE = "Approved and waiting hours are period facts and ignore status filters; worked hours follow the filters."
+
+    def self.filtered_status?(report)
+      filters = (report[:filters] || {}).symbolize_keys
+      report[:filtered_summary] || (!filters[:approval_status].to_s.in?([ "", "approved_or_standard" ]) || filters[:overtime_status].present?)
+    end
+
+    def self.filtered_label(report, label)
+      filtered_status?(report) ? "Filtered — #{label}" : label
+    end
+
     def initialize(report:, export:)
       @report = report
       @export = export

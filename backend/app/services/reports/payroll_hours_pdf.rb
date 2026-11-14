@@ -43,7 +43,7 @@ module Reports
 
     def metadata
       {
-        Title: "AIRE Payroll Hours Report",
+        Title: HoursReportDisclosure.filtered_label(report, "AIRE Payroll Hours Report"),
         Author: "AIRE Services",
         Subject: "Payroll hours from #{report[:start_date]} to #{report[:end_date]}",
         Creator: "AIRE Operations"
@@ -54,7 +54,7 @@ module Reports
       top = pdf.cursor
       pdf.fill_color NAVY
       pdf.text_box "AIRE", at: [ 0, top ], width: 150, height: 28, size: 25, style: :bold, character_spacing: 1.2
-      pdf.text_box title, at: [ 350, top - 4 ], width: 370, height: 22, align: :right, size: 15, style: :bold
+      pdf.text_box HoursReportDisclosure.filtered_label(report, title), overflow: :shrink_to_fit, at: [ 350, top - 4 ], width: 370, height: 22, align: :right, size: 15, style: :bold
       pdf.move_down 32
       pdf.stroke_color CYAN
       pdf.line_width 2
@@ -79,9 +79,12 @@ module Reports
     end
 
     def render_summary(pdf)
+      pdf.fill_color MUTED
+      pdf.text HoursReportDisclosure::APPROVAL_FACTS_NOTE, size: 7.5
+      pdf.move_down 5
       rows = [
-        [ "Approved for payroll", "Approved regular", "Approved overtime", "Time waiting for approval", "Overtime waiting for approval — not included", "Entries" ],
-        [ hours(summary.dig(:payroll_hours, :approved_hours)), hours(summary.dig(:payroll_hours, :approved_regular_hours)), hours(summary.dig(:payroll_hours, :approved_overtime_hours)), hours(summary.dig(:payroll_hours, :time_waiting_hours)), hours(summary.dig(:payroll_hours, :overtime_waiting_hours)), summary[:entries_count].to_i.to_s ]
+        [ "Approved for payroll", "Approved regular", "Approved overtime", "Time waiting for approval", "Overtime waiting for approval — not included", "Entries", "Worked hours" ],
+        [ hours(summary.dig(:payroll_hours, :approved_hours)), hours(summary.dig(:payroll_hours, :approved_regular_hours)), hours(summary.dig(:payroll_hours, :approved_overtime_hours)), hours(summary.dig(:payroll_hours, :time_waiting_hours)), hours(summary.dig(:payroll_hours, :overtime_waiting_hours)), summary[:entries_count].to_i.to_s, hours(summary[:worked_hours]) ]
       ]
       pdf.table(rows, width: pdf.bounds.width, cell_style: { align: :center, padding: [ 8, 5 ], border_color: BORDER }) do |table|
         table.row(0).background_color = NAVY
