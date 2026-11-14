@@ -349,6 +349,37 @@ describe('Timecards on a phone', () => {
     expect(apiMock.updateTimeEntry).toHaveBeenLastCalledWith(55, expect.objectContaining({ expected_version: 5 }), 'Corrected clock-out: Forgot')
   })
 
+  it('keeps Fix clock-out and shift edits disabled until the reload after a conflict arrives', async () => {
+    apiMock.updateTimeEntry.mockResolvedValueOnce({ error: 'This entry changed. Reload it before submitting the correction', status: 409, code: 'stale_entry' })
+    openAt('/admin/timecards?user_id=7&period=2026-11-01')
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix clock-out' }))
+    fireEvent.change(screen.getByLabelText(/Clocked out/), { target: { value: '15:30' } })
+    fireEvent.change(screen.getByLabelText(/Why the change/), { target: { value: 'Forgot' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save clock-out' })) })
+
+    // Hold the reload: the old entries stay on screen, but nothing can act on them.
+    let resolveReload: (value: unknown) => void = () => undefined
+    apiMock.getTimeEntries.mockImplementation((params: { user_id?: number }) => params.user_id === 7
+      ? new Promise((resolve) => { resolveReload = resolve })
+      : Promise.resolve({ data: { time_entries: [], pagination: { total_pages: 1 } } }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reload this shift' }))
+    const loadingReason = 'Loading the latest copy of these shifts…'
+    const fix = await screen.findByRole('button', { name: 'Fix clock-out' })
+    expect(fix).toBeDisabled()
+    expect(fix).toHaveAttribute('title', loadingReason)
+    const edits = screen.getAllByRole('button', { name: /Edit shift$/ })
+    expect(edits.length).toBeGreaterThan(0)
+    edits.forEach(edit => expect(edit).toBeDisabled())
+    fireEvent.click(edits[0])
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveReload({ data: { time_entries: [CALEB_ENTRIES[0], CALEB_ENTRIES[1], { ...OPEN, version: 5 }], pagination: { total_pages: 1 } } })
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Fix clock-out' })).toBeEnabled())
+    screen.getAllByRole('button', { name: /Edit shift$/ }).forEach(edit => expect(edit).toBeEnabled())
+  })
+
   it('keeps the person for Log missed time when a desktop Everyone link opens on a phone', async () => {
     openAt('/admin/timecards?user_id=7&period=2026-11-01&view=everyone')
     fireEvent.click(await screen.findByRole('button', { name: 'Log missed time for Caleb' }))
@@ -400,6 +431,26 @@ describe('Timecards on a desktop', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Browser back' }))
     expect(search().get('user_id')).toBe('7')
     expect(search().get('period')).toBe('2026-11-01')
+  })
+
+  it('won’t open a shift from Everyone while work categories failed, and opens it after Try again', async () => {
+    apiMock.getTimeCategories.mockResolvedValueOnce({ error: 'Server returned an invalid response (502)', status: 502 })
+    apiMock.getTimeEntries.mockImplementation(async (params: { week?: string }) => ({
+      data: { time_entries: params.week ? [CALEB_ENTRIES[0]] : [], pagination: { total_pages: 1 } },
+    }))
+    openAt('/admin/timecards?view=everyone&date=2026-11-02')
+    const alert = await screen.findByText("Couldn't load work categories.")
+    const card = await screen.findByRole('button', { name: /8\.63h/ })
+    fireEvent.click(card)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByText(/Shifts can't be opened right now\. Work categories didn't load\./)).toBeInTheDocument()
+
+    fireEvent.click(within(alert.closest('[role=alert]') as HTMLElement).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByText(/Shifts can't be opened right now/)).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /8\.63h/ }))
+    const editor = await screen.findByRole('dialog')
+    expect(within(editor).queryByText(/Assign an active work category/)).not.toBeInTheDocument()
+    expect(within(editor).getByRole('option', { name: 'Ground Operations' })).toBeInTheDocument()
   })
 
   it('opens Log missed time from the header with nobody chosen in Everyone', async () => {

@@ -22,10 +22,16 @@ export interface EveryoneWeekProps {
   /** "+ Add" under a day. */
   onAddEntry: (date: string) => void
   addDisabled?: boolean
+  /**
+   * Why shifts can't be opened right now (work categories loading or failed).
+   * The grid's cards can't be disabled without changing the moved grid, so a
+   * tap shows this reason instead of an editor that can't save.
+   */
+  blockedReason?: string | null
 }
 
 /** Everyone's week on the existing grid, with the week stepper above it. */
-export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, onChanged, onOpenPerson, onAddEntry, addDisabled = false }: EveryoneWeekProps) {
+export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, onChanged, onOpenPerson, onAddEntry, addDisabled = false, blockedReason = null }: EveryoneWeekProps) {
   const weekStart = businessWeekStart(date)
   const { currentUser } = useAuthContext()
   // The same names the old Timecards grid showed: "You", then the display name.
@@ -35,6 +41,8 @@ export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, o
   const [revision, setRevision] = useState(0)
   const [state, setState] = useState<{ key: string; entries: TimeEntry[] | null; error: string | null }>({ key: '', entries: null, error: null })
   const [editing, setEditing] = useState<TimeEntry | null>(null)
+  const [blockedTap, setBlockedTap] = useState(false)
+  const openShift = (entry: TimeEntry) => { if (blockedReason) setBlockedTap(true); else setEditing(entry) }
   const requestKey = `${weekStart}:${refreshKey}:${revision}`
   const loaded = state.key === requestKey
 
@@ -69,6 +77,11 @@ export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, o
         <IconButton label="Next week" icon={<ChevronRight className="size-5" />} variant="secondary" disabled={addDateDays(weekStart, 7) > today} onClick={() => onDateChange(addDateDays(weekStart, 7))} />
         {!weekDates.includes(today) && <Button variant="ghost" size="sm" onClick={() => onDateChange(today)}>This week</Button>}
       </div>
+      {blockedReason && (
+        <p role="status" className={`rounded-card border px-4 py-3 text-body-sm ${blockedTap ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-line bg-surface-muted text-ink-muted'}`}>
+          Shifts can't be opened right now. {blockedReason}
+        </p>
+      )}
       {!loaded ? (
         <div aria-busy="true" aria-label="Loading the week" className="grid grid-cols-7 gap-2 rounded-card border border-line bg-surface p-3">
           {Array.from({ length: 7 }, (_, index) => <Skeleton key={index} height={120} className="w-full" />)}
@@ -81,7 +94,7 @@ export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, o
           entriesByDate={entriesByDate}
           hoursPerDay={hoursPerDay}
           ownerLabel={ownerLabel}
-          openEditEntry={setEditing}
+          openEditEntry={openShift}
           setPersonDayModal={({ entries: dayEntries, date: day }) => onOpenPerson(dayEntries[0].user.id, day)}
           openNewEntry={onAddEntry}
           addDisabled={addDisabled}
@@ -89,7 +102,7 @@ export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, o
       )}
       <EditTimeEntryModal
         phoneSheet
-        isOpen={!!editing}
+        isOpen={!!editing && !blockedReason}
         entry={editing}
         categories={editing ? categories.filter(category => editing.user.time_category_ids?.includes(category.id)) : []}
         canManageTeamTime

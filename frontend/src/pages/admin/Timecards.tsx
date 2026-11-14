@@ -335,6 +335,7 @@ export default function Timecards() {
           onOpenPerson={(id, day) => choosePerson(id, payPeriodContaining(day))}
           onAddEntry={(day) => openLog({ personId: null, workDate: day })}
           addDisabled={!users.list || !!logBlocked}
+          blockedReason={categoriesBlocked}
         />
       ) : desktop ? (
         <div className="grid grid-cols-[320px_minmax(0,1fr)] items-start gap-6">
