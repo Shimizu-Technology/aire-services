@@ -358,7 +358,9 @@ describe('Pay tab', () => {
   it('lists pay periods in the glossary words and hides not-matched hours until after payday', async () => {
     open('/admin/users/7?tab=pay')
     const periods = await screen.findByRole('region', { name: 'Pay periods' })
-    await waitFor(() => expect(periods).toHaveTextContent('Nov 1–15'))
+    // Each row looks up its own payroll status; wait until all three have one.
+    await waitFor(() => expect(within(periods).queryAllByText('Checking payroll status…')).toHaveLength(0))
+    await waitFor(() => expect(periods).toHaveTextContent('Paid Nov 10'))
     const rows = within(periods).getAllByRole('listitem')
     expect(rows[0]).toHaveTextContent('Open · 51.5h approved · 11.5h waiting')
     // The open period has 51.5h "needs reconciliation" in the evidence; it isn't shown.
