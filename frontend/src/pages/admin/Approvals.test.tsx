@@ -354,3 +354,49 @@ it.each(['gone', 'needs-look'])(
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   },
 )
+
+it.each([
+  ['finalized past period', '2026-10-16', '2026-10-31', '2026-11-09T13:23:00Z', 'none', false],
+  ['no period', null, null, null, 'none', false],
+  ['upcoming period', '2099-11-01', '2099-11-15', '2099-11-18T07:00:00Z', 'none', true],
+  ['lock in progress', '2020-11-01', '2020-11-15', '2020-11-18T07:00:00Z', 'finalizing', true],
+] as const)('describes only an active lock: %s', async (_, start, end, at, stage, active) => {
+  vi.mocked(api.getPayrollCutoff).mockResolvedValue({
+    data: {
+      cutoff: {
+        period: start && end ? { id: 1, start_date: start, end_date: end } : null,
+        publication_id: 'published',
+        version: 1,
+        cutoff_at: at,
+        stage,
+        now: new Date().toISOString(),
+        seconds_remaining: active ? 100 : -100,
+        time_zone: 'Pacific/Guam',
+      },
+    },
+  })
+  renderInbox()
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve all 3' }))
+  const dialog = screen.getByRole('alertdialog')
+  if (!active) {
+    expect(screen.getByText('5 waiting')).toBeInTheDocument()
+    expect(dialog).toHaveTextContent("They'll go to payroll at the next lock.")
+    expect(dialog).not.toHaveTextContent('Nov 9')
+  } else if (stage === 'finalizing') {
+    expect(screen.getByText(/5 waiting.*Locking now/)).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('at the lock now in progress.')
+  } else {
+    expect(screen.getByText(/5 waiting.*locks Wed, Nov 18, 5:00 PM/)).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('at the Wed, Nov 18, 5:00 PM lock.')
+  }
+})
+
+it('keeps zero-hour pending overtime out of every ordinary approval payload', async () => {
+  renderInbox()
+  expect(await screen.findByText(/Overtime to review/)).toBeInTheDocument()
+  expect(screen.queryByText(/0.0h overtime this week/)).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Approve all 3' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Approve 3 shifts' }))
+  await waitFor(() => expect(approvalsApi.review).toHaveBeenCalledOnce())
+  expect(vi.mocked(approvalsApi.review).mock.calls[0][0].map(item => item.id)).toEqual([1, 2, 3])
+})

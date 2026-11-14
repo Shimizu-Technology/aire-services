@@ -40,7 +40,9 @@ export default function NeedsLookList({
               <>
                 {formatApprovalDate(row.work_date)} · {row.hours.toFixed(1)}h
                 {row.overtime_status === 'pending'
-                  ? ` · ${(row.pending_overtime_hours ?? 0).toFixed(1)}h overtime this week`
+                  ? (row.pending_overtime_hours ?? 0) > 0
+                    ? ` · ${row.pending_overtime_hours!.toFixed(1)}h overtime this week`
+                    : ' · Overtime to review'
                   : ''}
                 <span className="mt-1 flex flex-wrap gap-1 whitespace-normal">
                   {row.exceptions.map(reason => (

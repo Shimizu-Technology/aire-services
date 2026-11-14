@@ -32,7 +32,7 @@ import type { ReviewEntry, ReviewItem } from '../../lib/api/approvals'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
-import { formatPayPeriod } from '../../lib/payPeriods'
+import { approvalLockCopy } from '../../components/approvals/approvalLockCopy'
 import {
   Button,
   ErrorState,
@@ -83,17 +83,6 @@ async function loadPendingLeave() {
     rows.push(...response.data.leave_requests)
     if (page >= response.data.pagination.total_pages) return rows
   }
-}
-
-function formatLockTime(value: string, includeWeekday = false) {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Pacific/Guam',
-    ...(includeWeekday ? { weekday: 'short' } : {}),
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(value))
 }
 
 export default function Approvals() {
@@ -412,23 +401,14 @@ function ApprovalsInbox() {
           (showStubs || peopleLoading || Boolean(peopleError) || extrasLoading)
         ? 'stubs'
         : 'time'
-  const lockAt = cutoff?.cutoff.cutoff_at
-  const lockCopy = lockAt
-    ? `They'll go to payroll at the ${formatLockTime(lockAt)} lock.`
-    : undefined
+  const lock = approvalLockCopy(cutoff)
   const departmentOptions = groups.length
     ? groups.map(group => ({ value: group.key, label: group.label }))
     : [
         { value: 'cfi', label: 'CFI' },
         { value: 'ops', label: 'Ops/Maint' },
       ]
-  const period = cutoff?.cutoff.period
-  const periodLabel = period
-    ? formatPayPeriod({ start: period.start_date, end: period.end_date })
-    : ''
-  const headerDescription = `${inbox.data?.count ?? '…'} waiting${
-    periodLabel ? ` · ${periodLabel}` : ''
-  }${lockAt ? ` locks ${formatLockTime(lockAt, true)}` : ''}`
+  const headerDescription = `${inbox.data?.count ?? '…'} waiting${lock.description}`
   const filterCount = FILTER_KEYS.filter(key => query.has(key)).length
   const selectionSummary = selection
     ? `${selection.people.length} people · ${selection.hours.toFixed(1)}h`
@@ -595,7 +575,7 @@ function ApprovalsInbox() {
         selection={confirmation?.snapshot ?? null}
         ordinary={confirmation?.all}
         exclusions={exclusionCopy(needsLook)}
-        lockCopy={lockCopy}
+        lockCopy={lock.confirmation}
         busy={batches.busy}
         onCancel={cancelApproval}
         onConfirm={confirmApproval}
