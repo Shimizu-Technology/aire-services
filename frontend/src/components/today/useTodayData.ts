@@ -21,26 +21,53 @@ type Result<T> = { data?: T; error?: string }
 const fetchCutoff = () => api.getPayrollCutoff()
 const fetchWorkers = () => api.getWhosWorking()
 
-/** One request that fails on its own, so a broken block never blanks the page. */
+/** How a block should be drawn: nothing yet, failed with nothing to show, fine, or showing an older answer. */
+export type BlockLoad = 'loading' | 'error' | 'ready' | 'stale'
+
+export function loadOf<T>(block: Block<T>, enabled = true): BlockLoad {
+  if (!enabled) return 'ready'
+  if (block.data) return block.error ? 'stale' : 'ready'
+  return block.error ? 'error' : 'loading'
+}
+
+/**
+ * One request that fails on its own, so a broken block never blanks the page.
+ * Calls while a request is running share it and queue a single follow-up, so a
+ * retry or a reload after a save never overlaps a poll.
+ */
 function useBlock<T>(fetcher: () => Promise<Result<T>>, enabled: boolean) {
   const [state, setState] = useState<Block<T>>({ data: null, error: null, loading: enabled, loadedAt: null })
-  const latest = useRef(0)
+  const running = useRef<Promise<void> | null>(null)
+  const queued = useRef(false)
 
-  const load = useCallback(async () => {
-    if (!enabled) return
-    const mine = ++latest.current
+  const once = useCallback(async () => {
     let result: Result<T>
     try {
       result = await fetcher()
     } catch {
       result = { error: 'Network error' }
     }
-    // A slower, older request must not overwrite a newer answer.
-    if (mine !== latest.current) return
     setState(previous => result.data
       ? { data: result.data, error: null, loading: false, loadedAt: new Date() }
       : { ...previous, error: result.error || 'Something went wrong', loading: false })
-  }, [enabled, fetcher])
+  }, [fetcher])
+
+  const load = useCallback(() => {
+    if (!enabled) return Promise.resolve()
+    if (running.current) {
+      queued.current = true
+      return running.current
+    }
+    const run = async () => {
+      do {
+        queued.current = false
+        await once()
+      } while (queued.current)
+    }
+    const current = run().finally(() => { running.current = null })
+    running.current = current
+    return current
+  }, [enabled, once])
 
   return [state, load] as const
 }

@@ -51,20 +51,37 @@ describe('PayPeriodCard', () => {
     expect(screen.getByText('Thu, Nov 12, 12:41 AM')).toBeInTheDocument()
   })
 
-  it('says "Locking now" once Lock now was asked for, and drops the old lock time', () => {
+  it('says a Lock now is requested while Payroll has not confirmed it, and keeps the scheduled time', () => {
     renderCard({
       lock: lockControl({
         pending_change: { state: 'pending', action: 'lock_now', cutoff_at: null, requested_by_name: 'Chels Cruz', requested_at: '2026-11-11T19:40:00+10:00', error: null },
       }),
     })
-    expect(screen.getByText('Locking now').closest('[data-tone]')).toHaveAttribute('data-tone', 'info')
-    expect(screen.queryByText('Wed, Nov 18, 5:00 PM')).not.toBeInTheDocument()
-    expect(screen.getByText(/AIRE is locking these hours/)).toBeInTheDocument()
+    expect(screen.getByText('Lock requested · waiting for Cornerstone Payroll').closest('[data-tone]')).toHaveAttribute('data-tone', 'info')
+    expect(screen.queryByText('Locking now')).not.toBeInTheDocument()
+    const time = screen.getByText('Wed, Nov 18, 5:00 PM')
+    expect(time.tagName).toBe('TIME')
+    expect(screen.getByText(/^Scheduled lock/)).toBeInTheDocument()
   })
 
   it('says "Locking now" when the lock time has arrived', () => {
     renderCard({ lock: lockControl({ cutoff_at: '2026-11-11T19:41:00+10:00', cutoff_state: 'due' }) })
     expect(screen.getByText('Locking now')).toBeInTheDocument()
+    expect(screen.getByText('Wed, Nov 11, 7:41 PM')).toBeInTheDocument()
+  })
+
+  it('keeps counting down in the last minute', () => {
+    renderCard({ lock: lockControl({ cutoff_at: '2026-11-11T19:41:45+10:00' }) })
+    expect(screen.getByText('Locks in under a minute')).toBeInTheDocument()
+    expect(screen.queryByText('Locking now')).not.toBeInTheDocument()
+  })
+
+  it('does not say Locking now while the connection is paused, because nothing will lock', () => {
+    renderCard({ lock: lockControl({ cutoff_at: '2026-11-11T19:30:00+10:00', cutoff_state: 'due' }), paused: true })
+    const pill = screen.getByText('Lock on hold: connection paused').closest('[data-tone]')
+    expect(pill).toHaveAttribute('data-tone', 'needs-fix')
+    expect(screen.queryByText('Locking now')).not.toBeInTheDocument()
+    expect(screen.getByText('Wed, Nov 11, 7:30 PM')).toBeInTheDocument()
   })
 
   it('names a failed lock', () => {
@@ -113,5 +130,44 @@ describe('PayPeriodCard', () => {
     renderCard()
     expect(screen.getByRole('link', { name: 'Review approvals' })).toHaveAttribute('href', '/admin/approvals?period=2026-11-01')
     expect(screen.getByRole('link', { name: 'Open pay period' })).toHaveAttribute('href', '/admin/payroll?start_date=2026-11-01&end_date=2026-11-15')
+  })
+
+  describe('when the hours and the lock are for different pay periods', () => {
+    const otherLock = () => lockControl({
+      period: { id: 6, external_pay_period_id: 'ext-6', start_date: '2026-10-16', end_date: '2026-10-31', pay_date: '2026-11-10' },
+      cutoff_at: '2026-11-03T17:00:00+10:00',
+      status: 'failed',
+    })
+
+    it('never pairs one period\'s hours with another period\'s lock', () => {
+      renderCard({ lock: otherLock() })
+      expect(screen.getByRole('heading', { name: 'Nov 1–15 pay period' })).toBeInTheDocument()
+      expect(screen.queryByText('Lock failed')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Tue, Nov 10/)).not.toBeInTheDocument()
+      // The period's own lock time and pay date stand in.
+      expect(screen.getByText('Wed, Nov 18, 5:00 PM')).toBeInTheDocument()
+      expect(screen.getByText(/pays Wed, Nov 25/)).toBeInTheDocument()
+      expect(screen.getByText('Lock details are for another pay period and are updating.')).toBeInTheDocument()
+    })
+  })
+
+  describe('when a refresh failed', () => {
+    it('keeps the last lock time and hours and says when they were last updated', () => {
+      const { onRetryLock, onRetryPeriod } = renderCard({
+        periodLoad: 'stale',
+        periodUpdatedAt: new Date('2026-11-11T19:30:00+10:00'),
+        lockLoad: 'stale',
+        lockUpdatedAt: new Date('2026-11-11T19:31:00+10:00'),
+      })
+      expect(screen.getByRole('img')).toBeInTheDocument()
+      expect(screen.getByText('Wed, Nov 18, 5:00 PM')).toBeInTheDocument()
+      expect(screen.getByText(/Couldn't refresh the lock time\. Last updated 7:31 PM\./)).toBeInTheDocument()
+      expect(screen.getByText(/Couldn't refresh the hours\. Last updated 7:30 PM\./)).toBeInTheDocument()
+      const retries = screen.getAllByRole('button', { name: 'Try again' })
+      fireEvent.click(retries[0])
+      fireEvent.click(retries[1])
+      expect(onRetryLock).toHaveBeenCalledTimes(1)
+      expect(onRetryPeriod).toHaveBeenCalledTimes(1)
+    })
   })
 })

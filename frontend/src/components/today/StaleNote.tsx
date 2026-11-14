@@ -11,7 +11,7 @@ export interface StaleNoteProps {
 export function StaleNote({ what, loadedAt, onRetry }: StaleNoteProps) {
   return (
     <p role="status" className="text-caption text-ink-muted">
-      Couldn't refresh {what}.{loadedAt ? ` Showing what loaded at ${timeLabel(loadedAt)}.` : ''}{' '}
+      Couldn't refresh {what}.{loadedAt ? ` Last updated ${timeLabel(loadedAt)}.` : ''}{' '}
       <button type="button" onClick={onRetry} className="min-h-11 font-semibold text-primary underline pointer-fine:min-h-0">
         Try again
       </button>

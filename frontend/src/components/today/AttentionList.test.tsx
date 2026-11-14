@@ -106,25 +106,50 @@ describe('AttentionList', () => {
   })
 
   describe('Reset PIN', () => {
-    const pinRow = () => screen.getByRole('listitem')
     const pinItem = allItems.filter(item => item.type === 'kiosk_pin_locked')
+    const clickReset = () => act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reset PIN for Kai Blas' })) })
+    const answer = (name: string) => act(async () => { fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name })) })
 
-    it('resets in place, shows the new PIN once and asks the page to reload', async () => {
+    it('asks first, and resets nothing until it is confirmed', async () => {
+      apiMock.resetKioskPin.mockResolvedValue({ data: { kiosk_pin: '482913' } })
+      renderList(pinItem)
+      await clickReset()
+      const dialog = screen.getByRole('alertdialog', { name: "Reset Kai Blas's kiosk PIN?" })
+      expect(dialog).toHaveTextContent('Their old PIN stops working right away.')
+      expect(apiMock.resetKioskPin).not.toHaveBeenCalled()
+      expect(within(dialog).getByRole('button', { name: 'Reset PIN' })).toBeInTheDocument()
+    })
+
+    it('leaves the PIN alone when cancelled', async () => {
+      const { onChanged } = renderList(pinItem)
+      await clickReset()
+      await answer('Cancel')
+      expect(apiMock.resetKioskPin).not.toHaveBeenCalled()
+      expect(onChanged).not.toHaveBeenCalled()
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Reset PIN for Kai Blas' })).toBeEnabled()
+    })
+
+    it('resets after confirming, shows the new PIN once and asks the page to reload', async () => {
       apiMock.resetKioskPin.mockResolvedValue({ data: { kiosk_pin: '482913' } })
       const { onChanged } = renderList(pinItem)
-      await act(async () => { fireEvent.click(within(pinRow()).getByRole('button', { name: 'Reset PIN for Kai Blas' })) })
+      await clickReset()
+      await answer('Reset PIN')
       expect(apiMock.resetKioskPin).toHaveBeenCalledWith(11)
       expect(onChanged).toHaveBeenCalledTimes(1)
       const sheet = screen.getByRole('dialog', { name: 'New kiosk PIN for Kai Blas' })
       expect(sheet).toHaveTextContent('482913')
       fireEvent.click(within(sheet).getByRole('button', { name: 'Done' }))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByText('482913')).not.toBeInTheDocument()
     })
 
     it('keeps the row and says why when the reset is refused', async () => {
       apiMock.resetKioskPin.mockResolvedValue({ error: 'Clock this person out before changing their kiosk access', status: 422 })
       const { onChanged } = renderList(pinItem)
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reset PIN for Kai Blas' })) })
+      await clickReset()
+      await answer('Reset PIN')
       expect(screen.getByRole('status')).toHaveTextContent('Clock this person out before changing their kiosk access')
       expect(onChanged).not.toHaveBeenCalled()
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

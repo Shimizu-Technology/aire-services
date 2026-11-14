@@ -93,12 +93,20 @@ export function cutoff(control: PayrollLockControl | null = lockControl(), now =
 
 export function worker(overrides: Partial<WorkerStatus> & { id?: number; name?: string } = {}): WorkerStatus {
   const { id = 8, name = 'Grace Torres', ...rest } = overrides
-  return {
+  const base: WorkerStatus = {
     user: { id, full_name: name, display_name: name.split(' ')[0], email: `${id}@example.test` },
     schedule: null, status: 'clocked_in', clock_in_at: '2026-11-11T13:30:00+10:00', clock_out_at: null, completed_hours: 0,
     active_break: false, break_started_at: null, total_break_minutes: 0, breaks: [],
     time_category: { id: 4, name: 'Flight Instruction' }, open_since_work_date: null, open_entry_id: 1,
     ...rest,
+  }
+  // One open shift that matches the day's first clock-in, unless the test says otherwise.
+  return {
+    ...base,
+    day_entries: rest.day_entries ?? [{
+      id: 1, status: base.status, clock_in_at: base.clock_in_at, clock_out_at: null, hours: 0,
+      time_category: base.time_category, breaks: base.breaks,
+    }],
   }
 }
 
@@ -111,6 +119,7 @@ export function connection(overrides: Partial<PayrollConnectionStatus> = {}): Pa
       period: { start_date: '2026-10-16', end_date: '2026-10-31' },
     },
     undelivered: { count: 0, failed_count: 0, stuck_count: 0 },
+    account_link: { linked_at: '2026-10-05T10:00:00+10:00', connected: true },
     ...overrides,
   }
 }

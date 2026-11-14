@@ -19,7 +19,7 @@ import type {
   PayrollProblemAttentionItem,
 } from '../../lib/api/attention'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
-import { AttentionItem, Button, Sheet, buttonClasses, useToast, type AttentionTone } from '../ui'
+import { AttentionItem, Button, Sheet, buttonClasses, useConfirm, useToast, type AttentionTone } from '../ui'
 import {
   dayLabel,
   dayTimeLabel,
@@ -108,10 +108,18 @@ export interface AttentionListProps {
  */
 export function AttentionList({ items, onChanged }: AttentionListProps) {
   const toast = useToast()
+  const [confirm, confirmDialog] = useConfirm()
   const [resetting, setResetting] = useState<number | null>(null)
   const [result, setResult] = useState<ResetResult | null>(null)
 
   const resetPin = async (id: number, name: string) => {
+    const confirmed = await confirm({
+      title: `Reset ${name}'s kiosk PIN?`,
+      description: 'Their old PIN stops working right away.',
+      confirmLabel: 'Reset PIN',
+      tone: 'danger',
+    })
+    if (!confirmed) return
     setResetting(id)
     try {
       const response = await api.resetKioskPin(id)
@@ -254,6 +262,7 @@ export function AttentionList({ items, onChanged }: AttentionListProps) {
           {result?.pin}
         </p>
       </Sheet>
+      {confirmDialog}
     </>
   )
 }

@@ -7,6 +7,7 @@ import { ErrorState } from '../ui'
 import { businessDateISO } from '../../lib/dateUtils'
 import { monthDay, periodLabel, plural, timeLabel } from './format'
 import { PAYROLL_CONNECTION_HREF } from './links'
+import { StaleNote } from './StaleNote'
 
 /** "7:05 PM" for today, "Nov 10, 7:05 PM" for an earlier day. */
 function heardAt(instant: string, now: Date) {
@@ -16,20 +17,23 @@ function heardAt(instant: string, now: Date) {
 
 export interface ConnectionCardProps {
   connection: PayrollConnectionStatus | null
-  load: 'loading' | 'error' | 'ready'
+  load: 'loading' | 'error' | 'ready' | 'stale'
+  /** When `connection` was last loaded, for the stale note. */
+  updatedAt?: Date | null
   now: Date
   onRetry: () => void
 }
 
 /** Whether Cornerstone Payroll is connected and when it last answered. */
-export function ConnectionCard({ connection, load, now, onRetry }: ConnectionCardProps) {
+export function ConnectionCard({ connection, load, updatedAt = null, now, onRetry }: ConnectionCardProps) {
   return (
     <section aria-labelledby="today-connection">
       <h2 id="today-connection" className="text-body font-semibold text-ink">Payroll connection</h2>
       <div className="mt-2">
         {load === 'loading' && <Skeleton className="h-20 w-full" />}
         {load === 'error' && <ErrorState title="Couldn't load the payroll connection." onRetry={onRetry} />}
-        {load === 'ready' && connection && <Details connection={connection} now={now} />}
+        {load === 'stale' && <div className="mb-2"><StaleNote what="the connection" loadedAt={updatedAt} onRetry={onRetry} /></div>}
+        {(load === 'ready' || load === 'stale') && connection && <Details connection={connection} now={now} />}
       </div>
     </section>
   )
@@ -39,8 +43,10 @@ function Details({ connection, now }: { connection: PayrollConnectionStatus; now
   const paused = connection.state === 'paused'
   const problem = connection.state === 'delivery_problem'
   const delivery = connection.last_delivery
+  // Enabled, but Cornerstone Payroll hasn't published, received or linked anything yet.
+  const neverConnected = connection.state === 'connected' && !connection.last_publication && !delivery && !connection.account_link
   const facts = [
-    connection.last_publication ? `Last heard from ${heardAt(connection.last_publication.published_at, now)}` : 'Not heard from Cornerstone Payroll yet',
+    connection.last_publication ? `Last heard from ${heardAt(connection.last_publication.published_at, now)}` : 'No word from Cornerstone Payroll yet',
     delivery?.period && delivery.delivered_at
       ? `${periodLabel(delivery.period)} locked and received ${monthDay(businessDateISO(new Date(delivery.delivered_at)))}`
       : null,
@@ -53,8 +59,8 @@ function Details({ connection, now }: { connection: PayrollConnectionStatus; now
           ? <Unplug aria-hidden="true" className="size-4 shrink-0 text-red-600" />
           : problem
             ? <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-amber-600" />
-            : <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-emerald-600" />}
-        {paused ? 'Payroll connection paused' : 'Connected to Cornerstone Payroll'}
+            : <span aria-hidden="true" className={cx('size-2 shrink-0 rounded-full', neverConnected ? 'bg-slate-400' : 'bg-emerald-600')} />}
+        {paused ? 'Payroll connection paused' : neverConnected ? 'Not connected yet' : 'Connected to Cornerstone Payroll'}
       </p>
       {problem && (
         <p className="mt-1 text-amber-900">

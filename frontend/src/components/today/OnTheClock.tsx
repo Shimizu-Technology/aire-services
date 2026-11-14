@@ -1,16 +1,25 @@
-import type { WorkerStatus } from '../../lib/api'
+import type { WorkerDayEntry, WorkerStatus } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import { StatusPill } from '../ui'
 import { hoursLabel, timeLabel, weekdayTime } from './format'
 
 const OPEN_STATUSES = ['clocked_in', 'on_break']
 
-/** Hours on the open clock: time since clock-in, less breaks. */
-function hoursSoFar(worker: WorkerStatus, now: Date) {
-  if (!worker.clock_in_at) return null
-  const breakMs = worker.total_break_minutes * 60_000
-  const activeMs = worker.active_break && worker.break_started_at ? now.getTime() - Date.parse(worker.break_started_at) : 0
-  return Math.max(0, (now.getTime() - Date.parse(worker.clock_in_at) - breakMs - activeMs) / 3_600_000)
+/**
+ * The shift that is open now. `clock_in_at` and the break totals on a worker
+ * cover the whole day, so a split day (07:00–09:00, then 13:00 to now) would
+ * count the gap; the open entry in `day_entries` is the one clock running.
+ */
+function activeShift(worker: WorkerStatus): WorkerDayEntry | null {
+  return worker.day_entries?.find(entry => OPEN_STATUSES.includes(entry.status) && entry.clock_in_at) ?? null
+}
+
+/** Hours on the open clock: time since it started, less breaks. */
+function hoursSoFar(shift: WorkerDayEntry, now: Date) {
+  const breakMs = shift.breaks.reduce((total, item) => total + (item.active
+    ? now.getTime() - Date.parse(item.start_time)
+    : (item.duration_minutes ?? 0) * 60_000), 0)
+  return Math.max(0, (now.getTime() - Date.parse(shift.clock_in_at!) - breakMs) / 3_600_000)
 }
 
 export interface OnTheClockProps {
@@ -24,9 +33,10 @@ export interface OnTheClockProps {
 export function OnTheClock({ workers, now, loadedAt }: OnTheClockProps) {
   const open = workers
     .filter(worker => OPEN_STATUSES.includes(worker.status))
-    // Earlier-day clocks first, oldest first, then the rest by who came in first.
-    .sort((a, b) => Number(Boolean(b.open_since_work_date)) - Number(Boolean(a.open_since_work_date))
-      || (a.clock_in_at ?? '').localeCompare(b.clock_in_at ?? ''))
+    .map(worker => ({ worker, shift: activeShift(worker) }))
+    // Earlier-day clocks first, then by when the open clock started.
+    .sort((a, b) => Number(Boolean(b.worker.open_since_work_date)) - Number(Boolean(a.worker.open_since_work_date))
+      || (a.shift?.clock_in_at ?? '').localeCompare(b.shift?.clock_in_at ?? ''))
 
   return (
     <section aria-labelledby="today-on-the-clock">
@@ -40,10 +50,11 @@ export function OnTheClock({ workers, now, loadedAt }: OnTheClockProps) {
         <p className="mt-2 rounded-card border border-line bg-surface px-3.5 py-4 text-body-sm text-ink-muted">Nobody is clocked in.</p>
       ) : (
         <ul className="mt-2 divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
-          {open.map((worker) => {
+          {open.map(({ worker, shift }) => {
             const earlier = Boolean(worker.open_since_work_date)
-            const hours = hoursSoFar(worker, now)
-            const since = worker.clock_in_at ? (earlier ? weekdayTime(worker.clock_in_at) : timeLabel(worker.clock_in_at)) : null
+            const hours = shift ? hoursSoFar(shift, now) : null
+            const startedAt = shift?.clock_in_at ?? null
+            const since = startedAt ? (earlier ? weekdayTime(startedAt) : timeLabel(startedAt)) : null
             return (
               <li key={worker.user.id} className="flex items-center gap-3 px-3.5 py-3">
                 <span
@@ -56,7 +67,7 @@ export function OnTheClock({ workers, now, loadedAt }: OnTheClockProps) {
                     {[
                       since && `Since ${since}`,
                       worker.status === 'on_break' && 'On break',
-                      worker.time_category?.name,
+                      (shift?.time_category ?? worker.time_category)?.name,
                     ].filter(Boolean).join(' · ')}
                   </p>
                 </div>

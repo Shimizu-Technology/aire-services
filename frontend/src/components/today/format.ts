@@ -43,14 +43,6 @@ export const plural = (count: number, one: string, many = `${one}s`) => `${count
 /** "sick_leave" to "sick leave". */
 export const leaveKind = (type: string) => type.replaceAll('_', ' ')
 
-export interface LockStatus {
-  /** What the pill says, or null when no pill applies. */
-  label: string | null
-  tone: StatusTone
-  /** The lock is happening now, so the absolute lock time no longer helps. */
-  locking: boolean
-}
-
 const LOCKED_STATES: AttentionPeriod['handoff_state'][] = ['locked', 'received', 'in_run', 'paid']
 
 /** The hours were already handed to Payroll, so there is no lock time to count down to. */
@@ -60,36 +52,55 @@ export const isLocked = (period: AttentionPeriod | null) => Boolean(period && LO
 function countdown(cutoffAt: string, now: Date) {
   const remaining = Date.parse(cutoffAt) - now.getTime()
   if (remaining >= DAY_MS) return lockDistance(cutoffAt, now)
+  if (remaining < 60_000) return 'in under a minute'
   const minutes = Math.round(remaining / 60_000)
   if (minutes < 60) return `in ${plural(minutes, 'minute')}`
   return `in ${plural(Math.round(minutes / 60), 'hour')}`
 }
 
+export type LockKind = 'upcoming' | 'requested' | 'due' | 'hold' | 'failed' | 'locked' | 'none'
+
+export interface LockStatus {
+  kind: LockKind
+  /** What the pill says, or null when no pill applies. */
+  label: string | null
+  tone: StatusTone
+  /** The words before the absolute lock time ("Locks", "Scheduled lock"), or null to leave it out. */
+  prefix: string | null
+}
+
+export interface LockStatusInput {
+  period: AttentionPeriod | null
+  control: PayrollLockControl | null
+  cutoffAt: string | null
+  now: Date
+  /** The Cornerstone Payroll connection is paused, so nothing can be locked. */
+  paused: boolean
+}
+
 /**
- * The pay period card's pill. Waiting while the lock is more than a day away,
- * needs-fix inside 24 hours, and "Locking now" once Lock now was used or the
- * lock time has arrived.
+ * The pay period card's pill, kept honest about what is happening:
+ * - upcoming: a countdown, waiting while it is more than a day away, needs-fix inside 24 hours
+ * - requested: Lock now was asked for and Cornerstone Payroll hasn't confirmed it yet
+ * - due: the lock time passed and the connection is up, so AIRE is locking
+ * - hold: the lock is due or requested but the connection is paused, so nothing will lock
  */
-export function lockStatus(
-  period: AttentionPeriod | null,
-  control: PayrollLockControl | null,
-  cutoffAt: string | null,
-  now: Date,
-): LockStatus {
-  if (period && isLocked(period)) return { label: period.label, tone: 'approved', locking: false }
-  if (control?.status === 'failed') return { label: 'Lock failed', tone: 'needs-fix', locking: false }
-  if (!cutoffAt) return { label: null, tone: 'off', locking: false }
+export function lockStatus({ period, control, cutoffAt, now, paused }: LockStatusInput): LockStatus {
+  if (isLocked(period)) return { kind: 'locked', label: period?.label ?? null, tone: 'approved', prefix: null }
+  if (control?.status === 'failed') return { kind: 'failed', label: 'Lock failed', tone: 'needs-fix', prefix: 'Lock time' }
+  if (!cutoffAt) return { kind: 'none', label: null, tone: 'off', prefix: null }
 
   const remaining = Date.parse(cutoffAt) - now.getTime()
-  const lockNowAsked = control?.pending_change?.state === 'pending' && control.pending_change.action === 'lock_now'
-  if (lockNowAsked || remaining <= 60_000) {
-    return { label: 'Locking now', tone: 'info', locking: true }
+  const requested = control?.pending_change?.state === 'pending' && control.pending_change.action === 'lock_now'
+  const due = remaining <= 0 || control?.cutoff_state === 'due'
+  if (paused && (requested || due)) {
+    return { kind: 'hold', label: 'Lock on hold: connection paused', tone: 'needs-fix', prefix: 'Lock time' }
   }
-  return {
-    label: `Locks ${countdown(cutoffAt, now)}`,
-    tone: remaining < DAY_MS ? 'needs-fix' : 'waiting',
-    locking: false,
+  if (requested) {
+    return { kind: 'requested', label: 'Lock requested · waiting for Cornerstone Payroll', tone: 'info', prefix: 'Scheduled lock' }
   }
+  if (due) return { kind: 'due', label: 'Locking now', tone: 'info', prefix: 'Lock time' }
+  return { kind: 'upcoming', label: `Locks ${countdown(cutoffAt, now)}`, tone: remaining < DAY_MS ? 'needs-fix' : 'waiting', prefix: 'Locks' }
 }
 
 /** "Wed, Nov 18, 5:00 PM" for the absolute lock time. */

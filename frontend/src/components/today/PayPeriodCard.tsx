@@ -8,16 +8,22 @@ import { Skeleton } from '../ui/Skeleton'
 import { ProgressSplit, StatusPill, buttonClasses } from '../ui'
 import { dayLabel, hoursLabel, isLocked, lockStatus, lockTimeLabel, plural } from './format'
 import { approvalsHref, payrollHref } from './links'
+import { StaleNote } from './StaleNote'
 
-type Load = 'loading' | 'error' | 'ready'
+/** `stale`: the last refresh failed, so this is the last good answer. */
+type Load = 'loading' | 'error' | 'ready' | 'stale'
 
 export interface PayPeriodCardProps {
   /** The period and its hours from `GET /attention`. */
   period: AttentionPeriod | null
   periodLoad: Load
+  periodUpdatedAt?: Date | null
   /** The next lock from `GET /payroll_cutoff`, or null when none is scheduled. */
   lock: PayrollLockControl | null
   lockLoad: Load
+  lockUpdatedAt?: Date | null
+  /** The Cornerstone Payroll connection is paused. */
+  paused?: boolean
   now: Date
   onRetryPeriod: () => void
   onRetryLock: () => void
@@ -39,14 +45,28 @@ function RetryLine({ children, onRetry }: { children: string; onRetry: () => voi
  * waiting. The lock time and the hours load separately, so either can fail
  * without hiding the other.
  */
-export function PayPeriodCard({ period, periodLoad, lock, lockLoad, now, onRetryPeriod, onRetryLock }: PayPeriodCardProps) {
+export function PayPeriodCard({
+  period,
+  periodLoad,
+  periodUpdatedAt = null,
+  lock,
+  lockLoad,
+  lockUpdatedAt = null,
+  paused = false,
+  now,
+  onRetryPeriod,
+  onRetryLock,
+}: PayPeriodCardProps) {
   const headingId = useId()
+  const periodShown = periodLoad === 'ready' || periodLoad === 'stale'
+  const lockShown = lockLoad === 'ready' || lockLoad === 'stale'
 
-  if (periodLoad === 'ready' && period && !period.published) {
+  if (periodShown && period && !period.published) {
     return (
       <section aria-labelledby={headingId} className="rounded-card border border-line bg-surface p-4 sm:p-5">
         <h2 id={headingId} className="text-title font-semibold text-ink">Pay period</h2>
         <p className="mt-1 text-body-sm text-ink-muted">No pay period is published yet. Cornerstone Payroll publishes each period.</p>
+        {periodLoad === 'stale' && <div className="mt-2"><StaleNote what="the pay period" loadedAt={periodUpdatedAt} onRetry={onRetryPeriod} /></div>}
         <div className="mt-4">
           <Link to={ADMIN_PATHS.payroll} className={buttonClasses({ variant: 'secondary' })}>Open Payroll</Link>
         </div>
@@ -54,44 +74,50 @@ export function PayPeriodCard({ period, periodLoad, lock, lockLoad, now, onRetry
     )
   }
 
+  // The hours and the lock come from two requests. Only mix them when they
+  // describe the same pay period; otherwise the period's own lock time and
+  // pay date stand in and the lock details wait for the next answer.
+  const sameLock = !period || !lock || (lock.period.start_date === period.start_date && lock.period.end_date === period.end_date)
+  const control = sameLock ? lock : null
   const dates = period ?? (lock ? { start_date: lock.period.start_date, end_date: lock.period.end_date } : null)
-  const range = dates
-    ? { start: dates.start_date, end: dates.end_date }
-    : currentPayPeriod(now)
-  const cutoffAt = isLocked(period) ? null : lock?.cutoff_at ?? (lockLoad === 'ready' ? period?.cutoff_at ?? null : null)
-  const status = lockStatus(period, lock, cutoffAt, now)
-  const payDate = lock?.period.pay_date ?? period?.pay_date ?? null
+  const range = dates ? { start: dates.start_date, end: dates.end_date } : currentPayPeriod(now)
+  const cutoffAt = isLocked(period) ? null : control?.cutoff_at ?? (lockShown ? period?.cutoff_at ?? null : null)
+  const payDate = control?.period.pay_date ?? period?.pay_date ?? null
+  const status = lockStatus({ period, control, cutoffAt, now, paused })
   const waiting = period && period.waiting_count > 0
     ? { label: `waiting (${plural(period.waiting_count, 'shift')})`, value: period.waiting_hours, tone: 'waiting' as const }
     : null
 
   return (
     <section aria-labelledby={headingId} className="rounded-card border border-line bg-surface p-4 sm:p-5">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
         <h2 id={headingId} className="text-title font-semibold text-ink">{formatPayPeriod(range)} pay period</h2>
-        {lockLoad === 'ready' && status.label && <StatusPill tone={status.tone}>{status.label}</StatusPill>}
+        {lockShown && status.label && <StatusPill tone={status.tone}>{status.label}</StatusPill>}
       </div>
 
-      <div className="mt-1 text-body-sm text-ink-muted">
+      <div className="mt-1 space-y-1 text-body-sm text-ink-muted">
         {lockLoad === 'loading' && <Skeleton className="h-5 w-56" />}
         {lockLoad === 'error' && <RetryLine onRetry={onRetryLock}>Couldn't load the lock time.</RetryLine>}
-        {lockLoad === 'ready' && (
+        {lockShown && (
           <p>
-            {cutoffAt && !status.locking && (
-              <>Locks <b className="font-semibold text-ink"><time dateTime={cutoffAt}>{lockTimeLabel(cutoffAt)}</time></b></>
+            {cutoffAt && status.prefix && (
+              <>{status.prefix} <b className="font-semibold text-ink"><time dateTime={cutoffAt}>{lockTimeLabel(cutoffAt)}</time></b></>
             )}
-            {cutoffAt && status.locking && 'AIRE is locking these hours.'}
             {cutoffAt && payDate && ' · '}
             {payDate && `pays ${dayLabel(payDate)}`}
             {!cutoffAt && !payDate && 'No lock time is set yet.'}
           </p>
         )}
+        {lockLoad === 'stale' && <StaleNote what="the lock time" loadedAt={lockUpdatedAt} onRetry={onRetryLock} />}
+        {lockShown && !sameLock && (
+          <p className="text-caption">Lock details are for another pay period and are updating.</p>
+        )}
       </div>
 
-      <div className="mt-3">
+      <div className="mt-3 space-y-1">
         {periodLoad === 'loading' && <Skeleton className="h-9 w-full" />}
         {periodLoad === 'error' && <RetryLine onRetry={onRetryPeriod}>Couldn't load the hours.</RetryLine>}
-        {periodLoad === 'ready' && period && (
+        {periodShown && period && (
           <>
             <ProgressSplit
               parts={[{ label: 'approved', value: period.approved_hours, tone: 'approved' }, ...(waiting ? [waiting] : [])]}
@@ -100,6 +126,7 @@ export function PayPeriodCard({ period, periodLoad, lock, lockLoad, now, onRetry
             {!waiting && <p className="mt-1 text-caption text-ink-muted">Nothing waiting for approval</p>}
           </>
         )}
+        {periodLoad === 'stale' && <StaleNote what="the hours" loadedAt={periodUpdatedAt} onRetry={onRetryPeriod} />}
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">

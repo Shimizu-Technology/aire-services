@@ -17,9 +17,41 @@ describe('OnTheClock', () => {
     expect(row).toHaveTextContent('6.2h')
   })
 
-  it('takes breaks out of the hours', () => {
-    render(<OnTheClock workers={[worker({ total_break_minutes: 30 })]} now={NOW} />)
+  it('takes the open shift\'s breaks out of the hours', () => {
+    const shift = worker().day_entries![0]
+    render(<OnTheClock
+      workers={[worker({ day_entries: [{ ...shift, breaks: [{ start_time: '2026-11-11T15:00:00+10:00', end_time: '2026-11-11T15:30:00+10:00', duration_minutes: 30, active: false }] }] })]}
+      now={NOW}
+    />)
     expect(screen.getByRole('listitem')).toHaveTextContent('5.7h')
+  })
+
+  it('counts a split day from the open shift, not the gap between shifts', () => {
+    // Worked 07:00-09:00, then clocked in again at 13:00. It is 19:41.
+    const split = worker({
+      clock_in_at: '2026-11-11T07:00:00+10:00',
+      total_break_minutes: 0,
+      day_entries: [
+        { id: 1, status: 'completed', clock_in_at: '2026-11-11T07:00:00+10:00', clock_out_at: '2026-11-11T09:00:00+10:00', hours: 2, time_category: { id: 3, name: 'Ground Operations' }, breaks: [] },
+        { id: 2, status: 'clocked_in', clock_in_at: '2026-11-11T13:00:00+10:00', clock_out_at: null, hours: 0, time_category: { id: 4, name: 'Flight Instruction' }, breaks: [] },
+      ],
+    })
+    render(<OnTheClock workers={[split]} now={NOW} />)
+    const row = screen.getByRole('listitem')
+    expect(row).toHaveTextContent('Since 1:00 PM · Flight Instruction')
+    expect(row).toHaveTextContent('6.7h')
+    expect(row).not.toHaveTextContent('Since 7:00 AM')
+    expect(row).not.toHaveTextContent('12.7h')
+  })
+
+  it('takes a break in progress out of the open shift', () => {
+    const shift = worker().day_entries![0]
+    render(<OnTheClock
+      workers={[worker({ status: 'on_break', active_break: true, day_entries: [{ ...shift, status: 'on_break', breaks: [{ start_time: '2026-11-11T19:11:00+10:00', end_time: null, duration_minutes: null, active: true }] }] })]}
+      now={NOW}
+    />)
+    expect(screen.getByRole('listitem')).toHaveTextContent('5.7h')
+    expect(screen.getByRole('listitem')).toHaveTextContent('On break')
   })
 
   it('puts a clock left open from an earlier day first, with an Earlier day pill and no hours', () => {

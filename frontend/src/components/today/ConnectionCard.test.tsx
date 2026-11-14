@@ -26,6 +26,27 @@ describe('ConnectionCard', () => {
     expect(screen.getByText("2 updates for Payroll haven't arrived.")).toBeInTheDocument()
   })
 
+  it('does not say connected when Payroll has not published, received or linked anything yet', () => {
+    wrap(<ConnectionCard connection={connection({ last_publication: null, last_delivery: null, account_link: null })} load="ready" now={NOW} onRetry={vi.fn()} />)
+    expect(screen.getByText('Not connected yet')).toBeInTheDocument()
+    expect(screen.getByText('No word from Cornerstone Payroll yet')).toBeInTheDocument()
+    expect(screen.queryByText('Connected to Cornerstone Payroll')).not.toBeInTheDocument()
+  })
+
+  it('still says connected once an account is linked, even before the first publication', () => {
+    wrap(<ConnectionCard connection={connection({ last_publication: null, last_delivery: null })} load="ready" now={NOW} onRetry={vi.fn()} />)
+    expect(screen.getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
+  })
+
+  it('shows the last answer with when it was updated if a refresh failed', () => {
+    const onRetry = vi.fn()
+    wrap(<ConnectionCard connection={connection()} load="stale" updatedAt={new Date('2026-11-11T19:30:00+10:00')} now={NOW} onRetry={onRetry} />)
+    expect(screen.getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
+    expect(screen.getByText(/Couldn't refresh the connection\. Last updated 7:30 PM\./)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRetry).toHaveBeenCalled()
+  })
+
   it('says it is paused', () => {
     wrap(<ConnectionCard connection={connection({ state: 'paused', enabled: false, mode: 'paused' })} load="ready" now={NOW} onRetry={vi.fn()} />)
     expect(screen.getByText('Payroll connection paused')).toBeInTheDocument()

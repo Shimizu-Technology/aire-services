@@ -153,6 +153,7 @@ export interface PayrollConnectionStatus {
     period: { start_date: string; end_date: string } | null
   } | null
   undelivered: { count: number; failed_count: number; stuck_count: number }
+  account_link: { linked_at: string; connected: boolean } | null
 }
 
 export const attentionApi = {

@@ -6,18 +6,13 @@ import { longDay } from '../../components/today/format'
 import { OnTheClock } from '../../components/today/OnTheClock'
 import { PayPeriodCard } from '../../components/today/PayPeriodCard'
 import { StaleNote } from '../../components/today/StaleNote'
-import { useTodayData, type Block } from '../../components/today/useTodayData'
+import { loadOf, useTodayData } from '../../components/today/useTodayData'
 import { EmptyState, ErrorState, OfflineBanner, PageHeader } from '../../components/ui'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 
 const DESKTOP = '(min-width: 1024px)'
-
-function loadOf<T>(block: Block<T>, enabled = true) {
-  if (!enabled || block.data) return 'ready'
-  return block.error ? 'error' : 'loading'
-}
 
 /**
  * Today (/admin): what owners and admins need to look at right now. One pay
@@ -45,6 +40,7 @@ export default function Today() {
   // A paused connection is the banner above the page, not a row in the list.
   const rows = items.filter(item => !(item.type === 'payroll_problem' && item.problem === 'connection_paused'))
   const attentionLoad = loadOf(attention)
+  const workersLoad = loadOf(workers, capabilities.manage_team_time)
 
   return (
     <div className="space-y-4">
@@ -56,9 +52,12 @@ export default function Today() {
         <div className="min-w-0 space-y-6">
           <PayPeriodCard
             period={attention.data?.period ?? null}
-            periodLoad={loadOf(attention)}
+            periodLoad={attentionLoad}
+            periodUpdatedAt={attention.loadedAt}
             lock={cutoff.data?.lock_control ?? null}
             lockLoad={loadOf(cutoff, capabilities.manage_payroll)}
+            lockUpdatedAt={cutoff.loadedAt}
+            paused={paused}
             now={now}
             onRetryPeriod={retry.attention}
             onRetryLock={retry.cutoff}
@@ -67,16 +66,17 @@ export default function Today() {
           <section aria-labelledby="today-attention" className="space-y-2">
             <h2 id="today-attention" className="text-body font-semibold text-ink">
               Needs attention
-              {attentionLoad === 'ready' && rows.length > 0 && <span className="text-ink-muted tabular-nums"> · {rows.length}</span>}
+              {(attentionLoad === 'ready' || attentionLoad === 'stale') && rows.length > 0 && <span className="text-ink-muted tabular-nums"> · {rows.length}</span>}
             </h2>
-            {attention.data && attention.error && (
+            {attentionLoad === 'stale' && (
               <StaleNote what="the list" loadedAt={attention.loadedAt} onRetry={retry.attention} />
             )}
             {attentionLoad === 'loading' && <Skeleton className="h-40 w-full" />}
             {attentionLoad === 'error' && (
               <ErrorState title="Couldn't load what needs attention." description={attention.error} onRetry={retry.attention} />
             )}
-            {attentionLoad === 'ready' && <AttentionList items={rows} onChanged={retry.attention} />}
+            {(attentionLoad === 'ready' || attentionLoad === 'stale') && <AttentionList items={rows} onChanged={retry.attention} />}
+            {/* Nothing listed is only a clear result when the list just loaded. */}
             {attentionLoad === 'ready' && rows.length === 0 && (
               <EmptyState
                 icon={<CircleCheck />}
@@ -89,17 +89,17 @@ export default function Today() {
 
         <aside className="min-w-0 space-y-6">
           <div className="space-y-2">
-            {workers.data && workers.error && (
+            {workersLoad === 'stale' && (
               <StaleNote what="who is on the clock" loadedAt={workers.loadedAt} onRetry={retry.workers} />
             )}
-            {loadOf(workers, capabilities.manage_team_time) === 'loading' && <Skeleton className="h-28 w-full" />}
-            {loadOf(workers, capabilities.manage_team_time) === 'error' && (
+            {workersLoad === 'loading' && <Skeleton className="h-28 w-full" />}
+            {workersLoad === 'error' && (
               <ErrorState title="Couldn't load who is on the clock." onRetry={retry.workers} />
             )}
             {workers.data && <OnTheClock workers={workers.data.workers} now={now} loadedAt={workers.loadedAt} />}
           </div>
           {desktop && capabilities.manage_payroll && (
-            <ConnectionCard connection={connection.data} load={loadOf(connection)} now={now} onRetry={retry.connection} />
+            <ConnectionCard connection={connection.data} load={loadOf(connection)} updatedAt={connection.loadedAt} now={now} onRetry={retry.connection} />
           )}
         </aside>
       </div>

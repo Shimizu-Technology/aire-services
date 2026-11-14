@@ -146,7 +146,43 @@ describe('Today', () => {
       mocks.attention.mockResolvedValue({ error: 'Something went wrong', status: 500 })
       await settle(60_000)
       expect(rowTexts()).toHaveLength(9)
-      expect(screen.getByText(/Couldn't refresh/)).toHaveTextContent("Couldn't refresh the list. Showing what loaded at 7:41 PM.")
+      expect(screen.getByText(/Couldn't refresh the list/)).toHaveTextContent("Couldn't refresh the list. Last updated 7:41 PM.")
+    })
+  })
+
+  describe('after a refresh fails', () => {
+    it('does not claim everything is clear from an answer it could not refresh', async () => {
+      mocks.attention.mockResolvedValueOnce({ data: attention({ items: [], count: 0 }) })
+      await open()
+      expect(screen.getByText('Nothing needs you right now')).toBeInTheDocument()
+      mocks.attention.mockResolvedValue({ error: 'Something went wrong', status: 500 })
+      await settle(60_000)
+      expect(screen.queryByText('Nothing needs you right now')).not.toBeInTheDocument()
+      expect(screen.getByText(/Couldn't refresh the list/)).toHaveTextContent('Last updated 7:41 PM.')
+      expect(screen.getAllByRole('button', { name: 'Try again' }).length).toBeGreaterThan(0)
+    })
+
+    it('says the pay period hours are old, not current', async () => {
+      await open()
+      mocks.attention.mockResolvedValue({ error: 'Something went wrong', status: 500 })
+      await settle(60_000)
+      expect(screen.getByText(/Couldn't refresh the hours\. Last updated 7:41 PM\./)).toBeInTheDocument()
+      expect(screen.getByRole('img')).toBeInTheDocument()
+    })
+
+    it('says the lock time and the connection are old when their refreshes fail', async () => {
+      await open()
+      mocks.getPayrollCutoff.mockResolvedValue({ error: 'Something went wrong', status: 500 })
+      mocks.connection.mockResolvedValue({ error: 'Something went wrong', status: 500 })
+      await settle(60_000)
+      expect(screen.getByText(/Couldn't refresh the lock time\. Last updated 7:41 PM\./)).toBeInTheDocument()
+      expect(screen.getByText(/Couldn't refresh the connection\. Last updated 7:41 PM\./)).toBeInTheDocument()
+      expect(screen.getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
+      // Recovers on the next good answer.
+      mocks.getPayrollCutoff.mockResolvedValue({ data: cutoff() })
+      mocks.connection.mockResolvedValue({ data: connection() })
+      await settle(60_000)
+      expect(screen.queryByText(/Couldn't refresh/)).not.toBeInTheDocument()
     })
   })
 
@@ -163,7 +199,16 @@ describe('Today', () => {
       expect(screen.getByText('Locks in 14 hours').closest('[data-tone]')).toHaveAttribute('data-tone', 'needs-fix')
     })
 
-    it('says Locking now after Lock now, and keeps counting from the server clock', async () => {
+    it('says the lock is on hold, not Locking now, when it is due while the connection is paused', async () => {
+      mocks.attention.mockResolvedValue({ data: attention({ connected_payroll: { mode: 'paused', enabled: false, message: 'Paused' } }) })
+      mocks.getPayrollCutoff.mockResolvedValue({ data: cutoff(lockControl({ cutoff_at: '2026-11-11T19:30:00+10:00', cutoff_state: 'due' })) })
+      await open()
+      expect(screen.getByText('Lock on hold: connection paused')).toBeInTheDocument()
+      expect(screen.queryByText('Locking now')).not.toBeInTheDocument()
+      expect(screen.getByText('Wed, Nov 11, 7:30 PM')).toBeInTheDocument()
+    })
+
+    it('says Locking now when the lock is due and the connection is up', async () => {
       mocks.getPayrollCutoff.mockResolvedValue({
         data: cutoff(lockControl({
           cutoff_at: '2026-11-11T19:40:00+10:00',
@@ -174,6 +219,7 @@ describe('Today', () => {
       await open()
       expect(screen.getByText('Locking now')).toBeInTheDocument()
       expect(screen.queryByText(/^Locks in/)).not.toBeInTheDocument()
+      expect(screen.getByText('Wed, Nov 11, 7:40 PM')).toBeInTheDocument()
     })
 
     it('uses the server clock when the device clock is wrong', async () => {
@@ -283,6 +329,8 @@ describe('Today', () => {
       await open()
       expect(rowTexts()).toEqual(['Kai Blas kiosk PIN locked'])
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reset PIN for Kai Blas' })) })
+      expect(mocks.resetKioskPin).not.toHaveBeenCalled()
+      await act(async () => { fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Reset PIN' })) })
       await settle()
       expect(mocks.resetKioskPin).toHaveBeenCalledWith(11)
       expect(screen.getByRole('dialog', { name: 'New kiosk PIN for Kai Blas' })).toHaveTextContent('482913')
