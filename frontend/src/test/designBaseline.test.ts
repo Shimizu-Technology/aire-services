@@ -19,10 +19,12 @@ const SUB_12PX_PENDING: Record<string, number> = {
   '../components/time-tracking/ClockInOutCard.tsx': 8,
   // 12px wraps "Download PDF Report" at 390px.
   '../components/time-tracking/ReportExportActions.tsx': 1,
+  // The week grid moved here from TimeTracking.tsx unchanged (Timecards' Everyone view).
+  '../components/time-tracking/WeekGrid.tsx': 10,
   '../components/time-tracking/WhosWorking.tsx': 18,
   '../pages/admin/ActivityHistory.tsx': 3,
   '../pages/admin/PayrollRuns.tsx': 2,
-  '../pages/admin/TimeTracking.tsx': 27,
+  '../pages/admin/TimeTracking.tsx': 17,
   '../pages/aire/AireHome.tsx': 2,
 }
 
