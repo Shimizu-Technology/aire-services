@@ -99,5 +99,4 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     hours = Payroll::HoursReportBuilder.new(range).call.dig(:summary, :payroll_hours)
     expect(hours).to include(approved_hours: 40.0, approved_overtime_hours: 0.0, overtime_waiting_hours: 0.0, time_waiting_hours: 2.0)
   end
-
 end
