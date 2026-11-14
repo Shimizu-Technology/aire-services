@@ -184,6 +184,15 @@ export default function MyTime() {
   const blocked = busy || !online || mustRefresh
   const totals = periodTotals(entries, period)
   const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
+  const recordedBreak =
+    !!status?.breaks.length ||
+    entries.some(
+      (entry) =>
+        entry.breaks.length > 0 &&
+        entry.clock_in_at &&
+        since &&
+        Date.parse(entry.clock_in_at) >= Date.parse(since),
+    )
   const timerStart = status ? new Date(Date.now() - workedMilliseconds(status)) : null
   const lastOutDate = lastOut?.clock_out_at
   const todayHours = entries
@@ -276,7 +285,8 @@ export default function MyTime() {
                 />
                 <p className="text-body-sm text-ink-muted">
                   Since {since ? clockTime(since) : '—'} ·{' '}
-                  {(status.session?.total_break_minutes ?? status.break_minutes) > 0
+                  {recordedBreak ||
+                  (status.session?.total_break_minutes ?? status.break_minutes) > 0
                     ? `${status.session?.total_break_minutes ?? status.break_minutes}m of breaks`
                     : status.active_break
                       ? 'break in progress'
