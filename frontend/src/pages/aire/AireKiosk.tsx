@@ -471,7 +471,7 @@ export default function AireKiosk() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white md:text-4xl">Clock in and out quickly</h1>
+              <h1 className={`mt-2 text-3xl font-semibold tracking-tight text-white md:text-4xl ${employee ? 'hidden' : ''}`}>Clock in and out quickly</h1>
             </div>
             <div className="rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-right">
               <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Guam Time</p>
@@ -484,7 +484,7 @@ export default function AireKiosk() {
             </div>
           </div>
 
-          <p className="mt-3 max-w-xl text-sm text-slate-300 md:text-base">
+          <p className={`mt-3 max-w-xl text-sm text-slate-300 md:text-base ${employee ? 'hidden' : ''}`}>
             Enter your staff PIN to clock in or out.
           </p>
 
