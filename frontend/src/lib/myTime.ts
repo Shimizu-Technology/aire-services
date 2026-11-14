@@ -208,11 +208,13 @@ export function periodTotals(entries: TimeEntry[], period: PayPeriod) {
 export function displayPeriodTotals(entries: TimeEntry[], period: PayPeriod) {
   const totals = periodTotals(entries, period)
   const approvedTenths = Math.round(totals.approved * 10)
-  const waitingTenths = Math.round(totals.waiting * 10)
+  const timeWaitingTenths = Math.round(totals.timeWaiting * 10)
+  const overtimeWaitingTenths = Math.round(totals.overtimeWaiting * 10)
+  const waitingTenths = timeWaitingTenths + overtimeWaitingTenths
   return {
     complete: totals.complete,
-    timeWaiting: Math.round(totals.timeWaiting * 10) / 10,
-    overtimeWaiting: Math.round(totals.overtimeWaiting * 10) / 10,
+    timeWaiting: timeWaitingTenths / 10,
+    overtimeWaiting: overtimeWaitingTenths / 10,
     total: (approvedTenths + waitingTenths) / 10,
     approved: approvedTenths / 10,
     waiting: waitingTenths / 10,

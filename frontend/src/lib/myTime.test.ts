@@ -223,6 +223,19 @@ it('keeps the displayed total equal to approved plus waiting after rounding to t
   expect(periodTotals(entries, period).total).toBeCloseTo(70.05)
 })
 
+it('derives displayed waiting and total from all three rounded components', () => {
+  const entries = [
+    shift({ id: 1, hours: 8.07, approval_status: 'approved', pending_overtime_hours: 0.07 }),
+    shift({ id: 2, hours: 0.07, approval_status: 'pending' }),
+  ]
+  const period = { start: '2026-11-01', end: '2026-11-15' }
+  const displayed = displayPeriodTotals(entries, period)
+  expect(displayed).toMatchObject({ approved: 8, timeWaiting: 0.1, overtimeWaiting: 0.1, waiting: 0.2, total: 8.2 })
+  expect(displayed.waiting).toBeCloseTo(displayed.timeWaiting + displayed.overtimeWaiting)
+  expect(displayed.total).toBeCloseTo(displayed.approved + displayed.timeWaiting + displayed.overtimeWaiting)
+  expect(periodTotals(entries, period).total).toBeCloseTo(8.14) // clock math retains exact quantities
+})
+
 it('loads the preceding full week for a Sunday period carry-in', () => {
   expect(weeksAround({ start: '2026-11-01', end: '2026-11-15' })).toEqual({
     start: '2026-10-25',
