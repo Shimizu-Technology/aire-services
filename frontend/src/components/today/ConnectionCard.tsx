@@ -19,7 +19,7 @@ export interface ConnectionCardProps {
 }
 
 /** Whether Cornerstone Payroll is connected and when it last answered. */
-export function ConnectionCard({ connection, load, updatedAt = null, now, onRetry }: ConnectionCardProps) {
+export function ConnectionCard({ connection, load, updatedAt = null, onRetry }: ConnectionCardProps) {
   return (
     <section aria-labelledby="today-connection">
       <h2 id="today-connection" className="text-body font-semibold text-ink">Payroll connection</h2>
@@ -27,16 +27,16 @@ export function ConnectionCard({ connection, load, updatedAt = null, now, onRetr
         {load === 'loading' && <Skeleton className="h-20 w-full" />}
         {load === 'error' && <ErrorState title="Couldn't load the payroll connection." onRetry={onRetry} />}
         {load === 'stale' && <div className="mb-2"><StaleNote what="the connection" loadedAt={updatedAt} onRetry={onRetry} /></div>}
-        {(load === 'ready' || load === 'stale') && connection && <Details connection={connection} now={now} />}
+        {(load === 'ready' || load === 'stale') && connection && <Details connection={connection} />}
       </div>
     </section>
   )
 }
 
-function Details({ connection, now }: { connection: PayrollConnectionStatus; now: Date }) {
+function Details({ connection }: { connection: PayrollConnectionStatus }) {
   const paused = connection.state === 'paused'
   const problem = connection.state === 'delivery_problem'
-  const copy = payrollConnectionCopy(connection, now)
+  const copy = payrollConnectionCopy(connection)
 
   return (
     <div className="rounded-card border border-line bg-surface px-3.5 py-3 text-body-sm">

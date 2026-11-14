@@ -9,7 +9,7 @@ const NOW = new Date('2026-11-11T19:41:00+10:00')
 const wrap = (node: React.ReactNode) => render(<MemoryRouter>{node}</MemoryRouter>)
 
 describe('ConnectionCard', () => {
-  it('says Connected only after a recent confirmed receipt and shows its time', () => {
+  it('says Connected when the latest lock was received and shows its time', () => {
     wrap(<ConnectionCard connection={connection()} load="ready" now={NOW} onRetry={vi.fn()} />)
     expect(screen.getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
     expect(screen.getByText(/Last confirmed receipt: Nov 11, 2026, 7:00 PM/)).toBeInTheDocument()
@@ -22,14 +22,14 @@ describe('ConnectionCard', () => {
     expect(screen.queryByText('Connected to Cornerstone Payroll')).not.toBeInTheDocument()
   })
   it('does not treat an account link or a publication as a confirmed receipt', () => {
-    wrap(<ConnectionCard connection={connection({ last_delivery: null })} load="ready" now={NOW} onRetry={vi.fn()} />)
+    wrap(<ConnectionCard connection={connection({ last_delivery: null, latest_locked_period_delivery: null })} load="ready" now={NOW} onRetry={vi.fn()} />)
     expect(screen.getByText('Set up, but nothing confirmed yet')).toBeInTheDocument()
     expect(screen.getByText(/No confirmed receipt/)).toBeInTheDocument()
     expect(screen.queryByText('Connected to Cornerstone Payroll')).not.toBeInTheDocument()
   })
-  it('shows an old receipt without claiming a current connection', () => {
+  it('keeps Connected between locks and shows the old receipt as context', () => {
     wrap(<ConnectionCard connection={connection({ last_delivery: { delivered_at: '2026-11-05T09:00:00+10:00', occurred_at: '2026-11-05T08:59:00+10:00', period: null } })} load="ready" now={NOW} onRetry={vi.fn()} />)
-    expect(screen.getByText('No recent receipt from Cornerstone Payroll')).toBeInTheDocument()
+    expect(screen.getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
     expect(screen.getByText(/Last confirmed receipt: Nov 5, 2026, 9:00 AM/)).toBeInTheDocument()
   })
   it('retains the stale-data warning and offers a retry', () => {

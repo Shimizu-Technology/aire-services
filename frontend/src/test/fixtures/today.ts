@@ -113,6 +113,7 @@ export function worker(overrides: Partial<WorkerStatus> & { id?: number; name?: 
 export function connection(overrides: Partial<PayrollConnectionStatus> = {}): PayrollConnectionStatus {
   return {
     mode: 'enabled', enabled: true, message: null, state: 'connected',
+    latest_locked_period_delivery: { status: 'delivered', delivered_at: '2026-11-05T09:00:00+10:00', period: { start_date: '2026-10-16', end_date: '2026-10-31' } },
     last_publication: { published_at: '2026-11-11T19:05:00+10:00', start_date: '2026-11-01', end_date: '2026-11-15' },
     last_delivery: {
       delivered_at: '2026-11-11T19:00:00+10:00', occurred_at: '2026-11-05T08:59:00+10:00',

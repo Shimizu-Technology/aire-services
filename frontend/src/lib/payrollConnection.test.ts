@@ -1,19 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { payrollConnectionCopy } from './payrollConnection'
 
-const now = new Date('2026-11-14T12:00:00+10:00')
-const delivery = (delivered_at: string) => ({ delivered_at })
+const delivered = { status: 'delivered', delivered_at: '2026-10-31T17:01:00+10:00', period: { start_date: '2026-10-16', end_date: '2026-10-31' } } as const
 
-describe('connection wording for backend states', () => {
+describe('connection wording follows the latest lock, not receipt age', () => {
   it.each([
-    ['paused', null, 'Payroll connection paused'],
-    ['delivery_problem', null, "Hours haven't reached Cornerstone Payroll yet"],
-    ['connected', null, 'Set up, but nothing confirmed yet'],
-    ['connected', delivery('2026-11-14T11:00:00+10:00'), 'Connected to Cornerstone Payroll'],
-    ['connected', delivery('2026-11-12T11:00:00+10:00'), 'No recent receipt from Cornerstone Payroll'],
-    ['connected', delivery('2026-11-15T11:00:00+10:00'), 'No recent receipt from Cornerstone Payroll'],
-    ['delivery_problem', delivery('2026-11-14T11:00:00+10:00'), "Hours haven't reached Cornerstone Payroll yet"],
-  ] as const)('%s with %j uses %s', (state, last_delivery, title) => {
-    expect(payrollConnectionCopy({ state, last_delivery }, now).title).toBe(title)
+    ['paused', delivered, 0, 'Payroll connection paused'],
+    ['delivery_problem', delivered, 1, "Hours haven't reached Cornerstone Payroll yet"],
+    ['connected', null, 0, 'Set up, but nothing confirmed yet'],
+    ['connected', delivered, 0, 'Connected to Cornerstone Payroll'],
+    ['connected', { ...delivered, status: 'pending', delivered_at: null }, 1, "Hours haven't reached Cornerstone Payroll yet"],
+    ['connected', { ...delivered, status: null, delivered_at: null }, 0, "Hours haven't reached Cornerstone Payroll yet"],
+    ['connected', delivered, 1, "Hours haven't reached Cornerstone Payroll yet"],
+  ] as const)('%s / %j / %i uses %s', (state, latest_locked_period_delivery, count, title) => {
+    expect(payrollConnectionCopy({ state, last_delivery: delivered, latest_locked_period_delivery, undelivered: { count } }).title).toBe(title)
   })
 })

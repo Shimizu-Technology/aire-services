@@ -16,4 +16,5 @@ it.each(['paused', 'delivery_problem', 'connected'] as const)('uses the same %s 
   render(<MemoryRouter><PayrollConnectionSettings /></MemoryRouter>)
   expect(await screen.findByText(payrollConnectionCopy(fixture).title, { selector: '.font-semibold' })).toBeInTheDocument()
   expect(screen.getByText(payrollConnectionCopy(fixture).detail)).toBeInTheDocument()
+  expect(screen.getByText(/Last heard from: Nov 11, 2026, 7:05 PM/)).toBeInTheDocument()
 })

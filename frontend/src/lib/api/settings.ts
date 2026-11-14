@@ -3,6 +3,8 @@ import { fetchApi } from '../api'
 export interface PayrollConnection {
   state: import('./attention').PayrollConnectionStatus['state']
   mode: string
+  latest_locked_period_delivery?: import('./attention').PayrollConnectionStatus['latest_locked_period_delivery']
+  undelivered?: { count: number }
   last_publication: { published_at: string } | null
   last_delivery: { delivered_at: string | null } | null
   account_link: {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../../../components/ui'
-import { payrollConnectionCopy } from '../../../lib/payrollConnection'
+import { formatPayrollConnectionTime, payrollConnectionCopy } from '../../../lib/payrollConnection'
 import { settingsApi, type PayrollConnection } from '../../../lib/api/settings'
 
 export default function PayrollConnectionSettings() {
@@ -35,6 +35,7 @@ export default function PayrollConnectionSettings() {
           )}
           <p className="font-semibold">{payrollConnectionCopy(connection).title}</p>
           <p>{payrollConnectionCopy(connection).detail}</p>
+          <p>Last heard from: {connection.last_publication ? formatPayrollConnectionTime(connection.last_publication.published_at) : 'No publication yet'}</p>
           {connection.account_link && (
             <p>
               {connection.account_link.payroll_user_email} · Linked by{' '}
