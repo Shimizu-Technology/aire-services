@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { CircleHelp } from 'lucide-react'
 import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor } from '../../lib/roles'
@@ -12,6 +13,28 @@ const navigation = [
   { name: 'Careers', href: '/careers' },
   { name: 'Contact', href: '/contact' },
 ]
+
+/** Employee help belongs in the account menu, leaving all five tabs for work. */
+export function AccountButton() {
+  const { userRole } = useAuthContext()
+  const navigate = useNavigate()
+  return (
+    <UserButton
+      afterSignOutUrl="/"
+      appearance={{ elements: { avatarBox: 'w-9 h-9' } }}
+    >
+      {userRole === 'employee' && (
+        <UserButton.MenuItems>
+          <UserButton.Action
+            label="What can I do?"
+            labelIcon={<CircleHelp className="size-4" />}
+            onClick={() => navigate('/admin/settings/roles')}
+          />
+        </UserButton.MenuItems>
+      )}
+    </UserButton>
+  )
+}
 
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -71,7 +94,7 @@ export default function Header() {
                     </Link>
                   </>
                 )}
-                <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
+                <AccountButton />
               </SignedIn>
             </div>
           )}
@@ -137,7 +160,7 @@ export default function Header() {
                   )}
                   <div className={cx('flex min-h-12 items-center justify-between rounded-2xl border border-slate-200 px-4', !isLoading && isStaff && 'mt-2')}>
                     <span className="text-sm font-medium text-slate-600">Account</span>
-                    <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
+                    <AccountButton />
                   </div>
                 </SignedIn>
               </div>
