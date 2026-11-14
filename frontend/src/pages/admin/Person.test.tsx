@@ -252,6 +252,22 @@ describe('person page', () => {
     expect(screen.getByRole('menuitem', { name: /Open in Timecards/ })).toBeInTheDocument()
   })
 
+  it("sums this pay period on Overview, with overtime from the hours report and the shifts it's waiting on", async () => {
+    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [
+      makeEntry(),
+      makeEntry({ id: 21, work_date: '2026-11-06', overtime_status: 'pending' }),
+      makeEntry({ id: 22, work_date: '2026-11-11', approval_status: 'pending', clock_in_at: '2026-11-10T22:00:00Z', clock_out_at: '2026-11-11T09:30:00Z', hours: 11.5 }),
+    ], pagination: { total_pages: 1 } } })
+    apiMock.getHoursReport.mockResolvedValue({ data: { employees: [{ id: 7, total_hours: 22, overtime_hours: 6 }] } })
+    open('/admin/users/7')
+    const period = await screen.findByRole('heading', { name: 'This pay period · Nov 1–15' })
+    const card = period.parentElement!.parentElement!
+    await waitFor(() => expect(card).toHaveTextContent('Approved22.0h'))
+    expect(card).toHaveTextContent('Waiting for approval11.5h')
+    expect(card).toHaveTextContent('Overtime6.0h · 1 shift waiting')
+    expect(card).toHaveTextContent('Last clockWed, Nov 11 8:00 AM – 7:30 PM')
+  })
+
   it('leaves Preview their My Pay out for admins off the preview allowlist', async () => {
     auth.value = { isClerkEnabled: true, userRole: 'admin', currentUser: { id: 99, my_pay_preview_enabled: false } }
     open('/admin/users/7')

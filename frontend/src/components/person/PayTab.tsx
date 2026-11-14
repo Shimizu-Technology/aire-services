@@ -49,7 +49,7 @@ function stateText(row: PeriodRow, today: string) {
 function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section aria-label={title}>
-      <div className="mb-2 flex min-h-11 items-center justify-between gap-3">
+      <div className="mb-2 flex min-h-11 flex-wrap items-center justify-between gap-x-3">
         <h2 className="text-body font-semibold text-ink">{title}</h2>
         {action}
       </div>
@@ -227,7 +227,7 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
               return (
                 <li key={period.id} className="px-4 py-3">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 basis-48">
                       <h3 className="text-body-sm font-semibold text-ink">{formatPayPeriod({ start: period.start_date, end: period.end_date })}</h3>
                       <p className="text-body-sm text-ink-muted">{words}</p>
                     </div>

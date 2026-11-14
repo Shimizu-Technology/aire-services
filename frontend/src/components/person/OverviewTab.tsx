@@ -40,7 +40,9 @@ interface OverviewTabProps {
 interface PeriodNumbers {
   approved: number
   waiting: number
-  overtimeWaiting: number
+  /** Null when the hours report didn't load: unknown, not zero. */
+  overtime: number | null
+  overtimeWaitingShifts: number
   last: TimeEntry | null
 }
 
@@ -49,12 +51,10 @@ function periodNumbers(entries: TimeEntry[], summary: TimecardSummaryEmployee | 
   const items = [...timecardDays(entries, period).values()].flat()
   const waiting = items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
   const approved = summary ? summary.total_hours : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
-  const overtimeWaiting = items
-    .filter(({ entry }) => entry.overtime_status === 'pending')
-    .reduce((sum, { entry }) => sum + (entry.pending_overtime_hours ?? 0), 0)
+  const overtimeWaitingShifts = new Set(items.filter(({ entry }) => entry.overtime_status === 'pending').map(({ entry }) => entry.id)).size
   const order = (entry: TimeEntry) => entry.clock_in_at ?? `${entry.work_date}T${entry.start_time ?? '00:00'}`
   const last = items.map(item => item.entry).sort((a, b) => order(b).localeCompare(order(a)))[0] ?? null
-  return { approved, waiting, overtimeWaiting, last }
+  return { approved, waiting, overtime: summary ? summary.overtime_hours : null, overtimeWaitingShifts, last }
 }
 
 function lastClockLabel(entry: TimeEntry, today: string) {
@@ -142,10 +142,15 @@ export function OverviewTab({ user, period, today, timecardHref, activityHref, f
                 <dt className="text-ink-muted">{PERSON_TOTAL_LABELS.waiting}</dt>
                 <dd className={`font-semibold tabular-nums ${numbers.value.waiting > 0 ? 'text-amber-900' : 'text-ink'}`}>{formatHours(numbers.value.waiting)}</dd>
               </div>
-              {numbers.value.overtimeWaiting > 0 && (
+              {(numbers.value.overtimeWaitingShifts > 0 || (numbers.value.overtime ?? 0) > 0) && (
                 <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-                  <dt className="text-ink-muted">Overtime waiting</dt>
-                  <dd className="font-semibold tabular-nums text-amber-900">{formatHours(numbers.value.overtimeWaiting)}</dd>
+                  <dt className="text-ink-muted">Overtime</dt>
+                  <dd className="text-right font-semibold tabular-nums text-ink">
+                    {numbers.value.overtime === null ? "Didn't load" : formatHours(numbers.value.overtime)}
+                    {numbers.value.overtimeWaitingShifts > 0 && (
+                      <span className="text-amber-900"> · {numbers.value.overtimeWaitingShifts} {numbers.value.overtimeWaitingShifts === 1 ? 'shift' : 'shifts'} waiting</span>
+                    )}
+                  </dd>
                 </div>
               )}
               <div className="flex items-center justify-between gap-3 px-4 py-2.5">

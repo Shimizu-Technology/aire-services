@@ -35,12 +35,13 @@ export function TeamList({ users, onTheClock, returnTo, myPay }: TeamListProps) 
             title={(
               <Link
                 to={href}
-                className="line-clamp-2 whitespace-normal hover:underline [overflow-wrap:anywhere]"
+                className="whitespace-normal hover:underline [overflow-wrap:anywhere]"
               >
                 {name}
               </Link>
             )}
-            meta={teamLine(user)}
+            // Names and lines wrap rather than cut off: a long name is still one person.
+            meta={<span className="whitespace-normal">{teamLine(user)}</span>}
             trailing={(state || myPay) ? (
               <>
                 {state && <StatusPill tone={state.tone}>{state.label}</StatusPill>}

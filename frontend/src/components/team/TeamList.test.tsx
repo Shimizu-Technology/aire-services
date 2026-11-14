@@ -30,6 +30,7 @@ describe('TeamList', () => {
     const long = screen.getByRole('link', { name: LONG_NAME })
     expect(long).toHaveTextContent(LONG_NAME)
     expect(long).toHaveClass('whitespace-normal', '[overflow-wrap:anywhere]')
+    expect(long.className).not.toMatch(/line-clamp|truncate/)
     expect(rowFor(LONG_NAME)).toHaveTextContent('Employee · Ops/Maint · kiosk only')
     expect(screen.getByRole('link', { name: 'Tåsi' })).toHaveAttribute('href', '/admin/users/2?tab=overview&return_to=%2Fadmin%2Fusers%3Fsearch%3Da')
     // Avatars show initials for every name.
