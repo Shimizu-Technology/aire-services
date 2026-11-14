@@ -60,8 +60,23 @@ class ReportExport < ApplicationRecord
       end
     end
 
-    create!(attributes)
+    transaction do
+      lock_protected_entries!(entry_ids) if protects_entries
+      create!(attributes)
+    end
   end
+
+  # A protecting export and an employee's delete must not both commit for the
+  # same entry. FOR SHARE on the protected rows conflicts with the FOR UPDATE
+  # the delete takes before its eligibility check, so whichever commits first
+  # wins and the other sees it. Row locks, not a table lock: the export's
+  # transaction may still render a PDF, and clock punches must keep working.
+  def self.lock_protected_entries!(entry_ids)
+    return if entry_ids.empty?
+
+    TimeEntry.where(id: entry_ids).order(:id).lock("FOR SHARE").pluck(:id)
+  end
+  private_class_method :lock_protected_entries!
 
   def self.active_for_entry(entry_id)
     protecting_entries.where("entry_ids @> ?", [ entry_id.to_i ].to_json)

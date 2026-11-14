@@ -1,3 +1,5 @@
+import { Check } from 'lucide-react'
+
 export function WorkChips({
   categories,
   value,
@@ -31,7 +33,8 @@ export function WorkChips({
               onChange={() => onChange(category.id)}
               className="peer sr-only"
             />
-            <span className={`flex min-h-[52px] items-center rounded-control border border-line-strong bg-surface px-4 text-body font-medium text-ink peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:text-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary peer-disabled:opacity-50 active:scale-[.97] ${dark ? 'bg-slate-950! text-slate-100! peer-checked:border-cyan-300! peer-checked:bg-cyan-400/15! peer-checked:text-cyan-100!' : ''}` }>
+            <span className={`flex min-h-[52px] items-center gap-2 rounded-control border border-line-strong bg-surface px-4 text-body font-medium text-ink peer-checked:border-primary peer-checked:bg-primary/10 peer-checked:font-semibold peer-checked:text-primary peer-checked:ring-1 peer-checked:ring-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary peer-disabled:opacity-50 active:scale-[.97] ${dark ? 'bg-slate-950! text-slate-100! peer-checked:border-cyan-300! peer-checked:bg-cyan-400/15! peer-checked:text-cyan-100! peer-checked:ring-cyan-300!' : ''}` }>
+              {category.id === value && <Check aria-hidden="true" className="size-5 shrink-0" strokeWidth={2.5} />}
               {category.name}
             </span>
           </label>

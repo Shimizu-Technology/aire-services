@@ -18,8 +18,11 @@ export function employeeShiftStatus(entry: TimeEntry): {
     payroll.status === 'payment_history_unavailable' ||
     /not tracked/i.test(payroll.label)
   if (unknown || payroll.status === 'awaiting_approval') {
-    return entry.approval_status === 'approved'
-      ? { label: 'Approved — not paid yet', tone: 'approved' }
+    if (entry.approval_status === 'approved')
+      return { label: 'Approved — not paid yet', tone: 'approved' }
+    // So the employee can tell which shift they asked to change.
+    return entry.approval_reasons?.some((reason) => reason.key === 'employee_edited')
+      ? { label: 'Fix requested — waiting for approval', tone: 'waiting' }
       : { label: 'Waiting for approval', tone: 'waiting' }
   }
   return {

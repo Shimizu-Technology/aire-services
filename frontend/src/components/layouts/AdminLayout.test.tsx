@@ -260,6 +260,16 @@ describe('AdminLayout phone tab bar', () => {
     expect(apiMock.getPendingApprovals).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['employee', false],
+    ['manager', true],
+    ['admin', true],
+  ] as const)('shows "View site" to a %s: %s', (role, shown) => {
+    signIn(role)
+    renderLayout('/admin/my-time')
+    expect(screen.queryByRole('link', { name: 'View site' }) !== null).toBe(shown)
+  })
+
   it.each([false, true])('puts Schedule in an employee tab with My Pay %s', (pay) => {
     signIn('employee', { my_pay_enabled: pay, schedules_enabled: true })
     renderLayout()

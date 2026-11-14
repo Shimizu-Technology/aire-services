@@ -1,18 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Check, Minus } from 'lucide-react'
+import { ArrowLeft, CalendarPlus, Check, Clock3, LifeBuoy, Minus, Timer, Wallet } from 'lucide-react'
+import { useAuthContext } from '../../contexts/AuthContext'
 import { DataList, type DataListColumn } from '../../components/ui/DataList'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { StatusPill } from '../../components/ui/StatusPill'
 import { api, type AccessGuideResponse, type AccessGuideRoleCard, type AccessGuideRow, type AccessGuideSettingEffect } from '../../lib/api'
+import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { cx } from '../../lib/cx'
+import { approverNamesFor } from '../../lib/myTime'
 import { ROLE_DETAILS, isUserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
 
 // Roles & access: what each role can do, read from GET /api/v1/access_guide,
 // which builds it from User::ROLE_CAPABILITIES and the role rules. Owners
 // and admins see who holds each role; everyone else gets a read-only
-// "What can I do?" view with their own role first.
+// "What can I do?" view with their own role first. Employees get a short
+// help page instead: where to clock, fix a shift, ask for leave, and who to ask.
 
 const MEMBER_PREVIEW = 8
 
@@ -176,6 +180,66 @@ function SettingNote({ effect, n, canChange }: { effect: AccessGuideSettingEffec
 }
 
 export default function RolesAccess() {
+  const supervises = useCapabilities().manage_team_time
+  return supervises ? <AccessGuide /> : <EmployeeHelp />
+}
+
+function HelpItem({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+  return (
+    <li className="flex gap-4 p-5">
+      <span aria-hidden="true" className="mt-0.5 shrink-0 text-primary [&>svg]:size-6">{icon}</span>
+      <div className="min-w-0 space-y-1">
+        <h2 className="text-body font-semibold text-ink">{title}</h2>
+        <p className="text-body text-ink">{children}</p>
+      </div>
+    </li>
+  )
+}
+
+const pageLink = 'font-semibold text-primary underline underline-offset-2'
+
+function EmployeeHelp() {
+  const { currentUser } = useAuthContext()
+  const viewerId = currentUser?.id
+  const [managers, setManagers] = useState<string[]>([])
+
+  useEffect(() => {
+    document.title = 'What can I do? | AIRE Ops'
+    let cancelled = false
+    api.getUsers().then((response) => {
+      if (!cancelled && response.data) setManagers(approverNamesFor(response.data.users, viewerId))
+    })
+    return () => { cancelled = true }
+  }, [viewerId])
+
+  const askWho = managers.length ? managers.join(' or ') : 'your manager'
+  return (
+    <div className="mx-auto max-w-2xl space-y-5">
+      <PageHeader title="What can I do?" description="The four things you'll use, and who to ask." />
+      <ul className="divide-y divide-line rounded-card border border-line bg-surface">
+        <HelpItem icon={<Clock3 />} title="Clock in and out">
+          Use <Link to={ADMIN_PATHS.myTime} className={pageLink}>Clock</Link>. Pick what you're working on, then tap Clock in.
+        </HelpItem>
+        <HelpItem icon={<Timer />} title="Fix a shift">
+          Go to <Link to={ADMIN_PATHS.myHours} className={pageLink}>Hours</Link>, tap the shift, then Ask for a fix. Forgot to clock? Tap Add time I forgot to clock.
+        </HelpItem>
+        <HelpItem icon={<CalendarPlus />} title="Time off">
+          Go to <Link to={ADMIN_PATHS.leave} className={pageLink}>Leave</Link> and tap Request time off.
+        </HelpItem>
+        {currentUser?.my_pay_enabled && (
+          <HelpItem icon={<Wallet />} title="Paychecks">
+            <Link to={ADMIN_PATHS.myPay} className={pageLink}>My Pay</Link> shows your pay stubs.
+          </HelpItem>
+        )}
+        <HelpItem icon={<LifeBuoy />} title="Questions?">
+          Ask {askWho}.
+        </HelpItem>
+      </ul>
+    </div>
+  )
+}
+
+function AccessGuide() {
   const [guide, setGuide] = useState<AccessGuideResponse | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)

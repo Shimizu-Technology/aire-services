@@ -130,7 +130,10 @@ export function timecardDays(entries: TimeEntry[], period: { start: string; end:
     }
     days.set(date, [...(days.get(date) ?? []), item])
   }
-  const order = (item: TimecardDayItem) => (item.continuesFrom ? '' : item.entry.clock_in_at ?? item.entry.start_time ?? '')
+  // A shift continued from yesterday comes first, then by Guam start time. An
+  // ISO clock-in must not be compared with a typed "08:00" start.
+  const order = (item: TimecardDayItem) =>
+    item.continuesFrom ? '' : item.entry.start_time ?? (item.entry.clock_in_at ? guamClock(item.entry.clock_in_at) : '')
   for (const list of days.values()) list.sort((a, b) => order(a).localeCompare(order(b)) || a.entry.id - b.entry.id)
   return days
 }

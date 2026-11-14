@@ -195,3 +195,13 @@ describe('payPeriodHours (approved means approved for pay)', () => {
     expect(payPeriodHours(report([], [{ ...held, work_date: '2026-10-31' }]), NOV).waiting).toBe(0)
   })
 })
+
+describe('timecardDays order', () => {
+  it('lists the earlier shift first when one was typed in and one was clocked', () => {
+    const base = { breaks: [], status: 'completed', approval_status: 'pending', hours: 8 }
+    const clocked = { ...base, id: 1, work_date: '2026-11-13', entry_method: 'clock', start_time: '06:45', end_time: '14:45', clock_in_at: '2026-11-13T06:45:00+10:00', clock_out_at: '2026-11-13T14:45:00+10:00', created_at: '2026-11-13T06:45:00+10:00' }
+    const added = { ...base, id: 2, work_date: '2026-11-13', entry_method: 'manual', start_time: '08:00', end_time: '16:30', clock_in_at: null, clock_out_at: null, created_at: '2026-11-14T09:00:00+10:00' }
+    const day = timecardDays([added, clocked] as unknown as TimeEntry[], { start: '2026-11-01', end: '2026-11-15' }).get('2026-11-13')!
+    expect(day.map(item => item.entry.id)).toEqual([1, 2])
+  })
+})

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
@@ -7,6 +7,8 @@ import { myTimeApi } from '../../lib/api/myTime'
 import { outcomeUnknown } from '../../lib/api/timecards'
 import {
   chooseLastCategory,
+  clockInRefusal,
+  clockStatusLine,
   displayPeriodTotals,
   clockTime,
   needsClockOutConfirm,
@@ -14,11 +16,14 @@ import {
   OFFLINE_IDLE,
   periodTotals,
   requestLocation,
+  stoppedAt,
   workedMilliseconds,
 } from '../../lib/myTime'
 import { formatElapsed } from '../../lib/formatElapsed'
-import { guamDate } from '../../lib/timecards'
+import { guamClock, guamDate } from '../../lib/timecards'
 import { currentPayPeriod } from '../../lib/payPeriods'
+import { ADMIN_PATHS, timeSectionHref } from '../../lib/adminRoutes'
+import { useCapabilities } from '../../lib/useCapabilities'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import { WorkChips } from '../../components/clock/WorkChips'
@@ -26,16 +31,25 @@ import { ClockActions } from '../../components/clock/ClockActions'
 import {
   Button,
   ErrorState,
+  Field,
+  Input,
   LiveTimer,
   PageHeader,
   Sheet,
+  useToast,
 } from '../../components/ui'
 
 type Action = 'in' | 'out' | 'break' | 'resume' | 'switch'
+type ClockSheet = 'location' | 'out' | 'switch' | 'override' | 'stopped'
+
+const LOST_REPLY = "We couldn't confirm your last tap."
 
 export default function MyTime() {
   const { currentUser } = useAuthContext()
   const viewerId = currentUser?.id
+  // Supervisors clock their own time here too, with a schedule override.
+  const supervisor = useCapabilities().manage_team_time
+  const toast = useToast()
   const online = useOnlineStatus()
   const [status, setStatus] = useState<ClockStatus | null>(null)
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -51,7 +65,11 @@ export default function MyTime() {
   const [mustRefresh, setMustRefresh] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<'location' | 'out' | 'switch' | null>(null)
+  const [sheet, setSheet] = useState<ClockSheet | null>(null)
+  // A supervisor's override waits here while the location sheet is open.
+  const [pendingOverride, setPendingOverride] = useState(false)
+  const [stopTime, setStopTime] = useState('')
+  const [stopError, setStopError] = useState<string | null>(null)
   const [lastOut, setLastOut] = useState<TimeEntry | null>(null)
   // Serializes taps before React has had a chance to disable the controls.
   const inFlight = useRef(false)
@@ -60,6 +78,8 @@ export default function MyTime() {
   const workChoiceTouched = useRef(false)
   const unconfirmed = useRef(false)
   const hasConfirmedStatus = useRef(false)
+  // The last tap's reply was lost, so the recovered status is worth saying.
+  const lostReply = useRef(false)
   const storageKey = `aire-last-work-${viewerId}`
   const period = currentPayPeriod()
 
@@ -94,9 +114,6 @@ export default function MyTime() {
     if (unconfirmed.current) {
       void refreshSummary()
       window.dispatchEvent(new Event('aire:clock-action'))
-      setNotice(
-        `The server says: ${result.data.clocked_in ? (result.data.active_break ? 'On break' : 'On the clock') : 'Off the clock'}.`,
-      )
     }
     unconfirmed.current = false
     return result.data
@@ -110,7 +127,10 @@ export default function MyTime() {
     } catch {
       /* Storage is optional. */
     }
-    const categoryRead = myTimeApi.categories()
+    const categoryRead =
+      supervisor && viewerId
+        ? myTimeApi.ownCategories(viewerId)
+        : myTimeApi.categories()
     void readStatus()
     void categoryRead.then((result) => {
       if (!result.data) {
@@ -140,7 +160,7 @@ export default function MyTime() {
           )
         }
       })
-  }, [viewerId, storageKey, readStatus])
+  }, [viewerId, storageKey, readStatus, supervisor])
 
   useEffect(() => {
     void load()
@@ -160,7 +180,10 @@ export default function MyTime() {
 
   const retryCategories = async () => {
     setCategoryState('loading')
-    const result = await myTimeApi.categories()
+    const result =
+      supervisor && viewerId
+        ? await myTimeApi.ownCategories(viewerId)
+        : await myTimeApi.categories()
     if (!result.data) {
       setCategoryState('error')
       return
@@ -181,9 +204,14 @@ export default function MyTime() {
     )
   }
 
-  const punch = async (action: Action) => {
-    if (inFlight.current || !online || mustRefresh) return
+  /** Resolves to the saved shift, or null when nothing was confirmed. */
+  const punch = async (
+    action: Action,
+    { override = false }: { override?: boolean } = {},
+  ): Promise<TimeEntry | null> => {
+    if (inFlight.current || !online || mustRefresh) return null
     inFlight.current = true
+    lostReply.current = false
     workChoiceTouched.current = true
     ++statusGeneration.current
     ++summaryGeneration.current
@@ -203,13 +231,15 @@ export default function MyTime() {
             ? OFFLINE_CLOCK
             : 'No connection. Nothing was sent. Reconnect and try again.',
         )
-        return
+        return null
       }
       const categoryId = action === 'switch' ? switchChoice : choice
       sent = true
       const result =
         action === 'in'
-          ? await myTimeApi.clockIn(categoryId!, location)
+          ? override
+            ? await myTimeApi.clockIn(categoryId!, location, true)
+            : await myTimeApi.clockIn(categoryId!, location)
           : action === 'out'
             ? await myTimeApi.clockOut()
             : action === 'break'
@@ -219,21 +249,27 @@ export default function MyTime() {
                 : await myTimeApi.switchWork(categoryId!)
       if (!result.data) {
         if (outcomeUnknown(result)) {
+          lostReply.current = true
           markUnconfirmed()
           const fresh = await readStatus()
           setNotice(
             fresh
-              ? `The reply was lost. The server says: ${fresh.clocked_in ? (fresh.active_break ? 'On break' : 'On the clock') : 'Off the clock'}. Check this status before your next action.`
+              ? `${LOST_REPLY} ${clockStatusLine(fresh)}`
               : "We couldn't confirm what happened. Try again to check your status.",
           )
         } else {
           // A kiosk or another phone may have changed the clock since our read.
           // A real refusal is safe to retry once that status refresh finishes.
-          setError(result.error || 'Nothing was saved. Try again.')
+          const refusal = result.error || 'Nothing was saved. Try again.'
+          setError(
+            action === 'in'
+              ? clockInRefusal(refusal, status?.clock_in_location_name)
+              : refusal,
+          )
           markUnconfirmed()
           await readStatus()
         }
-        return
+        return null
       }
       if ((action === 'in' || action === 'switch') && categoryId) {
         setChoice(categoryId)
@@ -251,8 +287,14 @@ export default function MyTime() {
         setNotice(
           'Your action was saved. Try again to check your clock status.',
         )
+      else if (action === 'switch')
+        toast.show({
+          message: `Switched to ${fresh.time_category?.name ?? 'your new work'}.`,
+        })
+      return result.data.time_entry
     } catch (failure) {
       if (sent) {
+        lostReply.current = true
         markUnconfirmed()
         await readStatus()
       }
@@ -261,21 +303,71 @@ export default function MyTime() {
           ? failure.message
           : 'Could not complete your action.',
       )
+      return null
     } finally {
       inFlight.current = false
       setBusy(false)
     }
   }
 
-  const clockIn = () => {
+  const clockIn = (override = false) => {
     let explained = false
     try {
       explained = localStorage.getItem('aire-location-explained') === 'true'
     } catch {
       /* Explain again. */
     }
-    if (status?.clock_in_location_required && !explained) setSheet('location')
-    else void punch('in')
+    if (status?.clock_in_location_required && !explained) {
+      setPendingOverride(override)
+      setSheet('location')
+    } else void punch('in', { override })
+  }
+
+  // "I stopped earlier…": clock out now, then send the real stop time as a
+  // fix on that shift, the same request as Hours → the shift → Ask for a fix.
+  const stopEarlier = async (event: FormEvent) => {
+    event.preventDefault()
+    const segmentStart = status?.clock_in_at
+    const stop = segmentStart ? stoppedAt(segmentStart, stopTime) : null
+    if (!segmentStart || !stop) {
+      setStopError(
+        segmentStart
+          ? `Pick a time after you clocked in at ${clockTime(segmentStart)} and before now.`
+          : 'Enter the time you stopped working.',
+      )
+      return
+    }
+    setStopError(null)
+    const entry = await punch('out')
+    if (!entry) return
+    inFlight.current = true
+    setBusy(true)
+    const label = clockTime(stop)
+    const fixed = await myTimeApi.askForFix(
+      entry,
+      {
+        start_time: entry.start_time ?? '',
+        end_time: guamClock(stop),
+        break_minutes: entry.break_minutes ?? null,
+        time_category_id: entry.time_category?.id ?? 0,
+        description: entry.description ?? '',
+      },
+      `Stopped working at ${label} and forgot to clock out.`,
+    )
+    inFlight.current = false
+    setBusy(false)
+    if (fixed.data) {
+      setLastOut(fixed.data.time_entry)
+      void refreshSummary()
+      toast.show({
+        message: `Clocked out. Your fix to ${label} was sent for approval.`,
+      })
+    } else
+      setError(
+        outcomeUnknown(fixed)
+          ? `You're clocked out, but we couldn't confirm your fix to ${label} was sent. Check My Hours before sending it again.`
+          : `You're clocked out, but your fix to ${label} wasn't sent. ${fixed.error ?? ''} Open My Hours, tap the shift and choose Ask for a fix.`,
+      )
   }
   const clockOut = () => {
     const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
@@ -285,6 +377,19 @@ export default function MyTime() {
   const blocked = busy || !online || mustRefresh
   const totals = displayPeriodTotals(entries, period)
   const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
+  const worked = status ? workedMilliseconds(status) : 0
+  const longShift =
+    !!since && (Date.now() - Date.parse(since)) / 3_600_000 > 12
+  const blockedReason = status?.clock_in_blocked_reason
+  const canOverride =
+    !!status &&
+    !status.clocked_in &&
+    !status.can_clock_in &&
+    !!status.can_override_clock &&
+    (blockedReason === 'too_early' || blockedReason === 'shift_ended')
+  const hoursHref = supervisor
+    ? timeSectionHref('entries', { user_id: String(viewerId ?? '') })
+    : ADMIN_PATHS.myHours
   const recordedBreak =
     !!status?.breaks.length ||
     entries.some(
@@ -350,9 +455,11 @@ export default function MyTime() {
             setBusy(true)
             const fresh = await readStatus()
             setNotice(
-              fresh
-                ? `The server says: ${fresh.clocked_in ? (fresh.active_break ? 'On break' : 'On the clock') : 'Off the clock'}.`
-                : "Couldn't check your status. Reconnect and try again.",
+              !fresh
+                ? "Couldn't check your status. Reconnect and try again."
+                : lostReply.current
+                  ? `${LOST_REPLY} ${clockStatusLine(fresh)}`
+                  : null,
             )
             setBusy(false)
             inFlight.current = false
@@ -386,7 +493,7 @@ export default function MyTime() {
       ) : (
         <>
           <section
-            className={`space-y-5 rounded-card border p-5 ${status.clocked_in ? 'border-emerald-200 bg-emerald-50' : 'border-line bg-surface'}`}
+            className={`space-y-5 rounded-card border p-5 ${status.active_break ? 'border-amber-300 bg-amber-50' : status.clocked_in ? 'border-emerald-200 bg-emerald-50' : 'border-line bg-surface'}`}
           >
             <h2 className="text-title font-semibold text-ink">
               {status.clocked_in
@@ -395,29 +502,38 @@ export default function MyTime() {
             </h2>
             {status.clocked_in && timerStart ? (
               <>
-                <LiveTimer
-                  key={`${status.entry_id}:${status.active_break}`}
-                  since={
-                    status.active_break_started_at && status.active_break
-                      ? status.active_break_started_at
-                      : timerStart
-                  }
-                  label={
-                    status.active_break
-                      ? 'Time on break'
-                      : `On the clock since ${since ? clockTime(since) : ''}`
-                  }
-                  className="block text-5xl font-semibold tracking-tight text-emerald-950"
-                />
+                <div>
+                  <p
+                    aria-hidden="true"
+                    className={`text-body-sm font-semibold ${status.active_break ? 'text-amber-900' : 'text-emerald-900'}`}
+                  >
+                    {status.active_break ? 'On break' : 'Worked'}
+                  </p>
+                  <LiveTimer
+                    key={`${status.entry_id}:${status.active_break}`}
+                    since={
+                      status.active_break_started_at && status.active_break
+                        ? status.active_break_started_at
+                        : timerStart
+                    }
+                    label={
+                      status.active_break
+                        ? 'Time on break'
+                        : `On the clock since ${since ? clockTime(since) : ''}`
+                    }
+                    className={`block text-5xl font-semibold tracking-tight ${status.active_break ? 'text-amber-950' : 'text-emerald-950'}`}
+                  />
+                </div>
                 <p className="text-body-sm text-ink-muted">
-                  Since {since ? clockTime(since) : '—'} ·{' '}
-                  {recordedBreak ||
-                  (status.session?.total_break_minutes ??
-                    status.break_minutes) > 0
-                    ? `${status.session?.total_break_minutes ?? status.break_minutes}m of breaks`
-                    : status.active_break
-                      ? 'break in progress'
-                      : 'no breaks yet'}
+                  {status.active_break && status.active_break_started_at
+                    ? `Break started ${clockTime(status.active_break_started_at)} · on the clock since ${since ? clockTime(since) : '—'}`
+                    : `Since ${since ? clockTime(since) : '—'} · ${
+                        recordedBreak ||
+                        (status.session?.total_break_minutes ??
+                          status.break_minutes) > 0
+                          ? `${status.session?.total_break_minutes ?? status.break_minutes}m of breaks`
+                          : 'no breaks yet'
+                      }`}
                 </p>
                 {!status.active_break && (
                   <div className="flex flex-wrap gap-2">
@@ -492,9 +608,13 @@ export default function MyTime() {
                 )}
                 {!status.can_clock_in && categories.length > 0 && (
                   <p className="text-body-sm text-ink-muted">
-                    {status.clock_in_blocked_reason === 'too_early'
-                      ? `Your shift starts soon. Try again in ${status.minutes_until ?? 'a few'} minutes.`
-                      : 'You cannot clock in right now. Ask Chels to check your schedule or access.'}
+                    {blockedReason === 'too_early'
+                      ? canOverride
+                        ? `Your shift starts in ${status.minutes_until ?? 'a few'} minutes.`
+                        : `Your shift starts soon. Try again in ${status.minutes_until ?? 'a few'} minutes.`
+                      : blockedReason === 'shift_ended' && canOverride
+                        ? 'Your scheduled shift has ended.'
+                        : 'You cannot clock in right now. Ask Chels to check your schedule or access.'}
                   </p>
                 )}
               </>
@@ -519,7 +639,7 @@ export default function MyTime() {
                   ? status.active_break
                     ? () => void punch('resume')
                     : clockOut
-                  : clockIn
+                  : () => clockIn()
               }
             >
               {status.clocked_in
@@ -540,6 +660,16 @@ export default function MyTime() {
                 Clock out
               </Button>
             )}
+            {canOverride && (
+              <Button
+                fullWidth
+                variant="secondary"
+                disabled={blocked || categoryState !== 'ready' || !choice}
+                onClick={() => setSheet('override')}
+              >
+                Clock in anyway
+              </Button>
+            )}
             {!status.clocked_in && status.clock_in_location_required && (
               <p className="text-center text-caption text-ink-muted">
                 AIRE checks you're at the airport when you clock in
@@ -549,7 +679,7 @@ export default function MyTime() {
         </>
       )}
       <Link
-        to="/admin/my-hours"
+        to={hoursHref}
         className="block space-y-2 rounded-card border border-line bg-surface p-5 text-body text-ink focus-visible:outline-2 focus-visible:outline-primary"
       >
         <p className="font-semibold">
@@ -558,9 +688,13 @@ export default function MyTime() {
         <p className="text-body-sm text-ink-muted">
           {summaryLoaded
             ? `${totals.approved.toFixed(1)}h approved · ${totals.waiting.toFixed(1)}h waiting for approval`
-            : 'Open My Hours to check your time.'}
+            : supervisor
+              ? 'Open Timecards to check your time.'
+              : 'Open My Hours to check your time.'}
         </p>
-        <p className="font-semibold text-primary">My Hours →</p>
+        <p className="font-semibold text-primary">
+          {supervisor ? 'My hours in Timecards →' : 'My Hours →'}
+        </p>
       </Link>
       <Sheet
         open={sheet === 'location'}
@@ -575,10 +709,10 @@ export default function MyTime() {
               } catch {
                 /* Optional. */
               }
-              void punch('in')
+              void punch('in', { override: pendingOverride })
             }}
           >
-            Continue to location
+            Share location and clock in
           </Button>
         }
       >
@@ -592,19 +726,107 @@ export default function MyTime() {
         onClose={() => setSheet(null)}
         title={`Clock out at ${clockTime(new Date())}?`}
         footer={
-          <Button
-            fullWidth
-            disabled={blocked}
-            onClick={() => void punch('out')}
-          >
-            Clock out
-          </Button>
+          <div className="space-y-2">
+            <Button
+              fullWidth
+              disabled={blocked}
+              onClick={() => void punch('out')}
+            >
+              Clock out
+            </Button>
+            {longShift && (
+              <Button
+                fullWidth
+                variant="secondary"
+                disabled={blocked}
+                onClick={() => {
+                  setStopTime('')
+                  setStopError(null)
+                  setSheet('stopped')
+                }}
+              >
+                I stopped earlier…
+              </Button>
+            )}
+            <Button fullWidth variant="ghost" onClick={() => setSheet(null)}>
+              Keep working
+            </Button>
+          </div>
         }
       >
         <p>
-          Worked{' '}
-          {status ? formatElapsed(workedMilliseconds(status), 'short') : '—'}.
+          {worked < 60_000
+            ? "You've worked less than a minute."
+            : `Worked ${formatElapsed(worked, 'short')}.`}{' '}
           Check that this is when you stopped working.
+        </p>
+      </Sheet>
+      <Sheet
+        open={sheet === 'stopped'}
+        onClose={() => setSheet(null)}
+        title="When did you stop working?"
+        description="We'll clock you out now and send this time to your manager as a fix."
+        footer={
+          <Button
+            fullWidth
+            type="submit"
+            form="stopped-earlier"
+            loading={busy}
+            disabled={blocked}
+          >
+            Clock out and send fix
+          </Button>
+        }
+      >
+        <form
+          id="stopped-earlier"
+          noValidate
+          onSubmit={(event) => void stopEarlier(event)}
+          className="space-y-3"
+        >
+          <Field label="I stopped working at" required error={stopError}>
+            <Input
+              type="time"
+              enterKeyHint="done"
+              value={stopTime}
+              onChange={(event) => setStopTime(event.target.value)}
+            />
+          </Field>
+          {status?.clock_in_at && (
+            <p className="text-body-sm text-ink-muted">
+              You clocked in at {clockTime(status.clock_in_at)}.
+            </p>
+          )}
+        </form>
+      </Sheet>
+      <Sheet
+        open={sheet === 'override'}
+        onClose={() => setSheet(null)}
+        title="Clock in anyway?"
+        footer={
+          <div className="space-y-2">
+            <Button
+              fullWidth
+              disabled={blocked}
+              onClick={() => {
+                setSheet(null)
+                clockIn(true)
+              }}
+            >
+              Clock in anyway
+            </Button>
+            <Button fullWidth variant="ghost" onClick={() => setSheet(null)}>
+              Cancel
+            </Button>
+          </div>
+        }
+      >
+        <p>
+          {blockedReason === 'too_early'
+            ? `Your shift hasn't started yet. It starts in ${status?.minutes_until ?? 'a few'} minutes.`
+            : 'Your scheduled shift has already ended.'}{' '}
+          As a supervisor you can still clock in. The time waits for approval
+          like any other.
         </p>
       </Sheet>
       <Sheet
