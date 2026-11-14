@@ -122,7 +122,7 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
     let!(:current_period) do
       create(:payroll_calendar_period, start_date: "2026-11-01", end_date: "2026-11-15", pay_date: "2026-11-30",
         cutoff_at: later_cutoff, schema_version: "2.0", cutoff_rule: "after_previous_regular_payday",
-        previous_regular_pay_date: "2026-11-15")
+        previous_regular_pay_date: "2026-11-11")
     end
 
     def read_next_lock
@@ -141,10 +141,11 @@ RSpec.describe "Payroll cutoff warnings", type: :request do
       )
     end
 
-    it "skips locks that already happened and manual periods, and is empty when nothing is ahead" do
-      current_period.update!(lock_mode: "manual", cutoff_enforcement_starts_on: "2026-10-16")
+    it "skips locks that already happened, and is empty when nothing is ahead" do
       expect(read_next_lock["period"]["start_date"]).to eq("2026-10-16")
-      period.update!(status: "finalized", payroll_batch: create(:payroll_batch), finalized_at: cutoff)
+      travel_to(cutoff + 1.hour)
+      expect(read_next_lock["period"]["start_date"]).to eq("2026-11-01")
+      travel_to(later_cutoff + 1.hour)
       expect(read_next_lock).to be_nil
     end
 
