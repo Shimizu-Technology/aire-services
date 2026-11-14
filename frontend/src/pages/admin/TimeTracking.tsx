@@ -2198,7 +2198,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
           <div className="overflow-hidden rounded-2xl border border-neutral-warm bg-white shadow-sm">
             <div className="border-b border-neutral-warm bg-neutral-warm/30 px-4 py-3">
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
-              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect the weekly overtime breakdown.</p>
+              <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect entries, work categories and weekly overtime.</p>
             </div>
             <div className="divide-y divide-neutral-warm sm:hidden">
               {reportLoading ? (
@@ -2249,31 +2249,38 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                 </button>
               ))}
             </div>
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full min-w-[980px]">
+            <div className="hidden sm:block">
+              <table aria-label="Hours by employee" className="w-full table-fixed">
+                <colgroup>
+                  <col style={{ width: '24%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '14%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '9%' }} />
+                </colgroup>
                 <thead className="bg-neutral-warm/40">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Employee</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Departments</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium uppercase text-text-muted">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Hour Types</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Approved regular</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Approved overtime</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Approved for payroll</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Breaks</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Entries</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Review</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Payroll</th>
+                    <th className="break-words px-2 py-3 text-left text-xs font-medium text-text-muted">Employee</th>
+                    <th className="break-words px-2 py-3 text-left text-xs font-medium text-text-muted">Departments</th>
+                    <th className="break-words px-2 py-3 text-right text-xs font-medium text-text-muted">Approved regular</th>
+                    <th className="break-words px-2 py-3 text-right text-xs font-medium text-text-muted">Approved overtime</th>
+                    <th className="break-words px-2 py-3 text-right text-xs font-medium text-text-muted">Approved for payroll</th>
+                    <th className="break-words px-2 py-3 text-right text-xs font-medium text-text-muted">Waiting for approval</th>
+                    <th className="break-words px-2 py-3 text-left text-xs font-medium text-text-muted">Review</th>
+                    <th className="break-words px-2 py-3 text-left text-xs font-medium text-text-muted">Payroll</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-warm">
                   {reportLoading ? (
-                    <tr><td colSpan={11} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-text-muted">Loading payroll report...</td></tr>
                   ) : hoursSummaryRows.length === 0 ? (
-                    <tr><td colSpan={11} className="px-4 py-8 text-center text-text-muted">No hours match this range.</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-text-muted">No hours match this range.</td></tr>
                   ) : hoursSummaryRows.map((employee) => (
                     <tr key={employee.id} onClick={() => setSelectedReportEmployee(employee)} className="cursor-pointer hover:bg-cyan-50/50">
-                      <td className="px-4 py-3 text-sm font-semibold text-primary-dark">
+                      <td className="break-words px-2 py-3 align-top text-sm font-semibold text-primary-dark">
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
@@ -2283,36 +2290,18 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                               event.stopPropagation()
                               setSelectedReportEmployee(employee)
                             }}
-                            className="min-h-11 rounded-lg px-2 py-1 text-left font-semibold text-primary transition hover:bg-cyan-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                            className="min-h-11 max-w-full break-words rounded-lg py-1 text-left font-semibold text-primary transition hover:bg-cyan-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
                           >
                             {employee.full_name}
                           </button>
                           <EmploymentStatusBadge employee={employee} />
                         </div>
                         <div className="mt-1 text-xs font-normal text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)}–${formatDate(employee.last_work_date)}` : ''}</div>
-                        <div className="mt-1 text-xs font-normal text-amber-900">Time waiting for approval: {employee.payroll_hours?.time_waiting_hours.toFixed(2) ?? '—'}h<br />Overtime waiting for approval: {employee.payroll_hours?.overtime_waiting_hours.toFixed(2) ?? '—'}h</div>
+                        <div className="mt-1 text-xs font-normal text-text-muted">{employee.is_intern ? 'Intern' : 'Staff'} · {employee.entries_count} {employee.entries_count === 1 ? 'entry' : 'entries'} · {formatHours(employee.break_hours)}h breaks</div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
-                      <td className="px-4 py-3 text-center text-sm">
-                        {employee.is_intern ? (
-                          <span className="inline-flex min-w-[4.25rem] justify-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Intern</span>
-                        ) : (
-                          <span className="inline-flex min-w-[4.25rem] justify-center text-xs text-text-muted">Staff</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-text-muted">
-                        {employee.categories.length > 0 ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {employee.categories.map((category) => (
-                              <span key={`${employee.id}-${category.id ?? category.name}`} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
-                                {category.name}: <span className="ml-1 font-semibold text-primary-dark">{category.total_hours.toFixed(2)}h</span>
-                              </span>
-                            ))}
-                          </div>
-                        ) : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-primary-dark">{employee.payroll_hours?.approved_regular_hours.toFixed(2) ?? '—'}</td>
-                      <td className="px-4 py-3 text-right text-sm font-semibold">
+                      <td className="break-words px-2 py-3 align-top text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
+                      <td className="break-words px-2 py-3 align-top text-right text-sm text-primary-dark">{employee.payroll_hours?.approved_regular_hours.toFixed(2) ?? '—'}</td>
+                      <td className="break-words px-2 py-3 align-top text-right text-sm font-semibold">
                         {(employee.payroll_hours?.approved_overtime_hours ?? 0) > 0 ? (
                           <button
                             type="button"
@@ -2320,7 +2309,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                               event.stopPropagation()
                               setSelectedReportEmployee(employee)
                             }}
-                            className="inline-flex items-center justify-end gap-1 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-bold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+                            className="inline-flex items-center justify-end gap-1 rounded-full border border-orange-200 bg-orange-50 px-1.5 py-1 text-xs font-bold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
                             title="View weekly overtime breakdown"
                           >
                             <span>{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}</span>
@@ -2330,11 +2319,13 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                           <span className="text-text-muted">{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm font-bold text-primary">{employee.payroll_hours?.approved_hours.toFixed(2) ?? '—'}</td>
-                      <td className="px-4 py-3 text-right text-sm text-text-muted">{formatHours(employee.break_hours)}</td>
-                      <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.entries_count}</td>
-                      <td className="px-4 py-3 text-sm"><EmployeeReviewBadge employee={employee} /></td>
-                      <td className="px-4 py-3 text-sm"><PayrollLifecycleBadge lifecycle={employeePayrollLabel(employee)} /></td>
+                      <td className="break-words px-2 py-3 align-top text-right text-sm font-bold text-primary">{employee.payroll_hours?.approved_hours.toFixed(2) ?? '—'}</td>
+                      <td className="break-words px-2 py-3 align-top text-right text-xs text-amber-900">
+                        <div>Time: {employee.payroll_hours?.time_waiting_hours.toFixed(2) ?? '—'}h</div>
+                        <div className="mt-1">Overtime: {employee.payroll_hours?.overtime_waiting_hours.toFixed(2) ?? '—'}h</div>
+                      </td>
+                      <td className="break-words px-2 py-3 align-top text-sm"><EmployeeReviewBadge employee={employee} /></td>
+                      <td className="break-words px-2 py-3 align-top text-sm [&>span]:inline-block [&>span]:max-w-full [&>span]:break-words"><PayrollLifecycleBadge lifecycle={employeePayrollLabel(employee)} /></td>
                     </tr>
                   ))}
                 </tbody>
