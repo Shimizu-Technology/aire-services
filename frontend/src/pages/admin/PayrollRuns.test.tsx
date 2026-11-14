@@ -191,25 +191,29 @@ describe('pay period page: open period', () => {
 })
 
 describe('pay period page: lock states', () => {
-  it('shows a refused Lock now in a red banner with the #170 words and Try again', async () => {
+  it('leaves a refused lock-time change to the #170 lock control, without a banner', async () => {
     const change = { state: 'rejected' as const, action: 'lock_now' as const, cutoff_at: null, requested_by_name: 'Chels', requested_at: NOW, error: 'Cornerstone refused the change' }
     publish(periodSummary({ lock_change: change }), paidPeriod())
     mocks.getPayrollCutoff.mockResolvedValue({ data: cutoff(lockControl({ pending_change: change })) })
     await open()
-    const alert = screen.getByRole('alert')
-    expect(alert).toHaveTextContent('AIRE couldn’t apply Lock now: Cornerstone refused the change. The lock time below is still in effect.')
-    const before = mocks.period.mock.calls.length
-    fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
-    await settle()
-    expect(mocks.period.mock.calls.length).toBeGreaterThan(before)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    // Said once, in the lock control's own note.
+    const [reason] = screen.getAllByText(/AIRE couldn’t apply Lock now: Cornerstone refused the change/)
+    expect(screen.getAllByText(/AIRE couldn’t apply Lock now/)).toHaveLength(1)
+    expect(reason.closest('section')).toHaveTextContent('Next AIRE lock')
   })
 
   it('says a failed lock is retried', async () => {
     publish(periodSummary({ status: 'failed', cutoff_state: 'attention_required' }), paidPeriod())
     mocks.getPayrollCutoff.mockResolvedValue({ data: cutoff(lockControl({ status: 'failed' })) })
     await open()
-    expect(screen.getByRole('alert')).toHaveTextContent('AIRE couldn’t lock the Nov 1–15 hours. It tries again on its own.')
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('AIRE couldn’t lock the Nov 1–15 hours. It tries again on its own.')
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Lock failed')).toBeInTheDocument()
+    const before = mocks.period.mock.calls.length
+    fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
+    await settle()
+    expect(mocks.period.mock.calls.length).toBeGreaterThan(before)
   })
 
   it('says a failed lock waits for the connection while it is paused', async () => {

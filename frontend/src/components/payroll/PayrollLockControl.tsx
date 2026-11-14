@@ -3,7 +3,7 @@ import { Clock, Lock, RotateCcw } from 'lucide-react'
 import { api, type PayrollLockAction, type PayrollLockControl as LockControlState, type PayrollLockPendingChange } from '../../lib/api'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { useDialogFocus } from '../../lib/useDialogFocus'
-import { changeTarget, earliestLockChange, formatLockTime, fromGuamInput, lockChangeHeadline, lockDistance, toGuamInput } from '../../lib/lockTime'
+import { earliestLockChange, formatLockTime, fromGuamInput, lockDistance, toGuamInput } from '../../lib/lockTime'
 import { Button, Field, HelpTip, Input, Textarea } from '../ui'
 
 interface Props {
@@ -156,11 +156,16 @@ export default function PayrollLockControl({ variant = 'full' }: Props) {
 
 /** A change requested from AIRE that Cornerstone accepted but AIRE hasn't applied. */
 function PendingChangeNote({ change, canChange, canLockNow }: { change: PayrollLockPendingChange; canChange: boolean; canLockNow: boolean }) {
-  const target = changeTarget(change)
+  const target = change.action === 'lock_now' ? 'Lock now'
+    : change.action === 'reset' ? 'the reset to the default time'
+      : change.cutoff_at ? `the change to ${formatLockTime(change.cutoff_at)}` : 'the change'
   if (change.state !== 'pending') {
+    const headline = change.state === 'expired'
+      ? `${target.charAt(0).toUpperCase()}${target.slice(1)} didn’t arrive from Cornerstone Payroll in time, so AIRE didn’t apply it.`
+      : `AIRE couldn’t apply ${target}${change.error ? `: ${change.error}` : '.'}`
     return (
       <div role="status" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-        <p className="font-semibold">{lockChangeHeadline(change)}</p>
+        <p className="font-semibold">{headline}</p>
         <p className="mt-1">The lock time above is still in effect.{canChange ? ` ${canLockNow ? 'Lock now or choose' : 'Choose'} a new time to replace it.` : ''}</p>
       </div>
     )

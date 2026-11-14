@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { api, type HoursReportDownloadType, type PayrollBatchDetail } from '../../lib/api'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { downloadBlob } from '../../lib/download'
-import { lockChangeHeadline } from '../../lib/lockTime'
 import { parsePayPeriodStart, todayInGuam, type PayPeriod } from '../../lib/payPeriods'
 import { withPayrollPeriod } from '../../lib/payrollPeriods'
 import { isLockedState, PAYROLL_WORDS } from '../../lib/payrollTerms'
@@ -25,9 +24,6 @@ import { Button, ErrorState, Menu, PeriodStepper, useConfirm, type MenuItem, typ
 import { Skeleton } from '../../components/ui/Skeleton'
 
 const PAYROLL_RECORDS_PATH = '/admin/payroll/records'
-
-/** Cornerstone's error text may not end a sentence. */
-const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
 
 /**
  * Which pay period an old `/admin/payroll?start_date=…&end_date=…` link means,
@@ -170,11 +166,10 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
     { id: 'records', label: 'All payroll records', onSelect: () => navigate(PAYROLL_RECORDS_PATH) },
   ]
 
-  // A failed lock retries on its own; a refused change leaves the old lock time in place (#170's words).
-  const lockProblem = period && !locked && isCurrent
-    ? period.status === 'failed'
-      ? `AIRE couldn’t lock the ${label} hours. ${paused ? 'It tries again once the payroll connection is resumed.' : 'It tries again on its own.'}`
-      : period.lock_change && period.lock_change.state !== 'pending' ? `${sentence(lockChangeHeadline(period.lock_change))} The lock time below is still in effect.` : null
+  // Only a failed lock gets the banner. A refused or expired lock-time change
+  // is explained in the #170 lock control's own note, not twice.
+  const lockProblem = period && !locked && isCurrent && period.status === 'failed'
+    ? `AIRE couldn’t lock the ${label} hours. ${paused ? 'It tries again once the payroll connection is resumed.' : 'It tries again on its own.'}`
     : null
 
   const goToPeriod = (next: PayPeriod) => navigate(next.start === currentStart ? ADMIN_PATHS.payroll : periodHref(next.start))
