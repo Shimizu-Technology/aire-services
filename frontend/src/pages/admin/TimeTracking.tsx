@@ -2200,7 +2200,8 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
               <h3 className="font-semibold text-primary-dark">Hours by Employee</h3>
               <p className="mt-0.5 text-xs text-text-muted">Select an employee or an orange OT pill to inspect entries, work categories and weekly overtime.</p>
             </div>
-            <div className="divide-y divide-neutral-warm sm:hidden">
+            {/* Eight columns need the full desktop width; narrower screens get the person cards. */}
+            <div className="divide-y divide-neutral-warm xl:hidden">
               {reportLoading ? (
                 <p className="px-4 py-8 text-center text-sm text-text-muted">Loading payroll report...</p>
               ) : hoursSummaryRows.length === 0 ? (
@@ -2249,7 +2250,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                 </button>
               ))}
             </div>
-            <div className="hidden sm:block">
+            <div className="hidden xl:block">
               <table aria-label="Hours by employee" className="w-full table-fixed">
                 <colgroup>
                   <col style={{ width: '19%' }} />
