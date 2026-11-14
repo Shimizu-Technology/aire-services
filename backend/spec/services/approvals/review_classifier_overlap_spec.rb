@@ -48,4 +48,43 @@ RSpec.describe Approvals::ReviewClassifier, type: :service do
 
     expect(keys_for([ first, second ]).values).to all(be_empty)
   end
+
+  describe "auto-approval at clock-out" do
+    let(:zone) { ReviewBatchHelpers::ZONE }
+    let(:worker) { create(:user, :employee, first_name: "Ana", time_tracking_enabled: true, kiosk_enabled: true) }
+
+    before do
+      worker.user_time_categories.create!(time_category: review_category)
+      Setting.set(Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY, "true")
+    end
+
+    def clock(from_hour, hours)
+      travel_to zone.local(2026, 4, 10, from_hour)
+      TimeClockService.clock_in(user: worker, time_category_id: review_category.id, clock_source: "mobile")
+      travel hours.hours
+      TimeClockService.clock_out(user: worker)
+      TimeEntry.where(user: worker).order(:id).last
+    end
+
+    it "leaves a clock-out that overlaps an approved shift pending, with the overlap reason" do
+      create(:time_entry, user: worker, time_category: review_category, work_date: friday, entry_method: "manual",
+                          start_time: zone.local(2000, 1, 1, 8), end_time: zone.local(2000, 1, 1, 10), hours: 2, approval_status: "approved")
+
+      overlapping = clock(9, 2)
+
+      expect(overlapping).to have_attributes(approval_status: "pending")
+      expect(AuditLog.where(action: "time_entry.auto_approved", auditable_id: overlapping.id)).to be_empty
+      expect(TimeClockService.ordinary_shift_exceptions(overlapping)).to include(:overlaps)
+      expect(keys_for(overlapping).fetch(overlapping.id)).to include("overlaps")
+    end
+
+    it "still auto-approves an ordinary clock-out that overlaps nothing" do
+      create(:time_entry, user: worker, time_category: review_category, work_date: friday, entry_method: "manual",
+                          start_time: zone.local(2000, 1, 1, 8), end_time: zone.local(2000, 1, 1, 10), hours: 2, approval_status: "approved")
+
+      ordinary = clock(10, 2)
+
+      expect(ordinary).to have_attributes(approval_status: "approved", approval_note: TimeEntry::AUTO_APPROVAL_NOTE)
+    end
+  end
 end

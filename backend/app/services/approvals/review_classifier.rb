@@ -85,7 +85,6 @@ module Approvals
       segments_by_id = SegmentChains.new(@entries).call
       context = Context.new(segments_by_id.values.flatten)
       max_hours = Setting.auto_approve_max_shift_hours
-      @overlapping_ids = TimeEntryOverlap.overlapping_ids(@entries)
       @entries.to_h do |entry|
         exceptions = viewer_exceptions(entry, segments_by_id.fetch(entry.id), context, max_hours)
         [ entry.id, { review_kind: exceptions.empty? ? ORDINARY : NEEDS_LOOK, exceptions: exceptions } ]
@@ -121,8 +120,7 @@ module Approvals
       found << exception(:over_max_hours, format(LABELS[:over_max_hours], hours: max_hours.to_f.round(2).to_s.delete_suffix(".0"))) if rules.include?(:too_long)
       found << exception(:after_lock) if rules.include?(:late_hours)
       found << exception(:crosses_period) if rules.include?(:crosses_period)
-      # Two shifts at once can't both be paid. Never in a batch; a person picks.
-      found << exception(:overlaps) if @overlapping_ids.include?(entry.id)
+      found << exception(:overlaps) if rules.include?(:overlaps)
       # Every rule that fired must show up as a reason, or the shift would look
       # ordinary. Waiting time with an unlisted note (an auto-close, say) lands here.
       found << exception(:needs_time_review) if found.empty? && rules.any?
@@ -209,6 +207,7 @@ module Approvals
         @batch_ranges = dates.empty? ? [] : PayrollBatch.where("start_date <= ? AND end_date >= ?", dates.max, dates.min).pluck(:start_date, :end_date)
         @cutoff_warning_ids = Payroll::EntryCutoffWarnings.call(@segments)
         @cutoffs = load_cutoffs
+        @overlapping_ids = TimeEntryOverlap.overlapping_ids(@segments)
       end
 
       # TimeClockService's ordinary-shift rules, minus the setting and role.
@@ -233,6 +232,9 @@ module Approvals
         exceptions << :too_long if exceptions.exclude?(:not_completed_clock) && ReviewClassifier.shift_span_hours(segments) >= max_hours
         exceptions << :late_hours if segments.any? { |segment| late_hours?(segment) }
         exceptions << :crosses_period if exceptions.exclude?(:not_completed_clock) && crosses_period_or_cutoff?(segments)
+        # Two shifts at once can't both be paid: never auto-approved and never
+        # in a batch, so a person picks. The clock itself still records it.
+        exceptions << :overlaps if segments.any? { |segment| @overlapping_ids.include?(segment.id) }
         exceptions
       end
 
