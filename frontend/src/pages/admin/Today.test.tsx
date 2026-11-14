@@ -1,4 +1,3 @@
-vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
 import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'

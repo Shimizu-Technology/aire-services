@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { CircleCheck } from 'lucide-react'
-import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import { AttentionList } from '../../components/today/AttentionList'
 import { ConnectionCard, PausedBanner } from '../../components/today/ConnectionCard'
 import { longDay } from '../../components/today/format'
@@ -24,6 +23,8 @@ function loadOf<T>(block: Block<T>, enabled = true) {
  * Today (/admin): what owners and admins need to look at right now. One pay
  * period card, one attention list and who is on the clock. Each block loads
  * and fails on its own, and everything refreshes on focus and every minute.
+ * The cutoff reminder notice isn't shown here: the countdown, the banner and
+ * the attention list already say the same things once.
  */
 export default function Today() {
   const capabilities = useCapabilities()
@@ -47,7 +48,6 @@ export default function Today() {
 
   return (
     <div className="space-y-4">
-      <PayrollCutoffNotice />
       <OfflineBanner loadedAt={attention.loadedAt} />
       <PageHeader title="Today" description={longDay(now)} />
       {paused && <PausedBanner />}
