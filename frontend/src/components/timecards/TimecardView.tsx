@@ -47,6 +47,8 @@ export interface TimecardViewProps {
   actions?: ReactNode
   /** Above the name, e.g. a back link. */
   backLink?: ReactNode
+  /** Leave out the avatar and name when the page already shows them (the person page). */
+  hidePerson?: boolean
   /** Guam today; defaults to now. */
   today?: string
 }
@@ -69,7 +71,7 @@ function futureLine(days: string[]) {
  */
 export function TimecardView({
   person, period, onPeriodChange, categories, focusEntryId = null, lockAt, refreshKey = 0,
-  onChanged, onLogMissedTime, logMissedTimeBlockedReason = null, blockedReason = null, pauseRefresh = false, actions, backLink, today: todayProp,
+  onChanged, onLogMissedTime, logMissedTimeBlockedReason = null, blockedReason = null, pauseRefresh = false, actions, backLink, hidePerson = false, today: todayProp,
 }: TimecardViewProps) {
   const today = todayProp ?? todayInGuam()
   const readOnly = person.employmentStatus === 'terminated'
@@ -160,14 +162,14 @@ export function TimecardView({
   return (
     <section aria-label={`${person.name}'s timecard`} className="space-y-4">
       {backLink}
-      <div className="flex items-center gap-3">
+      {!hidePerson && <div className="flex items-center gap-3">
         <Avatar name={person.name} size="lg" />
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-title font-semibold text-ink">{person.name}</h2>
           {person.meta && <p className="truncate text-body-sm text-ink-muted">{person.meta}</p>}
         </div>
         {actions}
-      </div>
+      </div>}
 
       <PeriodStepper period={period} onChange={onPeriodChange} max={today} />
 
