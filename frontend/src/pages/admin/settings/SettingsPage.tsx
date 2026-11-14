@@ -1,15 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api, type AdminAppSettingsResponse } from '../../../lib/api'
 import { settingsApi } from '../../../lib/api/settings'
 import { useAuthContext } from '../../../contexts/AuthContext'
-import { PageHeader, Switch, UnsavedChangesBar, Input } from '../../../components/ui'
+import { Button, PageHeader, Switch, UnsavedChangesBar, Input, buttonClasses } from '../../../components/ui'
 import { useUnsavedChanges } from '../../../components/ui/useUnsavedChanges'
 import { useConfirm } from '../../../components/ui/useConfirm'
 import { SettingsCatalogContext } from '../../../components/settings/settingsCatalogContext'
 import SettingHelp from '../../../components/settings/SettingHelp'
 
 import { PayStubError, payStubsApi } from '../../../lib/payStubsApi'
+import {
+  emailKeys,
+  emailProblem,
+  mapServerSettingError,
+  normalizeEmails,
+  splitEmails,
+  validateSetting,
+} from '../../../lib/settingsValidation'
 import ClockLocationPicker from './ClockLocationPicker'
 import EmailChips from './EmailChips'
 
@@ -24,36 +33,6 @@ const switches = new Set([
   'schedules_enabled',
   'schedule_required_for_clock_in',
 ])
-
-const emailKeys = ['payroll_cutoff_reminder_emails', 'pay_stub_request_notification_emails']
-
-// Same rules as the server: split on commas, semicolons and new lines, drop repeats ignoring case.
-const normalizeEmails = (value: string) => [
-  ...new Set(
-    value
-      .split(/[\n,;]+/)
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  ),
-]
-
-const MAX_RECIPIENTS = 10
-
-// The same pattern the server checks reminder recipients against (URI::MailTo::EMAIL_REGEXP).
-const emailPattern =
-  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
-
-// Fields that cannot be left empty. The server ignores a blank value, so catch it here.
-const requiredValues: Record<string, { ask: string; number: boolean }> = {
-  overtime_daily_threshold_hours: { ask: 'Enter a number of hours', number: true },
-  overtime_weekly_threshold_hours: { ask: 'Enter a number of hours', number: true },
-  auto_approve_max_shift_hours: { ask: 'Enter a number of hours', number: true },
-  early_clock_in_buffer_minutes: { ask: 'Enter a number of minutes', number: true },
-  clock_in_location_radius_meters: { ask: 'Enter a distance in meters', number: true },
-  clock_in_location_latitude: { ask: 'Enter a latitude, such as 13.46913', number: true },
-  clock_in_location_longitude: { ask: 'Enter a longitude, such as 144.79901', number: true },
-  clock_in_location_name: { ask: 'Enter a location name', number: false },
-}
 
 // Keyed by page so moving between settings pages never shows the last page's values.
 export default function SettingsPage({ page }: { page: SettingsPageId }) {
@@ -70,14 +49,22 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  // Messages shown under the field they are about, keyed by setting.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  // Address typed into an email list but not added yet. Saving adds it.
+  const [pendingEmail, setPendingEmail] = useState<Record<string, string>>({})
+  const [locationOpen, setLocationOpen] = useState<boolean | null>(null)
   const [confirm, dialog] = useConfirm()
   const requireBeforeSchedulesOff = useRef<string | null>(null)
   const baseline = {
     ...data?.settings,
     pay_stub_request_notification_emails: savedEmails,
   } as Record<string, string>
+  const withPending = (key: string) =>
+    [draft[key], pendingEmail[key]?.trim()].filter(Boolean).join(', ')
+  const valueOf = (key: string) => (emailKeys.includes(key) ? withPending(key) : draft[key])
   const changes = Object.fromEntries(
-    keys.filter((key) => draft[key] !== baseline[key]).map((key) => [key, draft[key]]),
+    keys.filter((key) => valueOf(key) !== baseline[key]).map((key) => [key, valueOf(key)]),
   )
   const dirty = !!data && Object.keys(changes).length > 0
   const load = () => {
@@ -123,33 +110,47 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
         : (data?.catalog?.find((item) => item.setting_keys.includes(key))?.label ??
           key.replaceAll('_', ' '))
 
+  const clearFieldError = (...fields: string[]) =>
+    setFieldErrors((previous) => {
+      if (!fields.some((field) => previous[field])) return previous
+      const next = { ...previous }
+      for (const field of fields) delete next[field]
+      return next
+    })
+
+  // Land on the first field that needs attention, in the order they appear on the page.
+  const focusField = (key: string) =>
+    window.setTimeout(() => {
+      const element = document.getElementById(key)
+      element?.focus()
+      element?.scrollIntoView?.({ block: 'center' })
+    }, 0)
+
+  const showFieldErrors = (errors: Record<string, string>) => {
+    setFieldErrors(errors)
+    const first = keys.find((key) => errors[key])
+    if (first) focusField(first)
+  }
+
   const save = async () => {
     const payload = { ...changes }
     setError('')
     setMessage('')
-    for (const [key, rule] of Object.entries(requiredValues)) {
+    setFieldErrors({})
+    const problems: Record<string, string> = {}
+    for (const key of keys) {
       if (payload[key] === undefined) continue
-      const value = payload[key].trim()
-      if (!value || (rule.number && !Number.isFinite(Number(value)))) {
-        setError(`${labelFor(key)}: ${rule.ask}.`)
-        return
-      }
+      const problem = validateSetting(key, payload[key], labelFor(key))
+      if (problem) problems[key] = problem
+    }
+    if (Object.keys(problems).length) {
+      showFieldErrors(problems)
+      return
     }
     for (const key of emailKeys) {
       if (payload[key] === undefined) continue
       payload[key] = normalizeEmails(payload[key]).join(', ')
       if (payload[key] === baseline[key]) delete payload[key]
-    }
-    const reminders = normalizeEmails(payload.payroll_cutoff_reminder_emails ?? '')
-    if (reminders.some((email) => !emailPattern.test(email))) {
-      setError('Enter valid reminder email addresses')
-      return
-    }
-    for (const key of emailKeys) {
-      if (normalizeEmails(payload[key] ?? '').length > MAX_RECIPIENTS) {
-        setError(`Use ${MAX_RECIPIENTS} addresses or fewer.`)
-        return
-      }
     }
     if (payload.auto_approve_ordinary_shifts !== undefined) {
       const turningOn = payload.auto_approve_ordinary_shifts === 'true'
@@ -194,12 +195,22 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
     setSaving(true)
     let recipientsSaved = false
     let currentRecipients = savedEmails
-    const fail = (reason: string) =>
+    const fail = (reason: string, field?: { key: string; message: string } | null) => {
+      if (field) {
+        showFieldErrors({ [field.key]: field.message })
+        setError(
+          recipientsSaved
+            ? 'The heads-up email list was saved, but your other changes were not. Fix the setting marked below and save again.'
+            : '',
+        )
+        return
+      }
       setError(
         recipientsSaved
           ? `The heads-up email list was saved, but your other changes were not: ${reason}`
           : reason,
       )
+    }
     try {
       const { pay_stub_request_notification_emails: recipients, ...settings } = payload
       if (recipients !== undefined) {
@@ -222,10 +233,17 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
           ...result.data.settings,
           pay_stub_request_notification_emails: currentRecipients,
         } as Record<string, string>)
+        setPendingEmail({})
         setMessage(await savedMessage(settings.schedules_enabled))
-      } else fail(result.error || 'Could not save changes')
+      } else {
+        const reason = result.error || 'Could not save changes'
+        fail(reason, mapServerSettingError(reason, labelFor, (key) => keys.includes(key)))
+      }
     } catch (reason) {
-      fail(reason instanceof PayStubError ? reason.message : 'Could not save changes')
+      if (reason instanceof PayStubError && reason.code === 'invalid_email') {
+        const key = 'pay_stub_request_notification_emails'
+        fail(reason.message, { key, message: `${labelFor(key)}: ${reason.message}` })
+      } else fail(reason instanceof PayStubError ? reason.message : 'Could not save changes')
     } finally {
       setSaving(false)
     }
@@ -279,6 +297,24 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
     }
     setDraft(next)
   }
+  // Adds what was typed to the list, or says what is wrong with it and keeps the text.
+  const addEmails = (key: string) => {
+    const typed = pendingEmail[key] ?? ''
+    if (!typed.trim()) return
+    for (const address of splitEmails(typed)) {
+      const problem = emailProblem(address)
+      if (problem) {
+        showFieldErrors({ [key]: `${labelFor(key)}: ${problem}` })
+        return
+      }
+    }
+    clearFieldError(key)
+    setDraft((previous) => ({ ...previous, [key]: [previous[key], typed.trim()].filter(Boolean).join(', ') }))
+    setPendingEmail((previous) => ({ ...previous, [key]: '' }))
+    focusField(key)
+  }
+  const locationEnforced = draft.clock_in_location_enforced === 'true'
+  const showLocation = locationOpen ?? locationEnforced
   const unsaved = useUnsavedChanges({
     dirty,
     what: title,
@@ -287,6 +323,8 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
     onDiscard: () => {
       requireBeforeSchedulesOff.current = null
       setDraft({ ...baseline })
+      setPendingEmail({})
+      setFieldErrors({})
       setError('')
       setMessage('')
     },
@@ -331,75 +369,168 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
                 </button>
               </div>
             )}
-          {page === 'time-clock' && (
-            <ClockLocationPicker
-              draft={draft}
-              onChange={(values) => setDraft((previous) => ({ ...previous, ...values }))}
-            />
+          {page === 'kiosk' && (
+            <div className="space-y-3 rounded-card border border-line bg-surface p-4">
+              <a
+                href="/kiosk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonClasses({ variant: 'primary', size: 'lg' })}
+              >
+                Open and unlock kiosk
+                <ExternalLink className="size-4" aria-hidden="true" />
+                <span className="sr-only">(opens in a new tab)</span>
+              </a>
+              <p className="text-sm text-ink-muted">
+                Open this on the shared office device, not on your own computer. A manager or admin
+                unlocks it there before staff can enter a PIN.
+              </p>
+            </div>
           )}
-          <div className="divide-y divide-line rounded-card border border-line bg-surface">
-            {keys.map((key) => {
-              const entry = data.catalog?.find((item) => item.setting_keys.includes(key))
-              const label = labelFor(key)
-              const disabled =
-                (key === 'schedule_required_for_clock_in' && draft.schedules_enabled !== 'true') ||
-                (key === 'pay_stub_request_notification_emails' && !emailsEditable)
-              return (
-                <div key={key} className="space-y-2 p-4">
+          {keys.length > 0 && (
+            <div className="divide-y divide-line rounded-card border border-line bg-surface">
+              {keys.map((key) => {
+                const entry = data.catalog?.find((item) => item.setting_keys.includes(key))
+                const label = labelFor(key)
+                const isSwitch = switches.has(key)
+                const isEmail = key.endsWith('_emails')
+                const fieldError = fieldErrors[key]
+                const errorId = fieldError ? `${key}-error` : undefined
+                const disabled =
+                  (key === 'schedule_required_for_clock_in' && draft.schedules_enabled !== 'true') ||
+                  (key === 'pay_stub_request_notification_emails' && !emailsEditable)
+                const heading = (
                   <div className="flex items-center gap-2">
-                    <label htmlFor={key} className="font-semibold">
-                      {label}
-                    </label>
+                    {isSwitch ? (
+                      <span className="font-semibold">{label}</span>
+                    ) : (
+                      <label htmlFor={key} className="font-semibold">
+                        {label}
+                      </label>
+                    )}
                     {entry && <SettingHelp id={entry.id} />}
                   </div>
-                  {switches.has(key) ? (
-                    <Switch
-                      label={label}
-                      checked={draft[key] === 'true'}
-                      disabled={disabled || saving}
-                      onChange={(checked) => setSwitch(key, checked)}
-                    />
-                  ) : key.endsWith('_emails') ? (
-                    <EmailChips
-                      id={key}
-                      value={draft[key] ?? ''}
-                      disabled={saving || disabled}
-                      onChange={(value) => setDraft((previous) => ({ ...previous, [key]: value }))}
-                    />
-                  ) : (
-                    <Input
-                      id={key}
-                      value={draft[key] ?? ''}
-                      disabled={saving}
-                      onChange={(event) =>
-                        setDraft((previous) => ({ ...previous, [key]: event.target.value }))
-                      }
-                      className="min-h-11 w-full rounded-control border border-line px-3 py-2 text-base"
-                      inputMode={
-                        key === 'payroll_cutoff_reminder_emails'
-                          ? 'email'
-                          : key === 'clock_in_location_name'
-                            ? 'text'
-                            : 'decimal'
-                      }
-                    />
-                  )}
-                  {key === 'schedule_required_for_clock_in' && (
-                    <p className="text-sm text-ink-muted">
-                      Turn on Use schedules first. When on, anyone without a shift that day can't
-                      clock in.
-                    </p>
-                  )}
-                  {key === 'payroll_cutoff_reminder_emails' && (
-                    <p className="text-sm text-ink-muted">
-                      Who gets the reminder before each lock.{' '}
-                      {!draft[key] && 'Nobody gets reminders now.'}
-                    </p>
-                  )}
+                )
+                return (
+                  <div key={key} className="space-y-2 p-4">
+                    {isSwitch ? (
+                      <div className="flex items-center justify-between gap-4">
+                        {heading}
+                        <Switch
+                          hideLabel
+                          label={label}
+                          checked={draft[key] === 'true'}
+                          disabled={disabled || saving}
+                          onChange={(checked) => setSwitch(key, checked)}
+                        />
+                      </div>
+                    ) : (
+                      heading
+                    )}
+                    {isEmail ? (
+                      <EmailChips
+                        id={key}
+                        label={label}
+                        emails={splitEmails(draft[key] ?? '')}
+                        pending={pendingEmail[key] ?? ''}
+                        disabled={saving || disabled}
+                        error={fieldError}
+                        onPendingChange={(value) => {
+                          clearFieldError(key)
+                          setPendingEmail((previous) => ({ ...previous, [key]: value }))
+                        }}
+                        onAdd={() => addEmails(key)}
+                        onRemove={(email) => {
+                          clearFieldError(key)
+                          setDraft((previous) => ({
+                            ...previous,
+                            [key]: splitEmails(previous[key] ?? '')
+                              .filter((item) => item.toLowerCase() !== email.toLowerCase())
+                              .join(', '),
+                          }))
+                        }}
+                      />
+                    ) : (
+                      !isSwitch && (
+                        <>
+                          <Input
+                            id={key}
+                            value={draft[key] ?? ''}
+                            disabled={saving}
+                            aria-invalid={fieldError ? true : undefined}
+                            aria-describedby={errorId}
+                            onChange={(event) => {
+                              clearFieldError(key)
+                              setDraft((previous) => ({ ...previous, [key]: event.target.value }))
+                            }}
+                            className="min-h-11 w-full rounded-control border border-line px-3 py-2 text-base"
+                            inputMode={key === 'clock_in_location_name' ? 'text' : 'decimal'}
+                          />
+                          {fieldError && (
+                            <p id={errorId} className="text-sm font-medium text-danger">
+                              {fieldError}
+                            </p>
+                          )}
+                        </>
+                      )
+                    )}
+                    {key === 'schedule_required_for_clock_in' && (
+                      <p className="text-sm text-ink-muted">
+                        Turn on Use schedules first. When on, anyone without a shift that day can't
+                        clock in.
+                      </p>
+                    )}
+                    {key === 'payroll_cutoff_reminder_emails' && (
+                      <p className="text-sm text-ink-muted">
+                        Who gets the reminder before each lock.{' '}
+                        {!draft[key] && !pendingEmail[key] && 'Nobody gets reminders now.'}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {page === 'kiosk' && (
+            <p className="rounded-card border border-line bg-surface p-4 text-ink-muted">
+              Pay stub requests at the kiosk are {draft.pay_stub_kiosk_requests_enabled === 'true' ? 'on' : 'off'}.{' '}
+              <Link to="/admin/settings/pay-stubs" className="font-semibold text-primary underline">
+                Change this in Pay stubs
+              </Link>
+            </p>
+          )}
+          {page === 'time-clock' && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-surface p-4">
+                <div className="min-w-0">
+                  <h2 className="font-semibold">Clock-in location</h2>
+                  <p className="text-sm text-ink-muted">
+                    {draft.clock_in_location_name || 'No location set'} · location check is{' '}
+                    {locationEnforced ? 'on' : 'off'}
+                  </p>
                 </div>
-              )
-            })}
-          </div>
+                <Button
+                  variant="secondary"
+                  aria-expanded={showLocation}
+                  aria-controls="clock-in-location-picker"
+                  onClick={() => setLocationOpen(!showLocation)}
+                >
+                  {showLocation ? 'Hide location search' : 'Change location'}
+                </Button>
+              </div>
+              {showLocation && (
+                <div id="clock-in-location-picker">
+                  <ClockLocationPicker
+                    draft={draft}
+                    onChange={(values) => {
+                      clearFieldError(...Object.keys(values))
+                      setDraft((previous) => ({ ...previous, ...values }))
+                    }}
+                  />
+                </div>
+              )}
+            </>
+          )}
         </SettingsCatalogContext.Provider>
       )}
       <UnsavedChangesBar {...unsaved.barProps} />

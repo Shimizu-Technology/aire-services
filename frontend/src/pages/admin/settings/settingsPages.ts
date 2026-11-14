@@ -29,7 +29,8 @@ export const settingsPages = {
       'pay_stub_request_notification_emails',
     ],
   },
-  kiosk: { title: 'Kiosk', keys: ['pay_stub_kiosk_requests_enabled'] },
+  // The pay stub request switch lives in Pay stubs; Kiosk links to it.
+  kiosk: { title: 'Kiosk', keys: [] },
   schedules: { title: 'Schedules', keys: ['schedules_enabled', 'schedule_required_for_clock_in'] },
 } satisfies Record<string, { title: string; keys: string[] }>
 

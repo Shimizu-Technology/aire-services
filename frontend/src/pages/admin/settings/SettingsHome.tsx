@@ -60,7 +60,7 @@ export default function SettingsHome() {
       'Pay stubs',
       `Kiosk requests ${on('pay_stub_kiosk_requests_enabled')} · self-email ${on('pay_stub_self_email_enabled')}`,
     ],
-    ['kiosk', 'Kiosk', `Pay stub requests ${on('pay_stub_kiosk_requests_enabled')}`],
+    ['kiosk', 'Kiosk', `Open and unlock the office kiosk · pay stub requests ${on('pay_stub_kiosk_requests_enabled')}`],
     ['payroll-connection', 'Payroll connection', connection],
     ['schedules', 'Schedules', sentence(on('schedules_enabled'))],
     ['roles', 'Roles & access', 'View permissions by role'],
