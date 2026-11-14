@@ -267,7 +267,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(json[:summary]).to include(total_hours: 6.0, entries_count: 1, period_entries_count: 5, excluded_entries_count: 4)
     expect(json.dig(:summary, :excluded_issues)).to include(pending_count: 1, pending_overtime_count: 1, denied_count: 1, open_clock_count: 1)
 
-    get "/api/v1/admin/hours_report/pdf", params: filters, headers: auth_headers
+    get "/api/v1/admin/hours_report/pdf", params: filters.merge(acknowledge_draft: true), headers: auth_headers
     expect(response).to have_http_status(:ok)
     expect(pdf_text).to include(
       "Included hours ready - period review remains", "1 included entries; 4 excluded entries",
@@ -282,7 +282,7 @@ RSpec.describe "Api::V1::Admin::HoursReports", type: :request do
     expect(captured.filters).to include("time_category_id" => category.id.to_s, "approval_status" => "approved_or_standard")
     before_snapshot = captured.attributes.slice("summary", "filters", "entry_snapshot", "checksum")
 
-    get "/api/v1/admin/hours_report/pdf", params: filters.merge(user_id: employee.id), headers: auth_headers
+    get "/api/v1/admin/hours_report/pdf", params: filters.merge(user_id: employee.id, acknowledge_draft: true), headers: auth_headers
     expect(response).to have_http_status(:ok)
     expect(pdf_text).to include(
       "Included hours ready - period review remains", "2 included entries; 3 excluded entries",

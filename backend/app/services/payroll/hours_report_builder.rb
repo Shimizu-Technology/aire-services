@@ -219,7 +219,7 @@ module Payroll
         first_work_date: days.first&.fetch(:work_date),
         last_work_date: days.last&.fetch(:work_date),
         ready: report_ready?(issues),
-        approval_complete: issues.values_at(:pending_count, :pending_overtime_count, :open_clock_count).all?(&:zero?) && payroll_hours_for(control_period_entries).values_at(:time_waiting_hours, :overtime_waiting_hours).all?(&:zero?),
+        approval_complete: issues[:open_clock_count].zero? && payroll_hours_for(control_period_entries).values_at(:time_waiting_hours, :overtime_waiting_hours).all?(&:zero?),
         issues: issues,
         quality: quality_for(control_period_entries),
         payroll_statuses: EntryLifecycleResolver.summary(lifecycle_period_entries.filter_map { |entry| payroll_lifecycle_for(entry) }),

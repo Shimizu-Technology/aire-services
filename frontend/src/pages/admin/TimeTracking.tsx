@@ -1206,7 +1206,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
       if (response.code === 'draft_acknowledgement_required' && !acknowledgeDraft) {
         const confirmed = await confirm({
           title: 'Download a clearly marked draft anyway?',
-          description: 'This report includes approved entries without work categories.',
+          description: 'Time or overtime is still waiting, a clock is open, or a work category needs review. Waiting hours are not included in payroll totals.',
           confirmLabel: 'Download draft',
         })
         if (confirmed) await downloadReport(type, true)

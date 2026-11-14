@@ -37,7 +37,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     expect(today).to include(approved_hours: 40.0, time_waiting_hours: 2.0, overtime_waiting_hours: 3.5, waiting_hours: 5.5)
     approved_only = Payroll::HoursReportBuilder.new(range.merge(approval_status: "approved_or_standard")).call
     expect(approved_only.dig(:summary, :payroll_hours)).to eq(report.dig(:summary, :payroll_hours))
-    get "/api/v1/time_entries", params: range.merge(user_id: worker.id), headers: headers
+    get "/api/v1/time_entries", params: range.merge(user_id: worker.id, acknowledge_draft: true), headers: headers
     parts = response.parsed_body.fetch("time_entries").flat_map { |entry| entry.fetch("payroll_hours_by_date") }
     expect(parts.sum { |part| part.fetch("approved_hours") }).to eq(40.0)
     expect(parts.sum { |part| part.fetch("overtime_waiting_hours") }).to eq(3.5)
@@ -48,7 +48,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
   end
 
   it "separates pending overtime in CSV/PDF without changing capture's worked-time snapshot" do
-    get "/api/v1/admin/hours_report/summary_csv", params: range, headers: headers
+    get "/api/v1/admin/hours_report/summary_csv", params: range.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     row = CSV.parse(response.body, headers: true).first
     expect(row.to_h).to include("Approved regular hours" => "40.00", "Approved overtime hours" => "0.00", "Worked hours" => "48.50",
@@ -58,20 +58,40 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     expect(capture.protects_entries).to be(true)
     expect(capture.entry_snapshot.find { |entry| entry["id"] == @overtime.id }).to include("total_hours" => 11.5, "overtime_hours" => 3.5)
     checksum = capture.checksum
-    get "/api/v1/admin/hours_report/pdf", params: range, headers: headers
+    get "/api/v1/admin/hours_report/pdf", params: range.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     text = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
     expect(text).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50", "Needs review")
-    get "/api/v1/admin/hours_report/pdf", params: range.merge(user_id: worker.id), headers: headers
+    get "/api/v1/admin/hours_report/pdf", params: range.merge(user_id: worker.id, acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     employee_pdf = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
     expect(employee_pdf).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50")
     expect(capture.reload.checksum).to eq(checksum)
   end
 
+  it "requires acknowledgement for every row shown as Draft" do
+    get "/api/v1/admin/hours_report/summary_csv", params: range, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.parsed_body["code"]).to eq("draft_acknowledgement_required")
+    get "/api/v1/admin/hours_report/summary_csv", params: range.merge(acknowledge_draft: true), headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(CSV.parse(response.body, headers: true).first["Report Status"]).to eq("Draft - needs review")
+  end
+
+  it "allows Complete when a stale pending-OT flag represents zero waiting hours" do
+    TimeEntry.where(user: worker).delete_all
+    row = shift(2, 8)
+    row.update_columns(overtime_status: "pending")
+    report = Payroll::HoursReportBuilder.new(range).call
+    expect(report[:employees].first[:approval_complete]).to be(true)
+    get "/api/v1/admin/hours_report/summary_csv", params: range, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(CSV.parse(response.body, headers: true).first["Report Status"]).to eq("Complete")
+  end
+
   it "labels filtered summaries and preserves filtered worked hours beside period approval facts" do
     filters = range.merge(approval_status: "denied")
-    get "/api/v1/admin/hours_report/summary_csv", params: filters, headers: headers
+    get "/api/v1/admin/hours_report/summary_csv", params: filters.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     csv = CSV.parse(response.body, headers: true)
     expect(csv.headers[4..6]).to eq([ "Approved regular hours", "Approved overtime hours", "Approved for payroll" ])
@@ -79,7 +99,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     expect(csv.first.to_h).to include("Worked hours" => "3.00", "Approved for payroll" => "40.00",
       "Time waiting for approval" => "2.00", "Overtime waiting for approval — not included" => "3.50")
     expect(response.headers["Content-Disposition"]).to include("Filtered")
-    get "/api/v1/admin/hours_report/pdf", params: filters, headers: headers
+    get "/api/v1/admin/hours_report/pdf", params: filters.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     expect(response.headers["Content-Disposition"]).to include("Filtered")
     reader = PDF::Reader.new(StringIO.new(response.body))
@@ -99,7 +119,7 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
       "Batch ID", "Period start", "Period end", "Cutoff at", "Employee", "Email",
       "Source entry", "Type", "Original work date", "Category", "Regular hours", "Overtime hours", "Total hours"
     ])
-    get "/api/v1/admin/hours_report/summary_csv", params: range, headers: headers
+    get "/api/v1/admin/hours_report/summary_csv", params: range.merge(acknowledge_draft: true), headers: headers
     expect(response).to have_http_status(:ok)
     get "/api/v1/admin/payroll_batches/#{id}/export", headers: headers
     expect(response.body).to eq(frozen_csv)

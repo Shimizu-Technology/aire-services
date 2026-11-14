@@ -127,7 +127,7 @@ module Api
         end
 
         def draft_acknowledged?(report)
-          return true if report[:ready]
+          return true if report[:ready] && report[:employees].all? { |employee| employee[:approval_complete] }
           return true if ActiveModel::Type::Boolean.new.cast(params[:acknowledge_draft])
 
           render json: {
