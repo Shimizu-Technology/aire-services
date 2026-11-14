@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider, Link } from 'react-router-dom'
 import { beforeEach, expect, it, vi } from 'vitest'
@@ -298,6 +298,33 @@ it('shows the server message when the recipient list is refused', async () => {
   expect(field).toHaveAccessibleDescription(message)
   expect(field).toHaveValue('nope@example.com')
 })
+it('holds the pay stub heads-up list to the stricter server rule, and reminders to the looser one', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('pay-stubs')
+  const field = await screen.findByLabelText('Heads-up emails for kiosk requests')
+  await user.type(field, 'a@b{Enter}')
+  expect(screen.getByText("Heads-up emails for kiosk requests: 'a@b' needs a domain with a dot, for example a@example.com.")).toBeInTheDocument()
+  expect(field).toHaveAttribute('aria-invalid', 'true')
+  cleanup()
+  mount('approvals')
+  const reminders = await screen.findByLabelText('Cutoff reminder recipients')
+  await user.type(reminders, 'a@b{Enter}')
+  expect(screen.getByRole('list', { name: /current addresses/ })).toHaveTextContent('a@b')
+})
+it('will not save a fractional radius or a hex threshold', async () => {
+  const user = userEvent.setup({ delay: null })
+  mount('time-clock')
+  const radius = await screen.findByLabelText('Allowed radius')
+  await user.clear(radius)
+  await user.type(radius, '0.5')
+  const daily = screen.getByLabelText('Daily hours review alert')
+  await user.clear(daily)
+  await user.type(daily, '0x10')
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByText('Daily hours review alert: enter a number of hours.')).toBeInTheDocument()
+  expect(screen.getByText('Allowed radius: enter a whole number of meters.')).toBeInTheDocument()
+  expect(mocks.save).not.toHaveBeenCalled()
+})
 it('shows the Pay stubs form only once switches and recipients have both loaded', async () => {
   let release: (value: { emails: string[]; editable: boolean }) => void = () => {}
   mocks.recipients.mockReturnValue(new Promise((resolve) => (release = resolve)))
@@ -322,8 +349,8 @@ it('shows an error with a retry when the recipient list cannot be loaded', async
 })
 for (const [key, label, ask] of [
   ['overtime_daily_threshold_hours', 'Daily hours review alert', 'enter a number of hours'],
-  ['early_clock_in_buffer_minutes', 'Early clock-in buffer', 'enter a number of minutes'],
-  ['clock_in_location_radius_meters', 'Allowed radius', 'enter a distance in meters'],
+  ['early_clock_in_buffer_minutes', 'Early clock-in buffer', 'enter a whole number of minutes'],
+  ['clock_in_location_radius_meters', 'Allowed radius', 'enter a whole number of meters'],
   ['clock_in_location_name', 'Location label', 'enter a location name'],
 ] as const) {
   it(`will not save ${label} when it is cleared`, async () => {

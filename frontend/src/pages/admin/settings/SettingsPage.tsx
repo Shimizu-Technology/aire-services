@@ -13,6 +13,7 @@ import SettingHelp from '../../../components/settings/SettingHelp'
 import { PayStubError, payStubsApi } from '../../../lib/payStubsApi'
 import {
   emailKeys,
+  emailKindFor,
   emailProblem,
   mapServerSettingError,
   normalizeEmails,
@@ -302,7 +303,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
     const typed = pendingEmail[key] ?? ''
     if (!typed.trim()) return
     for (const address of splitEmails(typed)) {
-      const problem = emailProblem(address)
+      const problem = emailProblem(address, emailKindFor(key))
       if (problem) {
         showFieldErrors({ [key]: `${labelFor(key)}: ${problem}` })
         return

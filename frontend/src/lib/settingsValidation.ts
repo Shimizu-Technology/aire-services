@@ -1,22 +1,32 @@
 // Checks Settings values before they are sent, and rewrites the server's refusals,
 // so every message starts with the name printed on the page.
 
-// The same pattern the server checks reminder recipients against (URI::MailTo::EMAIL_REGEXP).
+// Mirrors the server (Api::V1::Admin::SettingsController, Setting, PayDocuments.valid_email?).
+
+// The same pattern the server checks recipients against (URI::MailTo::EMAIL_REGEXP).
 const emailPattern =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
 
 export const MAX_RECIPIENTS = 10
+/** PayDocuments::EMAIL_MAX_LENGTH and EMAIL_SEPARATORS, for the pay stub heads-up list. */
+const PAY_STUB_EMAIL_MAX_LENGTH = 254
+const PAY_STUB_EMAIL_SEPARATORS = /[<>,;"\s]/
 
 const AUTO_APPROVE_MAX_HOURS = 23
 
-type NumberRule = { ask: string; min?: number; max?: number; minExclusive?: boolean; hint: string }
+// Whole numbers where Rails reads the value with to_i, plain decimals where it uses Float or to_f.
+// Hex ("0x10"), exponents ("1e3") and digit separators ("1_000") are refused even where Ruby would read them.
+const WHOLE_NUMBER = /^[+-]?\d+$/
+const DECIMAL_NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)$/
+
+type NumberRule = { ask: string; whole?: boolean; min?: number; max?: number; minExclusive?: boolean; hint: string }
 
 const numberRules: Record<string, NumberRule> = {
   overtime_daily_threshold_hours: { ask: 'enter a number of hours', min: 0, minExclusive: true, hint: 'enter a number greater than 0' },
   overtime_weekly_threshold_hours: { ask: 'enter a number of hours', min: 0, minExclusive: true, hint: 'enter a number greater than 0' },
   auto_approve_max_shift_hours: { ask: 'enter a number of hours', min: 1, max: AUTO_APPROVE_MAX_HOURS, hint: `enter a number from 1 to ${AUTO_APPROVE_MAX_HOURS}` },
-  early_clock_in_buffer_minutes: { ask: 'enter a number of minutes', min: 0, hint: 'enter 0 or a larger number of minutes' },
-  clock_in_location_radius_meters: { ask: 'enter a distance in meters', min: 0, minExclusive: true, hint: 'enter a distance greater than 0 meters' },
+  early_clock_in_buffer_minutes: { ask: 'enter a whole number of minutes', whole: true, min: 0, hint: 'enter 0 or a larger whole number of minutes' },
+  clock_in_location_radius_meters: { ask: 'enter a whole number of meters', whole: true, min: 0, minExclusive: true, hint: 'enter a whole number of meters greater than 0' },
   clock_in_location_latitude: { ask: 'enter a latitude, such as 13.46913', min: -90, max: 90, hint: 'enter a latitude from -90 to 90, such as 13.46913' },
   clock_in_location_longitude: { ask: 'enter a longitude, such as 144.79901', min: -180, max: 180, hint: 'enter a longitude from -180 to 180, such as 144.79901' },
 }
@@ -37,15 +47,32 @@ export function normalizeEmails(value: string): string[] {
   return [...new Set(splitEmails(value).map((email) => email.toLowerCase()))]
 }
 
+export type EmailKind = 'reminder' | 'payStub'
+
+/** Reminder recipients and the pay stub heads-up list are checked by different server rules. */
+export const emailKindFor = (key: string): EmailKind => (key === 'payroll_cutoff_reminder_emails' ? 'reminder' : 'payStub')
+
 /** Why one address can't be used, in words the office would use. Null when it's fine. */
-export function emailProblem(address: string): string | null {
-  if (emailPattern.test(address)) return null
+export function emailProblem(address: string, kind: EmailKind = 'reminder'): string | null {
+  const invalid = `'${address}' isn't a valid email address, for example name@example.com.`
+  if (kind === 'payStub') {
+    if (address.length > PAY_STUB_EMAIL_MAX_LENGTH) {
+      return `'${address.slice(0, 40)}…' is too long. Email addresses can be ${PAY_STUB_EMAIL_MAX_LENGTH} characters at most.`
+    }
+    if (PAY_STUB_EMAIL_SEPARATORS.test(address)) return invalid
+  }
+  if (emailPattern.test(address)) {
+    if (kind === 'payStub' && !address.split('@')[1].includes('.')) {
+      return `'${address}' needs a domain with a dot, for example ${address.split('@')[0]}@example.com.`
+    }
+    return null
+  }
   const at = address.indexOf('@')
   const local = at > 0 ? address.slice(0, at) : address
   const example = `${/^[\w.+-]+$/.test(local) ? local : 'name'}@example.com`
   if (at === -1 || at === address.length - 1) return `'${address}' is missing an email domain, for example ${example}.`
   if (at === 0) return `'${address}' is missing the name before the @, for example name@example.com.`
-  return `'${address}' isn't a valid email address, for example name@example.com.`
+  return invalid
 }
 
 /** The message to show under a setting's field, or null when its value is fine. */
@@ -54,20 +81,21 @@ export function validateSetting(key: string, value: string, label: string): stri
   if (number) {
     const text = value.trim()
     const parsed = Number(text)
-    if (!text || !Number.isFinite(parsed)) return `${label}: ${number.ask}.`
+    const shape = number.whole ? WHOLE_NUMBER : DECIMAL_NUMBER
+    if (!text || !shape.test(text) || !Number.isFinite(parsed)) return `${label}: ${number.ask}.`
     const low = number.min !== undefined && (number.minExclusive ? parsed <= number.min : parsed < number.min)
     const high = number.max !== undefined && parsed > number.max
     return low || high ? `${label}: ${number.hint}.` : null
   }
   if (textRules[key] && !value.trim()) return `${label}: ${textRules[key]}.`
-  if (emailKeys.includes(key)) return validateEmailList(value, label)
+  if (emailKeys.includes(key)) return validateEmailList(value, label, emailKindFor(key))
   return null
 }
 
-export function validateEmailList(value: string, label: string): string | null {
+export function validateEmailList(value: string, label: string, kind: EmailKind = 'reminder'): string | null {
   const emails = normalizeEmails(value)
   for (const address of splitEmails(value)) {
-    const problem = emailProblem(address)
+    const problem = emailProblem(address, kind)
     if (problem) return `${label}: ${problem}`
   }
   if (emails.length > MAX_RECIPIENTS) return `${label}: use ${MAX_RECIPIENTS} addresses or fewer.`
