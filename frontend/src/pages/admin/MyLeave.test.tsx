@@ -1,9 +1,20 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { api, type LeaveRequest } from '../../lib/api'
 import MyLeave from './MyLeave'
 import { todayInGuam } from '../../lib/payPeriods'
+import { myTimeApi } from '../../lib/api/myTime'
+
+const polling = vi.hoisted(() => ({
+  tick: null as null | (() => Promise<void>),
+}))
+vi.mock('../../lib/visibilityPolling', () => ({
+  startVisibilityAwarePolling: (tick: () => Promise<void>) => {
+    polling.tick = tick
+    return () => {}
+  },
+}))
 
 vi.mock('../../contexts/AuthContext', () => ({
   useAuthContext: () => ({ currentUser: { id: 5 } }),
@@ -23,7 +34,12 @@ beforeEach(() => {
   vi.spyOn(api, 'getLeaveRequests').mockResolvedValue({
     data: {
       leave_requests: [request],
-      pagination: { current_page: 1, per_page: 100, total_count: 1, total_pages: 1 },
+      pagination: {
+        current_page: 1,
+        per_page: 100,
+        total_count: 1,
+        total_pages: 1,
+      },
     },
     status: 200,
   })
@@ -41,14 +57,22 @@ it('sends a date range and the note without a half-day control or generated pref
     .mockResolvedValue({ data: { leave_request: request }, status: 201 })
   open()
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Request time off' })).toBeEnabled(),
+    expect(
+      screen.getByRole('button', { name: 'Request time off' }),
+    ).toBeEnabled(),
   )
-  fireEvent.click(await screen.findByRole('button', { name: 'Request time off' }))
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Request time off' }),
+  )
   fireEvent.change(screen.getByLabelText(/Start date/), {
     target: { value: '2026-12-04' },
   })
-  expect(screen.queryByRole('checkbox', { name: 'Half day' })).not.toBeInTheDocument()
-  expect(screen.getByPlaceholderText("Say if it's a half day")).toBeInTheDocument()
+  expect(
+    screen.queryByRole('checkbox', { name: 'Half day' }),
+  ).not.toBeInTheDocument()
+  expect(
+    screen.getByPlaceholderText("Say if it's a half day"),
+  ).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText(/End date/), {
     target: { value: '2026-12-05' },
   })
@@ -77,7 +101,9 @@ it('cancels only a pending request owned by the viewer', async () => {
   open()
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel request' }))
   await waitFor(() => expect(cancel).toHaveBeenCalledWith(9))
-  expect(await screen.findByText('Your request was cancelled.')).toBeInTheDocument()
+  expect(
+    await screen.findByText('Your request was cancelled.'),
+  ).toBeInTheDocument()
 })
 
 it('shows approved days in the current month only when those requests exist', async () => {
@@ -92,7 +118,12 @@ it('shows approved days in the current month only when those requests exist', as
           end_date: `${month}-04`,
         },
       ],
-      pagination: { current_page: 1, per_page: 100, total_count: 1, total_pages: 1 },
+      pagination: {
+        current_page: 1,
+        per_page: 100,
+        total_count: 1,
+        total_pages: 1,
+      },
     },
   })
   open()
@@ -113,10 +144,63 @@ it('filters another person’s requests even when a supervisor reuses MyLeave', 
           reason: 'Other person',
         },
       ],
-      pagination: { current_page: 1, per_page: 100, total_count: 2, total_pages: 1 },
+      pagination: {
+        current_page: 1,
+        per_page: 100,
+        total_count: 2,
+        total_pages: 1,
+      },
     },
   })
   open()
   expect(await screen.findByText('Family visit')).toBeInTheDocument()
   expect(screen.queryByText('Other person')).not.toBeInTheDocument()
+})
+
+it('does not let a pre-submission load clear uncertainty or overwrite a failed fresh read', async () => {
+  let finishOld!: (value: Awaited<ReturnType<typeof myTimeApi.leave>>) => void
+  const leave = vi
+    .spyOn(myTimeApi, 'leave')
+    .mockResolvedValueOnce({ data: [request] })
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve
+        }),
+    )
+    .mockResolvedValueOnce({ error: 'Fresh read failed' })
+  vi.spyOn(api, 'createLeaveRequest').mockResolvedValue({
+    error: 'Lost reply',
+    status: 502,
+  })
+  open()
+  await screen.findByText('Family visit')
+  let oldRead!: Promise<void>
+  act(() => {
+    oldRead = polling.tick!()
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Request time off' }))
+  fireEvent.change(screen.getByLabelText(/Start date/), {
+    target: { value: '2026-12-04' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+  await screen.findByText(/The reply was lost/)
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await screen.findByText('Fresh read failed')
+  await act(async () => {
+    finishOld({ data: [] })
+    await oldRead
+  })
+  expect(screen.getByText('Fresh read failed')).toBeInTheDocument()
+  expect(
+    screen.getByRole('button', { name: 'Request time off' }),
+  ).toBeDisabled()
+  leave.mockResolvedValueOnce({ data: [request] })
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Request time off' }),
+    ).toBeEnabled(),
+  )
+  expect(api.createLeaveRequest).toHaveBeenCalledTimes(1)
 })

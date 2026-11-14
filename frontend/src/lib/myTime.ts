@@ -1,4 +1,9 @@
-import type { ClockLocationPayload, ClockStatus, TimeCategory, TimeEntry } from './api'
+import type {
+  ClockLocationPayload,
+  ClockStatus,
+  TimeCategory,
+  TimeEntry,
+} from './api'
 import { entrySegments, timecardDays } from './timecards'
 import { addDateDays, businessWeekStart } from './dateUtils'
 import type { PayPeriod } from './payPeriods'
@@ -13,7 +18,7 @@ export const OFFLINE_IDLE =
 /** Read whole Sunday–Saturday weeks so a period edge never resets overtime. */
 export function weeksAround(period: PayPeriod) {
   return {
-    start: businessWeekStart(period.start),
+    start: businessWeekStart(addDateDays(period.start, -1)),
     end: addDateDays(businessWeekStart(period.end), 6),
   }
 }
@@ -24,18 +29,13 @@ export function weeksAround(period: PayPeriod) {
  * Sunday workweek as WeeklyOvertimeAllocator. Overnight portions use the
  * shared Timecards split, so they consume capacity in the correct week.
  */
-export function withOvertimeHours(entries: TimeEntry[]) {
+function overtimeSegments(entries: TimeEntry[]) {
   const cumulative = new Map<string, number>()
-  const overtime = new Map<number, number>()
   const segments = entries
-    .filter(
-      (entry) =>
-        entry.status === 'completed' &&
-        (entry.approval_status === 'approved' ||
-          entry.approval_status === 'pending' ||
-          (entry.entry_method === 'clock' && entry.approval_status == null)),
+    .filter(employeeHoursBucket)
+    .flatMap((entry) =>
+      entrySegments(entry).map((segment) => ({ ...segment, entry })),
     )
-    .flatMap((entry) => entrySegments(entry).map((segment) => ({ ...segment, entry })))
     .sort(
       (a, b) =>
         a.date.localeCompare(b.date) ||
@@ -48,12 +48,22 @@ export function withOvertimeHours(entries: TimeEntry[]) {
         a.entry.created_at.localeCompare(b.entry.created_at) ||
         a.entry.id - b.entry.id,
     )
-  for (const segment of segments) {
+  return segments.map((segment) => {
     const week = businessWeekStart(segment.date)
     const before = cumulative.get(week) ?? 0
     const extra = Math.max(0, segment.hours - Math.max(0, 40 - before))
     cumulative.set(week, before + segment.hours)
-    overtime.set(segment.entry.id, (overtime.get(segment.entry.id) ?? 0) + extra)
+    return { ...segment, overtime: extra }
+  })
+}
+
+export function withOvertimeHours(entries: TimeEntry[]) {
+  const overtime = new Map<number, number>()
+  for (const segment of overtimeSegments(entries)) {
+    overtime.set(
+      segment.entry.id,
+      (overtime.get(segment.entry.id) ?? 0) + segment.overtime,
+    )
   }
   return entries.map((entry) => ({
     ...entry,
@@ -63,6 +73,23 @@ export function withOvertimeHours(entries: TimeEntry[]) {
           Math.round((overtime.get(entry.id) ?? 0) * 100) / 100)
         : 0,
   }))
+}
+
+/** Only the portions worked in this Sunday–Saturday week count here. */
+export function employeeWeekTotals(entries: TimeEntry[], date: string) {
+  const start = businessWeekStart(date)
+  const end = addDateDays(start, 6)
+  return overtimeSegments(entries)
+    .filter((segment) => segment.date >= start && segment.date <= end)
+    .reduce(
+      (totals, segment) => ({
+        hours: totals.hours + segment.hours,
+        overtime:
+          totals.overtime +
+          (segment.entry.overtime_status === 'pending' ? segment.overtime : 0),
+      }),
+      { hours: 0, overtime: 0 },
+    )
 }
 
 export function clockTime(value: string | Date) {
@@ -104,7 +131,9 @@ export function chooseLastCategory(
   const latest = [...entries]
     .filter((entry) => entry.entry_method === 'clock')
     .sort((a, b) =>
-      (b.clock_in_at ?? b.created_at).localeCompare(a.clock_in_at ?? a.created_at),
+      (b.clock_in_at ?? b.created_at).localeCompare(
+        a.clock_in_at ?? a.created_at,
+      ),
     )[0]
   const candidate = latest?.time_category?.id ?? saved
   return (
@@ -116,7 +145,8 @@ export function chooseLastCategory(
 
 /** A completed shift with no approval yet is waiting, never implicitly approved. */
 export function employeeHoursBucket(entry: TimeEntry) {
-  if (entry.status !== 'completed' || entry.approval_status === 'denied') return null
+  if (entry.status !== 'completed' || entry.approval_status === 'denied')
+    return null
   return entry.approval_status === 'approved' ? 'approved' : 'waiting'
 }
 
@@ -167,7 +197,10 @@ export function requestLocation(): Promise<ClockLocationPayload> {
   return new Promise((resolve, reject) => {
     // The browser's 10s acquisition timeout excludes its permission prompt.
     // This longer guard only covers providers that never call either callback.
-    const timer = window.setTimeout(() => reject(new Error(LOCATION_TIMEOUT)), 30_000)
+    const timer = window.setTimeout(
+      () => reject(new Error(LOCATION_TIMEOUT)),
+      30_000,
+    )
     const fail = (message: string) => {
       window.clearTimeout(timer)
       reject(new Error(message))

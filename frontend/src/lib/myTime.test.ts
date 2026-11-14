@@ -3,6 +3,7 @@ import { categories, clockStatus, shift } from '../test/employeeFixtures'
 import {
   chooseLastCategory,
   displayPeriodTotals,
+  employeeWeekTotals,
   LOCATION_TIMEOUT,
   needsClockOutConfirm,
   periodPaidDate,
@@ -10,6 +11,7 @@ import {
   requestLocation,
   workedMilliseconds,
   withOvertimeHours,
+  weeksAround,
 } from './myTime'
 
 afterEach(() => {
@@ -37,7 +39,10 @@ it('preselects the last clocked work, ignoring manual shifts and retired categor
   expect(
     chooseLastCategory(
       categories,
-      [shift(), shift({ entry_method: 'manual', time_category: categories[0] })],
+      [
+        shift(),
+        shift({ entry_method: 'manual', time_category: categories[0] }),
+      ],
       1,
     ),
   ).toBe(2)
@@ -57,7 +62,9 @@ it('does not subtract earlier segment breaks twice after switching work', () => 
       segments: [],
     },
   })
-  expect(workedMilliseconds(status, Date.parse('2026-11-14T11:00:00Z'))).toBe(8100_000)
+  expect(workedMilliseconds(status, Date.parse('2026-11-14T11:00:00Z'))).toBe(
+    8100_000,
+  )
 })
 
 it('lets the browser enforce acquisition timeout and uses a longer silent-provider guard', async () => {
@@ -83,7 +90,9 @@ it('counts only this period’s part of an overnight shift', () => {
       hours: 8,
     }),
   ]
-  expect(periodTotals(entries, { start: '2026-11-16', end: '2026-11-30' })).toEqual({
+  expect(
+    periodTotals(entries, { start: '2026-11-16', end: '2026-11-30' }),
+  ).toEqual({
     total: 6,
     approved: 0,
     waiting: 6,
@@ -100,7 +109,12 @@ it('keeps the weekly overtime capacity across a pay-period boundary', () => {
       end_time: null,
       approval_status: 'approved',
     }),
-    shift({ id: 2, work_date: '2026-11-16', hours: 8, overtime_status: 'pending' }),
+    shift({
+      id: 2,
+      work_date: '2026-11-16',
+      hours: 8,
+      overtime_status: 'pending',
+    }),
   ]
   expect(withOvertimeHours(entries)[1].pending_overtime_hours).toBe(6)
 })
@@ -127,7 +141,10 @@ it('does not spend the browser acquisition timeout while a permission prompt is 
   let failed!: PositionErrorCallback
   vi.stubGlobal('navigator', {
     geolocation: {
-      getCurrentPosition: (_success: PositionCallback, fail: PositionErrorCallback) => {
+      getCurrentPosition: (
+        _success: PositionCallback,
+        fail: PositionErrorCallback,
+      ) => {
         failed = fail
       },
     },
@@ -157,7 +174,10 @@ it('excludes denied hours and treats completed null approvals explicitly as wait
     shift({ id: 4, hours: 1, approval_status: null }),
     shift({ id: 5, hours: 4, approval_status: null, entry_method: 'manual' }),
   ]
-  const totals = periodTotals(entries, { start: '2026-11-01', end: '2026-11-15' })
+  const totals = periodTotals(entries, {
+    start: '2026-11-01',
+    end: '2026-11-15',
+  })
   expect(totals).toEqual({ total: 10, approved: 3, waiting: 7 })
   expect(totals.total).toBe(totals.approved + totals.waiting)
 })
@@ -175,4 +195,59 @@ it('keeps the displayed total equal to approved plus waiting after rounding to t
     waiting: 12.6,
   })
   expect(periodTotals(entries, period).total).toBeCloseTo(70.05)
+})
+
+it('loads the preceding full week for a Sunday period carry-in', () => {
+  expect(weeksAround({ start: '2026-11-01', end: '2026-11-15' })).toEqual({
+    start: '2026-10-25',
+    end: '2026-11-21',
+  })
+})
+
+it('counts only this week’s portions and overtime of overnight carry-in and carry-out shifts', () => {
+  const entries = [
+    shift({
+      id: 1,
+      work_date: '2026-11-06',
+      hours: 40,
+      start_time: null,
+      end_time: null,
+      approval_status: 'approved',
+    }),
+    shift({
+      id: 2,
+      work_date: '2026-11-07',
+      hours: 4,
+      start_time: '22:00',
+      end_time: '02:00',
+      overtime_status: 'pending',
+    }),
+    shift({
+      id: 3,
+      work_date: '2026-11-09',
+      hours: 39,
+      start_time: null,
+      end_time: null,
+      approval_status: 'approved',
+    }),
+    shift({
+      id: 4,
+      work_date: '2026-11-14',
+      hours: 4,
+      start_time: '22:00',
+      end_time: '02:00',
+      overtime_status: 'pending',
+    }),
+    shift({
+      id: 5,
+      work_date: '2026-11-10',
+      hours: 8,
+      approval_status: 'denied',
+    }),
+  ]
+  expect(withOvertimeHours(entries)[1].pending_overtime_hours).toBe(2)
+  expect(employeeWeekTotals(entries, '2026-11-09')).toEqual({
+    hours: 43,
+    overtime: 2,
+  })
 })

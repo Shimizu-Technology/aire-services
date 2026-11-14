@@ -1,6 +1,9 @@
 import type { TimeEntry } from '../../lib/api'
-import { clockTime, employeeHoursBucket } from '../../lib/myTime'
-import { employeeDate, employeeShiftStatus } from '../../lib/employeePresentation'
+import { clockTime, employeeWeekTotals } from '../../lib/myTime'
+import {
+  employeeDate,
+  employeeShiftStatus,
+} from '../../lib/employeePresentation'
 import { Button, Sheet } from '../ui'
 
 export function ShiftSheet({
@@ -26,13 +29,7 @@ export function ShiftSheet({
           : entry.clock_source === 'mobile'
             ? 'Phone'
             : 'Clock'
-  const weekHours = weekEntries
-    .filter(employeeHoursBucket)
-    .reduce((sum, row) => sum + row.hours, 0)
-  const overtime = weekEntries.reduce(
-    (sum, row) => sum + (row.pending_overtime_hours ?? 0),
-    0,
-  )
+  const week = employeeWeekTotals(weekEntries, entry.work_date)
   return (
     <Sheet
       open
@@ -64,7 +61,9 @@ export function ShiftSheet({
           <dd>
             {entry.clock_out_at
               ? clockTime(entry.clock_out_at)
-              : (entry.formatted_end_time ?? entry.end_time ?? 'Still on the clock')}
+              : (entry.formatted_end_time ??
+                entry.end_time ??
+                'Still on the clock')}
           </dd>
         </div>
         <div>
@@ -104,7 +103,7 @@ export function ShiftSheet({
           <dd>
             {weekUnavailable
               ? "Week totals haven't loaded."
-              : `${weekHours.toFixed(1)}h worked · ${overtime.toFixed(1)}h overtime waiting`}
+              : `${week.hours.toFixed(1)}h worked · ${week.overtime.toFixed(1)}h overtime waiting`}
           </dd>
         </div>
         {entry.approval_note && (
@@ -122,8 +121,8 @@ export function ShiftSheet({
       </dl>
       {entry.status === 'completed' && (
         <p className="mt-5 text-body-sm text-ink-muted">
-          Something wrong? Ask for a fix and say what happened. Your manager approves
-          the change.
+          Something wrong? Ask for a fix and say what happened. Your manager
+          approves the change.
         </p>
       )}
     </Sheet>

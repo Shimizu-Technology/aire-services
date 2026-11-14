@@ -16,11 +16,17 @@ function minutesBetween(start: string, end: string) {
 export function ShiftForm({
   entry,
   categories,
+  categoriesError,
+  categoriesLoading = false,
+  onRetryCategories,
   onClose,
   onSaved,
 }: {
   entry?: TimeEntry
   categories: Array<{ id: number; name: string }>
+  categoriesError?: string | null
+  categoriesLoading?: boolean
+  onRetryCategories?: () => void
   onClose: () => void
   onSaved: () => void
 }) {
@@ -39,8 +45,23 @@ export function ShiftForm({
       })),
   )
   const detailedBreaks = !!entry?.breaks.length
-  const totalBreakMinutes = detailedBreaks
-    ? breaks.reduce((sum, row) => sum + minutesBetween(row.start_time, row.end_time), 0)
+  const breaksChanged =
+    detailedBreaks &&
+    (breaks.length !== entry.breaks.length ||
+      breaks.some((row) => {
+        const original = entry.breaks.find((item) => item.id === row.id)
+        return (
+          !original ||
+          guamClock(original.start_time) !== row.start_time ||
+          !original.end_time ||
+          guamClock(original.end_time) !== row.end_time
+        )
+      }))
+  const totalBreakMinutes = breaksChanged
+    ? breaks.reduce(
+        (sum, row) => sum + minutesBetween(row.start_time, row.end_time),
+        0,
+      )
     : breakMinutes
   const [category, setCategory] = useState(
     entry?.time_category?.id ?? categories[0]?.id ?? 0,
@@ -87,7 +108,8 @@ export function ShiftForm({
                     ? original.start_time
                     : row.start_time,
                 end_time:
-                  original?.end_time && guamClock(original.end_time) === row.end_time
+                  original?.end_time &&
+                  guamClock(original.end_time) === row.end_time
                     ? original.end_time
                     : row.end_time,
               }
@@ -134,7 +156,9 @@ export function ShiftForm({
           loading={saving}
           disabled={!online || uncertain || !categories.length}
         >
-          {entry ? 'Send fix for approval' : `Add ${hours.toFixed(1)}h for approval`}
+          {entry
+            ? 'Send fix for approval'
+            : `Add ${hours.toFixed(1)}h for approval`}
         </Button>
       }
     >
@@ -248,9 +272,23 @@ export function ShiftForm({
           </Select>
         </Field>
         <Field label={entry ? 'What happened?' : 'Note'} required={!!entry}>
-          <Textarea value={note} onChange={(event) => setNote(event.target.value)} />
+          <Textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
         </Field>
-        {!categories.length && <p>Ask Chels to set up your work types.</p>}
+        {categoriesLoading ? (
+          <p role="status">Loading your work types…</p>
+        ) : categoriesError ? (
+          <div role="alert" className="space-y-2">
+            <p>Couldn't load your work types.</p>
+            <Button variant="secondary" onClick={onRetryCategories}>
+              Try again
+            </Button>
+          </div>
+        ) : !categories.length ? (
+          <p>Ask Chels to set up your work types.</p>
+        ) : null}
         {!online && <p role="status">No connection. Reconnect to save.</p>}
         {error && (
           <p role="alert" className="text-body-sm text-danger">

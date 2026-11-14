@@ -9,7 +9,10 @@ import {
   payPeriodContaining,
   todayInGuam,
 } from '../../lib/payPeriods'
-import { employeeDate, employeeShiftStatus } from '../../lib/employeePresentation'
+import {
+  employeeDate,
+  employeeShiftStatus,
+} from '../../lib/employeePresentation'
 import { timecardDays } from '../../lib/timecards'
 import { isIsoDate } from '../../lib/payrollPeriods'
 import { weeksAround, withOvertimeHours } from '../../lib/myTime'
@@ -29,10 +32,15 @@ import {
 export default function MyHours() {
   const { currentUser } = useAuthContext()
   const [params, setParams] = useSearchParams()
-  const date = params.get('period') ?? params.get('date') ?? params.get('start_date')
-  const period = isIsoDate(date) ? payPeriodContaining(date) : currentPayPeriod()
+  const date =
+    params.get('period') ?? params.get('date') ?? params.get('start_date')
+  const period = isIsoDate(date)
+    ? payPeriodContaining(date)
+    : currentPayPeriod()
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
+  const [categoriesError, setCategoriesError] = useState<string | null>(null)
+  const [categoriesLoading, setCategoriesLoading] = useState(true)
   const [people, setPeople] = useState<UserSummary[]>([])
   const [loadedKey, setLoadedKey] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -44,6 +52,10 @@ export default function MyHours() {
   const viewerId = currentUser?.id
   const key = `${viewerId}:${period.start}`
   const latestLoad = useRef(0)
+  const currentLoad = useRef<(() => Promise<void>) | null>(null)
+  const invalidateLoad = useCallback(() => {
+    ++latestLoad.current
+  }, [])
   const load = useCallback(async () => {
     if (!viewerId) return
     const request = ++latestLoad.current
@@ -62,16 +74,30 @@ export default function MyHours() {
     setLoadedKey(key)
   }, [viewerId, period.start, period.end, key])
   useEffect(() => {
+    currentLoad.current = load
     const timer = window.setTimeout(() => {
       void load()
     }, 0)
-    return () => window.clearTimeout(timer)
-  }, [load])
-  useEffect(() => {
-    void myTimeApi.categories().then((result) => {
-      if (result.data) setCategories(result.data.time_categories)
-    })
+    return () => {
+      window.clearTimeout(timer)
+      invalidateLoad()
+    }
+  }, [load, invalidateLoad])
+  const loadCategories = useCallback(async () => {
+    setCategoriesLoading(true)
+    const result = await myTimeApi.categories()
+    if (result.data) {
+      setCategories(result.data.time_categories)
+      setCategoriesError(null)
+    } else setCategoriesError(result.error || "Couldn't load your work types.")
+    setCategoriesLoading(false)
   }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadCategories()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadCategories])
   useEffect(() => {
     void myTimeApi.people().then((result) => {
       if (result.data) setPeople(result.data.users)
@@ -90,18 +116,11 @@ export default function MyHours() {
     const weekday = new Date(`${detail.work_date}T12:00:00Z`).getUTCDay()
     const start = addDateDays(detail.work_date, -weekday)
     void myTimeApi
-      .entries(viewerId, { start, end: addDateDays(start, 6) })
+      .entries(viewerId, weeksAround({ start, end: addDateDays(start, 6) }))
       .then((result) => {
         if (cancelled) return
         setWeekError(!result.data)
-        setWeek(
-          result.data
-            ? withOvertimeHours(result.data).filter(
-                (row) =>
-                  row.work_date >= start && row.work_date <= addDateDays(start, 6),
-              )
-            : [],
-        )
+        setWeek(result.data ? withOvertimeHours(result.data) : [])
       })
     return () => {
       cancelled = true
@@ -139,6 +158,13 @@ export default function MyHours() {
         <p role="status" className="text-body text-ink">
           {message}
         </p>
+      )}
+      {categoriesError && !form && (
+        <ErrorState
+          title="Couldn't load your work types."
+          description={categoriesError}
+          onRetry={loadCategories}
+        />
       )}
       {loadedKey !== key ? (
         <p role="status">Loading your hours…</p>
@@ -183,9 +209,14 @@ export default function MyHours() {
                       >
                         <div className="flex items-start justify-between gap-3 text-body font-medium text-ink">
                           <span>
-                            {entry.formatted_start_time ?? entry.start_time ?? '—'}–
+                            {entry.formatted_start_time ??
+                              entry.start_time ??
+                              '—'}
+                            –
                             {entry.status === 'completed'
-                              ? (entry.formatted_end_time ?? entry.end_time ?? '—')
+                              ? (entry.formatted_end_time ??
+                                entry.end_time ??
+                                '—')
                               : 'Now'}
                           </span>
                           <span className="shrink-0 tabular-nums">
@@ -204,8 +235,8 @@ export default function MyHours() {
                         </StatusPill>
                         {entry.overtime_status === 'pending' && (
                           <p className="text-body-sm text-amber-900">
-                            {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime
-                            waiting
+                            {(entry.pending_overtime_hours ?? 0).toFixed(1)}h
+                            overtime waiting
                           </p>
                         )}
                       </button>
@@ -235,14 +266,17 @@ export default function MyHours() {
         <ShiftForm
           entry={form === 'new' ? undefined : form}
           categories={categories}
+          categoriesError={categoriesError}
+          categoriesLoading={categoriesLoading}
+          onRetryCategories={loadCategories}
           onClose={() => {
             setForm(null)
-            void load()
+            void currentLoad.current?.()
           }}
           onSaved={() => {
             setForm(null)
             setMessage('Your time was saved and sent for approval.')
-            void load()
+            void currentLoad.current?.()
           }}
         />
       )}

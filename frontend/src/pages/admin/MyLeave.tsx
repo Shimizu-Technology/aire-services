@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { LeaveRequest } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
@@ -39,19 +39,25 @@ export default function MyLeave() {
   const [busy, setBusy] = useState<number | null>(null)
   const [uncertain, setUncertain] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const loadGeneration = useRef(0)
   const today = todayInGuam()
   const monthStart = `${today.slice(0, 7)}-01`
   const monthEnd = payPeriodContaining(`${today.slice(0, 7)}-16`).end
   const approvedDays = (requests ?? [])
     .filter((request) => request.status === 'approved')
     .reduce((sum, request) => {
-      const from = request.start_date > monthStart ? request.start_date : monthStart
+      const from =
+        request.start_date > monthStart ? request.start_date : monthStart
       const to = request.end_date < monthEnd ? request.end_date : monthEnd
-      return sum + Math.max(0, (Date.parse(to) - Date.parse(from)) / 86_400_000 + 1)
+      return (
+        sum + Math.max(0, (Date.parse(to) - Date.parse(from)) / 86_400_000 + 1)
+      )
     }, 0)
   const load = useCallback(async () => {
     if (!viewerId) return
+    const generation = ++loadGeneration.current
     const result = await myTimeApi.leave(viewerId)
+    if (generation !== loadGeneration.current) return
     if (result.data) {
       setRequests(result.data)
       setError(null)
@@ -74,6 +80,7 @@ export default function MyLeave() {
 
   const cancel = async (request: LeaveRequest) => {
     if (!online || busy !== null || request.user.id !== viewerId) return
+    ++loadGeneration.current
     setBusy(request.id)
     const result = await myTimeApi.cancelLeave(request.id)
     if (result.data) setMessage('Your request was cancelled.')
@@ -92,13 +99,15 @@ export default function MyLeave() {
       <PageHeader title="Leave" />
       {approvedDays > 0 && (
         <p className="text-body-sm text-ink-muted">
-          You have {approvedDays} {approvedDays === 1 ? 'day' : 'days'} of time off
-          already approved in {formatDateOnly(today, { month: 'long' })}.
+          You have {approvedDays} {approvedDays === 1 ? 'day' : 'days'} of time
+          off already approved in {formatDateOnly(today, { month: 'long' })}.
         </p>
       )}
       {message && <p role="status">{message}</p>}
       {!online && (
-        <p role="status">No connection. Reconnect to request or cancel time off.</p>
+        <p role="status">
+          No connection. Reconnect to request or cancel time off.
+        </p>
       )}
       {error ? (
         <ErrorState
@@ -171,6 +180,9 @@ export default function MyLeave() {
       </Button>
       {open && (
         <LeaveForm
+          onSubmitting={() => {
+            ++loadGeneration.current
+          }}
           onClose={() => {
             setOpen(false)
             void load()
@@ -180,7 +192,10 @@ export default function MyLeave() {
             setMessage('Your request was sent for approval.')
             void load()
           }}
-          onUncertain={() => setUncertain(true)}
+          onUncertain={() => {
+            ++loadGeneration.current
+            setUncertain(true)
+          }}
         />
       )}
     </div>
@@ -191,10 +206,12 @@ function LeaveForm({
   onClose,
   onSaved,
   onUncertain,
+  onSubmitting,
 }: {
   onClose: () => void
   onSaved: () => void
   onUncertain: () => void
+  onSubmitting: () => void
 }) {
   const online = useOnlineStatus()
   const [type, setType] = useState<LeaveRequest['leave_type']>('paid_time_off')
@@ -207,6 +224,7 @@ function LeaveForm({
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!online || saving || uncertain) return
+    onSubmitting()
     setSaving(true)
     const response = await myTimeApi.requestLeave({
       leave_type: type,

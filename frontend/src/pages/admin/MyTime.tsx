@@ -23,7 +23,13 @@ import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import { WorkChips } from '../../components/clock/WorkChips'
 import { ClockActions } from '../../components/clock/ClockActions'
-import { Button, ErrorState, LiveTimer, PageHeader, Sheet } from '../../components/ui'
+import {
+  Button,
+  ErrorState,
+  LiveTimer,
+  PageHeader,
+  Sheet,
+} from '../../components/ui'
 
 type Action = 'in' | 'out' | 'break' | 'resume' | 'switch'
 
@@ -33,9 +39,9 @@ export default function MyTime() {
   const online = useOnlineStatus()
   const [status, setStatus] = useState<ClockStatus | null>(null)
   const [categories, setCategories] = useState<TimeCategory[]>([])
-  const [categoryState, setCategoryState] = useState<'loading' | 'ready' | 'error'>(
-    'loading',
-  )
+  const [categoryState, setCategoryState] = useState<
+    'loading' | 'ready' | 'error'
+  >('loading')
   const [statusError, setStatusError] = useState<string | null>(null)
   const [switchChoice, setSwitchChoice] = useState<number | null>(null)
   const [entries, setEntries] = useState<TimeEntry[]>([])
@@ -50,10 +56,22 @@ export default function MyTime() {
   // Serializes taps before React has had a chance to disable the controls.
   const inFlight = useRef(false)
   const statusGeneration = useRef(0)
+  const summaryGeneration = useRef(0)
   const unconfirmed = useRef(false)
   const hasConfirmedStatus = useRef(false)
   const storageKey = `aire-last-work-${viewerId}`
   const period = currentPayPeriod()
+
+  const refreshSummary = useCallback(async () => {
+    if (!viewerId) return
+    const generation = ++summaryGeneration.current
+    const shifts = await myTimeApi.entries(viewerId, currentPayPeriod())
+    if (generation !== summaryGeneration.current) return
+    if (shifts.data) {
+      setEntries(shifts.data)
+      setSummaryLoaded(true)
+    } else setSummaryLoaded(false)
+  }, [viewerId])
 
   const readStatus = useCallback(async () => {
     const generation = ++statusGeneration.current
@@ -72,15 +90,18 @@ export default function MyTime() {
     setMustRefresh(false)
     setStatusError(null)
     if (unconfirmed.current) {
+      void refreshSummary()
+      window.dispatchEvent(new Event('aire:clock-action'))
       setNotice(
         `The server says: ${result.data.clocked_in ? (result.data.active_break ? 'On break' : 'On the clock') : 'Off the clock'}.`,
       )
     }
     unconfirmed.current = false
     return result.data
-  }, [])
+  }, [refreshSummary])
 
   const load = useCallback(async () => {
+    const summaryRequest = ++summaryGeneration.current
     const [, categoryResult, shifts] = await Promise.all([
       readStatus(),
       myTimeApi.categories(),
@@ -101,7 +122,7 @@ export default function MyTime() {
       setChoice(chooseLastCategory(available, shifts?.data ?? [], saved))
     }
     if (!categoryResult.data) setCategoryState('error')
-    if (shifts?.data) {
+    if (shifts?.data && summaryRequest === summaryGeneration.current) {
       setEntries(shifts.data)
       setSummaryLoaded(true)
     }
@@ -150,6 +171,7 @@ export default function MyTime() {
     if (inFlight.current || !online || mustRefresh) return
     inFlight.current = true
     ++statusGeneration.current
+    ++summaryGeneration.current
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -210,22 +232,18 @@ export default function MyTime() {
       markUnconfirmed()
       const fresh = await readStatus()
       if (!fresh)
-        setNotice('Your action was saved. Try again to check your clock status.')
-      if (viewerId) {
-        // A summary read must never hold the clock controls or polling open.
-        void myTimeApi.entries(viewerId, currentPayPeriod()).then((shifts) => {
-          if (shifts.data) setEntries(shifts.data)
-          else setSummaryLoaded(false)
-        })
-      }
-      window.dispatchEvent(new Event('aire:clock-action'))
+        setNotice(
+          'Your action was saved. Try again to check your clock status.',
+        )
     } catch (failure) {
       if (sent) {
         markUnconfirmed()
         await readStatus()
       }
       setError(
-        failure instanceof Error ? failure.message : 'Could not complete your action.',
+        failure instanceof Error
+          ? failure.message
+          : 'Could not complete your action.',
       )
     } finally {
       inFlight.current = false
@@ -260,7 +278,9 @@ export default function MyTime() {
         since &&
         Date.parse(entry.clock_in_at) >= Date.parse(since),
     )
-  const timerStart = status ? new Date(Date.now() - workedMilliseconds(status)) : null
+  const timerStart = status
+    ? new Date(Date.now() - workedMilliseconds(status))
+    : null
   const lastOutDate = lastOut?.clock_out_at
   const today = guamDate(lastOutDate ?? new Date())
   const todayHours = periodTotals(entries, { start: today, end: today }).total
@@ -298,7 +318,10 @@ export default function MyTime() {
         </p>
       )}
       {notice && (
-        <p role="status" className="rounded-card bg-sky-50 p-4 text-body-sm text-ink">
+        <p
+          role="status"
+          className="rounded-card bg-sky-50 p-4 text-body-sm text-ink"
+        >
           {notice}
         </p>
       )}
@@ -331,7 +354,9 @@ export default function MyTime() {
       ) : mustRefresh ? (
         <>
           <section className="space-y-3 rounded-card border border-line bg-surface p-5">
-            <h2 className="text-title font-semibold text-ink">Status not confirmed</h2>
+            <h2 className="text-title font-semibold text-ink">
+              Status not confirmed
+            </h2>
             <p role="status">Checking your clock…</p>
           </section>
           <ClockActions>
@@ -371,7 +396,8 @@ export default function MyTime() {
                 <p className="text-body-sm text-ink-muted">
                   Since {since ? clockTime(since) : '—'} ·{' '}
                   {recordedBreak ||
-                  (status.session?.total_break_minutes ?? status.break_minutes) > 0
+                  (status.session?.total_break_minutes ??
+                    status.break_minutes) > 0
                     ? `${status.session?.total_break_minutes ?? status.break_minutes}m of breaks`
                     : status.active_break
                       ? 'break in progress'
@@ -414,13 +440,19 @@ export default function MyTime() {
                 ) : (
                   <p className="text-body text-ink-muted">
                     Ready to start
-                    {currentUser?.first_name ? `, ${currentUser.first_name}` : ''}?
+                    {currentUser?.first_name
+                      ? `, ${currentUser.first_name}`
+                      : ''}
+                    ?
                   </p>
                 )}
                 {categoryState === 'error' && (
                   <div role="alert" className="space-y-2">
                     <p>Couldn't load your work types.</p>
-                    <Button variant="secondary" onClick={() => void retryCategories()}>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void retryCategories()}
+                    >
                       Try again
                     </Button>
                   </div>
@@ -435,7 +467,9 @@ export default function MyTime() {
                   disabled={blocked}
                 />
                 {categoryState === 'ready' && categories.length === 0 && (
-                  <p>Ask Chels to set up your work types before you clock in.</p>
+                  <p>
+                    Ask Chels to set up your work types before you clock in.
+                  </p>
                 )}
                 {!status.can_clock_in && categories.length > 0 && (
                   <p className="text-body-sm text-ink-muted">
@@ -457,7 +491,9 @@ export default function MyTime() {
               disabled={
                 blocked ||
                 (!status.clocked_in &&
-                  (categoryState !== 'ready' || !choice || !status.can_clock_in))
+                  (categoryState !== 'ready' ||
+                    !choice ||
+                    !status.can_clock_in))
               }
               onClick={
                 status.clocked_in
@@ -528,8 +564,8 @@ export default function MyTime() {
         }
       >
         <p>
-          AIRE checks you're at the airport when you clock in. Your browser will ask to
-          share your location. We only request it when you clock in.
+          AIRE checks you're at the airport when you clock in. Your browser will
+          ask to share your location. We only request it when you clock in.
         </p>
       </Sheet>
       <Sheet
@@ -537,13 +573,18 @@ export default function MyTime() {
         onClose={() => setSheet(null)}
         title={`Clock out at ${clockTime(new Date())}?`}
         footer={
-          <Button fullWidth disabled={blocked} onClick={() => void punch('out')}>
+          <Button
+            fullWidth
+            disabled={blocked}
+            onClick={() => void punch('out')}
+          >
             Clock out
           </Button>
         }
       >
         <p>
-          Worked {status ? formatElapsed(workedMilliseconds(status), 'short') : '—'}.
+          Worked{' '}
+          {status ? formatElapsed(workedMilliseconds(status), 'short') : '—'}.
           Check that this is when you stopped working.
         </p>
       </Sheet>
@@ -555,7 +596,9 @@ export default function MyTime() {
           <Button
             fullWidth
             disabled={
-              blocked || !switchChoice || switchChoice === status?.time_category?.id
+              blocked ||
+              !switchChoice ||
+              switchChoice === status?.time_category?.id
             }
             onClick={() => void punch('switch')}
           >
