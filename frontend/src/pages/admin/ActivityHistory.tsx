@@ -4,6 +4,7 @@ import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorksp
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api, type AuditLogEntry, type AuditLogFilters } from '../../lib/api'
 import { formatDateInTimeZoneISO } from '../../lib/dateUtils'
+import { describeChanges, formatDay } from '../../lib/activitySentences'
 
 const CATEGORY_LABELS: Record<string, string> = {
   activity: 'General activity',
@@ -81,6 +82,17 @@ function subjectScope(searchParams: URLSearchParams) {
   }
 }
 
+/** "Back to Daniel's Nov 14 shift" for a shift's history; the person and date come with the link. */
+function routeSubjectLabel(searchParams: URLSearchParams) {
+  if (!searchParams.has('shift_person') && !searchParams.has('shift_date')) return 'Back to employee'
+  const person = searchParams.get('shift_person')?.trim().slice(0, 80)
+  const day = searchParams.get('shift_date') || ''
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(day) ? formatDay(day) : null
+  if (!person) return date ? `Back to the ${date} shift` : 'Back to the shift'
+  const owner = /s$/i.test(person) ? `${person}'` : `${person}'s`
+  return date ? `Back to ${owner} ${date} shift` : `Back to ${owner} shift`
+}
+
 function routeListFilters(searchParams: URLSearchParams): AuditLogFilters {
   const eventCategory = searchParams.get('event_category')?.trim()
   const search = searchParams.get('search')?.trim()
@@ -105,6 +117,10 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
   const detailRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && !hideIdBesideName(field))
   const hiddenIdRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && hideIdBesideName(field))
   const changeRows = Object.entries(event.changes)
+  const sentences = describeChanges(event)
+  const reasonKey = event.details.correction_reason ? 'correction_reason' : 'review_note'
+  const reasonShown = sentences.some((sentence) => sentence.startsWith('Reason: '))
+  const contextRows = reasonShown ? detailRows.filter(([field]) => field !== reasonKey) : detailRows
   const panelRef = useRef<HTMLElement>(null)
   const location = useLocation()
   const [compact, setCompact] = useState(() => window.innerWidth < 1280)
@@ -128,7 +144,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Event details</p>
           <h2 className="mt-1 text-lg font-semibold text-slate-950">{event.summary}</h2>
-          <p className="mt-1 text-sm text-slate-500">{formatTimestamp(event.occurred_at)}</p>
+          <p className="mt-1 text-sm text-slate-500">{formatTimestamp(event.occurred_at)} Guam time</p>
         </div>
         <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close event details">
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" /></svg>
@@ -154,25 +170,20 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           </dl>
         </section>
 
-        {changeRows.length > 0 && (
+        {sentences.length > 0 && (
           <section>
-            <h3 className="font-semibold text-slate-900">Recorded changes</h3>
-            <div className="mt-3 space-y-2">
-              {changeRows.map(([field, value]) => (
-                <div key={field} className="rounded-xl bg-slate-50 px-3 py-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</p>
-                  <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-slate-700">{valueText(value)}</pre>
-                </div>
-              ))}
+            <h3 className="font-semibold text-slate-900">What changed</h3>
+            <div className="mt-3 space-y-2 text-slate-700">
+              {sentences.map((sentence) => <p key={sentence}>{sentence}</p>)}
             </div>
           </section>
         )}
 
-        {detailRows.length > 0 && (
+        {contextRows.length > 0 && (
           <section>
             <h3 className="font-semibold text-slate-900">Context</h3>
             <dl className="mt-3 space-y-3">
-              {detailRows.map(([field, value]) => (
+              {contextRows.map(([field, value]) => (
                 <div key={field}>
                   <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</dt>
                   <dd className="mt-1 whitespace-pre-wrap break-words text-slate-700">{valueText(value)}</dd>
@@ -183,8 +194,19 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
         )}
 
         <details className="border-t border-slate-100 pt-4">
-          <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-slate-900">Technical details</summary>
-          <dl className="mt-2 space-y-2 text-xs text-slate-600">
+          <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-slate-900">Details</summary>
+          {changeRows.length > 0 && (
+            <div className="mt-2 space-y-2">
+              <h4 className="text-xs font-semibold text-slate-500">Recorded changes</h4>
+              {changeRows.map(([field, value]) => (
+                <div key={field} className="rounded-xl bg-slate-50 px-3 py-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</p>
+                  <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-xs text-slate-700">{valueText(value)}</pre>
+                </div>
+              ))}
+            </div>
+          )}
+          <dl className="mt-3 space-y-2 text-xs text-slate-600">
             <div><dt className="inline text-slate-500">Event: </dt><dd className="inline font-mono">{event.action}</dd></div>
             <div><dt className="inline text-slate-500">Event ID: </dt><dd className="inline">{event.id}</dd></div>
             {event.request.id && <div><dt className="inline text-slate-500">Request ID: </dt><dd className="inline break-all">{event.request.id}</dd></div>}
@@ -218,6 +240,7 @@ export default function ActivityHistory() {
   const [eventRetry, setEventRetry] = useState(0)
   const requestedEventId = searchParams.get('event_id')
   const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
+  const backLabel = routeSubjectLabel(searchParams)
   const searchDebounceMounted = useRef(false)
 
   useEffect(() => {
@@ -359,7 +382,7 @@ export default function ActivityHistory() {
 
   return (
     <div className="space-y-6">
-      {returnTo && <Link className="text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>Back to employee</Link>}
+      {returnTo && <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-cyan-800 hover:underline" to={returnTo}>{backLabel}</Link>}
       {eventLoading && <p role="status" className="text-sm text-slate-600">Loading linked event…</p>}
       {eventError && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>{eventError}</p><button className="mt-2 font-semibold underline" onClick={() => setEventRetry((value) => value + 1)}>Retry linked event</button></div>}
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

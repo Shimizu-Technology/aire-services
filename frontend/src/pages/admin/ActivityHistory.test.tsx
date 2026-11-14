@@ -90,7 +90,7 @@ describe('ActivityHistory', () => {
     expect(within(panel).getByText('Entered by a supervisor')).toBeInTheDocument()
     expect(within(panel).getByText('No')).toBeInTheDocument()
     expect(within(panel).queryByText(/time category id/i)).not.toBeInTheDocument()
-    const technical = within(panel).getByText('Technical details').closest('details') as HTMLDetailsElement
+    const technical = within(panel).getByText('Details').closest('details') as HTMLDetailsElement
     expect(technical.open).toBe(false)
     expect(within(technical).getByText('time_entry.approved')).toBeInTheDocument()
   })
@@ -223,4 +223,43 @@ describe('ActivityHistory', () => {
    await waitFor(() => expect(screen.queryByText(/Showing history for/)).not.toBeInTheDocument())
  })
 
+
+  it('explains a saved shift edit in plain sentences with Guam time, and keeps the raw change behind Details', async () => {
+    const edited = {
+      ...event,
+      id: 92,
+      action: 'time_entry.updated',
+      summary: 'Chels edited 7.5 hours on November 14',
+      occurred_at: '2026-11-14T05:42:00Z',
+      actor: { id: 2, name: 'Chels', email: 'chels@example.com', role: 'admin', kind: 'user' },
+      changes: { end_time: { from: '3:30 PM', to: '3:00 PM' }, hours: { from: 8, to: 7.5 } },
+      details: { correction_reason: 'Left early', hours: 7.5 },
+    }
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [edited], pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(edited.summary, 'i') }))
+    const panel = screen.getByRole('dialog', { name: 'Activity event details' })
+    expect(within(panel).getByText('Chels changed clock-out from 3:30 PM to 3:00 PM.')).toBeInTheDocument()
+    expect(within(panel).getByText('Hours changed from 8.0 to 7.5.')).toBeInTheDocument()
+    expect(within(panel).getByText('Reason: Left early')).toBeInTheDocument()
+    expect(within(panel).getByText(/3:42 PM Guam time/)).toBeInTheDocument()
+    const details = within(panel).getByText('Details').closest('details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    expect(within(details).getByText(/"from": "3:30 PM"/)).toBeInTheDocument()
+    expect(within(panel).queryByText('Correction Reason')).not.toBeInTheDocument()
+  })
+
+  it('offers a link back to the person, date and shift it came from', async () => {
+    renderPage('/admin/activity?subject_type=TimeEntry&subject_id=44&shift_person=Daniel%20Cruz&shift_date=2026-11-14&return_to=%2Fadmin%2Ftimecards%3Fuser_id%3D7%26period%3D2026-11-01%26entry_id%3D44')
+    expect(await screen.findByText(event.summary)).toBeInTheDocument()
+    const back = screen.getByRole('link', { name: "Back to Daniel Cruz's Nov 14 shift" })
+    expect(back).toHaveAttribute('href', '/admin/timecards?user_id=7&period=2026-11-01&entry_id=44')
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }))
+    expect(screen.getByRole('link', { name: "Back to Daniel Cruz's Nov 14 shift" })).toBeInTheDocument()
+  })
+
+  it('uses a plain possessive for names that end in s', async () => {
+    renderPage('/admin/activity?subject_type=TimeEntry&subject_id=44&shift_person=Chris&shift_date=2026-11-02&return_to=%2Fadmin%2Ftimecards')
+    expect(await screen.findByRole('link', { name: "Back to Chris' Nov 2 shift" })).toBeInTheDocument()
+  })
 })
