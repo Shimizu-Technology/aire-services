@@ -68,7 +68,7 @@ beforeEach(() => {
 for (const [page, config] of Object.entries(settingsPages)) {
   for (const key of config.keys.filter((key) => key !== 'pay_stub_request_notification_emails')) {
     it(`saves only ${key} on ${page}`, async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const baseline = { ...settings, schedules_enabled: 'true' }
       mocks.get.mockResolvedValue({ data: { settings: baseline, catalog: fixture } })
       mocks.save.mockImplementation(async (changes: Record<string, string>) => ({
@@ -115,7 +115,7 @@ it('disables Require while schedules are off', async () => {
   ).toBeDisabled()
 })
 it('keeps editing or discards on navigation', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.click(
     await screen.findByRole('switch', { name: 'Managers can approve their own time' }),
@@ -128,7 +128,7 @@ it('keeps editing or discards on navigation', async () => {
   expect(await screen.findByText('Away')).toBeInTheDocument()
 })
 it('rejects malformed reminder recipients', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.type(await screen.findByLabelText('Cutoff reminder recipients'), 'invalid{Enter}')
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -136,7 +136,7 @@ it('rejects malformed reminder recipients', async () => {
   expect(mocks.save).not.toHaveBeenCalled()
 })
 it('lowercases and de-duplicates reminder recipients before saving', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.type(
     await screen.findByLabelText('Cutoff reminder recipients'),
@@ -147,7 +147,7 @@ it('lowercases and de-duplicates reminder recipients before saving', async () =>
   expect(mocks.save.mock.calls[0][0]).toEqual({ payroll_cutoff_reminder_emails: 'ops@example.com' })
 })
 it('says the recipient list was saved when the settings request fails, then clears the bar on retry', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mocks.save.mockResolvedValueOnce({ error: 'Server said no' })
   mount('pay-stubs')
   await user.click(await screen.findByRole('switch', { name: 'Pay stub requests at the kiosk' }))
@@ -164,7 +164,7 @@ it('says the recipient list was saved when the settings request fails, then clea
   expect(screen.queryAllByText('You have unsaved changes')).toHaveLength(0)
 })
 it('drops the saved message as soon as the admin edits again', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('approvals')
   const own = await screen.findByRole('switch', { name: 'Managers can approve their own time' })
   await user.click(own)
@@ -185,7 +185,7 @@ const requireSwitch = () =>
   screen.findByRole('switch', { name: 'Require a scheduled shift to clock in' })
 
 it('turns Require off in the draft and says so when Use schedules is switched off', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   load({ schedules_enabled: 'true', schedule_required_for_clock_in: 'true' })
   mount('schedules')
   await user.click(await screen.findByRole('switch', { name: 'Use schedules' }))
@@ -204,7 +204,7 @@ it('turns Require off in the draft and says so when Use schedules is switched of
   })
 })
 it('restores the saved Require when Use schedules is switched back on', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   load({ schedules_enabled: 'true', schedule_required_for_clock_in: 'true' })
   mount('schedules')
   const use = await screen.findByRole('switch', { name: 'Use schedules' })
@@ -214,7 +214,7 @@ it('restores the saved Require when Use schedules is switched back on', async ()
   expect(screen.queryAllByText('You have unsaved changes')).toHaveLength(0)
 })
 it('refreshes the menu after Use schedules is saved', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('schedules')
   await user.click(await screen.findByRole('switch', { name: 'Use schedules' }))
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -223,7 +223,7 @@ it('refreshes the menu after Use schedules is saved', async () => {
   expect(mocks.refresh).toHaveBeenCalledWith({ background: true })
 })
 it('does not refresh the menu for settings that do not touch it', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.click(await screen.findByRole('switch', { name: 'Managers can approve their own time' }))
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -231,7 +231,7 @@ it('does not refresh the menu for settings that do not touch it', async () => {
   expect(mocks.refresh).not.toHaveBeenCalled()
 })
 it('asks the full auto-approval question when turning it on', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.click(await screen.findByRole('switch', { name: 'Auto-approve ordinary shifts' }))
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -246,7 +246,7 @@ it('asks the full auto-approval question when turning it on', async () => {
   expect(within(dialog).getByRole('button', { name: 'Turn on' })).toBeInTheDocument()
 })
 it('keeps the short confirm when auto-approval is turned off', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   load({ auto_approve_ordinary_shifts: 'true' })
   mount('approvals')
   await user.click(await screen.findByRole('switch', { name: 'Auto-approve ordinary shifts' }))
@@ -254,7 +254,7 @@ it('keeps the short confirm when auto-approval is turned off', async () => {
   expect(await screen.findByRole('alertdialog')).toHaveTextContent('Change Auto-approve ordinary shifts?')
 })
 it('shows the server message when the recipient list is refused', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mocks.updateRecipients.mockRejectedValueOnce(
     new PayStubError("These don't look like email addresses: nope", 'invalid_email', 422),
   )
@@ -279,7 +279,7 @@ it('shows the Pay stubs form only once switches and recipients have both loaded'
   expect(screen.queryAllByText('You have unsaved changes')).toHaveLength(0)
 })
 it('shows an error with a retry when the recipient list cannot be loaded', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mocks.recipients.mockRejectedValueOnce(new PayStubError('Something went wrong.', 'unavailable', 500))
   mount('pay-stubs')
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the heads-up email list')
@@ -294,7 +294,7 @@ for (const [key, label, ask] of [
   ['clock_in_location_name', 'Location label', 'Enter a location name'],
 ] as const) {
   it(`will not save ${label} when it is cleared`, async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     load({ [key]: key === 'clock_in_location_name' ? 'AIRE' : '8' })
     mount('time-clock')
     await user.clear(await screen.findByLabelText(label))
@@ -305,7 +305,7 @@ for (const [key, label, ask] of [
   })
 }
 it('will not save a number field that is not a number', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('time-clock')
   await user.clear(await screen.findByLabelText('Weekly hours review alert'))
   await user.type(screen.getByLabelText('Weekly hours review alert'), 'forty')
@@ -314,7 +314,7 @@ it('will not save a number field that is not a number', async () => {
   expect(mocks.save).not.toHaveBeenCalled()
 })
 it('accepts the reminder addresses the server accepts', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.type(
     await screen.findByLabelText('Cutoff reminder recipients'),
@@ -327,7 +327,7 @@ it('accepts the reminder addresses the server accepts', async () => {
   })
 })
 it('refuses reminder addresses the server would refuse', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   mount('approvals')
   await user.type(await screen.findByLabelText('Cutoff reminder recipients'), 'two words@example.com')
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -335,22 +335,25 @@ it('refuses reminder addresses the server would refuse', async () => {
   expect(mocks.save).not.toHaveBeenCalled()
 })
 it('allows 10 reminder recipients and refuses 11', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   const list = (count: number) =>
     Array.from({ length: count }, (_, index) => `p${index}@example.com`).join(', ')
   mount('approvals')
   const field = await screen.findByLabelText('Cutoff reminder recipients')
-  await user.type(field, list(11))
+  // Paste rather than type: typing ~200 characters key by key is what made
+  // this test time out when the machine was busy.
+  await user.click(field)
+  await user.paste(list(11))
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Use 10 addresses or fewer.')
   expect(mocks.save).not.toHaveBeenCalled()
   await user.clear(field)
-  await user.type(field, list(10))
+  await user.paste(list(10))
   await user.click(screen.getByRole('button', { name: 'Save changes' }))
   await waitFor(() => expect(mocks.save).toHaveBeenCalled())
 })
 it('Turn off Require sends only that key and keeps other unsaved edits', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   load({ schedules_enabled: 'false', schedule_required_for_clock_in: 'true' })
   mount('schedules')
   const use = await screen.findByRole('switch', { name: 'Use schedules' })
@@ -363,7 +366,7 @@ it('Turn off Require sends only that key and keeps other unsaved edits', async (
   expect(screen.getAllByText('You have unsaved changes').length).toBeGreaterThan(0)
 })
 it('restores Require to what the draft had just before schedules were switched off', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   load({ schedules_enabled: 'true', schedule_required_for_clock_in: 'false' })
   mount('schedules')
   await user.click(await requireSwitch())
@@ -376,7 +379,7 @@ it('restores Require to what the draft had just before schedules were switched o
   expect(screen.getAllByText('You have unsaved changes').length).toBeGreaterThan(0)
 })
 it('forgets the remembered Require after Discard', async () => {
-  const user = userEvent.setup()
+  const user = userEvent.setup({ delay: null })
   load({ schedules_enabled: 'true', schedule_required_for_clock_in: 'true' })
   mount('schedules')
   const use = await screen.findByRole('switch', { name: 'Use schedules' })
