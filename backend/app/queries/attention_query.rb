@@ -14,6 +14,7 @@ class AttentionQuery
   # spec/requests/api/v1/attention_spec.rb fails if the counts drift apart.
   def self.waiting_scope
     TimeEntry.where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
+      .where("time_entries.approval_status IS DISTINCT FROM ?", "denied")
   end
 
   def self.call(viewer:, now: Time.current)
@@ -150,7 +151,7 @@ class AttentionQuery
     return unless viewer.can_approve_time?
 
     week_start = "time_entries.work_date - EXTRACT(DOW FROM time_entries.work_date)::integer"
-    rows = TimeEntry.where(overtime_status: "pending").group(:user_id).pluck(
+    rows = TimeEntry.where(overtime_status: "pending").where("time_entries.approval_status IS DISTINCT FROM ?", "denied").group(:user_id).pluck(
       :user_id, Arel.sql("COUNT(*)"), Arel.sql("MIN(time_entries.work_date)"),
       Arel.sql("ARRAY_AGG(DISTINCT (#{week_start}) ORDER BY (#{week_start}))")
     )
@@ -180,7 +181,8 @@ class AttentionQuery
   def projected_overtime_hours(user_ids)
     return {} if user_ids.empty?
 
-    entries = TimeEntry.where(overtime_status: "pending", user_id: user_ids).to_a
+    entries = TimeEntry.where(overtime_status: "pending", user_id: user_ids)
+      .where("time_entries.approval_status IS DISTINCT FROM ?", "denied").to_a
     allocations = Payroll::AffectedOvertimeReview.projected_allocations_for(entries)
     entries.group_by(&:user_id).transform_values do |rows|
       rows.sum { |entry| allocations[entry.id].to_h.fetch(:overtime_hours, 0).to_f }
