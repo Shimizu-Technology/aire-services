@@ -53,7 +53,7 @@ it.each(['request', 'cancel'] as const)(
   },
 )
 
-it('sends changed employee fields and the correction reason without rewriting description or implying a version check', async () => {
+it('sends changed employee fields and the correction reason with the viewed version without rewriting description', async () => {
   const update = vi
     .spyOn(api, 'updateTimeEntry')
     .mockResolvedValue({ data: { time_entry: shift() } })
@@ -68,7 +68,7 @@ it('sends changed employee fields and the correction reason without rewriting de
   await myTimeApi.askForFix(entry, change, 'Phone died.')
   expect(update).toHaveBeenLastCalledWith(
     entry.id,
-    { end_time: '11:30' },
+    { end_time: '11:30', expected_version: entry.version },
     'Phone died.',
   )
   await myTimeApi.askForFix(
@@ -78,7 +78,7 @@ it('sends changed employee fields and the correction reason without rewriting de
   )
   expect(update).toHaveBeenLastCalledWith(
     entry.id,
-    { end_time: '11:40' },
+    { end_time: '11:40', expected_version: entry.version },
     'Second correction.',
   )
 })
@@ -114,5 +114,5 @@ it('omits unchanged detailed breaks', async () => {
     },
     'Please review this shift.',
   )
-  expect(update).toHaveBeenCalledWith(entry.id, {}, 'Please review this shift.')
+  expect(update).toHaveBeenCalledWith(entry.id, { expected_version: entry.version }, 'Please review this shift.')
 })

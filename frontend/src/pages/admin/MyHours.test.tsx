@@ -108,7 +108,7 @@ it('Ask for a fix sends the existing employee edit and its reason', async () => 
   await waitFor(() =>
     expect(update).toHaveBeenCalledWith(
       41,
-      { end_time: '11:30' },
+      { end_time: '11:30', expected_version: shift().version },
       'Phone died before I stopped.',
     ),
   )
@@ -156,7 +156,7 @@ it('reloads a stale correction sheet without writing, then saves against the fre
   await waitFor(() =>
     expect(update).toHaveBeenCalledWith(
       41,
-      { end_time: '12:30' },
+      { end_time: '12:30', expected_version: 3 },
       'Fresh correction.',
     ),
   )
@@ -213,7 +213,7 @@ it('can correct a one-minute shift without rewriting its original punch times', 
   expect(update.mock.calls[0][1]).not.toHaveProperty('start_time')
   expect(update.mock.calls[0][1]).not.toHaveProperty('end_time')
   expect(update.mock.calls[0][1]).not.toHaveProperty('review_action')
-  expect(update.mock.calls[0][1]).not.toHaveProperty('expected_version')
+  expect(update.mock.calls[0][1]).toHaveProperty('expected_version', shift().version)
   expect(update.mock.calls[0][1]).not.toHaveProperty('description')
 })
 
@@ -278,7 +278,7 @@ it('keeps stored break precision when only the work type changes', async () => {
   await waitFor(() =>
     expect(update).toHaveBeenCalledWith(
       41,
-      { time_category_id: 1 },
+      { time_category_id: 1, expected_version: shift().version },
       'Please check this shift.',
     ),
   )
@@ -354,4 +354,43 @@ it('asks for an actual correction before sending an empty employee edit', async 
     'Change a time, break or work type',
   )
   expect(update).not.toHaveBeenCalled()
+})
+
+
+it('reloads Ask for a fix after a server 409 between preflight GET and PATCH', async () => {
+  const fresh = shift({ version: 3, end_time: '12:00', hours: 4 })
+  vi.mocked(myTimeApi.entry)
+    .mockResolvedValueOnce({ data: { time_entry: shift() } })
+    .mockResolvedValueOnce({ data: { time_entry: fresh } })
+  const update = vi.spyOn(api, 'updateTimeEntry').mockResolvedValue({
+    status: 409, code: 'stale_entry', error: 'This shift changed since you opened it. Nothing was saved.',
+  })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Ask for a fix' }))
+  fireEvent.change(screen.getByLabelText(/Clock out/), { target: { value: '11:30' } })
+  fireEvent.change(screen.getByLabelText(/What happened/), { target: { value: 'Old correction' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent("This shift changed since you opened it. Nothing was sent. Here's the latest.")
+  expect(screen.getByLabelText(/Clock out/)).toHaveValue('12:00')
+  expect(screen.getByLabelText(/What happened/)).toHaveValue('')
+  expect(update).toHaveBeenCalledOnce()
+  expect(update).toHaveBeenCalledWith(41, { end_time: '11:30', expected_version: shift().version }, 'Old correction')
+  expect(myTimeApi.entry).toHaveBeenCalledTimes(2)
+  expect(screen.queryByText(/Your time was saved/)).not.toBeInTheDocument()
+})
+
+it('requires reopening a conflicting correction when its fresh shift cannot load', async () => {
+  vi.mocked(myTimeApi.entry)
+    .mockResolvedValueOnce({ data: { time_entry: shift() } })
+    .mockResolvedValueOnce({ status: 503, error: 'Unavailable' })
+  vi.spyOn(api, 'updateTimeEntry').mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Ask for a fix' }))
+  fireEvent.change(screen.getByLabelText(/Clock out/), { target: { value: '11:30' } })
+  fireEvent.change(screen.getByLabelText(/What happened/), { target: { value: 'Old correction' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Close this sheet and reload My Hours before trying again.')
+  expect(screen.getByRole('button', { name: 'Send fix for approval' })).toBeDisabled()
 })

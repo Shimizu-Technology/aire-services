@@ -81,6 +81,20 @@ export function ShiftForm({
   const hours = unchangedTime
     ? entry.hours
     : Math.max(0, (minutesBetween(start, end) - totalBreakMinutes) / 60)
+  const loadChangedEntry = (fresh: TimeEntry) => {
+    setEntry(fresh)
+    setDate(fresh.work_date)
+    setStart(fresh.start_time ?? '08:00')
+    setEnd(fresh.end_time ?? '17:00')
+    setBreakMinutes(fresh.break_minutes ?? 0)
+    setBreaks(editableBreaks(fresh))
+    setCategory(fresh.time_category?.id ?? 0)
+    setNote('')
+    setSaving(false)
+    setError(
+      "This shift changed since you opened it. Nothing was sent. Here's the latest.",
+    )
+  }
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!online || saving || uncertain) return
@@ -114,18 +128,7 @@ export function ShiftForm({
       }
       const fresh = latest.data.time_entry
       if (fresh.version !== entry.version) {
-        setEntry(fresh)
-        setDate(fresh.work_date)
-        setStart(fresh.start_time ?? '08:00')
-        setEnd(fresh.end_time ?? '17:00')
-        setBreakMinutes(fresh.break_minutes ?? 0)
-        setBreaks(editableBreaks(fresh))
-        setCategory(fresh.time_category?.id ?? 0)
-        setNote('')
-        setSaving(false)
-        setError(
-          "This shift changed since you opened it. Nothing was sent. Here's the latest.",
-        )
+        loadChangedEntry(fresh)
         return
       }
     }
@@ -164,6 +167,16 @@ export function ShiftForm({
       : await myTimeApi.addTime({ ...change, work_date: date })
     setSaving(false)
     if (!response.data) {
+      if (entry && response.status === 409 && response.code === 'stale_entry') {
+        const latest = await myTimeApi.entry(entry.id)
+        if (latest.data) {
+          loadChangedEntry(latest.data.time_entry)
+        } else {
+          setUncertain(true)
+          setError("This shift changed since you opened it. Nothing was sent. Close this sheet and reload My Hours before trying again.")
+        }
+        return
+      }
       const unknown = outcomeUnknown(response)
       setUncertain(unknown)
       setError(

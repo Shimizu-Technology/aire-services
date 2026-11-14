@@ -98,7 +98,7 @@ it('requires a note for denial and preserves server errors', async () => {
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Please correct this shift.' } })
   fireEvent.click(screen.getByRole('button', { name: 'Deny shift' }))
   expect(await screen.findByText('The period has locked.')).toBeInTheDocument()
-  expect(api.denyTimeEntry).toHaveBeenCalledWith(7, 'Please correct this shift.')
+  expect(api.denyTimeEntry).toHaveBeenCalledWith(7, 'Please correct this shift.', 17)
 })
 
 it('blocks decisions after an unknown outcome and offers Reload without claiming rejection', async () => {
@@ -210,4 +210,23 @@ it('closes a conflicted approval so it must reopen with fresh review fields', as
       'This shift changed since you opened it. Nothing was approved.',
     ),
   )
+})
+
+
+it.each(['time', 'overtime'] as const)('reloads after a server stale %s denial despite a matching preflight GET', async (kind) => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  const config = props()
+  if (kind === 'overtime') {
+    config.entry = reviewEntry(7, 1, { approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 2 })
+  }
+  const deny = kind === 'overtime' ? api.denyOvertime : api.denyTimeEntry
+  vi.mocked(deny).mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: kind === 'overtime' ? 'Deny overtime…' : 'Deny…' }))
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Stale denial' } })
+  fireEvent.click(screen.getByRole('button', { name: kind === 'overtime' ? 'Deny overtime' : 'Deny shift' }))
+  await waitFor(() => expect(config.onClose).toHaveBeenCalledWith(true, 'This shift changed since you opened it. Nothing was denied.'))
+  expect(deny).toHaveBeenCalledWith(7, 'Stale denial', 17)
+  expect(config.onReload).toHaveBeenCalledOnce()
+  expect(config.onDirty).toHaveBeenLastCalledWith(false)
 })

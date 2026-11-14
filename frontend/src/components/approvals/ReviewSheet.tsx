@@ -136,9 +136,13 @@ export default function ReviewSheet({
       }
       const response =
         denying === 'overtime'
-          ? await api.denyOvertime(entry.id, note.trim())
-          : await api.denyTimeEntry(entry.id, note.trim())
+          ? await api.denyOvertime(entry.id, note.trim(), entry.version)
+          : await api.denyTimeEntry(entry.id, note.trim(), entry.version)
       if (!response.data) {
+        if (response.status === 409 && response.code === 'stale_entry') {
+          await closeChanged('denied')
+          return
+        }
         setError(response.error || "Couldn't save the denial.")
         return
       }
