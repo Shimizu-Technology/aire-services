@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EditTimeEntryModal from './EditTimeEntryModal'
@@ -29,6 +30,7 @@ const assign = vi.fn()
 
 function show(overrides: Partial<{ categories: Array<{ id: number; name: string }>; entry: typeof entry | (Omit<typeof entry, 'time_category'> & { time_category: null }) }> = {}) {
   const onSaved = vi.fn()
+  const onClose = vi.fn()
   render(
     <EditTimeEntryModal
       isOpen
@@ -36,12 +38,12 @@ function show(overrides: Partial<{ categories: Array<{ id: number; name: string 
       categories={overrides.categories ?? [{ id: 1, name: 'CFI' }, { id: 2, name: 'Maintenance' }]}
       canDelete
       canManageTeamTime
-      onClose={vi.fn()}
+      onClose={onClose}
       onSaved={onSaved}
       onDeleted={vi.fn()}
     />,
   )
-  return { onSaved }
+  return { onSaved, onClose }
 }
 
 const historyLink = () => screen.getByRole('link', { name: 'View complete activity history' })
@@ -164,5 +166,115 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
     fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
     expect(fireEvent.click(historyLink(), { ctrlKey: true })).toBe(true)
     expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+})
+
+describe('Edit shift: every way out asks first while edits are unsaved (M2)', () => {
+  afterEach(cleanup)
+  const edit = () => fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+  const backdrop = () => screen.getByRole('dialog').parentElement as HTMLElement
+
+  it.each([
+    ['Cancel', () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))],
+    ['Escape', () => fireEvent.keyDown(document, { key: 'Escape' })],
+    ['the backdrop', () => fireEvent.click(backdrop())],
+  ])('closes a clean sheet at once with %s', (_name, exit) => {
+    const { onClose } = show()
+    exit()
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  it.each([
+    ['Cancel', () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))],
+    ['Escape', () => fireEvent.keyDown(document, { key: 'Escape' })],
+    ['the backdrop', () => fireEvent.click(backdrop())],
+  ])('asks "Discard your changes?" for %s, and Keep editing keeps the edit', (_name, exit) => {
+    const { onClose } = show()
+    edit()
+    exit()
+    expect(onClose).not.toHaveBeenCalled()
+    const prompt = screen.getByRole('alertdialog', { name: 'Discard your changes?' })
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByLabelText(/End Time/)).toHaveValue('15:00')
+  })
+
+  it('closes only after Discard changes', () => {
+    const { onClose } = show()
+    edit()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('treats a note, a category change or a break as an edit too', () => {
+    const { onClose } = show()
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Late' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('does not close while a save is running', async () => {
+    let finish: (value: unknown) => void = () => undefined
+    apiMock.updateTimeEntry.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    const { onClose } = show()
+    edit()
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    finish({ data: { time_entry: {} } })
+  })
+
+  it('warns before the tab closes or reloads only while dirty', () => {
+    show()
+    const closing = () => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    expect(closing()).toBe(false)
+    edit()
+    expect(closing()).toBe(true)
+  })
+
+  it('stays quiet when it deliberately moves to history', () => {
+    Object.defineProperty(window, 'location', { configurable: true, value: { pathname: '/admin/timecards', search: '', assign: vi.fn() } })
+    show()
+    edit()
+    fireEvent.click(historyLink())
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+  })
+
+  it('asks before an in-app route change or browser Back, and a clean sheet does not', () => {
+    const router = createMemoryRouter([
+      { path: '/', element: <><Link to="/away">Away</Link><Sheet /></> },
+      { path: '/away', element: <p>Away page</p> },
+    ])
+    function Sheet() {
+      return <EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'CFI' }]} canDelete canManageTeamTime onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} />
+    }
+    render(<RouterProvider router={router} />)
+    fireEvent.click(screen.getByText('Away'))
+    expect(screen.getByText('Away page')).toBeInTheDocument()
+    cleanup()
+    router.navigate('/')
+    render(<RouterProvider router={router} />)
+    edit()
+    fireEvent.click(screen.getByText('Away'))
+    const prompt = screen.getByRole('alertdialog', { name: 'Discard your changes?' })
+    expect(screen.queryByText('Away page')).toBeNull()
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByText('Away page')).toBeNull()
+    fireEvent.click(screen.getByText('Away'))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(screen.getByText('Away page')).toBeInTheDocument()
   })
 })

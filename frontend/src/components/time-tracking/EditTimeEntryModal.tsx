@@ -1,10 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { UNSAFE_DataRouterContext } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { api } from '../../lib/api'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { shiftHistoryHref } from '../../lib/shiftHistory'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { UnsavedChangesGuard } from '../ui/UnsavedChangesBar'
 import { useConfirm } from '../ui/useConfirm'
 
 interface TimeCategoryOption {
@@ -153,10 +155,13 @@ export default function EditTimeEntryModal({
   const [reviewAction, setReviewAction] = useState<'end_clock' | 'resubmit_denied' | null>(null)
   const [stopDate, setStopDate] = useState('')
   const [historyGuard, setHistoryGuard] = useState(false)
+  const [discardGuard, setDiscardGuard] = useState(false)
+  // Set just before a deliberate full-page move, so the tab-close warning stays quiet.
+  const leaving = useRef(false)
+  const dataRouter = useContext(UNSAFE_DataRouterContext)
   const [categoryError, setCategoryError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
-  useDialogFocus(isOpen && !!entry, dialogRef, () => { if (!saving && !deleting) onClose() })
   const [confirm, confirmDialog] = useConfirm()
 
   useEffect(() => {
@@ -165,6 +170,8 @@ export default function EditTimeEntryModal({
     setFormData(formFromEntry(entry))
     setBreakRows(breakRowsFromEntry(entry))
     setHistoryGuard(false)
+    setDiscardGuard(false)
+    leaving.current = false
     setCategoryError(null)
     setReviewAction(null)
     setStopDate(entry.work_date)
@@ -199,6 +206,27 @@ export default function EditTimeEntryModal({
       (Object.keys(initial) as Array<keyof typeof initial>).some((key) => formData[key] !== initial[key]) ||
       JSON.stringify(breakRows) !== JSON.stringify(breakRowsFromEntry(entry))
   }, [breakRows, correctionReason, entry, formData, reviewAction])
+
+  const guarded = isOpen && !!entry && dirty
+
+  // Every way out of the sheet (Cancel, Escape, the backdrop, route changes, closing the tab)
+  // asks first while there is something to lose. A clean sheet just closes.
+  const requestClose = () => {
+    if (saving || deleting) return
+    if (dirty) setDiscardGuard(true)
+    else onClose()
+  }
+  useDialogFocus(isOpen && !!entry, dialogRef, requestClose)
+  useEffect(() => {
+    if (!guarded) return
+    const warn = (event: BeforeUnloadEvent) => {
+      if (leaving.current) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [guarded])
 
   const ownerName = entry?.user.full_name || entry?.user.display_name || entry?.user.email?.split('@')[0] || 'Team member'
   const isActiveClockEntry = entry?.entry_method === 'clock' && (entry.status === 'clocked_in' || entry.status === 'on_break')
@@ -314,7 +342,10 @@ export default function EditTimeEntryModal({
   const saveThenViewHistory = async () => {
     const saved = await save()
     setHistoryGuard(false)
-    if (saved) window.location.assign(historyHref)
+    if (saved) {
+      leaving.current = true
+      window.location.assign(historyHref)
+    }
   }
 
   const handleDelete = async () => {
@@ -351,7 +382,7 @@ export default function EditTimeEntryModal({
             ? 'fixed inset-0 z-50 flex items-end justify-center bg-black/50 md:items-center md:p-4'
             : 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4'}
           onClick={(event) => {
-            if (event.target === event.currentTarget && !saving && !deleting) onClose()
+            if (event.target === event.currentTarget) requestClose()
           }}
         >
           <div
@@ -678,7 +709,7 @@ export default function EditTimeEntryModal({
                   <div className="flex flex-wrap justify-end gap-3">
                     <button
                       type="button"
-                      onClick={onClose}
+                      onClick={requestClose}
                       className="rounded-lg px-4 py-2 font-medium text-primary-dark transition-colors hover:bg-neutral-warm"
                     >
                       Cancel
@@ -702,11 +733,22 @@ export default function EditTimeEntryModal({
             description="You have changed this shift but haven't saved it yet. If you leave without saving, those changes are lost."
             confirmLabel="Save and view history"
             cancelLabel="Keep editing"
-            alternate={{ label: 'Discard changes', tone: 'danger', onClick: () => window.location.assign(historyHref) }}
+            alternate={{ label: 'Discard changes', tone: 'danger', onClick: () => { leaving.current = true; window.location.assign(historyHref) } }}
             busy={saving}
             onConfirm={() => void saveThenViewHistory()}
             onCancel={() => setHistoryGuard(false)}
           />
+          <ConfirmDialog
+            open={discardGuard}
+            title="Discard your changes?"
+            description="You have changed this shift but haven't saved it yet."
+            tone="danger"
+            confirmLabel="Discard changes"
+            cancelLabel="Keep editing"
+            onConfirm={() => { setDiscardGuard(false); onClose() }}
+            onCancel={() => setDiscardGuard(false)}
+          />
+          {dataRouter && <UnsavedChangesGuard dirty={guarded} what="this shift" title="Discard your changes?" />}
         </div>,
     document.body,
   )
