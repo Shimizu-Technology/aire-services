@@ -48,7 +48,9 @@ export const shift = (extra: Partial<TimeEntry> = {}): TimeEntry => {
   const approved = entry.status === 'completed' && entry.approval_status !== 'denied' && (entry.approval_status === 'approved' || (entry.entry_method === 'clock' && entry.approval_status === null))
   const waiting = entry.status === 'completed' && entry.approval_status !== 'denied' && !approved
   const overtimeWaiting = approved ? entry.pending_overtime_hours ?? 0 : 0
-  entry.payroll_hours_by_date ??= [{ work_date: entry.work_date, approved_hours: approved ? entry.hours - overtimeWaiting : 0, approved_regular_hours: approved ? entry.hours - overtimeWaiting : 0, approved_overtime_hours: 0, time_waiting_hours: waiting ? entry.hours : 0, overtime_waiting_hours: overtimeWaiting }]
+  if (entry.payroll_hours_by_date === undefined) {
+    entry.payroll_hours_by_date = [{ work_date: entry.work_date, approved_hours: approved ? entry.hours - overtimeWaiting : 0, approved_regular_hours: approved ? entry.hours - overtimeWaiting : 0, approved_overtime_hours: 0, time_waiting_hours: waiting ? entry.hours : 0, overtime_waiting_hours: overtimeWaiting }]
+  }
   return entry
 }
 

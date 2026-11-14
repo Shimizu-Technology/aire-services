@@ -223,6 +223,14 @@ it('keeps the displayed total equal to approved plus waiting after rounding to t
   expect(periodTotals(entries, period).total).toBeCloseTo(70.05)
 })
 
+it('preserves explicit null fixture approval data so unavailable totals can be exercised', () => {
+  const unavailable = shift({ payroll_hours_by_date: null })
+  expect(unavailable.payroll_hours_by_date).toBeNull()
+  expect(periodTotals([unavailable], { start: '2026-11-01', end: '2026-11-15' }).complete).toBe(false)
+  expect(shift().payroll_hours_by_date).toHaveLength(1)
+  expect(shift({ payroll_hours_by_date: [] }).payroll_hours_by_date).toEqual([])
+})
+
 it('derives displayed waiting and total from all three rounded components', () => {
   const entries = [
     shift({ id: 1, hours: 8.07, approval_status: 'approved', pending_overtime_hours: 0.07 }),
