@@ -30,11 +30,18 @@ describe('Dashboard unavailable snapshots (manager view)', () => {
     vi.setSystemTime(new Date('2026-10-31T14:30:00Z'))
     try {
       open()
-      await waitFor(() => expect(mocks.getTimeEntries).toHaveBeenCalledWith({ date: '2026-11-01', per_page: 20 }))
+      await waitFor(() => expect(mocks.getTimeEntries).toHaveBeenCalledWith({ date: '2026-11-01', per_page: 20, user_id: 9 }))
     } finally {
       mocks.role = 'manager'
       vi.useRealTimers()
     }
+  })
+  it("shows a supervisor only their own clock-ins under Today's Activity", async () => {
+    mocks.role = 'manager'
+    mocks.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
+    render(<MemoryRouter><MyTimeHome /></MemoryRouter>)
+    await waitFor(() => expect(mocks.getTimeEntries).toHaveBeenCalled())
+    for (const [params] of mocks.getTimeEntries.mock.calls) expect(params).toMatchObject({ user_id: 9 })
   })
   it('does not report operational clearance when one endpoint returns an error', async () => {
     mocks.getPendingApprovals.mockResolvedValueOnce({ error: 'Approvals unavailable' })

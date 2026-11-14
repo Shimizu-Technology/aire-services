@@ -91,17 +91,20 @@ export function MyTimeHome() {
       // Shifts are only fetched while "Use schedules" is on.
       const [scheduleRes, entriesRes] = await Promise.all([
         schedulesEnabled ? api.getMySchedule() : Promise.resolve(null),
-        api.getTimeEntries({ date: todayStr, per_page: 20 }),
+        // Supervisors can read the team's entries, so ask for this person's own.
+        currentUser
+          ? api.getTimeEntries({ date: todayStr, per_page: 20, user_id: currentUser.id })
+          : Promise.resolve(null),
       ])
 
       if (scheduleRes?.data?.schedules) setMySchedule(scheduleRes.data.schedules)
-      if (entriesRes.data?.time_entries) setTodayEntries(entriesRes.data.time_entries)
+      if (entriesRes?.data?.time_entries) setTodayEntries(entriesRes.data.time_entries)
     } catch {
       // Employee dashboard is best-effort.
     } finally {
       setLoadingTodayEntries(false)
     }
-  }, [todayStr, schedulesEnabled])
+  }, [todayStr, schedulesEnabled, currentUser])
 
   useEffect(() => {
     loadDashboardData()
