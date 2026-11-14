@@ -74,7 +74,7 @@ describe('hours report draft confirmation', () => {
 
   it('downloads nothing when the draft is declined', async () => {
     const dialog = await openReport()
-    expect(dialog).toHaveTextContent('This report includes approved entries without work categories.')
+    expect(dialog).toHaveTextContent('Time or overtime is still waiting, a clock is open, or a work category needs review. Waiting hours are not included in payroll totals.')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(apiMock.downloadHoursReport).toHaveBeenCalledTimes(1)

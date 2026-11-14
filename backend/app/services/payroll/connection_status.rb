@@ -28,6 +28,7 @@ module Payroll
         state: state(capability[:enabled], failed_count + stuck_count),
         last_publication: last_publication,
         last_delivery: last_delivery,
+        latest_locked_period_delivery: latest_locked_period_delivery,
         undelivered: {
           count: undelivered.count,
           failed_count: failed_count,
@@ -70,6 +71,21 @@ module Payroll
       event = PayrollOutboxEvent.includes(:payroll_calendar_period).where(delivery_status: "delivered")
         .order(delivered_at: :desc, id: :desc).first
       event && event_json(event).merge(delivered_at: local(event.delivered_at))
+    end
+
+    # Locks happen roughly twice a month. Receipt age is context, not health:
+    # check the newest locked period rather than a recently retried older one.
+    def latest_locked_period_delivery
+      period = PayrollCalendarPeriod.where(status: "finalized").where.not(payroll_batch_id: nil)
+        .order(end_date: :desc, id: :desc).first
+      return unless period
+
+      event = period.payroll_outbox_events.order(occurred_at: :desc, id: :desc).first
+      {
+        status: event&.delivery_status,
+        delivered_at: local(event&.delivered_at),
+        period: { start_date: period.start_date.iso8601, end_date: period.end_date.iso8601 }
+      }
     end
 
     def undelivered

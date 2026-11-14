@@ -3,6 +3,7 @@ import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-do
 import { expect, it, vi } from 'vitest'
 import SettingsHome from './SettingsHome'
 import { settingsAnchorPaths } from '../AdminRedirects'
+import { settingsApi } from '../../../lib/api/settings'
 
 vi.mock('../../../lib/api', () => ({
   api: {
@@ -41,8 +42,22 @@ it('reads the current state in plain words', async () => {
       })}
     />,
   )
-  expect(await screen.findByText('Connected')).toBeInTheDocument()
+  expect(await screen.findByText('Set up, but nothing confirmed yet')).toBeInTheDocument()
   expect(screen.getByText('Off')).toBeInTheDocument()
   expect(screen.getByText(/no reminders/)).toBeInTheDocument()
   expect(screen.getByText('0 departments · 0 kinds of work')).toBeInTheDocument()
+})
+
+it.each([
+  ['delivery_problem', "Hours haven't reached Cornerstone Payroll yet"],
+  ['paused', 'Payroll connection paused'],
+] as const)('uses the shared connection title for %s on the home tile', async (state, title) => {
+  vi.mocked(settingsApi.connection).mockResolvedValueOnce({ data: {
+    state, mode: 'connected', last_publication: null, last_delivery: null, account_link: null,
+  } })
+  render(<RouterProvider router={createMemoryRouter([{ path: '/admin/settings', element: <SettingsHome /> }], {
+    initialEntries: ['/admin/settings'],
+  })} />)
+  expect(await screen.findByText(title)).toBeInTheDocument()
+  expect(screen.queryByText('Delivery problem')).not.toBeInTheDocument()
 })

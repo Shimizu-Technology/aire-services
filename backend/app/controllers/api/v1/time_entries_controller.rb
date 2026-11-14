@@ -62,6 +62,7 @@ module Api
         total_count = summary[:entry_count]
         @time_entries = @time_entries.offset((page - 1) * per_page).limit(per_page)
 
+        @approval_hours = ::Payroll::ApprovalHours.for_entries(@time_entries.to_a)
         @employee_payroll_statuses = ::Payroll::EmployeeEntryStatus.new(entries: @time_entries.to_a, viewer: current_user).call
 
         render json: {
@@ -1119,6 +1120,7 @@ module Api
       def serialize_time_entry(entry)
         tz = TimeClockService::BUSINESS_TIMEZONE
         {
+          payroll_hours_by_date: @approval_hours&.segments_for(entry),
           id: entry.id,
           version: entry.lock_version,
           work_date: entry.work_date.iso8601,

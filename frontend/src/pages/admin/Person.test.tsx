@@ -512,7 +512,7 @@ describe('one meaning of Approved: approved for pay', () => {
       makeEntry({ id: 40, work_date: '2026-11-11', hours: 11.5, approval_status: 'pending', clock_in_at: '2026-11-11T08:00:00+10:00', clock_out_at: '2026-11-11T19:30:00+10:00' }),
     ], pagination: { total_pages: 1 } } })
     apiMock.getHoursReport.mockResolvedValue({ data: { employees: [{
-      id: 7, total_hours: 57.5, overtime_hours: 6,
+      id: 7, payroll_hours: { approved_regular_hours: 51.5, approved_overtime_hours: 0, approved_hours: 51.5, time_waiting_hours: 11.5, overtime_waiting_hours: 6 }, total_hours: 57.5, overtime_hours: 6,
       days: days.map((date, index) => ({ work_date: date, entries: [reportShift(30 + index, date, date === '2026-11-06' ? { overtime_hours: 6, overtime_status: 'pending' } : {})] })),
       excluded_entries: [reportShift(40, '2026-11-11', { approval_status: 'pending' })],
     }] } })

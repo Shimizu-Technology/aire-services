@@ -683,11 +683,11 @@ export default function MyTime() {
         className="block space-y-2 rounded-card border border-line bg-surface p-5 text-body text-ink focus-visible:outline-2 focus-visible:outline-primary"
       >
         <p className="font-semibold">
-          This pay period {summaryLoaded && `· ${totals.total.toFixed(1)}h`}
+          This pay period {summaryLoaded && totals.complete && `· ${totals.total.toFixed(1)}h`}
         </p>
         <p className="text-body-sm text-ink-muted">
           {summaryLoaded
-            ? `${totals.approved.toFixed(1)}h approved · ${totals.waiting.toFixed(1)}h waiting for approval`
+            ? totals.complete ? `${totals.approved.toFixed(1)}h Approved for payroll · ${totals.timeWaiting.toFixed(1)}h Time waiting for approval · ${totals.overtimeWaiting.toFixed(1)}h Overtime waiting for approval` : 'Approval totals unavailable'
             : supervisor
               ? 'Open Timecards to check your time.'
               : 'Open My Hours to check your time.'}

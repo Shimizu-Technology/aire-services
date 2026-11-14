@@ -61,6 +61,26 @@ RSpec.describe "Payroll connection", type: :request do
     expect(body.fetch("undelivered")).to eq("count" => 0, "failed_count" => 0, "stuck_count" => 0, "events" => [])
   end
 
+  it "reports the newest locked period even when an older receipt arrived more recently" do
+    older = period(Date.new(2026, 10, 1))
+    newer = period(Date.new(2026, 10, 16))
+    [ older, newer ].each { |row| row.update!(status: "finalized", payroll_batch: create(:payroll_batch, start_date: row.start_date, end_date: row.end_date), finalized_at: now - 12.days) }
+    outbox(older, status: "delivered", occurred_at: now - 20.days, delivered_at: now - 1.minute)
+    outbox(newer, status: "delivered", occurred_at: now - 12.days, delivered_at: now - 12.days)
+    expect(connection.fetch("latest_locked_period_delivery")).to include("status" => "delivered", "delivered_at" => (now - 12.days).iso8601)
+    outbox(newer, status: "failed", occurred_at: now - 2.minutes)
+    expect(connection).to include("state" => "delivery_problem")
+    expect(connection.dig("latest_locked_period_delivery", "status")).to eq("failed")
+  end
+
+  it "does not substitute an older delivered event for a newest lock with no event" do
+    older = period(Date.new(2026, 10, 1))
+    newer = period(Date.new(2026, 10, 16))
+    [ older, newer ].each { |row| row.update!(status: "finalized", payroll_batch: create(:payroll_batch, start_date: row.start_date, end_date: row.end_date), finalized_at: now - 12.days) }
+    outbox(older, status: "delivered", occurred_at: now - 20.days, delivered_at: now - 20.days)
+    expect(connection.fetch("latest_locked_period_delivery")).to include("status" => nil, "period" => include("start_date" => "2026-10-16"))
+  end
+
   it "counts every failed and stuck delivery, though it lists only the oldest 20" do
     october = period(Date.new(2026, 10, 16))
     23.times { |index| outbox(october, status: "failed", occurred_at: now - 3.hours + index.minutes) }

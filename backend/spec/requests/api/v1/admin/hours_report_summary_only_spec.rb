@@ -45,28 +45,62 @@ RSpec.describe "GET /api/v1/admin/hours_report?summary_only=1", type: :request d
     create_entry(date: Date.new(2026, 11, 10), hours: 0, status: "clocked_in")
   end
 
-  it "keeps every total and flag but leaves out the per-entry rows" do
+  it "keeps every scalar total and flag without building detail collections" do
     get "/api/v1/admin/hours_report", params: params, headers: headers_for(admin)
     full = json
 
+    %i[build_days build_weeks build_categories serialize_entry].each do |method|
+      expect_any_instance_of(Payroll::HoursReportBuilder).not_to receive(method)
+    end
     get "/api/v1/admin/hours_report", params: params.merge(summary_only: "1"), headers: headers_for(admin)
 
     expect(response).to have_http_status(:ok)
     expect(json[:summary_only]).to be(true)
     expect(json[:summary]).to eq(full[:summary])
-    expect(json[:breakdowns]).to eq(full[:breakdowns])
+    expect(json[:breakdowns]).to eq(by_category: [], by_source: [])
 
     row = json[:employees].find { |item| item[:id] == employee.id }
     full_row = full[:employees].find { |item| item[:id] == employee.id }
-    expect(row.slice(:total_hours, :regular_hours, :overtime_hours, :entries_count, :issues, :quality, :weeks))
-      .to eq(full_row.slice(:total_hours, :regular_hours, :overtime_hours, :entries_count, :issues, :quality, :weeks))
+    expect(row.except(:days, :weeks, :categories))
+      .to eq(full_row.except(:days, :weeks, :categories, :excluded_entries))
     expect(row[:total_hours]).to eq(16.5)
     expect(row[:issues]).to include(pending_count: 1, open_clock_count: 1)
     expect(row).not_to have_key(:excluded_entries)
-    expect(row[:days].map { |day| day[:work_date] }).to eq(%w[2026-11-02 2026-11-03])
+    expect(row.values_at(:days, :weeks, :categories)).to eq([ [], [], [] ])
     expect(row[:days]).to all(satisfy { |day| !day.key?(:entries) })
     expect(full_row[:days].first[:entries]).to be_present
     expect(full_row[:excluded_entries].size).to eq(2)
+  end
+
+  it "counts distinct waiting entries in the approval totals' category, source and entry-method selection" do
+    other_category = create(:time_category)
+    create_entry(date: Date.new(2026, 11, 11), hours: 4, approval_status: "pending")
+      .update!(time_category: other_category, clock_source: "mobile", entry_method: "manual")
+    create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 11, 12),
+      start_time: guam.local(2026, 11, 12, 22), end_time: guam.local(2026, 11, 13, 6), hours: 8,
+      clock_in_at: guam.local(2026, 11, 12, 22), clock_out_at: guam.local(2026, 11, 13, 6),
+      status: "completed", entry_method: "clock", clock_source: "kiosk", approval_status: "pending")
+
+    [
+      [ {}, 3, 21.0 ],
+      [ { time_category_id: category.id }, 2, 17.0 ],
+      [ { time_category_id: other_category.id }, 1, 4.0 ],
+      [ { clock_source: "kiosk" }, 2, 17.0 ],
+      [ { clock_source: "mobile" }, 1, 4.0 ],
+      [ { entry_method: "clock" }, 2, 17.0 ],
+      [ { entry_method: "manual" }, 1, 4.0 ],
+      [ { time_category_id: category.id, clock_source: "mobile" }, 0, 0.0 ]
+    ].each do |selection, count, waiting_hours|
+      [ false, true ].each do |summary_only|
+        # Neither status filter can hide waiting work from approval facts.
+        get "/api/v1/admin/hours_report",
+          params: params.merge(selection).merge(user_id: employee.id, approval_status: "denied", overtime_status: "approved", summary_only: summary_only),
+          headers: headers_for(admin)
+        expect(response).to have_http_status(:ok)
+        expect(json[:summary][:approval_waiting_count]).to eq(count)
+        expect(json[:summary].dig(:payroll_hours, :time_waiting_hours)).to eq(waiting_hours)
+      end
+    end
   end
 
   it "returns the full report when summary_only is absent or false" do
@@ -118,19 +152,26 @@ RSpec.describe "GET /api/v1/admin/hours_report?summary_only=1", type: :request d
       expect(summary_row[:waiting_hours]).to eq(13.0)
     end
 
-    it "waits an overnight shift across the period edge in its own work date's period, like the full report" do
+    it "splits a waiting overnight shift across the period edge, like the full report" do
       create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 10, 31),
         start_time: guam.local(2026, 10, 31, 22), end_time: guam.local(2026, 11, 1, 6), hours: 8,
         clock_in_at: guam.local(2026, 10, 31, 22), clock_out_at: guam.local(2026, 11, 1, 6),
         status: "completed", entry_method: "clock", clock_source: "kiosk", approval_status: "pending", overtime_status: "none")
 
-      expect(summary_row[:waiting_hours]).to eq(9.0)
-      expect(summary_row(start_date: "2026-10-16", end_date: "2026-10-31")[:waiting_hours]).to eq(8.0)
+      expect(summary_row[:waiting_hours]).to eq(15.0)
+      expect(summary_row(start_date: "2026-10-16", end_date: "2026-10-31")[:waiting_hours]).to eq(2.0)
 
       get "/api/v1/admin/hours_report", params: params, headers: headers_for(manager)
       full_row = json[:employees].find { |item| item[:id] == employee.id }
       waiting_in_full = full_row[:excluded_entries].select { |entry| entry[:approval_status] == "pending" }.sum { |entry| entry[:total_hours] }
-      expect(waiting_in_full).to eq(9.0)
+      expect(waiting_in_full).to eq(15.0)
+      expect(full_row.dig(:payroll_hours, :time_waiting_hours)).to eq(15.0)
+      expect(Payroll::PeriodHandoffState.live_hours(Date.new(2026, 11, 1), Date.new(2026, 11, 15))[:time_waiting_hours]).to eq(15.0)
+      evidence = Payroll::EmployeePeriodEvidence.new(user: employee, params: { start_date: "2026-11-01", end_date: "2026-11-15" }).call
+      expect(evidence.dig(:totals, :pending_hours)).to eq(15.0)
+      calculator = Payroll::ApprovalHours.for_entries(employee.time_entries.to_a)
+      overnight = employee.time_entries.find_by!(work_date: Date.new(2026, 10, 31))
+      expect(calculator.segments_for(overnight).map { |part| part[:time_waiting_hours] }).to eq([ 2.0, 6.0 ])
     end
 
     it "is in the full report row too, with the same value" do
