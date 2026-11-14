@@ -153,7 +153,7 @@ describe('Settings help comes from the settings catalog', () => {
     renderSettings()
     await user.click(await screen.findByRole('button', { name: 'About Use schedules' }))
     const entry = catalog.find((candidate) => candidate.id === 'schedules_enabled')!
-    expect(entry.what).toMatch(/doesn't change any clock-in rule/)
+    expect(entry.what).toMatch(/Turning it off also turns off/)
     expect(entry.what).toContain('Require a scheduled shift to clock in')
     const announcement = screen.getAllByRole('status').find((region) => region.textContent?.includes(entry.what))
     expect(announcement).toHaveTextContent('DefaultOff')

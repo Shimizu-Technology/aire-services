@@ -209,7 +209,7 @@ class SettingsCatalog
       section: :schedules,
       setting_keys: [ Setting::SCHEDULES_ENABLED_KEY ],
       capability: :manage_settings,
-      what: "Only shows or hides the Schedule pages in everyone's menu. It doesn't change any clock-in rule: shifts already entered still set the early clock-in window and the attendance badge either way, and it doesn't turn off \"Require a scheduled shift to clock in\". If that rule is on while this is off, people still need a shift to clock in but nobody can see or add one, so turn this on to add shifts.",
+      what: "Shows or hides the Schedule pages in everyone's menu. Turning it off also turns off \"Require a scheduled shift to clock in\", so nobody is stopped from clocking in over a schedule they can't see. Shifts already entered still set the early clock-in window and the attendance badge either way.",
       default: "Off",
       example: "Turn it on when you start entering next week's shifts. Schedule appears in the menu, and clocking in works the same as before."
     },

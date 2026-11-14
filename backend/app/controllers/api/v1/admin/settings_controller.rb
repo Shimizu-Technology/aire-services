@@ -25,6 +25,8 @@ module Api
         BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS + %w[schedule_required_for_clock_in]).freeze
         # Same cap as the pay stub heads-up list.
         MAX_REMINDER_RECIPIENTS = 10
+        REQUIRE_KEY = "schedule_required_for_clock_in"
+        REQUIRE_NEEDS_SCHEDULES_MESSAGE = "Turn on Use schedules before requiring a scheduled shift"
 
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_settings) }
@@ -106,9 +108,11 @@ module Api
           end
 
           approval_groups_error = nil
+          schedule_error = nil
           Setting.transaction do
             persist_settings = lambda do
-              turn_off_require_with_schedules!(payload)
+              schedule_error = reconcile_schedule_requirement!(payload)
+              raise ActiveRecord::Rollback if schedule_error.present?
 
               if approval_groups_present
                 approval_groups_error = validate_approval_groups(approval_groups_payload, live: true)
@@ -135,6 +139,7 @@ module Api
             end
           end
 
+          return render json: { error: schedule_error }, status: :unprocessable_entity if schedule_error.present?
           return render json: { error: approval_groups_error }, status: :unprocessable_entity if approval_groups_error.present?
 
           render json: settings_payload
@@ -167,15 +172,28 @@ module Api
           permitted.reject { |key, value| value.blank? && key != "payroll_cutoff_reminder_emails" }
         end
 
-        # Turning Use schedules off hides the Schedule page, so a Require left on
-        # would refuse every clock-in with no shift and no way to add one. Turn it
-        # off in the same transaction; it gets its own before/after audit row.
-        def turn_off_require_with_schedules!(payload)
-          return unless payload&.dig(Setting::SCHEDULES_ENABLED_KEY) == "false"
-          return if payload.key?("schedule_required_for_clock_in")
+        # Use schedules and Require a scheduled shift are checked against the live
+        # values while holding one lock, so two saves at once can't leave Require on
+        # with schedules off (which would refuse every clock-in with no shift and no
+        # Schedule page to add one). A request that turns schedules off also turns
+        # Require off, with its own before/after audit row. A request that asks for
+        # Require while schedules are off is refused. Returns an error or nil.
+        def reconcile_schedule_requirement!(payload)
+          return unless payload&.key?(Setting::SCHEDULES_ENABLED_KEY) || payload&.key?(REQUIRE_KEY)
 
-          required = Setting.lock.find_by(key: "schedule_required_for_clock_in")&.value || Setting::DEFAULTS["schedule_required_for_clock_in"]
-          payload["schedule_required_for_clock_in"] = "false" if required == "true"
+          Setting.with_schedule_requirement_lock do
+            live = Setting.where(key: [ Setting::SCHEDULES_ENABLED_KEY, REQUIRE_KEY ]).pluck(:key, :value).to_h
+            schedules = payload[Setting::SCHEDULES_ENABLED_KEY] || live[Setting::SCHEDULES_ENABLED_KEY] || Setting::DEFAULTS[Setting::SCHEDULES_ENABLED_KEY]
+            required = payload[REQUIRE_KEY] || live[REQUIRE_KEY] || Setting::DEFAULTS[REQUIRE_KEY]
+            next unless required == "true" && schedules != "true"
+
+            if payload[REQUIRE_KEY] == "true"
+              next REQUIRE_NEEDS_SCHEDULES_MESSAGE
+            elsif payload[Setting::SCHEDULES_ENABLED_KEY] == "false"
+              payload[REQUIRE_KEY] = "false"
+            end
+            nil
+          end
         end
 
         # Switches that change who may approve time, how pay stubs go out or
@@ -212,9 +230,10 @@ module Api
         end
 
         def validate_settings(payload)
-          if payload["schedule_required_for_clock_in"] == "true" &&
-              payload.fetch(Setting::SCHEDULES_ENABLED_KEY, Setting.get(Setting::SCHEDULES_ENABLED_KEY)) != "true"
-            return "Turn on Use schedules before requiring a scheduled shift"
+          # A request that contradicts itself is refused here; the live values are
+          # checked under a lock inside the transaction (reconcile_schedule_requirement!).
+          if payload[REQUIRE_KEY] == "true" && payload.key?(Setting::SCHEDULES_ENABLED_KEY) && payload[Setting::SCHEDULES_ENABLED_KEY] != "true"
+            return REQUIRE_NEEDS_SCHEDULES_MESSAGE
           end
 
           if payload.key?("payroll_cutoff_reminder_emails")

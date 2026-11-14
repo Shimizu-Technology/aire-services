@@ -2,6 +2,7 @@
 
 class Setting < ApplicationRecord
   APPROVAL_GROUPS_ADVISORY_LOCK_KEY = 92_144_007
+  SCHEDULE_REQUIREMENT_ADVISORY_LOCK_KEY = 92_144_008
   DEFAULT_CONTACT_NOTIFICATION_EMAILS = [ "admin@aireservicesguam.com" ].freeze
   PUBLIC_PHONE_CONTACT_CHANNELS = %w[phone whatsapp].freeze
   DEFAULT_PUBLIC_PHONE_CONTACTS = [
@@ -244,6 +245,19 @@ class Setting < ApplicationRecord
     raise "Approval group lock requires an open transaction" unless connection.transaction_open?
 
     connection.select_value("SELECT pg_advisory_xact_lock(#{APPROVAL_GROUPS_ADVISORY_LOCK_KEY})")
+    clear_cache!
+    yield
+  ensure
+    clear_cache!
+  end
+
+  # Use schedules and Require a scheduled shift depend on each other, so saves
+  # that touch either one run one at a time and read the live values once they
+  # hold the lock.
+  def self.with_schedule_requirement_lock
+    raise "Schedule requirement lock requires an open transaction" unless connection.transaction_open?
+
+    connection.select_value("SELECT pg_advisory_xact_lock(#{SCHEDULE_REQUIREMENT_ADVISORY_LOCK_KEY})")
     clear_cache!
     yield
   ensure
