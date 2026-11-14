@@ -320,3 +320,37 @@ it('links tracking supervisors to their own leave page from the Leave chip', asy
     '/admin/leave?mine=1',
   )
 })
+
+it.each(['gone', 'needs-look'])(
+  'prunes invisible selection after a 409 when selected rows are %s',
+  async changed => {
+    const refreshed = response()
+    refreshed.data.pending_entries = rows.filter(row => row.id > 2)
+    if (changed === 'needs-look')
+      refreshed.data.pending_entries.push({
+        ...rows[0],
+        review_kind: 'needs_look',
+        exceptions: [{ key: 'edited', label: 'Edited elsewhere' }],
+      })
+    vi.mocked(approvalsApi.pending).mockResolvedValueOnce(response()).mockResolvedValue(refreshed)
+    vi.mocked(approvalsApi.review).mockResolvedValueOnce({
+      status: 409,
+      error: 'These shifts changed. Nothing was approved.',
+    })
+    renderInbox()
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Marcus Quinata' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve 2 shifts for Marcus Quinata' }))
+    await waitFor(() => expect(approvalsApi.pending).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Selected shifts' })).not.toBeInTheDocument(),
+    )
+    const calls = vi.mocked(approvalsApi.pending).mock.calls.length
+    act(() => window.dispatchEvent(new Event('focus')))
+    await waitFor(() => expect(approvalsApi.pending).toHaveBeenCalledTimes(calls + 1))
+    fireEvent.click(screen.getByRole('tab', { name: 'By day' }))
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'By day' })).toHaveAttribute('aria-selected', 'true'),
+    )
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  },
+)

@@ -1,5 +1,10 @@
 import { useRef, useState } from 'react'
-import { approvalsApi, type ReviewEntry, type ReviewItem } from '../../lib/api/approvals'
+import {
+  approvalsApi,
+  type ReviewEntry,
+  type ReviewItem,
+  type ReviewBatch,
+} from '../../lib/api/approvals'
 import { approvalChunks } from '../../lib/approvalsFilters'
 import { useToast } from '../ui'
 
@@ -16,7 +21,25 @@ interface UncertainRequest {
   mode: 'ordinary' | 'reviewed'
   rows: readonly ReviewEntry[]
 }
-const unknownOutcome = (status?: number) => !status || status >= 500
+const unknownOutcome = (status?: number) =>
+  !status || status >= 500 || (status >= 200 && status < 300)
+function validBatch(data: unknown): data is ReviewBatch {
+  if (!data || typeof data !== 'object') return false
+  const batch = data as Partial<ReviewBatch>
+  return (
+    typeof batch.review_batch_id === 'string' &&
+    batch.review_batch_id.trim().length > 0 &&
+    typeof batch.undo_expires_at === 'string' &&
+    Number.isFinite(Date.parse(batch.undo_expires_at)) &&
+    Number.isInteger(batch.approved_count) &&
+    Number(batch.approved_count) >= 0 &&
+    Array.isArray(batch.time_entries) &&
+    batch.time_entries.every(
+      row =>
+        row && typeof row === 'object' && Number.isInteger(row.id) && Number.isInteger(row.version),
+    )
+  )
+}
 
 export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: number[]) => void) {
   const toast = useToast()
@@ -57,7 +80,11 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
     try {
       for (const batch of [...batches].reverse()) {
         const response = await approvalsApi.undo(batch.id)
-        if (response.data || response.code === 'already_undone') {
+        if (
+          (Number.isInteger(response.data?.undone_count) &&
+            Number(response.data?.undone_count) >= 0) ||
+          response.code === 'already_undone'
+        ) {
           count += response.data?.undone_count ?? 0
           setUndoBatches(current => current.filter(row => row.id !== batch.id))
         } else {
@@ -72,7 +99,7 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
         .filter(Boolean)
         .join(' ')
       setNotice(message)
-      toast.show({ message, tone: errors.length ? 'danger' : 'default' })
+      if (message) toast.show({ message, tone: errors.length ? 'danger' : 'default' })
       await reload()
     } finally {
       lock.current = false
@@ -98,9 +125,22 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
             (!item.approve_overtime || row.overtime_status === 'approved')
           )
         })
-        if (!alreadySaved) continue
+        if (!alreadySaved) {
+          const unchangedPending = request.items.every((item, index) => {
+            const row = states[index].data?.time_entry
+            return (
+              row &&
+              row.version === item.version &&
+              (!item.approve_time || row.approval_status === 'pending') &&
+              (!item.approve_overtime || row.overtime_status === 'pending')
+            )
+          })
+          if (unchangedPending)
+            setNotice('Not saved. The list is up to date; you can approve again.')
+          continue
+        }
         const response = await approvalsApi.review(request.items, request.key, request.mode)
-        if (!response.data) continue
+        if (!validBatch(response.data)) continue
         remember(batchFor(response.data, request.items, request.rows), request.items)
         uncertain.current.delete(fingerprint)
         retryKeys.current.delete(fingerprint)
@@ -136,7 +176,7 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
         const key = retryKeys.current.get(fingerprint) ?? crypto.randomUUID()
         retryKeys.current.set(fingerprint, key)
         const response = await approvalsApi.review(chunk, key, mode)
-        if (!response.data) {
+        if (!validBatch(response.data)) {
           const unknown = unknownOutcome(response.status)
           result = unknown ? 'unknown' : response.status === 409 ? 'conflict' : 'rejected'
           if (unknown) uncertain.current.set(fingerprint, { items: chunk, key, mode, rows })
@@ -148,7 +188,9 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
           const detail = server.replace(/Nothing was approved\.?/i, '').trim()
           setNotice(
             unknown
-              ? `Confirmed ${approved} of ${items.length} shifts approved. We couldn't confirm whether this saved. This request's outcome is unknown. Reload before deciding again.`
+              ? items.length === 1
+                ? "We couldn't confirm this shift was approved. Reload before deciding again."
+                : `Confirmed ${approved} of ${items.length} shifts approved. We couldn't confirm whether this saved. This request's outcome is unknown. Reload before deciding again.`
               : approved
                 ? `Approved ${approved} of ${items.length} shifts. The other ${items.length - approved} weren't approved. ${detail} The list is updated; check them and try again.`
                 : `${server} ${response.status === 409 ? 'The list is updated; check them and try again.' : ''}`,

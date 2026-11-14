@@ -33,21 +33,25 @@ export default function LeaveRequestsList({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const lock = useRef(false)
+  const requestKey = requests
+    .map(request => `${request.id}:${request.start_date}:${request.end_date}`)
+    .sort()
+    .join('|')
+  const rangeStart = requests.map(request => request.start_date).sort()[0]
+  const rangeEnd = requests
+    .map(request => request.end_date)
+    .sort()
+    .at(-1)
   useEffect(() => {
     let active = true
     const load = async () => {
-      if (!requests.length) {
+      if (!rangeStart || !rangeEnd) {
         setApproved([])
         return
       }
-      const start = requests.map(request => request.start_date).sort()[0]
-      const end = requests
-        .map(request => request.end_date)
-        .sort()
-        .at(-1)!
       const rows: LeaveRequest[] = []
       for (let page = 1; ; page++) {
-        const response = await approvalsApi.approvedLeave(start, end, page)
+        const response = await approvalsApi.approvedLeave(rangeStart, rangeEnd, page)
         if (!response.data || !active) return
         rows.push(...response.data.leave_requests)
         if (page >= response.data.pagination.total_pages) break
@@ -58,7 +62,7 @@ export default function LeaveRequestsList({
     return () => {
       active = false
     }
-  }, [requests])
+  }, [requestKey, rangeStart, rangeEnd])
   const save = async (request: LeaveRequest, decline = false) => {
     if (lock.current || !online || request.user.id === viewerId) return
     lock.current = true

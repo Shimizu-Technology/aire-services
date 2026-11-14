@@ -1,11 +1,13 @@
 import '@testing-library/jest-dom'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { capabilitiesFor, type UserRole } from '../../lib/roles'
 import { legacyTimeRedirect, landingPathFor } from '../../lib/adminRoutes'
 import { AdminLanding, LegacyTimeRedirect, MovedPage, SupervisorLeaveRedirect } from './AdminRedirects'
+
+vi.mock('../../components/approvals/OwnLeavePage', () => ({ default: () => <Probe name="Own leave" /> }))
 
 const auth = vi.hoisted(() => ({ role: 'manager' as UserRole }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ isClerkEnabled: true, userRole: auth.role }) }))
@@ -171,9 +173,9 @@ describe('supervisor leave inbox', () => {
 })
 
 
-it.each(['owner', 'admin', 'manager'] as const)('keeps %s own leave at mine=1 without redirecting', role => {
+it.each(['owner', 'admin', 'manager'] as const)('keeps %s own leave at mine=1 without redirecting', async role => {
   auth.role = role
   render(<MemoryRouter initialEntries={['/admin/leave?mine=1']}><SupervisorLeaveRedirect><Probe name="Own leave" /></SupervisorLeaveRedirect></MemoryRouter>)
-  expect(page()).toBe('Own leave')
+  await waitFor(() => expect(page()).toBe('Own leave'))
   expect(url()).toBe('/admin/leave?mine=1')
 })

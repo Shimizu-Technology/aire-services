@@ -19,7 +19,7 @@ const when = (value: string) =>
     timeStyle: 'short',
   }).format(new Date(value))
 export default function ReviewSheet({
-  entry: initialEntry,
+  entry,
   onClose,
   onApprove,
   onReload,
@@ -28,14 +28,13 @@ export default function ReviewSheet({
   onDirty,
 }: {
   entry: ReviewEntry
-  onClose: (saved?: boolean) => void
+  onClose: (saved?: boolean, message?: string) => void
   onApprove: (items: ReviewItem[], label: string) => Promise<ApprovalResult>
   onReload: () => Promise<void>
   busy: boolean
   categories: TimeCategory[]
   onDirty: (dirty: boolean) => void
 }) {
-  const [entry, setCurrentEntry] = useState(initialEntry)
   const online = useOnlineStatus()
   const [history, setHistory] = useState<HistoryChange[] | null>(null)
   const [historyError, setHistoryError] = useState(false)
@@ -48,6 +47,7 @@ export default function ReviewSheet({
   const [error, setError] = useState('')
   const [unknown, setUnknown] = useState(false)
   const [editing, setEditing] = useState(false)
+  const attemptedDecision = useRef<ReviewItem | null>(null)
   const lock = useRef(false)
   const overtime = entry.overtime_status === 'pending'
   useEffect(() => {
@@ -89,16 +89,16 @@ export default function ReviewSheet({
     if (lock.current || busy || !online) return
     lock.current = true
     try {
+      const decision: ReviewItem = {
+        id: entry.id,
+        version: entry.version,
+        approve_time: entry.approval_status === 'pending',
+        approve_overtime: includeOvertime,
+        ...(includeOvertime ? { overtime_hours: entry.pending_overtime_hours ?? 0 } : {}),
+      }
+      attemptedDecision.current = decision
       const result = await onApprove(
-        [
-          {
-            id: entry.id,
-            version: entry.version,
-            approve_time: entry.approval_status === 'pending',
-            approve_overtime: includeOvertime,
-            ...(includeOvertime ? { overtime_hours: entry.pending_overtime_hours ?? 0 } : {}),
-          },
-        ],
+        [decision],
         includeOvertime
           ? `Approved ${(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime for ${entry.user.full_name}`
           : `Approved time for ${entry.user.full_name}`,
@@ -106,6 +106,8 @@ export default function ReviewSheet({
       if (result === 'ok') {
         onDirty(false)
         onClose(true)
+      } else if (result === 'conflict') {
+        await closeChanged('approved')
       } else if (result === 'unknown') {
         setUnknown(true)
         setError("We couldn't confirm whether this saved. Reload before deciding again.")
@@ -129,12 +131,7 @@ export default function ReviewSheet({
         return
       }
       if (fresh.data.time_entry.version !== entry.version) {
-        setCurrentEntry({ ...entry, ...fresh.data.time_entry })
-        setDenying(null)
-        setNote('')
-        setHistoryAttempt(value => value + 1)
-        setError('This shift changed since you opened it. Nothing was denied.')
-        await onReload()
+        await closeChanged('denied')
         return
       }
       const response =
@@ -153,21 +150,44 @@ export default function ReviewSheet({
       setSaving(false)
     }
   }
+  const closeChanged = async (decision: 'approved' | 'denied') => {
+    await onReload()
+    onDirty(false)
+    onClose(true, `This shift changed since you opened it. Nothing was ${decision}.`)
+  }
   const reloadDecision = async () => {
     setSaving(true)
     try {
       await onReload()
       const fresh = await api.getTimeEntry(entry.id)
-      if (!fresh.data) return
-      setCurrentEntry({ ...entry, ...fresh.data.time_entry })
-      setHistoryAttempt(value => value + 1)
-      setWeek(null)
+      if (!fresh.data) {
+        setError(fresh.error || "Couldn't reload this shift. Try again.")
+        return
+      }
+      const row = fresh.data.time_entry
+      const decision = attemptedDecision.current
+      if (
+        unknown &&
+        decision &&
+        (!decision.approve_time || row.approval_status === 'approved') &&
+        (!decision.approve_overtime || row.overtime_status === 'approved')
+      ) {
+        onDirty(false)
+        onClose(true, 'Saved')
+        return
+      }
+      if (row.version !== entry.version) {
+        onDirty(false)
+        onClose(true, 'This shift changed since you opened it. Nothing was approved.')
+        return
+      }
       setUnknown(false)
-      setError('')
+      setError('Not saved. The list is up to date; you can approve again.')
     } finally {
       setSaving(false)
     }
   }
+
   const blocked = busy || saving || !online || unknown || entry.needs_another_approver
   return (
     <>

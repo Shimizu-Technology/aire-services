@@ -1,7 +1,7 @@
 import { act, fireEvent, renderHook, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reviewEntry } from '../../test/approvalFixtures'
-import { approvalsApi } from '../../lib/api/approvals'
+import { approvalsApi, type ReviewBatch } from '../../lib/api/approvals'
 import { ToastProvider } from '../ui'
 import { useReviewBatch, type ApprovalResult } from './useReviewBatch'
 vi.mock('../../lib/api/approvals', () => ({
@@ -136,7 +136,7 @@ it.each([undefined, 502, 503, 504])(
     await act(async () =>
       expect(await result.current.approve(items(1), 100, 'Approved')).toBe('unknown'),
     )
-    expect(result.current.notice).toContain("couldn't confirm whether this saved")
+    expect(result.current.notice).toContain("We couldn't confirm this shift was approved.")
     expect(result.current.notice).not.toContain("weren't approved")
     const key = vi.mocked(approvalsApi.review).mock.calls[0][1]
     vi.mocked(approvalsApi.review).mockResolvedValueOnce(ok('recovered'))
@@ -217,4 +217,84 @@ it('toast Undo undoes only the latest action while older batches remain availabl
   await waitFor(() => expect(approvalsApi.undo).toHaveBeenCalledWith('latest'))
   expect(approvalsApi.undo).toHaveBeenCalledOnce()
   await waitFor(() => expect(result.current.undoBatches.map(batch => batch.id)).toEqual(['older']))
+})
+
+it('resolves unchanged pending outcomes as Not saved and keeps their retry key', async () => {
+  const payload = items(1)
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({ status: 503 })
+  const { result } = renderHook(() => useReviewBatch(vi.fn()), { wrapper })
+  await act(async () => {
+    await result.current.approve(payload, 100, 'Approved')
+  })
+  const key = vi.mocked(approvalsApi.review).mock.calls[0][1]
+  vi.mocked(approvalsApi.entry).mockResolvedValueOnce({
+    data: { time_entry: reviewEntry(1, 1, { version: payload[0].version }) },
+  })
+  await act(async () => {
+    await result.current.refresh()
+  })
+  expect(result.current.notice).toBe('Not saved. The list is up to date; you can approve again.')
+  expect(approvalsApi.review).toHaveBeenCalledOnce()
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce(ok('retried'))
+  await act(async () => {
+    await result.current.approve(payload, 100, 'Approved')
+  })
+  expect(vi.mocked(approvalsApi.review).mock.calls[1][1]).toBe(key)
+})
+
+it('does not turn a changed pending version into a Not saved verdict', async () => {
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({ status: 503 })
+  const { result } = renderHook(() => useReviewBatch(vi.fn()), { wrapper })
+  await act(async () => {
+    await result.current.approve(items(1), 100, 'Approved')
+  })
+  vi.mocked(approvalsApi.entry).mockResolvedValueOnce({
+    data: { time_entry: reviewEntry(1, 1, { version: 999 }) },
+  })
+  await act(async () => {
+    await result.current.refresh()
+  })
+  expect(result.current.notice).not.toContain('Not saved')
+})
+
+it.each([
+  undefined,
+  {},
+  {
+    review_batch_id: 'bad',
+    undo_expires_at: '2026-11-14T22:00:00Z',
+    approved_count: 1,
+    time_entries: [null],
+  },
+])('retains the key for a 2xx invalid or empty body: %s', async data => {
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce({
+    status: 201,
+    data: data as unknown as ReviewBatch,
+  })
+  const { result } = renderHook(() => useReviewBatch(vi.fn()), { wrapper })
+  await act(async () =>
+    expect(await result.current.approve(items(1), 100, 'Approved')).toBe('unknown'),
+  )
+  expect(result.current.notice).toBe(
+    "We couldn't confirm this shift was approved. Reload before deciding again.",
+  )
+  const key = vi.mocked(approvalsApi.review).mock.calls[0][1]
+  vi.mocked(approvalsApi.review).mockResolvedValueOnce(ok('replay'))
+  await act(async () => {
+    await result.current.approve(items(1), 100, 'Approved')
+  })
+  expect(vi.mocked(approvalsApi.review).mock.calls[1][1]).toBe(key)
+})
+
+it('does not create an empty toast for an Undo with nothing new', async () => {
+  const { result } = renderHook(() => useReviewBatch(vi.fn()), { wrapper })
+  await act(async () => {
+    await result.current.undo([])
+  })
+  expect(screen.getByRole('status').childElementCount).toBe(0)
+  vi.mocked(approvalsApi.undo).mockResolvedValueOnce({ code: 'already_undone', status: 409 })
+  await act(async () => {
+    await result.current.undo([{ id: 'already', count: 1, expiresAt: '2026-11-14T22:00:00Z' }])
+  })
+  expect(screen.getByRole('status').childElementCount).toBe(0)
 })

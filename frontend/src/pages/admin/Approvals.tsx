@@ -39,6 +39,7 @@ import {
   SelectionBar,
   useConfirm,
   useUnsavedChanges,
+  useToast,
 } from '../../components/ui'
 import { useApprovalsQuery } from '../../components/approvals/useApprovalsQuery'
 import { useReviewBatch } from '../../components/approvals/useReviewBatch'
@@ -141,9 +142,24 @@ function ApprovalsInbox() {
   const [extrasError, setExtrasError] = useState<ExtrasError>({})
   const [extrasLoading, setExtrasLoading] = useState(true)
   const [confirm, confirmDialog] = useConfirm()
+  const toast = useToast()
   const changing = useRef(false)
   const params = useMemo(() => pendingParams(query, department), [query, department])
-  const inbox = useApprovalsQuery(params, Boolean(selected.size || review || confirmation))
+  const pruneSelection = useCallback((rows: ReviewEntry[]) => {
+    const ordinaryIds = new Set(rows.filter(isOrdinary).map(row => row.id))
+    setSelected(current => {
+      const retained = new Set([...current].filter(id => ordinaryIds.has(id)))
+      return retained.size === current.size ? current : retained
+    })
+  }, [])
+  const inbox = useApprovalsQuery(
+    params,
+    rows => {
+      const selectedRows = rows.filter(isOrdinary).filter(row => selected.has(row.id))
+      return Boolean(selectedRows.length || review || confirmation)
+    },
+    pruneSelection,
+  )
   const removeApprovedSelection = useCallback((ids: number[]) => {
     setSelected(current => new Set([...current].filter(id => !ids.includes(id))))
   }, [])
@@ -160,7 +176,7 @@ function ApprovalsInbox() {
     setReviewDirty(false)
   }
   const unsaved = useUnsavedChanges({
-    dirty: selected.size > 0 || reviewDirty,
+    dirty: selectedRows.length > 0 || reviewDirty,
     what: 'Approvals',
     onSave: () => {},
     onDiscard: discardChanges,
@@ -228,7 +244,7 @@ function ApprovalsInbox() {
     if (changing.current || batches.busy) return
     changing.current = true
     try {
-      if (selected.size || reviewDirty) {
+      if (selectedRows.length || reviewDirty) {
         const clear = await confirm({
           title: 'Clear your selection?',
           description: 'Changing this view clears the selected shifts and unsaved review note.',
@@ -317,7 +333,8 @@ function ApprovalsInbox() {
     setReviewDirty(false)
     setReview(null)
   }
-  const handleCloseReview = (saved?: boolean) => {
+  const handleCloseReview = (saved?: boolean, message?: string) => {
+    if (message) toast.show({ message })
     void closeReview(saved)
   }
   const approveReviewed = (items: ReviewItem[], label: string) => {

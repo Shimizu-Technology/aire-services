@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PendingApprovalsParams } from '../../lib/api'
-import { approvalsApi, type ApprovalsResponse } from '../../lib/api/approvals'
+import { approvalsApi, type ApprovalsResponse, type ReviewEntry } from '../../lib/api/approvals'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 
-export function useApprovalsQuery(params: PendingApprovalsParams, paused: boolean) {
+export function useApprovalsQuery(
+  params: PendingApprovalsParams,
+  paused: boolean | ((rows: ReviewEntry[]) => boolean),
+  onReloaded?: (rows: ReviewEntry[]) => void,
+) {
   const key = JSON.stringify(params)
   const [result, setResult] = useState<{
     key: string
@@ -27,8 +31,9 @@ export function useApprovalsQuery(params: PendingApprovalsParams, paused: boolea
         ? { key, data: response.data, at: new Date() }
         : { ...current, key, error: response.error || "Couldn't load approvals." },
     )
+    if (response.data) onReloaded?.(response.data.pending_entries)
     setLoading(false)
-  }, [key])
+  }, [key, onReloaded])
   useEffect(() => {
     const counter = generation
     let active = true
@@ -40,8 +45,12 @@ export function useApprovalsQuery(params: PendingApprovalsParams, paused: boolea
       counter.current++
     }
   }, [reload])
+  const pollingPaused =
+    typeof paused === 'function'
+      ? paused(result.key === key ? (result.data?.pending_entries ?? []) : [])
+      : paused
   useEffect(() => {
-    if (paused) return
+    if (pollingPaused) return
     const onFocus = () => {
       if (navigator.onLine) void reload()
     }
@@ -51,7 +60,7 @@ export function useApprovalsQuery(params: PendingApprovalsParams, paused: boolea
       stop()
       window.removeEventListener('focus', onFocus)
     }
-  }, [paused, reload])
+  }, [pollingPaused, reload])
   useEffect(() => {
     if (!loading) return
     const skeleton = window.setTimeout(() => setShowSkeleton(true), 300)

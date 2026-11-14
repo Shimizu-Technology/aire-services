@@ -6,7 +6,11 @@ import LeaveRequestsPanel from '../time-tracking/LeaveRequestsPanel'
 import { SupervisorLeaveRedirect } from '../../pages/admin/AdminRedirects'
 
 vi.mock('../../contexts/AuthContext', () => ({
-  useAuthContext: () => ({ isClerkEnabled: true, userRole: 'manager' }),
+  useAuthContext: () => ({
+    isClerkEnabled: true,
+    userRole: 'manager',
+    currentUser: { id: 3, time_tracking_enabled: true },
+  }),
 }))
 vi.mock('../../lib/api', () => ({
   api: { getLeaveRequests: vi.fn(), createLeaveRequest: vi.fn(), cancelLeaveRequest: vi.fn() },
@@ -31,14 +35,21 @@ export const leaveFixture: LeaveRequest = {
 }
 it('lets a supervisor submit and cancel their own request at mine=1', async () => {
   let current: LeaveRequest | null = null
-  vi.mocked(api.getLeaveRequests).mockImplementation(async status => ({
+  const team = {
+    ...leaveFixture,
+    id: 42,
+    reason: 'Team pending request',
+    user: { ...leaveFixture.user, id: 7, full_name: 'Team Person' },
+  }
+  vi.mocked(api.getLeaveRequests).mockImplementation(async (_status, page) => ({
     data: {
-      leave_requests:
-        current &&
-        (status === 'pending' ? current.status === 'pending' : current.status !== 'pending')
-          ? [current]
-          : [],
-      pagination: { current_page: 1, per_page: 25, total_count: current ? 1 : 0, total_pages: 1 },
+      leave_requests: page === 1 ? [team] : current ? [current] : [],
+      pagination: {
+        current_page: page ?? 1,
+        per_page: 100,
+        total_count: current ? 2 : 1,
+        total_pages: 2,
+      },
     },
   }))
   vi.mocked(api.createLeaveRequest).mockImplementation(async () => {
@@ -59,11 +70,16 @@ it('lets a supervisor submit and cancel their own request at mine=1', async () =
       </SupervisorLeaveRedirect>
     </MemoryRouter>,
   )
-  fireEvent.click(await screen.findByRole('button', { name: 'Request leave' }))
+  await screen.findByRole('heading', { name: 'My requests' })
+  expect(screen.queryByText('Team pending request')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Decline' })).not.toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-12-01' } })
   fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-12-02' } })
   fireEvent.click(screen.getByRole('button', { name: 'Submit request' }))
   expect(await screen.findByRole('button', { name: 'Cancel request' })).toBeEnabled()
+  expect(api.getLeaveRequests).toHaveBeenCalledWith(undefined, 2, 100)
+  expect(screen.queryByText('Team pending request')).not.toBeInTheDocument()
   expect(api.createLeaveRequest).toHaveBeenCalledWith(
     expect.objectContaining({ start_date: '2026-12-01', end_date: '2026-12-02' }),
   )

@@ -120,7 +120,7 @@ it('blocks decisions after an unknown outcome and offers Reload without claiming
   expect(api.getTimeEntry).toHaveBeenCalledWith(7)
 })
 
-it('refuses stale denial, refreshes the sheet, and never sends the denial', async () => {
+it('closes stale denial instead of keeping obsolete review classification', async () => {
   vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
   vi.mocked(api.getTimeEntry).mockResolvedValue({
     data: { time_entry: reviewEntry(7, 1, { version: 18, description: 'New shift facts' }) },
@@ -130,10 +130,13 @@ it('refuses stale denial, refreshes the sheet, and never sends the denial', asyn
   fireEvent.click(screen.getByRole('button', { name: 'Deny…' }))
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Stale note' } })
   fireEvent.click(screen.getByRole('button', { name: 'Deny shift' }))
-  expect(
-    await screen.findByText('This shift changed since you opened it. Nothing was denied.'),
-  ).toBeInTheDocument()
-  expect(screen.getByText('New shift facts')).toBeInTheDocument()
+  await waitFor(() =>
+    expect(config.onClose).toHaveBeenCalledWith(
+      true,
+      'This shift changed since you opened it. Nothing was denied.',
+    ),
+  )
+  expect(screen.queryByText('New shift facts')).not.toBeInTheDocument()
   expect(api.denyTimeEntry).not.toHaveBeenCalled()
   expect(config.onReload).toHaveBeenCalledOnce()
 })
@@ -161,4 +164,50 @@ it('hands the active dialog to the editor and restores review when editing close
   fireEvent.click(screen.getByRole('button', { name: 'Back to review' }))
   expect(screen.getAllByRole('dialog')).toHaveLength(1)
   expect(screen.getByRole('dialog', { name: 'Review Marcus Quinata' })).toBeInTheDocument()
+})
+
+it('closes an unknown decision as Saved when Reload confirms its requested fields', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  const config = props()
+  config.onApprove.mockResolvedValue('unknown')
+  vi.mocked(api.getTimeEntry).mockResolvedValue({
+    data: { time_entry: reviewEntry(7, 1, { version: 18, approval_status: 'approved' }) },
+  })
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Approve time' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+  await waitFor(() => expect(config.onClose).toHaveBeenCalledWith(true, 'Saved'))
+})
+
+it('closes a changed unknown decision without merging stale exceptions or overtime fields', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  const config = props()
+  config.onApprove.mockResolvedValue('unknown')
+  vi.mocked(api.getTimeEntry).mockResolvedValue({
+    data: { time_entry: reviewEntry(7, 1, { version: 18, description: 'Changed after opening' }) },
+  })
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Approve time' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+  await waitFor(() =>
+    expect(config.onClose).toHaveBeenCalledWith(
+      true,
+      'This shift changed since you opened it. Nothing was approved.',
+    ),
+  )
+  expect(screen.queryByText('Changed after opening')).not.toBeInTheDocument()
+})
+
+it('closes a conflicted approval so it must reopen with fresh review fields', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  const config = props()
+  config.onApprove.mockResolvedValue('conflict')
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Approve time' }))
+  await waitFor(() =>
+    expect(config.onClose).toHaveBeenCalledWith(
+      true,
+      'This shift changed since you opened it. Nothing was approved.',
+    ),
+  )
 })
