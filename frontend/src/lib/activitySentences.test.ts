@@ -124,4 +124,28 @@ describe('describeEvent: snapshots kept in details.before and details.after', ()
   it('stays silent for events with nothing recorded, where the summary already says it', () => {
     expect(describeEvent({ action: 'time_entry.approved', actor: ana, subject, changes: {}, details: { review_note: 'ok' } }).sentences).toEqual([])
   })
+
+  it('reads hours stored as numeric strings, as Rails snapshots keep them', () => {
+    const stringBefore = { ...before, hours: '0.0', break_minutes: '0' }
+    const ended = { ...before, end_time: '2026-11-13T07:00:00.000000Z', clock_out_at: '2026-11-13T07:00:00.000000Z', hours: '8.47', break_minutes: '0' }
+    expect(describeEvent({ action: 'time_entry.clock_ended', actor: ana, subject, changes: {}, details: { before: stringBefore, after: ended } }).sentences)
+      .toEqual(['Ana ended the clock at 5:00 PM.', 'The shift is now 8.47 hours and waiting for approval.'])
+    const resubmitted = describeEvent({
+      action: 'time_entry.denied_resubmitted', actor: ana, subject, changes: {},
+      details: { before: { ...ended, hours: '8.47', break_minutes: '0' }, after: { ...ended, hours: '7.5', break_minutes: '30' } },
+    })
+    expect(resubmitted.sentences).toEqual([
+      'Ana changed the shift and sent it back for approval.',
+      'Changes: break from none to 30 minutes.',
+      'Hours changed from 8.47 to 7.5.',
+    ])
+  })
+
+  it('does not call an unchanged string and number the same hours a change', () => {
+    const result = describeEvent({
+      action: 'time_entry.denied_resubmitted', actor: ana, subject, changes: {},
+      details: { before: { ...before, hours: '8.0' }, after: { ...before, hours: 8 } },
+    })
+    expect(result.sentences).toEqual(['Ana changed the shift and sent it back for approval.'])
+  })
 })

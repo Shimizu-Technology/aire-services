@@ -33,6 +33,13 @@ function humanize(field: string) {
   return field.replaceAll('_', ' ').toLowerCase()
 }
 
+/** A number, or a numeric string such as "8.47" (Rails stores decimals as strings in snapshots). */
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string' && /^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(value.trim())) return Number(value)
+  return null
+}
+
 function isPair(value: unknown): value is [unknown, unknown] {
   return Array.isArray(value) && value.length === 2
 }
@@ -83,8 +90,8 @@ function formatValue(field: string, value: unknown): string {
   if (value === null || value === undefined || value === '') return 'not set'
   if ((field === 'start_time' || field === 'end_time') && typeof value === 'string' && ISO_DATETIME.test(value)) return formatTimeOfDay(value)
   if (field === 'work_date' && typeof value === 'string') return formatDay(value)
-  if (field === 'break_minutes' && typeof value === 'number') return formatMinutes(value)
-  if (field === 'hours' && typeof value === 'number') return formatHours(value)
+  if (field === 'break_minutes' && asNumber(value) !== null) return formatMinutes(asNumber(value)!)
+  if (field === 'hours' && asNumber(value) !== null) return formatHours(asNumber(value)!)
   if (field === 'overtime_status' || field === 'approval_status') return STATUS_WORDS[String(value)] ?? String(value)
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   return String(value)
@@ -188,7 +195,10 @@ function snapshotChanges(before: Record<string, unknown>, after: Record<string, 
   const changes: Record<string, { from: unknown; to: unknown }> = {}
   for (const field of SNAPSHOT_FIELDS) {
     if (!(field in before) && !(field in after)) continue
-    if (JSON.stringify(before[field] ?? null) !== JSON.stringify(after[field] ?? null)) changes[field] = { from: before[field] ?? null, to: after[field] ?? null }
+    const numeric = field === 'hours' || field === 'break_minutes'
+    const was = numeric ? asNumber(before[field]) ?? before[field] ?? null : before[field] ?? null
+    const now = numeric ? asNumber(after[field]) ?? after[field] ?? null : after[field] ?? null
+    if (JSON.stringify(was) !== JSON.stringify(now)) changes[field] = { from: before[field] ?? null, to: after[field] ?? null }
   }
   return changes
 }
@@ -235,7 +245,8 @@ export function describeEvent(event: Pick<AuditLogEntry, 'action' | 'actor' | 'c
     const workDate = typeof after?.work_date === 'string' ? after.work_date : null
     const otherDay = stop && workDate && ISO_DATETIME.test(stop) && guamDay(stop) !== workDate ? ` on ${formatDay(guamDay(stop))}` : ''
     sentences.push(stop && ISO_DATETIME.test(stop) ? `${actor} ended the clock at ${formatTimeOfDay(stop)}${otherDay}.` : `${actor} ended the clock.`)
-    if (typeof after?.hours === 'number') sentences.push(`The shift is now ${formatHours(after.hours)} hours and waiting for approval.`)
+    const total = asNumber(after?.hours)
+    if (total !== null) sentences.push(`The shift is now ${formatHours(total)} hours and waiting for approval.`)
     if (reason) sentences.push(`Reason: ${reason.text}`)
   } else if (event.action === 'time_entry.denied_resubmitted') {
     sentences.push(`${actor} changed the shift and sent it back for approval.`, ...changed)
