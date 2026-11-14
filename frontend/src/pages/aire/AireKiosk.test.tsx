@@ -4,7 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import AireKiosk from './AireKiosk'
 
 const authMock = vi.hoisted(() => ({ isClerkEnabled: true, isSignedIn: true, userRole: 'admin' as 'owner' | 'admin' | 'manager' | 'employee' | null }))
-const mocks = vi.hoisted(() => ({ createAdminKioskSession: vi.fn(), getPayrollCutoff: vi.fn(), aireKioskVerify: vi.fn(), aireKioskClockIn: vi.fn(), aireKioskClockOut: vi.fn(), aireKioskStartBreak: vi.fn() }))
+const mocks = vi.hoisted(() => ({ createAdminKioskSession: vi.fn(), getPayrollCutoff: vi.fn(), aireKioskVerify: vi.fn(), aireKioskClockIn: vi.fn(), aireKioskClockOut: vi.fn(), aireKioskStartBreak: vi.fn(), aireKioskSwitchCategory: vi.fn() }))
 vi.mock('../../lib/api', () => ({ api: mocks }))
 const stubMocks = vi.hoisted(() => ({ choices: vi.fn(), request: vi.fn() }))
 vi.mock('../../lib/payStubsApi', async (importOriginal) => {
@@ -448,4 +448,21 @@ it('warns during a pay stub draft and keeps it when typing resumes', async () =>
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send request to the office' })).toBeInTheDocument()
   } finally { vi.useRealTimers() }
+})
+
+it('selecting different work waits for Switch work and confirmation', async () => {
+  const second = { id: 2, name: 'Flight Instruction' }
+  mocks.aireKioskVerify.mockResolvedValue({ data: { employee, kiosk_token: 'token', current_status: working, available_categories: [category, second] } })
+  mocks.aireKioskSwitchCategory.mockResolvedValue({ data: { employee, current_status: { ...working, time_category: second }, available_categories: [category, second], time_entry: { time_category: second } } })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  fireEvent.click(screen.getByRole('radio', { name: second.name }))
+  expect(mocks.aireKioskSwitchCategory).not.toHaveBeenCalled()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Switch work' }))
+  expect(screen.getByRole('alertdialog', { name: 'Switch work to Flight Instruction?' })).toBeInTheDocument()
+  expect(mocks.aireKioskSwitchCategory).not.toHaveBeenCalled()
+  await act(async () => { fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Switch work' })) })
+  expect(mocks.aireKioskSwitchCategory).toHaveBeenCalledWith('access', 'token', 2)
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
 })

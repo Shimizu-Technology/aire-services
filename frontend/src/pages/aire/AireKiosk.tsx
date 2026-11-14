@@ -336,6 +336,7 @@ export default function AireKiosk() {
     }
 
     if (action === 'switch_category' && !confirmed) {
+      setSuccess(null)
       setConfirmSwitch(true)
       return
     }
@@ -343,6 +344,7 @@ export default function AireKiosk() {
     const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
     if (action === 'clock_out' && !confirmed && since && needsClockOutConfirm(since)) {
       bumpIdleTimer()
+      setSuccess(null)
       setConfirmClockOut(true)
       return
     }
