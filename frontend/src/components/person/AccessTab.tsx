@@ -9,10 +9,12 @@ import { RoleCards } from './RoleCards'
 import { usePersonEdit } from './usePersonEdit'
 import { EditError } from './EditError'
 
-export function AccessTab({ user, myPayForEveryone, myPayError, onResetPin, onDelete, onSaved }: {
+export function AccessTab({ user: incomingUser, myPayForEveryone, myPayError, onResetPin, onDelete, onSaved }: {
   user: AdminUser; myPayForEveryone: boolean | null; myPayError: string | null; onResetPin?: () => void; onDelete: () => void; onSaved: (user: AdminUser, pin?: string | null) => void
 }) {
   const { currentUser, userRole } = useAuthContext()
+  // An external save must not replace a draft or advance the version it edits.
+  const [user, setUser] = useState(incomingUser)
   const [role, setRole] = useState(user.role)
   const [personal, setPersonal] = useState(user.personal_access_enabled)
   const [email, setEmail] = useState(user.email || '')
@@ -22,12 +24,13 @@ export function AccessTab({ user, myPayForEveryone, myPayError, onResetPin, onDe
   const [sendInvite, setSendInvite] = useState(false)
   const [notice, setNotice] = useState('')
   const [resending, setResending] = useState(false)
-  const edit = usePersonEdit(user, onSaved)
+  const reset = (next: AdminUser) => { setRole(next.role); setPersonal(next.personal_access_enabled); setEmail(next.email || ''); setMyPay(Boolean(next.my_pay_enabled)); setFirst(next.first_name || ''); setLast(next.last_name || ''); setSendInvite(false) }
+  const edit = usePersonEdit(user, (next, pin) => { setUser(next); reset(next); onSaved(next, pin) })
   const ended = user.employment_status === 'terminated'
   const self = currentUser?.id === user.id
   const accessLocked = user.can_change_access === false || ended
   const dirty = (!personal && (first !== (user.first_name || '') || last !== (user.last_name || ''))) || sendInvite || role !== user.role || personal !== user.personal_access_enabled || email !== (user.email || '') || myPay !== Boolean(user.my_pay_enabled)
-  const discard = () => { setRole(user.role); setPersonal(user.personal_access_enabled); setEmail(user.email || ''); setMyPay(Boolean(user.my_pay_enabled)); setFirst(user.first_name || ''); setLast(user.last_name || ''); setSendInvite(false); edit.setError('') }
+  const discard = () => { reset(user); edit.clearError() }
   const save = () => void edit.save({ role, personal_access_enabled: personal, ...(email !== (user.email || '') ? { email: email.trim() || null } : {}), my_pay_enabled: myPay, send_invitation: personal && sendInvite,
     ...(!personal ? { first_name: first.trim(), last_name: last.trim() } : {}) })
   const unsaved = useUnsavedChanges({ dirty, onSave: save, onDiscard: discard, saving: edit.saving,

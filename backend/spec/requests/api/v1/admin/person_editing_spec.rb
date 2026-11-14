@@ -187,6 +187,32 @@ RSpec.describe "Versioned person editing and employment", type: :request do
     expect(AuditLog.where(auditable: worker).order(:id).last.changes_made).to include("public_team_photo" => [ blob_id, nil ])
   end
 
+  it "versions and audits legacy photo uploads and removals so stale Employment drafts cannot overwrite them" do
+    post "/api/v1/admin/users/#{worker.id}/public_team_photo", params: { photo: fixture_file_upload("team_photo.png", "image/png") }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(worker.reload.admin_edit_version).to eq(1)
+    blob_id = worker.public_team_photo.blob.id
+    expect(AuditLog.where(auditable: worker).map(&:changes_made)).to include(include("public_team_photo" => [ nil, blob_id ]))
+    edit(worker, { remove_photo: true, staff_title: "Stale" }, version: 0)
+    expect(response).to have_http_status(:conflict)
+    expect(worker.reload.public_team_photo.blob.id).to eq(blob_id)
+    expect(worker.staff_title).to be_nil
+
+    delete "/api/v1/admin/users/#{worker.id}/public_team_photo", headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(worker.reload.admin_edit_version).to eq(2)
+    expect(worker.public_team_photo).not_to be_attached
+    expect(AuditLog.where(auditable: worker).map(&:changes_made)).to include(include("public_team_photo" => [ blob_id, nil ]))
+    edit(worker, { staff_title: "Also stale" }, version: 1)
+    expect(response).to have_http_status(:conflict)
+    expect(worker.reload.staff_title).to be_nil
+
+    post "/api/v1/admin/users/#{worker.id}/public_team_photo", params: { admin_edit_version: 1, photo: fixture_file_upload("team_photo.png", "image/png") }, headers: headers
+    expect(response).to have_http_status(:conflict)
+    expect(worker.reload.admin_edit_version).to eq(2)
+    expect(worker.public_team_photo).not_to be_attached
+  end
+
   it "rejects invalid photo or bio without saving the rest of Employment" do
     patch "/api/v1/admin/users/#{worker.id}", params: {
       person_edit: { admin_edit_version: 0, staff_title: "Must not save" }.to_json,

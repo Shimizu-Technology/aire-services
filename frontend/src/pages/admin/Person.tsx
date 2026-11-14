@@ -218,7 +218,7 @@ export default function Person() {
           if (tab === 'access') {
             return (
               <AccessTab
-                key={`${user.id}:${user.admin_edit_version}:access`}
+                key={`${user.id}:access`}
                 user={user}
                 onSaved={(next, pin) => { if (personKey) setLatest({ key: personKey, user: next }); if (pin) setGeneratedPin(pin) }}
                 myPayForEveryone={myPayForEveryone}
@@ -228,7 +228,7 @@ export default function Person() {
               />
             )
           }
-          if (tab === 'employment') return <EmploymentTab key={`${user.id}:${user.admin_edit_version}:employment`} user={user} onSaved={(next, pin) => { if (personKey) setLatest({ key: personKey, user: next }); if (pin) setGeneratedPin(pin) }} />
+          if (tab === 'employment') return <EmploymentTab key={`${user.id}:employment`} user={user} onSaved={(next, pin) => { if (personKey) setLatest({ key: personKey, user: next }); if (pin) setGeneratedPin(pin) }} />
           return (
             <OverviewTab
               user={user}

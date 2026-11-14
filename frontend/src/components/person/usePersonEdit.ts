@@ -9,6 +9,11 @@ export function usePersonEdit(user: AdminUser, onSaved: (user: AdminUser, pin?: 
   const [error, setError] = useState('')
   const [conflict, setConflict] = useState(false)
   const toast = useToast()
+  const fail = (message: string, status?: number) => {
+    setError(message)
+    if (status === 409) setConflict(true)
+  }
+  const clearError = () => { if (!conflict) setError('') }
   const save = async (edit: Omit<PersonEdit, 'admin_edit_version'>, photo?: File | null) => {
     if (saving || conflict) return
     setSaving(true)
@@ -16,8 +21,7 @@ export function usePersonEdit(user: AdminUser, onSaved: (user: AdminUser, pin?: 
     const response = await peopleApi.save(user.id, { ...edit, admin_edit_version: user.admin_edit_version ?? 0 }, photo)
     setSaving(false)
     if (!response.data) {
-      setError(response.error || "Couldn't save this person.")
-      setConflict(response.status === 409)
+      fail(response.error || "Couldn't save this person.", response.status)
       return
     }
     onSaved(response.data.user, response.data.kiosk_pin)
@@ -28,7 +32,7 @@ export function usePersonEdit(user: AdminUser, onSaved: (user: AdminUser, pin?: 
     const response = await peopleApi.person(user.id)
     setSaving(false)
     if (response.data) { setConflict(false); setError(''); onSaved(response.data.user) }
-    else setError(response.error || "Couldn't reload this person.")
+    else if (!conflict) setError(response.error || "Couldn't reload this person.")
   }
-  return { saving, conflict, save, error, setError, reload }
+  return { saving, conflict, save, error, clearError, fail, reload }
 }

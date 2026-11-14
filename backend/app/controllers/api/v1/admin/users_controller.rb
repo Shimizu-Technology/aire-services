@@ -384,15 +384,29 @@ module Api
 
           validate_media_upload!(upload, media_type: "image", attachment_name: :photo)
 
-          replaced_blob = @user.public_team_photo.blob if @user.public_team_photo.attached?
-          @user.public_team_photo.attach(upload)
+          replaced_blob = nil
+          with_admin_transition_lock_if_needed do
+            AdminPersonEdit.check!(@user, params[:admin_edit_version]) if params.key?(:admin_edit_version)
+            replaced_blob = @user.public_team_photo.blob if @user.public_team_photo.attached?
+            params[:photo] = upload
+            save_person_photo!
+            @user.update!(admin_edit_version: @user.admin_edit_version + 1)
+          end
           replaced_blob&.purge_later
 
           render json: { user: serialize_user(@user.reload) }
         end
 
         def destroy_public_team_photo
-          @user.public_team_photo.purge_later if @user.public_team_photo.attached?
+          removed_blob = nil
+          with_admin_transition_lock_if_needed do
+            AdminPersonEdit.check!(@user, params[:admin_edit_version]) if params.key?(:admin_edit_version)
+            removed_blob = @user.public_team_photo.blob if @user.public_team_photo.attached?
+            params[:remove_photo] = true
+            save_person_photo!
+            @user.update!(admin_edit_version: @user.admin_edit_version + 1)
+          end
+          removed_blob&.purge_later
 
           render json: { user: serialize_user(@user.reload) }
         end

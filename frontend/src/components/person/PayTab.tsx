@@ -14,6 +14,7 @@ import { Skeleton } from '../ui/Skeleton'
 import { PeriodEvidence } from './PeriodEvidence'
 import { firstName } from './personFormat'
 import { useLoadable } from './useLoadable'
+import { EditError } from './EditError'
 
 const PERIOD_PAGE = '12'
 const RECENT_PAYCHECKS = 6
@@ -62,6 +63,7 @@ export function PayTab({ user, today, myPayForEveryone, myPayError, onRetryMyPay
   const [searchParams] = useSearchParams()
   const first = firstName(user)
   const [saving, setSaving] = useState(false)
+  const [conflict, setConflict] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [retry, setRetry] = useState({ paychecks: 0, periods: 0 })
   const [older, setOlder] = useState<{ key: string; periods: EvidencePeriod[]; next: string | null; loading: boolean; error: string | null } | null>(null)
@@ -109,12 +111,27 @@ export function PayTab({ user, today, myPayForEveryone, myPayError, onRetryMyPay
   )
 
   const toggleMyPay = async (enabled: boolean) => {
+    if (saving || conflict) return
     setSaving(true)
     setSaveError(null)
     const response = await peopleApi.setMyPay(user.id, enabled, user.admin_edit_version ?? 0)
     setSaving(false)
     if (response.data) onUserChange({ ...user, my_pay_enabled: response.data.my_pay_enabled, admin_edit_version: response.data.admin_edit_version })
-    else setSaveError(response.error || `My Pay wasn't changed for ${first}. Try again.`)
+    else {
+      setSaveError(response.error || `My Pay wasn't changed for ${first}. Try again.`)
+      if (response.status === 409) setConflict(true)
+    }
+  }
+
+  const reloadPerson = async () => {
+    setSaving(true)
+    const response = await peopleApi.person(user.id)
+    setSaving(false)
+    if (response.data) {
+      onUserChange(response.data.user)
+      setConflict(false)
+      setSaveError(null)
+    }
   }
 
   const toggleDetails = (id: string) => setOpen((previous) => {
@@ -153,11 +170,11 @@ export function PayTab({ user, today, myPayForEveryone, myPayError, onRetryMyPay
                 checked={Boolean(user.my_pay_enabled)}
                 onChange={(checked) => void toggleMyPay(checked)}
                 busy={saving}
-                disabled={!user.is_active || myPayForEveryone === null}
+                disabled={conflict || !user.is_active || myPayForEveryone === null}
               />
             )}
           </div>
-          {saveError && <p role="alert" className="mt-2 text-body-sm text-danger">{saveError}</p>}
+          <EditError error={saveError || ''} conflict={conflict} busy={saving} onReload={() => void reloadPerson()} />
         </Section>
       )}
 

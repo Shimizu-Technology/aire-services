@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../../components/ui'
@@ -348,6 +348,46 @@ describe('Pay tab', () => {
     fireEvent.click(await screen.findByRole('radio', { name: /^Manager/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/admin/users/7', expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"admin_edit_version":1') })))
+  })
+
+  it('requires reload after a My Pay conflict, then retries with the new version', async () => {
+    apiMock.setUserMyPay.mockResolvedValueOnce({ error: 'Nothing was saved. Reload to see their changes.', status: 409 })
+    open('/admin/users/7?tab=pay')
+    const toggle = await screen.findByRole('switch', { name: 'My Pay' })
+    await waitFor(() => expect(toggle).toBeEnabled())
+    fireEvent.click(toggle)
+    await screen.findByRole('button', { name: 'Reload person' })
+    expect(toggle).toBeDisabled()
+    fireEvent.click(toggle)
+    expect(apiMock.setUserMyPay).toHaveBeenCalledTimes(1)
+    person = makeUser({ admin_edit_version: 3 })
+    fireEvent.click(screen.getByRole('button', { name: 'Reload person' }))
+    await waitFor(() => expect(toggle).toBeEnabled())
+    fireEvent.click(toggle)
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/admin/users/7/my_pay', { method: 'PATCH', body: JSON.stringify({ enabled: true, admin_edit_version: 3 }) })
+  })
+
+  it.each(['Access', 'Employment'])('retains the %s draft and its loaded version when a deferred Pay save completes', async (tab) => {
+    let complete!: (value: unknown) => void
+    apiMock.setUserMyPay.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    open('/admin/users/7?tab=pay')
+    const toggle = await screen.findByRole('switch', { name: 'My Pay' })
+    await waitFor(() => expect(toggle).toBeEnabled())
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('tab', { name: tab }))
+    if (tab === 'Access') fireEvent.click(await screen.findByRole('radio', { name: /^Manager/ }))
+    else fireEvent.change(await screen.findByRole('textbox', { name: 'Job title' }), { target: { value: 'Draft survives' } })
+    await act(async () => complete({ data: { my_pay_enabled: true, admin_edit_version: 1 } }))
+    if (tab === 'Access') expect(screen.getByRole('radio', { name: /^Manager/ })).toBeChecked()
+    else expect(screen.getByRole('textbox', { name: 'Job title' })).toHaveValue('Draft survives')
+    expect(screen.getByRole('region', { name: 'Unsaved changes' })).toBeInTheDocument()
+    fetchMock.mockResolvedValueOnce({ error: 'Nothing was saved. Reload to see their changes.', status: 409 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByRole('button', { name: 'Reload person' })
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/admin/users/7', expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"admin_edit_version":0') }))
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 
   it("reports a failed My Pay change without pretending it changed", async () => {
