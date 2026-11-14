@@ -24,13 +24,13 @@ const open = () =>
   render(
     <MemoryRouter initialEntries={['/admin/my-hours?period=2026-11-01']}>
       <MyHours />
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
 it('shows paid status only when the payload confirms it', () => {
   const period = { start: '2026-11-01', end: '2026-11-15' }
   const view = render(
-    <HoursSummary period={period} entries={[shift({ approval_status: 'approved' })]} />
+    <HoursSummary period={period} entries={[shift({ approval_status: 'approved' })]} />,
   )
   expect(screen.queryByText(/^Paid /)).not.toBeInTheDocument()
   view.rerender(
@@ -47,7 +47,7 @@ it('shows paid status only when the payload confirms it', () => {
           },
         }),
       ]}
-    />
+    />,
   )
   expect(screen.getByText('Paid Wed, Nov 25')).toBeInTheDocument()
 })
@@ -68,22 +68,48 @@ it('Ask for a fix sends the existing employee edit and its reason', async () => 
     expect(update).toHaveBeenCalledWith(
       41,
       expect.objectContaining({ end_time: '11:30', expected_version: 2 }),
-      'Phone died before I stopped.'
-    )
+      'Phone died before I stopped.',
+    ),
   )
   expect(await screen.findByText(/Your time was saved/)).toBeInTheDocument()
 })
 
+it('can correct a one-minute shift without rewriting its original punch times', async () => {
+  vi.mocked(myTimeApi.entries).mockResolvedValue({
+    data: [
+      shift({
+        start_time: '12:25',
+        end_time: '12:26',
+        hours: 0.01,
+        formatted_start_time: '12:25 PM',
+        formatted_end_time: '12:26 PM',
+      }),
+    ],
+  })
+  const update = vi
+    .spyOn(api, 'updateTimeEntry')
+    .mockResolvedValue({ data: { time_entry: shift() }, status: 200 })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /12:25 PM/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Ask for a fix' }))
+  fireEvent.change(screen.getByLabelText(/What happened/), {
+    target: { value: 'Wrong work type.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  await waitFor(() => expect(update).toHaveBeenCalled())
+  expect(update.mock.calls[0][1]).not.toHaveProperty('start_time')
+  expect(update.mock.calls[0][1]).not.toHaveProperty('end_time')
+  expect(update.mock.calls[0][1]).not.toHaveProperty('review_action')
+})
+
 it('adds forgotten time for the viewer without accepting another user id', async () => {
-  const create = vi
-    .spyOn(api, 'createTimeEntry')
-    .mockResolvedValue({
-      data: { time_entry: shift({ entry_method: 'manual' }) },
-      status: 201,
-    })
+  const create = vi.spyOn(api, 'createTimeEntry').mockResolvedValue({
+    data: { time_entry: shift({ entry_method: 'manual' }) },
+    status: 201,
+  })
   open()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add time I forgot to clock' })
+    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
   )
   expect(screen.queryByRole('combobox', { name: 'Who worked' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
@@ -97,7 +123,7 @@ it('holds a forgotten-time form after an uncertain save', async () => {
     .mockResolvedValue({ error: 'Lost reply', status: 502 })
   open()
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Add time I forgot to clock' })
+    await screen.findByRole('button', { name: 'Add time I forgot to clock' }),
   )
   fireEvent.click(screen.getByRole('button', { name: /Add 9.0h for approval/ }))
   expect(await screen.findByRole('alert')).toHaveTextContent('check My Hours')

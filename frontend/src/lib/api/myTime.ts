@@ -32,7 +32,17 @@ export const myTimeApi = {
     api.updateTimeEntry(
       entry.id,
       {
-        ...change,
+        ...(change.start_time !== entry.start_time
+          ? { start_time: change.start_time }
+          : {}),
+        ...(change.end_time !== entry.end_time ? { end_time: change.end_time } : {}),
+        ...(change.break_minutes !== entry.break_minutes
+          ? { break_minutes: change.break_minutes }
+          : {}),
+        ...(change.time_category_id !== entry.time_category?.id
+          ? { time_category_id: change.time_category_id }
+          : {}),
+        ...(change.breaks ? { breaks: change.breaks } : {}),
         expected_version: entry.version,
         description: [change.description, `Requested fix: ${reason}`]
           .filter(Boolean)

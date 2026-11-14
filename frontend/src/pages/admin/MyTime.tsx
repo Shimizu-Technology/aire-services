@@ -344,6 +344,7 @@ export default function MyTime() {
           <ClockActions>
             <Button
               fullWidth
+              variant={lastOut && !status.clocked_in ? 'secondary' : 'primary'}
               className="min-h-14"
               loading={busy}
               icon={<Loader2 className="invisible size-4" />}

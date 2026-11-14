@@ -2,10 +2,16 @@ import { useState, type FormEvent } from 'react'
 import type { TimeEntry } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
 import { outcomeUnknown } from '../../lib/api/timecards'
-import { guamClock, manualShiftHours } from '../../lib/timecards'
+import { guamClock } from '../../lib/timecards'
 import { todayInGuam } from '../../lib/payPeriods'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { Button, Field, Input, Select, Sheet, Textarea } from '../ui'
+
+function minutesBetween(start: string, end: string) {
+  const minutes = (time: string) =>
+    Number(time.slice(0, 2)) * 60 + Number(time.slice(3))
+  return (minutes(end) - minutes(start) + 1440) % 1440
+}
 
 export function ShiftForm({
   entry,
@@ -34,10 +40,7 @@ export function ShiftForm({
   )
   const detailedBreaks = !!entry?.breaks.length
   const totalBreakMinutes = detailedBreaks
-    ? breaks.reduce(
-        (sum, row) => sum + manualShiftHours(row.start_time, row.end_time, 0) * 60,
-        0,
-      )
+    ? breaks.reduce((sum, row) => sum + minutesBetween(row.start_time, row.end_time), 0)
     : breakMinutes
   const [category, setCategory] = useState(
     entry?.time_category?.id ?? categories[0]?.id ?? 0,
@@ -46,7 +49,14 @@ export function ShiftForm({
   const [saving, setSaving] = useState(false)
   const [uncertain, setUncertain] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const hours = manualShiftHours(start, end, totalBreakMinutes)
+  const unchangedTime =
+    entry &&
+    start === entry.start_time &&
+    end === entry.end_time &&
+    totalBreakMinutes === (entry.break_minutes ?? 0)
+  const hours = unchangedTime
+    ? entry.hours
+    : Math.max(0, (minutesBetween(start, end) - totalBreakMinutes) / 60)
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!online || saving || uncertain) return

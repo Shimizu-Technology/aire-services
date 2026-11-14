@@ -10,6 +10,7 @@ import {
   todayInGuam,
 } from '../../lib/payPeriods'
 import { timecardDays } from '../../lib/timecards'
+import { isIsoDate } from '../../lib/payrollPeriods'
 import { weeksAround, withOvertimeHours } from '../../lib/myTime'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import { HoursSummary } from '../../components/myhours/HoursSummary'
@@ -27,11 +28,8 @@ import {
 export default function MyHours() {
   const { currentUser } = useAuthContext()
   const [params, setParams] = useSearchParams()
-  const date = params.get('period')
-  const period =
-    date && /^\d{4}-\d{2}-(01|16)$/.test(date)
-      ? payPeriodContaining(date)
-      : currentPayPeriod()
+  const date = params.get('period') ?? params.get('date') ?? params.get('start_date')
+  const period = isIsoDate(date) ? payPeriodContaining(date) : currentPayPeriod()
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [categories, setCategories] = useState<TimeCategory[]>([])
   const [people, setPeople] = useState<UserSummary[]>([])
@@ -218,6 +216,12 @@ export default function MyHours() {
                                   ? 'Declined'
                                   : 'Waiting for approval')}
                         </StatusPill>
+                        {entry.approval_status === 'pending' &&
+                          entry.payroll_status?.label !== 'Waiting for approval' && (
+                            <p className="text-body-sm text-amber-900">
+                              Waiting for approval
+                            </p>
+                          )}
                         {entry.overtime_status === 'pending' && (
                           <p className="text-body-sm text-amber-900">
                             {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime

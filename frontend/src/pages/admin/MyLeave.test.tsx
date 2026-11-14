@@ -31,7 +31,7 @@ const open = () =>
   render(
     <MemoryRouter>
       <MyLeave />
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
 it('sends a leave request, preserving the half-day instruction', async () => {
@@ -39,6 +39,9 @@ it('sends a leave request, preserving the half-day instruction', async () => {
     .spyOn(api, 'createLeaveRequest')
     .mockResolvedValue({ data: { leave_request: request }, status: 201 })
   open()
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Request time off' })).toBeEnabled(),
+  )
   fireEvent.click(await screen.findByRole('button', { name: 'Request time off' }))
   fireEvent.change(screen.getByLabelText(/Start date/), {
     target: { value: '2026-12-04' },
@@ -54,20 +57,18 @@ it('sends a leave request, preserving the half-day instruction', async () => {
       start_date: '2026-12-04',
       end_date: '2026-12-04',
       reason: 'Half day requested.\nMorning appointment',
-    })
+    }),
   )
   expect(
-    await screen.findByText('Your request was sent for approval.')
+    await screen.findByText('Your request was sent for approval.'),
   ).toBeInTheDocument()
 })
 
 it('cancels only a pending request owned by the viewer', async () => {
-  const cancel = vi
-    .spyOn(api, 'cancelLeaveRequest')
-    .mockResolvedValue({
-      data: { leave_request: { ...request, status: 'cancelled' } },
-      status: 200,
-    })
+  const cancel = vi.spyOn(api, 'cancelLeaveRequest').mockResolvedValue({
+    data: { leave_request: { ...request, status: 'cancelled' } },
+    status: 200,
+  })
   open()
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel request' }))
   await waitFor(() => expect(cancel).toHaveBeenCalledWith(9))

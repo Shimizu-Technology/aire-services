@@ -27,7 +27,11 @@ export function withOvertimeHours(entries: TimeEntry[]) {
   const overtime = new Map<number, number>()
   const segments = entries
     .filter(
-      (entry) => entry.status === 'completed' && entry.approval_status !== 'denied',
+      (entry) =>
+        entry.status === 'completed' &&
+        (entry.approval_status === 'approved' ||
+          entry.approval_status === 'pending' ||
+          (entry.entry_method === 'clock' && entry.approval_status == null)),
     )
     .flatMap((entry) => entrySegments(entry).map((segment) => ({ ...segment, entry })))
     .sort(
@@ -121,6 +125,7 @@ export function periodTotals(entries: TimeEntry[], period: PayPeriod) {
 
 /** Only a paid payload with a pay date can label the whole period Paid. */
 export function periodPaidDate(entries: TimeEntry[]) {
+  if (entries.some((entry) => entry.status !== 'completed')) return null
   const completed = entries.filter(
     (entry) => entry.status === 'completed' && entry.hours > 0,
   )
