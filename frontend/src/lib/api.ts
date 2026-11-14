@@ -1991,10 +1991,10 @@ export const api = {
       body: JSON.stringify({ entry_ids: entryIds, ...(note ? { note } : {}) }),
     }),
 
-  denyTimeEntry: (id: number, note?: string) =>
+  denyTimeEntry: (id: number, note?: string, expectedVersion?: number) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/deny`, {
       method: 'POST',
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ note, expected_version: expectedVersion }),
     }),
 
   approveOvertime: (id: number, note?: string) =>
@@ -2003,10 +2003,10 @@ export const api = {
       body: JSON.stringify({ note }),
     }),
 
-  denyOvertime: (id: number, note?: string) =>
+  denyOvertime: (id: number, note?: string, expectedVersion?: number) =>
     fetchApi<{ time_entry: TimeEntry }>(`/api/v1/time_entries/${id}/deny_overtime`, {
       method: 'POST',
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ note, expected_version: expectedVersion }),
     }),
 
   getHoursReport: (params: HoursReportParams) => {

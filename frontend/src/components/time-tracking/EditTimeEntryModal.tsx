@@ -122,6 +122,7 @@ export default function EditTimeEntryModal({
   const [breakRows, setBreakRows] = useState<Array<{ id?: number; start_time: string; end_time: string }>>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [needsReload, setNeedsReload] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [correctionReasonRequired, setCorrectionReasonRequired] = useState(false)
   const [correctionReason, setCorrectionReason] = useState('')
@@ -152,6 +153,7 @@ export default function EditTimeEntryModal({
         end_time: timeInputValue(row.end_time),
       }))
       .filter((row) => row.start_time && row.end_time))
+    setNeedsReload(false)
     setReviewAction(null)
     setStopDate(entry.work_date)
     setError(null)
@@ -187,7 +189,7 @@ export default function EditTimeEntryModal({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!entry) return
+    if (!entry || needsReload) return
     if ((!isActiveClockEntry || reviewAction === 'end_clock') && !formData.time_category_id) {
       setLocalError('Choose a work category before saving this time entry')
       return
@@ -246,9 +248,14 @@ export default function EditTimeEntryModal({
         return
       }
 
-      const response = await api.updateTimeEntry(entry.id, payload, correctionReason || undefined)
+      const response = await api.updateTimeEntry(entry.id, { ...payload, ...(entry.version != null ? { expected_version: entry.version } : {}) }, correctionReason || undefined)
 
       if (response.error) {
+        if (response.status === 409 && response.code === 'stale_entry') {
+          setNeedsReload(true)
+          setLocalError('This shift changed since you opened it. Nothing was saved.')
+          return
+        }
         if (response.code === 'correction_reason_required') {
           setCorrectionReasonRequired(true)
           setExportReferences(response.export_references || [])
@@ -363,7 +370,7 @@ export default function EditTimeEntryModal({
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <fieldset disabled={saving || deleting}>
+                <fieldset disabled={saving || deleting || needsReload}>
                 {supervisorEdit && (isActiveClockEntry || entry.approval_status === 'denied') && (
                   <div className="mb-4 rounded-xl border border-cyan-200 bg-cyan-50 p-3">
                     <label className="flex items-start gap-2 text-sm font-semibold text-cyan-900">
@@ -596,8 +603,13 @@ export default function EditTimeEntryModal({
                 </fieldset>
 
                 {error && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                  <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                     {error}
+                    {needsReload && (
+                      <button type="button" className="mt-2 block underline" onClick={async () => { await onSaved(); onClose() }}>
+                        Reload this shift
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -606,7 +618,7 @@ export default function EditTimeEntryModal({
                     <button
                       type="button"
                       onClick={handleDelete}
-                      disabled={!canDelete || deleting || saving}
+                      disabled={!canDelete || deleting || saving || needsReload}
                       className={`rounded-lg px-4 py-2 transition-colors ${
                         canDelete ? 'text-red-600 hover:bg-red-50' : 'cursor-not-allowed text-gray-300'
                       }`}
@@ -626,7 +638,7 @@ export default function EditTimeEntryModal({
                     </button>
                     <button
                       type="submit"
-                      disabled={saving || deleting}
+                      disabled={saving || deleting || needsReload}
                       className="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
                     >
                       {saving ? 'Saving...' : reviewAction === 'end_clock' ? 'End clock and submit' : reviewAction === 'resubmit_denied' ? 'Submit for review' : 'Update'}

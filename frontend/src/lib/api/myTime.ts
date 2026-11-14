@@ -80,6 +80,7 @@ export const myTimeApi = {
     api.updateTimeEntry(
       entry.id,
       {
+        expected_version: entry.version,
         ...(change.start_time !== entry.start_time
           ? { start_time: change.start_time }
           : {}),
