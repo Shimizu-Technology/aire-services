@@ -1,3 +1,6 @@
+import { clockTime, needsClockOutConfirm, workedMilliseconds } from '../../lib/myTime'
+import { formatElapsed } from '../../lib/formatElapsed'
+import { Button, Sheet } from '../../components/ui'
 import { outcomeUnknown } from '../../lib/api/timecards'
 import { LiveTimer } from '../../components/ui/LiveTimer'
 import { ClockActions } from '../../components/clock/ClockActions'
@@ -72,6 +75,10 @@ export default function AireKiosk() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
   const [status, setStatus] = useState<ClockStatus | null>(null)
   const [loading, setLoading] = useState(false)
+  const [confirmClockOut, setConfirmClockOut] = useState(false)
+  const [actionsCooling, setActionsCooling] = useState(false)
+  const coolingUntil = useRef(0)
+  const inFlight = useRef(false)
   const [actionLoading, setActionLoading] = useState<KioskAction | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -115,6 +122,10 @@ export default function AireKiosk() {
   const canViewKiosk = canUnlockKiosk || kioskUnlocked
 
   const clearSession = useCallback(() => {
+    inFlight.current = false
+    coolingUntil.current = 0
+    setActionsCooling(false)
+    setConfirmClockOut(false)
     sessionGeneration.current += 1
     verifiedPinRef.current = ''
     warningRequestRef.current += 1
@@ -188,6 +199,17 @@ export default function AireKiosk() {
     }
   }, [clearSession, success])
 
+  useEffect(() => {
+    if (!actionsCooling) return
+    const timer = setTimeout(() => setActionsCooling(false), Math.max(0, coolingUntil.current - Date.now()))
+    return () => clearTimeout(timer)
+  }, [actionsCooling])
+
+  const pauseActions = () => {
+    coolingUntil.current = Date.now() + 1500
+    setActionsCooling(true)
+  }
+
   const applyResponse = (response: AireKioskActionResponse, forceCategory = false) => {
     setEmployee(response.employee)
     setStatus(response.current_status)
@@ -239,7 +261,13 @@ export default function AireKiosk() {
     setError(null)
     setSuccess(null)
 
+    const generation = sessionGeneration.current
     const result = await api.aireKioskVerify(pin, kioskAccessToken || '')
+    if (generation !== sessionGeneration.current) return
+    if (isClerkEnabled && kioskAccessSession && new Date(kioskAccessSession.expiresAt).getTime() <= Date.now()) {
+      clearExpiredKioskAccessSession()
+      return
+    }
     if (result.error || !result.data) {
       setError(result.error || 'PIN verification failed.')
       if (result.error?.match(/kiosk is locked/i)) {
@@ -265,7 +293,8 @@ export default function AireKiosk() {
     void requestCutoffNotice(result.data.kiosk_token)
   }
 
-  const runAction = async (action: KioskAction) => {
+  const runAction = async (action: KioskAction, confirmed = false) => {
+    if (inFlight.current || Date.now() < coolingUntil.current) return
     if (!kioskUnlocked) {
       setError('Kiosk is locked. Ask a manager or admin to unlock it first.')
       return
@@ -285,6 +314,14 @@ export default function AireKiosk() {
       setError('Choose a work category before clocking in.')
       return
     }
+
+    const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
+    if (action === 'clock_out' && !confirmed && since && needsClockOutConfirm(since)) {
+      setConfirmClockOut(true)
+      return
+    }
+    setConfirmClockOut(false)
+    inFlight.current = true
 
     warningRequestRef.current += 1
     setCutoffNotice(null)
@@ -311,29 +348,48 @@ export default function AireKiosk() {
     const result = await request
     if (generation !== sessionGeneration.current) return
     if (result.error || !result.data) {
-      if (outcomeUnknown(result) || !result.error) {
-        // Verify is the kiosk's existing status read. Never retry a punch whose
-        // response may have been lost after the server saved it.
-        const refreshed = await api.aireKioskVerify(verifiedPinRef.current, kioskAccessToken || '')
-        if (generation !== sessionGeneration.current) return
-        if (!refreshed.data || refreshed.error) {
-          clearSession()
-          setError('Could not check your clock status. Enter your PIN again before trying another action.')
-          return
+      const unknown = outcomeUnknown(result) || !result.error
+      // Every refusal refreshes stale kiosk state; uncertain writes are never retried.
+      const refreshed = await api.aireKioskVerify(verifiedPinRef.current, kioskAccessToken || '')
+      if (generation !== sessionGeneration.current) return
+      if (!refreshed.data || refreshed.error) {
+        if (refreshed.error?.match(/kiosk is locked/i)) {
+          window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+          setKioskAccessSession(null)
         }
-        setStatus(refreshed.data.current_status)
-        setKioskToken(refreshed.data.kiosk_token)
-        setCategories(refreshed.data.available_categories)
-        setSelectedCategoryId(refreshed.data.current_status.time_category?.id ?? null)
-        setError('The response was lost. Your clock status has been checked. Review it before trying again.')
-      } else {
-        setError(result.error || `${formatActionLabel(action)} failed.`)
+        clearSession()
+        setError('Could not check your clock status. Enter your PIN again before trying another action.')
+        return
       }
+      if (refreshed.data.employee.id !== employee.id) {
+        clearSession()
+        return
+      }
+      const current = refreshed.data.current_status
+      const changed = current.clocked_in !== status?.clocked_in || current.status !== status?.status
+        || current.entry_id !== status?.entry_id || current.time_category?.id !== status?.time_category?.id
+      if (changed) {
+        window.dispatchEvent(new Event('aire:clock-action'))
+        pauseActions()
+      }
+      setStatus(current)
+      setKioskToken(refreshed.data.kiosk_token)
+      setCategories(refreshed.data.available_categories)
+      setSelectedCategoryId(previous => (refreshed.data!.available_categories.length > 1
+        && refreshed.data!.available_categories.some(category => category.id === previous) ? previous : null)
+        ?? current.time_category?.id
+        ?? (refreshed.data!.available_categories.length === 1 ? refreshed.data!.available_categories[0].id : null))
+      setError(unknown
+        ? 'The response was lost. Your clock status has been checked. Review it before trying again.'
+        : result.error || `${formatActionLabel(action)} failed.`)
+      inFlight.current = false
       setActionLoading(null)
       return
     }
 
     const data = result.data
+    inFlight.current = false
+    pauseActions()
     window.dispatchEvent(new Event('aire:clock-action'))
     applyResponse(data, action === 'switch_category')
     const responseCategory = data.time_entry.time_category
@@ -589,6 +645,7 @@ export default function AireKiosk() {
               {status?.clocked_in && categories.length > 1 && (
                 <p className="text-xs text-slate-400">Tap a different category to switch your current work type.</p>
               )}
+              {categories.length === 1 && <p className="text-sm text-slate-200">Working on: {categories[0].name}</p>}
               <WorkChips dark categories={categories} value={selectedCategoryId} onChange={setSelectedCategoryId} disabled={!!actionLoading} />
             </div>
           ) : (
@@ -598,12 +655,12 @@ export default function AireKiosk() {
           )}
 
           {employee && !requestingStub && <div className="mt-8"><ClockActions kiosk>
-            <button onClick={() => runAction(primaryAction)} disabled={!primaryEnabled || !!actionLoading || loading}
+            <button onClick={() => runAction(primaryAction)} disabled={!primaryEnabled || !!actionLoading || loading || actionsCooling}
               className="min-h-14 w-full rounded-2xl bg-cyan-400 px-5 py-4 text-lg font-semibold text-slate-950 disabled:opacity-50 active:scale-[.97]">
               {actionLoading === primaryAction ? `${formatActionLabel(primaryAction)}...` : formatActionLabel(primaryAction)}
             </button>
             <div className="flex flex-wrap gap-3">
-              {secondaryActions.map(action => <button key={action} onClick={() => runAction(action)} disabled={!!actionLoading || loading}
+              {secondaryActions.map(action => <button key={action} onClick={() => runAction(action)} disabled={!!actionLoading || loading || actionsCooling}
                 className="min-h-12 flex-1 rounded-xl border border-slate-600 px-4 py-3 font-semibold text-slate-100 disabled:opacity-50">
                 {actionLoading === action ? `${formatActionLabel(action)}...` : formatActionLabel(action)}
               </button>)}
@@ -626,7 +683,7 @@ export default function AireKiosk() {
             <button
               type="button"
               onClick={() => { bumpIdleTimer(); setError(null); setSuccess(null); setRequestingStub(true) }}
-              disabled={!!actionLoading || loading}
+              disabled={!!actionLoading || loading || actionsCooling}
               className="mt-3 w-full rounded-2xl border border-slate-700 px-5 py-3.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Request my pay stub
@@ -674,6 +731,11 @@ export default function AireKiosk() {
           </div>
         </section>}
       </div>
+      <Sheet open={confirmClockOut} onClose={() => setConfirmClockOut(false)}
+        title={`Clock out at ${clockTime(new Date())}?`}
+        footer={<Button fullWidth disabled={!!actionLoading || actionsCooling} onClick={() => void runAction('clock_out', true)}>Clock out</Button>}>
+        <p>Worked {status ? formatElapsed(workedMilliseconds(status), 'short') : '—'}. Check that this is when you stopped working.</p>
+      </Sheet>
     </div>
   )
 }
