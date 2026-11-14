@@ -22,7 +22,7 @@ export function HoursSummary({
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-4xl font-semibold tabular-nums text-ink">
-          {totals.total.toFixed(1)}h
+          {totals.complete ? `${totals.total.toFixed(1)}h` : 'Hours unavailable'}
         </p>
         {paidDate && (
           <StatusPill tone="approved">
@@ -35,13 +35,14 @@ export function HoursSummary({
           </StatusPill>
         )}
       </div>
-      <ProgressSplit
+      {totals.complete && <ProgressSplit
         parts={[
-          { label: 'approved', value: totals.approved, tone: 'approved' },
-          { label: 'waiting', value: totals.waiting, tone: 'waiting' },
+          { label: 'Approved for payroll', value: totals.approved, tone: 'approved' },
+          { label: 'Time waiting for approval', value: totals.timeWaiting, tone: 'waiting' },
+          { label: 'Overtime waiting for approval', value: totals.overtimeWaiting, tone: 'waiting' },
         ]}
-      />
-      {totals.waiting > 0 && (
+      />}
+      {totals.complete && totals.waiting > 0 && (
         <p className="text-body-sm text-ink-muted">
           {totals.waiting.toFixed(1)}h waiting for{' '}
           {approverNames.length ? approverNames.join(' or ') : 'approval'}

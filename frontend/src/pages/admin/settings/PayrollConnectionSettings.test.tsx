@@ -2,9 +2,11 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { connection } from '../../../test/fixtures/today'
+import { payrollConnectionCopy } from '../../../lib/payrollConnection'
 
-const connection = vi.hoisted(() => vi.fn())
-vi.mock('../../../lib/api/settings', () => ({ settingsApi: { connection } }))
+const connectionRequest = vi.hoisted(() => vi.fn())
+vi.mock('../../../lib/api/settings', () => ({ settingsApi: { connection: connectionRequest } }))
 
 const data = {
   state: 'connected',
@@ -17,17 +19,19 @@ const data = {
 async function renderPage() {
   const { default: PayrollConnectionSettings } = await import('./PayrollConnectionSettings')
   render(<MemoryRouter><PayrollConnectionSettings /></MemoryRouter>)
-  await screen.findByText('Connected')
+  await screen.findByText('Time tracking account')
 }
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllEnvs()
+  vi.useRealTimers()
+})
 
 describe('PayrollConnectionSettings reconnect', () => {
   beforeEach(() => {
     vi.resetModules()
-    connection.mockResolvedValue({ data })
-  })
-  afterEach(() => {
-    cleanup()
-    vi.unstubAllEnvs()
+    connectionRequest.mockResolvedValue({ data })
   })
 
   it('no longer links to the token-less /admin/payroll-link page', async () => {
@@ -60,4 +64,16 @@ describe('PayrollConnectionSettings reconnect', () => {
     await renderPage()
     expect(screen.queryByRole('link', { name: /Cornerstone Payroll to reconnect/ })).toBeNull()
   })
+})
+
+it.each(['paused', 'delivery_problem', 'connected'] as const)('uses the same %s headline as Today', async state => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-11T19:41:00+10:00'))
+  const fixture = connection({ state, last_delivery: null, account_link: null })
+  connectionRequest.mockResolvedValue({ data: { ...fixture, account_link: null } })
+  const { default: PayrollConnectionSettings } = await import('./PayrollConnectionSettings')
+  render(<MemoryRouter><PayrollConnectionSettings /></MemoryRouter>)
+  expect(await screen.findByText(payrollConnectionCopy(fixture).title, { selector: '.font-semibold' })).toBeInTheDocument()
+  expect(screen.getByText(payrollConnectionCopy(fixture).detail)).toBeInTheDocument()
+  expect(screen.getByText(/Last heard from: Nov 11, 2026, 7:05 PM/)).toBeInTheDocument()
 })

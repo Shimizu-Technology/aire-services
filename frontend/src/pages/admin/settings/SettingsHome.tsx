@@ -3,6 +3,7 @@ import { useNavigate, Navigate, useLocation } from 'react-router-dom'
 import { api, type AdminAppSettingsResponse } from '../../../lib/api'
 import { ListGroup, ListRow, PageHeader } from '../../../components/ui'
 import { settingsApi } from '../../../lib/api/settings'
+import { payrollConnectionCopy } from '../../../lib/payrollConnection'
 import { settingsAnchorPaths } from '../AdminRedirects'
 
 const sentence = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
@@ -29,7 +30,7 @@ export default function SettingsHome() {
       .catch(() => {})
     void settingsApi
       .connection()
-      .then((result) => setConnection(sentence(result.data?.state.replaceAll('_', ' ') ?? 'unavailable')))
+      .then((result) => setConnection(result.data ? payrollConnectionCopy(result.data).title : 'Unavailable'))
       .catch(() => setConnection('Unavailable'))
   }, [])
   const redirect = settingsAnchorPaths[location.hash]
