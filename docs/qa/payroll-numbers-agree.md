@@ -4,15 +4,15 @@ Base: origin/main `ceb079f`. Implementation branch: `fix/payroll-numbers-agree`.
 
 AIRE owns time and approvals; Cornerstone owns payroll runs and payment. Owners/admins prepare payroll from Today, the hours report and its downloads; managers inspect person/timecard totals. Sources: README product boundary, `Payroll::BatchBuilder#target_for`, `AffectedOvertimeReview.approval_valid?`, the Nov 14 usability audit B1/B2/M9 and Nov 11 design glossary §5 / exclusions §7. PR #194 remains held and untouched.
 
-The shared approval gate counts approved regular hours even when overtime waits. Overtime requires a valid approval for the current weekly allocation, including the existing legacy-approval compatibility check. Pending time/chronology holds wait in full; denied time/overtime is neither approved nor waiting. Raw worked-hour ledgers remain separate from approval totals. Frozen settlement batches retain their existing routing, prior-paid adjustment and receipt rules.
+The shared approval gate counts approved regular hours even when overtime waits. Overtime requires a valid approval for the current weekly allocation, including the existing legacy-approval compatibility check. Pending time is split by valid payable intervals; unplaceable chronology holds stay on the source date; denied time/overtime is neither approved nor waiting. Raw worked-hour ledgers remain separate from approval totals. Frozen settlement batches retain their existing routing, prior-paid adjustment and receipt rules.
 
-CSV compatibility: searched AIRE and Cornerstone read-only. Cornerstone's `TimecardImportsController#parse_csv` reads `Regular Hours` and `Total Hours` (but expects `Employee Name` / `OT Hours`, unlike this report). Preserve existing headers/order and append explicit approval/waiting fields. No changes to ReportExport capture, checksums, source snapshots or frozen batch exports.
+CSV contract: the lead verified that Cornerstone does not import this AIRE summary file. The first approval columns now say **Approved regular hours**, **Approved overtime hours**, and **Approved for payroll**; the duplicate approved column is removed. Waiting columns remain, and **Worked hours** follows the selected status filters. Frozen batch headers and ReportExport snapshot/protection code remain unchanged.
 
-Required agent-executed affected-flow QA: shared approved-shift/pending-OT fixture agrees across batch eligibility, Today and report; CSV/PDF exclude waiting OT from approved totals and distinguish it; row Complete requires no waiting work; frozen exports/capture protections unchanged; Today and Settings use one connection vocabulary, with recent confirmed delivery required for Connected. Browser: synthetic audit seed, owner/admin at 1280 and 390, compare Today/report/download/DB; inspect PDF layout. No production DB, external payroll requests or real mail. Native phone hardware and real Clerk/Cornerstone delivery are out of scope.
+Required agent-executed affected-flow QA: shared approved-shift/pending-OT fixture agrees across batch eligibility, Today and report; CSV/PDF exclude waiting OT from approved totals and distinguish it; row Complete requires no waiting work; frozen exports/capture protections unchanged; Today and Settings use one connection vocabulary, with the latest lock delivered and no undelivered events required for Connected. Browser: synthetic audit seed, owner/admin at 1280 and 390, compare Today/report/download/DB; inspect PDF layout. No production DB, external payroll requests or real mail. Native phone hardware and real Clerk/Cornerstone delivery are out of scope.
 
 Execution results will be recorded below with tested commits, gates and limitations.
 
-## Executed evidence
+## Initial implementation evidence (before independent-review follow-up)
 
 Agent-executed API/download QA used the external audit seed in the local test database, plus one valid Ethan Nov 6 OT approval (3.5h). This is the seed before the audit's later walkthrough actions; it does not claim to reproduce the later 1,715.13h REG snapshot. RSpec advanced the sequences, so the audit's source IDs resolve by synthetic name/date in the saved SQL.
 
@@ -37,10 +37,40 @@ Run the browser plan in the external `QA-PLAN.md` at 1280x900 and 390x844 when l
 
 ## Engineering gates and review
 
-Tested implementation: `b8f144090ed5484f23a3d48120700bfccf114223` (subsequent commits only record this ledger).
+Initial tested implementation: `b8f144090ed5484f23a3d48120700bfccf114223`. The newer review follow-up below supersedes the initial connection rule and CSV header decision.
 
 - Local: TypeScript and lint passed; RuboCop inspected 639 files with no offenses; Brakeman reported zero warnings/errors; the final affected-backend run passed 199 examples. Relevant frontend retests passed (50 report/settings examples, 43 Today/precision examples, plus the person/timecard/employee subsets). Impeccable's advisory result was `[]`.
 - Hosted complete gates: TypeScript, lint, Vitest (122 files / 1,383 tests), build, RuboCop, full RSpec (2,177 examples, zero failures, one existing pending example), Brakeman and dependency audit passed. Local full suites were not started above the user's load threshold.
 - The earlier hosted run found four timesheet PDF failures; corrected column widths and both PDF controller variants were retested. A local reset attempt also failed without clearing existing fixture data; that invalid run was stopped and superseded by the clean 199-example run. PostgreSQL 16 tools then restored the verified synthetic fixture backup, and the independent SQL totals were rechecked unchanged.
 - CodeRabbit's success-labelled check is rate-limited, **not a completed review**. No reviews are recorded. The lead's independent review and browser acceptance remain outstanding.
 - No API/Vite servers or browser tabs were started. No task-owned runtime resource remains running. The held branch/worktree, external harness/evidence, and synthetic QA database are retained for the lead's viewport checks; shared machine services were left untouched.
+
+
+## Independent-review follow-up — 2026-11-15
+
+The lead's Claude Opus high review on the mini found no blocker in overlapping approval/batch rules and confirmed the BatchBuilder extraction was behavior-neutral. The following decisions were implemented in separate pushed checkpoints:
+
+| Item | Checkpoint | Verification |
+| --- | --- | --- |
+| M1: latest locked period delivered + no undelivered events; receipt age is context only; restore Last heard from | `30f7f98` | 9 connection request examples and 44 frontend examples |
+| M2: exclude effective frozen batch history unless an active settlement case reopens it | `7df077b` | 28 person-editing examples, including a paid 2025 week with nil/none OT flags |
+| M3: explicit approval headers, filtered Worked hours, period-facts note, Filtered — filename/title prefix | `8b57b70` | Request specs for header order/uniqueness, worked hours under denied filter, filename and PDF title/note |
+| m1: Complete depends on actual waiting hours + open clocks; all Draft exports require acknowledgement | `d23f592` | Zero-OT stale flag / no-ack Complete, rejected unacknowledged Draft, acknowledged Draft |
+| m2: summary_only aggregates scalar totals without days/weeks/categories/breakdowns or entry serialization | `a7b7825` | Full-vs-summary scalar equality plus explicit no-detail-builder expectations |
+| m3: split valid pending overnight shifts | `8dc5e1f` | 100 affected examples; 2h/6h period split checked across report, Today, entry API quantities and employee evidence |
+| m5: document batch-only holds and routing | `c8aad88` | Comment-only; legacy allocation review, payment attestations, replacement-pending skip listed |
+| m6: denied overtime is a number even without an allocation | `c848d38` | 81 evidence examples, including the missing-allocation regression |
+| m7: no zero-approved-OT action pill | `a6d4be7` | 48 report UI examples, including waiting-only OT |
+
+Final runtime implementation checkpoint: `042d09cbee077ce4207df4f12d5a0cde736ba03d` (gate expectation/type/comment cleanup). Local gates passed: tsc, lint, full Vitest **1,384 tests**, build with the repository's explicit production build flags, RuboCop **639 files / zero offenses**, targeted RSpec **197 examples / zero failures**, Brakeman **zero warnings/errors**. Impeccable's advisory result was `[]`. Full local RSpec was not run because the 1-minute load remained above 60. CI passed on `042d09c`: all frontend/backend jobs, including full RSpec **2,184 examples / zero failures / one pending** (Backend CI run `43605824261`). No servers were started because load remained above 40. Browser acceptance at 1280 and 390 remains required before merge and is handed to the lead/Mac mini if the MacBook stays busy.
+
+Fresh controller/download QA after restoring the synthetic fixture: Today/report/CSV still agree at **1,590.28h approved**, **241.01h time waiting**, **10.68h OT waiting**. Default status-filtered Worked hours is **1,600.96h**. Draft download without acknowledgement returned 422; acknowledgement allowed the download. Both default and pending-filtered PDF summary pages were rendered and visually checked: the period-facts note is one line, and the filtered title is visible. The CSV has no header-note convention, so its first row remains the header. Current evidence is under `/Users/leonshimizu/Desktop/ShimizuTechnology/output/aire-payroll-numbers-review-20261115/`; the synthetic fixture and backup are preserved. No production database, real email, worker or live Cornerstone delivery was used.
+
+### Accepted residuals and next action
+
+- **m4:** a live batch preview without a calendar period can include the Oct 31 portion of an overnight shift when the nominal report starts Nov 1. Batch scope/routing is unchanged.
+- Employees may see amounts move between approved/waiting and adjacent periods: these are intended corrections to whole-shift approval and overnight allocation.
+- The My Hours headline sums approved plus waiting; denied overtime leaves that headline while the shift remains in history.
+- Invalid/unplaceable overnight chronology remains held on the source date until reviewed; only valid payable intervals are split.
+
+The lead must finish browser QA and review the follow-ups before merge. Deploy Render before Netlify. PR #194 remains untouched; after rebasing it must use the new approval quantities, current connection helper and summary_only's empty detail collections.
