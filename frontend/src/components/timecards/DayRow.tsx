@@ -119,20 +119,24 @@ export function DayRow({ date, today, items, categories, readOnly = false, block
               ? `${shortClock(entry.formatted_start_time)}–${shortClock(entry.formatted_end_time)}`
               : `${shortClock(entry.formatted_start_time)} – on the clock`
             const detail = detailFor(item)
+            // The time is never cut off: on phones the pills drop to their own
+            // line under the shift; from 640px they sit beside the detail.
             const content = (
-              <>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-body font-medium text-ink pointer-fine:text-body-sm">{range}</span>
-                  <span className="block text-body-sm text-ink-muted">{detail}</span>
+              <span
+                data-shift-layout
+                className={cx(
+                  'grid min-w-0 flex-1 grid-cols-[1fr_auto] items-baseline gap-x-3 gap-y-1',
+                  "[grid-template-areas:'time_hours'_'detail_detail'_'pills_pills'] sm:[grid-template-areas:'time_hours'_'detail_pills']",
+                )}
+              >
+                <span className="whitespace-nowrap text-body font-medium text-ink [grid-area:time] pointer-fine:text-body-sm">{range}</span>
+                <span className="text-right text-body-sm font-semibold tabular-nums text-ink [grid-area:hours]">{entry.status === 'completed' ? formatHours(item.hours) : ''}</span>
+                <span className="text-body-sm text-ink-muted [grid-area:detail]">{detail}</span>
+                <span className="flex flex-wrap gap-1 [grid-area:pills] sm:justify-end">
+                  {entry.overtime_status === 'pending' && <StatusPill tone="waiting">OT waiting</StatusPill>}
+                  <StatusPill tone={status.tone}>{status.label}</StatusPill>
                 </span>
-                <span className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="text-body-sm font-semibold tabular-nums text-ink">{entry.status === 'completed' ? formatHours(item.hours) : ''}</span>
-                  <span className="flex gap-1">
-                    {entry.overtime_status === 'pending' && <StatusPill tone="waiting">OT waiting</StatusPill>}
-                    <StatusPill tone={status.tone}>{status.label}</StatusPill>
-                  </span>
-                </span>
-              </>
+              </span>
             )
             const rowClass = cx('flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left', highlighted && 'bg-cyan-50 ring-2 ring-inset ring-cyan-400')
             // A continuing shift keeps its own entry, so the id stays unique per day.

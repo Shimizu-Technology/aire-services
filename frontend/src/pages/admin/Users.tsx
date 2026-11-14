@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { Eye } from 'lucide-react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { UserPlus } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { employeeWorkspaceHref, safeAdminReturn } from '../../lib/employeeWorkspace'
@@ -9,12 +9,14 @@ import { invitationOutcomeMessage } from '../../lib/invitationOutcome'
 import type { AdminUser, AdminTimeCategory, ApprovalGroup, ApprovalGroupOption } from '../../lib/api'
 import { formatDateInTimeZoneISO, formatDateTime } from '../../lib/dateUtils'
 import { initialsForName } from '../../lib/initials'
-import { FadeUp } from '../../components/ui/MotionComponents'
 import RolePicker from '../../components/team/RolePicker'
 import MyPaySwitch from '../../components/team/MyPaySwitch'
-import { isUserRole, ROLE_DETAILS, roleLabel, roleRequiresPersonalAccess, rolesAssignableToNewPerson, USER_ROLES, type UserRole } from '../../lib/roles'
+import { TeamList } from '../../components/team/TeamList'
+import { Button, EmptyState, ErrorState, Field, FilterBar, PageHeader, Select } from '../../components/ui'
+import { Skeleton } from '../../components/ui/Skeleton'
+import { useMediaQuery } from '../../lib/useMediaQuery'
+import { isUserRole, ROLE_DETAILS, roleRequiresPersonalAccess, rolesAssignableToNewPerson, USER_ROLES, type UserRole } from '../../lib/roles'
 import { useCapabilities } from '../../lib/useCapabilities'
-import { useConfirm } from '../../components/ui/useConfirm'
 
 const publicTeamPhotoAccept = 'image/jpeg,image/png,image/webp,image/avif,image/gif'
 const maxPublicTeamPhotoSize = 15 * 1024 * 1024
@@ -40,42 +42,13 @@ function publicTeamPhotoStyle(x: number | string | null | undefined, y: number |
   return { objectPosition: publicTeamPhotoObjectPosition(x, y) }
 }
 
-function isKioskLocked(user: AdminUser) {
-  if (!user.kiosk_locked_until) return false
-
-  const lockedUntil = new Date(user.kiosk_locked_until).getTime()
-  return Number.isFinite(lockedUntil) && lockedUntil > Date.now()
-}
-
 function initialsForUser(user: AdminUser) {
   return initialsForName(user.public_team_name || user.full_name || user.display_name || user.email || 'AIRE Team')
 }
 
-function TeamMemberAvatar({ user, className = 'h-12 w-12' }: { user: AdminUser; className?: string }) {
-  const src = user.public_team_photo_thumb_url || user.public_team_photo_url
-
-  return (
-    <div className={`relative shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 ${className}`}>
-      {src ? (
-        <img
-          src={src}
-          alt=""
-          className="h-full w-full object-cover"
-          loading="lazy"
-          style={publicTeamPhotoStyle(user.public_team_photo_position_x, user.public_team_photo_position_y)}
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.22),_transparent_45%),linear-gradient(135deg,_#0f172a,_#1e3a5f)] text-sm font-semibold tracking-tight text-white">
-          {initialsForUser(user)}
-        </div>
-      )}
-    </div>
-  )
-}
-
 export default function Users() {
   useEffect(() => {
-    document.title = 'Users | AIRE Ops'
+    document.title = 'Team | AIRE Ops'
   }, [])
 
   const location = useLocation()
@@ -84,12 +57,9 @@ export default function Users() {
   const canManageMyPay = capabilities.manage_my_pay_access
   const createRoleOptions = rolesAssignableToNewPerson(isClerkEnabled ? userRole : 'owner')
   const [query, setQuery] = useSearchParams()
-  const [compact, setCompact] = useState(window.innerWidth < 768)
-  useEffect(() => {
-    const resized = () => setCompact(window.innerWidth < 768)
-    window.addEventListener('resize', resized)
-    return () => window.removeEventListener('resize', resized)
-  }, [])
+  const navigate = useNavigate()
+  // On phones My Pay is on the person's Access and Pay tabs, not in the list.
+  const desktop = useMediaQuery('(min-width: 1024px)')
   const setFilter = (key: string, value: string) => setQuery((previous) => {
     const next = new URLSearchParams(previous)
     next.set(key, value)
@@ -111,8 +81,10 @@ export default function Users() {
   const setStatusFilter = (value: string) => setFilter('status', value)
   const departmentFilter = (query.get('department') || 'all') as 'all' | 'unassigned' | ApprovalGroup
   const setDepartmentFilter = (value: string) => setFilter('department', value)
-  const kioskFilter = (['all', 'pin_ready', 'no_pin', 'locked'].includes(query.get('kiosk') || '') ? query.get('kiosk') : 'all') as 'all' | 'pin_ready' | 'no_pin' | 'locked'
-  const setKioskFilter = (value: string) => setFilter('kiosk', value)
+  const signInFilter = (['all', 'personal', 'kiosk'].includes(query.get('signin') || '') ? query.get('signin') : 'all') as 'all' | 'personal' | 'kiosk'
+  const setSignInFilter = (value: string) => setFilter('signin', value)
+  const myPayFilter = (['all', 'on', 'off'].includes(query.get('my_pay') || '') ? query.get('my_pay') : 'all') as 'all' | 'on' | 'off'
+  const setMyPayFilter = (value: string) => setFilter('my_pay', value)
   const publicTeamFilter = (['all', 'visible', 'hidden'].includes(query.get('public') || '') ? query.get('public') : 'all') as 'all' | 'visible' | 'hidden'
   const setPublicTeamFilter = (value: string) => setFilter('public', value)
 
@@ -121,7 +93,7 @@ export default function Users() {
   const [createPersonalAccess, setCreatePersonalAccess] = useState(true)
   const [createTimeTracking, setCreateTimeTracking] = useState(true)
   const [createKioskPin, setCreateKioskPin] = useState('')
-  const [createSuccess, setCreateSuccess] = useState<{ message: string; pin?: string | null } | null>(null)
+  const [createSuccess, setCreateSuccess] = useState<{ message: string; pin?: string | null; userId?: number } | null>(null)
   const [createFirstName, setCreateFirstName] = useState('')
   const [createLastName, setCreateLastName] = useState('')
   const [createEmail, setCreateEmail] = useState('')
@@ -170,13 +142,11 @@ export default function Users() {
   const [myPaySavingIds, setMyPaySavingIds] = useState<Set<number>>(new Set())
   const [myPayError, setMyPayError] = useState('')
 
-  const [resendingIds, setResendingIds] = useState<Set<number>>(new Set())
   const [invitationNotice, setInvitationNotice] = useState('')
   const invitationNoticeRef = useRef<HTMLParagraphElement>(null)
   useEffect(() => {
     if (invitationNotice) invitationNoticeRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [invitationNotice])
-  const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [terminationUser, setTerminationUser] = useState<AdminUser | null>(null)
   const [terminationEffectiveOn, setTerminationEffectiveOn] = useState(formatDateInTimeZoneISO(new Date(), 'Pacific/Guam'))
   const [terminationReason, setTerminationReason] = useState('')
@@ -250,6 +220,17 @@ export default function Users() {
     })
     return () => { cancelled = true }
   }, [canManageMyPay, loadRetry])
+
+  // "On the clock" on a row. Without it the rows still work; they just don't say so.
+  const [onTheClock, setOnTheClock] = useState<Set<number>>(new Set())
+  useEffect(() => {
+    let cancelled = false
+    void api.getWhosWorking().then((response) => {
+      if (cancelled || !response.data) return
+      setOnTheClock(new Set(response.data.workers.filter((worker) => worker.status === 'clocked_in' || worker.status === 'on_break').map((worker) => worker.user.id)))
+    })
+    return () => { cancelled = true }
+  }, [loadRetry])
 
   const toggleMyPayForEveryone = async (enabled: boolean) => {
     setConfirmMyPayForEveryone(false)
@@ -335,7 +316,8 @@ export default function Users() {
     roleFilter !== 'all' ||
     statusFilter !== 'active' ||
     departmentFilter !== 'all' ||
-    kioskFilter !== 'all' ||
+    signInFilter !== 'all' ||
+    myPayFilter !== 'all' ||
     publicTeamFilter !== 'all',
   )
   const filteredUsers = useMemo(() => {
@@ -351,9 +333,11 @@ export default function Users() {
       if (departmentFilter === 'unassigned' && userDepartmentKeys.length > 0) return false
       if (departmentFilter !== 'all' && departmentFilter !== 'unassigned' && !userDepartmentKeys.includes(departmentFilter)) return false
 
-      if (kioskFilter === 'pin_ready' && (!user.kiosk_enabled || !user.kiosk_pin_configured)) return false
-      if (kioskFilter === 'no_pin' && (!user.time_tracking_enabled || !user.kiosk_enabled || user.kiosk_pin_configured)) return false
-      if (kioskFilter === 'locked' && !isKioskLocked(user)) return false
+      if (signInFilter === 'personal' && !user.personal_access_enabled) return false
+      if (signInFilter === 'kiosk' && user.personal_access_enabled) return false
+
+      if (myPayFilter === 'on' && !(myPayForEveryone || user.my_pay_enabled)) return false
+      if (myPayFilter === 'off' && (myPayForEveryone || user.my_pay_enabled)) return false
 
       if (publicTeamFilter === 'visible' && !(user.is_active && user.public_team_enabled)) return false
       if (publicTeamFilter === 'hidden' && user.is_active && user.public_team_enabled) return false
@@ -388,13 +372,65 @@ export default function Users() {
 
       return searchableText.includes(normalizedSearchTerm)
     })
-  }, [departmentFilter, kioskFilter, normalizedSearchTerm, publicTeamFilter, roleFilter, statusFilter, users])
+  }, [departmentFilter, myPayFilter, myPayForEveryone, normalizedSearchTerm, publicTeamFilter, roleFilter, signInFilter, statusFilter, users])
 
   const resetFilters = () => {
     const next = new URLSearchParams(query)
-    for (const key of ['search', 'role', 'status', 'department', 'kiosk', 'public']) next.delete(key)
+    for (const key of ['search', 'role', 'status', 'department', 'signin', 'my_pay', 'public']) next.delete(key)
     setQuery(next, { replace: true })
   }
+
+  const activeCount = users.filter((user) => user.is_active).length
+  const activeFilterCount = [roleFilter !== 'all', statusFilter !== 'active', departmentFilter !== 'all', signInFilter !== 'all', myPayFilter !== 'all', publicTeamFilter !== 'all'].filter(Boolean).length
+  const teamFilters = (
+    <>
+      <Field label="Department">
+        <Select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}>
+          <option value="all">All departments</option>
+          <option value="unassigned">No department</option>
+          {approvalGroupOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+        </Select>
+      </Field>
+      <Field label="Role">
+        <Select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+          <option value="all">All roles</option>
+          {USER_ROLES.map((role) => <option key={role} value={role}>{ROLE_DETAILS[role].plural}</option>)}
+        </Select>
+      </Field>
+      <Field label="Sign-in">
+        <Select value={signInFilter} onChange={(event) => setSignInFilter(event.target.value)}>
+          <option value="all">Everyone</option>
+          <option value="personal">Personal sign-in</option>
+          <option value="kiosk">Kiosk only</option>
+        </Select>
+      </Field>
+      {canManageMyPay && (
+        <Field label="My Pay">
+          <Select value={myPayFilter} onChange={(event) => setMyPayFilter(event.target.value)}>
+            <option value="all">Everyone</option>
+            <option value="on">My Pay on</option>
+            <option value="off">My Pay off</option>
+          </Select>
+        </Field>
+      )}
+      <Field label="Status">
+        <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="active">Active</option>
+          <option value="pending">Hasn't signed in yet</option>
+          <option value="inactive">Inactive</option>
+          <option value="terminated">Ended</option>
+          <option value="all">Everyone</option>
+        </Select>
+      </Field>
+      <Field label="On the website">
+        <Select value={publicTeamFilter} onChange={(event) => setPublicTeamFilter(event.target.value)}>
+          <option value="all">Everyone</option>
+          <option value="visible">Shown on the Team page</option>
+          <option value="hidden">Hidden</option>
+        </Select>
+      </Field>
+    </>
+  )
 
   const patchLocalUser = useCallback((userId: number, updater: (user: AdminUser) => AdminUser) => {
     setUsers((prev) => prev.map((user) => (user.id === userId ? updater(user) : user)))
@@ -527,7 +563,7 @@ export default function Users() {
         const inviteNote = createPersonalAccess
           ? invitationOutcomeMessage(response.data, sendInvitationEmail)
           : 'They can use the kiosk immediately with the PIN below.'
-        setCreateSuccess({ message: inviteNote, pin: response.data?.kiosk_pin })
+        setCreateSuccess({ message: inviteNote, pin: response.data?.kiosk_pin, userId: response.data?.user?.id })
         void refreshData()
       }
     } catch {
@@ -543,8 +579,6 @@ export default function Users() {
     const selected = users.find((person) => String(person.id) === editId)
     if (selected) { handledEdit.current = editId; loadEditState(selected) }
   }, [query, users, loadEditState])
-
-  const openEditUser = (user: AdminUser) => loadEditState(user)
 
   const handleSaveUser = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -746,56 +780,6 @@ export default function Users() {
     }
   }
 
-  const [confirm, confirmDialog] = useConfirm()
-
-  const handleDelete = async (user: AdminUser) => {
-    const remove = await confirm({
-      title: `Permanently delete the unused profile for ${user.display_name || user.email || 'this user'}?`,
-      description: 'This is only allowed before any work history exists.',
-      tone: 'danger',
-      confirmLabel: 'Delete profile',
-    })
-    if (!remove) return
-    setDeletingIds((prev) => new Set(prev).add(user.id))
-    try {
-      const response = await api.deleteUser(user.id)
-      if (response.error) alert(response.error)
-      else refreshData()
-    } catch {
-      alert('Failed to remove team member')
-    } finally {
-      setDeletingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(user.id)
-        return next
-      })
-    }
-  }
-
-  const handleResendInvite = async (user: AdminUser) => {
-    setInvitationNotice('')
-    setResendingIds((prev) => new Set(prev).add(user.id))
-    try {
-      const response = await api.resendInvite(user.id)
-      if (response.error) setInvitationNotice(response.error)
-      else setInvitationNotice(invitationOutcomeMessage(response.data, true, Boolean(response.data?.message)))
-    } catch {
-      setInvitationNotice('Invitation email failed. Please try again.')
-    } finally {
-      setResendingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(user.id)
-        return next
-      })
-    }
-  }
-
-  const openPinModal = (user: AdminUser) => {
-    setPinModalUser(user)
-    setCustomPin('')
-    setPinResult('')
-    setPinError('')
-  }
 
   const handleResetKioskPin = async (user: AdminUser, pin?: string) => {
     setSavingPin(true)
@@ -828,38 +812,6 @@ export default function Users() {
     setter(next)
   }
 
-  function renderStatusBadge(user: AdminUser) {
-    if (user.employment_status === 'terminated') {
-      return (
-        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
-          Terminated
-        </span>
-      )
-    }
-
-    if (!user.is_active) {
-      return (
-        <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
-          Inactive
-        </span>
-      )
-    }
-
-    if (user.is_pending) {
-      return (
-        <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-          {user.email ? 'Pending sign-in' : 'Kiosk only'}
-        </span>
-      )
-    }
-
-    return (
-      <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-        Active
-      </span>
-    )
-  }
-
   useDialogFocus(showCreateModal, createModalRef, () => {
     if (!creating) { setShowCreateModal(false); resetCreateForm() }
   })
@@ -868,313 +820,87 @@ export default function Users() {
   useDialogFocus(Boolean(terminationUser), terminationDialogRef, () => { if (!savingTermination) closeTerminationModal() })
 
   return (
-    <div className="space-y-6">
-      <FadeUp>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Team</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              Manage staff roles, work categories, and kiosk PIN access for AIRE Ops.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            {currentUser?.my_pay_preview_enabled && (
-              <Link
-                to="/admin/pay-preview"
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-              >
-                <Eye className="h-4 w-4" aria-hidden="true" />
-                Preview My Pay
-              </Link>
-            )}
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Add team member
-            </button>
-          </div>
-        </div>
-      </FadeUp>
+    <div className="space-y-5">
+      <PageHeader
+        title="Team"
+        description={loadedAt ? `${activeCount} active` : undefined}
+        actions={<Button icon={<UserPlus className="size-4" />} onClick={() => setShowCreateModal(true)}>Add person</Button>}
+      />
 
-      {query.get('return_to') && <Link className="text-sm font-semibold text-cyan-800 hover:underline" to={safeAdminReturn(query.get('return_to'))}>Back to employee</Link>}
-      {loadError && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p>{loadError}</p>{loadedAt && <p className="mt-1 text-xs">Last refreshed {formatDateTime(loadedAt)}</p>}<button className="mt-3 rounded-lg border border-amber-400 px-3 py-2 font-semibold" onClick={() => setLoadRetry((value) => value + 1)}>Retry</button></div>}
-      {loadedAt && <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-sm text-slate-500">Total Team Members</div>
-          <div className="mt-2 text-3xl font-bold text-slate-900">{users.length}</div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-sm text-slate-500">Owners &amp; Admins</div>
-          <div className="mt-2 text-3xl font-bold text-cyan-700">{users.filter((u) => u.role === 'owner' || u.role === 'admin').length}</div>
-          <div className="mt-1 text-xs text-slate-500">{users.filter((u) => u.role === 'manager').length} managers</div>
-        </div>
-      </div>
-
-      }
+      {query.get('return_to') && <Link className="inline-flex min-h-11 items-center text-body-sm font-semibold text-primary hover:underline" to={safeAdminReturn(query.get('return_to'))}>Back to employee</Link>}
+      {loadError && (
+        <ErrorState
+          title="Team data is unavailable."
+          description={`${loadError}${loadedAt ? ` Last refreshed ${formatDateTime(loadedAt)}.` : ''}`}
+          onRetry={() => setLoadRetry((value) => value + 1)}
+          retryLabel="Retry"
+        />
+      )}
       {canManageMyPay && loadedAt && (
-        <section aria-labelledby="my-pay-access-title" className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h2 id="my-pay-access-title" className="text-sm font-semibold text-slate-900">My Pay</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              {myPayForEveryone === null
-                ? 'Loading who can see their own pay statements…'
-                : myPayForEveryone
-                  ? 'Every active team member can see their own pay statements.'
-                  : `${users.filter((user) => user.is_active && user.my_pay_enabled).length} of ${users.filter((user) => user.is_active).length} active team members can see their own pay statements. Turn it on per person in the list below.`}
-            </p>
-            {myPayError && <p role="alert" className="mt-2 text-sm font-medium text-rose-700">{myPayError}</p>}
-            {confirmMyPayForEveryone && (
-              <div role="group" aria-label="Confirm My Pay for everyone" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-                <p>Everyone active, {users.filter((user) => user.is_active).length} people, will see their own pay statements right away.</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => void toggleMyPayForEveryone(true)} className="min-h-11 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800">Turn on for everyone</button>
-                  <button type="button" onClick={() => setConfirmMyPayForEveryone(false)} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Cancel</button>
-                </div>
+        <section aria-labelledby="my-pay-access-title" className="rounded-card border border-line bg-surface px-4 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <div className="min-w-0 py-1.5">
+              <h2 id="my-pay-access-title" className="text-body-sm font-semibold text-ink">My Pay</h2>
+              <p className="text-body-sm text-ink-muted">
+                {myPayForEveryone === null
+                  ? 'Loading who can see their own pay statements…'
+                  : myPayForEveryone
+                    ? 'Every active team member can see their own pay statements.'
+                    : `${users.filter((user) => user.is_active && user.my_pay_enabled).length} of ${activeCount} active team members can see their own pay statements.`}
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-2">
+              <span className="text-body-sm font-medium text-ink">On for everyone</span>
+              <MyPaySwitch
+                checked={Boolean(myPayForEveryone)}
+                onChange={(checked) => { if (checked) setConfirmMyPayForEveryone(true); else void toggleMyPayForEveryone(false) }}
+                label="My Pay on for everyone"
+                disabled={myPayForEveryone === null}
+                busy={savingMyPayForEveryone}
+              />
+            </span>
+          </div>
+          {myPayError && <p role="alert" className="pb-2 text-body-sm font-medium text-danger">{myPayError}</p>}
+          {confirmMyPayForEveryone && (
+            <div role="group" aria-label="Confirm My Pay for everyone" className="mb-2 rounded-control border border-amber-200 bg-amber-50 p-3 text-body-sm text-amber-950">
+              <p>Everyone active, {activeCount} people, will see their own pay statements right away.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => void toggleMyPayForEveryone(true)}>Turn on for everyone</Button>
+                <Button size="sm" variant="secondary" onClick={() => setConfirmMyPayForEveryone(false)}>Cancel</Button>
               </div>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 pt-3 sm:border-0 sm:pt-0">
-            <span className="text-sm font-medium text-slate-800">On for everyone</span>
-            <MyPaySwitch
-              checked={Boolean(myPayForEveryone)}
-              onChange={(checked) => { if (checked) setConfirmMyPayForEveryone(true); else void toggleMyPayForEveryone(false) }}
-              label="My Pay on for everyone"
-              disabled={myPayForEveryone === null}
-              busy={savingMyPayForEveryone}
-            />
-          </div>
+            </div>
+          )}
         </section>
       )}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">AIRE Team</h2>
-              <p className="mt-1 text-sm text-slate-500">Roles, departments, work categories, and kiosk access.</p>
-            </div>
-            {!loading && (
-              <div className="text-sm text-slate-500">
-                Showing <span className="font-semibold text-slate-800">{filteredUsers.length}</span> of {users.length}
-              </div>
-            )}
-          </div>
+
+      {invitationNotice && <p ref={invitationNoticeRef} role="status" className="rounded-card border border-line bg-surface-muted p-4 text-body-sm text-ink">{invitationNotice}</p>}
+      {loading ? (
+        <div aria-busy="true" aria-label="Loading the team" className="space-y-2 rounded-card border border-line bg-surface p-4">
+          {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} height={44} className="w-full" />)}
         </div>
-
-        {invitationNotice && <p ref={invitationNoticeRef} role="status" className="mx-5 my-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">{invitationNotice}</p>}
-        {loading ? (
-          <div className="px-5 py-10 text-center text-sm text-slate-500">Loading team members...</div>
-        ) : loadError && !loadedAt ? (
-          <p className="px-5 py-10 text-sm text-slate-600">Team members could not be loaded.</p>
-        ) : users.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-slate-500">No team members yet.</div>
-        ) : (
-          <>
-            <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(12rem,1.5fr)_repeat(5,minmax(0,1fr))]">
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Search</span>
-                  <input
-                    value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="Name, email, title, category..."
-                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Role</span>
-                  <select
-                    value={roleFilter}
-                    onChange={(event) => setRoleFilter(event.target.value as typeof roleFilter)}
-                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  >
-                    <option value="all">All roles</option>
-                    {USER_ROLES.map((role) => <option key={role} value={role}>{ROLE_DETAILS[role].plural}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</span>
-                  <select
-                    value={statusFilter}
-                    onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
-                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  >
-                    <option value="all">All statuses</option>
-                    <option value="active">Active</option>
-                    <option value="pending">Pending</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="terminated">Terminated</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Department</span>
-                  <select
-                    value={departmentFilter}
-                    onChange={(event) => setDepartmentFilter(event.target.value as typeof departmentFilter)}
-                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  >
-                    <option value="all">All departments</option>
-                    <option value="unassigned">Unassigned</option>
-                    {approvalGroupOptions.map((option) => (
-                      <option key={option.key} value={option.key}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Kiosk</span>
-                  <select
-                    value={kioskFilter}
-                    onChange={(event) => setKioskFilter(event.target.value as typeof kioskFilter)}
-                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  >
-                    <option value="all">All kiosk states</option>
-                    <option value="pin_ready">PIN ready</option>
-                    <option value="no_pin">No PIN</option>
-                    <option value="locked">Locked</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Public</span>
-                  <select
-                    value={publicTeamFilter}
-                    onChange={(event) => setPublicTeamFilter(event.target.value as typeof publicTeamFilter)}
-                    className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                  >
-                    <option value="all">All public states</option>
-                    <option value="visible">Visible</option>
-                    <option value="hidden">Hidden</option>
-                  </select>
-                </label>
-              </div>
-              {hasActiveFilters && (
-                <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-500">
-                  <span>Filters are narrowing the team list.</span>
-                  <button
-                    type="button"
-                    onClick={resetFilters}
-                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                  >
-                    Clear filters
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {filteredUsers.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-slate-500">No team members match those filters.</div>
-            ) : (
-              <>
-              {compact && <div className="space-y-3 p-4">{filteredUsers.map((user) => <article key={user.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-start gap-3"><TeamMemberAvatar user={user} /><div className="min-w-0"><Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link><p className="mt-1 text-sm text-slate-600">{[roleLabel(user.role), user.staff_title].filter(Boolean).join(' · ')}</p>{renderStatusBadge(user)}</div></div>{canManageMyPay && <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-2"><span className="text-sm font-medium text-slate-700">My Pay on</span>{renderMyPaySwitch(user)}</div>}<p className="mt-3 text-sm text-slate-600">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned department'} · {user.time_tracking_enabled ? 'Tracks hours' : 'Does not track hours'}</p><div className="mt-3 flex flex-wrap gap-3"><button className="text-sm font-semibold text-slate-800" onClick={() => openEditUser(user)}>Edit access & profile</button>{user.is_active && user.is_pending && user.email && user.can_change_access !== false && <button className="min-h-11 text-sm font-semibold text-cyan-800" onClick={() => handleResendInvite(user)} disabled={resendingIds.has(user.id)}>{resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}</button>}{user.time_tracking_enabled && user.can_change_access !== false && <button className="text-sm font-semibold text-cyan-800" onClick={() => openPinModal(user)}>{user.kiosk_pin_configured ? 'Reset kiosk PIN' : 'Set kiosk PIN'}</button>}</div></article>)}</div>}
-              {!compact && <div className="overflow-x-auto">
-                {/* Five columns so Status and Actions fit beside the sidebar at 1280px. */}
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Team member</th>
-                      <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Department &amp; work</th>
-                      <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Status</th>
-                      {canManageMyPay && <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">My Pay</th>}
-                      <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {filteredUsers.map((user) => (
-                  <tr key={user.id} className="align-top hover:bg-slate-50/80">
-                    <td className="px-4 py-4">
-                      <div className="flex items-start gap-3">
-                        <TeamMemberAvatar user={user} className="h-10 w-10" />
-                        <div className="min-w-0">
-                          <Link className="break-words font-semibold text-cyan-800 hover:underline" to={employeeWorkspaceHref(user.id, { returnTo: `${location.pathname}${location.search}` })}>{user.full_name || user.display_name}</Link>
-                          <div className="mt-0.5 text-sm text-slate-600">{[roleLabel(user.role), user.staff_title].filter(Boolean).join(' · ')}</div>
-                          <div className="mt-0.5 break-all text-xs text-slate-500">{user.personal_access_enabled ? (user.email || 'Personal sign-in') : 'Kiosk only'}</div>
-                          {(user.is_intern || (user.is_active && user.public_team_enabled)) && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              {user.is_intern && <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Intern</span>}
-                              {user.is_active && user.public_team_enabled && (
-                                <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-800">
-                                  {user.public_team_photo_thumb_url || user.public_team_photo_url ? 'On website' : 'On website · no photo'}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm">
-                      <div className="text-slate-800">{user.approval_group_labels?.join(', ') || user.approval_group_label || 'Unassigned'}</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {!user.time_tracking_enabled
-                          ? 'Does not track hours'
-                          : (user.time_categories ?? []).length > 0
-                            ? user.time_categories!.map((tc) => tc.name).join(', ')
-                            : 'No work categories yet'}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4">
-                      {renderStatusBadge(user)}
-                      {user.termination_effective_on && (
-                        <div className="mt-1 text-xs text-slate-500">Effective {user.termination_effective_on}</div>
-                      )}
-                      {user.time_tracking_enabled && (
-                        <div className="mt-1 text-xs text-slate-500" title={user.kiosk_enabled && user.kiosk_pin_last_rotated_at ? `PIN changed ${formatDateTime(user.kiosk_pin_last_rotated_at)}` : undefined}>
-                          {!user.kiosk_enabled ? 'Kiosk off' : user.kiosk_pin_configured ? 'Kiosk PIN ready' : 'No kiosk PIN yet'}
-                        </div>
-                      )}
-                      {user.kiosk_enabled && isKioskLocked(user) && <div className="mt-1 text-xs font-medium text-red-700">PIN locked until {formatDateTime(user.kiosk_locked_until!)}</div>}
-                    </td>
-                    {canManageMyPay && <td className="px-4 py-4">{renderMyPaySwitch(user)}</td>}
-                    <td className="px-4 py-4">
-                      <div className="flex flex-col items-end gap-1 text-sm font-medium">
-                        <button
-                          type="button"
-                          onClick={() => openEditUser(user)}
-                          className="inline-flex min-h-9 items-center rounded-lg border border-slate-300 bg-white px-3 font-semibold text-slate-800 transition hover:bg-slate-50"
-                        >
-                          Edit
-                        </button>
-                        {user.time_tracking_enabled && user.can_change_access !== false && (
-                          <button
-                            type="button"
-                            onClick={() => openPinModal(user)}
-                            className="min-h-9 text-right text-cyan-800 transition hover:text-cyan-950"
-                          >
-                            {user.kiosk_pin_configured ? 'Reset PIN' : 'Set PIN'}
-                          </button>
-                        )}
-                        {user.is_active && user.is_pending && user.email && user.can_change_access !== false && (
-                          <button
-                            type="button"
-                            onClick={() => handleResendInvite(user)}
-                            disabled={resendingIds.has(user.id)}
-                            className="min-h-9 text-right text-slate-700 transition hover:text-slate-900 disabled:opacity-50"
-                          >
-                            {resendingIds.has(user.id) ? 'Sending…' : 'Resend invite'}
-                          </button>
-                        )}
-                        {user.can_delete_permanently && user.can_change_access !== false && (
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(user)}
-                            disabled={deletingIds.has(user.id)}
-                            className="min-h-9 text-right text-red-700 transition hover:text-red-800 disabled:opacity-50"
-                            title="Delete a never-used profile that has no work or payroll history"
-                            aria-label="Delete unused profile"
-                          >
-                            {deletingIds.has(user.id) ? 'Deleting…' : 'Delete unused'}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>}
-              </>
-            )}
-          </>
-        )}
-      </div>
+      ) : loadError && !loadedAt ? null : users.length === 0 ? (
+        <EmptyState title="No team members yet." action={<Button onClick={() => setShowCreateModal(true)}>Add person</Button>} />
+      ) : (
+        <>
+          <FilterBar
+            search={{ value: searchTerm, onChange: setSearchTerm, label: 'Search name or email', placeholder: 'Search name or email' }}
+            moreFilters={teamFilters}
+            activeFilterCount={activeFilterCount}
+            onClear={resetFilters}
+            resultSummary={hasActiveFilters ? `Showing ${filteredUsers.length} of ${users.length}` : undefined}
+          />
+          {filteredUsers.length === 0 ? (
+            <EmptyState title="No one matches." description="Try another name, or clear the filters." action={<Button variant="secondary" onClick={resetFilters}>Clear filters</Button>} />
+          ) : (
+            <TeamList
+              users={filteredUsers}
+              onTheClock={onTheClock}
+              returnTo={`${location.pathname}${location.search}`}
+              myPay={canManageMyPay && desktop ? renderMyPaySwitch : undefined}
+            />
+          )}
+        </>
+      )}
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-6" role="presentation">
@@ -1193,7 +919,29 @@ export default function Users() {
                     <p className="mt-2 text-xs text-slate-600">Share this securely. It will not be shown again.</p>
                   </div>
                 )}
-                <button type="button" onClick={() => { setShowCreateModal(false); resetCreateForm() }} className="mt-7 w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">Done</button>
+                {createSuccess.userId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const createdId = createSuccess.userId!
+                      setShowCreateModal(false)
+                      resetCreateForm()
+                      navigate(employeeWorkspaceHref(createdId, { returnTo: `${location.pathname}${location.search}` }))
+                    }}
+                    className="mt-7 w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Open their page
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setShowCreateModal(false); resetCreateForm() }}
+                  className={createSuccess.userId
+                    ? 'mt-3 w-full rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50'
+                    : 'mt-7 w-full rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800'}
+                >
+                  Done
+                </button>
               </div>
             ) : (
               <form onSubmit={handleCreate} className="flex min-h-0 flex-1 flex-col">
@@ -1818,7 +1566,6 @@ export default function Users() {
           </div>
         </div>
       )}
-      {confirmDialog}
     </div>
   )
 }

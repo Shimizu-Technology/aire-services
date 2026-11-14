@@ -1,169 +1,90 @@
-vi.mock('../../components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import EmployeeWorkspace from './EmployeeWorkspace'
+import type { EvidencePeriod } from '../../lib/employeeEvidenceApi'
+import { PeriodEvidence } from './PeriodEvidence'
 
-const mock = vi.hoisted(() => ({ user: vi.fn(), periods: vi.fn(), period: vi.fn(), schedule: vi.fn() }))
+const mock = vi.hoisted(() => ({ period: vi.fn() }))
 vi.mock('../../lib/employeeEvidenceApi', () => ({ employeeEvidenceApi: mock }))
-const flags = vi.hoisted(() => ({ schedulesEnabled: false }))
-vi.mock('../../lib/useSchedulesEnabled', () => ({ useSchedulesEnabled: () => flags.schedulesEnabled }))
 const totals = { worked_hours: 12, eligible_hours: 12, pending_hours: 3, denied_hours: 0, issued_hours: 6, committed_hours: 4, exported_hours: 0, held_hours: 0, needs_reconciliation_hours: 2, current_regular_hours: 12, current_overtime_hours: 0, frozen_regular_hours: 10, frozen_overtime_hours: 0, open_case_count: 0 }
 const period = { id: '2026-09-01', start_date: '2026-09-01', end_date: '2026-09-15', summary: totals, review_required: true, entries: [{ id: '19', work_date: '2026-09-08', start_time: '09:00', end_time: '17:00', worked_hours: 12, regular_hours: 12, overtime_hours: 0, issued_hours: 6, committed_hours: 4, needs_reconciliation_hours: 2, category: 'Operations', approval_status: 'approved', description: 'Saved source work' }], coverage_lines: [{ id: 'line1', batch_id: 'batch1', source_time_entry_id: '19', source_kind: 'current', coverage_state: 'issued', regular_hours: 6, overtime_hours: 0, work_date: '2026-09-08', external_pay_period_id: '30', external_payroll_item_id: '99', payment_reference: '1001' }], settlement_cases: [] }
-function Address() { return <output aria-label="Current address">{useLocation().pathname}{useLocation().search}</output> }
-function open(path = '/admin/users/7?tab=hours&return_to=%2Fadmin%2Ftime%3Fuser_id%3D7') {
-  render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/admin/users/:id" element={<EmployeeWorkspace />} /></Routes><Address /></MemoryRouter>)
+const PERIOD = period as unknown as EvidencePeriod
+const identity = { employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } } as never
+
+function renderEvidence(value: unknown, showNotMatched = true) {
+  render(
+    <MemoryRouter>
+      <PeriodEvidence
+        userId={7}
+        period={value as EvidencePeriod}
+        identity={identity}
+        showNotMatched={showNotMatched}
+        shiftHref={(entryId) => `?tab=time&period=2026-09-01&entry=${entryId}`}
+      />
+    </MemoryRouter>,
+  )
 }
+
 beforeEach(() => {
-  flags.schedulesEnabled = false
-  mock.schedule.mockResolvedValue({ schedules: [{ id: 4, work_date: '2026-09-08', formatted_time_range: '9:00 AM – 5:00 PM', notes: null }] })
-  mock.user.mockResolvedValue({ user: { id: 7, full_name: 'Casey Employee', employment_status: 'terminated', personal_access_enabled: false, time_tracking_enabled: true } })
-  mock.periods.mockResolvedValue({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals, periods: [period], evidence_note: 'Source coverage is not actual check REG/OT.', pagination: { total_count: 105, next_cursor: 'next-page' } })
+  mock.period.mockReset()
   mock.period.mockResolvedValue({ period, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
 })
-describe('employee workspace', () => {
-  it('hides the Schedule tab and a saved schedule link while "Use schedules" is off', async () => {
-    open('/admin/users/7?tab=schedule&start_date=2026-09-01&end_date=2026-09-15')
-    await screen.findByRole('heading', { name: 'Casey Employee' })
-    const sections = screen.getByRole('navigation', { name: 'Employee sections' })
-    expect(within(sections).queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument()
-    expect(within(sections).getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.queryByRole('heading', { name: 'Employee schedule' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Review shifts and approved leave' })).not.toBeInTheDocument()
-    expect(mock.schedule).not.toHaveBeenCalled()
-  })
 
-  it('shows the Schedule tab and its shifts when "Use schedules" is on', async () => {
-    flags.schedulesEnabled = true
-    open('/admin/users/7?tab=schedule&start_date=2026-09-01&end_date=2026-09-15')
-    await screen.findByRole('heading', { name: 'Casey Employee' })
-    const sections = screen.getByRole('navigation', { name: 'Employee sections' })
-    expect(within(sections).getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page')
-    expect(await screen.findByRole('heading', { name: 'Employee schedule' })).toBeInTheDocument()
-    expect(await screen.findByText(/9:00 AM – 5:00 PM/)).toBeInTheDocument()
-  })
-
-  it('shows complete totals, original-work evidence and exact connected navigation', async () => {
-    open()
-    await screen.findByRole('heading', { name: 'Casey Employee' })
-    expect(screen.getAllByText('Issued source coverage', { selector: 'dt' })[0]).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Review period' }))
-    await screen.findByText('Daily entries')
-    fireEvent.click(screen.getByRole('button', { name: /2026-09-08/ }))
-    await screen.findByRole('link', { name: 'Open time entry' })
-    expect(screen.getByRole('link', { name: 'Open time entry' })).toHaveAttribute('href', expect.stringContaining('user_id=7'))
-    expect(screen.getByRole('link', { name: 'Open time entry' })).toHaveAttribute('href', expect.stringContaining('date=2026-09-08&view=day'))
+describe('period evidence', () => {
+  it('shows totals in plain words, each shift and the frozen lines', async () => {
+    renderEvidence(PERIOD)
+    expect(screen.getByText('Paid (confirmed by Payroll)')).toBeInTheDocument()
+    expect(screen.getByText('In a payroll run, not paid yet')).toBeInTheDocument()
+    expect(screen.getByText('Not matched to a paycheck yet')).toBeInTheDocument()
+    expect(screen.queryByText('Issued source coverage')).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /2026-09-08/ }))
+    expect(screen.getByRole('link', { name: 'Show on the timecard' })).toHaveAttribute('href', '/?tab=time&period=2026-09-01&entry=19')
     expect(screen.getByRole('link', { name: 'Open frozen batch' })).toHaveAttribute('href', expect.stringContaining('batch_id=batch1'))
-    expect(screen.getByLabelText('Current address')).toHaveTextContent('period=2026-09-01&entry=19')
-    expect(screen.getByRole('link', { name: 'Back to previous view' })).toHaveAttribute('href', '/admin/time?user_id=7')
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Hours & payroll' })).toHaveClass('bg-slate-900', 'text-white')
-    expect(screen.getByRole('link', { name: 'Hours & payroll' })).not.toHaveClass('bg-white', 'text-slate-800')
   })
-  it('opens on the current pay period instead of all-time totals', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-11-11T02:00:00Z'))
-    mock.periods.mockClear()
-    try {
-      open('/admin/users/7?tab=overview')
-      await screen.findByRole('heading', { name: 'Hours this pay period · Nov 1, 2026–Nov 15, 2026' })
-      const filter = mock.periods.mock.calls.at(-1)?.[1] as URLSearchParams
-      expect(filter.get('start_date')).toBe('2026-11-01')
-      expect(filter.get('end_date')).toBe('2026-11-15')
-      expect(mock.periods).toHaveBeenCalledTimes(1)
-      expect(screen.getByLabelText('Current address')).toHaveTextContent('start_date=2026-11-01&end_date=2026-11-15')
-      expect(screen.queryByText(/Whole-filter totals/)).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'This pay period' })).not.toBeInTheDocument()
 
-      fireEvent.click(screen.getByRole('button', { name: 'All history' }))
-      await screen.findByRole('heading', { name: 'Hours for all recorded history' })
-      expect((mock.periods.mock.calls.at(-1)?.[1] as URLSearchParams).has('start_date')).toBe(false)
-      expect(screen.getByLabelText('Current address')).toHaveTextContent('range=all')
-      expect(screen.getByRole('link', { name: 'Hours & payroll' })).toHaveAttribute('href', expect.stringContaining('range=all'))
+  it('leaves not-matched hours out before payday', async () => {
+    renderEvidence(PERIOD, false)
+    expect(screen.queryByText('Not matched to a paycheck yet')).not.toBeInTheDocument()
+    await screen.findByRole('button', { name: /2026-09-08/ })
+    expect(screen.queryByText(/not matched/)).not.toBeInTheDocument()
+  })
 
-      fireEvent.click(screen.getByRole('button', { name: 'This pay period' }))
-      await screen.findByRole('heading', { name: 'Hours this pay period · Nov 1, 2026–Nov 15, 2026' })
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-  it('restores exact selection from a refreshed URL', async () => {
-    open('/admin/users/7?tab=hours&period=2026-09-01&entry=19&start_date=2026-09-01')
-    await screen.findByText('Saved source work')
-    expect(mock.period).toHaveBeenCalledWith('7', '2026-09-01', expect.any(URLSearchParams), expect.any(AbortSignal))
-    expect(mock.period.mock.calls.at(-1)?.[2].get('entry_id')).toBe('19')
-    expect(screen.getByLabelText('From work date')).toHaveValue('2026-09-01')
-  })
-  it('opens a linked older period even when it is beyond the list page', async () => {
-    mock.periods.mockResolvedValueOnce({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals, periods: [], evidence_note: 'Evidence', pagination: { total_count: 105, next_cursor: 'next-page' } })
-    open('/admin/users/7?tab=hours&period=2026-09-01&entry=19')
-    await screen.findByText('Saved source work')
-    expect(screen.getByRole('link', { name: 'Open time entry' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Show all period entries' })).toBeInTheDocument()
-  })
-  it('reports failures with retry rather than presenting zero work', async () => {
-    mock.periods.mockRejectedValueOnce(new Error('Evidence temporarily unavailable'))
-    open()
-    expect(await screen.findByRole('alert')).toHaveTextContent('Evidence temporarily unavailable')
-    expect(screen.queryByText('Worked')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    await screen.findByRole('heading', { name: 'Casey Employee' })
-  })
-  it('rejects evidence for another person', async () => {
-    mock.periods.mockResolvedValueOnce({ employee: { id: '8' } })
-    open()
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('identity does not match'))
-    expect(screen.queryByRole('heading', { name: 'Casey Employee' })).not.toBeInTheDocument()
-  })
-  it('refuses a saved reciprocal link for a changed installation or employee UUID', async () => {
-    open('/admin/users/7?tab=hours&source_user_uuid=old-employee&source_instance_id=installation-uuid')
-    expect(await screen.findByRole('alert')).toHaveTextContent('saved employee link no longer matches')
-    expect(screen.queryByRole('heading', { name: 'Casey Employee' })).not.toBeInTheDocument()
-  })
-  it('keeps verified identities on overview shortcuts and opens the report tab', async () => {
-    open('/admin/users/7?source_user_uuid=employee-uuid&source_instance_id=installation-uuid')
-    await screen.findByRole('heading', { name: 'Casey Employee' })
-    const hours = screen.getByRole('link', { name: 'Review hours & payroll' })
-    expect(hours).toHaveAttribute('href', expect.stringContaining('source_user_uuid=employee-uuid'))
-    expect(hours).toHaveAttribute('href', expect.stringContaining('source_instance_id=installation-uuid'))
-    expect(screen.getByRole('link', { name: 'Open hours report' })).toHaveAttribute('href', expect.stringMatching(/^\/admin\/reports\?/))
+  it('refuses evidence for another person', async () => {
+    mock.period.mockResolvedValue({ period, employee: { id: '8', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
+    renderEvidence(PERIOD)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Period evidence identity changed')
   })
 
   it('explains cancelled payment coverage as committed hours reserved for replacement', async () => {
     const cancelled = { ...period, coverage_lines: period.coverage_lines.map((line) => ({ ...line, status: 'payment_cancelled', coverage_state: 'committed' })) }
     mock.period.mockResolvedValueOnce({ period: cancelled, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-    open('/admin/users/7?tab=hours&period=2026-09-01&entry=19')
+    renderEvidence(PERIOD)
     expect(await screen.findByText('Payment cancelled. Payroll remains committed and these hours stay reserved for the replacement.')).toBeInTheDocument()
   })
 
   it('labels a bank receipt as a transfer instead of a paper check', async () => {
     const bankPeriod = { ...period, coverage_lines: period.coverage_lines.map(line => ({ ...line, payment_method: 'direct_deposit', payment_reference: 'SYNTHETIC-BANK' })) }
     mock.period.mockResolvedValueOnce({ period: bankPeriod, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-    open('/admin/users/7?tab=hours&period=2026-09-01&entry=19')
+    renderEvidence(PERIOD)
     expect(await screen.findByText(/bank transfer SYNTHETIC-BANK/)).toBeInTheDocument()
     expect(screen.queryByText(/check SYNTHETIC-BANK/)).not.toBeInTheDocument()
   })
-
 })
-
 
 it('shows the signed accounting correction separately and preserves the original issued coverage', async () => {
   const context = { accounting_only: true, correction_disposition_id: '9', original_pay_period_id: '30', original_payroll_item_id: '99', corrective_pay_period_id: '44', corrective_payroll_item_id: '55' }
   const corrected = { ...period, review_required: false, summary: { ...totals, worked_hours: 3, eligible_hours: 3, pending_hours: 0, issued_hours: 4, committed_hours: 0, needs_reconciliation_hours: 0, open_case_count: 1, accounting_correction_hours: -1, accounting_correction_line_count: 1 },
     coverage_lines: [...period.coverage_lines, { ...period.coverage_lines[0], id: 'correction', source_kind: 'correction', status: 'committed', coverage_state: 'committed', accounting_only: true, accounting_correction: context, regular_hours: -1, total_hours: -1, external_pay_period_id: '44', external_payroll_item_id: '55', payment_reference: null, payment_method: null }],
   }
-  mock.periods.mockResolvedValue({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals: corrected.summary, periods: [corrected], pagination: { total_count: 1, next_cursor: null } })
   mock.period.mockResolvedValue({ period: corrected, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open()
-  fireEvent.click(await screen.findByRole('button', { name: 'Review period' }))
+  renderEvidence(corrected)
+  expect(await screen.findByText('Correction to an earlier payroll')).toBeInTheDocument()
   expect(await screen.findByText(/Correction hours · Accounting correction committed · REG -1h/)).toBeInTheDocument()
   expect(screen.getByText(/No new payment or recovery recorded/)).toBeInTheDocument()
   expect(screen.getByText(/item 55/)).toBeInTheDocument()
   expect(screen.getByText(/item 99/)).toHaveTextContent('1001')
   expect(screen.queryByText(/correction.*payment reference Not recorded/)).not.toBeInTheDocument()
-  expect(screen.getByText(/Original work dates · Review recorded evidence/)).toBeInTheDocument()
-  expect(screen.queryByText(/Original work dates · Needs reconciliation/)).not.toBeInTheDocument()
 })
 
 it('keeps late-created paid case history visible without an unresolved-period badge', async () => {
@@ -171,17 +92,13 @@ it('keeps late-created paid case history visible without an unresolved-period ba
     summary: { ...totals, worked_hours: 4, eligible_hours: 4, pending_hours: 0, issued_hours: 4, committed_hours: 0, needs_reconciliation_hours: 0, open_case_count: 1 },
     settlement_cases: [{ public_id: 'historical-case', source_time_entry_id: '19', origin_reason: 'created_after_cutoff', status: 'in_payroll', completion: 'paid', target_pay_date: '2026-10-30', destination_kind: 'regular', target_external_pay_period_id: 'next-period', action_due_on: '2026-10-15' }],
   }
-  mock.periods.mockResolvedValue({ employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' }, as_of: '2026-10-05T10:00:00Z', totals: carried.summary, periods: [carried], pagination: { total_count: 1, next_cursor: null } })
   mock.period.mockResolvedValue({ period: carried, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open()
-  fireEvent.click(await screen.findByRole('button', { name: 'Review period' }))
+  renderEvidence(carried)
   expect(await screen.findByText('Historical reason: Entry was added after cutoff')).toBeInTheDocument()
   expect(screen.getByRole('region', { name: 'Reconciliation notes' })).toHaveTextContent('Paid')
   expect(screen.getByText('Regular payroll · Pay date Fri, Oct 30, 2026')).toBeInTheDocument()
   expect(screen.getByText('Recorded follow-up date: Thu, Oct 15, 2026')).toBeInTheDocument()
   expect(screen.getByText('Recorded case status: Included in payroll · receipt confirmation pending · Payroll reference: next-period')).toBeInTheDocument()
-  expect(screen.getByText(/Original work dates · Review recorded evidence/)).toBeInTheDocument()
-  expect(screen.queryByText(/Original work dates · Needs reconciliation/)).not.toBeInTheDocument()
 })
 
 it.each([
@@ -193,7 +110,7 @@ it.each([
 ])('renders truthful $label history without deriving a payday from the due date', async (item) => {
   const history = { ...period, settlement_cases: [{ ...item, target_pay_date: null, public_id: 'case', source_time_entry_id: '19', origin_reason: 'pending_overtime', target_external_pay_period_id: 'long-audit-payroll-reference', action_due_on: '2026-12-15' }] }
   mock.period.mockResolvedValue({ period: history, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open('/admin/users/7?tab=hours&period=2026-09-01')
+  renderEvidence(PERIOD)
   const notes = await screen.findByRole('region', { name: 'Reconciliation notes' })
   expect(within(notes).getByText(item.label)).toBeInTheDocument()
   expect(within(notes).getByText(item.destination)).toBeInTheDocument()
@@ -207,7 +124,7 @@ it.each([
 it('describes receipt scope independently from commitment and keeps the operator note', async () => {
   const prepared = { ...period, coverage_lines: [{ ...period.coverage_lines[0], coverage_state: 'committed', receipt_scope: 'exact_line', identity_state: 'verified', reason: 'Chels kept this original note.' }] }
   mock.period.mockResolvedValue({ period: prepared, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open('/admin/users/7?tab=hours&period=2026-09-01')
+  renderEvidence(PERIOD)
   expect(await screen.findByText(/Original period hours · Payroll committed · no active issued coverage · REG 6h/)).toBeInTheDocument()
   expect(screen.getByText(/receipt Receipt for this saved line/)).toBeInTheDocument()
   expect(screen.getByText('Chels kept this original note.')).toBeInTheDocument()
@@ -217,7 +134,7 @@ it('describes receipt scope independently from commitment and keeps the operator
 it('keeps unknown coverage and identity unresolved without hiding signed hours', async () => {
   const unknown = { ...period, coverage_lines: [{ ...period.coverage_lines[0], source_kind: 'future_source', coverage_state: 'future_paid', identity_state: 'future_verified', receipt_scope: 'constructor', regular_hours: -1, overtime_hours: null }] }
   mock.period.mockResolvedValue({ period: unknown, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open('/admin/users/7?tab=hours&period=2026-09-01')
+  renderEvidence(PERIOD)
   expect(await screen.findByText('Source hours · source needs review · Coverage status needs review · REG -1h / OT Unknown')).toBeInTheDocument()
   expect(screen.getByText('Employee identity needs review')).toBeInTheDocument()
   expect(screen.getByText(/Receipt scope not recognized · line confirmation unavailable/)).toBeInTheDocument()
@@ -232,7 +149,7 @@ it.each([
 ])('keeps $receipt_scope coverage separate from paid case completion', async (line) => {
   const unconfirmed = { ...period, coverage_lines: [{ ...period.coverage_lines[0], ...line }] }
   mock.period.mockResolvedValue({ period: unconfirmed, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open('/admin/users/7?tab=hours&period=2026-09-01')
+  renderEvidence(PERIOD)
   const scope = await screen.findByText((content) => content.includes(`receipt ${line.scope} ·`))
   expect(scope).toBeInTheDocument()
   expect(screen.queryByText('Paid', { exact: true })).not.toBeInTheDocument()
@@ -248,7 +165,7 @@ it.each([
 ])('does not confirm issued coverage with contradictory $identity_state/$receipt_scope', async (context) => {
   const conflicting = { ...period, coverage_lines: [{ ...period.coverage_lines[0], coverage_state: 'issued', ...context }] }
   mock.period.mockResolvedValue({ period: conflicting, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open('/admin/users/7?tab=hours&period=2026-09-01')
+  renderEvidence(PERIOD)
   expect(await screen.findByText(/Original period hours · .*needs review.*coverage unconfirmed · REG 6h/)).toBeInTheDocument()
   expect(screen.queryByText(/Original period hours · Issued payment coverage/)).not.toBeInTheDocument()
   expect(screen.getByText(/payroll period 30 · item 99/)).toHaveTextContent('1001')
@@ -257,7 +174,7 @@ it.each([
 it('retains issued manual evidence without inventing a line receipt scope', async () => {
   const manual = { ...period, coverage_lines: [{ ...period.coverage_lines[0], source_kind: 'manual', identity_state: 'verified', receipt_scope: null }] }
   mock.period.mockResolvedValue({ period: manual, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open('/admin/users/7?tab=hours&period=2026-09-01')
+  renderEvidence(PERIOD)
   expect(await screen.findByText('Manually linked hours · Issued payment coverage · REG 6h / OT 0h')).toBeInTheDocument()
   expect(screen.getByText(/receipt Manually linked evidence/)).toBeInTheDocument()
   expect(screen.queryByText(/Receipt for this saved line/)).not.toBeInTheDocument()
@@ -266,7 +183,7 @@ it('retains issued manual evidence without inventing a line receipt scope', asyn
 it('requires review of issued original-period hours without a receipt scope', async () => {
   const missingScope = { ...period, coverage_lines: [{ ...period.coverage_lines[0], identity_state: 'verified', receipt_scope: null }] }
   mock.period.mockResolvedValue({ period: missingScope, employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' } })
-  open('/admin/users/7?tab=hours&period=2026-09-01')
+  renderEvidence(PERIOD)
   expect(await screen.findByText('Original period hours · Receipt needs review · line coverage unconfirmed · REG 6h / OT 0h')).toBeInTheDocument()
   expect(screen.getByText(/receipt Receipt scope not recorded/)).toBeInTheDocument()
   expect(screen.queryByText(/Original period hours · Issued payment coverage/)).not.toBeInTheDocument()

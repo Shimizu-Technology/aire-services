@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, Plus } from 'lucide-react'
-import type { TimeEntry } from '../../lib/api'
-import { timecardsApi, type TimecardSummaryEmployee } from '../../lib/api/timecards'
+import type { HoursReportEmployee, TimeEntry } from '../../lib/api'
+import { timecardsApi } from '../../lib/api/timecards'
 import { formatDateOnly } from '../../lib/dateUtils'
 import { formatPayPeriod, payPeriodDays, todayInGuam, type PayPeriod } from '../../lib/payPeriods'
-import { formatHours, isApprovedTime, isOpenClock, timecardDays } from '../../lib/timecards'
+import { formatHours, isApprovedTime, isOpenClock, payPeriodHours, timecardDays } from '../../lib/timecards'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from '../time-tracking/EditTimeEntryModal'
 import { Avatar, Button, EmptyState, ErrorState, PeriodStepper } from '../ui'
@@ -47,6 +47,8 @@ export interface TimecardViewProps {
   actions?: ReactNode
   /** Above the name, e.g. a back link. */
   backLink?: ReactNode
+  /** Leave out the avatar and name when the page already shows them (the person page). */
+  hidePerson?: boolean
   /** Guam today; defaults to now. */
   today?: string
 }
@@ -69,11 +71,11 @@ function futureLine(days: string[]) {
  */
 export function TimecardView({
   person, period, onPeriodChange, categories, focusEntryId = null, lockAt, refreshKey = 0,
-  onChanged, onLogMissedTime, logMissedTimeBlockedReason = null, blockedReason = null, pauseRefresh = false, actions, backLink, today: todayProp,
+  onChanged, onLogMissedTime, logMissedTimeBlockedReason = null, blockedReason = null, pauseRefresh = false, actions, backLink, hidePerson = false, today: todayProp,
 }: TimecardViewProps) {
   const today = todayProp ?? todayInGuam()
   const readOnly = person.employmentStatus === 'terminated'
-  const [state, setState] = useState<{ key: string; revision: number; entries: TimeEntry[] | null; summary: TimecardSummaryEmployee | null; summaryFailed: boolean; error: string | null }>({ key: '', revision: 0, entries: null, summary: null, summaryFailed: false, error: null })
+  const [state, setState] = useState<{ key: string; revision: number; entries: TimeEntry[] | null; summary: HoursReportEmployee | null; summaryFailed: boolean; error: string | null }>({ key: '', revision: 0, entries: null, summary: null, summaryFailed: false, error: null })
   const [revision, setRevision] = useState(0)
   // Background refreshes (tab return, every 60s) count up here.
   const [tick, setTick] = useState(0)
@@ -92,13 +94,13 @@ export function TimecardView({
   useEffect(() => {
     let cancelled = false
     const range = { start: periodStart, end: periodEnd }
-    void Promise.all([timecardsApi.personEntries(person.id, range), timecardsApi.personSummary(person.id, range)]).then(([entries, summary]) => {
+    void Promise.all([timecardsApi.personEntries(person.id, range), timecardsApi.personReport(person.id, range)]).then(([entries, summary]) => {
       if (cancelled) return
       setState({
         key: requestKey,
         revision,
         entries: entries.data ?? null,
-        // The report is optional here: without it the totals come from the shifts.
+        // The report is optional here: without it the totals come from the shifts where they can.
         summary: summary.data?.employees.find(row => row.id === person.id) ?? null,
         summaryFailed: !summary.data,
         error: entries.data ? null : entries.error ?? "Couldn't load the shifts.",
@@ -146,11 +148,14 @@ export function TimecardView({
     })
   }, [linked])
 
-  // The same in-period hours the day rows show.
-  const waitingHours = items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
-  const approvedHours = state.summary && loaded ? state.summary.total_hours : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
-  const overtimeHours = loaded ? state.summary?.overtime_hours ?? 0 : 0
-  const overtimeWaiting = entries.filter(entry => entry.overtime_status === 'pending').length
+  // Approved means approved for pay, as on the person page's Pay tab: overtime
+  // still waiting is its own number, not part of Approved.
+  const report = loaded && state.summary ? payPeriodHours(state.summary, period) : null
+  const overtimeWaits = entries.some(entry => entry.overtime_status === 'pending')
+  // Without the report the shifts give Waiting, and Approved only when no overtime waits.
+  const waitingHours = report ? report.waiting : items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
+  const approvedHours = report ? report.approved : overtimeWaits ? null : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
+  const overtimeWaitingHours = report ? report.overtimeWaiting : overtimeWaits ? null : 0
 
   const days = payPeriodDays(period)
   const futureDays = days.filter(date => date > today && !byDay.has(date))
@@ -160,14 +165,14 @@ export function TimecardView({
   return (
     <section aria-label={`${person.name}'s timecard`} className="space-y-4">
       {backLink}
-      <div className="flex items-center gap-3">
+      {!hidePerson && <div className="flex items-center gap-3">
         <Avatar name={person.name} size="lg" />
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-title font-semibold text-ink">{person.name}</h2>
           {person.meta && <p className="truncate text-body-sm text-ink-muted">{person.meta}</p>}
         </div>
         {actions}
-      </div>
+      </div>}
 
       <PeriodStepper period={period} onChange={onPeriodChange} max={today} />
 
@@ -189,18 +194,19 @@ export function TimecardView({
           <dl className="grid grid-cols-3 divide-x divide-line rounded-card border border-line bg-surface text-center">
             <div className="px-2 py-3">
               <dt className="text-caption text-ink-muted">Approved</dt>
-              <dd className="text-title font-semibold tabular-nums text-ink">{formatHours(approvedHours)}</dd>
+              <dd className="text-title font-semibold tabular-nums text-ink">
+                {approvedHours === null ? <span className="block text-body-sm font-normal text-ink-muted">Didn't load</span> : formatHours(approvedHours)}
+              </dd>
             </div>
             <div className="px-2 py-3">
               <dt className="text-caption text-ink-muted">Waiting</dt>
               <dd className="text-title font-semibold tabular-nums text-ink">{formatHours(waitingHours)}</dd>
             </div>
             <div className="px-2 py-3">
-              <dt className="text-caption text-ink-muted">Overtime</dt>
-              <dd className="text-title font-semibold tabular-nums text-ink">
-                {/* Without the report, overtime is unknown, not zero. */}
-                {state.summaryFailed ? <span className="block text-body-sm font-normal text-ink-muted">Didn't load</span> : overtimeHours > 0 ? formatHours(overtimeHours) : '—'}
-                {overtimeWaiting > 0 && <span className="block text-caption font-normal text-amber-900">{overtimeWaiting} waiting</span>}
+              <dt className="text-caption text-ink-muted">Overtime waiting</dt>
+              <dd className={`text-title font-semibold tabular-nums ${overtimeWaitingHours ? 'text-amber-900' : 'text-ink'}`}>
+                {/* Without the report, waiting overtime is unknown, not zero. */}
+                {overtimeWaitingHours === null ? <span className="block text-body-sm font-normal text-ink-muted">Didn't load</span> : overtimeWaitingHours > 0 ? formatHours(overtimeWaitingHours) : '—'}
               </dd>
             </div>
           </dl>

@@ -1,4 +1,4 @@
-import type { TimeEntry, UserSummary, WorkerStatus } from './api'
+import type { HoursReportEmployee, TimeEntry, UserSummary, WorkerStatus } from './api'
 import type { TimecardSummaryEmployee } from './api/timecards'
 import { addDateDays } from './dateUtils'
 
@@ -154,6 +154,44 @@ export function shortClock(value: string | null | undefined) {
   return value ? value.replace(/\s?([AP])M$/i, (_, half: string) => half.toLowerCase()) : ''
 }
 
+/** A pay period's hours the way payroll counts them. Approved + waiting + overtime waiting is everything worked except what was denied. */
+export interface PayPeriodHours {
+  /** Approved for pay: approved time, less overtime that still waits for its own approval. */
+  approved: number
+  /** Time waiting for approval, including shifts held for an overtime review. */
+  waiting: number
+  /** Overtime on approved shifts that still waits for approval. */
+  overtimeWaiting: number
+}
+
+const HELD_FOR_REVIEW = 'overnight_allocation_review'
+
+/**
+ * The same rules as the person page's payroll evidence (Payroll::
+ * EmployeePeriodEvidence), from a person's full hours report row: overtime
+ * counts as approved only once its own approval is in, and a held shift waits
+ * in full in the period of its own work date.
+ */
+export function payPeriodHours(employee: Pick<HoursReportEmployee, 'days' | 'excluded_entries'>, period: { start: string; end: string }): PayPeriodHours {
+  let approved = 0
+  let waiting = 0
+  let overtimeWaiting = 0
+  for (const entry of employee.days.flatMap(day => day.entries ?? [])) {
+    const unapprovedOvertime = entry.overtime_status === 'approved' ? 0 : entry.overtime_hours
+    approved += entry.total_hours - unapprovedOvertime
+    // Denied overtime isn't paid, so it isn't waiting either.
+    if (entry.overtime_status !== 'denied') overtimeWaiting += unapprovedOvertime
+  }
+  for (const entry of employee.excluded_entries ?? []) {
+    if (entry.quality_flags?.includes(HELD_FOR_REVIEW)) {
+      if (entry.work_date >= period.start && entry.work_date <= period.end) waiting += entry.total_hours
+    } else if (entry.approval_status === 'pending' || (entry.entry_method === 'manual' && entry.approval_status === null)) {
+      waiting += entry.total_hours
+    }
+  }
+  return { approved: round2(approved), waiting: round2(waiting), overtimeWaiting: round2(overtimeWaiting) }
+}
+
 export const formatHours = (value: number) => `${(Math.round(value * 10) / 10).toFixed(1)}h`
 
 export const isOpenClock = (entry: Pick<TimeEntry, 'status'>) => entry.status === 'clocked_in' || entry.status === 'on_break'
@@ -173,8 +211,12 @@ export interface TimecardPersonRow {
   employmentStatus: UserSummary['employment_status']
   terminationEffectiveOn: string | null
   timeCategoryIds: number[]
-  /** Approved hours this period; null when the summary couldn't load. */
-  approvedHours: number | null
+  /**
+   * Hours worked this period: counted time plus time still waiting. It always
+   * equals the timecard's Approved + Waiting + Overtime waiting. Null when the
+   * summary couldn't load.
+   */
+  workedHours: number | null
   waitingCount: number
   overtimeWaitingCount: number
   openClock: OpenClockState
@@ -215,7 +257,7 @@ export function buildPeopleRows(users: UserSummary[], summary: TimecardSummaryEm
       employmentStatus: user.employment_status,
       terminationEffectiveOn: user.termination_effective_on ?? null,
       timeCategoryIds: user.time_category_ids ?? [],
-      approvedHours: row ? row.total_hours : null,
+      workedHours: row ? Math.round((row.total_hours + (row.waiting_hours ?? 0)) * 100) / 100 : null,
       waitingCount,
       overtimeWaitingCount,
       openClock,
