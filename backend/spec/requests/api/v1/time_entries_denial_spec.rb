@@ -17,7 +17,7 @@ RSpec.describe "Denying a shift in the Approvals inbox", type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(entry.reload.approval_status).to eq("denied")
-    expect(entry.overtime_status).to be_in(%w[denied none])
+    expect(entry.overtime_status).to eq("denied")
     expect(entry.overtime_approved_by).to eq(manager)
     expect(entry.overtime_approved_at).to be_within(1.second).of(Time.current)
     expect(entry.overtime_note).to eq("Please correct the punches.")
