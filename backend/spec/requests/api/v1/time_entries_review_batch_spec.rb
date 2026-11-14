@@ -281,6 +281,32 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
     expect(ordinary.reload.approval_status).to eq("pending")
   end
 
+  it "lists a pending shift overlapping approved time as needs a look and refuses an ordinary batch containing it" do
+    approved = clock_shift(employee, wednesday, from: 8, hours: 4, approval_status: "approved")
+    overlapping = clock_shift(employee, wednesday, from: 10, hours: 4)
+    ordinary = clock_shift(ethan, wednesday)
+
+    get "/api/v1/time_entries/pending_approvals", headers: headers_for(manager)
+
+    expect(response).to have_http_status(:ok)
+    waiting = json.fetch("pending_entries")
+    expect(waiting.pluck("id")).to contain_exactly(overlapping.id, ordinary.id)
+    expect(waiting.find { |entry| entry.fetch("id") == overlapping.id }).to include(
+      "review_kind" => "needs_look",
+      "exceptions" => [ { "key" => "overlaps", "label" => "Overlaps another shift" } ]
+    )
+    expect(json.fetch("review_summary")).to include("ordinary_count" => 1, "needs_look_count" => 1)
+
+    post_review_batch(manager, [ item_for(overlapping), item_for(ordinary) ], mode: "ordinary")
+
+    expect(response).to have_http_status(:conflict)
+    expect(json).to include("code" => "needs_look", "changed_ids" => [ overlapping.id ])
+    expect([ overlapping, ordinary ].map { |entry| entry.reload.approval_status }).to eq(%w[pending pending])
+    expect(approved.reload.approval_status).to eq("approved")
+    expect(ReviewBatch.count).to eq(0)
+    expect(AuditLog.where(action: %w[time_entry.approved review_batch.approved])).to be_empty
+  end
+
   describe "Idempotency-Key" do
     it "returns the same batch when a request is replayed" do
       entries = [ clock_shift(employee, wednesday), clock_shift(ethan, wednesday) ]

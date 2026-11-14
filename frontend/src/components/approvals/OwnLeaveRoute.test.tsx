@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { expect, it, vi } from 'vitest'
 import { api, type LeaveRequest } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
+import { ToastProvider } from '../ui'
 import { SupervisorLeaveRedirect } from '../../pages/admin/AdminRedirects'
 
 vi.mock('../../contexts/AuthContext', () => ({
@@ -66,9 +67,11 @@ it('lets a supervisor submit and cancel their own request at mine=1', async () =
   })
   render(
     <MemoryRouter initialEntries={['/admin/leave?mine=1']}>
-      <SupervisorLeaveRedirect>
-        <p>Team leave</p>
-      </SupervisorLeaveRedirect>
+      <ToastProvider>
+        <SupervisorLeaveRedirect>
+          <p>Team leave</p>
+        </SupervisorLeaveRedirect>
+      </ToastProvider>
     </MemoryRouter>,
   )
   await screen.findByRole('button', { name: 'Request time off' })
