@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { api } from '../../lib/api'
+import { peopleApi } from '../../lib/api/people'
 import { Button, Field, Input, Sheet } from '../ui'
 
 interface ResetPinSheetProps {
   open: boolean
   userId: number
+  version: number
   name: string
   onClose: () => void
   /** After a new PIN is saved, so the page can reload the person. */
@@ -12,7 +13,9 @@ interface ResetPinSheetProps {
 }
 
 /** Sets or generates a kiosk PIN and shows it once. */
-export function ResetPinSheet({ open, userId, name, onClose, onReset }: ResetPinSheetProps) {
+export function ResetPinSheet({ open, userId, version, name, onClose, onReset }: ResetPinSheetProps) {
+  const [refreshedVersion, setRefreshedVersion] = useState<number | null>(null)
+  const [conflict, setConflict] = useState(false)
   const [pin, setPin] = useState('')
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -20,23 +23,34 @@ export function ResetPinSheet({ open, userId, name, onClose, onReset }: ResetPin
 
   const close = () => {
     setPin('')
+    setRefreshedVersion(null)
+    setConflict(false)
     setResult(null)
     setError(null)
     onClose()
   }
 
   const save = async (custom?: string) => {
+    if (saving || conflict) return
     setSaving(custom ? 'custom' : 'generate')
     setError(null)
-    const response = await api.resetKioskPin(userId, custom)
+    const response = await peopleApi.resetPin(userId, refreshedVersion ?? version, custom)
     setSaving(null)
     if (!response.data) {
       setError(response.error || "The PIN wasn't changed. Try again.")
+      if (response.status === 409) setConflict(true)
       return
     }
     setResult(response.data.kiosk_pin)
     setPin('')
     onReset()
+  }
+
+  const reload = async () => {
+    setSaving('generate')
+    const response = await peopleApi.person(userId)
+    setSaving(null)
+    if (response.data) { setRefreshedVersion(response.data.user.admin_edit_version ?? 0); setConflict(false); setError(null) }
   }
 
   return (
@@ -58,14 +72,14 @@ export function ResetPinSheet({ open, userId, name, onClose, onReset }: ResetPin
             variant="secondary"
             onClick={() => void save()}
             loading={saving === 'generate'}
-            disabled={saving !== null}
+            disabled={conflict || saving !== null}
           >
             Make a PIN for me
           </Button>
           <Button
             onClick={() => void save(pin)}
             loading={saving === 'custom'}
-            disabled={saving !== null || pin.length < 4}
+            disabled={conflict || saving !== null || pin.length < 4}
           >
             Save this PIN
           </Button>
@@ -92,7 +106,7 @@ export function ResetPinSheet({ open, userId, name, onClose, onReset }: ResetPin
               enterKeyHint="done"
             />
           </Field>
-          {error && <p role="alert" className="text-body-sm text-danger">{error}</p>}
+          {error && <div role="alert" className="text-body-sm text-danger"><p>{error}</p>{conflict && <Button variant="secondary" onClick={() => void reload()} disabled={saving !== null}>Reload person</Button>}</div>}
         </div>
       )}
     </Sheet>

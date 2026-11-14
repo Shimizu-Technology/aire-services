@@ -38,7 +38,7 @@ const HAND_ROLLED_OVERLAY_PENDING: Record<string, number> = {
   '../pages/admin/PayrollRuns.tsx': 2,
   '../pages/admin/Schedule.tsx': 1,
   '../pages/admin/TimeTracking.tsx': 2,
-  '../pages/admin/Users.tsx': 4,
+  '../pages/admin/Users.tsx': 1,
 }
 
 describe('design baseline', () => {
