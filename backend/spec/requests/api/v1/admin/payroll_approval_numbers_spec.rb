@@ -62,6 +62,10 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     expect(response).to have_http_status(:ok)
     text = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
     expect(text).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50", "Needs review")
+    get "/api/v1/admin/hours_report/pdf", params: range.merge(user_id: worker.id), headers: headers
+    expect(response).to have_http_status(:ok)
+    employee_pdf = PDF::Reader.new(StringIO.new(response.body)).pages.map(&:text).join(" ").gsub(/\s+/, " ")
+    expect(employee_pdf).to include("Approved for payroll", "Overtime waiting for approval", "not included", "40.00", "3.50")
     expect(capture.reload.checksum).to eq(checksum)
   end
 

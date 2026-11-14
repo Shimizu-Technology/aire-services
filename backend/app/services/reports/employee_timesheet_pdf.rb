@@ -101,7 +101,7 @@ module Reports
       end
       rows << [ { content: "No included entries for this period.", colspan: 9 } ] if rows.one?
 
-      pdf.table(rows, header: true, width: pdf.bounds.width, column_widths: [ 55, 45, 45, 35, 100, 60, 60, 65, 65 ], cell_style: { size: 7.5, padding: [ 6, 4 ], border_color: BORDER }) do |table|
+      pdf.table(rows, header: true, width: pdf.bounds.width, column_widths: [ 55, 45, 45, 35, 110, 60, 60, 65, 65 ], cell_style: { size: 7.5, padding: [ 6, 4 ], border_color: BORDER }) do |table|
         table.row_colors = [ "FFFFFF", "F7FAFB" ] if rows.length > 2
         table.row(0).background_color = NAVY
         table.row(0).text_color = "FFFFFF"

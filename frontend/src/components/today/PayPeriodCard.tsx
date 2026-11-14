@@ -6,9 +6,11 @@ import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { currentPayPeriod, formatPayPeriod } from '../../lib/payPeriods'
 import { Skeleton } from '../ui/Skeleton'
 import { ProgressSplit, StatusPill, buttonClasses } from '../ui'
-import { dayLabel, hoursLabel, isLocked, lockStatus, lockTimeLabel } from './format'
+import { dayLabel, isLocked, lockStatus, lockTimeLabel } from './format'
 import { approvalsHref, payrollHref } from './links'
 import { StaleNote } from './StaleNote'
+
+const approvalHoursLabel = (value: number) => `${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}h`
 
 /** `stale`: the last refresh failed, so this is the last good answer. */
 type Load = 'loading' | 'error' | 'ready' | 'stale'
@@ -124,7 +126,8 @@ export function PayPeriodCard({
           <>
             <ProgressSplit
               parts={[{ label: 'Approved for payroll', value: period.approved_hours, tone: 'approved' }, ...waitingParts]}
-              label={`${hoursLabel(period.approved_hours)} Approved for payroll, ${waitingParts.map(part => `${hoursLabel(part.value)} ${part.label}`).join(', ')}`}
+              format={approvalHoursLabel}
+              label={`${approvalHoursLabel(period.approved_hours)} Approved for payroll, ${waitingParts.map(part => `${approvalHoursLabel(part.value)} ${part.label}`).join(', ')}`}
             />
             {!waiting && <p className="mt-1 text-caption text-ink-muted">Nothing waiting for approval</p>}
           </>
