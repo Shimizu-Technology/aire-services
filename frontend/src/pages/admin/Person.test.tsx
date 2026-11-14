@@ -35,7 +35,7 @@ const LONG_NAME = 'Joaquin Mendiola-Taitano De Leon Guerrero'
 function makeUser(overrides: Partial<AdminUser> = {}): AdminUser {
   return {
     id: 7, email: 'casey@aire.test', first_name: 'Casey', last_name: 'Cruz', display_name: 'Casey Cruz', full_name: 'Casey Cruz',
-    role: 'employee', staff_title: 'Certified Flight Instructor', approval_group_labels: ['CFI'], is_active: true, employment_status: 'active',
+    role: 'employee', admin_edit_version: 0, assignable_roles: ['employee', 'manager'], staff_title: 'Certified Flight Instructor', approval_group_labels: ['CFI'], is_active: true, employment_status: 'active',
     terminated_at: null, termination_effective_on: null, termination_reason: null, terminated_by: null, can_delete_permanently: false,
     is_pending: false, has_clerk_account: true, uses_clerk_profile: true, personal_access_enabled: true, profile_source: 'clerk',
     time_tracking_enabled: true, public_team_enabled: false, public_team_name: null, public_team_title: null, public_team_sort_order: 0,
@@ -115,7 +115,8 @@ beforeEach(() => {
   failingStarts.clear()
   auth.value = { isClerkEnabled: true, userRole: 'admin', currentUser: { id: 99, my_pay_preview_enabled: true } }
   fetchMock.mockReset()
-  fetchMock.mockImplementation(async (endpoint: string) => {
+  fetchMock.mockImplementation(async (endpoint: string, options?: RequestInit) => {
+    if (endpoint === '/api/v1/admin/users/7/my_pay') return apiMock.setUserMyPay(7, JSON.parse(String(options?.body)).enabled)
     if (endpoint === '/api/v1/admin/users/7') return { data: { user: person }, status: 200 }
     if (endpoint.startsWith('/api/v1/payroll_periods/')) return payrollPeriod(endpoint)
     return { error: 'Not found', status: 404 }
@@ -127,7 +128,7 @@ beforeEach(() => {
   apiMock.getPayrollCutoff.mockResolvedValue({ data: { cutoff: null } })
   apiMock.getLeaveRequests.mockResolvedValue({ data: { leave_requests: [], pagination: { total_pages: 1 } } })
   apiMock.getMyPayAccess.mockResolvedValue({ data: { enabled_for_all: false, enabled_user_ids: [] } })
-  apiMock.setUserMyPay.mockResolvedValue({ data: { user_id: 7, my_pay_enabled: true, my_pay_active: true } })
+  apiMock.setUserMyPay.mockResolvedValue({ data: { user_id: 7, my_pay_enabled: true, my_pay_active: true, admin_edit_version: 1 } })
   evidenceMock.activity.mockResolvedValue({ audit_logs: [], pagination: { total_pages: 1 } })
   evidenceMock.periods.mockResolvedValue({
     employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' },
@@ -334,6 +335,19 @@ describe('Pay tab', () => {
     await waitFor(() => expect(apiMock.setUserMyPay).toHaveBeenCalledWith(7, true))
     await waitFor(() => expect(screen.getByRole('switch', { name: 'My Pay' })).toHaveAttribute('aria-checked', 'true'))
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('My Pay on')).toBeInTheDocument()
+  })
+
+  it('carries the new version from the Pay switch into the next Access save', async () => {
+    open('/admin/users/7?tab=pay')
+    const toggle = await screen.findByRole('switch', { name: 'My Pay' })
+    await waitFor(() => expect(toggle).toBeEnabled())
+    fireEvent.click(toggle)
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/admin/users/7/my_pay', { method: 'PATCH', body: JSON.stringify({ enabled: true, admin_edit_version: 0 }) })
+    fireEvent.click(screen.getByRole('tab', { name: 'Access' }))
+    fireEvent.click(await screen.findByRole('radio', { name: /^Manager/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/admin/users/7', expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"admin_edit_version":1') })))
   })
 
   it("reports a failed My Pay change without pretending it changed", async () => {

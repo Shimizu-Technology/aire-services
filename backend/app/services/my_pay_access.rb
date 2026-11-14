@@ -6,11 +6,12 @@ class MyPayAccess
   class NotPermitted < StandardError; end
 
   class << self
-    def set_for_user!(user:, enabled:, actor:)
+    def set_for_user!(user:, enabled:, actor:, expected_version: :unchecked)
       authorize!(actor)
 
       User.transaction do
         user.lock_employee!
+        AdminPersonEdit.check!(user, expected_version) unless expected_version == :unchecked
         before = user.my_pay_enabled?
         next if before == enabled
 

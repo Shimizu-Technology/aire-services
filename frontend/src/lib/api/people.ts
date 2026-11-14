@@ -76,6 +76,9 @@ export interface TerminationPreview {
 export type PersonSaved = { user: AdminUser; kiosk_pin?: string | null; invitation_email_captured?: boolean; invitation_email_sent?: boolean }
 
 export const peopleApi = {
+  setMyPay: (id: number, enabled: boolean, version: number) => fetchApi<{ user_id: number; my_pay_enabled: boolean; admin_edit_version: number }>(`/api/v1/admin/users/${id}/my_pay`, {
+    method: 'PATCH', body: JSON.stringify({ enabled, admin_edit_version: version }),
+  }),
   save: async (id: number, edit: PersonEdit, photo?: File | null): Promise<Result<PersonSaved>> => {
     if (!photo) return fetchApi<PersonSaved>(`/api/v1/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(edit) })
     // api.ts is frozen; its JSON helper always sets Content-Type. Multipart

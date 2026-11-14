@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronDown, Send } from 'lucide-react'
-import { api, type AdminUser } from '../../lib/api'
+import type { AdminUser } from '../../lib/api'
 import { peopleApi, type PayPeriodState } from '../../lib/api/people'
 import { employeeEvidenceApi, type EmployeeEvidence, type EvidencePeriod } from '../../lib/employeeEvidenceApi'
 import { formatPayPeriod } from '../../lib/payPeriods'
@@ -111,9 +111,9 @@ export function PayTab({ user, today, myPayForEveryone, myPayError, onRetryMyPay
   const toggleMyPay = async (enabled: boolean) => {
     setSaving(true)
     setSaveError(null)
-    const response = await api.setUserMyPay(user.id, enabled)
+    const response = await peopleApi.setMyPay(user.id, enabled, user.admin_edit_version ?? 0)
     setSaving(false)
-    if (response.data) onUserChange({ ...user, my_pay_enabled: response.data.my_pay_enabled })
+    if (response.data) onUserChange({ ...user, my_pay_enabled: response.data.my_pay_enabled, admin_edit_version: response.data.admin_edit_version })
     else setSaveError(response.error || `My Pay wasn't changed for ${first}. Try again.`)
   }
 
