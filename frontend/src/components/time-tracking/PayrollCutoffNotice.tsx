@@ -71,7 +71,8 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   const [validated, setValidated] = useState(false)
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
   const [ackError, setAckError] = useState(false)
-  const [pending, setPending] = useState<number | null>(null)
+  // The waiting count for one period. Unknown (loading, failed, or another period) is null.
+  const [pendingCount, setPendingCount] = useState<{ periodId: number; count: number | null } | null>(null)
   const bannerRef = useRef<HTMLElement>(null)
   const requestSequence = useRef(0)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -90,11 +91,11 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
     }
     else setStale(true)
     const period = result.data?.cutoff.period
-    setPending(null)
     if (reviewsTeam && period && result.data?.cutoff.stage !== 'none' && result.data?.connected_payroll?.enabled !== false) {
+      // The last count stays on screen while a refresh runs, so the notice doesn't flicker.
       const approvals = await api.getPendingApprovals({ per_page: 1, start_date: period.start_date, end_date: period.end_date })
-      if (session === activeSession.current && sequence === requestSequence.current) setPending(approvals.data?.summary?.entry_count ?? approvals.data?.count ?? null)
-    }
+      if (session === activeSession.current && sequence === requestSequence.current) setPendingCount({ periodId: period.id, count: approvals.data?.summary?.entry_count ?? approvals.data?.count ?? null })
+    } else setPendingCount(null)
   }, [accessToken, reviewsTeam])
   useEffect(() => {
     let active = true
@@ -152,9 +153,11 @@ export default function PayrollCutoffNotice({ kiosk }: Props) {
   if (!cutoff) return attentionNotice
   if (!cutoff.period) return attentionNotice || (managesPayroll && connection?.enabled === true ? <section aria-label="Payroll cutoff setup" className="cutoff-notice">No scheduled payroll cutoff is published. <Link to="/admin/payroll">Set up the payroll calendar</Link>.</section> : null)
   if (cutoff.stage === 'none') return attentionNotice
-  // A lock that already happened is history, not an alarm. Only a team reviewer with
-  // nothing waiting from that period gets the quiet status instead of the warning.
-  if (cutoff.stage === 'passed' && reviewsTeam && !stale && validated && (pending === null || pending === 0)) {
+  const pending = pendingCount && pendingCount.periodId === cutoff.period.id ? pendingCount.count : null
+  // A lock that already happened is history, not an alarm. Only a team reviewer whose count
+  // for that period came back as exactly 0 gets the quiet status. While the count is
+  // loading or failed, the full warning and its approvals link stay.
+  if (cutoff.stage === 'passed' && reviewsTeam && !stale && validated && pending === 0) {
     const nextLock = response?.next_lock
     const upcoming = nextLock && nextLock.period.id !== cutoff.period.id ? nextLock : null
     return <>
