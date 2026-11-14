@@ -7,6 +7,8 @@ export const LOCATION_TIMEOUT =
   "Couldn't get your location. Step outside or near the office and try again."
 export const OFFLINE_CLOCK =
   "No connection. Your clock-in wasn't sent. Check your signal and tap Clock in again. Nothing is saved until you see 'On the clock'."
+export const OFFLINE_IDLE =
+  'No connection. Clock actions are paused; this is your last saved status.'
 
 /** Read whole Sunday–Saturday weeks so a period edge never resets overtime. */
 export function weeksAround(period: PayPeriod) {
@@ -112,15 +114,23 @@ export function chooseLastCategory(
   )
 }
 
+/** A completed shift with no approval yet is waiting, never implicitly approved. */
+export function employeeHoursBucket(entry: TimeEntry) {
+  if (entry.status !== 'completed' || entry.approval_status === 'denied') return null
+  return entry.approval_status === 'approved' ? 'approved' : 'waiting'
+}
+
 export function periodTotals(entries: TimeEntry[], period: PayPeriod) {
   const items = [...timecardDays(entries, period).values()]
     .flat()
-    .filter((item) => item.entry.status === 'completed')
-  const sum = (status?: string) =>
+    .filter((item) => employeeHoursBucket(item.entry))
+  const sum = (status: 'approved' | 'waiting') =>
     items
-      .filter((item) => !status || item.entry.approval_status === status)
+      .filter((item) => employeeHoursBucket(item.entry) === status)
       .reduce((total, item) => total + item.hours, 0)
-  return { total: sum(), approved: sum('approved'), waiting: sum('pending') }
+  const approved = sum('approved')
+  const waiting = sum('waiting')
+  return { total: approved + waiting, approved, waiting }
 }
 
 /** Only a paid payload with a pay date can label the whole period Paid. */
@@ -143,9 +153,9 @@ export function periodPaidDate(entries: TimeEntry[]) {
 
 export function requestLocation(): Promise<ClockLocationPayload> {
   return new Promise((resolve, reject) => {
-    // An explicit timer covers browsers/providers that fail to call either
-    // geolocation callback. No punch is sent until location succeeds.
-    const timer = window.setTimeout(() => reject(new Error(LOCATION_TIMEOUT)), 10_000)
+    // The browser's 10s acquisition timeout excludes its permission prompt.
+    // This longer guard only covers providers that never call either callback.
+    const timer = window.setTimeout(() => reject(new Error(LOCATION_TIMEOUT)), 30_000)
     const fail = (message: string) => {
       window.clearTimeout(timer)
       reject(new Error(message))

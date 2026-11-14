@@ -1,5 +1,5 @@
 import type { TimeEntry } from '../../lib/api'
-import { clockTime } from '../../lib/myTime'
+import { clockTime, employeeHoursBucket } from '../../lib/myTime'
 import { employeeDate, employeeShiftStatus } from '../../lib/employeePresentation'
 import { Button, Sheet } from '../ui'
 
@@ -26,7 +26,9 @@ export function ShiftSheet({
           : entry.clock_source === 'mobile'
             ? 'Phone'
             : 'Clock'
-  const weekHours = weekEntries.reduce((sum, row) => sum + row.hours, 0)
+  const weekHours = weekEntries
+    .filter(employeeHoursBucket)
+    .reduce((sum, row) => sum + row.hours, 0)
   const overtime = weekEntries.reduce(
     (sum, row) => sum + (row.pending_overtime_hours ?? 0),
     0,
@@ -86,11 +88,15 @@ export function ShiftSheet({
         <div>
           <dt className="text-ink-muted">Approval</dt>
           <dd>
-            {entry.approved_by
-              ? `Approved by ${entry.approved_by.full_name}`
-              : entry.auto_approved
-                ? 'Automatically approved'
-                : employeeShiftStatus(entry).label}
+            {entry.approval_status === 'denied'
+              ? entry.approved_by
+                ? `Declined by ${entry.approved_by.full_name}`
+                : 'Declined'
+              : entry.approval_status === 'approved' && entry.approved_by
+                ? `Approved by ${entry.approved_by.full_name}`
+                : entry.approval_status === 'approved' && entry.auto_approved
+                  ? 'Automatically approved'
+                  : employeeShiftStatus(entry).label}
           </dd>
         </div>
         <div>

@@ -10,11 +10,13 @@ import {
   clockTime,
   needsClockOutConfirm,
   OFFLINE_CLOCK,
+  OFFLINE_IDLE,
   periodTotals,
   requestLocation,
   workedMilliseconds,
 } from '../../lib/myTime'
 import { formatElapsed } from '../../lib/formatElapsed'
+import { guamDate } from '../../lib/timecards'
 import { currentPayPeriod } from '../../lib/payPeriods'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
@@ -30,6 +32,11 @@ export default function MyTime() {
   const online = useOnlineStatus()
   const [status, setStatus] = useState<ClockStatus | null>(null)
   const [categories, setCategories] = useState<TimeCategory[]>([])
+  const [categoryState, setCategoryState] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  )
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [switchChoice, setSwitchChoice] = useState<number | null>(null)
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [summaryLoaded, setSummaryLoaded] = useState(false)
   const [choice, setChoice] = useState<number | null>(null)
@@ -41,30 +48,43 @@ export default function MyTime() {
   const [lastOut, setLastOut] = useState<TimeEntry | null>(null)
   // Serializes taps before React has had a chance to disable the controls.
   const inFlight = useRef(false)
+  const statusGeneration = useRef(0)
+  const unconfirmed = useRef(false)
   const storageKey = `aire-last-work-${viewerId}`
   const period = currentPayPeriod()
 
   const readStatus = useCallback(async () => {
+    const generation = ++statusGeneration.current
     const result = await myTimeApi.status()
-    if (!result.data) return null
+    if (generation !== statusGeneration.current || !result.data) return null
     setStatus(result.data)
+    if (result.data.clocked_in && result.data.time_category) {
+      setChoice(result.data.time_category.id)
+    }
     setMustRefresh(false)
+    setStatusError(null)
+    if (unconfirmed.current) {
+      setNotice(
+        `The server says: ${result.data.clocked_in ? (result.data.active_break ? 'On break' : 'On the clock') : 'Off the clock'}.`,
+      )
+    }
+    unconfirmed.current = false
     return result.data
   }, [])
 
   const load = useCallback(async () => {
     const [result, categoryResult, shifts] = await Promise.all([
-      myTimeApi.status(),
+      readStatus(),
       myTimeApi.categories(),
       viewerId
         ? myTimeApi.entries(viewerId, currentPayPeriod())
         : Promise.resolve(null),
     ])
-    if (result.data) setStatus(result.data)
-    else setError(result.error || "Couldn't check your clock. Try again.")
+    if (!result) setStatusError("Couldn't check your clock. Try again.")
     if (categoryResult.data) {
       const available = categoryResult.data.time_categories
       setCategories(available)
+      setCategoryState('ready')
       let saved: number | null = null
       try {
         saved = Number(localStorage.getItem(storageKey)) || null
@@ -73,11 +93,12 @@ export default function MyTime() {
       }
       setChoice(chooseLastCategory(available, shifts?.data ?? [], saved))
     }
+    if (!categoryResult.data) setCategoryState('error')
     if (shifts?.data) {
       setEntries(shifts.data)
       setSummaryLoaded(true)
     }
-  }, [viewerId, storageKey])
+  }, [viewerId, storageKey, readStatus])
 
   useEffect(() => {
     void load()
@@ -90,19 +111,48 @@ export default function MyTime() {
     [readStatus],
   )
 
+  const markUnconfirmed = () => {
+    unconfirmed.current = true
+    setMustRefresh(true)
+  }
+
+  const retryCategories = async () => {
+    setCategoryState('loading')
+    const result = await myTimeApi.categories()
+    if (!result.data) {
+      setCategoryState('error')
+      return
+    }
+    const available = result.data.time_categories
+    setCategories(available)
+    setCategoryState('ready')
+    let saved: number | null = null
+    try {
+      saved = Number(localStorage.getItem(storageKey)) || null
+    } catch {
+      /* Optional. */
+    }
+    setChoice((current) =>
+      available.some((category) => category.id === current)
+        ? current
+        : chooseLastCategory(available, entries, saved),
+    )
+  }
+
   const punch = async (action: Action) => {
     if (inFlight.current || !online || mustRefresh) return
     inFlight.current = true
+    ++statusGeneration.current
     setBusy(true)
     setError(null)
     setNotice(null)
     setSheet(null)
+    let sent = false
     try {
       const location =
         action === 'in' && status?.clock_in_location_required
           ? await requestLocation()
           : undefined
-      // Going offline during the location prompt must not send a queued punch.
       if (!navigator.onLine) {
         setError(
           action === 'in'
@@ -111,52 +161,62 @@ export default function MyTime() {
         )
         return
       }
+      const categoryId = action === 'switch' ? switchChoice : choice
+      sent = true
       const result =
         action === 'in'
-          ? await myTimeApi.clockIn(choice!, location)
+          ? await myTimeApi.clockIn(categoryId!, location)
           : action === 'out'
             ? await myTimeApi.clockOut()
             : action === 'break'
               ? await myTimeApi.startBreak()
               : action === 'resume'
                 ? await myTimeApi.endBreak()
-                : await myTimeApi.switchWork(choice!)
+                : await myTimeApi.switchWork(categoryId!)
       if (!result.data) {
         if (outcomeUnknown(result)) {
-          setMustRefresh(true)
+          markUnconfirmed()
           const fresh = await readStatus()
           setNotice(
             fresh
               ? `The reply was lost. The server says: ${fresh.clocked_in ? (fresh.active_break ? 'On break' : 'On the clock') : 'Off the clock'}. Check this status before your next action.`
-              : "We couldn't confirm what happened. Check your clock status before trying again.",
+              : "We couldn't confirm what happened. Try again to check your status.",
           )
         } else {
+          // A kiosk or another phone may have changed the clock since our read.
+          // A real refusal is safe to retry once that status refresh finishes.
           setError(result.error || 'Nothing was saved. Try again.')
+          await readStatus()
         }
         return
       }
-      if ((action === 'in' || action === 'switch') && choice) {
+      if ((action === 'in' || action === 'switch') && categoryId) {
+        setChoice(categoryId)
         try {
-          localStorage.setItem(storageKey, String(choice))
+          localStorage.setItem(storageKey, String(categoryId))
         } catch {
           /* Optional. */
         }
       }
       if (action === 'out') setLastOut(result.data.time_entry)
       if (action === 'in') setLastOut(null)
-      // A successful write is followed by the authoritative status read. If
-      // that read fails, keep all punches locked until status is known.
-      setMustRefresh(true)
+      markUnconfirmed()
       const fresh = await readStatus()
       if (!fresh)
-        setNotice('Your action was saved. Check your clock status to continue.')
+        setNotice('Your action was saved. Try again to check your clock status.')
       if (viewerId) {
-        const shifts = await myTimeApi.entries(viewerId, currentPayPeriod())
-        if (shifts.data) setEntries(shifts.data)
-        else setSummaryLoaded(false)
+        // A summary read must never hold the clock controls or polling open.
+        void myTimeApi.entries(viewerId, currentPayPeriod()).then((shifts) => {
+          if (shifts.data) setEntries(shifts.data)
+          else setSummaryLoaded(false)
+        })
       }
       window.dispatchEvent(new Event('aire:clock-action'))
     } catch (failure) {
+      if (sent) {
+        markUnconfirmed()
+        await readStatus()
+      }
       setError(
         failure instanceof Error ? failure.message : 'Could not complete your action.',
       )
@@ -195,9 +255,8 @@ export default function MyTime() {
     )
   const timerStart = status ? new Date(Date.now() - workedMilliseconds(status)) : null
   const lastOutDate = lastOut?.clock_out_at
-  const todayHours = entries
-    .filter((entry) => entry.work_date === lastOut?.work_date)
-    .reduce((sum, entry) => sum + entry.hours, 0)
+  const today = guamDate(lastOutDate ?? new Date())
+  const todayHours = periodTotals(entries, { start: today, end: today }).total
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 pb-32 lg:pb-0">
@@ -215,7 +274,12 @@ export default function MyTime() {
           role="status"
           className="rounded-card bg-amber-50 p-4 text-body-sm text-amber-900"
         >
-          {OFFLINE_CLOCK}
+          {OFFLINE_IDLE}
+        </p>
+      )}
+      {statusError && (
+        <p role="alert" className="text-body-sm text-danger">
+          {statusError}
         </p>
       )}
       {error && (
@@ -236,6 +300,7 @@ export default function MyTime() {
           variant="secondary"
           disabled={!online || busy}
           onClick={async () => {
+            inFlight.current = true
             setBusy(true)
             const fresh = await readStatus()
             setNotice(
@@ -244,17 +309,30 @@ export default function MyTime() {
                 : "Couldn't check your status. Reconnect and try again.",
             )
             setBusy(false)
+            inFlight.current = false
           }}
         >
-          Check clock status
+          Try again
         </Button>
       )}
       {!status ? (
-        error ? (
+        statusError ? (
           <ErrorState title="Couldn't load your clock." onRetry={load} />
         ) : (
           <p role="status">Checking your clock…</p>
         )
+      ) : mustRefresh ? (
+        <>
+          <section className="space-y-3 rounded-card border border-line bg-surface p-5">
+            <h2 className="text-title font-semibold text-ink">Status not confirmed</h2>
+            <p role="status">Checking your clock…</p>
+          </section>
+          <ClockActions>
+            <Button fullWidth className="min-h-14" disabled loading={busy}>
+              {status.clocked_in ? 'Clock out' : 'Clock in'}
+            </Button>
+          </ClockActions>
+        </>
       ) : !status.time_tracking_enabled ? (
         <p>Clocking in isn't turned on for you. Ask Chels.</p>
       ) : (
@@ -306,7 +384,7 @@ export default function MyTime() {
                         variant="secondary"
                         disabled={blocked}
                         onClick={() => {
-                          setChoice(null)
+                          setSwitchChoice(status.time_category?.id ?? choice)
                           setSheet('switch')
                         }}
                       >
@@ -332,13 +410,24 @@ export default function MyTime() {
                     {currentUser?.first_name ? `, ${currentUser.first_name}` : ''}?
                   </p>
                 )}
+                {categoryState === 'error' && (
+                  <div role="alert" className="space-y-2">
+                    <p>Couldn't load your work types.</p>
+                    <Button variant="secondary" onClick={() => void retryCategories()}>
+                      Try again
+                    </Button>
+                  </div>
+                )}
+                {categoryState === 'loading' && (
+                  <p role="status">Loading your work types…</p>
+                )}
                 <WorkChips
                   categories={categories}
                   value={choice}
                   onChange={setChoice}
                   disabled={blocked}
                 />
-                {categories.length === 0 && (
+                {categoryState === 'ready' && categories.length === 0 && (
                   <p>Ask Chels to set up your work types before you clock in.</p>
                 )}
                 {!status.can_clock_in && categories.length > 0 && (
@@ -359,7 +448,9 @@ export default function MyTime() {
               loading={busy}
               icon={<Loader2 className="invisible size-4" />}
               disabled={
-                blocked || (!status.clocked_in && (!choice || !status.can_clock_in))
+                blocked ||
+                (!status.clocked_in &&
+                  (categoryState !== 'ready' || !choice || !status.can_clock_in))
               }
               onClick={
                 status.clocked_in
@@ -456,7 +547,9 @@ export default function MyTime() {
         footer={
           <Button
             fullWidth
-            disabled={blocked || !choice || choice === status?.time_category?.id}
+            disabled={
+              blocked || !switchChoice || switchChoice === status?.time_category?.id
+            }
             onClick={() => void punch('switch')}
           >
             Switch work
@@ -465,8 +558,8 @@ export default function MyTime() {
       >
         <WorkChips
           categories={categories}
-          value={choice}
-          onChange={setChoice}
+          value={switchChoice}
+          onChange={setSwitchChoice}
           disabled={blocked}
         />
       </Sheet>

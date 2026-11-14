@@ -90,7 +90,7 @@ it('Ask for a fix sends the existing employee edit and its reason', async () => 
   await waitFor(() =>
     expect(update).toHaveBeenCalledWith(
       41,
-      expect.objectContaining({ end_time: '11:30', expected_version: 2 }),
+      { end_time: '11:30' },
       'Phone died before I stopped.',
     ),
   )
@@ -123,6 +123,8 @@ it('can correct a one-minute shift without rewriting its original punch times', 
   expect(update.mock.calls[0][1]).not.toHaveProperty('start_time')
   expect(update.mock.calls[0][1]).not.toHaveProperty('end_time')
   expect(update.mock.calls[0][1]).not.toHaveProperty('review_action')
+  expect(update.mock.calls[0][1]).not.toHaveProperty('expected_version')
+  expect(update.mock.calls[0][1]).not.toHaveProperty('description')
 })
 
 it('adds forgotten time for the viewer without accepting another user id', async () => {

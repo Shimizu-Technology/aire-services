@@ -59,12 +59,12 @@ it('does not subtract earlier segment breaks twice after switching work', () => 
   expect(workedMilliseconds(status, Date.parse('2026-11-14T11:00:00Z'))).toBe(8100_000)
 })
 
-it('times out location in ten seconds even if the browser never calls back', async () => {
+it('lets the browser enforce acquisition timeout and uses a longer silent-provider guard', async () => {
   vi.useFakeTimers()
   const getCurrentPosition = vi.fn()
   vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } })
   const result = expect(requestLocation()).rejects.toThrow(LOCATION_TIMEOUT)
-  await vi.advanceTimersByTimeAsync(10_000)
+  await vi.advanceTimersByTimeAsync(30_000)
   await result
   expect(getCurrentPosition).toHaveBeenCalledWith(
     expect.any(Function),
@@ -119,4 +119,44 @@ it('never infers Paid from approval or a prepared paycheck', () => {
       shift({ payroll_status: { ...payroll, status: 'payment_issued' } }),
     ]),
   ).toBe('2026-11-25')
+})
+
+it('does not spend the browser acquisition timeout while a permission prompt is pending', async () => {
+  vi.useFakeTimers()
+  let failed!: PositionErrorCallback
+  vi.stubGlobal('navigator', {
+    geolocation: {
+      getCurrentPosition: (_success: PositionCallback, fail: PositionErrorCallback) => {
+        failed = fail
+      },
+    },
+  })
+  let settled = false
+  const pending = requestLocation()
+  void pending.then(
+    () => {
+      settled = true
+    },
+    () => {
+      settled = true
+    },
+  )
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(settled).toBe(false)
+  const result = expect(pending).rejects.toThrow(LOCATION_TIMEOUT)
+  failed({ code: 3 } as GeolocationPositionError)
+  await result
+})
+
+it('excludes denied hours and treats completed null approvals explicitly as waiting', () => {
+  const entries = [
+    shift({ id: 1, hours: 3, approval_status: 'approved' }),
+    shift({ id: 2, hours: 2, approval_status: 'pending' }),
+    shift({ id: 3, hours: 10, approval_status: 'denied' }),
+    shift({ id: 4, hours: 1, approval_status: null }),
+    shift({ id: 5, hours: 4, approval_status: null, entry_method: 'manual' }),
+  ]
+  const totals = periodTotals(entries, { start: '2026-11-01', end: '2026-11-15' })
+  expect(totals).toEqual({ total: 10, approved: 3, waiting: 7 })
+  expect(totals.total).toBe(totals.approved + totals.waiting)
 })
