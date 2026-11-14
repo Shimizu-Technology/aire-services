@@ -123,3 +123,26 @@ The test-only QA database was recreated for RSpec and dropped after the passing 
 
 
 Final presentation gates on runtime implementation `0525ad8`: **tsc, lint, full Vitest (122 files / 1,388 tests, maxWorkers=4), build, RuboCop (639 files / no offenses), targeted RSpec (29 examples / zero failures)** all passed. Impeccable advisory: `[]`. Evidence logs are retained outside Git in `/Users/leonshimizu/Desktop/ShimizuTechnology/output/aire-payroll-numbers-polish-20261115/`. No full local RSpec was added for this presentation-only patch; CI runs the full suite. The final ledger commit changes documentation only. Lifecycle cleanup/status reports no active owned resources; local QA DB absence is verified. PR remains draft and held for the lead; no merge/deployment.
+
+
+## Final CodeRabbit threads — 2026-11-15
+
+`git pull` completed first and verified the lead's `c2d1d83` / `e6ce0f5` layout commits were present. The lead reports mini browser QA passed every tested width on **e6ce0f5**: Payroll has more width; the employee table appears at xl and above, with cards below xl. Those responsive styles are unchanged by this follow-up. Per the lead, no additional browser QA is needed for these calculation/fixture fixes.
+
+The four remaining threads from the 14:50 UTC review were verified against current code and fixed independently:
+
+| Thread | Fix | Regression evidence |
+| --- | --- | --- |
+| `PRRT_kwDOR1u3YM63fMV7` | `a882b05`: weekly approval quantities use the same status-independent selection as employee totals; retain approval-bearing weeks when filtered worked rows are absent | Denied and pending-OT filters; weekly quantities add to employee totals; retained 6.25h week with zero filtered hours; both PDF renderers retain its approved columns |
+| `PRRT_kwDOR1u3YM63fMV3` | `abe04b7`: waiting-entry count reads @approval_entries_by_user and deduplicates IDs | Category, source and entry-method selections, zero-waiting intersection, ignored approval/OT filters, two-segment overnight counted once, full/summary-only paths |
+| `PRRT_kwDOR1u3YM63fMWD` | `10c978e`: round each of the three display components into integer tenths before deriving waiting/total | 8h approved + 0.07h time waiting + 0.07h OT waiting shows 8.0 + 0.1 + 0.1 = 8.2h; exact underlying total stays 8.14h |
+| `PRRT_kwDOR1u3YM63fMWL` | `78149ce`: fixture defaults only for undefined per-date approval data | Explicit null reaches periodTotals as unavailable; empty arrays remain empty; omitted values still receive defaults |
+
+Each thread received a reply with the full fix SHA through `addPullRequestReviewThreadReply`, then was resolved through `resolveReviewThread`. A fresh GraphQL read verified **all six threads are resolved**, including the two already answered by the lead. This records resolution of the known findings, not an independent review of newer commits.
+
+No visible layout, approval eligibility rule, frozen export, migration, raw ReportExport capture or held PR194 branch change. The request suite retains frozen CSV byte and capture-protection regression coverage. Synthetic local test DB only; no production connection, real mail, payroll dispatcher or worker.
+
+
+Combined gates on runtime implementation `78149cec4abde5d56664bb9e36c39dc4767e71ff` passed: **tsc, lint, full Vitest (122 files / 1,390 tests, maxWorkers=4), production build, RuboCop (639 files / no offenses), targeted RSpec (44 examples / zero failures), Brakeman (zero warnings / zero errors)**. Full local RSpec was not run: load rose from 36.61 during initial inspection to 175–354 during implementation/gates; it was above the requested 60 threshold when starting the final suite. CI covers full RSpec. Evidence and GraphQL reply/resolution records: `/Users/leonshimizu/Desktop/ShimizuTechnology/output/aire-payroll-numbers-threads-20261115/`.
+
+No servers, tabs or workers were started. The test-only QA database was dropped after RSpec, and catalog absence was verified. Lifecycle cleanup/status confirms no active owned resources. Shared services, held worktree/branch and external verified fixture backups remain intact. The final evidence commit changes only this ledger. PR remains held for the lead; no merge or deploy.
