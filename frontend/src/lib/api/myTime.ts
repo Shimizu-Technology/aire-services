@@ -5,30 +5,38 @@ import type { PayPeriod } from '../payPeriods'
 
 // Abort the transport and settle even if an auth/provider promise never returns.
 // A timeout has no HTTP status and must be reconciled as an unknown outcome.
-async function clockRequest<T>(
+async function boundedRequest<T>(
   endpoint: string,
-  body?: object,
+  options: RequestInit,
+  timeoutMessage: string,
 ): Promise<{ data?: T; error?: string; status?: number }> {
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<{ error: string }>((resolve) => {
     timer = setTimeout(() => {
       controller.abort()
-      resolve({ error: 'The clock request timed out. Check your clock status.' })
+      resolve({ error: timeoutMessage })
     }, 20_000)
   })
   try {
     return await Promise.race([
-      fetchApi<T>(`/api/v1/time_entries/${endpoint}`, {
-        method: endpoint === 'current_status' ? 'GET' : 'POST',
-        signal: controller.signal,
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      }),
+      fetchApi<T>(endpoint, { ...options, signal: controller.signal }),
       timeout,
     ])
   } finally {
     clearTimeout(timer)
   }
+}
+
+function clockRequest<T>(endpoint: string, body?: object) {
+  return boundedRequest<T>(
+    `/api/v1/time_entries/${endpoint}`,
+    {
+      method: endpoint === 'current_status' ? 'GET' : 'POST',
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    },
+    'The clock request timed out. Check your clock status.',
+  )
 }
 
 // Every employee write targets the authenticated viewer. There is no person
@@ -39,6 +47,12 @@ export const myTimeApi = {
   people: () => api.getUsers(),
   entries: (viewerId: number, period: PayPeriod) =>
     timecardsApi.personEntries(viewerId, period),
+  entry: (id: number) =>
+    boundedRequest<{ time_entry: TimeEntry }>(
+      `/api/v1/time_entries/${id}`,
+      { method: 'GET', cache: 'no-store' },
+      'The shift check timed out. Nothing was sent. Try again.',
+    ),
   clockIn: (categoryId: number, location?: Parameters<typeof api.clockIn>[3]) =>
     clockRequest<{ time_entry: TimeEntry }>('clock_in', {
       time_category_id: categoryId,
@@ -69,7 +83,9 @@ export const myTimeApi = {
         ...(change.start_time !== entry.start_time
           ? { start_time: change.start_time }
           : {}),
-        ...(change.end_time !== entry.end_time ? { end_time: change.end_time } : {}),
+        ...(change.end_time !== entry.end_time
+          ? { end_time: change.end_time }
+          : {}),
         ...((change.break_minutes ?? 0) !== (entry.break_minutes ?? 0)
           ? { break_minutes: change.break_minutes }
           : {}),
@@ -115,7 +131,8 @@ export const myTimeApi = {
     const requests: LeaveRequest[] = []
     for (let page = 1; page <= 20; page += 1) {
       const result = await api.getLeaveRequests(undefined, page, 100)
-      if (!result.data) return { error: result.error || "Couldn't load your requests." }
+      if (!result.data)
+        return { error: result.error || "Couldn't load your requests." }
       requests.push(
         ...result.data.leave_requests.filter((row) => row.user.id === viewerId),
       )
@@ -124,6 +141,20 @@ export const myTimeApi = {
     return { error: 'Too many requests to load. Ask Chels for help.' }
   },
   requestLeave: (request: Parameters<typeof api.createLeaveRequest>[0]) =>
-    api.createLeaveRequest(request),
-  cancelLeave: (id: number) => api.cancelLeaveRequest(id),
+    boundedRequest<{ leave_request: LeaveRequest }>(
+      '/api/v1/leave_requests',
+      {
+        method: 'POST',
+        body: JSON.stringify({ leave_request: request }),
+      },
+      'The leave request timed out. Check your requests before trying again.',
+    ),
+  cancelLeave: (id: number) =>
+    boundedRequest<{ leave_request: LeaveRequest }>(
+      `/api/v1/leave_requests/${id}/cancel`,
+      {
+        method: 'POST',
+      },
+      'The cancellation timed out. Check your requests before trying again.',
+    ),
 }

@@ -9,14 +9,42 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-it.each(['clockOut', 'status'] as const)(
+it.each(['clockOut', 'status', 'entry'] as const)(
   'bounds a frozen %s request and aborts transport after 20s',
   async (method) => {
     vi.useFakeTimers()
     setAuthTokenGetter(async () => null)
-    const fetch = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>(() => {}))
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      () => new Promise<Response>(() => {}),
+    )
     vi.stubGlobal('fetch', fetch)
-    const pending = myTimeApi[method]()
+    const pending =
+      method === 'entry' ? myTimeApi.entry(41) : myTimeApi[method]()
+    await vi.advanceTimersByTimeAsync(20_000)
+    const result = await pending
+    expect(result.error).toMatch(/timed out/)
+    expect(result.status).toBeUndefined()
+    expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(true)
+  },
+)
+
+it.each(['request', 'cancel'] as const)(
+  'bounds a frozen leave %s as an unknown outcome',
+  async (kind) => {
+    vi.useFakeTimers()
+    setAuthTokenGetter(async () => null)
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      () => new Promise<Response>(() => {}),
+    )
+    vi.stubGlobal('fetch', fetch)
+    const pending =
+      kind === 'request'
+        ? myTimeApi.requestLeave({
+            leave_type: 'sick',
+            start_date: '2026-12-01',
+            end_date: '2026-12-01',
+          })
+        : myTimeApi.cancelLeave(9)
     await vi.advanceTimersByTimeAsync(20_000)
     const result = await pending
     expect(result.error).toMatch(/timed out/)
@@ -67,7 +95,11 @@ it('omits unchanged detailed breaks', async () => {
     },
   ]
   const entry = shift({
-    breaks: breaks.map((row) => ({ ...row, duration_minutes: 15, active: false })),
+    breaks: breaks.map((row) => ({
+      ...row,
+      duration_minutes: 15,
+      active: false,
+    })),
     break_minutes: 15,
   })
   await myTimeApi.askForFix(

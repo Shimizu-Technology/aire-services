@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { api, type LeaveRequest } from '../../lib/api'
+import { api, setAuthTokenGetter, type LeaveRequest } from '../../lib/api'
 import MyLeave from './MyLeave'
 import { todayInGuam } from '../../lib/payPeriods'
 import { myTimeApi } from '../../lib/api/myTime'
@@ -58,9 +58,66 @@ const open = () =>
     </MemoryRouter>,
   )
 
+it('releases a frozen request after its deadline and reconciles before resubmission', async () => {
+  setAuthTokenGetter(async () => null)
+  const fetch = vi.fn<typeof globalThis.fetch>(
+    () => new Promise<Response>(() => {}),
+  )
+  vi.stubGlobal('fetch', fetch)
+  open()
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Request time off' }),
+    ).toBeEnabled(),
+  )
+  vi.useFakeTimers()
+  fireEvent.click(screen.getByRole('button', { name: 'Request time off' }))
+  fireEvent.change(screen.getByLabelText(/Start date/), {
+    target: { value: '2026-12-04' },
+  })
+  fireEvent.change(screen.getByLabelText(/End date/), {
+    target: { value: '2026-12-04' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20_000)
+  })
+  expect(screen.getByRole('alert')).toHaveTextContent('The reply was lost')
+  expect(screen.getByRole('button', { name: 'Send request' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Close' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  expect(screen.getByRole('button', { name: 'Request time off' })).toBeEnabled()
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+it('releases a frozen cancellation and checks the saved status before retry', async () => {
+  setAuthTokenGetter(async () => null)
+  const fetch = vi.fn<typeof globalThis.fetch>(
+    () => new Promise<Response>(() => {}),
+  )
+  vi.stubGlobal('fetch', fetch)
+  open()
+  const cancel = await screen.findByRole('button', { name: 'Cancel request' })
+  vi.useFakeTimers()
+  fireEvent.click(cancel)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20_000)
+  })
+  expect(screen.getByText(/The reply was lost/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Cancel request' })).toBeEnabled()
+  expect(
+    screen.getByRole('button', { name: 'Cancel request' }),
+  ).not.toHaveAttribute('aria-busy', 'true')
+  expect(api.getLeaveRequests).toHaveBeenCalledTimes(2)
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
+
 it('sends a date range and the note without a half-day control or generated prefix', async () => {
   const create = vi
-    .spyOn(api, 'createLeaveRequest')
+    .spyOn(myTimeApi, 'requestLeave')
     .mockResolvedValue({ data: { leave_request: request }, status: 201 })
   open()
   await waitFor(() =>
@@ -101,7 +158,7 @@ it('sends a date range and the note without a half-day control or generated pref
 })
 
 it('cancels only a pending request owned by the viewer', async () => {
-  const cancel = vi.spyOn(api, 'cancelLeaveRequest').mockResolvedValue({
+  const cancel = vi.spyOn(myTimeApi, 'cancelLeave').mockResolvedValue({
     data: { leave_request: { ...request, status: 'cancelled' } },
     status: 200,
   })
@@ -176,7 +233,7 @@ it('does not let a pre-submission load clear uncertainty or overwrite a failed f
         }),
     )
     .mockResolvedValueOnce({ error: 'Fresh read failed' })
-  vi.spyOn(api, 'createLeaveRequest').mockResolvedValue({
+  vi.spyOn(myTimeApi, 'requestLeave').mockResolvedValue({
     error: 'Lost reply',
     status: 502,
   })
@@ -209,5 +266,5 @@ it('does not let a pre-submission load clear uncertainty or overwrite a failed f
       screen.getByRole('button', { name: 'Request time off' }),
     ).toBeEnabled(),
   )
-  expect(api.createLeaveRequest).toHaveBeenCalledTimes(1)
+  expect(myTimeApi.requestLeave).toHaveBeenCalledTimes(1)
 })

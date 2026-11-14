@@ -79,7 +79,8 @@ export default function MyLeave() {
   )
 
   const cancel = async (request: LeaveRequest) => {
-    if (!online || busy !== null || request.user.id !== viewerId) return
+    if (!online || busy !== null || uncertain || request.user.id !== viewerId)
+      return
     ++loadGeneration.current
     setBusy(request.id)
     const result = await myTimeApi.cancelLeave(request.id)
@@ -90,8 +91,9 @@ export default function MyLeave() {
           ? 'The reply was lost. Check the latest request status below.'
           : result.error || "Couldn't cancel your request.",
       )
-    await load()
+    setUncertain(true)
     setBusy(null)
+    await load()
   }
 
   return (
@@ -108,6 +110,11 @@ export default function MyLeave() {
         <p role="status">
           No connection. Reconnect to request or cancel time off.
         </p>
+      )}
+      {uncertain && !open && !error && (
+        <Button variant="secondary" onClick={() => void load()}>
+          Check latest requests
+        </Button>
       )}
       {error ? (
         <ErrorState
@@ -161,7 +168,7 @@ export default function MyLeave() {
               {request.status === 'pending' && (
                 <Button
                   variant="ghost"
-                  disabled={!online || busy !== null}
+                  disabled={!online || busy !== null || uncertain}
                   loading={busy === request.id}
                   onClick={() => void cancel(request)}
                 >
