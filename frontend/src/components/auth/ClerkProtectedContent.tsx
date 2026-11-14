@@ -2,18 +2,8 @@ import { useMemo } from 'react'
 import { useAuth, useUser, RedirectToSignIn } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { Link, useInRouterContext } from 'react-router-dom'
-import { ADMIN_PATHS } from '../../lib/adminRoutes'
+import { workAreaFor } from '../../lib/workArea'
 import { capabilitiesFor, type Capability } from '../../lib/roles'
-
-/** Where a signed-in person with this role does their work, and what to call the button. */
-export function workAreaFor(role: Parameters<typeof capabilitiesFor>[0] | null | undefined) {
-  if (!role) return null
-  const capabilities = capabilitiesFor(role)
-  if (capabilities.manage_settings) return { href: ADMIN_PATHS.today, label: 'Back to Today' }
-  if (capabilities.approve_time) return { href: ADMIN_PATHS.approvals, label: 'Back to Approvals' }
-  if (capabilities.manage_team_time) return { href: ADMIN_PATHS.timecards, label: 'Open Timecards' }
-  return { href: ADMIN_PATHS.myTime, label: 'Open My Time' }
-}
 
 interface ClerkProtectedContentProps {
   children: React.ReactNode
