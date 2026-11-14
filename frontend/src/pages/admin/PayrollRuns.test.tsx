@@ -343,7 +343,8 @@ describe('pay period page: lock states', () => {
     const sent = screen.getByRole('table', { name: 'What AIRE froze at the lock' })
     expect(screen.getByRole('heading', { name: /What AIRE locked for payroll/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Locked hours (CSV)' })).toBeInTheDocument()
-    expect(screen.queryByText(/What was sent to payroll|went to payroll/)).not.toBeInTheDocument()
+    expect(screen.queryAllByText(/was sent|went to payroll/i)).toEqual([])
+    expect(screen.getByText(/It can differ from the locked hours/)).toBeInTheDocument()
     // Only people whose hours went; held-back shifts aren't listed at 0h.
     expect(within(sent).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Caleb Perez4h OT held back at the lock', 'Total'])
     // Overtime held back at the lock may be approved since: it isn't called waiting.

@@ -241,7 +241,7 @@ export function WhatGoesToPayroll({ payload, locked, received = false, frozenWhe
           <Button variant="secondary" size="sm" icon={<Download className="size-4" />} loading={exporting === 'csv'} loadingLabel="Preparing CSV…" disabled={exporting !== null} onClick={() => onExport('csv')}>Hours report (live) CSV</Button>
         </div>
         <p className="text-caption text-ink-muted">
-          The live hours report lists the approved shifts dated {locked ? 'in this period as they are now' : 'in this period'}. It can differ from {locked ? 'what was sent' : 'this table'}: late hours carried in{locked ? ', later edits' : ''} and held-back time aren't counted the same way.
+          The live hours report lists the approved shifts dated {locked ? 'in this period as they are now' : 'in this period'}. It can differ from {!locked ? 'this table' : received ? 'what was sent' : 'the locked hours'}: late hours carried in{locked ? ', later edits' : ''} and held-back time aren't counted the same way.
         </p>
       </div>
     </section>
