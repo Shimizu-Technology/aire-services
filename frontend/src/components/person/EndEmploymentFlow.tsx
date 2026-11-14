@@ -48,7 +48,8 @@ export function EndEmploymentFlow({ user, onClose, onEnded }: { user: AdminUser;
           <li>Personal sign-in, kiosk PIN and My Pay turn off.</li>
           <li>{preview.open_pay_stub_links} open pay stub {preview.open_pay_stub_links === 1 ? 'link is' : 'links are'} revoked.</li>
           <li>{preview.open_pay_stub_requests} open pay stub requests are closed.</li>
-          <li>{preview.pending_leave_requests} pending leave requests and {preview.approved_leave_requests} approved leave requests starting after {date} are cancelled. Approved leave starting on or before the last day worked stays unchanged.</li>
+          <li>{preview.pending_leave_requests} pending leave {preview.pending_leave_requests === 1 ? 'request is' : 'requests are'} cancelled, regardless of dates.</li>
+          <li>{preview.approved_leave_requests} approved leave {preview.approved_leave_requests === 1 ? 'request' : 'requests'} starting after {date} {preview.approved_leave_requests === 1 ? 'is' : 'are'} cancelled. Approved leave starting on or before the last day worked stays unchanged.</li>
           <li>Their website profile is hidden. Their hours and paychecks stay.</li>
         </ul>
         {preview.admin_edit_version !== (user.admin_edit_version ?? 0) && <p role="alert" className="mt-3 text-body-sm text-danger">This person changed. Close this dialog and reload their page before ending employment.</p>}

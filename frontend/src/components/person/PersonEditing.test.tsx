@@ -250,9 +250,10 @@ describe('End employment', () => {
   it('refreshes leave cancellation counts for the selected last day worked', async () => {
     mocks.preview.mockImplementation(async (_id, date) => ({ data: { preview: { ...preview, effective_on: date, pending_leave_requests: 2, approved_leave_requests: date === '2026-11-11' ? 3 : 0 } } }))
     open(<EndEmploymentFlow user={person} onClose={vi.fn()} onEnded={onSaved} />)
-    await screen.findByText(/2 pending leave requests and 0 approved/)
+    await screen.findByText(/0 approved leave requests starting after/)
     fireEvent.change(screen.getByLabelText(/Last day worked/), { target: { value: '2026-11-11' } })
-    await screen.findByText(/2 pending leave requests and 3 approved leave requests starting after 2026-11-11/)
+    await screen.findByText(/3 approved leave requests starting after 2026-11-11/)
+    expect(screen.getByText(/2 pending leave requests are cancelled, regardless of dates/)).toBeInTheDocument()
     expect(mocks.preview).toHaveBeenLastCalledWith(7, '2026-11-11')
     expect(screen.getByText(/Approved leave starting on or before the last day worked stays unchanged/)).toBeInTheDocument()
   })
