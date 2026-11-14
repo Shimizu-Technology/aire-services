@@ -209,6 +209,39 @@ export interface EventDescription {
   sentences: string[]
   /** Detail keys the sentences already say, so the panel doesn't repeat them. */
   usedKeys: string[]
+  /** Plain detail keys that are raw request data: shown only under Details. */
+  rawKeys?: string[]
+}
+
+// Rows written for any request that wasn't audited by hand are named "<area>.<action>" and keep
+// the request itself in details. Those keys are for support, not for the office.
+const REQUEST_KEYS = ['http_method', 'path', 'response_status', 'changed_fields', 'before_values', 'after_values', 'redacted_fields', 'error_message']
+
+const REQUEST_VERBS: Record<string, string> = {
+  update: 'change', create: 'add', destroy: 'delete', approve: 'approve', deny: 'deny', approve_overtime: 'approve overtime for',
+  deny_overtime: 'deny overtime for', undo_approval: 'undo the approval of', bulk_approve: 'approve',
+}
+const REQUEST_NOUNS: Record<string, string> = {
+  time_entries: 'this shift', users: 'this person', leave_requests: 'this leave request', schedules: 'this schedule',
+  time_categories: 'this kind of work', settings: 'these settings', site_media: 'this photo',
+}
+
+function describeRequest(event: Pick<AuditLogEntry, 'action' | 'actor' | 'outcome' | 'details'>): EventDescription {
+  const actor = actorName(event)
+  const parts = event.action.split('.')
+  const area = parts.length > 1 ? parts[parts.length - 2] : ''
+  const action = parts[parts.length - 1]
+  const verb = REQUEST_VERBS[action] ?? action.replaceAll('_', ' ')
+  const noun = REQUEST_NOUNS[area] ?? 'this record'
+  const message = typeof event.details?.error_message === 'string' ? event.details.error_message.trim() : ''
+  const rawKeys = REQUEST_KEYS.filter((key) => key in (event.details ?? {}))
+  if (event.outcome === 'failed') {
+    return { sentences: [message ? `${actor} tried to ${verb} ${noun}, but it wasn't saved: ${ending(message)}` : `${actor} tried to ${verb} ${noun}, but it wasn't saved.`], usedKeys: [], rawKeys }
+  }
+  if (event.outcome === 'denied') {
+    return { sentences: [`${actor} tried to ${verb} ${noun}, but wasn't allowed to.`], usedKeys: [], rawKeys }
+  }
+  return { sentences: [], usedKeys: [], rawKeys }
 }
 
 /**
@@ -217,9 +250,10 @@ export interface EventDescription {
  * An event with recorded changes we can't put into words still gets a plain sentence, never
  * raw data.
  */
-export function describeEvent(event: Pick<AuditLogEntry, 'action' | 'actor' | 'changes' | 'details' | 'subject'>): EventDescription {
+export function describeEvent(event: Pick<AuditLogEntry, 'action' | 'actor' | 'changes' | 'details' | 'subject'> & { outcome?: string }): EventDescription {
   const actor = actorName(event)
   const details = event.details ?? {}
+  if (typeof details.http_method === 'string' && typeof details.path === 'string') return describeRequest({ ...event, outcome: event.outcome ?? 'succeeded' })
   const before = isRecord(details.before) ? details.before : null
   const after = isRecord(details.after) ? details.after : null
   const hasChanges = Object.keys(event.changes ?? {}).length > 0

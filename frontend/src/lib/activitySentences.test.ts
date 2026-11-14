@@ -148,4 +148,32 @@ describe('describeEvent: snapshots kept in details.before and details.after', ()
     })
     expect(result.sentences).toEqual(['Ana changed the shift and sent it back for approval.'])
   })
+
+  describe('rows written for requests that did not go through', () => {
+    const chels = { id: 2, name: 'Chels', email: 'chels@example.com', role: 'admin', kind: 'user' }
+    const request = (action: string, outcome: string, extra: Record<string, unknown> = {}) => ({
+      action, actor: chels, subject, changes: {}, outcome,
+      details: { http_method: 'PATCH', path: '/api/v1/time_entries/9', response_status: 422, changed_fields: ['time_entry.description'], ...extra },
+    })
+
+    it('says the person tried, and why it was not saved when the server said', () => {
+      const result = describeEvent(request('time_entries.deny', 'failed', { error_message: 'A denial reason is required' }))
+      expect(result.sentences).toEqual(["Chels tried to deny this shift, but it wasn't saved: A denial reason is required."])
+      expect(result.rawKeys).toEqual(['http_method', 'path', 'response_status', 'changed_fields', 'error_message'])
+    })
+
+    it('says so plainly when nothing was recorded about why', () => {
+      expect(describeEvent(request('time_entries.update', 'failed')).sentences).toEqual(["Chels tried to change this shift, but it wasn't saved."])
+    })
+
+    it('says a refused person was not allowed', () => {
+      expect(describeEvent(request('users.destroy', 'denied', { response_status: 403 })).sentences).toEqual(["Chels tried to delete this person, but wasn't allowed to."])
+    })
+
+    it('keeps the request out of the page for a request that worked, with no extra sentence', () => {
+      const result = describeEvent(request('time_entries.update', 'succeeded', { response_status: 200 }))
+      expect(result.sentences).toEqual([])
+      expect(result.rawKeys).toContain('path')
+    })
+  })
 })

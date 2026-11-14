@@ -117,11 +117,11 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
   const detailRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && !hideIdBesideName(field))
   const hiddenIdRows = Object.entries(event.details).filter(([field, value]) => value !== null && value !== undefined && value !== '' && hideIdBesideName(field))
   const changeRows = Object.entries(event.changes)
-  const { sentences, usedKeys } = describeEvent(event)
+  const { sentences, usedKeys, rawKeys = [] } = describeEvent(event)
   const isPlain = ([, value]: [string, unknown]) => value === null || ['string', 'number', 'boolean'].includes(typeof value)
   // Context keeps plain facts. Recorded snapshots and lists belong under Details, never on the page.
-  const contextRows = detailRows.filter((row) => isPlain(row) && !usedKeys.includes(row[0]))
-  const structuredRows = detailRows.filter((row) => !isPlain(row))
+  const contextRows = detailRows.filter((row) => isPlain(row) && !usedKeys.includes(row[0]) && !rawKeys.includes(row[0]))
+  const structuredRows = detailRows.filter((row) => !isPlain(row) || rawKeys.includes(row[0]))
   const panelRef = useRef<HTMLElement>(null)
   const location = useLocation()
   const [compact, setCompact] = useState(() => window.innerWidth < 1280)
@@ -198,7 +198,7 @@ function EventDetail({ event, onClose }: { event: AuditLogEntry; onClose: () => 
           <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-slate-900">Details</summary>
           {(changeRows.length > 0 || structuredRows.length > 0) && (
             <div className="mt-2 space-y-2">
-              <h4 className="text-xs font-semibold text-slate-500">Recorded changes</h4>
+              <h4 className="text-xs font-semibold text-slate-500">Recorded data</h4>
               {[...changeRows, ...structuredRows].map(([field, value]) => (
                 <div key={field} className="rounded-xl bg-slate-50 px-3 py-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{fieldLabel(field)}</p>

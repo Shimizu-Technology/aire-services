@@ -289,4 +289,23 @@ describe('ActivityHistory', () => {
     expect(outside.textContent).not.toMatch(/[{}[\]]|"work_date"|clock_out_at|time_category_id/)
     expect(within(details).getAllByText(/clock_out_at/).length).toBeGreaterThan(0)
   })
+
+  it('says a failed request in words and keeps its request data under Details', async () => {
+    const failed = {
+      ...event, id: 96, action: 'time_entries.update', outcome: 'failed', summary: 'Chels Santos · Time entries: update',
+      actor: { id: 2, name: 'Chels', email: 'chels@example.com', role: 'admin', kind: 'user' },
+      changes: {}, details: { http_method: 'PATCH', path: '/api/v1/time_entries/44', response_status: 422, changed_fields: ['time_entry.end_time'], error_message: 'Correction reason is required' },
+    }
+    apiMock.getAuditLogs.mockResolvedValue({ data: { audit_logs: [failed], pagination: { page: 1, per_page: 50, total: 1, total_pages: 1 }, filters: { event_categories: [], sources: [], outcomes: [] } } })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Time entries: update/ }))
+    const panel = screen.getByRole('dialog', { name: 'Activity event details' })
+    expect(within(panel).getByText("Chels tried to change this shift, but it wasn't saved: Correction reason is required.")).toBeInTheDocument()
+    const outside = panel.cloneNode(true) as HTMLElement
+    outside.querySelector('details')?.remove()
+    expect(outside.textContent).not.toMatch(/HTTP METHOD|Http Method|\/api\/v1|Response Status|422|PATCH/i)
+    const details = within(panel).getByText('Details').closest('details') as HTMLDetailsElement
+    expect(details.textContent).toContain('/api/v1/time_entries/44')
+    expect(details.textContent).toContain('422')
+  })
 })
