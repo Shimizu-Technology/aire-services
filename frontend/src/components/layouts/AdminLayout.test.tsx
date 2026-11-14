@@ -4,14 +4,15 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import AdminLayout from './AdminLayout'
-import { useShellChrome } from './shellChrome'
 import { Button, SelectionBar, useToast } from '../ui'
 
 type Role = 'owner' | 'admin' | 'manager' | 'employee'
 interface TestUser {
   id?: number
+  approval_group_keys?: string[]
+  approval_group?: string | null
   full_name: string
   needs_kiosk_pin_setup: boolean
   my_pay_enabled?: boolean
@@ -525,30 +526,26 @@ describe('AdminLayout selection bar and toasts', () => {
 })
 
 
-function ScopedBadge() {
-  const { setApprovalCount } = useShellChrome()
-  useEffect(() => {
-    setApprovalCount(7)
-    return () => setApprovalCount(null)
-  }, [setApprovalCount])
-  return <p>7 waiting</p>
-}
-it('uses the inbox scoped count for both shell badges and provides a skip target', async () => {
-  signIn('manager')
-  apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 99 } } })
-  render(<MemoryRouter initialEntries={['/admin/approvals']}><Routes>
-    <Route element={<AdminLayout />}><Route path="/admin/approvals" element={<ScopedBadge />} /></Route>
+it('keeps the default department badge independent of person/category filters and provides a skip target', async () => {
+  signIn('manager', { approval_group_keys: ['cfi'], approval_group: 'ops' })
+  apiMock.getPendingApprovals.mockImplementation(async (params) => ({ data: {
+    count: params.approval_group === 'cfi' ? 7 : 99,
+  } }))
+  render(<MemoryRouter initialEntries={['/admin/approvals?user_id=3&time_category_id=4']}><Routes>
+    <Route element={<AdminLayout />}><Route path="/admin/approvals" element={<p>2 waiting in this filtered list</p>} /></Route>
   </Routes></MemoryRouter>)
-  await screen.findByText('7 waiting')
+  await within(tabBar()).findByRole('link', { name: 'Approvals, 7 waiting' })
   expect(within(sidebar()).getByRole('link', { name: /Approvals/ })).toHaveTextContent('7')
-  expect(within(tabBar()).getByRole('link', { name: /Approvals/ })).toHaveTextContent('7')
+  expect(apiMock.getPendingApprovals.mock.calls.map(([params]) => params)).toEqual([
+    { page: 1, per_page: 1, approval_group: 'cfi' }, { page: 1, per_page: 1 },
+  ])
   expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveAttribute('href', '#admin-content')
   expect(document.getElementById('admin-content')).toHaveAttribute('tabindex', '-1')
 })
 
-it('keeps the last inbox department on the badge after opening own Leave', async () => {
-  signIn('manager')
-  localStorage.setItem('aire.approvals.department.9', 'cfi')
+it('uses membership before legacy/saved departments for the badge after opening own Leave', async () => {
+  signIn('manager', { approval_group_keys: ['cfi'], approval_group: 'ops' })
+  localStorage.setItem('aire.approvals.department.9', 'all')
   renderLayout('/admin/leave?mine=1')
   await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith({
     page: 1, per_page: 1, approval_group: 'cfi',

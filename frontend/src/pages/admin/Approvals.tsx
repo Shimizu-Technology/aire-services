@@ -44,6 +44,7 @@ import {
 } from '../../components/ui'
 import { useApprovalsQuery } from '../../components/approvals/useApprovalsQuery'
 import { useReviewBatch } from '../../components/approvals/useReviewBatch'
+import { approvalDepartment } from '../../lib/approvalDepartment'
 import { useShellChrome } from '../../components/layouts/shellChrome'
 import ApprovalsHeader, {
   type ApprovalKind,
@@ -104,7 +105,7 @@ export default function Approvals() {
 function ApprovalsInbox() {
   const { currentUser } = useAuthContext()
   const capabilities = useCapabilities()
-  const { setApprovalCount } = useShellChrome()
+  const { approvalCount, allApprovalCount, refreshApprovalCount } = useShellChrome()
   useEffect(() => {
     document.title = 'Approvals | AIRE Ops'
   }, [])
@@ -123,19 +124,17 @@ function ApprovalsInbox() {
   const [groups, setGroups] = useState<ApprovalGroupOption[]>([])
   const [peopleLoading, setPeopleLoading] = useState(true)
   const [peopleError, setPeopleError] = useState('')
-  const viewerDepartment =
-    people.find((person) => person.id === currentUser?.id)?.approval_group_keys?.[0] ??
-    currentUser?.approval_group
+  const defaultDepartment = approvalDepartment(
+    { ...currentUser, ...people.find((person) => person.id === currentUser?.id) },
+    capabilities.manage_settings,
+  )
   const requestedDepartment =
-    query.get('dept') ||
-    rememberedDepartment(
-      currentUser?.id,
-      capabilities.manage_settings ? 'all' : viewerDepartment || 'all',
-    )
+    query.get('dept') || rememberedDepartment(currentUser?.id, defaultDepartment)
   const department =
     !peopleLoading &&
     !peopleError &&
     requestedDepartment !== 'all' &&
+    requestedDepartment !== 'unassigned' &&
     !groups.some((group) => group.key === requestedDepartment)
       ? 'all'
       : requestedDepartment
@@ -170,9 +169,8 @@ function ApprovalsInbox() {
   }, [])
   const batches = useReviewBatch(inbox.reload, removeApprovedSelection)
   useEffect(() => {
-    setApprovalCount(inbox.data?.count ?? null)
-    return () => setApprovalCount(null)
-  }, [inbox.data?.count, setApprovalCount])
+    if (inbox.loadedAt) void refreshApprovalCount()
+  }, [inbox.loadedAt, refreshApprovalCount])
   const entries = inbox.data?.pending_entries ?? EMPTY
   const ordinary = entries.filter(isOrdinary)
   const needsLook = entries.filter((entry) => !isOrdinary(entry))
@@ -441,11 +439,25 @@ function ApprovalsInbox() {
         : 'time'
   const lock = approvalLockCopy(cutoff)
   const departmentOptions = groups.length
-    ? groups.map((group) => ({ value: group.key, label: group.label }))
+    ? groups
+        .filter((group) => group.key !== 'unassigned')
+        .map((group) => ({ value: group.key, label: group.label }))
     : [
         { value: 'cfi', label: 'CFI' },
         { value: 'ops', label: 'Ops/Maint' },
       ]
+  departmentOptions.push({ value: 'unassigned', label: 'Unassigned' })
+  const defaultLabel =
+    departmentOptions.find((option) => option.value === defaultDepartment)?.label ||
+    'your department'
+  const otherCount =
+    allApprovalCount !== null && approvalCount !== null
+      ? Math.max(0, allApprovalCount - approvalCount)
+      : null
+  const scopeHint =
+    defaultDepartment !== 'all' && otherCount !== null
+      ? `The badge counts all ${approvalCount} waiting in ${defaultLabel}. ${otherCount} more waiting in other departments. Today counts everyone.`
+      : undefined
   const headerDescription = `${inbox.data?.count ?? '…'} waiting${lock.description}`
   const filterCount = FILTER_KEYS.filter((key) => query.has(key)).length
   const selectionSummary = selection
@@ -469,6 +481,7 @@ function ApprovalsInbox() {
         onDepartmentChange={changeDepartment}
         onOpenFilters={openFilters}
       />
+      {scopeHint && <p className="text-body-sm text-ink-muted">{scopeHint}</p>}
       <ApprovalsAttention workers={attention} />
       {extrasError.workers && (
         <ErrorState title={extrasError.workers} onRetry={reloadExtras} />

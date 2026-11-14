@@ -4,7 +4,8 @@ export interface ShellChrome {
   /** A SelectionBar is showing. On phones it takes the tab bar's place. */
   selectionBarActive: boolean
   approvalCount: number | null
-  setApprovalCount: (count: number | null) => void
+  allApprovalCount: number | null
+  refreshApprovalCount: () => Promise<void> | void
   /** Returns the unregister function. Counted, so two bars can't leave the tab bar hidden. */
   registerSelectionBar: () => () => void
 }
@@ -13,7 +14,8 @@ export interface ShellChrome {
 export const ShellChromeContext = createContext<ShellChrome>({
   selectionBarActive: false,
   approvalCount: null,
-  setApprovalCount: () => undefined,
+  allApprovalCount: null,
+  refreshApprovalCount: () => undefined,
   registerSelectionBar: () => () => undefined,
 })
 

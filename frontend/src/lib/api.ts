@@ -2282,3 +2282,6 @@ export interface AdminUser {
 export interface PublicTeamMember {
   bio?: string | null;
 }
+
+/** Department memberships returned for the signed-in viewer. */
+export interface CurrentUser { approval_group_keys?: ApprovalGroup[] }

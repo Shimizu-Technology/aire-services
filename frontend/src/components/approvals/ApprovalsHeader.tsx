@@ -48,10 +48,7 @@ export default function ApprovalsHeader({
 
   return (
     <>
-      <PageHeader
-        title="Approvals"
-        description={description}
-      />
+      <PageHeader title="Approvals" description={description} />
       <OfflineBanner loadedAt={loadedAt} />
       <TabChips
         label="What's waiting"
@@ -64,8 +61,9 @@ export default function ApprovalsHeader({
         <div className="min-w-0 flex-1">
           <TabChips
             label="Department"
+            className="flex-wrap overflow-visible"
             value={department}
-            items={[...departmentOptions, { value: 'all', label: 'Everyone' }]}
+            items={[{ value: 'all', label: 'Everyone' }, ...departmentOptions]}
             onChange={onDepartmentChange}
           />
         </div>
@@ -74,10 +72,7 @@ export default function ApprovalsHeader({
           aria-label={`Filters${filterCount ? ` (${filterCount})` : ''}`}
           onClick={onOpenFilters}
         >
-          <SlidersHorizontal
-            className="size-4"
-            aria-hidden="true"
-          />
+          <SlidersHorizontal className="size-4" aria-hidden="true" />
           <span className="hidden sm:inline">Filters</span>
           {filterCount > 0 && <span>{filterCount}</span>}
         </Button>

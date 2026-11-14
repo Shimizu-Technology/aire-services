@@ -7,6 +7,7 @@ import { payStubsApi, type PayStubRequest } from '../../lib/payStubsApi'
 import { approvalsApi } from '../../lib/api/approvals'
 import { ToastProvider } from '../../components/ui'
 import Approvals from './Approvals'
+import { ShellChromeContext } from '../../components/layouts/shellChrome'
 import { reviewEntry } from '../../test/approvalFixtures'
 const auth = vi.hoisted(() => ({
   currentUser: {
@@ -505,4 +506,42 @@ it('defaults to the manager department, follows its clock banners, and shows the
   expect(screen.queryByText('Clock Person 2')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('tab', { name: 'Everyone' }))
   expect(await screen.findByText('Clock Person 2')).toBeInTheDocument()
+})
+
+it('explains default badge versus Today and keeps Everyone and Unassigned directly available', async () => {
+  const refresh = vi.fn()
+  render(
+    <MemoryRouter initialEntries={['/admin/approvals?user_id=1&time_category_id=2']}>
+      <ShellChromeContext.Provider
+        value={{
+          selectionBarActive: false,
+          registerSelectionBar: () => () => undefined,
+          approvalCount: 7,
+          allApprovalCount: 10,
+          refreshApprovalCount: refresh,
+        }}
+      >
+        <ToastProvider>
+          <Approvals />
+        </ToastProvider>
+      </ShellChromeContext.Provider>
+    </MemoryRouter>,
+  )
+  expect(
+    await screen.findByText(
+      'The badge counts all 7 waiting in CFI. 3 more waiting in other departments. Today counts everyone.',
+    ),
+  ).toBeInTheDocument()
+  expect(refresh).toHaveBeenCalled()
+  expect(screen.getByRole('tablist', { name: 'Department' })).toHaveClass('flex-wrap')
+  fireEvent.click(screen.getByRole('tab', { name: 'Unassigned' }))
+  await waitFor(() =>
+    expect(approvalsApi.pending).toHaveBeenCalledWith(
+      expect.objectContaining({ approval_group: 'unassigned' }),
+    ),
+  )
+  fireEvent.click(screen.getByRole('tab', { name: 'Everyone' }))
+  await waitFor(() =>
+    expect(vi.mocked(approvalsApi.pending).mock.lastCall?.[0].approval_group).toBeUndefined(),
+  )
 })

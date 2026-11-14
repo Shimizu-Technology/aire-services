@@ -3,14 +3,13 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { SignedIn } from '@clerk/clerk-react'
 import { PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
-import { api } from '../../lib/api'
-import { rememberedDepartment } from '../../lib/approvalsFilters'
 import { useCapabilities } from '../../lib/useCapabilities'
-import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 import { ToastProvider } from '../ui'
 import AdminTabBar from './AdminTabBar'
 import { AccountButton } from './Header'
+import { approvalDepartment } from '../../lib/approvalDepartment'
+import { useApprovalCounts } from '../approvals/useApprovalCounts'
 import { useShellChrome } from './shellChrome'
 import { ShellChromeProvider } from './ShellChromeContext'
 import { approvalBadgeText, isNavItemActive, navItemLabel, navigationGroups, tabBarLayout, type NavigationOptions } from './adminNavigation'
@@ -24,32 +23,14 @@ function NavIcon({ icon: Icon }: { icon: LucideIcon }) {
 }
 
 const desktopSidebarStorageKey = 'aire-admin-sidebar-collapsed'
-const APPROVAL_BADGE_REFRESH_MS = 60_000
-
-/** Items waiting on the signed-in supervisor, for the Approvals badge. Refreshed on navigation and every minute. */
-function usePendingApprovalCount(enabled: boolean, department: string) {
-  const [count, setCount] = useState(0)
-  const location = useLocation()
-
-  useEffect(() => {
-    if (!enabled) return
-    let active = true
-    const load = async () => {
-      const response = await api.getPendingApprovals({ page: 1, per_page: 1, ...(department !== 'all' ? { approval_group: department } : {}) })
-      if (active && response.data) setCount(response.data.summary?.entry_count ?? 0)
-    }
-    void load().catch(() => undefined)
-    const stop = startVisibilityAwarePolling(load, APPROVAL_BADGE_REFRESH_MS)
-    return () => { active = false; stop() }
-  }, [enabled, location.pathname, department])
-
-  return enabled ? count : 0
-}
-
 // Toasts and the selection bar need the shell around every admin page.
 export default function AdminLayout() {
+  const { currentUser } = useAuthContext()
+  const capabilities = useCapabilities()
+  const department = approvalDepartment(currentUser, capabilities.manage_settings)
+  const counts = useApprovalCounts(capabilities.approve_time, department)
   return (
-    <ShellChromeProvider>
+    <ShellChromeProvider counts={counts}>
       <ToastProvider>
         <AdminShell />
       </ToastProvider>
@@ -77,10 +58,8 @@ function AdminShell() {
   }), [capabilities, currentUser, isClerkEnabled])
   const groups = useMemo(() => navigationGroups(navigationOptions), [navigationOptions])
   const tabBar = useMemo(() => tabBarLayout(navigationOptions), [navigationOptions])
-  const badgeDepartment = rememberedDepartment(currentUser?.id, isAdmin ? 'all' : currentUser?.approval_group || 'all')
-  const backgroundApprovalCount = usePendingApprovalCount(capabilities.approve_time, badgeDepartment)
-  const { approvalCount: scopedApprovalCount } = useShellChrome()
-  const approvalCount = scopedApprovalCount ?? backgroundApprovalCount
+  const { approvalCount: defaultApprovalCount } = useShellChrome()
+  const approvalCount = defaultApprovalCount ?? 0
   const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)
   const sidebarRef = useRef<HTMLElement>(null)
   // After the phone "More" sheet closes on a resize to desktop, continue from the current page's sidebar link.
