@@ -97,6 +97,7 @@ function SettingsForm({ page }: { page: SettingsPageId }) {
       // Everything lands together, so the form never shows half-loaded switches.
       setDraft(next)
       setData(result.data)
+      setError('')
     })().catch((reason) =>
       setError(
         reason instanceof PayStubError
