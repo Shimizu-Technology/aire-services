@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronDown, Send } from 'lucide-react'
 import { api, type AdminUser } from '../../lib/api'
 import { peopleApi, type PayPeriodState } from '../../lib/api/people'
-import { employeeEvidenceApi, type EvidencePeriod } from '../../lib/employeeEvidenceApi'
+import { employeeEvidenceApi, type EmployeeEvidence, type EvidencePeriod } from '../../lib/employeeEvidenceApi'
 import { formatPayPeriod } from '../../lib/payPeriods'
 import { HANDOFF_STATE_LABELS, PERSON_TOTAL_LABELS, isLockedState, showsNotMatched } from '../../lib/payrollTerms'
 import { payStubsApi } from '../../lib/payStubsApi'
@@ -13,7 +13,7 @@ import { Button, EmptyState, ErrorState, StatusPill, Switch } from '../ui'
 import { Skeleton } from '../ui/Skeleton'
 import { PeriodEvidence } from './PeriodEvidence'
 import { firstName } from './personFormat'
-import { dataOrThrow, useLoadable } from './useLoadable'
+import { useLoadable } from './useLoadable'
 
 const PERIOD_PAGE = '12'
 const RECENT_PAYCHECKS = 6
@@ -23,6 +23,9 @@ interface PayTabProps {
   today: string
   /** Null while unknown; true when "On for everyone" is on. */
   myPayForEveryone: boolean | null
+  /** Why "On for everyone" couldn't be read; the switch waits for it. */
+  myPayError: string | null
+  onRetryMyPay: () => void
   /** Owners and admins (manage_my_pay_access). */
   canManageMyPay: boolean
   /** Shows "Preview their My Pay" (owners and admins on the preview allowlist). */
@@ -31,15 +34,9 @@ interface PayTabProps {
   onUserChange: (user: AdminUser) => void
 }
 
-interface PeriodRow {
-  evidence: EvidencePeriod
-  state: PayPeriodState | null
-}
-
-/** "Open", "Paid Nov 10", or nothing for a past period AIRE has no state for. */
-function stateText(row: PeriodRow, today: string) {
-  const state = row.state
-  if (!state) return row.evidence.end_date >= today ? HANDOFF_STATE_LABELS.open : null
+/** "Open", "Paid Nov 10", or nothing for a past period AIRE never published. */
+function stateText(period: EvidencePeriod, state: PayPeriodState | null, today: string) {
+  if (!state) return period.end_date >= today ? HANDOFF_STATE_LABELS.open : null
   if (state.handoff_state === 'paid') return `${HANDOFF_STATE_LABELS.paid} ${monthDay(state.pay_date)}`
   // Periods from before scheduled locking only say whether AIRE froze them.
   if (state.handoff_state === 'before_locking') return state.status === 'finalized' ? HANDOFF_STATE_LABELS.locked : null
@@ -61,41 +58,32 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
 const card = 'rounded-card border border-line bg-surface'
 
 /** My Pay, paychecks and pay periods for one person, in the glossary's words. */
-export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewHref, onSendStub, onUserChange }: PayTabProps) {
+export function PayTab({ user, today, myPayForEveryone, myPayError, onRetryMyPay, canManageMyPay, previewHref, onSendStub, onUserChange }: PayTabProps) {
   const [searchParams] = useSearchParams()
   const first = firstName(user)
   const [saving, setSaving] = useState(false)
-  const [myPayError, setMyPayError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [retry, setRetry] = useState({ paychecks: 0, periods: 0 })
   const [older, setOlder] = useState<{ key: string; periods: EvidencePeriod[]; next: string | null; loading: boolean; error: string | null } | null>(null)
   // A link naming a period (?tab=pay&period=…) opens its technical details.
   const linkedPeriod = searchParams.get('period')
   const linkedEntry = searchParams.get('entry')
   const [open, setOpen] = useState<Set<string>>(() => new Set(linkedPeriod ? [linkedPeriod] : []))
-  const sourceUserUuid = searchParams.get('source_user_uuid') || ''
-  const sourceInstanceId = searchParams.get('source_instance_id') || ''
 
   const paychecks = useLoadable(
     onSendStub ? `${user.id}:${retry.paychecks}` : null,
     async (signal) => (await payStubsApi.statements(user.id, signal)).statements,
     "Couldn't load paychecks.",
   )
-  const states = useLoadable(
-    String(retry.periods),
-    async () => dataOrThrow(await peopleApi.payPeriods(), "Couldn't load pay period status.").periods,
-    "Couldn't load pay period status.",
-  )
   const loadPeriods = async (cursor: string, signal?: AbortSignal) => {
     const filter = new URLSearchParams({ per_page: PERIOD_PAGE })
     if (cursor) filter.set('cursor', cursor)
     const result = await employeeEvidenceApi.periods(String(user.id), filter, signal)
+    // Saved links' source identity is checked once, by the person page, before any tab shows.
     if (result.employee.id !== String(user.id)) throw new Error('Employee evidence identity does not match this record.')
-    if ((sourceUserUuid && result.employee.payroll_integration_id !== sourceUserUuid) || (sourceInstanceId && result.integration.source_instance_id !== sourceInstanceId)) {
-      throw new Error('This saved employee link no longer matches the source installation or employee. Return to payroll and refresh the connection evidence.')
-    }
     return result
   }
-  const firstPageKey = `${user.id}:${sourceUserUuid}:${sourceInstanceId}:${retry.periods}`
+  const firstPageKey = `${user.id}:${retry.periods}`
   const evidence = useLoadable(firstPageKey, async (signal) => {
     const result = await loadPeriods('', signal)
     return { identity: { employee: result.employee, integration: result.integration }, periods: result.periods, next: result.pagination.next_cursor }
@@ -115,19 +103,18 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
     }
   }
 
-  const rows: PeriodRow[] = useMemo(() => {
-    if (evidence.status !== 'ready') return []
-    const byStart = new Map((states.status === 'ready' ? states.value : []).map(period => [period.start_date, period]))
-    return [...evidence.value.periods, ...(more?.periods ?? [])].map(period => ({ evidence: period, state: byStart.get(period.start_date) ?? null }))
-  }, [evidence, states, more])
+  const periods = useMemo(
+    () => (evidence.status === 'ready' ? [...evidence.value.periods, ...(more?.periods ?? [])] : []),
+    [evidence, more],
+  )
 
   const toggleMyPay = async (enabled: boolean) => {
     setSaving(true)
-    setMyPayError(null)
+    setSaveError(null)
     const response = await api.setUserMyPay(user.id, enabled)
     setSaving(false)
     if (response.data) onUserChange({ ...user, my_pay_enabled: response.data.my_pay_enabled })
-    else setMyPayError(response.error || `My Pay wasn't changed for ${first}. Try again.`)
+    else setSaveError(response.error || `My Pay wasn't changed for ${first}. Try again.`)
   }
 
   const toggleDetails = (id: string) => setOpen((previous) => {
@@ -146,13 +133,23 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
     <div className="max-w-[55rem] space-y-6">
       {canManageMyPay && (
         <Section title="My Pay">
+          {myPayError && (
+            <ErrorState
+              className="mb-2"
+              title="Couldn't load the My Pay settings."
+              description="Whether My Pay is on for everyone is unknown until they load."
+              onRetry={onRetryMyPay}
+            />
+          )}
           <div className={`${card} px-4 py-2`}>
             {myPayForEveryone ? (
               <p className="py-2 text-body-sm text-ink">My Pay is on for everyone, so {first} can see their own paychecks. Change it on Team.</p>
             ) : (
               <Switch
                 label="My Pay"
-                description={user.my_pay_enabled ? `${first} sees their own paychecks.` : `${first} can't see paychecks in AIRE.`}
+                description={myPayError
+                  ? "Can't be changed until the My Pay settings load."
+                  : user.my_pay_enabled ? `${first} sees their own paychecks.` : `${first} can't see paychecks in AIRE.`}
                 checked={Boolean(user.my_pay_enabled)}
                 onChange={(checked) => void toggleMyPay(checked)}
                 busy={saving}
@@ -160,7 +157,7 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
               />
             )}
           </div>
-          {myPayError && <p role="alert" className="mt-2 text-body-sm text-danger">{myPayError}</p>}
+          {saveError && <p role="alert" className="mt-2 text-body-sm text-danger">{saveError}</p>}
         </Section>
       )}
 
@@ -197,68 +194,29 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
       )}
 
       <Section title="Pay periods">
-        {states.status === 'error' && (
-          <p role="status" className="mb-2 text-body-sm text-ink-muted">
-            Couldn't load where each period is in payroll, so only hours show.{' '}
-            <button type="button" className="font-semibold text-primary underline" onClick={() => setRetry(value => ({ ...value, periods: value.periods + 1 }))}>Try again</button>
-          </p>
-        )}
         {evidence.status === 'loading' ? (
           <div aria-busy="true" aria-label="Loading pay periods" className={`${card} space-y-2 p-4`}>
             {Array.from({ length: 3 }, (_, index) => <Skeleton key={index} height={40} className="w-full" />)}
           </div>
         ) : evidence.status === 'error' ? (
           <ErrorState title="Couldn't load pay periods." description={evidence.message} onRetry={() => setRetry(value => ({ ...value, periods: value.periods + 1 }))} />
-        ) : rows.length === 0 ? (
+        ) : periods.length === 0 ? (
           <EmptyState title="No pay periods yet." description={`${first} has no recorded hours.`} />
         ) : (
           <ul className={`${card} divide-y divide-line`}>
-            {rows.map((row) => {
-              const { evidence: period, state } = row
-              const locked = isLockedState(state?.handoff_state, state?.status)
-              const notMatched = showsNotMatched({ state: state?.handoff_state, status: state?.status, payDate: state?.pay_date, today })
-                && period.summary.needs_reconciliation_hours > 0
-              const words = [
-                stateText(row, today),
-                `${formatHours(period.summary.eligible_hours)} approved`,
-                period.summary.pending_hours > 0 ? `${formatHours(period.summary.pending_hours)} waiting` : null,
-              ].filter(Boolean).join(' · ')
-              const expanded = open.has(period.id)
-              return (
-                <li key={period.id} className="px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <div className="min-w-0 flex-1 basis-48">
-                      <h3 className="text-body-sm font-semibold text-ink">{formatPayPeriod({ start: period.start_date, end: period.end_date })}</h3>
-                      <p className="text-body-sm text-ink-muted">{words}</p>
-                    </div>
-                    {notMatched && <StatusPill tone="needs-fix">{PERSON_TOTAL_LABELS.notMatched} · {formatHours(period.summary.needs_reconciliation_hours)}</StatusPill>}
-                    {locked && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-expanded={expanded}
-                        onClick={() => toggleDetails(period.id)}
-                        icon={<ChevronDown className={`size-4 ${expanded ? '' : '-rotate-90'}`} />}
-                      >
-                        Technical details
-                      </Button>
-                    )}
-                  </div>
-                  {locked && expanded && evidence.status === 'ready' && (
-                    <div className="mt-3 border-t border-line pt-3">
-                      <PeriodEvidence
-                        userId={user.id}
-                        period={period}
-                        identity={evidence.value.identity}
-                        showNotMatched={notMatched}
-                        focusEntryId={linkedPeriod === period.id ? linkedEntry : null}
-                        shiftHref={shiftHref(period)}
-                      />
-                    </div>
-                  )}
-                </li>
-              )
-            })}
+            {periods.map((period) => (
+              <PayPeriodRow
+                key={period.id}
+                userId={user.id}
+                period={period}
+                today={today}
+                identity={evidence.status === 'ready' ? evidence.value.identity : null}
+                expanded={open.has(period.id)}
+                onToggle={() => toggleDetails(period.id)}
+                focusEntryId={linkedPeriod === period.id ? linkedEntry : null}
+                shiftHref={shiftHref(period)}
+              />
+            ))}
           </ul>
         )}
         {more?.error && <p role="alert" className="mt-3 text-body-sm text-danger">{more.error}</p>}
@@ -274,5 +232,77 @@ export function PayTab({ user, today, myPayForEveryone, canManageMyPay, previewH
         )}
       </Section>
     </div>
+  )
+}
+
+interface PayPeriodRowProps {
+  userId: number
+  period: EvidencePeriod
+  today: string
+  identity: Pick<EmployeeEvidence, 'employee' | 'integration'> | null
+  expanded: boolean
+  onToggle: () => void
+  focusEntryId: string | null
+  shiftHref: (entryId: string) => string
+}
+
+/**
+ * One pay period's hours and where it is in payroll. Each row looks up its
+ * own period, so an old locked period still shows its problems; while the
+ * status is unknown the row says so instead of looking fine.
+ */
+function PayPeriodRow({ userId, period, today, identity, expanded, onToggle, focusEntryId, shiftHref }: PayPeriodRowProps) {
+  const [retry, setRetry] = useState(0)
+  const lookup = useLoadable(`${period.start_date}:${retry}`, () => peopleApi.payPeriod(period.start_date), "Couldn't load this period's payroll status.")
+  const state = lookup.status === 'ready' ? lookup.value : null
+  const locked = isLockedState(state?.handoff_state, state?.status)
+  const notMatched = showsNotMatched({ state: state?.handoff_state, status: state?.status, payDate: state?.pay_date, today })
+    && period.summary.needs_reconciliation_hours > 0
+  const words = [
+    lookup.status === 'ready' ? stateText(period, state, today) : null,
+    `${formatHours(period.summary.eligible_hours)} approved`,
+    period.summary.pending_hours > 0 ? `${formatHours(period.summary.pending_hours)} waiting` : null,
+  ].filter(Boolean).join(' · ')
+
+  return (
+    <li className="px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="min-w-0 flex-1 basis-48">
+          <h3 className="text-body-sm font-semibold text-ink">{formatPayPeriod({ start: period.start_date, end: period.end_date })}</h3>
+          <p className="text-body-sm text-ink-muted">{words}</p>
+          {lookup.status === 'loading' && <p aria-busy="true" className="text-body-sm text-ink-subtle">Checking payroll status…</p>}
+          {lookup.status === 'error' && (
+            <p role="alert" className="text-body-sm text-danger">
+              Couldn't load this period's payroll status.{' '}
+              <button type="button" className="font-semibold underline" onClick={() => setRetry(value => value + 1)}>Try again</button>
+            </p>
+          )}
+        </div>
+        {notMatched && <StatusPill tone="needs-fix">{PERSON_TOTAL_LABELS.notMatched} · {formatHours(period.summary.needs_reconciliation_hours)}</StatusPill>}
+        {locked && (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={expanded}
+            onClick={onToggle}
+            icon={<ChevronDown className={`size-4 ${expanded ? '' : '-rotate-90'}`} />}
+          >
+            Technical details
+          </Button>
+        )}
+      </div>
+      {locked && expanded && identity && (
+        <div className="mt-3 border-t border-line pt-3">
+          <PeriodEvidence
+            userId={userId}
+            period={period}
+            identity={identity}
+            showNotMatched={notMatched}
+            focusEntryId={focusEntryId}
+            shiftHref={shiftHref}
+          />
+        </div>
+      )}
+    </li>
   )
 }

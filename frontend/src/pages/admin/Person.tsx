@@ -16,9 +16,13 @@ import { Skeleton } from '../../components/ui/Skeleton'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { api, type AdminUser } from '../../lib/api'
 import { peopleApi } from '../../lib/api/people'
+import { employeeEvidenceApi } from '../../lib/employeeEvidenceApi'
 import { LEGACY_TAB_ALIASES, linkedId, safeAdminReturn, type PersonTab } from '../../lib/employeeWorkspace'
 import { currentPayPeriod, todayInGuam } from '../../lib/payPeriods'
 import { useCapabilities } from '../../lib/useCapabilities'
+
+// The refusal main showed for a saved link whose employee or installation changed.
+const SAVED_LINK_MISMATCH = 'This saved employee link no longer matches the source installation or employee. Return to payroll and refresh the connection evidence.'
 
 const TAB_ITEMS: Array<{ value: PersonTab; label: string }> = [
   { value: 'overview', label: 'Overview' },
@@ -49,7 +53,7 @@ export default function Person() {
   // Read once: the tab rewrites ?tab=activity to overview on arrival.
   const [focusActivity] = useState(() => searchParams.get('tab') === 'activity' || location.hash === '#activity')
   const [retry, setRetry] = useState(0)
-  const [myPayForEveryone, setMyPayForEveryone] = useState<boolean | null>(null)
+  const [myPayRetry, setMyPayRetry] = useState(0)
   const [sending, setSending] = useState(false)
   const [resettingPin, setResettingPin] = useState(false)
   const personKey = userId ? `${userId}:${retry}` : null
@@ -59,18 +63,31 @@ export default function Person() {
     if (response.status === 404) return null
     return dataOrThrow(response, 'Unknown error').user
   }, 'Unknown error')
+  // A saved link from payroll names the employee and installation it was made
+  // for. It opens only while both still match, before any tab renders.
+  const sourceUserUuid = searchParams.get('source_user_uuid') || ''
+  const sourceInstanceId = searchParams.get('source_instance_id') || ''
+  const identityKey = userId && (sourceUserUuid || sourceInstanceId) ? `${userId}:${sourceUserUuid}:${sourceInstanceId}:${retry}` : null
+  const identity = useLoadable(identityKey, async (signal) => {
+    const result = await employeeEvidenceApi.periods(String(userId), new URLSearchParams({ per_page: '1' }), signal)
+    if (result.employee?.id !== String(userId)) throw new Error('Employee evidence identity does not match this record.')
+    if ((sourceUserUuid && result.employee.payroll_integration_id !== sourceUserUuid) || (sourceInstanceId && result.integration?.source_instance_id !== sourceInstanceId)) {
+      throw new Error(SAVED_LINK_MISMATCH)
+    }
+    return true
+  }, 'Unable to check this saved link.')
   // The person after a change on this page (My Pay, a new PIN), until the next load.
   const [latest, setLatest] = useState<{ key: string; user: AdminUser } | null>(null)
 
   const canManageMyPay = capabilities.manage_my_pay_access
-  useEffect(() => {
-    if (!canManageMyPay) return
-    let cancelled = false
-    void api.getMyPayAccess().then((response) => {
-      if (!cancelled && response.data) setMyPayForEveryone(response.data.enabled_for_all)
-    })
-    return () => { cancelled = true }
-  }, [canManageMyPay])
+  // "On for everyone"; unknown (null) until it loads or when it didn't.
+  const myPayAccess = useLoadable(
+    canManageMyPay ? String(myPayRetry) : null,
+    async () => dataOrThrow(await api.getMyPayAccess(), "Couldn't load the My Pay settings.").enabled_for_all,
+    "Couldn't load the My Pay settings.",
+  )
+  const myPayForEveryone = myPayAccess.status === 'ready' ? myPayAccess.value : null
+  const myPayError = myPayAccess.status === 'error' ? myPayAccess.message : null
 
   const user = latest && latest.key === personKey ? latest.user : loaded.status === 'ready' ? loaded.value : null
   const name = user ? personName(user) : ''
@@ -98,10 +115,20 @@ export default function Person() {
       />
     )
   }
+  if (identity.status === 'error') {
+    return (
+      <ErrorState
+        className="mt-6"
+        title="Couldn't open this saved link."
+        description={identity.message}
+        onRetry={() => setRetry(value => value + 1)}
+      />
+    )
+  }
   if (loaded.status === 'error') {
     return <ErrorState className="mt-6" title="Couldn't load this person." description={loaded.message} onRetry={() => setRetry(value => value + 1)} />
   }
-  if (!user) {
+  if (!user || (identityKey && identity.status === 'loading')) {
     return (
       <div aria-busy="true" aria-label="Loading this person" className="space-y-4">
         <Skeleton height={20} className="w-24" />
@@ -158,7 +185,7 @@ export default function Person() {
     <div className="space-y-5">
       <PersonHeader
         user={user}
-        myPayOn={myPayForEveryone === null && canManageMyPay ? null : Boolean(myPayForEveryone || user.my_pay_enabled)}
+        myPayOn={user.my_pay_enabled || myPayForEveryone ? true : myPayForEveryone === null && canManageMyPay ? null : false}
         backTo={returnTo}
         backLabel={backLabel}
         onSendStub={sendStub}
@@ -179,6 +206,8 @@ export default function Person() {
                 user={user}
                 today={today}
                 myPayForEveryone={myPayForEveryone}
+                myPayError={myPayError}
+                onRetryMyPay={() => setMyPayRetry(value => value + 1)}
                 canManageMyPay={canManageMyPay}
                 previewHref={previewHref}
                 onSendStub={sendStub}
@@ -192,6 +221,7 @@ export default function Person() {
                 user={user}
                 editHref={editHref}
                 myPayForEveryone={myPayForEveryone}
+                myPayError={myPayError}
                 onResetPin={canResetPin ? () => setResettingPin(true) : undefined}
                 onDelete={() => void deleteProfile()}
               />

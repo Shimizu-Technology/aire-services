@@ -69,6 +69,16 @@ const states = [
 ]
 
 let person = makeUser()
+// What GET /payroll_periods/:start answers; a start not listed is unpublished (404).
+let periodStates: Array<Record<string, unknown>> = states
+const failingStarts = new Set<string>()
+
+function payrollPeriod(endpoint: string) {
+  const start = endpoint.split('/').pop()!
+  if (failingStarts.has(start)) return { error: 'Something went wrong', status: 500 }
+  const period = periodStates.find((row) => row.start_date === start)
+  return period ? { data: { period }, status: 200 } : { error: 'No pay period is published for that date', status: 404 }
+}
 let restoreMedia = () => {}
 
 function Address() {
@@ -99,11 +109,13 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-14T02:00:00Z'))
   restoreMedia = mockMatchMedia({ width: 1280 })
   person = makeUser()
+  periodStates = states
+  failingStarts.clear()
   auth.value = { isClerkEnabled: true, userRole: 'admin', currentUser: { id: 99, my_pay_preview_enabled: true } }
   fetchMock.mockReset()
   fetchMock.mockImplementation(async (endpoint: string) => {
     if (endpoint === '/api/v1/admin/users/7') return { data: { user: person }, status: 200 }
-    if (endpoint.startsWith('/api/v1/payroll_periods')) return { data: { periods: states, current_start_date: '2026-11-01' }, status: 200 }
+    if (endpoint.startsWith('/api/v1/payroll_periods/')) return payrollPeriod(endpoint)
     return { error: 'Not found', status: 404 }
   })
   apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [makeEntry(), makeEntry({ id: 20, work_date: '2026-10-20' })], pagination: { total_pages: 1 } } })
@@ -360,10 +372,7 @@ describe('Pay tab', () => {
   })
 
   it('shows not-matched hours on a locked period only once payday has passed', async () => {
-    fetchMock.mockImplementation(async (endpoint: string) => {
-      if (endpoint === '/api/v1/admin/users/7') return { data: { user: person }, status: 200 }
-      return { data: { periods: [{ ...states[1], handoff_state: 'locked', pay_date: '2026-11-20' }], current_start_date: '2026-11-01' }, status: 200 }
-    })
+    periodStates = [{ ...states[1], handoff_state: 'locked', pay_date: '2026-11-20' }]
     open('/admin/users/7?tab=pay')
     const periods = await screen.findByRole('region', { name: 'Pay periods' })
     await waitFor(() => expect(periods).toHaveTextContent('Locked for payroll · 80.5h approved'))
@@ -378,7 +387,7 @@ describe('Pay tab', () => {
     const periods = await screen.findByRole('region', { name: 'Pay periods' })
     await waitFor(() => expect(periods).toHaveTextContent('Oct 16–31'))
     const paidRow = within(periods).getAllByRole('listitem')[1]
-    fireEvent.click(within(paidRow).getByRole('button', { name: 'Technical details' }))
+    fireEvent.click(await within(paidRow).findByRole('button', { name: 'Technical details' }))
     expect(await within(paidRow).findByText('Paid (confirmed by Payroll)')).toBeInTheDocument()
     expect(within(paidRow).getByText('Not matched to a paycheck yet')).toBeInTheDocument()
     expect(within(paidRow).queryByText('Issued source coverage')).not.toBeInTheDocument()
@@ -488,5 +497,126 @@ describe('one meaning of Approved: approved for pay', () => {
     await waitFor(() => expect(overview).toHaveTextContent("ApprovedDidn't load"))
     expect(overview).toHaveTextContent("Overtime waitingDidn't load")
     expect(overview).toHaveTextContent('Waiting for approval11.5h')
+  })
+})
+
+describe('independent review fixes', () => {
+  const evidenceFor = (periods: unknown[], employee = { id: '7', payroll_integration_id: 'employee-uuid' }) => ({
+    employee, integration: { source_instance_id: 'installation-uuid' },
+    as_of: '2026-11-14T02:00:00Z', totals, evidence_note: '', pagination: { per_page: 12, total_count: periods.length, next_cursor: null }, periods,
+  })
+
+  // Ported from main's EmployeeWorkspace tests: a saved link checks its source identity before anything shows.
+  it.each([
+    ['employee', 'source_user_uuid=old-employee&source_instance_id=installation-uuid'],
+    ['installation', 'source_user_uuid=employee-uuid&source_instance_id=old-installation'],
+    ['employee only', 'source_user_uuid=old-employee'],
+  ])('refuses a saved link for a changed %s, before any tab renders', async (_what, query) => {
+    open(`/admin/users/7?tab=hours&${query}`)
+    expect(await screen.findByRole('alert')).toHaveTextContent('This saved employee link no longer matches the source installation or employee. Return to payroll and refresh the connection evidence.')
+    expect(screen.queryByRole('heading', { name: 'Casey Cruz' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(apiMock.getTimeEntries).not.toHaveBeenCalled()
+  })
+
+  it('rejects evidence for another person on a saved link', async () => {
+    evidenceMock.periods.mockResolvedValue(evidenceFor([], { id: '8', payroll_integration_id: 'employee-uuid' }))
+    open('/admin/users/7?tab=hours&source_user_uuid=employee-uuid')
+    expect(await screen.findByRole('alert')).toHaveTextContent('identity does not match')
+    expect(screen.queryByRole('heading', { name: 'Casey Cruz' })).not.toBeInTheDocument()
+  })
+
+  it('opens Time for a saved link whose identity still matches, and keeps it across tabs', async () => {
+    open('/admin/users/7?entry=19&period=2026-11-01&source_instance_id=installation-uuid&source_user_uuid=employee-uuid&tab=hours')
+    await screen.findByRole('heading', { level: 1, name: 'Casey Cruz' })
+    expect(selectedTab()).toHaveTextContent('Time')
+    await waitFor(() => expect(document.getElementById('timecard-entry-19')).toHaveClass('ring-cyan-400'))
+    fireEvent.click(screen.getByRole('tab', { name: 'Pay' }))
+    await waitFor(() => expect(address().searchParams.get('tab')).toBe('pay'))
+    expect(address().searchParams.get('source_user_uuid')).toBe('employee-uuid')
+    expect(address().searchParams.get('source_instance_id')).toBe('installation-uuid')
+  })
+
+  it("says it couldn't check a saved link when the evidence fails, and recovers on retry", async () => {
+    evidenceMock.periods.mockRejectedValueOnce(new Error('Evidence temporarily unavailable'))
+    open('/admin/users/7?tab=hours&source_user_uuid=employee-uuid')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Evidence temporarily unavailable')
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Casey Cruz' })).toBeInTheDocument()
+  })
+
+  it('shows problems on a locked period older than any recent window, looked up by its own start', async () => {
+    const old = { ...lockedPeriod, id: '2025-01-01', start_date: '2025-01-01', end_date: '2025-01-15', summary: { ...lockedPeriod.summary, needs_reconciliation_hours: 3 } }
+    periodStates = [...states, { id: 9, start_date: '2025-01-01', end_date: '2025-01-15', pay_date: '2025-01-25', status: 'finalized', handoff_state: 'locked', locked_at: null }]
+    evidenceMock.periods.mockResolvedValue(evidenceFor([openPeriod, old]))
+    open('/admin/users/7?tab=pay')
+    const periods = await screen.findByRole('region', { name: 'Pay periods' })
+    const row = await within(periods).findByText('Jan 1–15, 2025').then((heading) => heading.closest('li')!)
+    await waitFor(() => expect(row).toHaveTextContent('Locked for payroll · 80.5h approved'))
+    expect(within(row).getByText('Not matched to a paycheck yet · 3.0h')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Technical details' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/payroll_periods/2025-01-01')
+  })
+
+  it("never shows a period as fine when its payroll status didn't load", async () => {
+    failingStarts.add('2026-10-16')
+    open('/admin/users/7?tab=pay')
+    const periods = await screen.findByRole('region', { name: 'Pay periods' })
+    const row = await within(periods).findByText('Oct 16–31').then((heading) => heading.closest('li')!)
+    expect(await within(row).findByRole('alert')).toHaveTextContent("Couldn't load this period's payroll status.")
+    expect(row).not.toHaveTextContent('Paid')
+    expect(within(row).queryByRole('button', { name: 'Technical details' })).not.toBeInTheDocument()
+
+    failingStarts.clear()
+    fireEvent.click(within(row).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(row).toHaveTextContent('Paid Nov 10 · 80.5h approved'))
+    expect(within(row).getByText('Not matched to a paycheck yet · 2.0h')).toBeInTheDocument()
+  })
+
+  it('reads every page of leave, so a request on page 2 still shows', async () => {
+    apiMock.getLeaveRequests.mockImplementation(async (status: string, page: number) => ({
+      data: {
+        leave_requests: status === 'approved' && page === 2
+          ? [{ id: 5, leave_type: 'sick', start_date: '2026-11-20', end_date: '2026-11-20', status: 'approved', reason: null, user: { id: 7 } }]
+          : [],
+        pagination: { total_pages: status === 'approved' ? 2 : 1 },
+      },
+    }))
+    open('/admin/users/7')
+    expect(await screen.findByText('Sick leave · Fri, Nov 20')).toBeInTheDocument()
+    expect(apiMock.getLeaveRequests).toHaveBeenCalledWith('approved', 2, 100)
+  })
+
+  it('says leave failed, with Try again, instead of "No leave" when a page fails', async () => {
+    apiMock.getLeaveRequests.mockImplementation(async (status: string, page: number) => (
+      status === 'approved' && page === 2
+        ? { error: 'Something went wrong', status: 500 }
+        : { data: { leave_requests: [], pagination: { total_pages: status === 'approved' ? 2 : 1 } } }
+    ))
+    open('/admin/users/7')
+    expect(await screen.findByText("Couldn't load leave.")).toBeInTheDocument()
+    expect(screen.queryByText('No leave requested or approved from today on.')).not.toBeInTheDocument()
+    apiMock.getLeaveRequests.mockResolvedValue({ data: { leave_requests: [], pagination: { total_pages: 1 } } })
+    fireEvent.click(within(screen.getByText("Couldn't load leave.").closest('[role=alert]') as HTMLElement).getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('No leave requested or approved from today on.')).toBeInTheDocument()
+  })
+
+  it('keeps My Pay unknown, not Off, when its settings fail to load, and recovers on Try again', async () => {
+    apiMock.getMyPayAccess.mockResolvedValue({ error: 'Something went wrong', status: 500 })
+    open('/admin/users/7?tab=pay')
+    const myPay = await screen.findByRole('region', { name: 'My Pay' })
+    expect(await within(myPay).findByText("Couldn't load the My Pay settings.")).toBeInTheDocument()
+    const toggle = within(myPay).getByRole('switch', { name: 'My Pay' })
+    expect(toggle).toBeDisabled()
+    expect(myPay).toHaveTextContent("Can't be changed until the My Pay settings load.")
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Access' }))
+    expect(await screen.findByText("Unknown: the setting for everyone didn't load")).toBeInTheDocument()
+
+    apiMock.getMyPayAccess.mockResolvedValue({ data: { enabled_for_all: false, enabled_user_ids: [] } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Pay' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'My Pay' })).toBeEnabled())
+    expect(screen.queryByText("Couldn't load the My Pay settings.")).not.toBeInTheDocument()
   })
 })

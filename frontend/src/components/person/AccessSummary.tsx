@@ -34,13 +34,15 @@ interface AccessSummaryProps {
   /** Opens the Edit dialog on Team; null when the viewer can't change this person's access. */
   editHref: string | null
   myPayForEveryone: boolean | null
+  /** Set when "On for everyone" couldn't be read, so Off can't be claimed. */
+  myPayError?: string | null
   onResetPin?: () => void
   /** Deletes a never-used profile (after a confirm) and leaves the page. */
   onDelete?: () => void
 }
 
 /** Role, sign-in, kiosk PIN and My Pay, read-only. Editing comes from Edit for now. */
-export function AccessSummary({ user, editHref, myPayForEveryone, onResetPin, onDelete }: AccessSummaryProps) {
+export function AccessSummary({ user, editHref, myPayForEveryone, myPayError = null, onResetPin, onDelete }: AccessSummaryProps) {
   const first = firstName(user)
   const [resending, setResending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -88,7 +90,13 @@ export function AccessSummary({ user, editHref, myPayForEveryone, onResetPin, on
           {pin}
         </SummaryRow>
         <SummaryRow label="My Pay">
-          {myPayForEveryone ? 'On for everyone' : user.my_pay_enabled ? `On: ${first} sees their own paychecks` : 'Off'}
+          {user.my_pay_enabled
+            ? `On: ${first} sees their own paychecks`
+            : myPayForEveryone
+              ? 'On for everyone'
+              : myPayError
+                ? "Unknown: the setting for everyone didn't load"
+                : myPayForEveryone === null ? 'Checking…' : 'Off'}
         </SummaryRow>
       </SummaryCard>
       {notice && <p role="status" className="text-body-sm text-ink">{notice}</p>}
