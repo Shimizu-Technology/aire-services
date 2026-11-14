@@ -10,9 +10,10 @@ import { useCapabilities } from '../../lib/useCapabilities'
 import type { Capabilities, Capability } from '../../lib/roles'
 import type { TimeEntry } from '../../lib/api'
 import { currentPayrollPeriod, formatPayrollDate, formatPayrollPeriod, greatestPayrollEndDate, payrollPreparationPeriod, withPayrollPeriod } from '../../lib/payrollPeriods'
-import { ADMIN_PATHS, timeSectionHref } from '../../lib/adminRoutes'
+import { ADMIN_PATHS, landingPathFor, timeSectionHref } from '../../lib/adminRoutes'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { useSchedulesEnabled } from '../../lib/useSchedulesEnabled'
+import Today from './Today'
 
 const actionLinks: { title: string; description: string; href: string; capability: Capability }[] = [
   {
@@ -60,9 +61,12 @@ function formatWeekStart(date: Date): string {
 export default function Dashboard() {
   const capabilities = useCapabilities()
   const supervises = capabilities.manage_team_time
+  const showsToday = landingPathFor(capabilities) === ADMIN_PATHS.today
 
-  useEffect(() => { document.title = supervises ? 'Dashboard | AIRE Ops' : 'My Dashboard | AIRE Ops' }, [supervises])
+  // Today sets its own title.
+  useEffect(() => { if (!showsToday) document.title = supervises ? 'Dashboard | AIRE Ops' : 'My Dashboard | AIRE Ops' }, [showsToday, supervises])
 
+  if (showsToday) return <Today />
   if (supervises) return <AdminDashboard capabilities={capabilities} />
   return <MyTimeHome />
 }

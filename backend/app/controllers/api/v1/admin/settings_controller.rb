@@ -17,12 +17,16 @@ module Api
         ].freeze
         APPROVAL_SETTING_KEYS = [ Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY, Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY ].freeze
         # Approval policy values (not switches) that still get a before/after row.
-        AUDITED_VALUE_SETTING_KEYS = [ Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY ].freeze
+        AUDITED_VALUE_SETTING_KEYS = [ Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY, "payroll_cutoff_reminder_emails" ].freeze
         PAY_STUB_SETTING_KEYS = [ Setting::PAY_STUB_KIOSK_REQUESTS_KEY, Setting::PAY_STUB_SELF_EMAIL_KEY ].freeze
         SCHEDULE_SETTING_KEYS = [ Setting::SCHEDULES_ENABLED_KEY ].freeze
         SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS + AUDITED_VALUE_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
         # On/off switches: each change gets its own before/after audit row.
-        BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
+        BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS + %w[schedule_required_for_clock_in]).freeze
+        # Same cap as the pay stub heads-up list.
+        MAX_REMINDER_RECIPIENTS = 10
+        REQUIRE_KEY = "schedule_required_for_clock_in"
+        REQUIRE_NEEDS_SCHEDULES_MESSAGE = "Turn on Use schedules before requiring a scheduled shift"
 
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_settings) }
@@ -78,6 +82,9 @@ module Api
 
         def update
           payload = settings_update_params
+          if payload&.key?("payroll_cutoff_reminder_emails")
+            payload["payroll_cutoff_reminder_emails"] = Setting.normalize_emails(payload["payroll_cutoff_reminder_emails"]).map(&:downcase).uniq.join(", ")
+          end
           approval_groups_payload = approval_groups_update_params
           settings_present = !payload.nil?
           approval_groups_present = !approval_groups_payload.nil?
@@ -101,8 +108,12 @@ module Api
           end
 
           approval_groups_error = nil
+          schedule_error = nil
           Setting.transaction do
             persist_settings = lambda do
+              schedule_error = reconcile_schedule_requirement!(payload)
+              raise ActiveRecord::Rollback if schedule_error.present?
+
               if approval_groups_present
                 approval_groups_error = validate_approval_groups(approval_groups_payload, live: true)
                 raise ActiveRecord::Rollback if approval_groups_error.present?
@@ -128,6 +139,7 @@ module Api
             end
           end
 
+          return render json: { error: schedule_error }, status: :unprocessable_entity if schedule_error.present?
           return render json: { error: approval_groups_error }, status: :unprocessable_entity if approval_groups_error.present?
 
           render json: settings_payload
@@ -154,9 +166,34 @@ module Api
           return nil unless params.key?(:settings)
 
           permitted = params.require(:settings).permit(*SETTING_KEYS).to_h
-          # A boolean false would otherwise be dropped as blank.
-          BOOLEAN_SETTING_KEYS.each { |key| permitted[key] = permitted[key].to_s if permitted.key?(key) && permitted[key] == false }
-          permitted.compact_blank
+          # JSON booleans become "true"/"false" so the guards below compare one
+          # shape, and a false isn't dropped as blank.
+          permitted.transform_values! { |value| value == true || value == false ? value.to_s : value }
+          permitted.reject { |key, value| value.blank? && key != "payroll_cutoff_reminder_emails" }
+        end
+
+        # Use schedules and Require a scheduled shift are checked against the live
+        # values while holding one lock, so two saves at once can't leave Require on
+        # with schedules off (which would refuse every clock-in with no shift and no
+        # Schedule page to add one). A request that turns schedules off also turns
+        # Require off, with its own before/after audit row. A request that asks for
+        # Require while schedules are off is refused. Returns an error or nil.
+        def reconcile_schedule_requirement!(payload)
+          return unless payload&.key?(Setting::SCHEDULES_ENABLED_KEY) || payload&.key?(REQUIRE_KEY)
+
+          Setting.with_schedule_requirement_lock do
+            live = Setting.where(key: [ Setting::SCHEDULES_ENABLED_KEY, REQUIRE_KEY ]).pluck(:key, :value).to_h
+            schedules = payload[Setting::SCHEDULES_ENABLED_KEY] || live[Setting::SCHEDULES_ENABLED_KEY] || Setting::DEFAULTS[Setting::SCHEDULES_ENABLED_KEY]
+            required = payload[REQUIRE_KEY] || live[REQUIRE_KEY] || Setting::DEFAULTS[REQUIRE_KEY]
+            next unless required == "true" && schedules != "true"
+
+            if payload[REQUIRE_KEY] == "true"
+              next REQUIRE_NEEDS_SCHEDULES_MESSAGE
+            elsif payload[Setting::SCHEDULES_ENABLED_KEY] == "false"
+              payload[REQUIRE_KEY] = "false"
+            end
+            nil
+          end
         end
 
         # Switches that change who may approve time, how pay stubs go out or
@@ -166,15 +203,16 @@ module Api
           before_values.each do |key, before|
             after = payload.fetch(key).to_s
             switch = BOOLEAN_SETTING_KEYS.include?(key)
-            next if switch ? before == after : before.to_f == after.to_f
+            email = key == "payroll_cutoff_reminder_emails"
+            next if (switch || email) ? before == after : before.to_f == after.to_f
 
             AuditLog.record!(
               action: "setting.#{key}_updated",
               auditable: Setting.find_by!(key: key),
               actor: current_user,
               event_category: "settings",
-              changes: { key => switch ? [ before == "true", after == "true" ] : [ before.to_f, after.to_f ] },
-              metadata: switch ? { key: key, enabled: after == "true" } : { key: key, value: after.to_f },
+              changes: { key => switch ? [ before == "true", after == "true" ] : (email ? [ before, after ] : [ before.to_f, after.to_f ]) },
+              metadata: switch ? { key: key, enabled: after == "true" } : { key: key, value: email ? after : after.to_f },
               mark_domain_recorded: false
             )
           end
@@ -192,6 +230,18 @@ module Api
         end
 
         def validate_settings(payload)
+          # A request that contradicts itself is refused here; the live values are
+          # checked under a lock inside the transaction (reconcile_schedule_requirement!).
+          if payload[REQUIRE_KEY] == "true" && payload.key?(Setting::SCHEDULES_ENABLED_KEY) && payload[Setting::SCHEDULES_ENABLED_KEY] != "true"
+            return REQUIRE_NEEDS_SCHEDULES_MESSAGE
+          end
+
+          if payload.key?("payroll_cutoff_reminder_emails")
+            emails = Setting.normalize_emails(payload["payroll_cutoff_reminder_emails"])
+            return "Enter valid reminder email addresses" unless emails.all? { |email| URI::MailTo::EMAIL_REGEXP.match?(email) }
+            return "Use #{MAX_REMINDER_RECIPIENTS} addresses or fewer." if emails.size > MAX_REMINDER_RECIPIENTS
+          end
+
           BOOLEAN_SETTING_KEYS.each do |key|
             next unless payload.key?(key)
             return "#{key.humanize} must be true or false" unless %w[true false].include?(payload[key].to_s)

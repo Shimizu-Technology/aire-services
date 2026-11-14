@@ -71,7 +71,7 @@ describe('"Use schedules" switch', () => {
     expect(toggle).toHaveAccessibleDescription(/Shows Schedule in everyone’s menu/)
     fireEvent.click(screen.getByRole('button', { name: 'About Use schedules' }))
     expect(screen.getAllByText('Owners and admins').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/doesn't change any clock-in rule/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Turning it off also turns off/).length).toBeGreaterThan(0)
 
     fireEvent.click(toggle)
     await waitFor(() => expect(apiMock.updateAdminAppSettings).toHaveBeenCalledWith({ settings: { schedules_enabled: 'true' } }))

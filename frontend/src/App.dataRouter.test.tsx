@@ -24,7 +24,7 @@ vi.mock('./components/layouts/AdminLayout', () => ({
 vi.mock('./pages/admin/Users', () => ({ default: () => <h1>Team page</h1> }))
 // Stands in for a page that guards a draft, as useUnsavedChanges does: it
 // needs the data router context, then blocks moves to another page.
-vi.mock('./pages/admin/Settings', () => ({
+vi.mock('./pages/admin/settings/SettingsHome', () => ({
   default: function DraftPage() {
     const dataRouter = useContext(UNSAFE_DataRouterContext)
     const location = useLocation()
