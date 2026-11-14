@@ -1,3 +1,4 @@
+import { outcomeUnknown } from '../../lib/api/timecards'
 import { LiveTimer } from '../../components/ui/LiveTimer'
 import { ClockActions } from '../../components/clock/ClockActions'
 import { WorkChips } from '../../components/clock/WorkChips'
@@ -310,7 +311,7 @@ export default function AireKiosk() {
     const result = await request
     if (generation !== sessionGeneration.current) return
     if (result.error || !result.data) {
-      if (!result.status || result.status >= 500) {
+      if (outcomeUnknown(result) || !result.error) {
         // Verify is the kiosk's existing status read. Never retry a punch whose
         // response may have been lost after the server saved it.
         const refreshed = await api.aireKioskVerify(verifiedPinRef.current, kioskAccessToken || '')
