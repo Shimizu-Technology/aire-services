@@ -451,7 +451,7 @@ describe('PayrollRuns', () => {
   })
 
   it.each([
-    ['awaiting_approval', 'Needs approval'],
+    ['awaiting_approval', 'Waiting for approval'],
     ['needs_review', 'Needs payroll review'],
     ['ready_for_next_batch', 'Late hours (added to the next payroll)'],
     ['scheduled_supplemental', 'Scheduled for supplemental payroll'],
@@ -459,7 +459,7 @@ describe('PayrollRuns', () => {
     ['committed', 'In a payroll run'],
     ['partially_allocated', 'Partly in payroll'],
     ['partially_paid', 'Partly paid'],
-    ['payment_attested_pending_evidence', 'Payment reported; evidence pending'],
+    ['payment_attested_pending_evidence', 'Paid outside payroll, details pending'],
     ['not_payable', null],
   ])('uses the current %s projection for a historical denied approval card', async (status, label) => {
     const common = {
@@ -868,7 +868,7 @@ describe('PayrollRuns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview cutoff' }))
     await screen.findByText(/Finalization is blocked/)
     fireEvent.click(screen.getByRole('button', { name: 'Record already processed' }))
-    await screen.findByRole('heading', { name: 'Record payroll processed outside the integration' })
+    await screen.findByRole('heading', { name: 'Record payroll done outside the connection' })
 
     fireEvent.change(screen.getByLabelText(/Hours frozen at/), { target: { value: '2026-08-31T13:06' } })
     fireEvent.change(screen.getByLabelText(/Cornerstone processed at/), { target: { value: '2026-08-31T13:18' } })

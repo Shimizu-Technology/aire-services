@@ -2,7 +2,7 @@
 // confirmed them yet, so every payroll label lives here and changes in one
 // line. The backend holds the same words in PeriodHandoffState::LABELS (pay
 // period states) and EntryLifecycleResolver::LABELS (shift lifecycle);
-// payrollGlossary.test.ts fails if the two sides disagree.
+// payrollTerms.test.ts and payroll_glossary_spec.rb fail if the two disagree.
 export const PAYROLL_TERMS_PROVISIONAL = true
 
 /** The glossary words Chels still has to confirm (DESIGN.md §5 questions). */

@@ -714,7 +714,7 @@ describe('TimeTracking routed report periods', () => {
     expect(group).toHaveTextContent('admin · manual')
     expect(group).toHaveTextContent('Pending additional work')
     expect(group).toHaveTextContent('OT pending')
-    expect(group).toHaveTextContent('Awaiting approval')
+    expect(group).toHaveTextContent('Waiting for approval')
     expect(group).toHaveTextContent('Break 10:00–10:15 · 15m')
     const edit = within(group).getByRole('button', { name: 'Edit time entry 90 for Casey Employee' })
     await interaction.click(edit)
@@ -819,7 +819,7 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
-    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
+    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partly paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
     expect(employeeCard).toBeInTheDocument()
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
     fireEvent.click(employeeCard)

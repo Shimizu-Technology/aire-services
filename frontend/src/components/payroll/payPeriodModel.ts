@@ -118,13 +118,13 @@ export function checklistEntries({ range, attention, preview, previousStart }: C
     items.push(approvalsItem(range, period.waiting_count, period.waiting_hours))
     const clocks = forThisPeriod.items
       .filter((item): item is ClockAttentionItem => item.type === 'open_clock_earlier_day' && payPeriodIncludes(range, item.work_date))
-      .map(item => ({ name: item.user.display_name || item.user.full_name, to: openClockHref(item) }))
+      .map(item => ({ name: item.user.full_name || item.user.display_name, to: openClockHref(item) }))
     items.push(openClocksItem(clocks))
     const overtime = forThisPeriod.items.find((item): item is OvertimeAttentionItem => item.type === 'overtime_waiting')
     const people = overtime?.people.filter(person => person.week_starts.some(week => weekTouches(week, range))) ?? []
     const count = people.reduce((sum, person) => sum + person.entry_count, 0)
     const hours = people.some(person => person.hours === null) ? null : people.reduce((sum, person) => sum + (person.hours ?? 0), 0)
-    items.push(overtimeItem(range, count, hours, people.map(person => person.display_name || person.full_name)))
+    items.push(overtimeItem(range, count, hours, people.map(person => person.full_name || person.display_name)))
     const missing = forThisPeriod.items.find((item): item is MissingCategoryAttentionItem => item.type === 'missing_category')
     items.push(missingCategoryItem(missing?.count ?? 0, missingCategoryHref(missing?.entry_ids[0])))
   } else if (preview) {
