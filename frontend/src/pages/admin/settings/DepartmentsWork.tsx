@@ -18,6 +18,13 @@ const shape = ({ id, name, description, is_active }: WorkDraft): WorkDraft => ({
   is_active,
 })
 
+// Saved rows by id, then rows not saved yet in the order typed. The server lists work in its
+// own order, so a row the draft added at the end must not look edited just because of where it sits.
+const canonical = (rows: WorkDraft[]) => [
+  ...rows.filter((row) => row.id).sort((a, b) => a.id! - b.id!).map(shape),
+  ...rows.filter((row) => !row.id).map(shape),
+]
+
 // A refusal from the server (nothing was applied), or a request whose outcome we cannot know:
 // no HTTP status, a server error, or a success we could not read.
 class SaveProblem extends Error {
@@ -90,7 +97,7 @@ export default function DepartmentsWork() {
   const [stale, setStale] = useState(false)
   const [confirm, dialog] = useConfirm()
   const alertRef = useRef<HTMLParagraphElement>(null)
-  const snapshot = JSON.stringify({ groups, work: work.map(shape) })
+  const snapshot = JSON.stringify({ groups, work: canonical(work) })
   // keepDraft refreshes what is saved on the server and leaves the admin's edits on screen.
   const load = async (keepDraft = false) => {
     const [settings, categories] = await Promise.all([
@@ -114,7 +121,7 @@ export default function DepartmentsWork() {
       setWork(nextWork)
     }
     setSavedWork(categories.data.time_categories)
-    setBaseline(JSON.stringify({ groups: nextGroups, work: nextWork.map(shape) }))
+    setBaseline(JSON.stringify({ groups: nextGroups, work: canonical(nextWork) }))
     return { rows: categories.data.time_categories, groups: nextGroups, work: nextWork }
   }
   useEffect(() => {

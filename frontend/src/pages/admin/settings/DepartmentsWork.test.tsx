@@ -235,3 +235,17 @@ it('keeps Save off until the list is reloaded when the server cannot be re-read'
   expect(await screen.findByRole('alert')).toHaveTextContent('Reload the page to see what is saved')
   expect(mocks.create).toHaveBeenCalledTimes(1)
 })
+it('does not keep the unsaved bar on when the server lists the adopted row in a different order', async () => {
+  const user = userEvent.setup()
+  renderPage()
+  await user.click(await screen.findByRole('button', { name: 'Add kind of work' }))
+  await user.type(screen.getByLabelText('Work name 2'), 'Aerial tour')
+  mocks.create.mockResolvedValue({ error: 'Failed to fetch' })
+  // The server lists work alphabetically, so the new row comes first.
+  mocks.categories.mockResolvedValue({
+    data: { time_categories: [{ ...planning, id: 2, name: 'Aerial tour' }, flight] },
+  })
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  await screen.findByRole('alert')
+  expect(screen.queryAllByText('You have unsaved changes')).toHaveLength(0)
+})
