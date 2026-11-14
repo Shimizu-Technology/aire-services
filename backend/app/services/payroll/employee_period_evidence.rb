@@ -242,7 +242,7 @@ module Payroll
         regular_hours: allocation[:regular_hours].to_f, overtime_hours: allocation[:overtime_hours].to_f,
         worked_hours: round(entry.hours), eligible_hours: round(eligible),
         pending_hours: entry.active? ? round(entry.hours) : round(approval[:time_waiting_hours].to_d + approval[:overtime_waiting_hours].to_d),
-        denied_hours: entry.approval_status == "denied" ? round(entry.hours) : (entry.overtime_status == "denied" ? allocation[:overtime_hours] : 0),
+        denied_hours: entry.approval_status == "denied" ? round(entry.hours) : (entry.overtime_status == "denied" ? allocation[:overtime_hours].to_f : 0),
         issued_hours: round(issued), committed_hours: round(committed), exported_hours: round(exported),
         held_hours: round(held), needs_reconciliation_hours: round(remaining), accounting_correction_hours: round(matching.select { |line| line[:accounting_only] }.sum { |line| line[:total_hours].to_d }), payment_attestation: hold&.reason }
     end
