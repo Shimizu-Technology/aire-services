@@ -43,14 +43,21 @@ export function useApprovalCounts(enabled: boolean, department: string) {
     }))
   }, [enabled, department])
 
+  const invalidate = useCallback(() => {
+    ++generation.current
+  }, [])
   useEffect(() => {
-    void refreshApprovalCount()
+    if (!enabled) return
+    const initial = window.setTimeout(() => {
+      void refreshApprovalCount()
+    }, 0)
     const stop = startVisibilityAwarePolling(refreshApprovalCount, 60_000)
     return () => {
-      ++generation.current
+      invalidate()
+      window.clearTimeout(initial)
       stop()
     }
-  }, [refreshApprovalCount, location.pathname])
+  }, [enabled, refreshApprovalCount, invalidate, location.pathname])
 
   return {
     approvalCount: enabled && counts.department === department ? counts.count : null,

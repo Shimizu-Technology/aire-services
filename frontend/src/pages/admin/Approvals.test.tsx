@@ -532,7 +532,7 @@ it('explains default badge versus Today and keeps Everyone and Unassigned direct
       'The badge counts all 7 waiting in CFI. 3 more waiting in other departments. Today counts everyone.',
     ),
   ).toBeInTheDocument()
-  expect(refresh).toHaveBeenCalled()
+  await waitFor(() => expect(refresh).toHaveBeenCalled())
   expect(screen.getByRole('tablist', { name: 'Department' })).toHaveClass('flex-wrap')
   fireEvent.click(screen.getByRole('tab', { name: 'Unassigned' }))
   await waitFor(() =>
