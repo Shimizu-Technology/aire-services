@@ -1,3 +1,4 @@
+import { LiveTimer } from '../../components/ui/LiveTimer'
 import { ClockActions } from '../../components/clock/ClockActions'
 import { WorkChips } from '../../components/clock/WorkChips'
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
@@ -55,9 +56,9 @@ function formatSuccessMessage(action: KioskAction, employee: AireKioskEmployee, 
 }
 
 function formatStatus(status: ClockStatus | null) {
-  if (!status?.clocked_in) return 'Not clocked in'
+  if (!status?.clocked_in) return 'Off the clock'
   if (status.status === 'on_break') return 'On break'
-  return 'Clocked in'
+  return 'On the clock'
 }
 
 export default function AireKiosk() {
@@ -464,7 +465,7 @@ export default function AireKiosk() {
         <Link to="/admin" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Admin</Link>
         <Link to="/" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Home</Link>
       </div>}
-      <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-8 pt-4 md:grid-cols-[1.15fr_1fr] md:px-6">
+      <div className={`mx-auto grid w-full gap-8 px-4 pb-8 pt-4 md:px-6 ${employee ? 'max-w-2xl' : 'max-w-6xl md:grid-cols-[1.15fr_1fr]'}`}>
         <section className="order-2 md:order-1 rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -527,12 +528,13 @@ export default function AireKiosk() {
             </div>
           </div>
 
-          <div className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
+          <div className={`mt-8 rounded-3xl border p-5 ${status?.clocked_in ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-slate-800 bg-slate-950/70'}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Current employee</p>
                 <p className="mt-1 text-2xl font-semibold text-white">{employee ? employee.full_name : 'Waiting for PIN'}</p>
                 <p className="mt-1 text-sm text-cyan-200">{formatStatus(status)}</p>
+                {status?.clock_in_at && <div className="mt-3 text-4xl font-semibold text-white"><LiveTimer since={status.active_break_started_at || status.clock_in_at} label={status.status === 'on_break' ? 'Time on break' : 'Time since clock-in'} /></div>}
               </div>
               {employee && (
                 <button

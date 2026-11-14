@@ -163,9 +163,9 @@ it('keeps state until server success and on refusal', async () => {
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   await verifyEmployee()
   fireEvent.click(screen.getByRole('button', { name: 'Clock In' }))
-  expect(screen.getByText('Not clocked in')).toBeInTheDocument()
+  expect(screen.getByText('Off the clock')).toBeInTheDocument()
   await act(async () => { resolve({ error: 'Not allowed', status: 422 }) })
-  expect(screen.getByText('Not clocked in')).toBeInTheDocument()
+  expect(screen.getByText('Off the clock')).toBeInTheDocument()
 })
 
 it.each([undefined, 500])('re-reads unknown outcome %s before another punch', async status => {
