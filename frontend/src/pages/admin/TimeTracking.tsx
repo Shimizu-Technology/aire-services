@@ -2132,7 +2132,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                       reportSummary.pending_overtime_count > 0 ? `${reportSummary.pending_overtime_count} pending overtime` : null,
                       reportSummary.denied_overtime_count > 0 ? `${reportSummary.denied_overtime_count} denied overtime` : null,
                       reportSummary.open_clock_count > 0 ? `${reportSummary.open_clock_count} open clock` : null,
-                    ].filter(Boolean).join(', ') + '. These entries remain tracked but are not included in this cutoff; later approvals carry into the next cutoff.'
+                    ].filter(Boolean).join(', ') + '. Hours waiting for approval, denied hours and open clocks are not included in this cutoff. Approved regular hours on a shift with waiting overtime are included; the waiting overtime and later approvals carry into the next cutoff.'
                     : 'All included hours have work categories. No pending, denied, or open entries were found for this period.'}
               </p>
               {!hoursReport.ready && reportSummary.uncategorized_count > 0 && (

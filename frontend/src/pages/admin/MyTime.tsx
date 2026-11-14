@@ -683,7 +683,7 @@ export default function MyTime() {
         className="block space-y-2 rounded-card border border-line bg-surface p-5 text-body text-ink focus-visible:outline-2 focus-visible:outline-primary"
       >
         <p className="font-semibold">
-          This pay period {summaryLoaded && `· ${totals.total.toFixed(1)}h`}
+          This pay period {summaryLoaded && totals.complete && `· ${totals.total.toFixed(1)}h`}
         </p>
         <p className="text-body-sm text-ink-muted">
           {summaryLoaded
