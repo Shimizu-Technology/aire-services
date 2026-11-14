@@ -45,7 +45,7 @@ function validBatch(data: unknown): data is ReviewBatch {
 }
 
 export function useReviewBatch(
-  reload: () => Promise<void>,
+  reloadFresh: () => Promise<void>,
   onCommitted?: (ids: number[]) => void,
 ) {
   const toast = useToast()
@@ -109,7 +109,7 @@ export function useReviewBatch(
         .join(' ')
       setNotice(message)
       if (message) toast.show({ message, tone: errors.length ? 'danger' : 'default' })
-      await reload()
+      await reloadFresh()
     } finally {
       lock.current = false
       setBusy(false)
@@ -121,7 +121,7 @@ export function useReviewBatch(
     lock.current = true
     setBusy(true)
     try {
-      await reload()
+      await reloadFresh()
       for (const [fingerprint, request] of uncertain.current) {
         const states = await Promise.all(
           request.items.map((item) => approvalsApi.entry(item.id)),
@@ -231,7 +231,7 @@ export function useReviewBatch(
           },
         })
       }
-      await reload()
+      await reloadFresh()
       return result
     } finally {
       lock.current = false

@@ -28,9 +28,10 @@ export function useApprovalsQuery(
     promise: Promise<void>
     controller: AbortController
   } | null>(null)
-  const reload = useCallback(() => {
-    if (inFlight.current?.key === key) return inFlight.current.promise
+  const reload = useCallback((options?: { fresh?: boolean }) => {
+    if (!options?.fresh && inFlight.current?.key === key) return inFlight.current.promise
     const id = ++generation.current
+    inFlight.current?.controller.abort()
     const controller = new AbortController()
     const promise = (async () => {
       await Promise.resolve()
@@ -75,6 +76,7 @@ export function useApprovalsQuery(
     inFlight.current = { key, promise, controller }
     return promise
   }, [key, onReloaded])
+  const reloadFresh = useCallback(() => reload({ fresh: true }), [reload])
   useEffect(() => {
     const counter = generation
     const flight = inFlight
@@ -127,5 +129,6 @@ export function useApprovalsQuery(
     slow,
     showSkeleton,
     reload,
+    reloadFresh,
   }
 }

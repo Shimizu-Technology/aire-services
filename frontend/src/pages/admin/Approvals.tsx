@@ -177,7 +177,7 @@ function ApprovalsInbox() {
   const removeApprovedSelection = useCallback((ids: number[]) => {
     setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))))
   }, [])
-  const batches = useReviewBatch(inbox.reload, removeApprovedSelection)
+  const batches = useReviewBatch(inbox.reloadFresh, removeApprovedSelection)
   useEffect(() => {
     if (inbox.loadedAt) void refreshApprovalCount()
   }, [inbox.loadedAt, refreshApprovalCount])
@@ -374,6 +374,7 @@ function ApprovalsInbox() {
     }
     setReviewDirty(false)
     setReview(null)
+    if (saved) await inbox.reloadFresh()
   }
   const handleCloseReview = (saved?: boolean, message?: string) => {
     if (message) toast.show({ message })
@@ -383,7 +384,7 @@ function ApprovalsInbox() {
     return batches.approve(items, 31, label, 'reviewed', review ? [review] : [])
   }
   const reloadApprovals = () => {
-    void inbox.reload()
+    void inbox.reloadFresh()
   }
   const reloadExtras = () => {
     void loadExtras()

@@ -2,8 +2,12 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { approvalsApi, type ApprovalsResponse } from '../../lib/api/approvals'
 import { reviewEntry } from '../../test/approvalFixtures'
+import { ToastProvider } from '../ui'
 import { useApprovalsQuery } from './useApprovalsQuery'
-vi.mock('../../lib/api/approvals', () => ({ approvalsApi: { pending: vi.fn() } }))
+import { useReviewBatch } from './useReviewBatch'
+vi.mock('../../lib/api/approvals', () => ({
+  approvalsApi: { pending: vi.fn(), review: vi.fn(), undo: vi.fn() },
+}))
 const data: ApprovalsResponse = {
   count: 1,
   pending_entries: [reviewEntry(1)],
@@ -80,3 +84,95 @@ it('deduplicates focus/reload while pending, then times out before the next poll
   expect(result.current.data).toEqual(data)
   expect(result.current.error).toBeUndefined()
 })
+
+it.each(['approve', 'undo', 'refresh', 'retry'] as const)(
+  '%s starts a fresh request and ignores a pending poll’s older snapshot',
+  async (operation) => {
+    const empty: ApprovalsResponse = {
+      ...data,
+      count: 0,
+      pending_entries: [],
+      pagination: { current_page: 1, total_pages: 1, total_count: 0 },
+      review_summary: {
+        ...data.review_summary,
+        ordinary_count: 0,
+        ordinary_hours: 0,
+      },
+    }
+    const before = operation === 'undo' ? empty : data
+    const after = operation === 'undo' ? data : empty
+    let resolvePoll!: (response: { data: ApprovalsResponse }) => void
+    let pollSignal: AbortSignal | undefined
+    vi.mocked(approvalsApi.pending)
+      .mockResolvedValueOnce({ data: before })
+      .mockImplementationOnce((_params, signal) => {
+        pollSignal = signal
+        // Deliberately ignore abort to prove a late transport response is ignored.
+        return new Promise((resolve) => {
+          resolvePoll = resolve
+        })
+      })
+      .mockResolvedValueOnce({ data: after })
+    vi.mocked(approvalsApi.review).mockResolvedValue({
+      data: {
+        review_batch_id: 'fresh-batch',
+        undo_expires_at: '2026-11-14T00:00:00Z',
+        approved_count: 1,
+        time_entries: [
+          {
+            id: 1,
+            version: 2,
+            approval_status: 'approved',
+            overtime_status: 'none',
+          },
+        ],
+      },
+    })
+    vi.mocked(approvalsApi.undo).mockResolvedValue({ data: { undone_count: 1 } })
+    const { result } = renderHook(
+      () => {
+        const query = useApprovalsQuery({ approval_group: 'cfi' }, false)
+        const batch = useReviewBatch(query.reloadFresh)
+        return { query, batch }
+      },
+      { wrapper: ToastProvider },
+    )
+    await waitFor(() => expect(result.current.query.data).toEqual(before))
+    act(() => window.dispatchEvent(new Event('focus')))
+    await waitFor(() => expect(approvalsApi.pending).toHaveBeenCalledTimes(2))
+    expect(pollSignal?.aborted).toBe(false)
+    await act(async () => {
+      if (operation === 'approve') {
+        await result.current.batch.approve(
+          [{
+            id: 1,
+            version: 1,
+            approve_time: true,
+            approve_overtime: false,
+          }],
+          100,
+          'Approved 1 shift',
+        )
+      } else if (operation === 'undo') {
+        await result.current.batch.undo([
+          {
+            id: 'previous-batch',
+            count: 1,
+            expiresAt: '2026-11-14T00:00:00Z',
+          },
+        ])
+      } else if (operation === 'refresh') {
+        await result.current.batch.refresh()
+      } else {
+        await result.current.query.reloadFresh()
+      }
+    })
+    expect(approvalsApi.pending).toHaveBeenCalledTimes(3)
+    expect(pollSignal?.aborted).toBe(true)
+    expect(result.current.query.data).toEqual(after)
+    await act(async () => resolvePoll({ data: before }))
+    expect(result.current.query.data).toEqual(after)
+    expect(result.current.query.error).toBeUndefined()
+    expect(result.current.query.loading).toBe(false)
+  },
+)
