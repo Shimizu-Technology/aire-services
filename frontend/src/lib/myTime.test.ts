@@ -88,11 +88,12 @@ it('counts only this period’s part of an overnight shift', () => {
       start_time: '22:00',
       end_time: '06:00',
       hours: 8,
+      payroll_hours_by_date: [{ work_date: '2026-11-15', approved_hours: 0, approved_regular_hours: 0, approved_overtime_hours: 0, time_waiting_hours: 2, overtime_waiting_hours: 0 }, { work_date: '2026-11-16', approved_hours: 0, approved_regular_hours: 0, approved_overtime_hours: 0, time_waiting_hours: 6, overtime_waiting_hours: 0 }],
     }),
   ]
   expect(
     periodTotals(entries, { start: '2026-11-16', end: '2026-11-30' }),
-  ).toEqual({
+  ).toMatchObject({
     total: 6,
     approved: 0,
     waiting: 6,
@@ -191,7 +192,7 @@ it('does not spend the browser acquisition timeout while a permission prompt is 
   await result
 })
 
-it('excludes denied hours and treats completed null approvals explicitly as waiting', () => {
+it('uses the API approval gate, including standard clock time and unreviewed manual time', () => {
   const entries = [
     shift({ id: 1, hours: 3, approval_status: 'approved' }),
     shift({ id: 2, hours: 2, approval_status: 'pending' }),
@@ -203,7 +204,7 @@ it('excludes denied hours and treats completed null approvals explicitly as wait
     start: '2026-11-01',
     end: '2026-11-15',
   })
-  expect(totals).toEqual({ total: 10, approved: 3, waiting: 7 })
+  expect(totals).toMatchObject({ total: 10, approved: 4, waiting: 6 })
   expect(totals.total).toBe(totals.approved + totals.waiting)
 })
 
@@ -214,7 +215,7 @@ it('keeps the displayed total equal to approved plus waiting after rounding to t
     shift({ id: 3, hours: 2, approval_status: 'denied' }),
   ]
   const period = { start: '2026-11-01', end: '2026-11-15' }
-  expect(displayPeriodTotals(entries, period)).toEqual({
+  expect(displayPeriodTotals(entries, period)).toMatchObject({
     total: 70.1,
     approved: 57.5,
     waiting: 12.6,

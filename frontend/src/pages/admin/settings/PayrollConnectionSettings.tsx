@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../../../components/ui'
+import { payrollConnectionCopy } from '../../../lib/payrollConnection'
 import { settingsApi, type PayrollConnection } from '../../../lib/api/settings'
 
 export default function PayrollConnectionSettings() {
@@ -32,21 +33,8 @@ export default function PayrollConnectionSettings() {
               Cornerstone Payroll admins can resume it.
             </p>
           )}
-          <p className="font-semibold">
-            {connection.state.charAt(0).toUpperCase() + connection.state.replaceAll('_', ' ').slice(1)}
-          </p>
-          <p>
-            Last heard from:{' '}
-            {connection.last_publication
-              ? new Date(connection.last_publication.published_at).toLocaleString()
-              : 'No publication yet'}
-          </p>
-          <p>
-            Last delivered:{' '}
-            {connection.last_delivery
-              ? new Date(connection.last_delivery.delivered_at).toLocaleString()
-              : 'No delivery yet'}
-          </p>
+          <p className="font-semibold">{payrollConnectionCopy(connection).title}</p>
+          <p>{payrollConnectionCopy(connection).detail}</p>
           {connection.account_link && (
             <p>
               {connection.account_link.payroll_user_email} · Linked by{' '}

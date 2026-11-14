@@ -195,17 +195,19 @@ RSpec.describe "Attention", type: :request do
       end
     end
 
-    it "equals the inbox filtered to the current pay period" do
+    it "uses report payroll eligibility rather than the whole-shift inbox hours" do
       get "/api/v1/time_entries/pending_approvals", params: { per_page: 1, start_date: "2026-11-01", end_date: "2026-11-15" },
                                                      headers: headers_for(admin)
-      summary = response.parsed_body.fetch("summary")
 
       period = attention(admin).fetch("period")
 
       expect(period).to include("published" => true, "start_date" => "2026-11-01", "end_date" => "2026-11-15",
                                 "handoff_state" => "open", "label" => "Open", "label_provisional" => true)
-      expect(period.fetch("waiting_count")).to eq(summary.fetch("entry_count"))
-      expect(period.fetch("waiting_hours")).to eq(summary.fetch("total_hours"))
+      report = Payroll::HoursReportBuilder.new(start_date: "2026-11-01", end_date: "2026-11-15").call
+      hours = report[:summary][:payroll_hours]
+      expect(period.fetch("waiting_count")).to eq(report[:summary][:approval_waiting_count])
+      expect(period.fetch("waiting_hours")).to eq(hours[:time_waiting_hours] + hours[:overtime_waiting_hours])
+      expect(period.fetch("approved_hours")).to eq(hours[:approved_hours])
       expect(period.fetch("approved_hours")).to eq(8.0) # Caleb's approved Nov 9 shift; denied time is neither
       expect(period.fetch("people")).to eq(4)
     end

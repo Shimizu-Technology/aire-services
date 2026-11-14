@@ -4,16 +4,10 @@ import { cx } from '../../lib/cx'
 import type { PayrollConnectionStatus } from '../../lib/api/attention'
 import { Skeleton } from '../ui/Skeleton'
 import { ErrorState } from '../ui'
-import { businessDateISO } from '../../lib/dateUtils'
-import { monthDay, periodLabel, plural, timeLabel } from './format'
+import { plural } from './format'
+import { payrollConnectionCopy } from '../../lib/payrollConnection'
 import { PAYROLL_CONNECTION_HREF } from './links'
 import { StaleNote } from './StaleNote'
-
-/** "7:05 PM" for today, "Nov 10, 7:05 PM" for an earlier day. */
-function heardAt(instant: string, now: Date) {
-  const day = businessDateISO(new Date(instant))
-  return day === businessDateISO(now) ? timeLabel(instant) : `${monthDay(day)}, ${timeLabel(instant)}`
-}
 
 export interface ConnectionCardProps {
   connection: PayrollConnectionStatus | null
@@ -42,15 +36,7 @@ export function ConnectionCard({ connection, load, updatedAt = null, now, onRetr
 function Details({ connection, now }: { connection: PayrollConnectionStatus; now: Date }) {
   const paused = connection.state === 'paused'
   const problem = connection.state === 'delivery_problem'
-  const delivery = connection.last_delivery
-  // Enabled, but Cornerstone Payroll hasn't published, received or linked anything yet.
-  const neverConnected = connection.state === 'connected' && !connection.last_publication && !delivery && !connection.account_link
-  const facts = [
-    connection.last_publication ? `Last heard from ${heardAt(connection.last_publication.published_at, now)}` : 'No word from Cornerstone Payroll yet',
-    delivery?.period && delivery.delivered_at
-      ? `${periodLabel(delivery.period)} locked and received ${monthDay(businessDateISO(new Date(delivery.delivered_at)))}`
-      : null,
-  ].filter(Boolean)
+  const copy = payrollConnectionCopy(connection, now)
 
   return (
     <div className="rounded-card border border-line bg-surface px-3.5 py-3 text-body-sm">
@@ -59,15 +45,15 @@ function Details({ connection, now }: { connection: PayrollConnectionStatus; now
           ? <Unplug aria-hidden="true" className="size-4 shrink-0 text-red-600" />
           : problem
             ? <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-amber-600" />
-            : <span aria-hidden="true" className={cx('size-2 shrink-0 rounded-full', neverConnected ? 'bg-slate-400' : 'bg-emerald-600')} />}
-        {paused ? 'Payroll connection paused' : neverConnected ? 'Not connected yet' : 'Connected to Cornerstone Payroll'}
+            : <span aria-hidden="true" className={cx('size-2 shrink-0 rounded-full', copy.connected ? 'bg-emerald-600' : 'bg-slate-400')} />}
+        {copy.title}
       </p>
       {problem && (
         <p className="mt-1 text-amber-900">
           {plural(connection.undelivered.count, 'update')} for Payroll {connection.undelivered.count === 1 ? "hasn't" : "haven't"} arrived.
         </p>
       )}
-      <p className="mt-1 text-ink-muted">{facts.join(' · ')}</p>
+      <p className="mt-1 text-ink-muted">{copy.detail}</p>
       <Link to={PAYROLL_CONNECTION_HREF} className="mt-1 inline-flex min-h-11 items-center font-semibold text-primary underline pointer-fine:min-h-0">
         Connection details
       </Link>

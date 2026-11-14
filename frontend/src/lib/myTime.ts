@@ -5,7 +5,7 @@ import type {
   TimeEntry,
   UserSummary,
 } from './api'
-import { entrySegments, guamDate, timecardDays } from './timecards'
+import { entrySegments, guamDate } from './timecards'
 import { addDateDays, businessWeekStart } from './dateUtils'
 import type { PayPeriod } from './payPeriods'
 
@@ -83,7 +83,7 @@ export function weeksAround(period: PayPeriod) {
 function overtimeSegments(entries: TimeEntry[]) {
   const cumulative = new Map<string, number>()
   const segments = entries
-    .filter(employeeHoursBucket)
+    .filter(entry => entry.status === 'completed' && entry.approval_status !== 'denied')
     .flatMap((entry) =>
       entrySegments(entry).map((segment) => ({ ...segment, entry })),
     )
@@ -194,24 +194,14 @@ export function chooseLastCategory(
   )
 }
 
-/** A completed shift with no approval yet is waiting, never implicitly approved. */
-export function employeeHoursBucket(entry: TimeEntry) {
-  if (entry.status !== 'completed' || entry.approval_status === 'denied')
-    return null
-  return entry.approval_status === 'approved' ? 'approved' : 'waiting'
-}
-
 export function periodTotals(entries: TimeEntry[], period: PayPeriod) {
-  const items = [...timecardDays(entries, period).values()]
-    .flat()
-    .filter((item) => employeeHoursBucket(item.entry))
-  const sum = (status: 'approved' | 'waiting') =>
-    items
-      .filter((item) => employeeHoursBucket(item.entry) === status)
-      .reduce((total, item) => total + item.hours, 0)
-  const approved = sum('approved')
-  const waiting = sum('waiting')
-  return { total: approved + waiting, approved, waiting }
+  const completed = entries.filter(entry => entry.status === 'completed')
+  const complete = completed.every(entry => entry.payroll_hours_by_date != null)
+  const parts = completed.flatMap(entry => entry.payroll_hours_by_date ?? []).filter(part => part.work_date >= period.start && part.work_date <= period.end)
+  const approved = parts.reduce((sum, part) => sum + part.approved_hours, 0)
+  const timeWaiting = parts.reduce((sum, part) => sum + part.time_waiting_hours, 0)
+  const overtimeWaiting = parts.reduce((sum, part) => sum + part.overtime_waiting_hours, 0)
+  return { total: approved + timeWaiting + overtimeWaiting, approved, waiting: timeWaiting + overtimeWaiting, timeWaiting, overtimeWaiting, complete }
 }
 
 /** Keep the displayed tenths additive; retain exact hours for clock math. */
@@ -220,6 +210,9 @@ export function displayPeriodTotals(entries: TimeEntry[], period: PayPeriod) {
   const approvedTenths = Math.round(totals.approved * 10)
   const waitingTenths = Math.round(totals.waiting * 10)
   return {
+    complete: totals.complete,
+    timeWaiting: Math.round(totals.timeWaiting * 10) / 10,
+    overtimeWaiting: Math.round(totals.overtimeWaiting * 10) / 10,
     total: (approvedTenths + waitingTenths) / 10,
     approved: approvedTenths / 10,
     waiting: waitingTenths / 10,

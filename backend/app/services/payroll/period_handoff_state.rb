@@ -86,7 +86,7 @@ module Payroll
         time_waiting_hours: hours[:time_waiting_hours],
         overtime_waiting_hours: hours[:overtime_waiting_hours],
         waiting_hours: (hours[:time_waiting_hours].to_d + hours[:overtime_waiting_hours].to_d).round(2).to_f,
-        waiting_count: report[:employees].sum { |employee| employee[:issues][:pending_count] + employee[:issues][:pending_overtime_count] },
+        waiting_count: report[:summary][:approval_waiting_count],
         hours_source: "live"
       }
     end

@@ -622,6 +622,7 @@ export interface EmployeePayrollStatus {
 }
 
 export interface TimeEntry {
+  payroll_hours_by_date?: Array<PayrollApprovalHours & { work_date: string }> | null;
   payroll_cutoff_missed?: boolean;
   payroll_status?: EmployeePayrollStatus | null;
   version?: number;
@@ -940,7 +941,17 @@ export interface PendingApprovalsResponse {
   sort?: { field: string; direction: 'asc' | 'desc' };
 }
 
+/** The lock's approval gate, calculated by Payroll::ApprovalHours on the API. */
+export interface PayrollApprovalHours {
+  approved_regular_hours: number;
+  approved_overtime_hours: number;
+  approved_hours: number;
+  time_waiting_hours: number;
+  overtime_waiting_hours: number;
+}
+
 export interface HoursReportEntry {
+  payroll_hours?: PayrollApprovalHours;
   id: number;
   version?: number;
   work_date: string;
@@ -1113,6 +1124,8 @@ export interface HoursReportWeek {
 }
 
 export interface HoursReportEmployee {
+  payroll_hours?: PayrollApprovalHours;
+  approval_complete?: boolean;
   id: number;
   email: string | null;
   first_name: string | null;
@@ -1180,6 +1193,7 @@ export interface HoursReportResponse {
   quality: HoursReportQuality;
   filters: HoursReportFilters;
   summary: {
+    payroll_hours?: PayrollApprovalHours;
     employee_count: number;
     total_hours: number;
     regular_hours: number;

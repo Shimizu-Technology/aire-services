@@ -5,7 +5,8 @@ export const categories = [
   { id: 2, name: 'Ground School' },
 ] as TimeCategory[]
 
-export const shift = (extra: Partial<TimeEntry> = {}): TimeEntry => ({
+export const shift = (extra: Partial<TimeEntry> = {}): TimeEntry => {
+  const entry: TimeEntry = {
   id: 41,
   version: 2,
   work_date: '2026-11-14',
@@ -43,7 +44,13 @@ export const shift = (extra: Partial<TimeEntry> = {}): TimeEntry => ({
   created_at: '2026-11-14T08:00:00+10:00',
   updated_at: '2026-11-14T11:00:00+10:00',
   ...extra,
-})
+  }
+  const approved = entry.status === 'completed' && entry.approval_status !== 'denied' && (entry.approval_status === 'approved' || (entry.entry_method === 'clock' && entry.approval_status === null))
+  const waiting = entry.status === 'completed' && entry.approval_status !== 'denied' && !approved
+  const overtimeWaiting = approved ? entry.pending_overtime_hours ?? 0 : 0
+  entry.payroll_hours_by_date ??= [{ work_date: entry.work_date, approved_hours: approved ? entry.hours - overtimeWaiting : 0, approved_regular_hours: approved ? entry.hours - overtimeWaiting : 0, approved_overtime_hours: 0, time_waiting_hours: waiting ? entry.hours : 0, overtime_waiting_hours: overtimeWaiting }]
+  return entry
+}
 
 export const clockStatus = (extra: Partial<ClockStatus> = {}): ClockStatus => ({
   clocked_in: false,

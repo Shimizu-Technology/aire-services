@@ -124,6 +124,8 @@ export interface AttentionPeriod {
   label: string
   label_provisional: boolean
   people: number
+  time_waiting_hours?: number
+  overtime_waiting_hours?: number
   approved_hours: number
   waiting_hours: number
   waiting_count: number

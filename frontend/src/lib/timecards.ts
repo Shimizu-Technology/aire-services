@@ -167,32 +167,10 @@ export interface PayPeriodHours {
   overtimeWaiting: number
 }
 
-const HELD_FOR_REVIEW = 'overnight_allocation_review'
-
-/**
- * The same rules as the person page's payroll evidence (Payroll::
- * EmployeePeriodEvidence), from a person's full hours report row: overtime
- * counts as approved only once its own approval is in, and a held shift waits
- * in full in the period of its own work date.
- */
-export function payPeriodHours(employee: Pick<HoursReportEmployee, 'days' | 'excluded_entries'>, period: { start: string; end: string }): PayPeriodHours {
-  let approved = 0
-  let waiting = 0
-  let overtimeWaiting = 0
-  for (const entry of employee.days.flatMap(day => day.entries ?? [])) {
-    const unapprovedOvertime = entry.overtime_status === 'approved' ? 0 : entry.overtime_hours
-    approved += entry.total_hours - unapprovedOvertime
-    // Denied overtime isn't paid, so it isn't waiting either.
-    if (entry.overtime_status !== 'denied') overtimeWaiting += unapprovedOvertime
-  }
-  for (const entry of employee.excluded_entries ?? []) {
-    if (entry.quality_flags?.includes(HELD_FOR_REVIEW)) {
-      if (entry.work_date >= period.start && entry.work_date <= period.end) waiting += entry.total_hours
-    } else if (entry.approval_status === 'pending' || (entry.entry_method === 'manual' && entry.approval_status === null)) {
-      waiting += entry.total_hours
-    }
-  }
-  return { approved: round2(approved), waiting: round2(waiting), overtimeWaiting: round2(overtimeWaiting) }
+/** Read the API's approval gate; never reconstruct pay eligibility in the UI. */
+export function payPeriodHours(employee: Pick<HoursReportEmployee, 'payroll_hours'>): PayPeriodHours | null {
+  const hours = employee.payroll_hours
+  return hours ? { approved: hours.approved_hours, waiting: hours.time_waiting_hours, overtimeWaiting: hours.overtime_waiting_hours } : null
 }
 
 export const formatHours = (value: number) => `${(Math.round(value * 10) / 10).toFixed(1)}h`
