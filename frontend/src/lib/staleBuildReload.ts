@@ -9,19 +9,23 @@ const RELOADED_AT_KEY = 'aire.staleBuildReloadedAt'
 // reloading in a loop.
 export const RELOAD_GUARD_MS = 30_000
 
-function readReloadedAt(): number {
+function readReloadedAt(): number | null {
   try {
     return Number(window.sessionStorage.getItem(RELOADED_AT_KEY)) || 0
   } catch {
-    return 0
+    return null
   }
 }
 
-function writeReloadedAt(value: number) {
+// The guard only works if it survives the reload, so it has to be saved and
+// read back. Without session storage (some private modes) there is no reload:
+// it could loop, and a pay stub link token kept only in memory would be lost.
+function saveReloadedAt(value: number): boolean {
   try {
     window.sessionStorage.setItem(RELOADED_AT_KEY, String(value))
+    return Number(window.sessionStorage.getItem(RELOADED_AT_KEY)) === value
   } catch {
-    // Storage can be unavailable (private browsing); the reload still helps.
+    return false
   }
 }
 
@@ -30,8 +34,9 @@ function writeReloadedAt(value: number) {
  * surface as usual (Vite's documented pattern); the reload replaces the page.
  */
 export function handleStaleBuild(now = Date.now(), reload = () => window.location.reload()) {
-  if (now - readReloadedAt() < RELOAD_GUARD_MS) return false
-  writeReloadedAt(now)
+  const reloadedAt = readReloadedAt()
+  if (reloadedAt === null || now - reloadedAt < RELOAD_GUARD_MS) return false
+  if (!saveReloadedAt(now)) return false
   reload()
   return true
 }
