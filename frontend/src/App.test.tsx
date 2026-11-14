@@ -4,7 +4,6 @@ import { Link, Outlet } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
-import { ToastProvider } from './components/ui'
 
 const apiMock = vi.hoisted(() => ({
   getTimeEntry: vi.fn(),
@@ -15,9 +14,9 @@ const apiMock = vi.hoisted(() => ({
   getAdminAppSettings: vi.fn(),
   getPendingApprovals: vi.fn(),
   getHoursReport: vi.fn(),
-  getPayrollCutoff: vi.fn().mockResolvedValue({ error: 'No period' }),
+  getWhosWorking: vi.fn(),
+  getPayrollCutoff: vi.fn(),
   getLeaveRequests: vi.fn().mockResolvedValue({ data: { leave_requests: [], pagination: { total_pages: 1 } } }),
-  getWhosWorking: vi.fn().mockResolvedValue({ data: { workers: [] } }),
 }))
 vi.mock('./lib/api', () => ({ api: apiMock }))
 vi.mock('./lib/api/approvals', () => ({ approvalsApi: { pending: apiMock.getPendingApprovals } }))
@@ -27,16 +26,23 @@ vi.mock('./contexts/AuthContext', () => ({
 }))
 vi.mock('./providers/PostHogProvider', () => ({ PostHogPageView: () => null }))
 vi.mock('./components/auth/ProtectedRoute', () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
-vi.mock('./components/layouts/AdminLayout', () => ({
-  default: () => (
-    <ToastProvider>
-      <Link to="/admin/reports">Go to Reports</Link>
-      <Outlet />
-    </ToastProvider>
-  ),
-}))
+vi.mock('./components/layouts/AdminLayout', async () => {
+  // The real layout provides toasts; Timecards uses them.
+  const { ToastProvider } = await import('./components/ui')
+  return {
+    default: () => (
+      <ToastProvider>
+        <Link to="/admin/reports">Go to Reports</Link>
+        <Link to="/admin/timecards">Go to Timecards</Link>
+        <Link to="/admin/my-hours?date=2026-11-10">Go to My Hours</Link>
+        <Outlet />
+      </ToastProvider>
+    ),
+  }
+})
 vi.mock('./components/time-tracking/PayrollCutoffNotice', () => ({ default: () => null }))
 vi.mock('./components/time-tracking/WhosWorking', () => ({ default: () => null }))
+vi.mock('./components/time-tracking/ClockInOutCard', () => ({ default: () => <p>Your clock card</p> }))
 
 // The time sections are sibling routes with the same wrappers. Each needs its
 // own TimeTracking instance, or one section's period leaks into the next.
@@ -51,6 +57,8 @@ describe('App time-section routes', () => {
     apiMock.getAdminAppSettings.mockResolvedValue({ data: { approval_groups: [] } })
     apiMock.getPendingApprovals.mockResolvedValue({ data: { pending_entries: [], count: 0, summary: null, review_summary: { complete: true, batch_limit: 100 } } })
     apiMock.getHoursReport.mockResolvedValue({ error: 'No report rows in this test' })
+    apiMock.getWhosWorking.mockResolvedValue({ data: { workers: [] } })
+    apiMock.getPayrollCutoff.mockResolvedValue({ data: { cutoff: { period: null, cutoff_at: null } } })
   })
   afterEach(() => window.history.pushState({}, '', '/'))
 
@@ -70,5 +78,22 @@ describe('App time-section routes', () => {
     expect(screen.queryByDisplayValue('2026-08-01')).not.toBeInTheDocument()
     expect(screen.queryByDisplayValue('2026-08-15')).not.toBeInTheDocument()
     await waitFor(() => expect(window.location.search).not.toContain('2026-08-01'))
+  })
+
+  // Timecards moved to its own page; My Hours stays on TimeTracking until PR 11.
+  it('keeps My Hours on the old entries page while Timecards opens the new one', async () => {
+    window.history.pushState({}, '', '/admin/my-hours?date=2026-11-10')
+    render(<App />)
+    // The app's router outlives one test, so move with a link rather than the address bar.
+    fireEvent.click(await screen.findByRole('link', { name: 'Go to My Hours' }))
+    expect(await screen.findByText('Your clock card')).toBeInTheDocument()
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-11-08' })))
+    expect(screen.queryByRole('searchbox', { name: 'Find a person' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Go to Timecards' }))
+
+    expect(await screen.findByRole('searchbox', { name: 'Find a person' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Timecards' })).toBeInTheDocument()
+    expect(screen.queryByText('Your clock card')).not.toBeInTheDocument()
   })
 })

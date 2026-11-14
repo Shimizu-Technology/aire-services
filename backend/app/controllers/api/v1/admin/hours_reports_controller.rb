@@ -23,8 +23,12 @@ module Api
         before_action :authenticate_user!
         before_action -> { require_capability!(:export_hours_reports) }
 
+        # summary_only=1 trims the per-entry rows for list views such as
+        # Timecards' people list. Exports never take it: they keep every row.
         def show
-          render json: ::Payroll::HoursReportBuilder.new(report_params).call
+          builder_params = report_params
+          builder_params[:summary_only] = params[:summary_only] if params[:summary_only].present?
+          render json: ::Payroll::HoursReportBuilder.new(builder_params).call
         rescue ArgumentError => e
           render json: { error: e.message }, status: :unprocessable_entity
         end
