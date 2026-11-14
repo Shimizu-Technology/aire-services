@@ -44,9 +44,9 @@ module Payroll
         .select { |entry| in_report_period?(entry) }.group_by(&:user_id)
       control_period_entries = control_entries.select { |entry| in_report_period?(entry) }
       employees = build_employee_reports(scoped_users, control_entries, report_entries)
-      breakdowns = build_breakdowns(employees)
+      breakdowns = summary_only? ? { by_category: [], by_source: [] } : build_breakdowns(employees)
       period_issues = issues_for(control_period_entries)
-      # Totals and breakdowns above still count every entry; only the rows go.
+      # Summary requests keep scalar totals/flags, without constructing detail collections.
       employees = employees.map { |employee| without_entry_rows(employee) } if summary_only?
 
       report = {
@@ -177,16 +177,29 @@ module Payroll
       countable_period_entries = period_entries.select { |entry| countable?(entry) }
       lifecycle_period_entries = params[:user_id].present? ? control_period_entries : period_entries
       excluded_period_entries = lifecycle_period_entries.reject { |entry| countable?(entry) }
-      days = build_days(countable_period_entries, overtime_allocations)
-      categories = build_categories(countable_period_entries, overtime_allocations)
-      weeks = build_weeks(user_context_entries, countable_period_entries, overtime_allocations)
+      if summary_only?
+        # /attention polls this path every minute. Aggregate the same per-day
+        # rounded quantities without serializing entries or building week and
+        # category collections that list views never consume.
+        day_totals = countable_period_entries.group_by(&:work_date).sort.map do |date, rows|
+          { work_date: date.iso8601, total_hours: round_hours(rows.sum { |entry| entry.hours.to_f }),
+            regular_hours: round_hours(rows.sum { |entry| PayableSegmentView.allocation(entry, overtime_allocations)[:regular_hours].to_f }),
+            overtime_hours: round_hours(rows.sum { |entry| PayableSegmentView.allocation(entry, overtime_allocations)[:overtime_hours].to_f }) }
+        end
+        days = categories = weeks = []
+      else
+        days = build_days(countable_period_entries, overtime_allocations)
+        categories = build_categories(countable_period_entries, overtime_allocations)
+        weeks = build_weeks(user_context_entries, countable_period_entries, overtime_allocations)
+        day_totals = days
+      end
       # Readiness is a control concern, not a display filter. Calculate it from
       # the employee's full period even when visible rows use narrower filters.
       issues = issues_for(control_period_entries)
 
-      regular_hours = sum(days, :regular_hours)
-      overtime_hours = sum(days, :overtime_hours)
-      total_hours = sum(days, :total_hours)
+      regular_hours = sum(day_totals, :regular_hours)
+      overtime_hours = sum(day_totals, :overtime_hours)
+      total_hours = sum(day_totals, :total_hours)
       break_hours = round_hours(countable_period_entries.sum { |entry| entry.break_minutes.to_i / 60.0 })
 
       {
@@ -215,16 +228,16 @@ module Payroll
         waiting_hours: round_hours(excluded_period_entries.sum { |entry| waiting_hours_for(entry) }),
         break_hours: break_hours,
         entries_count: countable_period_entries.size,
-        days_worked: days.size,
-        first_work_date: days.first&.fetch(:work_date),
-        last_work_date: days.last&.fetch(:work_date),
+        days_worked: day_totals.size,
+        first_work_date: day_totals.first&.fetch(:work_date),
+        last_work_date: day_totals.last&.fetch(:work_date),
         ready: report_ready?(issues),
         approval_complete: issues[:open_clock_count].zero? && payroll_hours_for(control_period_entries).values_at(:time_waiting_hours, :overtime_waiting_hours).all?(&:zero?),
         issues: issues,
         quality: quality_for(control_period_entries),
         payroll_statuses: EntryLifecycleResolver.summary(lifecycle_period_entries.filter_map { |entry| payroll_lifecycle_for(entry) }),
         days: days,
-        excluded_entries: excluded_period_entries.map { |entry| serialize_entry(entry, {}) },
+        excluded_entries: summary_only? ? [] : excluded_period_entries.map { |entry| serialize_entry(entry, {}) },
         categories: categories,
         weeks: weeks
       }

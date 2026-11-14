@@ -23,8 +23,8 @@ module Api
         before_action :authenticate_user!
         before_action -> { require_capability!(:export_hours_reports) }
 
-        # summary_only=1 trims the per-entry rows for list views such as
-        # Timecards' people list. Exports never take it: they keep every row.
+        # summary_only=1 skips detail collections for list views and Today.
+        # Exports never take it: they keep every row.
         def show
           builder_params = report_params
           builder_params[:summary_only] = params[:summary_only] if params[:summary_only].present?

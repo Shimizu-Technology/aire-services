@@ -33,6 +33,9 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
       approved_hours: 40.0, time_waiting_hours: 2.0, overtime_waiting_hours: 3.5)
     expect(report[:employees].first[:approval_complete]).to be(false)
     expect(report[:summary][:total_hours]).to eq(43.5) # raw worked ledger is retained
+    summary_only = Payroll::HoursReportBuilder.new(range.merge(summary_only: true)).call
+    expect(summary_only[:summary]).to eq(report[:summary])
+    expect(summary_only[:employees].first[:payroll_hours]).to eq(report[:employees].first[:payroll_hours])
     today = Payroll::PeriodHandoffState.live_hours(Date.new(2026, 11, 1), Date.new(2026, 11, 15))
     expect(today).to include(approved_hours: 40.0, time_waiting_hours: 2.0, overtime_waiting_hours: 3.5, waiting_hours: 5.5)
     approved_only = Payroll::HoursReportBuilder.new(range.merge(approval_status: "approved_or_standard")).call

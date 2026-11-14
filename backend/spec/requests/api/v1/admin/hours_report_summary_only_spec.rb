@@ -45,25 +45,28 @@ RSpec.describe "GET /api/v1/admin/hours_report?summary_only=1", type: :request d
     create_entry(date: Date.new(2026, 11, 10), hours: 0, status: "clocked_in")
   end
 
-  it "keeps every total and flag but leaves out the per-entry rows" do
+  it "keeps every scalar total and flag without building detail collections" do
     get "/api/v1/admin/hours_report", params: params, headers: headers_for(admin)
     full = json
 
+    %i[build_days build_weeks build_categories serialize_entry].each do |method|
+      expect_any_instance_of(Payroll::HoursReportBuilder).not_to receive(method)
+    end
     get "/api/v1/admin/hours_report", params: params.merge(summary_only: "1"), headers: headers_for(admin)
 
     expect(response).to have_http_status(:ok)
     expect(json[:summary_only]).to be(true)
     expect(json[:summary]).to eq(full[:summary])
-    expect(json[:breakdowns]).to eq(full[:breakdowns])
+    expect(json[:breakdowns]).to eq(by_category: [], by_source: [])
 
     row = json[:employees].find { |item| item[:id] == employee.id }
     full_row = full[:employees].find { |item| item[:id] == employee.id }
-    expect(row.slice(:total_hours, :regular_hours, :overtime_hours, :entries_count, :issues, :quality, :weeks))
-      .to eq(full_row.slice(:total_hours, :regular_hours, :overtime_hours, :entries_count, :issues, :quality, :weeks))
+    expect(row.except(:days, :weeks, :categories))
+      .to eq(full_row.except(:days, :weeks, :categories, :excluded_entries))
     expect(row[:total_hours]).to eq(16.5)
     expect(row[:issues]).to include(pending_count: 1, open_clock_count: 1)
     expect(row).not_to have_key(:excluded_entries)
-    expect(row[:days].map { |day| day[:work_date] }).to eq(%w[2026-11-02 2026-11-03])
+    expect(row.values_at(:days, :weeks, :categories)).to eq([ [], [], [] ])
     expect(row[:days]).to all(satisfy { |day| !day.key?(:entries) })
     expect(full_row[:days].first[:entries]).to be_present
     expect(full_row[:excluded_entries].size).to eq(2)
