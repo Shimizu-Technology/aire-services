@@ -1,4 +1,4 @@
-/** Saves a downloaded file through a temporary link. */
+/** Saves a downloaded file through a temporary link. Some browsers read the URL after the click, so it is revoked a second later. */
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -7,5 +7,5 @@ export function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(link)
   link.click()
   link.remove()
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

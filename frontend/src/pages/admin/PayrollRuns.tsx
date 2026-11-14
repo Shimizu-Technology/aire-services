@@ -160,10 +160,11 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
     { id: 'records', label: 'All payroll records', onSelect: () => navigate(PAYROLL_RECORDS_PATH) },
   ]
 
+  // A failed lock retries on its own; a refused change leaves the old lock time in place (#170's words).
   const lockProblem = period && !locked && isCurrent
     ? period.status === 'failed'
       ? `AIRE couldn’t lock the ${label} hours. It tries again on its own.`
-      : period.lock_change && period.lock_change.state !== 'pending' ? lockChangeHeadline(period.lock_change) : null
+      : period.lock_change && period.lock_change.state !== 'pending' ? `${lockChangeHeadline(period.lock_change)} The lock time below is still in effect.` : null
     : null
 
   const goToPeriod = (next: PayPeriod) => navigate(next.start === currentStart ? ADMIN_PATHS.payroll : periodHref(next.start))
@@ -184,6 +185,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
         <PeriodHeader
           range={range}
           period={period}
+          loaded={show.data !== null}
           control={control}
           paused={paused}
           connectionPill={connectionPill}
@@ -206,7 +208,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
 
       {lockProblem && (
         <div role="alert" className="flex flex-col gap-3 rounded-card border border-red-200 bg-danger-soft px-4 py-3 text-body-sm text-red-900 sm:flex-row sm:items-center">
-          <p className="min-w-0 flex-1"><b className="font-semibold">{lockProblem}</b> The lock time below is still in effect.</p>
+          <p className="min-w-0 flex-1 font-semibold">{lockProblem}</p>
           <Button variant="secondary" size="sm" onClick={() => void refresh()} className="self-start sm:self-auto">Try again</Button>
         </div>
       )}

@@ -1202,7 +1202,7 @@ describe('PayrollRuns', () => {
     await waitFor(() => expect(apiMock.downloadPayrollBatch).toHaveBeenCalledWith(finalized.id))
     expect(createObjectUrl).toHaveBeenCalledOnce()
     expect(clickSpy).toHaveBeenCalledOnce()
-    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:test')
+    await waitFor(() => expect(revokeObjectUrl).toHaveBeenCalledWith('blob:test'), { timeout: 2000 })
 
     fireEvent.click(screen.getByRole('button', { name: 'Download finalized CSV' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Export unavailable')

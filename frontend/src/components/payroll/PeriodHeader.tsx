@@ -29,8 +29,10 @@ function asAttentionPeriod(period: PayrollPeriodSummary): AttentionPeriod {
 
 export interface PeriodHeaderProps {
   range: PayPeriod
-  /** Null when Cornerstone Payroll hasn't published these dates. */
+  /** Null when Cornerstone Payroll hasn't published these dates, or while loading. */
   period: PayrollPeriodSummary | null
+  /** The period has loaded, so a null `period` means not published. */
+  loaded: boolean
   /** The lock control for this period, when it is the one AIRE locks next. */
   control: PayrollLockControl | null
   paused: boolean
@@ -42,7 +44,7 @@ export interface PeriodHeaderProps {
 }
 
 /** "Nov 1–15 pay period", when it locks and pays, and where it stands. */
-export function PeriodHeader({ range, period, control, paused, connectionPill, now, actions, children }: PeriodHeaderProps) {
+export function PeriodHeader({ range, period, loaded, control, paused, connectionPill, now, actions, children }: PeriodHeaderProps) {
   const locked = Boolean(period && isLockedState(period.handoff_state, period.status))
   const cutoffAt = period && !locked ? control?.cutoff_at ?? period.cutoff_at : null
   const status = period && !locked && period.handoff_state !== 'before_locking'
@@ -52,7 +54,7 @@ export function PeriodHeader({ range, period, control, paused, connectionPill, n
     ? status?.label
       ? { tone: status.tone, label: period.handoff_state === 'open' && status.kind === 'upcoming' ? `Open · ${status.label.toLowerCase()}` : status.label }
       : { tone: period.handoff_state === 'paid' ? 'approved' as const : period.handoff_state === 'before_locking' ? 'off' as const : 'info' as const, label: HANDOFF_STATE_LABELS[period.handoff_state] }
-    : { tone: 'off' as const, label: 'Not published' }
+    : loaded ? { tone: 'off' as const, label: 'Not published' } : null
 
   const facts = period
     ? [
@@ -70,7 +72,7 @@ export function PeriodHeader({ range, period, control, paused, connectionPill, n
       actions={actions}
     >
       <ul aria-label="Status" className="flex flex-wrap gap-2">
-        <li><StatusPill tone={pill.tone}>{pill.label}</StatusPill></li>
+        {pill && <li><StatusPill tone={pill.tone}>{pill.label}</StatusPill></li>}
         {connectionPill && <li><StatusPill tone={connectionPill.tone}>{connectionPill.label}</StatusPill></li>}
       </ul>
       {children}
