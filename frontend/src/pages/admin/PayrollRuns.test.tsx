@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   downloadHoursReport: vi.fn(),
   downloadPayrollBatch: vi.fn(),
   finalizePayrollBatch: vi.fn(),
+  getPendingApprovals: vi.fn(),
 }))
 vi.mock('../../lib/api', () => ({
   api: {
@@ -32,6 +33,7 @@ vi.mock('../../lib/api', () => ({
     downloadHoursReport: mocks.downloadHoursReport,
     downloadPayrollBatch: mocks.downloadPayrollBatch,
     finalizePayrollBatch: mocks.finalizePayrollBatch,
+    getPendingApprovals: mocks.getPendingApprovals,
   },
 }))
 vi.mock('../../lib/api/attention', () => ({ attentionApi: { attention: mocks.attention, connection: mocks.connection } }))
@@ -71,6 +73,15 @@ function publish(...periods: PayrollPeriodSummary[]) {
   })
 }
 
+/** Pending approvals on the period's dates: 31 shifts, one with 6h overtime (Ethan). */
+function pendingApprovals(params: { approval_type?: string }) {
+  if (params.approval_type === 'overtime') {
+    return { data: { count: 1, pending_entries: [{ id: 905, user: { full_name: 'Ethan Cruz', display_name: 'Ethan' }, pending_overtime_hours: 6 }],
+      summary: { entry_count: 1, total_hours: 11.5 } } }
+  }
+  return { data: { count: 31, pending_entries: [], summary: { entry_count: 31, total_hours: 276.06 } } }
+}
+
 const checklist = () => within(screen.getByRole('region', { name: /Before it locks/ }))
 const steps = () => within(screen.getByRole('list', { name: 'Hand-off to Cornerstone Payroll' }))
 
@@ -86,6 +97,7 @@ beforeEach(() => {
   mocks.getPayrollCutoff.mockResolvedValue({ data: cutoff() })
   mocks.previewPayrollBatch.mockResolvedValue({ data: preview() })
   mocks.getPayrollBatch.mockResolvedValue({ data: lockedBatch() })
+  mocks.getPendingApprovals.mockImplementation(async (params: { approval_type?: string }) => pendingApprovals(params))
   mocks.getPayrollBatches.mockResolvedValue({ data: { payroll_batches: [], total_count: 0, truncated: false, connected_payroll: { mode: 'enabled', enabled: true, message: null } } })
   mocks.getPayrollCarryovers.mockResolvedValue({ data: { items: [], summary: { awaiting_approval_count: 0, ready_for_next_batch_count: 0, in_payroll_count: 0, not_payable_count: 0 }, truncated: false } })
 })
@@ -109,16 +121,24 @@ describe('pay period page: open period', () => {
     expect(screen.getByRole('button', { name: 'Change lock time' })).toBeInTheDocument()
     expect(mocks.period).toHaveBeenCalledWith('2026-11-01')
     expect(mocks.previewPayrollBatch).toHaveBeenCalledWith('2026-11-01', '2026-11-15')
+    expect(mocks.getPendingApprovals).toHaveBeenCalledWith({ start_date: '2026-11-01', end_date: '2026-11-15', per_page: 1 })
+    expect(mocks.getPendingApprovals).toHaveBeenCalledWith({ start_date: '2026-11-01', end_date: '2026-11-15', approval_type: 'overtime', per_page: 500 })
   })
 
   it('links each open checklist item to its filtered view', async () => {
+    // Jun's carried-in Oct 30 line has no work category: it blocks the lock.
+    const base = preview()
+    mocks.previewPayrollBatch.mockResolvedValue({ data: preview({
+      employees: base.employees.map(employee => employee.display_name === 'Jun Santos' ? { ...employee, adjustments: employee.adjustments.map(line => ({ ...line, category: null })) } : employee),
+      issues: { ...base.issues, missing_category_count: 1 },
+    }) })
     await open()
     const links = checklist().getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])
     expect(links).toEqual([
       ['Review: 31 shifts waiting for approval', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15'],
       ['Fix: 1 person still clocked in from an earlier day', '/admin/timecards?entry_id=812&date=2026-11-10&user_id=7'],
       ['Review: 6h overtime waiting', '/admin/approvals?start_date=2026-11-01&end_date=2026-11-15&approval_type=overtime'],
-      ['Fix: 2 shifts have no work category', '/admin/timecards?entry_id=901'],
+      ['Fix: 1 shift has no work category', '/admin/timecards?entry_id=640'],
     ])
     expect(checklist().getByText('Note:').closest('li')).toHaveTextContent('1 shift approved after an earlier lock goes into this payroll')
     expect(screen.getByRole('heading', { name: /Before it locks · 4 things to do/ })).toBeInTheDocument()
@@ -151,6 +171,23 @@ describe('pay period page: open period', () => {
     expect(within(table).getByText(/Tue, Nov 10 · Still clocked in/)).toBeInTheDocument()
   })
 
+  // Codex finding 4: a failed refresh never leaves an earlier "all clear" standing unqualified.
+  it('qualifies an all-clear checklist and the table when a refresh fails', async () => {
+    mocks.attention.mockResolvedValue({ data: attention({ items: [] }) })
+    mocks.getPendingApprovals.mockResolvedValue({ data: { count: 0, pending_entries: [], summary: { entry_count: 0, total_hours: 0 } } })
+    mocks.previewPayrollBatch.mockResolvedValue({ data: preview({ employees: preview().employees.slice(0, 1), exclusions: [] }) })
+    await open()
+    expect(screen.getByRole('heading', { name: /Before it locks · all clear/ })).toBeInTheDocument()
+    mocks.previewPayrollBatch.mockResolvedValue({ error: 'Server error' })
+    mocks.getPendingApprovals.mockResolvedValue({ error: 'Server error' })
+    await settle(6_000)
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    await settle()
+    expect(screen.queryByText(/all clear/)).not.toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: /Before it locks/ })).getByRole('status')).toHaveTextContent("Couldn't refresh the checklist · Last updated 7:41 PM. It may not be ready to lock.")
+    expect(within(screen.getByRole('region', { name: /What goes to payroll/ })).getByRole('status')).toHaveTextContent("Couldn't refresh what goes to payroll. Last updated 7:41 PM.")
+  })
+
   it('becomes a list of people on a phone', async () => {
     restoreMatchMedia()
     restoreMatchMedia = mockMatchMedia({ width: 390 })
@@ -166,9 +203,12 @@ describe('pay period page: open period', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
     mocks.downloadHoursReport.mockResolvedValue({ blob: new Blob(['%PDF']), filename: 'AIRE_Hours.pdf' })
     await open()
-    fireEvent.click(screen.getByRole('button', { name: 'PDF' }))
+    // Codex finding 8: labelled as the live report, not as what goes to payroll.
+    expect(screen.getByText(/The live hours report lists the approved shifts dated in this period. It can differ from this table/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /What was sent to payroll/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Hours report (live) PDF' }))
     await settle()
-    fireEvent.click(screen.getByRole('button', { name: 'Payroll CSV' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Hours report (live) CSV' }))
     await settle()
     const params = { start_date: '2026-11-01', end_date: '2026-11-15', status: 'all', approval_status: 'approved_or_standard' }
     expect(mocks.downloadHoursReport.mock.calls).toEqual([['pdf', params, false], ['summary_csv', params, false]])
@@ -182,7 +222,7 @@ describe('pay period page: open period', () => {
       .mockResolvedValueOnce({ error: 'Needs acknowledgement', code: 'draft_acknowledgement_required' })
       .mockResolvedValueOnce({ blob: new Blob(['%PDF']), filename: 'DRAFT.pdf' })
     await open()
-    fireEvent.click(screen.getByRole('button', { name: 'PDF' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Hours report (live) PDF' }))
     await settle()
     fireEvent.click(screen.getByRole('button', { name: 'Download draft' }))
     await settle()
@@ -251,9 +291,14 @@ describe('pay period page: lock states', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
     mocks.downloadPayrollBatch.mockResolvedValue({ blob: new Blob(['csv']), filename: 'AIRE-PAY-20261031-OCT.csv' })
     await open('/admin/payroll/periods/2026-10-16')
-    fireEvent.click(screen.getByRole('button', { name: 'Locked hours CSV' }))
+    // Codex finding 8: the frozen batch is the primary "what was sent" download; the live report is labelled apart.
+    const buttons = within(screen.getByRole('region', { name: /What went to payroll/ })).getAllByRole('button').map(button => button.textContent)
+    expect(buttons.filter(name => /CSV|PDF/.test(name ?? ''))).toEqual(['What was sent to payroll (CSV)', 'Hours report (live) PDF', 'Hours report (live) CSV'])
+    expect(screen.getByText('The hours AIRE froze at the lock, as in this table.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'What was sent to payroll (CSV)' }))
     await settle()
     expect(mocks.downloadPayrollBatch).toHaveBeenCalledWith('AIRE-PAY-20261031-OCT')
+    expect(mocks.downloadHoursReport).not.toHaveBeenCalled()
   })
 })
 
@@ -350,7 +395,10 @@ describe('pay period page: past periods and other states', () => {
     publish(periodSummary(), paidPeriod(), before)
     await open('/admin/payroll/periods/2026-10-01')
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Before locking')).toBeInTheDocument()
-    expect(screen.getByText(/paid before AIRE started locking hours/)).toBeInTheDocument()
+    // Codex finding 1: no claim that it was paid.
+    expect(screen.getByText(/AIRE didn't lock hours for this pay period, so nothing went to payroll from here/)).toBeInTheDocument()
+    expect(screen.queryByText(/was paid/)).not.toBeInTheDocument()
+    expect(mocks.getPendingApprovals).not.toHaveBeenCalled()
     expect(screen.queryByRole('region', { name: /Before it locks/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: /What goes to payroll/ })).not.toBeInTheDocument()
     expect(mocks.previewPayrollBatch).not.toHaveBeenCalled()
