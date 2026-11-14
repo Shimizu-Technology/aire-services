@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 module Payroll
-  # The approval gate used at lock: approved time sends REG even while OT
-  # waits; OT sends only with a valid approval for its current allocation.
-  # Denied hours aren't waiting. Chronology holds wait in full. This is live
-  # source eligibility, not a replacement for frozen settlement/receipt ledgers.
+  # Shared live source-approval quantities: approved time contributes REG;
+  # OT requires a valid approval for its current allocation. Denied time/OT
+  # isn't waiting; chronology holds remain on the source date until reviewed.
+  # This is not the whole lock gate. BatchBuilder additionally applies legacy
+  # allocation review, payment-attestation holds and the replacement-pending
+  # skip that preserves already represented wages, plus settlement routing.
   class ApprovalHours
     KEYS = %i[approved_regular_hours approved_overtime_hours approved_hours time_waiting_hours overtime_waiting_hours].freeze
 
