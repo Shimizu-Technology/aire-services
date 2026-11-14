@@ -759,7 +759,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
     }
 
     if (phone_contacts.some((contact) => !e164Pattern.test(contact.phone_e164))) {
-      setContactSettingsError('Public phone contact link numbers must use E.164 format, such as +16714774243.')
+      setContactSettingsError('Enter a phone number with its country code, such as +1 671 477 4243.')
       setContactSettingsMessage('')
       return
     }
@@ -1462,6 +1462,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       />
                     </div>
                   </div>
+                  <details className="mt-2 text-sm text-slate-500"><summary className="min-h-11 cursor-pointer">Advanced</summary><p>Search engines use this address and the primary phone number.</p></details>
                   <p className="mt-2 text-xs text-slate-500">
                     Address and email appear across the public website. Choose the primary website phone from the directory below.
                   </p>
@@ -1510,9 +1511,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                             <label htmlFor={`public-phone-contact-e164-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Link number</label>
                             <input
                               id={`public-phone-contact-e164-${index}`}
-                              value={contact.phone_e164}
-                              onChange={(e) => updatePublicPhoneContactDraft(index, 'phone_e164', e.target.value)}
-                              placeholder="+16714774243"
+                              value={contact.phone_e164.replace(/^\+1(\d{3})(\d{3})(\d{0,4})$/, '+1 $1 $2 $3')}
+                              onChange={(e) => updatePublicPhoneContactDraft(index, 'phone_e164', e.target.value.replace(/[^+\d]/g, ''))}
+                              placeholder="+1 671 477 4243"
+                              type="tel"
                               className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                             />
                           </div>
@@ -1538,7 +1540,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                                 onChange={() => setPrimaryPhoneDraftId(contact.draft_id)}
                                 className="h-4 w-4 border-slate-300 text-cyan-600 focus:ring-cyan-500"
                               />
-                              CTA
+                              Button label
                             </label>
                           </div>
                           <div className="flex items-end">
@@ -1555,7 +1557,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       ))}
                     </div>
                     <p className="mt-3 text-xs text-slate-500">
-                      Link numbers must use E.164 format with the country code. WhatsApp rows open a WhatsApp chat link in the directory; the primary row still supplies the website telephone CTA and business schema number.
+                      Include the country code, for example +1 671 477 4243. WhatsApp rows open a WhatsApp chat link in the directory; the primary row still supplies the website telephone CTA and business schema number.
                     </p>
                   </div>
                 </div>

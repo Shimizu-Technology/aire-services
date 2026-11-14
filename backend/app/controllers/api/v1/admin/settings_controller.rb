@@ -17,12 +17,12 @@ module Api
         ].freeze
         APPROVAL_SETTING_KEYS = [ Setting::MANAGERS_CAN_APPROVE_OWN_TIME_KEY, Setting::AUTO_APPROVE_ORDINARY_SHIFTS_KEY ].freeze
         # Approval policy values (not switches) that still get a before/after row.
-        AUDITED_VALUE_SETTING_KEYS = [ Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY ].freeze
+        AUDITED_VALUE_SETTING_KEYS = [ Setting::AUTO_APPROVE_MAX_SHIFT_HOURS_KEY, "payroll_cutoff_reminder_emails" ].freeze
         PAY_STUB_SETTING_KEYS = [ Setting::PAY_STUB_KIOSK_REQUESTS_KEY, Setting::PAY_STUB_SELF_EMAIL_KEY ].freeze
         SCHEDULE_SETTING_KEYS = [ Setting::SCHEDULES_ENABLED_KEY ].freeze
         SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS + AUDITED_VALUE_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
         # On/off switches: each change gets its own before/after audit row.
-        BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
+        BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS + %w[schedule_required_for_clock_in]).freeze
 
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_settings) }
@@ -78,6 +78,9 @@ module Api
 
         def update
           payload = settings_update_params
+          if payload&.key?("payroll_cutoff_reminder_emails")
+            payload["payroll_cutoff_reminder_emails"] = Setting.normalize_emails(payload["payroll_cutoff_reminder_emails"]).join(", ")
+          end
           approval_groups_payload = approval_groups_update_params
           settings_present = !payload.nil?
           approval_groups_present = !approval_groups_payload.nil?
@@ -156,7 +159,7 @@ module Api
           permitted = params.require(:settings).permit(*SETTING_KEYS).to_h
           # A boolean false would otherwise be dropped as blank.
           BOOLEAN_SETTING_KEYS.each { |key| permitted[key] = permitted[key].to_s if permitted.key?(key) && permitted[key] == false }
-          permitted.compact_blank
+          permitted.reject { |key, value| value.blank? && key != "payroll_cutoff_reminder_emails" }
         end
 
         # Switches that change who may approve time, how pay stubs go out or
@@ -166,15 +169,16 @@ module Api
           before_values.each do |key, before|
             after = payload.fetch(key).to_s
             switch = BOOLEAN_SETTING_KEYS.include?(key)
-            next if switch ? before == after : before.to_f == after.to_f
+            email = key == "payroll_cutoff_reminder_emails"
+            next if (switch || email) ? before == after : before.to_f == after.to_f
 
             AuditLog.record!(
               action: "setting.#{key}_updated",
               auditable: Setting.find_by!(key: key),
               actor: current_user,
               event_category: "settings",
-              changes: { key => switch ? [ before == "true", after == "true" ] : [ before.to_f, after.to_f ] },
-              metadata: switch ? { key: key, enabled: after == "true" } : { key: key, value: after.to_f },
+              changes: { key => switch ? [ before == "true", after == "true" ] : (email ? [ before, after ] : [ before.to_f, after.to_f ]) },
+              metadata: switch ? { key: key, enabled: after == "true" } : { key: key, value: email ? after : after.to_f },
               mark_domain_recorded: false
             )
           end
@@ -192,6 +196,16 @@ module Api
         end
 
         def validate_settings(payload)
+          if payload["schedule_required_for_clock_in"] == "true" &&
+              payload.fetch(Setting::SCHEDULES_ENABLED_KEY, Setting.get(Setting::SCHEDULES_ENABLED_KEY)) != "true"
+            return "Turn on Use schedules before requiring a scheduled shift"
+          end
+
+          if payload.key?("payroll_cutoff_reminder_emails")
+            emails = Setting.normalize_emails(payload["payroll_cutoff_reminder_emails"])
+            return "Enter valid reminder email addresses" unless emails.all? { |email| URI::MailTo::EMAIL_REGEXP.match?(email) }
+          end
+
           BOOLEAN_SETTING_KEYS.each do |key|
             next unless payload.key?(key)
             return "#{key.humanize} must be true or false" unless %w[true false].include?(payload[key].to_s)

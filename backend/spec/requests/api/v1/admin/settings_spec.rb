@@ -45,6 +45,32 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
   end
 
   describe "PATCH /api/v1/admin/settings" do
+    it "refuses Require while schedules are off" do
+      Setting.set("schedules_enabled", "false")
+      patch "/api/v1/admin/settings", params: { settings: { schedule_required_for_clock_in: "true" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(Setting.get("schedule_required_for_clock_in")).to eq("false")
+    end
+
+    it "accepts and audits Require when schedules are enabled in the same save" do
+      patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: "true", schedule_required_for_clock_in: "true" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      audit = AuditLog.find_by!(action: "setting.schedule_required_for_clock_in_updated")
+      expect(audit.changes_made).to include("schedule_required_for_clock_in" => [false, true])
+    end
+
+    it "normalizes, validates, clears and audits reminder recipients" do
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "ops@example.com; ops@example.com, owner@example.com" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      expect(Setting.payroll_cutoff_reminder_emails).to eq(["ops@example.com", "owner@example.com"])
+      expect(AuditLog.where(action: "setting.payroll_cutoff_reminder_emails_updated").count).to eq(1)
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "invalid" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:unprocessable_entity)
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      expect(Setting.payroll_cutoff_reminder_emails).to eq([])
+    end
+
     it "updates allowed keys" do
       expect do
         patch "/api/v1/admin/settings",

@@ -27,17 +27,27 @@
 #                 keys and on/off say what the setting means in each state
 class SettingsCatalog
   SECTIONS = {
-    time_clock_rules: { label: "Time clock rules", page: "Settings", path: "/admin/settings#time-clock-rules" },
-    time_approvals: { label: "Time approvals", page: "Settings", path: "/admin/settings#time-approvals" },
-    pay_stubs: { label: "Pay stubs", page: "Settings", path: "/admin/settings#pay-stubs" },
-    schedules: { label: "Schedules", page: "Settings", path: "/admin/settings#use-schedules" },
-    departments: { label: "Departments", page: "Settings", path: "/admin/settings#departments" },
+    time_clock_rules: { label: "Time clock rules", page: "Settings", path: "/admin/settings/time-clock" },
+    time_approvals: { label: "Time approvals", page: "Settings", path: "/admin/settings/approvals" },
+    pay_stubs: { label: "Pay stubs", page: "Settings", path: "/admin/settings/pay-stubs" },
+    schedules: { label: "Schedules", page: "Settings", path: "/admin/settings/schedules" },
+    departments: { label: "Departments", page: "Settings", path: "/admin/settings/departments" },
     contact: { label: "Contact settings", page: "Website", path: "/admin/website/contact" },
-    time_categories: { label: "Time categories", page: "Settings", path: "/admin/settings#time-categories" },
+    time_categories: { label: "Time categories", page: "Settings", path: "/admin/settings/departments" },
     my_pay: { label: "My Pay", page: "Team", path: "/admin/users" }
   }.freeze
 
   ENTRIES = [
+    {
+      id: "payroll_cutoff_reminder_emails",
+      label: "Cutoff reminder recipients",
+      section: :time_approvals,
+      setting_keys: %w[payroll_cutoff_reminder_emails],
+      capability: :manage_settings,
+      what: "We email these people 3 days and 1 day before the lock if shifts are still waiting.",
+      default: "Nobody",
+      example: "Add ops@example.com to send them reminders before each lock."
+    },
     {
       id: "overtime_daily_threshold_hours",
       label: "Daily hours review alert",
@@ -71,11 +81,10 @@ class SettingsCatalog
     {
       id: "schedule_required_for_clock_in",
       label: "Require a scheduled shift to clock in",
-      section: :time_clock_rules,
+      section: :schedules,
       setting_keys: %w[schedule_required_for_clock_in],
       capability: :manage_settings,
-      on_page: false,
-      what: "When on, people can't clock in on a day with no shift on the schedule. An owner, admin or manager can still clock them in. Shifts are added on the Schedule page, which shows only while \"Use schedules\" is on. There's no switch for this on the Settings page yet.",
+      what: "When on, people can't clock in on a day with no shift on the schedule. An owner, admin or manager can still clock them in. Shifts are added on the Schedule page, which shows only while \"Use schedules\" is on.",
       default: "Off",
       example: "When on, someone with no shift on Saturday is told to contact their manager if they try to clock in."
     },

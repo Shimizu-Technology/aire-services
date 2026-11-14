@@ -30,7 +30,7 @@ export function getAuthTokenValue(): Promise<string | null> {
   return getAuthToken ? getAuthToken() : Promise.resolve(null);
 }
 
-async function fetchApi<T>(
+export async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {},
   requireAuth: boolean = true

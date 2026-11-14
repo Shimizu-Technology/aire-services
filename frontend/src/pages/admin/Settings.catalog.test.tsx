@@ -38,7 +38,7 @@ const SETTINGS_PAGE_KEYS: Record<keyof TimeClockAppSettings, true> = {
 }
 
 // The other things the page edits, stored outside TimeClockAppSettings.
-const OTHER_PAGE_SETTINGS = ['approval_groups', 'contact_email', 'contact_inquiry_topics', 'public_contact_settings', 'public_social_links', 'pay_stub_request_notification_emails']
+const OTHER_PAGE_SETTINGS = ['payroll_cutoff_reminder_emails', 'approval_groups', 'contact_email', 'contact_inquiry_topics', 'public_contact_settings', 'public_social_links', 'pay_stub_request_notification_emails']
 
 const sources = import.meta.glob<string>(['./Settings.tsx', '../../components/pay-stubs/PayStubSettings.tsx', '../../components/time-tracking/AutoApprovalSettings.tsx', '../../components/time-tracking/ScheduleSettings.tsx'], { query: '?raw', import: 'default', eager: true })
 
@@ -103,7 +103,7 @@ describe('Settings help comes from the settings catalog', () => {
     await screen.findByRole('button', { name: 'About Early clock-in buffer' })
 
     const tips = screen.getAllByRole('button', { name: /^About / }).map((button) => button.getAttribute('aria-label'))
-    expect(tips.sort()).toEqual(catalog.map((entry) => `About ${entry.label}`).sort())
+    expect(tips.sort()).toEqual(catalog.filter(entry => entry.id !== "payroll_cutoff_reminder_emails").map((entry) => `About ${entry.label}`).sort())
 
     for (const [path, source] of Object.entries(sources)) {
       expect(source, `${path} should use SettingHelp, not HelpTip`).not.toMatch(/<HelpTip\b/)

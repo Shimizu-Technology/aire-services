@@ -55,6 +55,7 @@ class Setting < ApplicationRecord
   validates :key, presence: true, uniqueness: true
 
   DEFAULTS = {
+    "payroll_cutoff_reminder_emails" => "",
     "overtime_daily_threshold_hours" => "8",
     "overtime_weekly_threshold_hours" => "40",
     "early_clock_in_buffer_minutes" => "5",
