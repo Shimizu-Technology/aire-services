@@ -23,6 +23,8 @@ module Api
         SETTING_KEYS = (CLOCK_SETTING_KEYS + APPROVAL_SETTING_KEYS + AUDITED_VALUE_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS).freeze
         # On/off switches: each change gets its own before/after audit row.
         BOOLEAN_SETTING_KEYS = (APPROVAL_SETTING_KEYS + PAY_STUB_SETTING_KEYS + SCHEDULE_SETTING_KEYS + %w[schedule_required_for_clock_in]).freeze
+        # Same cap as the pay stub heads-up list.
+        MAX_REMINDER_RECIPIENTS = 10
 
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_settings) }
@@ -106,6 +108,8 @@ module Api
           approval_groups_error = nil
           Setting.transaction do
             persist_settings = lambda do
+              turn_off_require_with_schedules!(payload)
+
               if approval_groups_present
                 approval_groups_error = validate_approval_groups(approval_groups_payload, live: true)
                 raise ActiveRecord::Rollback if approval_groups_error.present?
@@ -157,9 +161,21 @@ module Api
           return nil unless params.key?(:settings)
 
           permitted = params.require(:settings).permit(*SETTING_KEYS).to_h
-          # A boolean false would otherwise be dropped as blank.
-          BOOLEAN_SETTING_KEYS.each { |key| permitted[key] = permitted[key].to_s if permitted.key?(key) && permitted[key] == false }
+          # JSON booleans become "true"/"false" so the guards below compare one
+          # shape, and a false isn't dropped as blank.
+          permitted.transform_values! { |value| value == true || value == false ? value.to_s : value }
           permitted.reject { |key, value| value.blank? && key != "payroll_cutoff_reminder_emails" }
+        end
+
+        # Turning Use schedules off hides the Schedule page, so a Require left on
+        # would refuse every clock-in with no shift and no way to add one. Turn it
+        # off in the same transaction; it gets its own before/after audit row.
+        def turn_off_require_with_schedules!(payload)
+          return unless payload&.dig(Setting::SCHEDULES_ENABLED_KEY) == "false"
+          return if payload.key?("schedule_required_for_clock_in")
+
+          required = Setting.lock.find_by(key: "schedule_required_for_clock_in")&.value || Setting::DEFAULTS["schedule_required_for_clock_in"]
+          payload["schedule_required_for_clock_in"] = "false" if required == "true"
         end
 
         # Switches that change who may approve time, how pay stubs go out or
@@ -204,6 +220,7 @@ module Api
           if payload.key?("payroll_cutoff_reminder_emails")
             emails = Setting.normalize_emails(payload["payroll_cutoff_reminder_emails"])
             return "Enter valid reminder email addresses" unless emails.all? { |email| URI::MailTo::EMAIL_REGEXP.match?(email) }
+            return "Use #{MAX_REMINDER_RECIPIENTS} addresses or fewer." if emails.size > MAX_REMINDER_RECIPIENTS
           end
 
           BOOLEAN_SETTING_KEYS.each do |key|
