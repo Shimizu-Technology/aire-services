@@ -74,3 +74,27 @@ Fresh controller/download QA after restoring the synthetic fixture: Today/report
 - Invalid/unplaceable overnight chronology remains held on the source date until reviewed; only valid payable intervals are split.
 
 The lead must finish browser QA and review the follow-ups before merge. Deploy Render before Netlify. PR #194 remains untouched; after rebasing it must use the new approval quantities, current connection helper and summary_only's empty detail collections.
+
+
+## Browser attempt — 2026-11-15, 00:46–00:49 ChST
+
+The lead reviewed `a83fa836bfdef867debe85c1f58f79d385be521a` and accepted the follow-ups. Agent-executed browser QA started on that exact head at load **17.14**, after restoring the verified synthetic fixture into `aire_payroll_numbers_qa_test`. API 3433 used the external mail-blocking `qa.ru`; no worker or outbound delivery. Vite 5433 used the external Clerk fixture (Chels, synthetic admin 261). The external Vite config required `--configLoader native`; the initial default/runner import-resolution failures were harness startup failures, before UI acceptance testing.
+
+At **1280×900**, Today visibly showed **1,590.28h Approved for payroll**, **241.01h Time waiting for approval**, and **10.68h Overtime waiting for approval** for Nov 1–15. The delivery-problem card said **Hours haven't reached Cornerstone Payroll yet**, **1 update for Payroll hasn't arrived**, and explained that no receipt is confirmed and AIRE keeps retrying. These desktop subchecks passed. [Today screenshot](payroll-numbers-agree/1280-today.png).
+
+After clicking Reports, load jumped to **134.94 at 00:48:33**. QA paused immediately under the lead's >60 mid-run rule. Reports was still loading at the last observation; this is not classified as an application failure. No additional acceptance actions or mobile checks ran.
+
+Counts use the six requested acceptance scenarios, each requiring both viewports: **0 passed, 0 failed, 6 blocked**. Partial desktop subchecks do not pass a whole scenario.
+
+| Scenario | 1280×900 result | 390×844 result | Acceptance |
+| --- | --- | --- | --- |
+| Today/report/downloaded CSV/PDF show the same three amounts | Today passed; report/download comparisons not completed | Not run | Blocked by load |
+| Jared shows Draft | Not run | Not run | Blocked by load |
+| New CSV headers and filtered filename/PDF title, including PayrollRuns link | Not run | Not run | Blocked by load |
+| Plain Today/Settings connection copy, including Last heard from | Today passed; Settings not run | Not run | Blocked by load |
+| End employment excludes old paid overtime | Not run | Not run | Blocked by load |
+| Old Time Tracking has no 0.00 OT button | Not run | Not run | Blocked by load |
+
+The external plan's additional employee/person evidence journeys also remain unrun in the browser; frozen export protection retains the passing regression-spec evidence. Native mobile behavior and real Clerk/Cornerstone delivery are out of scope.
+
+Cleanup completed: exact claimed Puma PID 97611 and Vite PID 98874 terminated, preview tab `tab_34_e60e53fc-08fc-48e4-b927-3d2799347d0a` closed and released, lifecycle reports no active owned resources. The local QA database was dropped after verifying no remaining connections; an explicit catalog query confirms it is absent. Shared PostgreSQL and other borrowed services remain untouched. The verified fixture backup and external harness/evidence are retained for the next attempt. No merge or deployment.
