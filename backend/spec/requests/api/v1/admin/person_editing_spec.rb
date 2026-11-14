@@ -236,3 +236,37 @@ RSpec.describe "Versioned person editing and employment", type: :request do
     expect(response).to have_http_status(:forbidden)
   end
 end
+
+# Exercise the real request transaction boundary; transactional fixtures would
+# mask a missing transaction around the legacy endpoint's lock.
+RSpec.describe "Legacy person photo request transactions", type: :request do
+  self.use_transactional_tests = false
+  let(:suffix) { SecureRandom.hex(8) }
+  let!(:admin) { create(:user, :admin, email: "photo-admin-#{suffix}@example.test", clerk_id: "photo_admin_#{suffix}") }
+  let!(:worker) { create(:user, email: "photo-worker-#{suffix}@example.test", clerk_id: "photo_worker_#{suffix}") }
+  let(:headers) { { "Authorization" => "Bearer test_token_#{admin.id}" } }
+
+  after do
+    worker.public_team_photo.purge if worker.public_team_photo.attached?
+    AuditLog.transaction do
+      connection = AuditLog.connection
+      connection.execute("ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_append_only")
+      AuditLog.where(auditable: [ worker, admin ]).delete_all
+      connection.execute("ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_append_only")
+    end
+    User.where(id: [ worker.id, admin.id ]).destroy_all
+  end
+
+  it "opens its own transaction for upload and removal without fixture transactions" do
+    expect(ActiveRecord::Base.connection.transaction_open?).to be(false)
+    post "/api/v1/admin/users/#{worker.id}/public_team_photo", params: { photo: fixture_file_upload("team_photo.png", "image/png") }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(worker.reload.admin_edit_version).to eq(1)
+    expect(worker.public_team_photo).to be_attached
+    delete "/api/v1/admin/users/#{worker.id}/public_team_photo", headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(worker.reload.admin_edit_version).to eq(2)
+    expect(worker.public_team_photo).not_to be_attached
+    expect(AuditLog.where(auditable: worker).where("changes_made ? 'public_team_photo'").count).to eq(2)
+  end
+end

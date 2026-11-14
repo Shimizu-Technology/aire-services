@@ -385,7 +385,7 @@ module Api
           validate_media_upload!(upload, media_type: "image", attachment_name: :photo)
 
           replaced_blob = nil
-          with_admin_transition_lock_if_needed do
+          @user.with_lock(User::EMPLOYEE_ROW_LOCK) do
             AdminPersonEdit.check!(@user, params[:admin_edit_version]) if params.key?(:admin_edit_version)
             replaced_blob = @user.public_team_photo.blob if @user.public_team_photo.attached?
             params[:photo] = upload
@@ -399,7 +399,7 @@ module Api
 
         def destroy_public_team_photo
           removed_blob = nil
-          with_admin_transition_lock_if_needed do
+          @user.with_lock(User::EMPLOYEE_ROW_LOCK) do
             AdminPersonEdit.check!(@user, params[:admin_edit_version]) if params.key?(:admin_edit_version)
             removed_blob = @user.public_team_photo.blob if @user.public_team_photo.attached?
             params[:remove_photo] = true
