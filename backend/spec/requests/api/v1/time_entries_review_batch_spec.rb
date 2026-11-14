@@ -88,6 +88,37 @@ RSpec.describe "POST /api/v1/time_entries/review_batch", type: :request do
     expect(json["changed_ids"]).to contain_exactly(approved.id, gone.id)
   end
 
+  it "preserves pre-first-call versions across a split Mon–Fri week crossing 40 hours" do
+    shifts = (6..10).map { |day| clock_shift(employee, Date.new(2026, 4, day), hours: 9) }
+    shown = shifts.map { |entry| item_for(entry) }
+    expect(Payroll::WeeklyOvertimeAllocator.call(shifts).fetch(shifts.last.id)[:overtime_hours]).to eq(5.0)
+
+    # This is the client's former boundary: first two ordinary rows, then the
+    # next two, using versions captured before either request. Friday's OT is
+    # deliberately excluded from ordinary requests and stays for review.
+    post_review_batch(manager, shown.first(2))
+    expect(response).to have_http_status(:created)
+    expect(shifts[2..3].map { |entry| entry.reload.lock_version }).to eq(shown[2..3].map { |item| item[:version] })
+    post_review_batch(manager, shown[2..3])
+    expect(response).to have_http_status(:created)
+    expect(shifts.first(4).map { |entry| entry.reload.approval_status }).to eq([ "approved" ] * 4)
+    expect(shifts.last.reload.approval_status).to eq("pending")
+  end
+
+  it "also preserves snapshot versions when the second call crosses 40 hours and reviews overtime" do
+    shifts = (6..10).map { |day| clock_shift(employee, Date.new(2026, 4, day), hours: 9, overtime_status: day == 10 ? "pending" : "none") }
+    shown = shifts.map { |entry| item_for(entry) }
+    shown.last.merge!(approve_overtime: true, overtime_hours: 5.0)
+    post_review_batch(manager, shown.first(2))
+    expect(response).to have_http_status(:created)
+    expect(shifts.drop(2).map { |entry| entry.reload.lock_version }).to eq(shown.drop(2).map { |item| item[:version] })
+    post_review_batch(manager, shown.drop(2), mode: "reviewed")
+    expect(response).to have_http_status(:created)
+    expect(shifts.map { |entry| entry.reload.approval_status }).to eq([ "approved" ] * 5)
+    expect(shifts.last).to have_attributes(overtime_status: "approved", overtime_approved_by_id: manager.id)
+    expect(Payroll::AffectedOvertimeReview.allocation_for(shifts.last)[:overtime_hours]).to eq(5.0)
+  end
+
   describe "overtime" do
     # Sunday through Tuesday, 12 hours each: 36 hours before Wednesday.
     def earlier_week(user, approval_status: "approved")

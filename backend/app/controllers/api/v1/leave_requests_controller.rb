@@ -18,6 +18,15 @@ module Api
             requests.where(status: params[:status])
           end
         end
+        start_date = parse_date_filter(:start_date)
+        return if performed?
+        end_date = parse_date_filter(:end_date)
+        return if performed?
+        if start_date && end_date && start_date > end_date
+          return render json: { error: "start_date must be on or before end_date" }, status: :unprocessable_entity
+        end
+        requests = requests.where("end_date >= ?", start_date) if start_date
+        requests = requests.where("start_date <= ?", end_date) if end_date
         requests = requests.recent
 
         page = [ params[:page].to_i, 1 ].max
@@ -107,6 +116,15 @@ module Api
       end
 
       private
+
+      def parse_date_filter(key)
+        return nil if params[key].blank?
+
+        Date.iso8601(params[key].to_s)
+      rescue Date::Error
+        render json: { error: "#{key} must be a valid ISO 8601 date (YYYY-MM-DD)" }, status: :unprocessable_entity
+        nil
+      end
 
       def set_leave_request
         scope = current_user.can_approve_leave? ? LeaveRequest : current_user.leave_requests

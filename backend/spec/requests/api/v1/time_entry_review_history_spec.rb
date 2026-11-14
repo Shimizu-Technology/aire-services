@@ -64,6 +64,23 @@ RSpec.describe "GET /api/v1/time_entries/:id/review_history", type: :request do
     expect(change["sentence"]).to include("Roke Aguon", "edited")
   end
 
+  it "presents the real update endpoint's stored times and category names" do
+    entry.user.user_time_categories.find_or_create_by!(time_category: review_category)
+    replacement = create(:time_category, name: "Ground School")
+    entry.user.user_time_categories.create!(time_category: replacement)
+    patch "/api/v1/time_entries/#{entry.id}", headers: headers_for(manager), as: :json,
+      params: { time_entry: { start_time: "09:00", end_time: "17:00", time_category_id: replacement.id, correction_reason: "Adjusted training" } }
+    expect(response).to have_http_status(:ok)
+
+    history(manager)
+    fields = response.parsed_body.fetch("changes").find { |row| row["action"] == "time_entry.updated" }.fetch("fields")
+    expect(fields).to include(
+      { "field" => "start_time", "label" => "Start time", "before" => "8:00 AM", "after" => "9:00 AM" },
+      { "field" => "end_time", "label" => "End time", "before" => "4:00 PM", "after" => "5:00 PM" },
+      { "field" => "time_category_id", "label" => "Work category", "before" => review_category.name, "after" => "Ground School" }
+    )
+  end
+
   it "formats a corrected clock-out in Guam time" do
     record("time_entry.clock_ended", changes: { clock_out_at: { from: nil, to: "2026-11-10T06:00:00Z" } }, metadata: { correction_reason: "Forgot to clock out" })
     history(manager)
@@ -85,12 +102,15 @@ RSpec.describe "GET /api/v1/time_entries/:id/review_history", type: :request do
   it "drops non-allowlisted fields, nested values, and unrelated metadata" do
     record(changes: { hours: { from: 7, to: 8 }, pay_rate: { from: 100, to: 200 }, break_minutes: { from: { other_user: "Private" }, to: 30 } },
       metadata: { salary: "Private", employee_name: "Wrong person", hours: { name: "Secret" }, correction_reason: { name: "Private" }, unrelated: { name: "Secret" } })
+    # Historical rows may lack a name; never let the presenter fall back to email.
+    AuditLog.create!(auditable: entry, action: "time_entry.updated", actor_name: nil,
+      actor_email: "private-actor@example.test", occurred_at: Time.current)
     other = clock_shift(create(:user, :employee), Date.new(2026, 11, 10))
     AuditLog.record!(action: "time_entry.updated", auditable: other, actor: manager, metadata: { correction_reason: "Unrelated reason" })
     history(manager)
-    expect(response.parsed_body.to_json).not_to include("pay_rate", "Private", "Wrong person", "Secret", "Unrelated reason")
-    expect(response.parsed_body["changes"].size).to eq(1)
-    expect(response.parsed_body["changes"].first["fields"].last["before"]).to be_nil
+    expect(response.parsed_body.to_json).not_to include("pay_rate", "Private", "Wrong person", "Secret", "Unrelated reason", "private-actor@example.test")
+    expect(response.parsed_body["changes"].size).to eq(2)
+    expect(response.parsed_body["changes"].find { |row| row["fields"].any? }["fields"].last["before"]).to be_nil
   end
 
   it "includes break events audited against the shift, newest first, capped at 20" do

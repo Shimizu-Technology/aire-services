@@ -12,7 +12,7 @@ module Approvals
       "entry_method" => "Entry method", "clock_source" => "Clock source",
       "description" => "Description"
     }.freeze
-    TIMES = %w[clock_in_at clock_out_at start_time end_time].freeze
+    TIMES = %w[clock_in_at clock_out_at].freeze
 
     def initialize(entry)
       @entry = entry
@@ -29,6 +29,8 @@ module Approvals
       # Feed the sentence presenter only shift identity and approved safe
       # metadata. Never let an arbitrary audit metadata key reach this read.
       safe = row.dup
+      safe.actor_name = row.actor_name.presence || "Someone"
+      safe.actor_email = nil
       safe.subject_name = "#{@entry.hours.to_f} hours on #{@entry.work_date.iso8601}"
       metadata = row.metadata.is_a?(Hash) ? row.metadata : {}
       safe.metadata = metadata.slice("hours", "work_date", "time_reverted", "overtime_reverted", "overtime_status")
@@ -53,8 +55,9 @@ module Approvals
       # Drop nested objects even for an allowed field: audit data is not a
       # license to expose an arbitrary object (or somebody else's metadata).
       return unless raw.is_a?(String) || raw.is_a?(Numeric) || raw == true || raw == false
+      return TimeCategory.where(id: raw.to_s).pick(:name) if field == "time_category_id" && raw.to_s.match?(/\A\d+\z/)
+      return if field == "time_category_id"
       return raw unless TIMES.include?(field)
-      return raw if raw.is_a?(String) && raw.match?(/\A\d{2}:\d{2}(?::\d{2})?\z/)
 
       Time.iso8601(raw.to_s).in_time_zone("Pacific/Guam").strftime("%b %-d, %Y %-I:%M %p")
     rescue ArgumentError
