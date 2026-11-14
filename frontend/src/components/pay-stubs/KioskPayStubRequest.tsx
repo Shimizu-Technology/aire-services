@@ -142,7 +142,7 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
       {scope === 'pay_date' && (
         <fieldset>
           <legend className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Pay date</legend>
-          <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto overscroll-contain pr-1 sm:grid-cols-3">
+          <div className="grid max-h-64 grid-cols-1 min-[380px]:grid-cols-2 gap-2 overflow-y-auto overscroll-contain pr-1 sm:grid-cols-3">
             {choices.pay_dates.map((option) => (
               <button
                 key={option.statement_id}
@@ -205,8 +205,8 @@ export default function KioskPayStubRequest({ kioskAccessToken, kioskToken, onAc
 
       {error && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <button type="submit" disabled={!ready || submitting} className={`rounded-2xl px-5 py-3.5 text-sm font-semibold transition select-none touch-manipulation ${
+      <div className="grid gap-3">
+        <button type="submit" disabled={!ready || submitting} className={`min-h-14 rounded-2xl px-5 py-3.5 text-sm font-semibold transition select-none touch-manipulation ${
           !ready || submitting ? 'cursor-not-allowed bg-slate-800 text-slate-500' : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 active:scale-[0.98]'
         }`}>
           {submitting ? 'Sending request…' : 'Send request to the office'}

@@ -1,3 +1,10 @@
+import { clockTime, needsClockOutConfirm, workedMilliseconds } from '../../lib/myTime'
+import { formatElapsed } from '../../lib/formatElapsed'
+import { Button, Sheet } from '../../components/ui'
+import { outcomeUnknown } from '../../lib/api/timecards'
+import { LiveTimer } from '../../components/ui/LiveTimer'
+import { ClockActions } from '../../components/clock/ClockActions'
+import { WorkChips } from '../../components/clock/WorkChips'
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import type { PayrollCutoffResponse } from '../../lib/api'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -53,9 +60,9 @@ function formatSuccessMessage(action: KioskAction, employee: AireKioskEmployee, 
 }
 
 function formatStatus(status: ClockStatus | null) {
-  if (!status?.clocked_in) return 'Not clocked in'
+  if (!status?.clocked_in) return 'Off the clock'
   if (status.status === 'on_break') return 'On break'
-  return 'Clocked in'
+  return 'On the clock'
 }
 
 export default function AireKiosk() {
@@ -68,6 +75,10 @@ export default function AireKiosk() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
   const [status, setStatus] = useState<ClockStatus | null>(null)
   const [loading, setLoading] = useState(false)
+  const [confirmClockOut, setConfirmClockOut] = useState(false)
+  const [actionsCooling, setActionsCooling] = useState(false)
+  const coolingUntil = useRef(0)
+  const inFlight = useRef(false)
   const [actionLoading, setActionLoading] = useState<KioskAction | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -93,6 +104,8 @@ export default function AireKiosk() {
       return null
     }
   })
+  const verifiedPinRef = useRef('')
+  const sessionGeneration = useRef(0)
   const warningRequestRef = useRef(0)
   const idleResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const successResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -109,6 +122,12 @@ export default function AireKiosk() {
   const canViewKiosk = canUnlockKiosk || kioskUnlocked
 
   const clearSession = useCallback(() => {
+    inFlight.current = false
+    coolingUntil.current = 0
+    setActionsCooling(false)
+    setConfirmClockOut(false)
+    sessionGeneration.current += 1
+    verifiedPinRef.current = ''
     warningRequestRef.current += 1
     setPin('')
     setCutoffNotice(null)
@@ -180,6 +199,17 @@ export default function AireKiosk() {
     }
   }, [clearSession, success])
 
+  useEffect(() => {
+    if (!actionsCooling) return
+    const timer = setTimeout(() => setActionsCooling(false), Math.max(0, coolingUntil.current - Date.now()))
+    return () => clearTimeout(timer)
+  }, [actionsCooling])
+
+  const pauseActions = () => {
+    coolingUntil.current = Date.now() + 1500
+    setActionsCooling(true)
+  }
+
   const applyResponse = (response: AireKioskActionResponse, forceCategory = false) => {
     setEmployee(response.employee)
     setStatus(response.current_status)
@@ -231,7 +261,13 @@ export default function AireKiosk() {
     setError(null)
     setSuccess(null)
 
+    const generation = sessionGeneration.current
     const result = await api.aireKioskVerify(pin, kioskAccessToken || '')
+    if (generation !== sessionGeneration.current) return
+    if (isClerkEnabled && kioskAccessSession && new Date(kioskAccessSession.expiresAt).getTime() <= Date.now()) {
+      clearExpiredKioskAccessSession()
+      return
+    }
     if (result.error || !result.data) {
       setError(result.error || 'PIN verification failed.')
       if (result.error?.match(/kiosk is locked/i)) {
@@ -242,6 +278,7 @@ export default function AireKiosk() {
       return
     }
 
+    verifiedPinRef.current = pin
     setEmployee(result.data.employee)
     setKioskToken(result.data.kiosk_token)
     setPayStubRequestsEnabled(result.data.pay_stub_requests_enabled === true)
@@ -256,7 +293,8 @@ export default function AireKiosk() {
     void requestCutoffNotice(result.data.kiosk_token)
   }
 
-  const runAction = async (action: KioskAction) => {
+  const runAction = async (action: KioskAction, confirmed = false) => {
+    if (inFlight.current || Date.now() < coolingUntil.current) return
     if (!kioskUnlocked) {
       setError('Kiosk is locked. Ask a manager or admin to unlock it first.')
       return
@@ -276,6 +314,15 @@ export default function AireKiosk() {
       setError('Choose a work category before clocking in.')
       return
     }
+
+    const since = status?.session?.original_clock_in_at ?? status?.clock_in_at
+    if (action === 'clock_out' && !confirmed && since && needsClockOutConfirm(since)) {
+      bumpIdleTimer()
+      setConfirmClockOut(true)
+      return
+    }
+    setConfirmClockOut(false)
+    inFlight.current = true
 
     warningRequestRef.current += 1
     setCutoffNotice(null)
@@ -298,14 +345,52 @@ export default function AireKiosk() {
       }
     })()
 
+    const generation = sessionGeneration.current
     const result = await request
+    if (generation !== sessionGeneration.current) return
     if (result.error || !result.data) {
-      setError(result.error || `${formatActionLabel(action)} failed.`)
+      const unknown = outcomeUnknown(result) || !result.error
+      // Every refusal refreshes stale kiosk state; uncertain writes are never retried.
+      const refreshed = await api.aireKioskVerify(verifiedPinRef.current, kioskAccessToken || '')
+      if (generation !== sessionGeneration.current) return
+      if (!refreshed.data || refreshed.error) {
+        if (refreshed.error?.match(/kiosk is locked/i)) {
+          window.sessionStorage.removeItem(KIOSK_ACCESS_STORAGE_KEY)
+          setKioskAccessSession(null)
+        }
+        clearSession()
+        setError('Could not check your clock status. Enter your PIN again before trying another action.')
+        return
+      }
+      if (refreshed.data.employee.id !== employee.id) {
+        clearSession()
+        return
+      }
+      const current = refreshed.data.current_status
+      const changed = current.clocked_in !== status?.clocked_in || current.status !== status?.status
+        || current.entry_id !== status?.entry_id || current.time_category?.id !== status?.time_category?.id
+      if (changed) {
+        window.dispatchEvent(new Event('aire:clock-action'))
+        pauseActions()
+      }
+      setStatus(current)
+      setKioskToken(refreshed.data.kiosk_token)
+      setCategories(refreshed.data.available_categories)
+      setSelectedCategoryId(previous => (refreshed.data!.available_categories.length > 1
+        && refreshed.data!.available_categories.some(category => category.id === previous) ? previous : null)
+        ?? current.time_category?.id
+        ?? (refreshed.data!.available_categories.length === 1 ? refreshed.data!.available_categories[0].id : null))
+      setError(unknown
+        ? 'The response was lost. Your clock status has been checked. Review it before trying again.'
+        : result.error || `${formatActionLabel(action)} failed.`)
+      inFlight.current = false
       setActionLoading(null)
       return
     }
 
     const data = result.data
+    inFlight.current = false
+    pauseActions()
     window.dispatchEvent(new Event('aire:clock-action'))
     applyResponse(data, action === 'switch_category')
     const responseCategory = data.time_entry.time_category
@@ -364,14 +449,56 @@ export default function AireKiosk() {
   const canSwitchCategory = !!employee && !!status?.clocked_in && categories.length > 1
     && selectedCategoryId !== null && selectedCategoryId !== currentCategoryId
 
-  const primaryActions: Array<{ action: KioskAction; enabled: boolean; className: string }> = [
-    ...(canSwitchCategory
-      ? [{ action: 'switch_category' as KioskAction, enabled: true, className: 'bg-cyan-400 text-cyan-950 hover:bg-cyan-300' }]
-      : [{ action: 'clock_in' as KioskAction, enabled: canClockIn, className: 'bg-emerald-500 text-emerald-950 hover:bg-emerald-400' }]),
-    { action: 'clock_out', enabled: canClockOut, className: 'bg-amber-400 text-amber-950 hover:bg-amber-300' },
-    { action: 'start_break', enabled: canStartBreak, className: 'bg-indigo-400 text-indigo-950 hover:bg-indigo-300' },
-    { action: 'end_break', enabled: canEndBreak, className: 'bg-fuchsia-400 text-fuchsia-950 hover:bg-fuchsia-300' },
+  const primaryAction: KioskAction = canEndBreak ? 'end_break' : status?.clocked_in ? 'clock_out' : 'clock_in'
+  const primaryEnabled = canEndBreak || (status?.clocked_in ? canClockOut : canClockIn)
+  const secondaryActions: KioskAction[] = [
+    ...(canStartBreak ? ['start_break' as const] : []),
+    ...(canEndBreak ? ['clock_out' as const] : []),
+    ...(canSwitchCategory ? ['switch_category' as const] : []),
   ]
+
+  const supervisorPanel = (
+    <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm">
+            <div>
+              <p className="font-semibold text-white">
+                {kioskUnlocked ? 'Kiosk unlocked' : 'Kiosk locked'}
+              </p>
+              <p className="mt-1 text-slate-400">
+                {!isClerkEnabled
+                  ? 'Local development mode is bypassing the admin unlock requirement.'
+                  : kioskAccessSession
+                    ? `Unlocked by ${kioskAccessSession.unlockedBy} until ${new Date(kioskAccessSession.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}.`
+                    : 'A manager or admin unlocks this kiosk before staff can enter a PIN.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {kioskUnlocked ? (
+                <button
+                  onClick={handleLock}
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+                >
+                  Lock kiosk
+                </button>
+              ) : canUnlockKiosk ? (
+                <button
+                  onClick={handleUnlock}
+                  disabled={unlocking || (isClerkEnabled && !isSignedIn)}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    unlocking || (isClerkEnabled && !isSignedIn)
+                      ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                      : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
+                  }`}
+                >
+                  {unlocking ? 'Unlocking…' : 'Unlock kiosk'}
+                </button>
+              ) : (
+                <Link to="/admin" className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10">
+                  Manager or admin unlock
+                </Link>
+              )}
+            </div>
+          </div>
+  )
 
   if (!canViewKiosk) {
     return (
@@ -439,75 +566,45 @@ export default function AireKiosk() {
         <Link to="/admin" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Admin</Link>
         <Link to="/" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Home</Link>
       </div>}
-      <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-8 pt-4 md:grid-cols-[1.15fr_1fr] md:px-6">
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
+      <div className={`mx-auto grid w-full gap-8 px-4 pb-8 pt-4 md:px-6 ${employee ? 'max-w-2xl' : 'max-w-6xl md:grid-cols-[1.15fr_1fr]'}`}>
+        <section className={`order-2 md:order-1 rounded-3xl border border-slate-800 bg-slate-900/60 p-5 md:p-8 ${employee && !requestingStub ? 'pb-52 lg:pb-8' : ''}`}>
+          {employee ? (
+            <header className="flex items-center justify-between gap-3 text-sm">
+              <h1 className="font-semibold text-cyan-300">AIRE kiosk</h1>
+              <p className="tabular-nums text-slate-300">Guam · {clockTime(now)}</p>
+            </header>
+          ) : <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white md:text-4xl">Clock in and out quickly</h1>
+              <h1 className={`mt-2 text-3xl font-semibold tracking-tight text-white md:text-4xl ${employee ? 'hidden' : ''}`}>Clock in and out quickly</h1>
             </div>
             <div className="rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 text-right">
               <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Guam Time</p>
               <p className="mt-1 text-lg font-semibold text-cyan-200">
-                {now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
+                {now.toLocaleTimeString('en-US', { timeZone: 'Pacific/Guam', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
               </p>
               <p className="text-xs text-slate-400">
-                {now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                {now.toLocaleDateString('en-US', { timeZone: 'Pacific/Guam', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
               </p>
             </div>
           </div>
 
-          <p className="mt-3 max-w-xl text-sm text-slate-300 md:text-base">
-            Enter your staff PIN, verify your identity, then clock in or out on this shared kiosk.
+          <p className={`mt-3 max-w-xl text-sm text-slate-300 md:text-base ${employee ? 'hidden' : ''}`}>
+            Enter your staff PIN to clock in or out.
           </p>
+          </>}
 
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm">
-            <div>
-              <p className="font-semibold text-white">
-                {kioskUnlocked ? 'Kiosk unlocked' : 'Kiosk locked'}
-              </p>
-              <p className="mt-1 text-slate-400">
-                {!isClerkEnabled
-                  ? 'Local development mode is bypassing the admin unlock requirement.'
-                  : kioskAccessSession
-                    ? `Unlocked by ${kioskAccessSession.unlockedBy} until ${new Date(kioskAccessSession.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}.`
-                    : 'A manager or admin unlocks this kiosk before staff can enter a PIN.'}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {kioskUnlocked ? (
-                <button
-                  onClick={handleLock}
-                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
-                >
-                  Lock kiosk
-                </button>
-              ) : canUnlockKiosk ? (
-                <button
-                  onClick={handleUnlock}
-                  disabled={unlocking || (isClerkEnabled && !isSignedIn)}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                    unlocking || (isClerkEnabled && !isSignedIn)
-                      ? 'cursor-not-allowed bg-slate-800 text-slate-500'
-                      : 'bg-cyan-400 text-slate-950 hover:bg-cyan-300'
-                  }`}
-                >
-                  {unlocking ? 'Unlocking…' : 'Unlock kiosk'}
-                </button>
-              ) : (
-                <Link to="/admin" className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10">
-                  Manager or admin unlock
-                </Link>
-              )}
-            </div>
-          </div>
+          {!employee && supervisorPanel}
 
-          <div className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/70 p-5">
+          <div className={employee && !requestingStub ? 'min-h-[calc(100svh-5rem)] lg:min-h-0' : undefined}>
+          <div className={`mt-8 rounded-3xl border p-5 ${status?.clocked_in ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-slate-800 bg-slate-950/70'}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Current employee</p>
                 <p className="mt-1 text-2xl font-semibold text-white">{employee ? employee.full_name : 'Waiting for PIN'}</p>
                 <p className="mt-1 text-sm text-cyan-200">{formatStatus(status)}</p>
+                {status?.clock_in_at && <div className="mt-3 text-4xl font-semibold text-white"><LiveTimer since={status.active_break_started_at || status.clock_in_at} label={status.status === 'on_break' ? 'Time on break' : 'Time since clock-in'} /></div>}
               </div>
               {employee && (
                 <button
@@ -549,29 +646,8 @@ export default function AireKiosk() {
               {status?.clocked_in && categories.length > 1 && (
                 <p className="text-xs text-slate-400">Tap a different category to switch your current work type.</p>
               )}
-              {categories.map((category) => {
-                const selected = selectedCategoryId === category.id
-                const isCurrent = currentCategoryId === category.id && status?.clocked_in
-                return (
-                  <button
-                    key={category.id}
-                    onClick={() => setSelectedCategoryId(category.id)}
-                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                      selected
-                        ? 'border-cyan-300 bg-cyan-400/15 text-white'
-                        : 'border-slate-700 bg-slate-900/40 text-slate-200 hover:border-slate-500'
-                    }`}
-                  >
-                    <span>
-                      <span className="block font-medium">{category.name}</span>
-                      {category.description && <span className="mt-1 block text-xs text-slate-400">{category.description}</span>}
-                    </span>
-                    {isCurrent && (
-                      <span className="ml-2 rounded-full bg-cyan-500/20 px-2.5 py-0.5 text-xs font-semibold text-cyan-200">Current</span>
-                    )}
-                  </button>
-                )
-              })}
+              {categories.length === 1 && <p className="text-sm text-slate-200">Working on: {categories[0].name}</p>}
+              <WorkChips dark categories={categories} value={selectedCategoryId} onChange={setSelectedCategoryId} disabled={!!actionLoading} />
             </div>
           ) : (
             <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-300">
@@ -579,46 +655,50 @@ export default function AireKiosk() {
             </div>
           )}
 
-          {!requestingStub && <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            {primaryActions.map(({ action, enabled, className }) => (
-              <button
-                key={action}
-                onClick={() => runAction(action)}
-                disabled={!enabled || !!actionLoading || !!loading}
-                className={`rounded-2xl px-5 py-3.5 text-sm font-semibold transition ${className} ${
-                  !enabled || actionLoading || loading ? 'cursor-not-allowed opacity-50' : ''
-                }`}
-              >
-                {actionLoading === action ? `${formatActionLabel(action)}...` : formatActionLabel(action)}
-              </button>
-            ))}
-          </div>}
-
-          {employee && kioskToken && payStubRequestsEnabled && !requestingStub && (
-            <button
-              type="button"
-              onClick={() => { bumpIdleTimer(); setError(null); setSuccess(null); setRequestingStub(true) }}
-              disabled={!!actionLoading || loading}
-              className="mt-3 w-full rounded-2xl border border-slate-700 px-5 py-3.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Request my pay stub
+          {employee && !requestingStub && <div className="mt-8"><ClockActions kiosk>
+            <button onClick={() => runAction(primaryAction)} disabled={!primaryEnabled || !!actionLoading || loading || actionsCooling}
+              className="min-h-14 w-full rounded-2xl bg-cyan-400 px-5 py-4 text-lg font-semibold text-slate-950 disabled:opacity-50 active:scale-[.97]">
+              {actionLoading === primaryAction ? `${formatActionLabel(primaryAction)}...` : formatActionLabel(primaryAction)}
             </button>
-          )}
+            <div className="flex flex-wrap gap-3">
+              {secondaryActions.map(action => <button key={action} onClick={() => runAction(action)} disabled={!!actionLoading || loading || actionsCooling}
+                className="min-h-12 flex-1 rounded-xl border border-slate-600 px-4 py-3 font-semibold text-slate-100 disabled:opacity-50">
+                {actionLoading === action ? `${formatActionLabel(action)}...` : formatActionLabel(action)}
+              </button>)}
+            </div>
+          </ClockActions></div>}
 
-          {error && (
-            <p className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>
+          {employee && error && (
+            <p role="alert" className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>
           )}
 
           {success && (
             <p className="mt-6 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</p>
           )}
 
+          </div>
+
+          {employee && supervisorPanel}
+
+          {employee && kioskToken && payStubRequestsEnabled && !requestingStub && (
+            <button
+              type="button"
+              onClick={() => { bumpIdleTimer(); setError(null); setSuccess(null); setRequestingStub(true) }}
+              disabled={!!actionLoading || loading || actionsCooling}
+              className="mt-3 w-full rounded-2xl border border-slate-700 px-5 py-3.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Request my pay stub
+            </button>
+          )}
+
+
+
           <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
-            Kiosk sessions auto-reset after inactivity or shortly after a successful action. This keeps the shared device clean and safe.
+            Your name clears after 30 seconds without activity, or 8 seconds after a successful action.
           </p>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8">
+        {!employee && <section aria-label="Staff PIN" className="order-1 md:order-2 rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Enter PIN</p>
           <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-4 text-center text-4xl tracking-[0.35em] text-cyan-200">
             {employee ? 'READY' : maskedPin}
@@ -636,6 +716,8 @@ export default function AireKiosk() {
             {loading ? 'Verifying PIN...' : employee ? 'Verified' : 'Verify PIN'}
           </button>
 
+          {error && <p role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>}
+
           <div className="mt-6 grid grid-cols-3 gap-3">
             {keypad.map((key) => (
               <button
@@ -650,7 +732,14 @@ export default function AireKiosk() {
               </button>
             ))}
           </div>
-        </section>
+        </section>}
+      </div>
+      <div onPointerDownCapture={bumpIdleTimer} onKeyDownCapture={bumpIdleTimer} onClickCapture={bumpIdleTimer} onScrollCapture={bumpIdleTimer}>
+      <Sheet open={confirmClockOut} onClose={() => setConfirmClockOut(false)}
+        title={`Clock out at ${clockTime(new Date())}?`}
+        footer={<Button fullWidth disabled={!!actionLoading || actionsCooling} onClick={() => void runAction('clock_out', true)}>Clock out</Button>}>
+        <p>Worked {status ? formatElapsed(workedMilliseconds(status), 'short') : '—'}. Check that this is when you stopped working.</p>
+      </Sheet>
       </div>
     </div>
   )
