@@ -62,8 +62,11 @@ describe('App time-section routes', () => {
   it('opens Reports without the period from a dated Approvals view', async () => {
     window.history.pushState({}, '', '/admin/approvals?start_date=2026-08-01&end_date=2026-08-15')
     render(<App />)
+    // The lazy route must finish importing before its data effect can run.
+    expect(await screen.findByDisplayValue('2026-08-01', {}, {
+      timeout: 10_000,
+    })).toBeInTheDocument()
     await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01', end_date: '2026-08-15' })))
-    expect(await screen.findByDisplayValue('2026-08-01')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Go to Reports' }))
 
