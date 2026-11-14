@@ -12,7 +12,7 @@ vi.mock('../../lib/api', () => ({
     denyOvertime: vi.fn(),
   },
 }))
-vi.mock('../../lib/api/approvals', () => ({ approvalsApi: { history: vi.fn() } }))
+vi.mock('../../lib/api/approvals', () => ({ approvalsApi: { history: vi.fn(), pending: vi.fn() } }))
 vi.mock('../time-tracking/EditTimeEntryModal', () => ({
   default: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
     isOpen ? (
@@ -39,6 +39,7 @@ const props = () => ({
 })
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(approvalsApi.pending).mockResolvedValue({ data: { pending_entries: [reviewEntry(7, 1, { version: 18, description: 'New shift facts', exceptions: [{ key: 'added', label: 'Added by hand' }] })] } } as never)
   vi.mocked(api.getTimeEntry).mockResolvedValue({ data: { time_entry: reviewEntry(7, 1) } })
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
   vi.mocked(api.getTimeEntries).mockResolvedValue({
@@ -120,23 +121,19 @@ it('blocks decisions after an unknown outcome and offers Reload without claiming
   expect(api.getTimeEntry).toHaveBeenCalledWith(7)
 })
 
-it('closes stale denial instead of keeping obsolete review classification', async () => {
+it('keeps the denial note on the fresh classified review after a preflight mismatch', async () => {
   vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
-  vi.mocked(api.getTimeEntry).mockResolvedValue({
-    data: { time_entry: reviewEntry(7, 1, { version: 18, description: 'New shift facts' }) },
-  })
+  vi.mocked(api.getTimeEntry).mockResolvedValue({ data: { time_entry: reviewEntry(7, 1, { version: 18 }) } })
   const config = props()
   render(<ReviewSheet {...config} />)
   fireEvent.click(screen.getByRole('button', { name: 'Deny…' }))
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Stale note' } })
   fireEvent.click(screen.getByRole('button', { name: 'Deny shift' }))
-  await waitFor(() =>
-    expect(config.onClose).toHaveBeenCalledWith(
-      true,
-      'This shift changed since you opened it. Nothing was denied.',
-    ),
-  )
-  expect(screen.queryByText('New shift facts')).not.toBeInTheDocument()
+  expect(await screen.findByText('New shift facts')).toBeInTheDocument()
+  expect(screen.getByRole('textbox')).toHaveValue('Stale note')
+  expect(screen.getByText('Added by hand')).toBeInTheDocument()
+  expect(screen.queryByText('Edited')).not.toBeInTheDocument()
+  expect(config.onClose).not.toHaveBeenCalled()
   expect(api.denyTimeEntry).not.toHaveBeenCalled()
   expect(config.onReload).toHaveBeenCalledOnce()
 })
@@ -213,20 +210,41 @@ it('closes a conflicted approval so it must reopen with fresh review fields', as
 })
 
 
-it.each(['time', 'overtime'] as const)('reloads after a server stale %s denial despite a matching preflight GET', async (kind) => {
+it.each(['time', 'overtime'] as const)('preserves the note and uses the fresh version after a server stale %s denial', async (kind) => {
   vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
   const config = props()
-  if (kind === 'overtime') {
-    config.entry = reviewEntry(7, 1, { approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 2 })
-  }
+  const fresh = reviewEntry(7, 1, { version: 18, description: 'New shift facts', exceptions: [{ key: 'added', label: 'Added by hand' }],
+    ...(kind === 'overtime' ? { approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 3 } : {}) })
+  if (kind === 'overtime') config.entry = reviewEntry(7, 1, { approval_status: 'approved', overtime_status: 'pending', pending_overtime_hours: 2 })
+  vi.mocked(approvalsApi.pending).mockResolvedValue({ data: { pending_entries: [fresh] } } as never)
+  vi.mocked(api.getTimeEntry).mockResolvedValueOnce({ data: { time_entry: config.entry } }).mockResolvedValue({ data: { time_entry: fresh } })
   const deny = kind === 'overtime' ? api.denyOvertime : api.denyTimeEntry
-  vi.mocked(deny).mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  vi.mocked(deny).mockResolvedValueOnce({ status: 409, code: 'stale_entry', error: 'Changed' }).mockResolvedValue({ data: { time_entry: fresh } })
   render(<ReviewSheet {...config} />)
   fireEvent.click(screen.getByRole('button', { name: kind === 'overtime' ? 'Deny overtime…' : 'Deny…' }))
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Stale denial' } })
-  fireEvent.click(screen.getByRole('button', { name: kind === 'overtime' ? 'Deny overtime' : 'Deny shift' }))
-  await waitFor(() => expect(config.onClose).toHaveBeenCalledWith(true, 'This shift changed since you opened it. Nothing was denied.'))
+  const label = kind === 'overtime' ? 'Deny overtime' : 'Deny shift'
+  fireEvent.click(screen.getByRole('button', { name: label }))
+  expect(await screen.findByText('New shift facts')).toBeInTheDocument()
+  expect(screen.getByRole('textbox')).toHaveValue('Stale denial')
+  expect(screen.getByText('Added by hand')).toBeInTheDocument()
+  expect(config.onClose).not.toHaveBeenCalled()
   expect(deny).toHaveBeenCalledWith(7, 'Stale denial', 17)
-  expect(config.onReload).toHaveBeenCalledOnce()
-  expect(config.onDirty).toHaveBeenLastCalledWith(false)
+  expect(config.onDirty).toHaveBeenLastCalledWith(true)
+  fireEvent.click(screen.getByRole('button', { name: label }))
+  await waitFor(() => expect(deny).toHaveBeenLastCalledWith(7, 'Stale denial', 18))
+})
+
+it('keeps the denial note and blocks decisions when conflict reload fails', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  vi.mocked(api.denyTimeEntry).mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  vi.mocked(approvalsApi.pending).mockResolvedValue({ error: 'Unavailable' })
+  render(<ReviewSheet {...props()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Deny…' }))
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Keep this explanation' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Deny shift' }))
+  expect(await screen.findByText('Unavailable')).toBeInTheDocument()
+  expect(screen.getByRole('textbox')).toHaveValue('Keep this explanation')
+  expect(screen.getByRole('button', { name: 'Deny shift' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Reload shift' })).toBeEnabled()
 })

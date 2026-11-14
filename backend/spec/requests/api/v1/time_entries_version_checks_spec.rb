@@ -123,4 +123,64 @@ RSpec.describe "Time entry optimistic version checks", type: :request do
     expect(response).to have_http_status(:conflict)
     expect(entry.reload).to have_attributes(description: "Changed before lock", lock_version: version + 1)
   end
+
+  [ true, false ].each do |versioned|
+    context "failed writes #{versioned ? 'with a matching version' : 'without a version'}" do
+      it "rolls back time approval and its audit when included overtime approval fails" do
+        entry.update!(overtime_status: "pending")
+        export = protecting_export
+        before_export = export.attributes
+        before_entry = entry.reload.attributes
+        before_breaks = entry.time_entry_breaks.order(:id).map(&:attributes)
+        before_audits = AuditLog.order(:id).map(&:attributes)
+        allow_any_instance_of(Api::V1::TimeEntriesController).to receive(:overtime_ready_for_approval?).and_return(true)
+        allow(TimeClockService).to receive(:approve_overtime).and_raise(TimeClockService::ClockError, "Overtime review changed")
+        expect(ReportExport).not_to receive(:invalidate_for_entry!)
+
+        post "/api/v1/time_entries/#{entry.id}/approve", headers: headers,
+          params: { include_overtime: true, **(versioned ? { expected_version: entry.lock_version } : {}) }
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body).to eq("error" => "Overtime review changed")
+        expect(entry.reload.attributes).to eq(before_entry)
+        expect(entry.time_entry_breaks.reload.order(:id).map(&:attributes)).to eq(before_breaks)
+        expect(AuditLog.order(:id).map(&:attributes)).to eq(before_audits)
+        expect(export.reload.attributes).to eq(before_export)
+      end
+
+      it "rolls back scalar edits, approval reset and break replacement on a break error" do
+        zone = ActiveSupport::TimeZone["Pacific/Guam"]
+        entry.time_entry_breaks.create!(start_time: zone.local(2026, 11, 14, 12), end_time: zone.local(2026, 11, 14, 12, 30))
+        entry.reload.update!(approval_status: "approved")
+        export = protecting_export
+        before_export = export.attributes
+        before_entry = entry.reload.attributes
+        before_breaks = entry.time_entry_breaks.order(:id).map(&:attributes)
+        before_audits = AuditLog.order(:id).map(&:attributes)
+        allow_any_instance_of(Api::V1::TimeEntriesController).to receive(:replace_break_records).and_wrap_original do |original, *args|
+          original.call(*args)
+          "Break could not be saved"
+        end
+        expect(ReportExport).not_to receive(:invalidate_for_entry!)
+
+        patch "/api/v1/time_entries/#{entry.id}", headers: headers, params: {
+          correction_reason: "Verified with employee",
+          time_entry: { description: "Must roll back", breaks: [ { start_time: "12:15", end_time: "12:45" } ],
+                        **(versioned ? { expected_version: entry.lock_version } : {}) }
+        }
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body).to eq("error" => "Break could not be saved")
+        expect(entry.reload.attributes).to eq(before_entry)
+        expect(entry.time_entry_breaks.reload.order(:id).map(&:attributes)).to eq(before_breaks)
+        expect(export.reload.attributes).to eq(before_export)
+        if versioned
+          expect(AuditLog.order(:id).map(&:attributes)).to eq(before_audits)
+        else
+          # Legacy requests keep their existing failed-request audit.
+          expect(AuditLog.where(outcome: "succeeded").count).to eq(before_audits.count { |row| row["outcome"] == "succeeded" })
+        end
+      end
+    end
+  end
 end

@@ -691,6 +691,10 @@ module Api
           version = attributes[:expected_version]
           if version.to_s.match?(/\A\d+\z/) && @time_entry.lock_version == version.to_i
             yield
+            unless response.successful?
+              @skip_time_entry_request_audit = true
+              raise ActiveRecord::Rollback
+            end
           else
             render_stale_time_entry
           end
@@ -698,13 +702,13 @@ module Api
       end
 
       def render_stale_time_entry
-        @stale_time_entry_response = true
+        @skip_time_entry_request_audit = true
         render json: { error: "This shift changed since you opened it. Nothing was saved.", code: "stale_entry" }, status: :conflict
       end
 
-      # A rejected stale write must not create even the fallback request audit.
+      # Rejected versioned writes must not create a fallback request audit.
       def write_default_audit_event
-        super unless @stale_time_entry_response
+        super unless @skip_time_entry_request_audit
       end
 
       def with_export_invalidation(entry, reason)

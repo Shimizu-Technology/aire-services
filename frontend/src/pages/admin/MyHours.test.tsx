@@ -145,7 +145,7 @@ it('reloads a stale correction sheet without writing, then saves against the fre
   )
   expect(update).not.toHaveBeenCalled()
   expect(screen.getByLabelText(/Clock out/)).toHaveValue('12:00')
-  expect(screen.getByLabelText(/What happened/)).toHaveValue('')
+  expect(screen.getByLabelText(/What happened/)).toHaveValue('Old correction.')
   fireEvent.change(screen.getByLabelText(/Clock out/), {
     target: { value: '12:30' },
   })
@@ -371,9 +371,9 @@ it('reloads Ask for a fix after a server 409 between preflight GET and PATCH', a
   fireEvent.change(screen.getByLabelText(/Clock out/), { target: { value: '11:30' } })
   fireEvent.change(screen.getByLabelText(/What happened/), { target: { value: 'Old correction' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent("This shift changed since you opened it. Nothing was sent. Here's the latest.")
+  expect(await screen.findByRole('alert')).toHaveTextContent("This shift changed since you opened it. Nothing was saved. Here's the latest.")
   expect(screen.getByLabelText(/Clock out/)).toHaveValue('12:00')
-  expect(screen.getByLabelText(/What happened/)).toHaveValue('')
+  expect(screen.getByLabelText(/What happened/)).toHaveValue('Old correction')
   expect(update).toHaveBeenCalledOnce()
   expect(update).toHaveBeenCalledWith(41, { end_time: '11:30', expected_version: shift().version }, 'Old correction')
   expect(myTimeApi.entry).toHaveBeenCalledTimes(2)
@@ -393,4 +393,27 @@ it('requires reopening a conflicting correction when its fresh shift cannot load
   fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Close this sheet and reload My Hours before trying again.')
   expect(screen.getByRole('button', { name: 'Send fix for approval' })).toBeDisabled()
+})
+
+
+it('keeps Send disabled until the post-conflict reload finishes', async () => {
+  let finishReload!: (value: Awaited<ReturnType<typeof myTimeApi.entry>>) => void
+  vi.mocked(myTimeApi.entry)
+    .mockResolvedValueOnce({ data: { time_entry: shift() } })
+    .mockImplementationOnce(() => new Promise(resolve => { finishReload = resolve }))
+  const update = vi.spyOn(api, 'updateTimeEntry').mockResolvedValue({ status: 409, code: 'stale_entry', error: 'Changed' })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Ask for a fix' }))
+  fireEvent.change(screen.getByLabelText(/Clock out/), { target: { value: '11:30' } })
+  fireEvent.change(screen.getByLabelText(/What happened/), { target: { value: 'My explanation' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  await waitFor(() => expect(myTimeApi.entry).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole('button', { name: 'Send fix for approval' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  expect(update).toHaveBeenCalledOnce()
+  await act(async () => { finishReload({ data: { time_entry: shift({ version: 3, end_time: '12:00' }) } }) })
+  expect(await screen.findByRole('alert')).toHaveTextContent("Nothing was saved. Here's the latest.")
+  expect(screen.getByLabelText(/What happened/)).toHaveValue('My explanation')
+  expect(screen.getByRole('button', { name: 'Send fix for approval' })).toBeEnabled()
 })

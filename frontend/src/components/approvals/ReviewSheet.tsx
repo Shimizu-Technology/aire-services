@@ -19,7 +19,7 @@ const when = (value: string) =>
     timeStyle: 'short',
   }).format(new Date(value))
 export default function ReviewSheet({
-  entry,
+  entry: initialEntry,
   onClose,
   onApprove,
   onReload,
@@ -35,6 +35,8 @@ export default function ReviewSheet({
   categories: TimeCategory[]
   onDirty: (dirty: boolean) => void
 }) {
+  const [entry, setEntry] = useState(initialEntry)
+  const [denialNeedsReload, setDenialNeedsReload] = useState(false)
   const online = useOnlineStatus()
   const [history, setHistory] = useState<HistoryChange[] | null>(null)
   const [historyError, setHistoryError] = useState(false)
@@ -131,7 +133,7 @@ export default function ReviewSheet({
         return
       }
       if (fresh.data.time_entry.version !== entry.version) {
-        await closeChanged('denied')
+        await reloadDenial(fresh.data.time_entry)
         return
       }
       const response =
@@ -140,7 +142,7 @@ export default function ReviewSheet({
           : await api.denyTimeEntry(entry.id, note.trim(), entry.version)
       if (!response.data) {
         if (response.status === 409 && response.code === 'stale_entry') {
-          await closeChanged('denied')
+          await reloadDenial()
           return
         }
         setError(response.error || "Couldn't save the denial.")
@@ -153,6 +155,27 @@ export default function ReviewSheet({
       lock.current = false
       setSaving(false)
     }
+  }
+  const reloadDenial = async (fresh?: TimeEntry) => {
+    setDenialNeedsReload(true)
+    await onReload()
+    const latest = fresh ?? (await api.getTimeEntry(entry.id)).data?.time_entry
+    if (!latest) {
+      setError("This shift changed. Nothing was denied. Your note is kept; reload the shift before deciding again.")
+      return
+    }
+    // The inbox supplies the current exceptions and overtime facts as well as
+    // the source version. Never merge a new source into old review metadata.
+    const response = await approvalsApi.pending({ user_id: latest.user.id, date: latest.work_date, per_page: 500 })
+    const row = response.data?.pending_entries.find(item => item.id === entry.id)
+    if (!row) {
+      setError(response.error || 'This shift no longer needs this decision. Nothing was denied. Your note is kept; close this review to continue.')
+      return
+    }
+    setEntry(row)
+    const canDeny = denying === 'overtime' ? row.overtime_status === 'pending' : row.approval_status === 'pending'
+    setDenialNeedsReload(!canDeny)
+    setError(`This shift changed since you opened it. Nothing was denied. Your note is kept. ${canDeny ? 'Review the latest shift before denying again.' : 'This shift no longer needs this decision.'}`)
   }
   const closeChanged = async (decision: 'approved' | 'denied') => {
     await onReload()
@@ -192,7 +215,7 @@ export default function ReviewSheet({
     }
   }
 
-  const blocked = busy || saving || !online || unknown || entry.needs_another_approver
+  const blocked = busy || saving || !online || unknown || denialNeedsReload || entry.needs_another_approver
   return (
     <>
       <Sheet
@@ -397,6 +420,12 @@ export default function ReviewSheet({
                 maxLength={2000}
               />
             </Field>
+          )}
+          {denialNeedsReload && (
+            <Button variant="secondary" disabled={busy || saving || !online} onClick={async () => {
+              setSaving(true)
+              try { await reloadDenial() } finally { setSaving(false) }
+            }}>Reload shift</Button>
           )}
           {unknown && (
             <Button

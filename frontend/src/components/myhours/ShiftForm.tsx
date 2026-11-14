@@ -81,7 +81,7 @@ export function ShiftForm({
   const hours = unchangedTime
     ? entry.hours
     : Math.max(0, (minutesBetween(start, end) - totalBreakMinutes) / 60)
-  const loadChangedEntry = (fresh: TimeEntry) => {
+  const loadChangedEntry = (fresh: TimeEntry, sent = false) => {
     setEntry(fresh)
     setDate(fresh.work_date)
     setStart(fresh.start_time ?? '08:00')
@@ -89,10 +89,11 @@ export function ShiftForm({
     setBreakMinutes(fresh.break_minutes ?? 0)
     setBreaks(editableBreaks(fresh))
     setCategory(fresh.time_category?.id ?? 0)
-    setNote('')
-    setSaving(false)
+    const canFix = fresh.status === 'completed'
+    if (!canFix) setNote('')
+    setUncertain(!canFix)
     setError(
-      "This shift changed since you opened it. Nothing was sent. Here's the latest.",
+      `This shift changed since you opened it. Nothing was ${sent ? 'saved' : 'sent'}. ${canFix ? "Here's the latest." : 'This shift is no longer completed. Close this sheet and check My Hours.'}`,
     )
   }
   const submit = async (event: FormEvent) => {
@@ -129,6 +130,7 @@ export function ShiftForm({
       const fresh = latest.data.time_entry
       if (fresh.version !== entry.version) {
         loadChangedEntry(fresh)
+        setSaving(false)
         return
       }
     }
@@ -165,18 +167,19 @@ export function ShiftForm({
           note.trim(),
         )
       : await myTimeApi.addTime({ ...change, work_date: date })
+    if (entry && response.status === 409 && response.code === 'stale_entry') {
+      const latest = await myTimeApi.entry(entry.id)
+      if (latest.data) {
+        loadChangedEntry(latest.data.time_entry, true)
+      } else {
+        setUncertain(true)
+        setError("This shift changed since you opened it. Nothing was saved. Close this sheet and reload My Hours before trying again.")
+      }
+      setSaving(false)
+      return
+    }
     setSaving(false)
     if (!response.data) {
-      if (entry && response.status === 409 && response.code === 'stale_entry') {
-        const latest = await myTimeApi.entry(entry.id)
-        if (latest.data) {
-          loadChangedEntry(latest.data.time_entry)
-        } else {
-          setUncertain(true)
-          setError("This shift changed since you opened it. Nothing was sent. Close this sheet and reload My Hours before trying again.")
-        }
-        return
-      }
       const unknown = outcomeUnknown(response)
       setUncertain(unknown)
       setError(
