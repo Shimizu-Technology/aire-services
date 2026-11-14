@@ -41,7 +41,7 @@ describe('PayPeriodCard', () => {
 
   it('describes approved and waiting hours as one image with both numbers', () => {
     renderCard()
-    expect(screen.getByRole('img')).toHaveAttribute('aria-label', '1,005h approved, 276.1h waiting (31 shifts)')
+    expect(screen.getByRole('img')).toHaveAttribute('aria-label', '1,005h Approved for payroll, 276.1h Time waiting for approval, 0h Overtime waiting for approval')
   })
 
   it('turns urgent inside 24 hours', () => {
@@ -115,7 +115,7 @@ describe('PayPeriodCard', () => {
 
   it('says when nothing is waiting', () => {
     renderCard({ period: { ...openPeriod, waiting_count: 0, waiting_hours: 0 } })
-    expect(screen.getByRole('img')).toHaveAttribute('aria-label', '1,005h approved, nothing waiting')
+    expect(screen.getByRole('img')).toHaveAttribute('aria-label', '1,005h Approved for payroll, 0h Time waiting for approval, 0h Overtime waiting for approval')
     expect(screen.getByText('Nothing waiting for approval')).toBeInTheDocument()
   })
 

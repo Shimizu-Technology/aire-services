@@ -243,7 +243,12 @@ RSpec.describe "Versioned person editing and employment", type: :request do
     get "/api/v1/admin/users/#{worker.id}/termination_preview", headers: headers
     expect(response).to have_http_status(:ok)
     expect(response.parsed_body.fetch("preview")).to include("waiting_shifts" => 1, "waiting_hours" => 5.0,
-      "waiting_overtime_hours" => 2.0, "open_clock" => true, "open_pay_stub_links" => 0, "open_leave_requests" => 1)
+      "waiting_overtime_hours" => 0.0, "open_clock" => true, "open_pay_stub_links" => 0, "open_leave_requests" => 1)
+    # The pending shift waits once, in full. Only after time approval does its
+    # 2h overtime become a separate approval decision.
+    worker.time_entries.find_by!(approval_status: "pending").update_columns(approval_status: "approved")
+    get "/api/v1/admin/users/#{worker.id}/termination_preview", headers: headers
+    expect(response.parsed_body.fetch("preview")).to include("waiting_shifts" => 0, "waiting_hours" => 0.0, "waiting_overtime_hours" => 2.0)
     end_employment(worker)
     expect(response).to have_http_status(:unprocessable_entity)
     expect(worker.reload).to be_is_active

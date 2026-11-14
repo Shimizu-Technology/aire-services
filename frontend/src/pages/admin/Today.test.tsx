@@ -258,7 +258,7 @@ describe('Today', () => {
       await open()
       const card = screen.getByRole('region', { name: 'Payroll connection' })
       expect(within(card).getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
-      expect(within(card).getByText(/Last heard from 7:05 PM/)).toBeInTheDocument()
+      expect(within(card).getByText(/Last confirmed receipt: Nov 11, 2026, 7:00 PM/)).toBeInTheDocument()
     })
 
     it('leaves the connection card, and its request, to desktop', async () => {

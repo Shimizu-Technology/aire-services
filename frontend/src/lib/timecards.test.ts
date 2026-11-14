@@ -152,47 +152,12 @@ describe('overnight shifts across a pay period edge', () => {
   })
 })
 
-describe('payPeriodHours (approved means approved for pay)', () => {
-  const NOV = { start: '2026-11-01', end: '2026-11-15' }
-  const shift = (overrides: Record<string, unknown>) => ({
-    id: 1, work_date: '2026-11-02', total_hours: 11.5, overtime_hours: 0, overtime_status: 'none', approval_status: 'approved', entry_method: 'clock', quality_flags: [], ...overrides,
+describe('payPeriodHours', () => {
+  it('reads approval totals from the API even when raw worked hours differ', () => {
+    expect(payPeriodHours({ payroll_hours: { approved_regular_hours: 48, approved_overtime_hours: 3.5, approved_hours: 51.5, time_waiting_hours: 11.5, overtime_waiting_hours: 6 } })).toEqual({ approved: 51.5, waiting: 11.5, overtimeWaiting: 6 })
   })
-  const report = (counted: ReturnType<typeof shift>[], excluded: ReturnType<typeof shift>[] = []) => ({
-    days: [{ entries: counted }], excluded_entries: excluded,
-  }) as unknown as Parameters<typeof payPeriodHours>[0]
-
-  it('keeps overtime that still waits out of Approved, and the three add up to the time worked', () => {
-    const hours = payPeriodHours(report([
-      shift({ id: 1 }), shift({ id: 2 }), shift({ id: 3 }), shift({ id: 4 }),
-      shift({ id: 5, overtime_hours: 6, overtime_status: 'pending' }),
-    ], [shift({ id: 6, approval_status: 'pending' })]), NOV)
-    expect(hours).toEqual({ approved: 51.5, waiting: 11.5, overtimeWaiting: 6 })
-    expect(hours.approved + hours.waiting + hours.overtimeWaiting).toBe(69)
-  })
-
-  it('counts approved overtime as approved and denied overtime as neither', () => {
-    expect(payPeriodHours(report([shift({ overtime_hours: 2, overtime_status: 'approved' })]), NOV)).toEqual({ approved: 11.5, waiting: 0, overtimeWaiting: 0 })
-    expect(payPeriodHours(report([shift({ overtime_hours: 2, overtime_status: 'denied' })]), NOV)).toEqual({ approved: 9.5, waiting: 0, overtimeWaiting: 0 })
-  })
-
-  it('treats overtime the allocator assigned but nobody approved yet as waiting', () => {
-    expect(payPeriodHours(report([shift({ overtime_hours: 2, overtime_status: 'none' })]), NOV)).toEqual({ approved: 9.5, waiting: 0, overtimeWaiting: 2 })
-  })
-
-  it('counts waiting and unreviewed added shifts as waiting, and ignores denied and open ones', () => {
-    expect(payPeriodHours(report([], [
-      shift({ id: 1, approval_status: 'pending', total_hours: 8 }),
-      shift({ id: 2, entry_method: 'manual', approval_status: null, total_hours: 4 }),
-      shift({ id: 3, approval_status: 'denied', total_hours: 8 }),
-      shift({ id: 4, approval_status: null, total_hours: 0 }),
-    ]), NOV)).toEqual({ approved: 0, waiting: 12, overtimeWaiting: 0 })
-  })
-
-  it('waits a shift held for an overtime review in full, in its own work date\'s period only', () => {
-    const held = shift({ total_hours: 8, quality_flags: ['overnight_allocation_review'] })
-    expect(payPeriodHours(report([], [held]), NOV).waiting).toBe(8)
-    // An overnight held shift from Oct 31 overlaps Nov 1 but belongs to Oct 16–31, as in the payroll evidence.
-    expect(payPeriodHours(report([], [{ ...held, work_date: '2026-10-31' }]), NOV).waiting).toBe(0)
+  it('does not guess payroll totals when the API has not supplied them', () => {
+    expect(payPeriodHours({})).toBeNull()
   })
 })
 

@@ -4,7 +4,7 @@ import type { HoursReportEmployee, TimeEntry } from '../../lib/api'
 import { timecardsApi } from '../../lib/api/timecards'
 import { formatDateOnly } from '../../lib/dateUtils'
 import { formatPayPeriod, payPeriodDays, todayInGuam, type PayPeriod } from '../../lib/payPeriods'
-import { formatHours, isApprovedTime, isOpenClock, payPeriodHours, timecardDays } from '../../lib/timecards'
+import { formatHours, isOpenClock, payPeriodHours, timecardDays } from '../../lib/timecards'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import EditTimeEntryModal from '../time-tracking/EditTimeEntryModal'
 import { Avatar, Button, EmptyState, ErrorState, PeriodStepper } from '../ui'
@@ -150,11 +150,11 @@ export function TimecardView({
 
   // Approved means approved for pay, as on the person page's Pay tab: overtime
   // still waiting is its own number, not part of Approved.
-  const report = loaded && state.summary ? payPeriodHours(state.summary, period) : null
+  const report = loaded && state.summary ? payPeriodHours(state.summary) : null
   const overtimeWaits = entries.some(entry => entry.overtime_status === 'pending')
   // Without the report the shifts give Waiting, and Approved only when no overtime waits.
   const waitingHours = report ? report.waiting : items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
-  const approvedHours = report ? report.approved : overtimeWaits ? null : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
+  const approvedHours = report ? report.approved : null
   const overtimeWaitingHours = report ? report.overtimeWaiting : overtimeWaits ? null : 0
 
   const days = payPeriodDays(period)

@@ -132,7 +132,6 @@ module Payroll
       context_pairs = pairs_for(candidates)
       (context_pairs - pairs).empty? ? candidates : context_for_pairs(context_pairs)
     end
-    private_class_method :context_rows_for
 
     def self.allocations(rows, legacy: false)
       rows.group_by(&:user_id).each_with_object({}) do |(_id, entries), result|

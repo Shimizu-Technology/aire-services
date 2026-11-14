@@ -687,7 +687,7 @@ export default function MyTime() {
         </p>
         <p className="text-body-sm text-ink-muted">
           {summaryLoaded
-            ? `${totals.approved.toFixed(1)}h approved · ${totals.waiting.toFixed(1)}h waiting for approval`
+            ? totals.complete ? `${totals.approved.toFixed(1)}h Approved for payroll · ${totals.timeWaiting.toFixed(1)}h Time waiting for approval · ${totals.overtimeWaiting.toFixed(1)}h Overtime waiting for approval` : 'Approval totals unavailable'
             : supervisor
               ? 'Open Timecards to check your time.'
               : 'Open My Hours to check your time.'}

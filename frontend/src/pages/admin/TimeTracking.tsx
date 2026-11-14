@@ -337,7 +337,7 @@ function EmployeeReviewBadge({ employee }: { employee: HoursReportEmployee }) {
     return <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Excluded work</span>
   }
 
-  if (employee.ready) {
+  if (employee.ready && employee.approval_complete) {
     return <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">Ready</span>
   }
 
@@ -2102,13 +2102,15 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
 
           {!reportError && (
           <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-            <ReportMetric label="Total Hours" value={reportLoading ? '…' : formatHours(reportSummary.total_hours)} emphasize />
-            <ReportMetric label="Regular" value={reportLoading ? '…' : formatHours(reportSummary.regular_hours)} />
-            <ReportMetric label="Overtime" value={reportLoading ? '…' : formatHours(reportSummary.overtime_hours)} tone={reportSummary.overtime_hours > 0 ? 'warning' : 'normal'} />
-            <ReportMetric label="Break Hours" value={reportLoading ? '…' : formatHours(reportSummary.break_hours)} />
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <ReportMetric label="Approved for payroll" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.approved_hours) : 'Unavailable'} emphasize />
+            <ReportMetric label="Approved regular" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.approved_regular_hours) : 'Unavailable'} />
+            <ReportMetric label="Approved overtime" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.approved_overtime_hours) : 'Unavailable'} />
+            <ReportMetric label="Time waiting for approval" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.time_waiting_hours) : 'Unavailable'} />
+            <ReportMetric label="Overtime waiting for approval" value={reportLoading ? '…' : reportSummary.payroll_hours ? formatHours(reportSummary.payroll_hours.overtime_waiting_hours) : 'Unavailable'} tone="warning" />
             <ReportMetric label="Employees" value={reportLoading ? '…' : String(reportSummary.employee_count)} />
           </div>
+          <p className="text-sm text-text-muted">Waiting hours are not included in payroll totals. Approval totals include all approval statuses; status filters narrow the worked-hour details below.</p>
 
           {hoursReport && (
             <div className={`rounded-xl border px-4 py-3 ${
@@ -2231,18 +2233,19 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                   </span>
                   <span className="mt-3 grid grid-cols-3 gap-2">
                     <span className="rounded-xl bg-slate-50 px-3 py-2">
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Regular</span>
-                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.regular_hours.toFixed(2)}h</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Approved regular</span>
+                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.payroll_hours?.approved_regular_hours.toFixed(2) ?? '—'}h</span>
                     </span>
                     <span className="rounded-xl bg-slate-50 px-3 py-2">
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">OT</span>
-                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.overtime_hours.toFixed(2)}h</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Approved overtime</span>
+                      <span className="mt-0.5 block text-sm font-semibold text-primary-dark">{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}h</span>
                     </span>
                     <span className="rounded-xl bg-slate-50 px-3 py-2">
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Total</span>
-                      <span className="mt-0.5 block text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}h</span>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-text-muted">Approved for payroll</span>
+                      <span className="mt-0.5 block text-sm font-bold text-primary">{employee.payroll_hours?.approved_hours.toFixed(2) ?? '—'}h</span>
                     </span>
                   </span>
+                  <span className="mt-3 block text-xs text-amber-900">Time waiting for approval: {employee.payroll_hours?.time_waiting_hours.toFixed(2) ?? '—'}h · Overtime waiting for approval: {employee.payroll_hours?.overtime_waiting_hours.toFixed(2) ?? '—'}h</span>
                   <span className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs text-text-muted">{employee.entries_count} {employee.entries_count === 1 ? 'entry' : 'entries'} · {formatHours(employee.break_hours)} break hours</span>
                     <EmployeeReviewBadge employee={employee} />
@@ -2258,9 +2261,9 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Departments</th>
                     <th className="px-4 py-3 text-center text-xs font-medium uppercase text-text-muted">Type</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Hour Types</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Regular</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">OT</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Total</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Approved regular</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Approved overtime</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Approved for payroll</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Breaks</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase text-text-muted">Entries</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase text-text-muted">Review</th>
@@ -2291,6 +2294,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                           <EmploymentStatusBadge employee={employee} />
                         </div>
                         <div className="mt-1 text-xs font-normal text-text-muted">{employee.days_worked} {employee.days_worked === 1 ? 'day' : 'days'} worked{employee.first_work_date && employee.last_work_date ? ` · ${formatDate(employee.first_work_date)}–${formatDate(employee.last_work_date)}` : ''}</div>
+                        <div className="mt-1 text-xs font-normal text-amber-900">Time waiting for approval: {employee.payroll_hours?.time_waiting_hours.toFixed(2) ?? '—'}h<br />Overtime waiting for approval: {employee.payroll_hours?.overtime_waiting_hours.toFixed(2) ?? '—'}h</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-text-muted">{employee.approval_group_labels?.join(', ') || employee.approval_group_label || 'Unassigned'}</td>
                       <td className="px-4 py-3 text-center text-sm">
@@ -2311,7 +2315,7 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                           </div>
                         ) : '—'}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm text-primary-dark">{employee.regular_hours.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-sm text-primary-dark">{employee.payroll_hours?.approved_regular_hours.toFixed(2) ?? '—'}</td>
                       <td className="px-4 py-3 text-right text-sm font-semibold">
                         {employee.overtime_hours > 0 ? (
                           <button
@@ -2323,14 +2327,14 @@ export default function TimeTracking({ section }: { section?: TimeTab } = {}) {
                             className="inline-flex items-center justify-end gap-1 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-bold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
                             title="View weekly overtime breakdown"
                           >
-                            <span>{employee.overtime_hours.toFixed(2)}</span>
+                            <span>{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}</span>
                             <span className="text-[10px] uppercase tracking-[0.12em]">OT</span>
                           </button>
                         ) : (
-                          <span className="text-text-muted">{employee.overtime_hours.toFixed(2)}</span>
+                          <span className="text-text-muted">{employee.payroll_hours?.approved_overtime_hours.toFixed(2) ?? '—'}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm font-bold text-primary">{employee.total_hours.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-sm font-bold text-primary">{employee.payroll_hours?.approved_hours.toFixed(2) ?? '—'}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{formatHours(employee.break_hours)}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{employee.entries_count}</td>
                       <td className="px-4 py-3 text-sm"><EmployeeReviewBadge employee={employee} /></td>

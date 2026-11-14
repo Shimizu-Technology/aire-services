@@ -1,10 +1,10 @@
 import { fetchApi } from '../api'
 
 export interface PayrollConnection {
-  state: string
+  state: import('./attention').PayrollConnectionStatus['state']
   mode: string
   last_publication: { published_at: string } | null
-  last_delivery: { delivered_at: string } | null
+  last_delivery: { delivered_at: string | null } | null
   account_link: {
     aire_user: { full_name: string }
     payroll_user_email: string
