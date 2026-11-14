@@ -144,6 +144,7 @@ module Api
 
         return unless require_correction_reason_for_payroll_entry!
 
+        was_denied = @time_entry.approval_status == "denied"
         old_values = {
           hours: @time_entry.hours.to_f,
           work_date: @time_entry.work_date.iso8601,
@@ -202,7 +203,8 @@ module Api
             raise ActiveRecord::Rollback unless saved
 
             if @time_entry.status == "completed" &&
-               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
+               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601 ||
+                (was_denied && @time_entry.approval_status == "pending"))
               new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
               overtime_attrs = { overtime_status: new_overtime }
 

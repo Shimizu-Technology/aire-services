@@ -49,6 +49,17 @@ RSpec.describe "Denying a shift in the Approvals inbox", type: :request do
     expect(reasons.pluck(:key)).not_to include("edited")
   end
 
+  it "recalculates overtime and clears the old reviewer when an unchanged denied shift is reopened by a plain edit" do
+    (0..3).each { |day| clock_shift(employee, monday + day, hours: 10, approval_status: "approved") }
+    entry = clock_shift(employee, monday + 4, approval_status: "denied", overtime_status: "denied",
+      overtime_approved_by: manager, overtime_approved_at: Time.current, overtime_note: "Earlier denial")
+    patch "/api/v1/time_entries/#{entry.id}", params: { time_entry: { description: "Please review again" } }, headers: headers_for(employee), as: :json
+
+    expect(response).to have_http_status(:ok)
+    expect(entry.reload).to have_attributes(approval_status: "pending", overtime_status: "pending",
+      overtime_approved_by: nil, overtime_approved_at: nil, overtime_note: nil, hours: 8, work_date: monday + 4)
+  end
+
   it "rolls back the time and overtime decision together if auditing fails" do
     entry = clock_shift(employee, monday, overtime_status: "pending")
     allow(TimeClockService).to receive(:record_review_event!).and_raise(ActiveRecord::RecordInvalid)
