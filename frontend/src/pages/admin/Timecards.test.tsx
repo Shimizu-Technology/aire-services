@@ -204,6 +204,15 @@ describe('Timecards on a phone', () => {
     expect(await screen.findByText("Added 8.0h for Caleb. It's waiting in Approvals.")).toBeInTheDocument()
   })
 
+  it("names the current period's lock from the next lock when the headline lock is an older period", async () => {
+    apiMock.getPayrollCutoff.mockResolvedValue({ data: {
+      cutoff: { period: { id: 0, start_date: '2026-10-16', end_date: '2026-10-31' }, cutoff_at: '2026-11-07T17:00:00+10:00', stage: 'passed' },
+      next_lock: { period: { id: 1, start_date: '2026-11-01', end_date: '2026-11-15' }, cutoff_at: '2026-11-18T17:00:00+10:00' },
+    } })
+    openAt('/admin/timecards')
+    expect(await screen.findByText('Nov 1–15 · locks Wed, Nov 18')).toBeInTheDocument()
+  })
+
   it('blocks Fix clock-out and Log missed time while work categories are missing, until a retry loads them', async () => {
     apiMock.getTimeCategories.mockResolvedValueOnce({ error: 'Server returned an invalid response (502)', status: 502 })
     openAt('/admin/timecards?user_id=7&period=2026-11-01')
@@ -541,5 +550,50 @@ describe('Timecards on a desktop', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Log missed time' }))
     expect(within(screen.getByRole('dialog', { name: 'Log missed time' })).getByRole('combobox', { name: 'Who worked' })).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Add shift' })).toBeDisabled()
+  })
+
+  describe('coming back from a shift\'s history', () => {
+    const moved = entry({ id: 42, work_date: '2026-11-09', approval_status: 'pending', hours: 9.12, formatted_end_time: '4:07 PM' })
+    beforeEach(() => {
+      apiMock.getTimeEntry.mockResolvedValue({ data: { time_entry: moved } })
+      apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number; week?: string }) => ({
+        data: { time_entries: params.user_id === 7 || params.week ? [moved] : [], pagination: { total_pages: 1 } },
+      }))
+    })
+
+    it('reopens Edit shift on a person\'s timecard and clears the request', async () => {
+      openAt('/admin/timecards?user_id=7&period=2026-11-01&entry_id=42&return=edit')
+      const editor = await screen.findByRole('dialog', { name: 'Edit Time Entry' })
+      expect(within(editor).getByText('Caleb Perez')).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByTestId('url').textContent).not.toContain('return=edit'))
+      expect(search().get('user_id')).toBe('7')
+      expect(search().get('period')).toBe('2026-11-01')
+      expect(search().get('entry_id')).toBe('42')
+    })
+
+    it('reopens it from the Everyone week, keeping the Everyone view', async () => {
+      openAt('/admin/timecards?view=everyone&period=2026-11-01&date=2026-11-02&entry_id=42&return=edit')
+      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      expect(search().get('view')).toBe('everyone')
+      await waitFor(() => expect(screen.getByTestId('url').textContent).not.toContain('return=edit'))
+      expect(search().get('date')).toBe('2026-11-09')
+    })
+
+    it('follows a shift that moved to another pay period', async () => {
+      openAt('/admin/timecards?user_id=7&period=2026-10-16&entry_id=42&return=edit')
+      expect(await screen.findByRole('dialog', { name: 'Edit Time Entry' })).toBeInTheDocument()
+      expect(search().get('period')).toBe('2026-11-01')
+      expect((await screen.findAllByText(/^Nov 1–15/)).length).toBeGreaterThan(0)
+    })
+
+    it('says so plainly when the shift is gone, and opens nothing', async () => {
+      apiMock.getTimeEntry.mockResolvedValue({ error: 'Not found', status: 404 })
+      openAt('/admin/timecards?user_id=7&period=2026-11-01&entry_id=42&return=edit')
+      expect(await screen.findByText(/deleted or can't be edited any more/)).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+      expect(search().has('return')).toBe(false)
+      expect(screen.queryByText(/deleted or can't be edited any more/)).not.toBeInTheDocument()
+    })
   })
 })

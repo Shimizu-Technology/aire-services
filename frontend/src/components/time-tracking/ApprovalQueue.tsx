@@ -25,6 +25,9 @@ interface ApprovalQueueProps {
     | { mode: 'through'; throughDate: string }
   onUpdate?: () => void
   canDeleteEntry?: (entry: TimeEntry) => boolean
+  /** A shift to open in Edit shift (coming back from its history), whatever this list is filtered to. */
+  reopenEntry?: TimeEntry | null
+  onReopened?: () => void
 }
 
 type DateMode = 'all' | 'exact' | 'range' | 'through' | 'since'
@@ -267,7 +270,7 @@ function approveLabel(entry: TimeEntry) {
   return entry.approval_status === 'pending' ? `Approve time + ${hours.toFixed(2)} OT` : `Approve ${hours.toFixed(2)} OT`
 }
 
-export default function ApprovalQueue({ canManageTeamTime = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ canManageTeamTime = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry, reopenEntry = null, onReopened }: ApprovalQueueProps) {
   const [confirm, confirmDialog] = useConfirm()
   const { currentUser } = useAuthContext()
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
@@ -304,9 +307,16 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
   const [actionError, setActionError] = useState<string | null>(null)
   const [approvalNotice, setApprovalNotice] = useState<string | null>(null)
   const [noteInput, setNoteInput] = useState<{ id: number; note: string } | null>(null)
+  // A denial needs a reason; say so beside that row's note box, not in the banner far above.
+  const [rowError, setRowError] = useState<{ id: number; message: string } | null>(null)
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('aire_pending_approvals_collapsed') === 'true')
+  useEffect(() => {
+    if (!reopenEntry || categories.length === 0) return
+    setEditingEntry(reopenEntry)
+    onReopened?.()
+  }, [reopenEntry, categories.length, onReopened])
   const fetchGenerationRef = useRef(0)
   const routedDateMode = initialDateFilter?.mode
   const routedStartDate = initialDateFilter?.mode === 'range' ? initialDateFilter.startDate : undefined
@@ -526,12 +536,22 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
     }
   }
 
+  const askForReason = (entry: TimeEntry, message: string) => {
+    setNoteInput((current) => (current?.id === entry.id ? current : { id: entry.id, note: '' }))
+    setActionError(null)
+    setRowError({ id: entry.id, message })
+    window.setTimeout(() => {
+      const field = document.getElementById(`approval-note-${entry.id}`)
+      field?.scrollIntoView?.({ block: 'center' })
+      field?.focus({ preventScroll: true })
+    }, 0)
+  }
+
   const handleDenyOvertime = async (entry: TimeEntry) => {
     if (queueUnavailable) return
     const reason = noteInput?.id === entry.id ? noteInput.note.trim() : ''
     if (!reason) {
-      setNoteInput({ id: entry.id, note: '' })
-      setActionError('Add a reason in the note box, then click Deny OT again.')
+      askForReason(entry, 'Add a reason, then press Deny OT again.')
       return
     }
     setActionLoading(entry.id)
@@ -556,6 +576,11 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
 
   const handleDeny = async (entry: TimeEntry, note?: string) => {
     if (queueUnavailable) return
+    if (!note?.trim()) {
+      askForReason(entry, 'Add a reason, then press Deny again.')
+      return
+    }
+    setRowError(null)
     setActionLoading(entry.id)
     setActionError(null)
     setApprovalNotice(null)
@@ -566,7 +591,8 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
         : await api.denyTimeEntry(entry.id, note)
 
       if (result.error) {
-        setActionError(result.error)
+        if (/reason is required/i.test(result.error)) askForReason(entry, result.error)
+        else setActionError(result.error)
       } else {
         window.dispatchEvent(new Event('aire:approvals-updated'))
         await fetchPending(approvalGroupFilter)
@@ -860,12 +886,19 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
                 className="mt-3"
               >
                 <input
+                  id={`approval-note-${entry.id}`}
                   type="text"
                   value={noteInput.note}
-                  onChange={event => setNoteInput({ ...noteInput, note: event.target.value })}
-                  placeholder="Add a note (optional)..."
-                  className="w-full px-3 py-2 text-sm border border-neutral-warm rounded-xl bg-white text-primary-dark placeholder:text-text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  onChange={event => { if (rowError?.id === entry.id) setRowError(null); setNoteInput({ ...noteInput, note: event.target.value }) }}
+                  placeholder={rowError?.id === entry.id ? 'Reason (needed to deny)' : 'Add a note (optional)...'}
+                  aria-label={rowError?.id === entry.id ? 'Reason for denying' : 'Note'}
+                  aria-invalid={rowError?.id === entry.id ? true : undefined}
+                  aria-describedby={rowError?.id === entry.id ? `approval-note-${entry.id}-error` : undefined}
+                  className={`w-full px-3 py-2 text-sm border rounded-xl bg-white text-primary-dark placeholder:text-text-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary ${rowError?.id === entry.id ? 'border-red-500' : 'border-neutral-warm'}`}
                 />
+                {rowError?.id === entry.id && (
+                  <p id={`approval-note-${entry.id}-error`} className="mt-1.5 text-sm font-semibold text-red-700">{rowError.message}</p>
+                )}
               </div>
             )}
 

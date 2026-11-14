@@ -23,6 +23,8 @@ export interface ConfirmDialogProps {
   busy?: boolean
   /** When set, the action stays disabled until this exact text is typed. */
   requireText?: string
+  /** A third choice between Cancel and the action, e.g. "Discard changes". */
+  alternate?: { label: string; onClick: () => void; tone?: 'default' | 'danger' }
   onConfirm: () => void
   onCancel: () => void
 }
@@ -42,6 +44,7 @@ function OpenConfirmDialog({
   tone = 'default',
   busy = false,
   requireText,
+  alternate,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -51,6 +54,7 @@ function OpenConfirmDialog({
   const danger = tone === 'danger'
   const initialFocus = requireText ? '[data-confirm-input]' : danger ? '[data-confirm-cancel]' : '[data-confirm-action]'
   useDialogFocus(true, dialogRef, () => { if (!busy) onCancel() }, initialFocus)
+  const buttonWidth = alternate ? 'w-full' : 'w-full sm:w-auto'
   const blocked = Boolean(requireText) && typed.trim() !== requireText
 
   return createPortal(
@@ -101,17 +105,28 @@ function OpenConfirmDialog({
             />
           </div>
         )}
-        <div className={cx('mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end')}>
-          <Button data-confirm-cancel variant="secondary" onClick={onCancel} disabled={busy} className="w-full sm:w-auto">
+        {/* Three choices don't fit side by side in a dialog this narrow, so they stack. */}
+        <div className={cx('mt-6 flex flex-col-reverse gap-2', !alternate && 'sm:flex-row sm:justify-end')}>
+          <Button data-confirm-cancel variant="secondary" onClick={onCancel} disabled={busy} className={buttonWidth}>
             {cancelLabel}
           </Button>
+          {alternate && (
+            <Button
+              variant={alternate.tone === 'danger' ? 'danger-outline' : 'secondary'}
+              onClick={alternate.onClick}
+              disabled={busy}
+              className={buttonWidth}
+            >
+              {alternate.label}
+            </Button>
+          )}
           <Button
             data-confirm-action
             variant={danger ? 'danger' : 'primary'}
             onClick={onConfirm}
             loading={busy}
             disabled={blocked || confirmDisabled}
-            className="w-full sm:w-auto"
+            className={buttonWidth}
           >
             {confirmLabel}
           </Button>
