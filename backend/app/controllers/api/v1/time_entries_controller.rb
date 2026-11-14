@@ -99,27 +99,35 @@ module Api
         @time_entry.approval_status = "pending"
 
         saved = false
+        overlap_error = nil
         TimeEntry.transaction do
-          saved = @time_entry.save
-          raise ActiveRecord::Rollback unless saved
+          ::Payroll::AffectedOvertimeReview.lock([ entry_owner.id ]) do
+            overlap_error = TimeEntryOverlap.error_for(@time_entry, actor: current_user)
+            raise ActiveRecord::Rollback if overlap_error
 
-          AuditLog.record!(
-            action: "time_entry.created",
-            auditable: @time_entry,
-            actor: current_user,
-            event_category: "time_tracking",
-            metadata: {
-              employee_id: @time_entry.user_id,
-              employee_name: @time_entry.user&.full_name,
-              hours: @time_entry.hours.to_f,
-              work_date: @time_entry.work_date.iso8601,
-              entry_method: "manual",
-              approval_status: @time_entry.approval_status
-            }
-          )
+            saved = @time_entry.save
+            raise ActiveRecord::Rollback unless saved
+
+            AuditLog.record!(
+              action: "time_entry.created",
+              auditable: @time_entry,
+              actor: current_user,
+              event_category: "time_tracking",
+              metadata: {
+                employee_id: @time_entry.user_id,
+                employee_name: @time_entry.user&.full_name,
+                hours: @time_entry.hours.to_f,
+                work_date: @time_entry.work_date.iso8601,
+                entry_method: "manual",
+                approval_status: @time_entry.approval_status
+              }
+            )
+          end
         end
 
-        if saved
+        if overlap_error
+          render json: { error: overlap_error, code: "overlapping_shift" }, status: :unprocessable_entity
+        elsif saved
           render json: { time_entry: serialize_time_entry(@time_entry) }, status: :created
         else
           render json: { error: @time_entry.errors.full_messages.join(", ") }, status: :unprocessable_entity
@@ -180,8 +188,13 @@ module Api
 
         saved = false
         break_replace_error = nil
+        overlap_error = nil
         @time_entry.transaction do
           ::Payroll::AffectedOvertimeReview.around(@time_entry, force: true) do
+            @time_entry.assign_attributes(update_params)
+            overlap_error = TimeEntryOverlap.error_for(@time_entry, actor: current_user)
+            raise ActiveRecord::Rollback if overlap_error
+
             saved = @time_entry.update(update_params)
             if saved && break_update
               break_replace_error = if break_update[:retain_ids]
@@ -244,7 +257,9 @@ module Api
           end
         end
 
-        if break_replace_error
+        if overlap_error
+          render json: { error: overlap_error, code: "overlapping_shift" }, status: :unprocessable_entity
+        elsif break_replace_error
           render json: { error: break_replace_error }, status: :unprocessable_entity
         elsif saved
           render json: { time_entry: serialize_time_entry(@time_entry) }

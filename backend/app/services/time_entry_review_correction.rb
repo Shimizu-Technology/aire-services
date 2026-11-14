@@ -41,6 +41,8 @@ class TimeEntryReviewCorrection
       entry.overtime_approved_by = nil
       entry.overtime_approved_at = nil
       entry.overtime_note = nil
+      overlap = TimeEntryOverlap.error_for(entry, actor: actor)
+      raise CorrectionError, overlap if overlap
       entry.save!
       AuditLog.record!(
         action: action == "end_clock" ? "time_entry.clock_ended" : "time_entry.denied_resubmitted",

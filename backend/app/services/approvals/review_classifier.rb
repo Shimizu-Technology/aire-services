@@ -49,7 +49,8 @@ module Approvals
       over_max_hours: "Over %{hours}h",
       after_lock: "After the lock (goes to the next payroll)",
       crosses_period: "Crosses into the next period",
-      needs_time_review: "Needs time review"
+      needs_time_review: "Needs time review",
+      overlaps: "Overlaps another shift"
     }.freeze
 
     # Why a completed clock entry's shift may not be auto-approved. An empty
@@ -84,6 +85,7 @@ module Approvals
       segments_by_id = SegmentChains.new(@entries).call
       context = Context.new(segments_by_id.values.flatten)
       max_hours = Setting.auto_approve_max_shift_hours
+      @overlapping_ids = TimeEntryOverlap.overlapping_ids(@entries)
       @entries.to_h do |entry|
         exceptions = viewer_exceptions(entry, segments_by_id.fetch(entry.id), context, max_hours)
         [ entry.id, { review_kind: exceptions.empty? ? ORDINARY : NEEDS_LOOK, exceptions: exceptions } ]
@@ -119,6 +121,8 @@ module Approvals
       found << exception(:over_max_hours, format(LABELS[:over_max_hours], hours: max_hours.to_f.round(2).to_s.delete_suffix(".0"))) if rules.include?(:too_long)
       found << exception(:after_lock) if rules.include?(:late_hours)
       found << exception(:crosses_period) if rules.include?(:crosses_period)
+      # Two shifts at once can't both be paid. Never in a batch; a person picks.
+      found << exception(:overlaps) if @overlapping_ids.include?(entry.id)
       # Every rule that fired must show up as a reason, or the shift would look
       # ordinary. Waiting time with an unlisted note (an auto-close, say) lands here.
       found << exception(:needs_time_review) if found.empty? && rules.any?

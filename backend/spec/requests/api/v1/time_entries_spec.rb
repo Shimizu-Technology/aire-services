@@ -321,9 +321,11 @@ RSpec.describe "Api::V1::TimeEntries", type: :request do
         work_date = Date.new(2026, 4, 30)
 
         travel_to guam.local(2026, 4, 30, 10, 0, 0) do
+          # Not `employee`: their `entry` is dated today, after this April clock,
+          # and an open clock overlaps everything after it started.
           active_entry = create(
             :time_entry,
-            user: employee,
+            user: other_employee,
             work_date: work_date,
             entry_method: "clock",
             status: "clocked_in",
