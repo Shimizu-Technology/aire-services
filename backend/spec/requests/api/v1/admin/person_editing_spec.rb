@@ -20,6 +20,135 @@ RSpec.describe "Versioned person editing and employment", type: :request do
       params: { effective_on: Date.current.iso8601, admin_edit_version: person.admin_edit_version, confirm_name: person.full_name }.merge(attributes), headers: headers
   end
 
+  it "distinguishes missing edit versions from a concurrent edit" do
+    [ nil, "" ].each do |version|
+      edit(worker, { staff_title: "Not saved" }, version: version)
+      expect(response).to have_http_status(:conflict)
+      expect(response.parsed_body["error"]).to eq("This page is out of date. Reload to continue.")
+    end
+    expect(worker.reload).to have_attributes(staff_title: nil, admin_edit_version: 0)
+  end
+
+  it "rejects multipart edits that are not JSON objects with a plain 400" do
+    [ "[]", "null", "true", '"name"', "4" ].each do |value|
+      patch "/api/v1/admin/users/#{worker.id}", params: { person_edit: value }, headers: headers
+      expect(response).to have_http_status(:bad_request)
+      expect(response.parsed_body["error"]).to eq("Person changes must be a JSON object.")
+    end
+    expect(worker.reload.admin_edit_version).to eq(0)
+  end
+
+  [ true, false ].each do |previously_terminated|
+    it "preserves legacy kiosk-only access with an email and rotates the PIN (terminated=#{previously_terminated})" do
+      worker.update!(personal_access_enabled: false, time_tracking_enabled: true, kiosk_enabled: true, kiosk_pin: "618572")
+      worker.update_columns(is_active: false, terminated_at: previously_terminated ? Time.current : nil, termination_access_snapshot: {})
+      old_digest = worker.kiosk_pin_digest
+      old_lookup = worker.kiosk_pin_lookup_hash
+      post "/api/v1/admin/users/#{worker.id}/reactivate", params: { admin_edit_version: 0 }, headers: headers
+      expect(response).to have_http_status(:ok)
+      pin = response.parsed_body.fetch("kiosk_pin")
+      expect(pin).to match(/\A\d{6}\z/)
+      expect(worker.reload).to have_attributes(is_active: true, personal_access_enabled: false, time_tracking_enabled: true, kiosk_enabled: true)
+      expect(worker.kiosk_pin_digest).not_to eq(old_digest)
+      expect(worker.kiosk_pin_lookup_hash).not_to eq(old_lookup)
+      expect(worker.authenticate_kiosk_pin(pin)).to eq(worker)
+      expect(worker.verify_kiosk_pin("618572")).to be(false)
+      get "/api/v1/admin/users/#{worker.id}", headers: headers
+      expect(response.parsed_body).not_to have_key("kiosk_pin")
+    end
+  end
+
+  it "preserves all legacy access flags, and clears an old personal-account PIN on reactivation" do
+    worker.update!(time_tracking_enabled: true, kiosk_enabled: true, kiosk_pin: "529681")
+    worker.update_columns(is_active: false, time_tracking_enabled: false, kiosk_enabled: false, termination_access_snapshot: {})
+    post "/api/v1/admin/users/#{worker.id}/reactivate", params: { admin_edit_version: 0 }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body["kiosk_pin"]).to be_nil
+    expect(worker.reload).to have_attributes(personal_access_enabled: true, time_tracking_enabled: false, kiosk_enabled: false,
+      kiosk_pin_digest: nil, kiosk_pin_lookup_hash: nil, kiosk_pin_last_rotated_at: nil)
+    expect(worker.verify_kiosk_pin("529681")).to be(false)
+  end
+
+  [
+    [ "pending", -5, -4, "cancelled" ],
+    [ "approved", -1, 5, "approved" ],
+    [ "approved", 0, 1, "approved" ],
+    [ "approved", 1, 2, "cancelled" ]
+  ].each do |status, start_offset, end_offset, expected|
+    it "uses last day worked for #{status} leave starting #{start_offset} days later (#{expected})" do
+      cutoff = Date.new(2026, 11, 11)
+      leave = create(:leave_request, user: worker, status: status, start_date: cutoff + start_offset, end_date: cutoff + end_offset)
+      get "/api/v1/admin/users/#{worker.id}/termination_preview", params: { effective_on: cutoff.iso8601 }, headers: headers
+      count = expected == "cancelled" ? 1 : 0
+      expect(response.parsed_body.fetch("preview")).to include("pending_leave_requests" => status == "pending" ? 1 : 0,
+        "approved_leave_requests" => status == "approved" ? count : 0, "open_leave_requests" => count, "effective_on" => cutoff.iso8601)
+      end_employment(worker, effective_on: cutoff.iso8601)
+      expect(response).to have_http_status(:ok)
+      expect(leave.reload.status).to eq(expected)
+      row = AuditLog.find_by(auditable: leave, action: "leave_request.cancelled")
+      if expected == "cancelled"
+        expect(row.changes_made).to include("status" => [ status, "cancelled" ])
+        expect(row.metadata).to include("effective_on" => cutoff.iso8601)
+      else
+        expect(row).to be_nil
+      end
+    end
+  end
+
+  it "checks and advances PIN reset versions under the admin and employee locks" do
+    category = create(:time_category)
+    worker.update!(time_tracking_enabled: true, kiosk_enabled: true, kiosk_pin: "692851")
+    worker.user_time_categories.create!(time_category: category)
+    expect(User).to receive(:with_admin_access_lock).twice.and_call_original
+    post "/api/v1/admin/users/#{worker.id}/reset_kiosk_pin", params: { admin_edit_version: 0 }, headers: headers
+    expect(response).to have_http_status(:ok)
+    pin = response.parsed_body.fetch("kiosk_pin")
+    expect(worker.reload.admin_edit_version).to eq(1)
+    expect(worker.verify_kiosk_pin(pin)).to be(true)
+    expect(worker.verify_kiosk_pin("692851")).to be(false)
+    post "/api/v1/admin/users/#{worker.id}/reset_kiosk_pin", params: { admin_edit_version: 0 }, headers: headers
+    expect(response).to have_http_status(:conflict)
+    expect(worker.reload.verify_kiosk_pin(pin)).to be(true)
+    expect(AuditLog.find_by!(action: "user.kiosk_pin_reset", auditable: worker).changes_made).to include("admin_edit_version" => [ 0, 1 ])
+  end
+
+  it "rechecks PIN eligibility after acquiring locks" do
+    worker.update!(time_tracking_enabled: true, kiosk_enabled: true, kiosk_pin: "692851")
+    allow(User).to receive(:with_admin_access_lock).and_wrap_original do |original, &block|
+      worker.update_columns(is_active: false)
+      original.call(&block)
+    end
+    post "/api/v1/admin/users/#{worker.id}/reset_kiosk_pin", params: { admin_edit_version: 0 }, headers: headers
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(response.parsed_body["error"]).to include("Reactivate this person")
+    expect(worker.reload.admin_edit_version).to eq(0)
+  end
+
+  it "purges detached photos after a successful edit and creates no orphan when a photo save rolls back" do
+    worker.public_team_photo.attach(fixture_file_upload("team_photo.png", "image/png"))
+    blob = worker.public_team_photo.blob
+    expect { edit(worker, { remove_photo: true }) }.to have_enqueued_job(ActiveStorage::PurgeJob).with(blob)
+    expect(response).to have_http_status(:ok)
+    expect(worker.reload.public_team_photo).not_to be_attached
+    upload_key = nil
+    allow(AuditLog).to receive(:record!).and_wrap_original do |original, **args|
+      if args[:changes]&.key?(:public_team_photo)
+        upload_key = ActiveStorage::Blob.find(args[:changes][:public_team_photo].last).key
+        raise ActiveRecord::RecordInvalid.new(worker)
+      end
+      original.call(**args)
+    end
+    expect {
+      patch "/api/v1/admin/users/#{worker.id}", params: { person_edit: { admin_edit_version: 1, staff_title: "Rolled back" }.to_json,
+        photo: fixture_file_upload("team_photo.png", "image/png") }, headers: headers
+    }.not_to change(ActiveStorage::Blob, :count)
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(worker.reload.public_team_photo).not_to be_attached
+    expect(worker.staff_title).to be_nil
+    expect(upload_key).to be_present
+    expect(ActiveStorage::Blob.service.exist?(upload_key)).to be(false)
+  end
+
   it "serializes the explicit version and rejects stale edits without fields, assignments, My Pay or audit writes" do
     get "/api/v1/admin/users/#{worker.id}", headers: headers
     version = response.parsed_body.dig("user", "admin_edit_version")
@@ -88,14 +217,17 @@ RSpec.describe "Versioned person editing and employment", type: :request do
     expect(AuditLog.where(auditable: worker).order(:id).last.changes_made).to include("approval_groups" => [ %w[cfi ops_maintenance], [ "cfi" ] ])
   end
 
-  it "rolls back the version, assignments, My Pay and audit when Clerk sync fails" do
+  it "keeps local edits and audits a non-blocking notice when Clerk sync fails" do
     allow(ClerkUserService).to receive(:update_user!).and_raise(ClerkUserService::Error, "Clerk unavailable")
-    expect {
-      edit(worker, { first_name: "Changed", approval_groups: [ "cfi" ], my_pay_enabled: false })
-    }.not_to change { AuditLog.where(auditable: worker).count }
-    expect(response).to have_http_status(:unprocessable_entity)
-    expect(worker.reload).to have_attributes(first_name: "Ana", admin_edit_version: 0, my_pay_enabled: true)
-    expect(worker.approval_group_keys).to eq([])
+    edit(worker, { first_name: "Changed", approval_groups: [ "cfi" ], my_pay_enabled: false })
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body["notice"]).to include("Changes saved in AIRE", "could not sync to Clerk")
+    expect(worker.reload).to have_attributes(first_name: "Changed", admin_edit_version: 2, my_pay_enabled: false)
+    expect(worker.approval_group_keys).to eq([ "cfi" ])
+    failure = AuditLog.find_by!(auditable: worker, action: "user.clerk_sync_failed")
+    expect(failure.outcome).to eq("failed")
+    expect(failure.changes_made).to include("first_name" => [ "Ana", "Changed" ])
+    expect(failure.metadata).to include("local_changes_saved" => true, "clerk_sync_error" => "Clerk unavailable")
   end
 
   it "previews waiting time separately from overtime, open clocks, live links and open leave" do
@@ -255,6 +387,20 @@ RSpec.describe "Legacy person photo request transactions", type: :request do
       connection.execute("ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_append_only")
     end
     User.where(id: [ worker.id, admin.id ]).destroy_all
+  end
+
+  it "commits profile edits before Clerk HTTP and avoids the global lock for plain name edits" do
+    expect(User).not_to receive(:with_admin_access_lock)
+    allow(ClerkUserService).to receive(:update_user!) do
+      expect(ActiveRecord::Base.connection.transaction_open?).to be(false)
+      expect(worker.reload.first_name).to eq("Committed")
+      raise ClerkUserService::Error, "Clerk unavailable"
+    end
+    patch "/api/v1/admin/users/#{worker.id}", params: { admin_edit_version: 0, first_name: "Committed" }, headers: headers
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body["notice"]).to include("Changes saved in AIRE")
+    expect(worker.reload.admin_edit_version).to eq(1)
+    expect(AuditLog.find_by!(auditable: worker, action: "user.clerk_sync_failed").metadata).to include("local_changes_saved" => true)
   end
 
   it "opens its own transaction for upload and removal without fixture transactions" do

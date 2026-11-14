@@ -49,6 +49,7 @@ export function EmploymentTab({ user: incomingUser, onSaved }: { user: AdminUser
     return { groups: dataOrThrow(settings, "Couldn't load departments.").approval_groups, categories: dataOrThrow(work, "Couldn't load work types.").time_categories }
   }, "Couldn't load the work setup choices.")
   const ended = user.employment_status === 'terminated'
+  const inactive = !user.is_active
   const dirty = title !== (user.staff_title || '') || first !== (user.first_name || '') || last !== (user.last_name || '') ||
     JSON.stringify(groups) !== JSON.stringify(user.approval_group_keys ?? (user.approval_group ? [user.approval_group] : [])) ||
     JSON.stringify(categories) !== JSON.stringify(user.time_category_ids ?? []) || tracking !== user.time_tracking_enabled || intern !== Boolean(user.is_intern) ||
@@ -94,8 +95,8 @@ export function EmploymentTab({ user: incomingUser, onSaved }: { user: AdminUser
         <p className="[overflow-wrap:anywhere]">{website.public_team_title || title || 'No title yet'}</p></div><Button variant="secondary" disabled={ended || edit.saving} onClick={() => setShowWebsite(true)}>Edit profile</Button></div>
     </section>
     <section aria-label="Employment status" className="space-y-3 rounded-card border border-danger/30 bg-surface p-4">
-      <h2 className="text-body font-semibold">{ended ? 'Employment ended' : 'End employment'}</h2>
-      {ended ? <><p className="text-body-sm [overflow-wrap:anywhere]">Employment ended{user.termination_effective_on ? ` ${formatWorkDate(user.termination_effective_on)}` : ''}{user.terminated_by ? ` by ${user.terminated_by.full_name}` : ''}.</p>
+      <h2 className="text-body font-semibold">{ended ? 'Employment ended' : inactive ? 'Inactive' : 'End employment'}</h2>
+      {ended || inactive ? <><p className="text-body-sm [overflow-wrap:anywhere]">{ended ? 'Employment ended' : 'This person is inactive'}{user.termination_effective_on ? ` ${formatWorkDate(user.termination_effective_on)}` : ''}{user.terminated_by ? ` by ${user.terminated_by.full_name}` : ''}.</p>
         {user.termination_reason && <p className="text-body-sm text-ink-muted [overflow-wrap:anywhere]">{user.termination_reason}</p>}
         {user.can_change_access !== false && <Button variant="secondary" disabled={edit.conflict || edit.saving} onClick={() => setReactivating(true)}>Reactivate…</Button>}</>
         : <><p className="text-body-sm text-ink-muted">Turns off sign-in, the kiosk and My Pay, and revokes open pay stub links. Their hours and paychecks stay.</p>
@@ -107,6 +108,6 @@ export function EmploymentTab({ user: incomingUser, onSaved }: { user: AdminUser
     <UnsavedChangesBar {...unsaved.barProps} />{unsaved.guard}
     <WebsiteProfileSheet open={showWebsite} user={user} value={website} photo={photo} removePhoto={removePhoto} onChange={setWebsite} onPhoto={setPhoto} onRemovePhoto={setRemovePhoto} onClose={() => setShowWebsite(false)} />
     {ending && <EndEmploymentFlow user={user} onClose={() => setEnding(false)} onEnded={accept} />}
-    <ConfirmDialog open={reactivating} title="Reactivate this person?" description="Restores their previous sign-in and time tracking. They need a new kiosk PIN. My Pay and the website profile stay off; revoked pay stub links stay revoked." confirmLabel="Reactivate" busy={restoring} onConfirm={() => void reactivate()} onCancel={() => setReactivating(false)} />
+    <ConfirmDialog open={reactivating} title="Reactivate this person?" description="Restores the access saved when employment ended. If no saved setup exists, keeps their current sign-in, time tracking and kiosk settings. Old PINs are revoked. Kiosk-only staff with kiosk access get a new PIN shown once; personal accounts choose a new PIN at sign-in. My Pay and website visibility stay as they are; revoked pay stub links stay revoked." confirmLabel="Reactivate" busy={restoring} onConfirm={() => void reactivate()} onCancel={() => setReactivating(false)} />
   </div>
 }

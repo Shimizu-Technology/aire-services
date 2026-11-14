@@ -169,7 +169,8 @@ export default function Users() {
 
   const renderMyPaySwitch = (user: AdminUser) => {
     const name = user.full_name || user.display_name
-    if (myPayForEveryone) {
+    const inactive = !user.is_active || user.employment_status === 'terminated'
+    if (myPayForEveryone && !inactive) {
       return <span className="text-xs font-medium text-cyan-800">On for everyone</span>
     }
     return (
@@ -178,10 +179,10 @@ export default function Users() {
           checked={Boolean(user.my_pay_enabled)}
           onChange={(checked) => void toggleUserMyPay(user, checked)}
           label={`My Pay for ${name}`}
-          disabled={!user.is_active || myPayForEveryone === null}
+          disabled={inactive || myPayForEveryone === null}
           busy={myPaySavingIds.has(user.id)}
         />
-        <span className="text-xs text-slate-600">{user.my_pay_enabled ? 'On' : 'Off'}</span>
+        <span className="text-xs text-slate-600">{inactive ? 'Reactivate before turning on My Pay.' : user.my_pay_enabled ? 'On' : 'Off'}</span>
       </span>
     )
   }

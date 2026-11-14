@@ -25,7 +25,7 @@ export function usePersonEdit(user: AdminUser, onSaved: (user: AdminUser, pin?: 
       return
     }
     onSaved(response.data.user, response.data.kiosk_pin)
-    toast.show({ message: edit.send_invitation ? `Changes saved. ${invitationOutcomeMessage(response.data, true)}` : 'Changes saved.' })
+    toast.show({ message: [edit.send_invitation ? `Changes saved. ${invitationOutcomeMessage(response.data, true)}` : 'Changes saved.', response.data.notice].filter(Boolean).join(' ') })
   }
   const reload = async () => {
     setSaving(true)

@@ -73,6 +73,22 @@ RSpec.describe "My Pay switches on the Team page", type: :request do
     expect(response.parsed_body).to eq("enabled_for_all" => false, "enabled_user_ids" => [ worker.id ])
   end
 
+  [ false, true ].each do |terminated|
+    it "refuses to enable My Pay for an inactive person (terminated=#{terminated})" do
+      worker.update_columns(is_active: false, terminated_at: terminated ? Time.current : nil)
+      patch "/api/v1/admin/users/#{worker.id}/my_pay", params: { enabled: true }, headers: headers_for(admin)
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response.parsed_body["error"]).to eq("Reactivate this person before turning on My Pay.")
+      expect(worker.reload).to have_attributes(my_pay_enabled: false, admin_edit_version: 0)
+      expect(AuditLog.where(auditable: worker, action: "user.my_pay_access_changed")).to be_empty
+      # Turning off stale access remains safe and available to existing callers.
+      worker.update_columns(my_pay_enabled: true)
+      patch "/api/v1/admin/users/#{worker.id}/my_pay", params: { enabled: false }, headers: headers_for(admin)
+      expect(response).to have_http_status(:ok)
+      expect(worker.reload.my_pay_enabled).to be(false)
+    end
+  end
+
   it "never shows My Pay to an inactive person" do
     worker.update!(my_pay_enabled: true)
     expect(Setting.my_pay_enabled_for?(worker)).to be(true)

@@ -143,7 +143,7 @@ export default function Person() {
   const ended = user.employment_status === 'terminated'
   const canChangeAccess = user.can_change_access !== false
   const previewHref = capabilities.preview_pay && currentUser?.my_pay_preview_enabled ? `/admin/pay-preview/${user.id}` : null
-  const canResetPin = user.time_tracking_enabled && Boolean(user.kiosk_enabled) && canChangeAccess && !ended
+  const canResetPin = user.time_tracking_enabled && Boolean(user.kiosk_enabled) && canChangeAccess && !ended && user.is_active
   const sendStub = capabilities.send_pay_statements ? () => setSending(true) : undefined
   const activityHref = `/admin/activity?${new URLSearchParams({ subject_type: 'User', subject_id: String(user.id), return_to: currentPath })}`
   const tabHref = (tab: PersonTab, extra: Record<string, string> = {}) => {
@@ -254,6 +254,7 @@ export default function Person() {
       <ResetPinSheet
         open={resettingPin}
         userId={user.id}
+        version={user.admin_edit_version ?? 0}
         name={name}
         onClose={() => setResettingPin(false)}
         onReset={refreshUser}

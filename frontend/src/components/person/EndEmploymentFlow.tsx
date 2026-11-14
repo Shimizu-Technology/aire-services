@@ -17,7 +17,7 @@ export function EndEmploymentFlow({ user, onClose, onEnded }: { user: AdminUser;
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
-  const loaded = useLoadable(`${user.id}:${retry}`, async () => dataOrThrow(await peopleApi.terminationPreview(user.id), "Couldn't check this person's open work.").preview, "Couldn't check this person's open work.")
+  const loaded = useLoadable(`${user.id}:${date}:${retry}`, async () => dataOrThrow(await peopleApi.terminationPreview(user.id, date), "Couldn't check this person's open work.").preview, "Couldn't check this person's open work.")
   const preview = loaded.status === 'ready' ? loaded.value : null
   const blocked = !preview || preview.open_clock || !date || date > todayInGuam() || preview.admin_edit_version !== (user.admin_edit_version ?? 0)
   const end = async () => {
@@ -47,7 +47,8 @@ export function EndEmploymentFlow({ user, onClose, onEnded }: { user: AdminUser;
         <ul className="mt-2 list-disc space-y-1 pl-5 text-body-sm text-ink-muted">
           <li>Personal sign-in, kiosk PIN and My Pay turn off.</li>
           <li>{preview.open_pay_stub_links} open pay stub {preview.open_pay_stub_links === 1 ? 'link is' : 'links are'} revoked.</li>
-          <li>{preview.open_pay_stub_requests} open pay stub requests and {preview.open_leave_requests} open leave requests are closed.</li>
+          <li>{preview.open_pay_stub_requests} open pay stub requests are closed.</li>
+          <li>{preview.pending_leave_requests} pending leave requests and {preview.approved_leave_requests} approved leave requests starting after {date} are cancelled. Approved leave starting on or before the last day worked stays unchanged.</li>
           <li>Their website profile is hidden. Their hours and paychecks stay.</li>
         </ul>
         {preview.admin_edit_version !== (user.admin_edit_version ?? 0) && <p role="alert" className="mt-3 text-body-sm text-danger">This person changed. Close this dialog and reload their page before ending employment.</p>}

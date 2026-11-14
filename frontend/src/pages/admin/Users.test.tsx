@@ -485,6 +485,18 @@ describe('Users roles and My Pay', () => {
     await waitFor(() => expect(within(rowFor('Ana Worker')).getByRole('switch', { name: 'My Pay for Ana Worker' })).toHaveAttribute('aria-checked', 'true'))
   })
 
+  it('disables My Pay for inactive people and explains how to restore it', async () => {
+    apiMock.getAdminUsers.mockResolvedValue({ data: { users: [makeUser({ full_name: 'Casey Inactive', display_name: 'Casey Inactive', is_active: false })] } })
+    render(<MemoryRouter initialEntries={['/admin/users?status=inactive']}><Users /></MemoryRouter>)
+    await screen.findByText('Casey Inactive')
+    const row = rowFor('Casey Inactive')
+    const toggle = within(row).getByRole('switch', { name: 'My Pay for Casey Inactive' })
+    expect(toggle).toBeDisabled()
+    expect(row).toHaveTextContent('Reactivate before turning on My Pay.')
+    fireEvent.click(toggle)
+    expect(apiMock.setUserMyPay).not.toHaveBeenCalled()
+  })
+
   it('asks before turning My Pay on for everyone', async () => {
     render(<MemoryRouter><Users /></MemoryRouter>)
     await screen.findByText('Ana Worker')

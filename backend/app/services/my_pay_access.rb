@@ -4,6 +4,7 @@
 # with the actor and before/after values. Both switches live on the Team page.
 class MyPayAccess
   class NotPermitted < StandardError; end
+  class InactivePerson < StandardError; end
 
   class << self
     def set_for_user!(user:, enabled:, actor:, expected_version: :unchecked)
@@ -12,6 +13,8 @@ class MyPayAccess
       User.transaction do
         user.lock_employee!
         AdminPersonEdit.check!(user, expected_version) unless expected_version == :unchecked
+        raise InactivePerson, "Reactivate this person before turning on My Pay." if enabled && (!user.is_active? || user.terminated?)
+
         before = user.my_pay_enabled?
         next if before == enabled
 

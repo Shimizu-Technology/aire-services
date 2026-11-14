@@ -10,6 +10,10 @@ module Api
           render json: { error: error.message }, status: :conflict
         end
 
+        rescue_from MyPayAccess::InactivePerson do |error|
+          render json: { error: error.message }, status: :unprocessable_entity
+        end
+
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_my_pay_access) }
 

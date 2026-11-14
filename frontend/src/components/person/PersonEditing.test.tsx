@@ -7,10 +7,11 @@ import { ToastProvider } from '../ui'
 import { mockMatchMedia } from '../../test/matchMedia'
 import { AccessTab } from './AccessTab'
 import { EmploymentTab } from './EmploymentTab'
+import { ResetPinSheet } from './ResetPinSheet'
 import { EndEmploymentFlow } from './EndEmploymentFlow'
 
-const mocks = vi.hoisted(() => ({ save: vi.fn(), person: vi.fn(), preview: vi.fn(), terminate: vi.fn(), reactivate: vi.fn(), settings: vi.fn(), categories: vi.fn(), resend: vi.fn() }))
-vi.mock('../../lib/api/people', () => ({ peopleApi: { save: mocks.save, person: mocks.person, terminationPreview: mocks.preview, terminate: mocks.terminate, reactivate: mocks.reactivate } }))
+const mocks = vi.hoisted(() => ({ resetPin: vi.fn(), save: vi.fn(), person: vi.fn(), preview: vi.fn(), terminate: vi.fn(), reactivate: vi.fn(), settings: vi.fn(), categories: vi.fn(), resend: vi.fn() }))
+vi.mock('../../lib/api/people', () => ({ peopleApi: { resetPin: mocks.resetPin, save: mocks.save, person: mocks.person, terminationPreview: mocks.preview, terminate: mocks.terminate, reactivate: mocks.reactivate } }))
 vi.mock('../../lib/api', () => ({ api: { getAdminAppSettings: mocks.settings, getAdminTimeCategories: mocks.categories, resendInvite: mocks.resend } }))
 const auth = vi.hoisted(() => ({ value: { currentUser: { id: 99 }, userRole: 'admin' } }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => auth.value }))
@@ -23,7 +24,7 @@ const person = {
   my_pay_enabled: false, public_team_enabled: false, public_team_name: null, public_team_title: null, public_team_sort_order: 0,
   public_team_photo_position_x: 50, public_team_photo_position_y: 50,
 } as AdminUser
-const preview = { admin_edit_version: 4, waiting_shifts: 1, waiting_hours: 11.5, waiting_overtime_hours: 6, open_clock: false, open_pay_stub_links: 2, open_pay_stub_requests: 0, open_leave_requests: 1 }
+const preview = { admin_edit_version: 4, waiting_shifts: 1, waiting_hours: 11.5, waiting_overtime_hours: 6, open_clock: false, open_pay_stub_links: 2, open_pay_stub_requests: 0, open_leave_requests: 1, pending_leave_requests: 1, approved_leave_requests: 0, effective_on: '2026-11-14' }
 let restoreMedia = () => {}
 const onSaved = vi.fn()
 function Address() { const location = useLocation(); return <output aria-label="Address">{location.pathname}{location.search}</output> }
@@ -116,6 +117,15 @@ describe('Access', () => {
     await waitFor(() => expect(mocks.save).toHaveBeenLastCalledWith(7, expect.objectContaining({ admin_edit_version: 5 }), tab === 'Access' ? undefined : null))
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument())
   })
+  it('shows saved local changes with a non-blocking Clerk sync notice', async () => {
+    mocks.save.mockResolvedValue({ data: { user: { ...person, role: 'manager', admin_edit_version: 5 }, notice: 'Changes saved in AIRE, but the name could not sync to Clerk. Try again later.' } })
+    access()
+    fireEvent.click(screen.getByRole('radio', { name: /^Manager/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText(/Changes saved in AIRE, but the name could not sync to Clerk/)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument()
+  })
   it('keeps kiosk names editable when turning personal sign-in off', async () => {
     access()
     fireEvent.click(screen.getByRole('switch', { name: 'Personal sign-in' }))
@@ -204,6 +214,12 @@ describe('Employment', () => {
     await waitFor(() => expect(screen.queryByText('Temporarily unavailable')).not.toBeInTheDocument())
     expect(onSaved).toHaveBeenCalledWith(person, undefined)
   })
+  it('offers accurate reactivation for inactive people without a termination record', () => {
+    open(<EmploymentTab user={{ ...person, is_active: false, employment_status: 'inactive' }} onSaved={onSaved} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Reactivate…' }))
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('If no saved setup exists, keeps their current sign-in, time tracking and kiosk settings.')
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Old PINs are revoked.')
+  })
   it('reactivates with the loaded version and preserves the new PIN response', async () => {
     mocks.reactivate.mockResolvedValue({ data: { user: person, kiosk_pin: '123456' } })
     open(<EmploymentTab user={{ ...person, employment_status: 'terminated', is_active: false, termination_effective_on: '2026-11-11', terminated_by: { id: 2, full_name: 'Chels Santos' } }} onSaved={onSaved} />)
@@ -230,6 +246,15 @@ describe('End employment', () => {
     fireEvent.click(confirm)
     await waitFor(() => expect(mocks.terminate).toHaveBeenCalledWith(7, { admin_edit_version: 4, effective_on: '2026-11-14', confirm_name: 'Ana Rivera', reason: undefined }))
     expect(close).toHaveBeenCalled()
+  })
+  it('refreshes leave cancellation counts for the selected last day worked', async () => {
+    mocks.preview.mockImplementation(async (_id, date) => ({ data: { preview: { ...preview, effective_on: date, pending_leave_requests: 2, approved_leave_requests: date === '2026-11-11' ? 3 : 0 } } }))
+    open(<EndEmploymentFlow user={person} onClose={vi.fn()} onEnded={onSaved} />)
+    await screen.findByText(/2 pending leave requests and 0 approved/)
+    fireEvent.change(screen.getByLabelText(/Last day worked/), { target: { value: '2026-11-11' } })
+    await screen.findByText(/2 pending leave requests and 3 approved leave requests starting after 2026-11-11/)
+    expect(mocks.preview).toHaveBeenLastCalledWith(7, '2026-11-11')
+    expect(screen.getByText(/Approved leave starting on or before the last day worked stays unchanged/)).toBeInTheDocument()
   })
   it('blocks an open clock even after the full name is typed', async () => {
     mocks.preview.mockResolvedValue({ data: { preview: { ...preview, open_clock: true } } })
@@ -258,5 +283,26 @@ describe('End employment', () => {
     expect(screen.getByRole('button', { name: 'End employment' })).toBeDisabled()
     fireEvent.change(screen.getByRole('textbox', { name: 'Type Ana Rivera to confirm' }), { target: { value: 'Ana Rivera' } })
     expect(screen.getByRole('button', { name: 'End employment' })).toBeEnabled()
+  })
+})
+
+
+describe('PIN reset', () => {
+  it('blocks a stale reset until reload, then sends the fresh version and shows the PIN once', async () => {
+    mocks.resetPin.mockResolvedValueOnce({ error: 'Someone else changed this person. Reload to see their changes.', status: 409 })
+      .mockResolvedValueOnce({ data: { user: { ...person, admin_edit_version: 6 }, kiosk_pin: '849271' } })
+    mocks.person.mockResolvedValue({ data: { user: { ...person, admin_edit_version: 5 } } })
+    open(<ResetPinSheet open userId={7} version={4} name="Ana Rivera" onClose={vi.fn()} onReset={onSaved} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Make a PIN for me' }))
+    await screen.findByRole('button', { name: 'Reload person' })
+    expect(mocks.resetPin).toHaveBeenCalledWith(7, 4, undefined)
+    expect(screen.getByRole('button', { name: 'Make a PIN for me' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Reload person' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Make a PIN for me' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Make a PIN for me' }))
+    await screen.findByText('849271')
+    expect(mocks.resetPin).toHaveBeenLastCalledWith(7, 5, undefined)
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByText('849271')).not.toBeInTheDocument()
   })
 })

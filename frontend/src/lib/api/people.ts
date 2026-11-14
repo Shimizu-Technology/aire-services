@@ -71,9 +71,12 @@ export interface TerminationPreview {
   open_pay_stub_links: number
   open_pay_stub_requests: number
   open_leave_requests: number
+  pending_leave_requests: number
+  approved_leave_requests: number
+  effective_on: string
 }
 
-export type PersonSaved = { user: AdminUser; kiosk_pin?: string | null; invitation_email_captured?: boolean; invitation_email_sent?: boolean }
+export type PersonSaved = { user: AdminUser; kiosk_pin?: string | null; invitation_email_captured?: boolean; invitation_email_sent?: boolean; notice?: string | null }
 
 export const peopleApi = {
   setMyPay: (id: number, enabled: boolean, version: number) => fetchApi<{ user_id: number; my_pay_enabled: boolean; admin_edit_version: number }>(`/api/v1/admin/users/${id}/my_pay`, {
@@ -97,7 +100,10 @@ export const peopleApi = {
       return { error: "Couldn't save this person. Check your connection and try again." }
     }
   },
-  terminationPreview: (id: number) => fetchApi<{ preview: TerminationPreview }>(`/api/v1/admin/users/${id}/termination_preview`),
+  resetPin: (id: number, version: number, pin?: string) => fetchApi<{ user: AdminUser; kiosk_pin: string }>(`/api/v1/admin/users/${id}/reset_kiosk_pin`, {
+    method: 'POST', body: JSON.stringify({ admin_edit_version: version, ...(pin ? { pin } : {}) }),
+  }),
+  terminationPreview: (id: number, date: string) => fetchApi<{ preview: TerminationPreview }>(`/api/v1/admin/users/${id}/termination_preview?effective_on=${encodeURIComponent(date)}`),
   terminate: (id: number, data: { admin_edit_version: number; effective_on: string; confirm_name: string; reason?: string }) =>
     fetchApi<PersonSaved>(`/api/v1/admin/users/${id}/terminate`, { method: 'POST', body: JSON.stringify(data) }),
   reactivate: (id: number, version: number) => fetchApi<PersonSaved>(`/api/v1/admin/users/${id}/reactivate`, {
