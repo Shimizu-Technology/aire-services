@@ -1,3 +1,5 @@
+import { ClockActions } from '../../components/clock/ClockActions'
+import { WorkChips } from '../../components/clock/WorkChips'
 import PayrollCutoffNotice from '../../components/time-tracking/PayrollCutoffNotice'
 import type { PayrollCutoffResponse } from '../../lib/api'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -93,6 +95,8 @@ export default function AireKiosk() {
       return null
     }
   })
+  const verifiedPinRef = useRef('')
+  const sessionGeneration = useRef(0)
   const warningRequestRef = useRef(0)
   const idleResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const successResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -109,6 +113,8 @@ export default function AireKiosk() {
   const canViewKiosk = canUnlockKiosk || kioskUnlocked
 
   const clearSession = useCallback(() => {
+    sessionGeneration.current += 1
+    verifiedPinRef.current = ''
     warningRequestRef.current += 1
     setPin('')
     setCutoffNotice(null)
@@ -242,6 +248,7 @@ export default function AireKiosk() {
       return
     }
 
+    verifiedPinRef.current = pin
     setEmployee(result.data.employee)
     setKioskToken(result.data.kiosk_token)
     setPayStubRequestsEnabled(result.data.pay_stub_requests_enabled === true)
@@ -298,9 +305,28 @@ export default function AireKiosk() {
       }
     })()
 
+    const generation = sessionGeneration.current
     const result = await request
+    if (generation !== sessionGeneration.current) return
     if (result.error || !result.data) {
-      setError(result.error || `${formatActionLabel(action)} failed.`)
+      if (!result.status || result.status >= 500) {
+        // Verify is the kiosk's existing status read. Never retry a punch whose
+        // response may have been lost after the server saved it.
+        const refreshed = await api.aireKioskVerify(verifiedPinRef.current, kioskAccessToken || '')
+        if (generation !== sessionGeneration.current) return
+        if (!refreshed.data || refreshed.error) {
+          clearSession()
+          setError('Could not check your clock status. Enter your PIN again before trying another action.')
+          return
+        }
+        setStatus(refreshed.data.current_status)
+        setKioskToken(refreshed.data.kiosk_token)
+        setCategories(refreshed.data.available_categories)
+        setSelectedCategoryId(refreshed.data.current_status.time_category?.id ?? null)
+        setError('The response was lost. Your clock status has been checked. Review it before trying again.')
+      } else {
+        setError(result.error || `${formatActionLabel(action)} failed.`)
+      }
       setActionLoading(null)
       return
     }
@@ -364,13 +390,12 @@ export default function AireKiosk() {
   const canSwitchCategory = !!employee && !!status?.clocked_in && categories.length > 1
     && selectedCategoryId !== null && selectedCategoryId !== currentCategoryId
 
-  const primaryActions: Array<{ action: KioskAction; enabled: boolean; className: string }> = [
-    ...(canSwitchCategory
-      ? [{ action: 'switch_category' as KioskAction, enabled: true, className: 'bg-cyan-400 text-cyan-950 hover:bg-cyan-300' }]
-      : [{ action: 'clock_in' as KioskAction, enabled: canClockIn, className: 'bg-emerald-500 text-emerald-950 hover:bg-emerald-400' }]),
-    { action: 'clock_out', enabled: canClockOut, className: 'bg-amber-400 text-amber-950 hover:bg-amber-300' },
-    { action: 'start_break', enabled: canStartBreak, className: 'bg-indigo-400 text-indigo-950 hover:bg-indigo-300' },
-    { action: 'end_break', enabled: canEndBreak, className: 'bg-fuchsia-400 text-fuchsia-950 hover:bg-fuchsia-300' },
+  const primaryAction: KioskAction = canEndBreak ? 'end_break' : status?.clocked_in ? 'clock_out' : 'clock_in'
+  const primaryEnabled = canEndBreak || (status?.clocked_in ? canClockOut : canClockIn)
+  const secondaryActions: KioskAction[] = [
+    ...(canStartBreak ? ['start_break' as const] : []),
+    ...(canEndBreak ? ['clock_out' as const] : []),
+    ...(canSwitchCategory ? ['switch_category' as const] : []),
   ]
 
   if (!canViewKiosk) {
@@ -440,7 +465,7 @@ export default function AireKiosk() {
         <Link to="/" className="inline-flex min-h-11 items-center text-slate-400 transition hover:text-slate-200">Home</Link>
       </div>}
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-8 pt-4 md:grid-cols-[1.15fr_1fr] md:px-6">
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
+        <section className="order-2 md:order-1 rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Aire Staff Kiosk</p>
@@ -458,7 +483,7 @@ export default function AireKiosk() {
           </div>
 
           <p className="mt-3 max-w-xl text-sm text-slate-300 md:text-base">
-            Enter your staff PIN, verify your identity, then clock in or out on this shared kiosk.
+            Enter your staff PIN to clock in or out.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm">
@@ -549,29 +574,7 @@ export default function AireKiosk() {
               {status?.clocked_in && categories.length > 1 && (
                 <p className="text-xs text-slate-400">Tap a different category to switch your current work type.</p>
               )}
-              {categories.map((category) => {
-                const selected = selectedCategoryId === category.id
-                const isCurrent = currentCategoryId === category.id && status?.clocked_in
-                return (
-                  <button
-                    key={category.id}
-                    onClick={() => setSelectedCategoryId(category.id)}
-                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                      selected
-                        ? 'border-cyan-300 bg-cyan-400/15 text-white'
-                        : 'border-slate-700 bg-slate-900/40 text-slate-200 hover:border-slate-500'
-                    }`}
-                  >
-                    <span>
-                      <span className="block font-medium">{category.name}</span>
-                      {category.description && <span className="mt-1 block text-xs text-slate-400">{category.description}</span>}
-                    </span>
-                    {isCurrent && (
-                      <span className="ml-2 rounded-full bg-cyan-500/20 px-2.5 py-0.5 text-xs font-semibold text-cyan-200">Current</span>
-                    )}
-                  </button>
-                )
-              })}
+              <WorkChips categories={categories} value={selectedCategoryId} onChange={setSelectedCategoryId} disabled={!!actionLoading} />
             </div>
           ) : (
             <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-4 text-sm text-slate-300">
@@ -579,20 +582,18 @@ export default function AireKiosk() {
             </div>
           )}
 
-          {!requestingStub && <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            {primaryActions.map(({ action, enabled, className }) => (
-              <button
-                key={action}
-                onClick={() => runAction(action)}
-                disabled={!enabled || !!actionLoading || !!loading}
-                className={`rounded-2xl px-5 py-3.5 text-sm font-semibold transition ${className} ${
-                  !enabled || actionLoading || loading ? 'cursor-not-allowed opacity-50' : ''
-                }`}
-              >
+          {employee && !requestingStub && <div className="mt-8"><ClockActions inline>
+            <button onClick={() => runAction(primaryAction)} disabled={!primaryEnabled || !!actionLoading || loading}
+              className="min-h-14 w-full rounded-2xl bg-cyan-400 px-5 py-4 text-lg font-semibold text-slate-950 disabled:opacity-50 active:scale-[.97]">
+              {actionLoading === primaryAction ? `${formatActionLabel(primaryAction)}...` : formatActionLabel(primaryAction)}
+            </button>
+            <div className="flex flex-wrap gap-3">
+              {secondaryActions.map(action => <button key={action} onClick={() => runAction(action)} disabled={!!actionLoading || loading}
+                className="min-h-12 flex-1 rounded-xl border border-slate-600 px-4 py-3 font-semibold text-slate-100 disabled:opacity-50">
                 {actionLoading === action ? `${formatActionLabel(action)}...` : formatActionLabel(action)}
-              </button>
-            ))}
-          </div>}
+              </button>)}
+            </div>
+          </ClockActions></div>}
 
           {employee && kioskToken && payStubRequestsEnabled && !requestingStub && (
             <button
@@ -614,11 +615,11 @@ export default function AireKiosk() {
           )}
 
           <p className="mt-6 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
-            Kiosk sessions auto-reset after inactivity or shortly after a successful action. This keeps the shared device clean and safe.
+            Your name clears after 30 seconds without activity, or 8 seconds after a successful action.
           </p>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8">
+        {!employee && <section aria-label="Staff PIN" className="order-1 md:order-2 rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8">
           <p className="text-xs font-semibold uppercase tracking-[0.13em] text-cyan-300">Enter PIN</p>
           <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-4 text-center text-4xl tracking-[0.35em] text-cyan-200">
             {employee ? 'READY' : maskedPin}
@@ -650,7 +651,7 @@ export default function AireKiosk() {
               </button>
             ))}
           </div>
-        </section>
+        </section>}
       </div>
     </div>
   )

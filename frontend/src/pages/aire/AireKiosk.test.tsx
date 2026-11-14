@@ -36,7 +36,7 @@ it('does not wait for warning reads to finish clocking and ignores reads superse
   render(<MemoryRouter><AireKiosk /></MemoryRouter>)
   for (const digit of '1234') fireEvent.click(screen.getByRole('button', { name: digit }))
   fireEvent.click(screen.getByRole('button', { name: 'Verify PIN' }))
-  const clockIn = screen.getByRole('button', { name: 'Clock In' })
+  const clockIn = await screen.findByRole('button', { name: 'Clock In' })
   await waitFor(() => expect(clockIn).toBeEnabled())
   expect(mocks.getPayrollCutoff).toHaveBeenCalledWith('access', 'employee-token')
   fireEvent.click(clockIn)
@@ -122,4 +122,61 @@ it('hides the Admin and Home links on the shared device while unlocked', () => {
   expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Lock kiosk' })).toBeInTheDocument()
+})
+
+async function verifyEmployee() {
+  for (const digit of '1234') fireEvent.click(screen.getByRole('button', { name: digit }))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify PIN' })) })
+}
+
+it('puts PIN first on phones and gates actions behind verification', async () => {
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  expect(screen.getByRole('region', { name: 'Staff PIN' })).toHaveClass('order-1')
+  expect(screen.queryByRole('button', { name: 'Clock In' })).not.toBeInTheDocument()
+  await verifyEmployee()
+  expect(screen.getByRole('button', { name: 'Clock In' })).toBeEnabled()
+  expect(screen.queryByRole('button', { name: 'Clock Out' })).not.toBeInTheDocument()
+})
+
+it('preserves lockout copy', async () => {
+  mocks.aireKioskVerify.mockResolvedValue({ error: 'Too many failed PIN attempts. Try again in 15 minutes.', status: 429 })
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  expect(screen.getByText('Too many failed PIN attempts. Try again in 15 minutes.')).toBeInTheDocument()
+})
+
+it('clears the employee after 30 seconds idle', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-11-14T03:00:00Z'))
+  try {
+    render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+    await verifyEmployee()
+    expect(screen.getByText('Avery Fixture')).toBeInTheDocument()
+    await act(async () => { vi.advanceTimersByTime(30_000) })
+    expect(screen.getByText('Waiting for PIN')).toBeInTheDocument()
+  } finally { vi.useRealTimers() }
+})
+
+it('keeps state until server success and on refusal', async () => {
+  let resolve!: (value: unknown) => void
+  mocks.aireKioskClockIn.mockImplementation(() => new Promise(r => { resolve = r }))
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  fireEvent.click(screen.getByRole('button', { name: 'Clock In' }))
+  expect(screen.getByText('Not clocked in')).toBeInTheDocument()
+  await act(async () => { resolve({ error: 'Not allowed', status: 422 }) })
+  expect(screen.getByText('Not clocked in')).toBeInTheDocument()
+})
+
+it.each([undefined, 500])('re-reads unknown outcome %s before another punch', async status => {
+  let resolve!: (value: unknown) => void
+  render(<MemoryRouter><AireKiosk /></MemoryRouter>)
+  await verifyEmployee()
+  mocks.aireKioskVerify.mockImplementation(() => new Promise(r => { resolve = r }))
+  mocks.aireKioskClockIn.mockResolvedValue({ error: 'Response lost', status })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Clock In' })) })
+  expect(screen.getByRole('button', { name: 'Clock In...' })).toBeDisabled()
+  expect(mocks.aireKioskVerify).toHaveBeenLastCalledWith('1234', 'access')
+  await act(async () => { resolve({ data: { employee, kiosk_token: 'refreshed', current_status: working, available_categories: [category] } }) })
+  expect(screen.getByRole('button', { name: 'Clock Out' })).toBeEnabled()
 })
