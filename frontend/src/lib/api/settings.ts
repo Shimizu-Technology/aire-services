@@ -14,8 +14,9 @@ export interface PayrollConnection {
 
 export const settingsApi = {
   connection: () => fetchApi<PayrollConnection>('/api/v1/payroll_connection'),
-  save: (settings: Record<string, string>) => fetchApi<import('../api').AdminAppSettingsResponse>(
-    '/api/v1/admin/settings',
-    { method: 'PATCH', body: JSON.stringify({ settings }) },
-  ),
+  save: (settings: Record<string, string>) =>
+    fetchApi<import('../api').AdminAppSettingsResponse>('/api/v1/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ settings }),
+    }),
 }

@@ -63,7 +63,8 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "ops@example.com; ops@example.com, owner@example.com" } }, headers: auth_headers_for[admin]
       expect(response).to have_http_status(:ok)
       expect(Setting.payroll_cutoff_reminder_emails).to eq(["ops@example.com", "owner@example.com"])
-      expect(AuditLog.where(action: "setting.payroll_cutoff_reminder_emails_updated").count).to eq(1)
+      audit = AuditLog.find_by!(action: "setting.payroll_cutoff_reminder_emails_updated")
+      expect(audit.changes_made).to include("payroll_cutoff_reminder_emails" => [ "", "ops@example.com, owner@example.com" ])
       patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "invalid" } }, headers: auth_headers_for[admin]
       expect(response).to have_http_status(:unprocessable_entity)
       patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "" } }, headers: auth_headers_for[admin]
