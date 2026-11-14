@@ -11,8 +11,38 @@ import { payrollPeriodApi, type PayrollPeriodResponse, type PayrollPeriodsRespon
 import { currentPayPeriod, payPeriodContaining, type PayPeriod } from '../../lib/payPeriods'
 import { isLockedState } from '../../lib/payrollTerms'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
+import type { PeriodWaiting } from './payPeriodModel'
 
 const REFRESH_MS = 60_000
+// Overtime shifts read in one page; more than this and the hours aren't summed.
+const OVERTIME_PAGE = 500
+
+/**
+ * Shifts and overtime waiting on the period's dates, with the Approvals
+ * badge's scope. Overtime hours are each shift's own projected overtime.
+ */
+async function fetchWaiting(range: PayPeriod): Promise<Result<PeriodWaiting>> {
+  const dates = { start_date: range.start, end_date: range.end }
+  const [all, overtime] = await Promise.all([
+    api.getPendingApprovals({ ...dates, per_page: 1 }),
+    api.getPendingApprovals({ ...dates, approval_type: 'overtime', per_page: OVERTIME_PAGE }),
+  ])
+  if (!all.data?.summary || !overtime.data) return { error: all.error || overtime.error || "Couldn't load what is waiting." }
+  const entries = overtime.data.pending_entries
+  const total = overtime.data.summary?.entry_count ?? overtime.data.count
+  const complete = entries.length >= total && entries.every(entry => typeof entry.pending_overtime_hours === 'number')
+  return {
+    data: {
+      count: all.data.summary.entry_count,
+      hours: all.data.summary.total_hours,
+      overtime: {
+        count: total,
+        hours: complete ? entries.reduce((sum, entry) => sum + (entry.pending_overtime_hours ?? 0), 0) : null,
+        people: entries.map(entry => entry.user.full_name || entry.user.display_name),
+      },
+    },
+  }
+}
 const CLOCK_TICK_MS = 30_000
 
 type Result<T> = { data?: T; error?: string; status?: number; code?: string }
@@ -89,6 +119,8 @@ export interface PayPeriodData {
   attention: PeriodBlock<AttentionResponse>
   cutoff: PeriodBlock<PayrollCutoffResponse>
   connection: PeriodBlock<PayrollConnectionStatus>
+  /** Shifts and overtime waiting on this period's dates (open periods). */
+  waiting: PeriodBlock<PeriodWaiting>
   /** What would go to payroll if it locked now (open periods). */
   preview: PeriodBlock<PayrollBatchPayload>
   /** What went to payroll (locked periods with a batch). */
@@ -136,12 +168,18 @@ export function usePayPeriodData(requestedStart: string | null): PayPeriodData {
       // eslint-disable-next-line react-hooks/exhaustive-deps -- the dates name the request
       [range?.start, range?.end]),
   )
+  const waiting = useBlock(
+    wantsPreview && range ? `waiting:${range.start}:${range.end}` : null,
+    useCallback(() => (range ? fetchWaiting(range) : Promise.resolve({ error: 'No pay period' })),
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- the dates name the request
+      [range?.start, range?.end]),
+  )
   const batch = useBlock(batchId ? `batch:${batchId}` : null, useCallback(() => api.getPayrollBatch(batchId ?? ''), [batchId]))
   const carryovers = useBlock(locked ? 'carryovers' : null, useCallback(() => api.getPayrollCarryovers(), []))
 
   const p = periods.reload, sh = show.reload, at = attention.reload, cu = cutoff.reload, co = connection.reload
-  const pr = preview.reload, ba = batch.reload, ca = carryovers.reload
-  const refreshLight = useCallback(() => Promise.all([p(), sh(), at(), cu(), co()]).then(() => undefined), [p, sh, at, cu, co])
+  const pr = preview.reload, ba = batch.reload, ca = carryovers.reload, wa = waiting.reload
+  const refreshLight = useCallback(() => Promise.all([p(), sh(), at(), cu(), co(), wa()]).then(() => undefined), [p, sh, at, cu, co, wa])
   const refresh = useCallback(
     () => Promise.all([refreshLight(), pr(), ba(), ca()]).then(() => undefined),
     [refreshLight, pr, ba, ca],
@@ -175,5 +213,5 @@ export function usePayPeriodData(requestedStart: string | null): PayPeriodData {
   }, [])
   const now = useMemo(() => new Date(clock + offset), [clock, offset])
 
-  return { periods, show, range, isCurrent, attention, cutoff, connection, preview, batch, carryovers, now, refresh }
+  return { periods, show, range, isCurrent, attention, cutoff, connection, waiting, preview, batch, carryovers, now, refresh }
 }

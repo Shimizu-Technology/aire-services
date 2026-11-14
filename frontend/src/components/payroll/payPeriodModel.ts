@@ -1,11 +1,11 @@
 import type { PayrollBatchAdjustment, PayrollBatchExclusion, PayrollBatchPayload, PayrollCarryoverItem } from '../../lib/api'
-import type { AttentionResponse, ClockAttentionItem, MissingCategoryAttentionItem, OvertimeAttentionItem } from '../../lib/api/attention'
+import type { AttentionResponse, ClockAttentionItem, MissingCategoryAttentionItem } from '../../lib/api/attention'
 import type { PayrollPeriodSummary } from '../../lib/api/payrollPeriod'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { businessDateISO } from '../../lib/dateUtils'
 import { payPeriodContaining, payPeriodIncludes, type PayPeriod } from '../../lib/payPeriods'
 import { withPayrollPeriod } from '../../lib/payrollPeriods'
-import { LIFECYCLE_LABELS, PAYROLL_WORDS, type LifecycleStatus } from '../../lib/payrollTerms'
+import { LIFECYCLE_LABELS, PAYROLL_WORDS, PERSON_TOTAL_LABELS, type LifecycleStatus } from '../../lib/payrollTerms'
 import type { ChecklistStatus } from '../ui'
 import { hoursLabel, monthDay, periodLabel, plural } from '../today/format'
 import { missingCategoryHref, openClockHref } from '../today/links'
@@ -21,8 +21,6 @@ export interface ChecklistEntry {
   action?: { label: string; to: string }
 }
 
-const DAY_MS = 86_400_000
-
 /** Approvals for this period's dates. Both the inbox and the classic queue read these. */
 export const approvalsForPeriodHref = (range: PayPeriod, extra: Record<string, string> = {}) =>
   withPayrollPeriod(ADMIN_PATHS.approvals, range, extra)
@@ -33,10 +31,16 @@ function names(people: string[], limit = 3) {
   return `${unique.slice(0, limit).join(', ')} and ${unique.length - limit} more`
 }
 
-/** A Mon–Sun overtime week that touches the period. */
-function weekTouches(weekStart: string, range: PayPeriod) {
-  const last = new Date(Date.parse(`${weekStart}T00:00:00Z`) + 6 * DAY_MS).toISOString().slice(0, 10)
-  return weekStart <= range.end && last >= range.start
+/**
+ * What waits for approval on this period's dates, from
+ * `GET /time_entries/pending_approvals` (the Approvals badge's scope).
+ * `overtime.hours` is null when the overtime list was cut short, so the
+ * page shows a count rather than a guess.
+ */
+export interface PeriodWaiting {
+  count: number
+  hours: number
+  overtime: { count: number; hours: number | null; people: string[] }
 }
 
 function approvalsItem(range: PayPeriod, count: number, hours: number): ChecklistEntry {
@@ -97,53 +101,64 @@ function lateHoursItem(preview: PayrollBatchPayload, previousStart: string | nul
 
 export interface ChecklistInput {
   range: PayPeriod
+  /** Today in Guam (YYYY-MM-DD): an open clock from before today is a likely missed clock-out. */
+  today: string
   /** Today's attention list. Used only when it describes this period. */
   attention: AttentionResponse | null
+  /** What goes to payroll if it locked now: blocking category issues (carried-in work too) and late hours. */
   preview: PayrollBatchPayload | null
+  /** Shifts and overtime waiting on this period's dates. */
+  waiting: PeriodWaiting | null
   /** The period before this one, for the late-hours line. */
   previousStart: string | null
 }
 
+const timecardHref = (entryId: string, query: Record<string, string> = {}) =>
+  `${ADMIN_PATHS.timecards}?${new URLSearchParams({ entry_id: entryId, ...query })}`
+
 /**
- * The Before it locks lines, in the spec's order. Attention gives the same
- * counts, names and links as Today; a period Today doesn't cover falls back to
- * the preview's issue counts. A line whose source hasn't loaded is left out.
+ * The Before it locks lines, in the spec's order. Each line comes from the
+ * source that scopes it to this period; a line whose source hasn't loaded is
+ * left out rather than shown as done.
+ * - Waiting shifts and overtime: pending approvals for the period's dates.
+ * - Earlier-day clocks: Today's attention list for the current period, else
+ *   the preview's open clocks from before today.
+ * - Work categories: the preview's blocking count (what stops the lock,
+ *   carried-in work included), else Today's.
  */
-export function checklistEntries({ range, attention, preview, previousStart }: ChecklistInput): ChecklistEntry[] {
+export function checklistEntries({ range, today, attention, preview, waiting, previousStart }: ChecklistInput): ChecklistEntry[] {
   const forThisPeriod = attention?.period?.start_date === range.start ? attention : null
   const items: ChecklistEntry[] = []
 
-  if (forThisPeriod?.period) {
-    const period = forThisPeriod.period
-    items.push(approvalsItem(range, period.waiting_count, period.waiting_hours))
+  if (waiting) items.push(approvalsItem(range, waiting.count, waiting.hours))
+
+  if (forThisPeriod) {
     const clocks = forThisPeriod.items
       .filter((item): item is ClockAttentionItem => item.type === 'open_clock_earlier_day' && payPeriodIncludes(range, item.work_date))
       .map(item => ({ name: item.user.full_name || item.user.display_name, to: openClockHref(item) }))
     items.push(openClocksItem(clocks))
-    const overtime = forThisPeriod.items.find((item): item is OvertimeAttentionItem => item.type === 'overtime_waiting')
-    const people = overtime?.people.filter(person => person.week_starts.some(week => weekTouches(week, range))) ?? []
-    const count = people.reduce((sum, person) => sum + person.entry_count, 0)
-    const hours = people.some(person => person.hours === null) ? null : people.reduce((sum, person) => sum + (person.hours ?? 0), 0)
-    items.push(overtimeItem(range, count, hours, people.map(person => person.full_name || person.display_name)))
+  } else if (preview) {
+    const clocks = preview.exclusions
+      .filter(item => item.reason === 'open_clock' && item.original_work_date < today)
+      .map(item => ({ name: item.display_name, to: timecardHref(item.source_time_entry_id, { date: item.original_work_date, user_id: item.source_user_id }) }))
+    items.push(openClocksItem(clocks))
+  }
+
+  if (waiting) items.push(overtimeItem(range, waiting.overtime.count, waiting.overtime.hours, waiting.overtime.people))
+
+  if (preview) {
+    const blocking = preview.employees.flatMap(employee => employee.adjustments).find(line => !line.category)
+    const fallback = forThisPeriod?.items.find((item): item is MissingCategoryAttentionItem => item.type === 'missing_category')
+    const to = blocking ? timecardHref(blocking.source_time_entry_id) : missingCategoryHref(fallback?.entry_ids[0])
+    items.push(missingCategoryItem(preview.issues.missing_category_count, to))
+  } else if (forThisPeriod) {
     const missing = forThisPeriod.items.find((item): item is MissingCategoryAttentionItem => item.type === 'missing_category')
     items.push(missingCategoryItem(missing?.count ?? 0, missingCategoryHref(missing?.entry_ids[0])))
-  } else if (preview) {
-    const waiting = preview.exclusions.filter(item => item.reason === 'pending_approval' || item.reason === 'pending_overtime')
-    items.push(approvalsItem(range, preview.issues.pending_approval_count, waiting.reduce((sum, item) => sum + item.held_total_hours, 0)))
-    const clocks = preview.exclusions.filter(item => item.reason === 'open_clock').map(item => ({
-      name: item.display_name,
-      to: `${ADMIN_PATHS.timecards}?${new URLSearchParams({ entry_id: item.source_time_entry_id, date: item.original_work_date, user_id: item.source_user_id })}`,
-    }))
-    items.push(openClocksItem(clocks))
-    const overtime = preview.exclusions.filter(item => item.reason === 'pending_overtime')
-    items.push(overtimeItem(range, preview.issues.pending_overtime_count, overtime.reduce((sum, item) => sum + item.held_overtime_hours, 0), overtime.map(item => item.display_name)))
-    items.push(missingCategoryItem(preview.issues.missing_category_count, withPayrollPeriod(ADMIN_PATHS.reports, range, { category_status: 'uncategorized' })))
   }
 
   if (preview) items.push(lateHoursItem(preview, previousStart))
   return items
 }
-
 
 /** Held-back reasons that clear once someone acts before the lock. */
 const WAITING_REASONS = new Set(['pending_approval', 'pending_overtime', 'open_clock'])
@@ -204,12 +219,26 @@ export function periodFacts(period: PayrollPeriodSummary) {
   ].filter(Boolean).join(' · ')
 }
 
-/** Where a carried shift went, in the glossary's words. */
+/** The carried part of a shift (held overtime, say), and the whole shift when that's bigger. */
+export function carriedHours(item: PayrollCarryoverItem): { carried: number; shift: number | null } {
+  const shift = item.current_total_hours
+  return { carried: item.held_total_hours, shift: shift !== null && shift > item.held_total_hours ? shift : null }
+}
+
+/**
+ * Where a carried shift went, in the glossary's words. Paid and accounting
+ * outcomes count only once the backend verified them (`completion`); a
+ * reported payment it couldn't match yet is a payment follow-up, as on the
+ * records page.
+ */
 export function carriedDestination(item: PayrollCarryoverItem): { label: string; to?: string } {
   if (item.included_batch) {
     return { label: `In the ${periodLabel(item.included_batch)} payroll`, to: periodHref(item.included_batch.start_date) }
   }
   if (item.completion === 'paid') return { label: LIFECYCLE_LABELS.payment_issued }
+  if (item.completion === 'accounting_recorded') return { label: PERSON_TOTAL_LABELS.correction }
+  const accounting = item.payroll_lifecycle?.accounting_only === true && item.payroll_lifecycle.status === 'committed'
+  if (item.status === 'payment_issued' || accounting) return { label: PAYROLL_WORDS.paymentFollowUp }
   if (item.status === 'ready_for_next_batch') return { label: 'Next payroll' }
   if (item.status === 'not_payable') return { label: PAYROLL_WORDS.closedWithoutPay }
   if (Object.hasOwn(LIFECYCLE_LABELS, item.status)) return { label: LIFECYCLE_LABELS[item.status as LifecycleStatus] }

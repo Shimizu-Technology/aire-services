@@ -4,7 +4,7 @@ import { payPeriodIncludes, type PayPeriod } from '../../lib/payPeriods'
 import { PAYROLL_WORDS } from '../../lib/payrollTerms'
 import { HelpTip } from '../ui'
 import { dayLabel, hoursLabel } from '../today/format'
-import { carriedDestination } from './payPeriodModel'
+import { carriedDestination, carriedHours } from './payPeriodModel'
 
 export interface CarriedHoursProps {
   items: PayrollCarryoverItem[]
@@ -29,11 +29,12 @@ export function CarriedHours({ items, range, recordsHref }: CarriedHoursProps) {
       <ul className="divide-y divide-line rounded-card border border-line bg-surface">
         {carried.map(item => {
           const destination = carriedDestination(item)
+          const hours = carriedHours(item)
           return (
             <li key={`${item.source_time_entry_id}-${item.exclusion_reason}`} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-3.5 py-3 text-body-sm">
               <span className="min-w-0">
                 <span className="font-semibold text-ink">{item.display_name}</span>
-                <span className="text-ink-muted"> · {dayLabel(item.original_work_date)} · {hoursLabel(item.current_total_hours ?? item.held_total_hours)}</span>
+                <span className="text-ink-muted"> · {dayLabel(item.original_work_date)} · {hoursLabel(hours.carried)}{hours.shift !== null && ` of a ${hoursLabel(hours.shift)} shift`}</span>
               </span>
               <span className="text-ink-muted">
                 <span aria-hidden="true">→ </span>

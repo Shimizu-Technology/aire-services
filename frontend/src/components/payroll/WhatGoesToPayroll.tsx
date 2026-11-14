@@ -8,6 +8,7 @@ import { LIFECYCLE_LABELS } from '../../lib/payrollTerms'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { Button, StatusPill } from '../ui'
 import { dayLabel, hoursLabel, plural } from '../today/format'
+import { StaleNote } from '../today/StaleNote'
 import { personRows, type PersonRow } from './payPeriodModel'
 
 const HELD_LABELS: Record<string, string> = {
@@ -77,10 +78,13 @@ export interface WhatGoesToPayrollProps {
   returnTo: string
   exporting: string | null
   onExport: (kind: 'pdf' | 'csv' | 'locked_csv') => void
+  /** When the last good answer arrived, if the latest refresh failed. */
+  staleSince?: Date | null
+  onRetry?: () => void
 }
 
 /** Per person: approved regular and overtime, still waiting, and the days behind them on request. */
-export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlightEntry = null, returnTo, exporting, onExport }: WhatGoesToPayrollProps) {
+export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlightEntry = null, returnTo, exporting, onExport, staleSince, onRetry }: WhatGoesToPayrollProps) {
   // A locked period lists only people whose hours went; shifts held back at the lock show under carried hours.
   const rows = personRows(payload).filter(row => !locked || row.lines.length > 0)
   const wide = useMediaQuery('(min-width: 640px)')
@@ -106,6 +110,7 @@ export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlig
         </h2>
         <p className="text-caption text-ink-muted">Overtime counts only once approved.</p>
       </div>
+      {staleSince !== undefined && onRetry && <StaleNote what={locked ? 'what went to payroll' : 'what goes to payroll'} loadedAt={staleSince} onRetry={onRetry} />}
 
       {rows.length === 0 ? (
         <p className="rounded-card border border-line bg-surface px-4 py-6 text-center text-body-sm text-ink-muted">No hours in this pay period yet.</p>
@@ -209,12 +214,21 @@ export function WhatGoesToPayroll({ payload, locked, initialOpen = null, highlig
         </ul>
       )}
 
-      <div className="flex flex-wrap gap-2 pt-1">
-        <Button variant="secondary" size="sm" icon={<Download className="size-4" />} loading={exporting === 'pdf'} loadingLabel="Preparing PDF…" disabled={exporting !== null} onClick={() => onExport('pdf')}>PDF</Button>
-        <Button variant="secondary" size="sm" icon={<Download className="size-4" />} loading={exporting === 'csv'} loadingLabel="Preparing CSV…" disabled={exporting !== null} onClick={() => onExport('csv')}>Payroll CSV</Button>
+      {/* The live hours report follows the dates, not payroll's rules, so it's labelled apart from what payroll gets. */}
+      <div className="space-y-2 pt-1">
         {locked && (
-          <Button variant="secondary" size="sm" icon={<Download className="size-4" />} loading={exporting === 'locked_csv'} loadingLabel="Preparing CSV…" disabled={exporting !== null} onClick={() => onExport('locked_csv')}>Locked hours CSV</Button>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Button size="sm" icon={<Download className="size-4" />} loading={exporting === 'locked_csv'} loadingLabel="Preparing CSV…" disabled={exporting !== null} onClick={() => onExport('locked_csv')}>What was sent to payroll (CSV)</Button>
+            <span className="text-caption text-ink-muted">The hours AIRE froze at the lock, as in this table.</span>
+          </div>
         )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" icon={<Download className="size-4" />} loading={exporting === 'pdf'} loadingLabel="Preparing PDF…" disabled={exporting !== null} onClick={() => onExport('pdf')}>Hours report (live) PDF</Button>
+          <Button variant="secondary" size="sm" icon={<Download className="size-4" />} loading={exporting === 'csv'} loadingLabel="Preparing CSV…" disabled={exporting !== null} onClick={() => onExport('csv')}>Hours report (live) CSV</Button>
+        </div>
+        <p className="text-caption text-ink-muted">
+          The live hours report lists the approved shifts dated {locked ? 'in this period as they are now' : 'in this period'}. It can differ from {locked ? 'what was sent' : 'this table'}: late hours carried in{locked ? ', later edits' : ''} and held-back time aren't counted the same way.
+        </p>
       </div>
     </section>
   )

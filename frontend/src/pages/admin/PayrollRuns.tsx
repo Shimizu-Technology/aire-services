@@ -64,7 +64,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   const location = useLocation()
   const [params] = useSearchParams()
   const data = usePayPeriodData(requestedStart)
-  const { periods, show, range, isCurrent, attention, cutoff, connection, preview, batch, carryovers, now, refresh } = data
+  const { periods, show, range, isCurrent, attention, cutoff, connection, waiting, preview, batch, carryovers, now, refresh } = data
   const [dialog, setDialog] = useState<'manual' | 'finalize' | null>(null)
   const [finalizing, setFinalizing] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
@@ -233,7 +233,7 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
         <div className="min-w-0 space-y-6">
           {beforeLocking && range && (
             <p className="rounded-card border border-line bg-surface px-4 py-3 text-body-sm text-ink-muted">
-              This pay period was paid before AIRE started locking hours, so nothing was sent from here.{' '}
+              AIRE didn't lock hours for this pay period, so nothing went to payroll from here.{' '}
               <Link className="font-semibold text-primary underline" to={withPayrollPeriod(PAYROLL_RECORDS_PATH, range)}>See its payroll records</Link>
             </p>
           )}
@@ -241,11 +241,16 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
           {range && show.data && !locked && !beforeLocking && (published || isCurrent) && (
             <BeforeLockChecklist
               range={range}
+              today={todayInGuam(now)}
               attention={attention.data}
               preview={preview.data}
+              waiting={waiting.data}
               previousStart={show.data.previous_start_date}
-              attentionLoad={isCurrent ? blockLoad(attention) : 'ready'}
-              previewLoad={blockLoad(preview)}
+              sources={[
+                { load: blockLoad(waiting), loadedAt: waiting.loadedAt },
+                { load: blockLoad(preview), loadedAt: preview.loadedAt },
+                ...(isCurrent ? [{ load: blockLoad(attention), loadedAt: attention.loadedAt }] : []),
+              ]}
               onRetry={() => void refresh()}
             />
           )}
@@ -263,6 +268,8 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
               returnTo={returnTo}
               exporting={exporting}
               onExport={kind => void exportReport(kind)}
+              staleSince={payloadLoad === 'stale' ? (locked ? batch.loadedAt : preview.loadedAt) : undefined}
+              onRetry={() => void (locked ? batch.reload() : preview.reload())}
             />
           )}
           {exportError && <p role="alert" className="rounded-card border border-red-200 bg-danger-soft px-4 py-3 text-body-sm text-red-900">{exportError}</p>}
