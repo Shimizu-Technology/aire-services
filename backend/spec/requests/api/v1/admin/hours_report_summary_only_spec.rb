@@ -72,6 +72,37 @@ RSpec.describe "GET /api/v1/admin/hours_report?summary_only=1", type: :request d
     expect(full_row[:excluded_entries].size).to eq(2)
   end
 
+  it "counts distinct waiting entries in the approval totals' category, source and entry-method selection" do
+    other_category = create(:time_category)
+    create_entry(date: Date.new(2026, 11, 11), hours: 4, approval_status: "pending")
+      .update!(time_category: other_category, clock_source: "mobile", entry_method: "manual")
+    create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 11, 12),
+      start_time: guam.local(2026, 11, 12, 22), end_time: guam.local(2026, 11, 13, 6), hours: 8,
+      clock_in_at: guam.local(2026, 11, 12, 22), clock_out_at: guam.local(2026, 11, 13, 6),
+      status: "completed", entry_method: "clock", clock_source: "kiosk", approval_status: "pending")
+
+    [
+      [ {}, 3, 21.0 ],
+      [ { time_category_id: category.id }, 2, 17.0 ],
+      [ { time_category_id: other_category.id }, 1, 4.0 ],
+      [ { clock_source: "kiosk" }, 2, 17.0 ],
+      [ { clock_source: "mobile" }, 1, 4.0 ],
+      [ { entry_method: "clock" }, 2, 17.0 ],
+      [ { entry_method: "manual" }, 1, 4.0 ],
+      [ { time_category_id: category.id, clock_source: "mobile" }, 0, 0.0 ]
+    ].each do |selection, count, waiting_hours|
+      [ false, true ].each do |summary_only|
+        # Neither status filter can hide waiting work from approval facts.
+        get "/api/v1/admin/hours_report",
+          params: params.merge(selection).merge(user_id: employee.id, approval_status: "denied", overtime_status: "approved", summary_only: summary_only),
+          headers: headers_for(admin)
+        expect(response).to have_http_status(:ok)
+        expect(json[:summary][:approval_waiting_count]).to eq(count)
+        expect(json[:summary].dig(:payroll_hours, :time_waiting_hours)).to eq(waiting_hours)
+      end
+    end
+  end
+
   it "returns the full report when summary_only is absent or false" do
     get "/api/v1/admin/hours_report", params: params.merge(summary_only: "0"), headers: headers_for(admin)
 

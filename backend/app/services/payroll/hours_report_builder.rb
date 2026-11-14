@@ -463,7 +463,7 @@ module Payroll
     def summary(employees, period_entries)
       {
         payroll_hours: ApprovalHours.sum(employees.map { |employee| employee[:payroll_hours] }),
-        approval_waiting_count: period_entries.select { |entry| @approval_hours.for(entry).values_at(:time_waiting_hours, :overtime_waiting_hours).any?(&:positive?) }.map(&:id).uniq.size,
+        approval_waiting_count: @approval_entries_by_user.values.flatten.select { |entry| @approval_hours.for(entry).values_at(:time_waiting_hours, :overtime_waiting_hours).any?(&:positive?) }.map(&:id).uniq.size,
         worked_hours: sum(employees, :worked_hours),
         employee_count: employees.size,
         total_hours: sum(employees, :total_hours),
