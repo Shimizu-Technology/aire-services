@@ -7,6 +7,7 @@ import { useConfirm } from '../../components/ui/useConfirm'
 import { Link, useLocation } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import SettingHelp from '../../components/settings/SettingHelp'
+import PhoneLinkInput from './settings/PhoneLinkInput'
 import { SettingsCatalogContext } from '../../components/settings/settingsCatalogContext'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { StatusPill } from '../../components/ui/StatusPill'
@@ -759,7 +760,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
     }
 
     if (phone_contacts.some((contact) => !e164Pattern.test(contact.phone_e164))) {
-      setContactSettingsError('Public phone contact link numbers must use E.164 format, such as +16714774243.')
+      setContactSettingsError('Enter a phone number with its country code, such as +1 671 477 4243.')
       setContactSettingsMessage('')
       return
     }
@@ -1462,6 +1463,12 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       />
                     </div>
                   </div>
+                  <details className="mt-2 text-sm text-slate-500">
+                    <summary className="flex min-h-11 cursor-pointer items-center">Advanced</summary>
+                    <p className="pb-2">
+                      Search engines read this address and the phone number marked &quot;Use for call buttons&quot; to show your business details in search results.
+                    </p>
+                  </details>
                   <p className="mt-2 text-xs text-slate-500">
                     Address and email appear across the public website. Choose the primary website phone from the directory below.
                   </p>
@@ -1471,7 +1478,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       <div>
                         <h4 className="text-sm font-semibold text-slate-900">Public phone directory</h4>
                         <p className="mt-1 text-xs leading-5 text-slate-500">
-                          These are shown on the contact page and footer. The selected primary line powers homepage/footer call buttons and search-engine schema.
+                          These are shown on the contact page and footer. The call buttons on the homepage and footer dial the line marked &quot;Use for call buttons&quot;.
                         </p>
                       </div>
                       <button
@@ -1485,7 +1492,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
 
                     <div className="mt-4 space-y-3">
                       {publicContactDraft.phone_contacts.map((contact, index) => (
-                        <div key={contact.draft_id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.7fr_0.65fr_auto]">
+                        <div key={contact.draft_id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 lg:grid-cols-[1.3fr_1fr_1fr_0.8fr_0.8fr_auto]">
                           <div>
                             <label htmlFor={`public-phone-contact-label-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Purpose label</label>
                             <input
@@ -1508,11 +1515,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                           </div>
                           <div>
                             <label htmlFor={`public-phone-contact-e164-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Link number</label>
-                            <input
+                            <PhoneLinkInput
                               id={`public-phone-contact-e164-${index}`}
                               value={contact.phone_e164}
-                              onChange={(e) => updatePublicPhoneContactDraft(index, 'phone_e164', e.target.value)}
-                              placeholder="+16714774243"
+                              onChange={(value) => updatePublicPhoneContactDraft(index, 'phone_e164', value)}
                               className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                             />
                           </div>
@@ -1530,7 +1536,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                           </div>
                           <div>
                             <span className="mb-2 block text-sm font-medium text-slate-700">Primary</span>
-                            <label className="flex min-h-[50px] items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">
+                            <label className="flex min-h-[50px] items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold leading-4 text-slate-700">
                               <input
                                 type="radio"
                                 name="primary-public-phone-contact"
@@ -1538,7 +1544,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                                 onChange={() => setPrimaryPhoneDraftId(contact.draft_id)}
                                 className="h-4 w-4 border-slate-300 text-cyan-600 focus:ring-cyan-500"
                               />
-                              CTA
+                              Use for call buttons
                             </label>
                           </div>
                           <div className="flex items-end">
@@ -1555,7 +1561,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       ))}
                     </div>
                     <p className="mt-3 text-xs text-slate-500">
-                      Link numbers must use E.164 format with the country code. WhatsApp rows open a WhatsApp chat link in the directory; the primary row still supplies the website telephone CTA and business schema number.
+                      Include the country code, for example +1 671 477 4243. WhatsApp lines open a WhatsApp chat. Only one line can be used for the website&apos;s call buttons.
                     </p>
                   </div>
                 </div>

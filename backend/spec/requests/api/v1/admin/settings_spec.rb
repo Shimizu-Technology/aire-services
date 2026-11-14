@@ -45,6 +45,104 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
   end
 
   describe "PATCH /api/v1/admin/settings" do
+    it "refuses Require while schedules are off" do
+      Setting.set("schedules_enabled", "false")
+      patch "/api/v1/admin/settings", params: { settings: { schedule_required_for_clock_in: "true" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(Setting.get("schedule_required_for_clock_in")).to eq("false")
+    end
+
+    describe "turning Use schedules off" do
+      before do
+        Setting.set("schedules_enabled", "true")
+        Setting.set("schedule_required_for_clock_in", "true")
+      end
+
+      it "turns Require off in the same save and audits both switches" do
+        patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: "false" } }, headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:ok)
+        expect(json[:settings]).to include(schedules_enabled: "false", schedule_required_for_clock_in: "false")
+        expect(Setting.get("schedule_required_for_clock_in")).to eq("false")
+        require_audit = AuditLog.find_by!(action: "setting.schedule_required_for_clock_in_updated")
+        expect(require_audit.changes_made).to include("schedule_required_for_clock_in" => [ true, false ])
+        schedules_audit = AuditLog.find_by!(action: "setting.schedules_enabled_updated")
+        expect(schedules_audit.changes_made).to include("schedules_enabled" => [ true, false ])
+      end
+
+      it "leaves nobody locked out when sent as a JSON boolean" do
+        patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: false } }, headers: auth_headers_for[admin], as: :json
+
+        expect(response).to have_http_status(:ok)
+        expect(Setting.get("schedule_required_for_clock_in")).to eq("false")
+      end
+
+      it "writes one Require audit row when both are turned off in one request" do
+        patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: "false", schedule_required_for_clock_in: "false" } }, headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:ok)
+        expect(AuditLog.where(action: "setting.schedule_required_for_clock_in_updated").count).to eq(1)
+      end
+
+      it "does not add a second Require row when Require was turned off first" do
+        patch "/api/v1/admin/settings", params: { settings: { schedule_required_for_clock_in: "false" } }, headers: auth_headers_for[admin]
+        patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: "false" } }, headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:ok)
+        expect(Setting.get("schedule_required_for_clock_in")).to eq("false")
+        expect(AuditLog.where(action: "setting.schedule_required_for_clock_in_updated").count).to eq(1)
+      end
+
+      it "still refuses a request that turns schedules off and Require on" do
+        patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: "false", schedule_required_for_clock_in: "true" } }, headers: auth_headers_for[admin]
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(Setting.get("schedules_enabled")).to eq("true")
+      end
+    end
+
+    it "reads JSON booleans the same as strings for the Require guard" do
+      Setting.set("schedules_enabled", "false")
+      patch "/api/v1/admin/settings", params: { settings: { schedule_required_for_clock_in: true } }, headers: auth_headers_for[admin], as: :json
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(Setting.get("schedule_required_for_clock_in")).to eq("false")
+
+      patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: true, schedule_required_for_clock_in: true } }, headers: auth_headers_for[admin], as: :json
+      expect(response).to have_http_status(:ok)
+      expect(Setting.get("schedule_required_for_clock_in")).to eq("true")
+    end
+
+    it "allows 10 reminder recipients and refuses 11 with the pay stub wording" do
+      ten = (1..10).map { |n| "person#{n}@example.com" }.join(", ")
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: ten } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "#{ten}, person11@example.com" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(json[:error]).to eq("Use 10 addresses or fewer.")
+      expect(Setting.payroll_cutoff_reminder_emails.size).to eq(10)
+    end
+
+    it "accepts and audits Require when schedules are enabled in the same save" do
+      patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: "true", schedule_required_for_clock_in: "true" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      audit = AuditLog.find_by!(action: "setting.schedule_required_for_clock_in_updated")
+      expect(audit.changes_made).to include("schedule_required_for_clock_in" => [ false, true ])
+    end
+
+    it "normalizes, validates, clears and audits reminder recipients" do
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "ops@example.com; Ops@Example.com, owner@example.com" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      expect(Setting.payroll_cutoff_reminder_emails).to eq([ "ops@example.com", "owner@example.com" ])
+      audit = AuditLog.find_by!(action: "setting.payroll_cutoff_reminder_emails_updated")
+      expect(audit.changes_made).to include("payroll_cutoff_reminder_emails" => [ "", "ops@example.com, owner@example.com" ])
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "invalid" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:unprocessable_entity)
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "" } }, headers: auth_headers_for[admin]
+      expect(response).to have_http_status(:ok)
+      expect(Setting.payroll_cutoff_reminder_emails).to eq([])
+    end
+
     it "updates allowed keys" do
       expect do
         patch "/api/v1/admin/settings",
