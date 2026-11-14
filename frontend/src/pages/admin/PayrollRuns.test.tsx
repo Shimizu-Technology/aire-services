@@ -197,7 +197,7 @@ describe('pay period page: lock states', () => {
     mocks.getPayrollCutoff.mockResolvedValue({ data: cutoff(lockControl({ pending_change: change })) })
     await open()
     const alert = screen.getByRole('alert')
-    expect(alert).toHaveTextContent('AIRE couldn’t apply Lock now: Cornerstone refused the change')
+    expect(alert).toHaveTextContent('AIRE couldn’t apply Lock now: Cornerstone refused the change. The lock time below is still in effect.')
     const before = mocks.period.mock.calls.length
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
     await settle()
@@ -210,6 +210,15 @@ describe('pay period page: lock states', () => {
     await open()
     expect(screen.getByRole('alert')).toHaveTextContent('AIRE couldn’t lock the Nov 1–15 hours. It tries again on its own.')
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Lock failed')).toBeInTheDocument()
+  })
+
+  it('says a failed lock waits for the connection while it is paused', async () => {
+    const paused = { mode: 'paused', enabled: false, message: 'Paused' } as const
+    publish(periodSummary({ status: 'failed', cutoff_state: 'attention_required' }), paidPeriod())
+    mocks.periods.mockResolvedValue({ data: { ...periodsIndex(), connected_payroll: paused } })
+    mocks.connection.mockResolvedValue({ data: connection({ state: 'paused', mode: 'paused', enabled: false }) })
+    await open()
+    expect(screen.getByText(/AIRE couldn’t lock the Nov 1–15 hours/)).toHaveTextContent('It tries again once the payroll connection is resumed.')
   })
 
   it('waits for Cornerstone Payroll after the lock, without the checklist', async () => {
@@ -296,11 +305,18 @@ describe('pay period page: past periods and other states', () => {
     await open()
     expect(screen.getByText(/Cornerstone Payroll hasn't published a pay period yet. Hours are still tracked./)).toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Not published')).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Connected to Cornerstone Payroll')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More payroll actions' }))
     expect(screen.getByRole('menuitem', { name: 'Finalize without a published period…' })).toBeEnabled()
     expect(screen.getByRole('menuitem', { name: 'Record payroll done outside the connection…' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Finalize without a published period…' }))
     expect(screen.getByRole('dialog', { name: 'Finalize this payroll cutoff?' })).toBeInTheDocument()
+  })
+
+  it('says the connection is not set up yet when Cornerstone Payroll has never answered', async () => {
+    mocks.connection.mockResolvedValue({ data: connection({ last_publication: null, last_delivery: null, account_link: null }) })
+    await open()
+    expect(within(screen.getByRole('list', { name: 'Status' })).getByText('Not connected yet')).toBeInTheDocument()
   })
 
   it('only offers to finalize without a published period when none is published', async () => {

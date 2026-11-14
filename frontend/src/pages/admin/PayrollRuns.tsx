@@ -26,6 +26,9 @@ import { Skeleton } from '../../components/ui/Skeleton'
 
 const PAYROLL_RECORDS_PATH = '/admin/payroll/records'
 
+/** Cornerstone's error text may not end a sentence. */
+const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
+
 /**
  * Which pay period an old `/admin/payroll?start_date=…&end_date=…` link means,
  * or null when it names a custom range that only the records page can show.
@@ -91,7 +94,12 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
     ? { label: 'Payroll connection paused', tone: 'needs-fix' }
     : connection.data?.state === 'delivery_problem'
       ? { label: 'Payroll updates delayed', tone: 'waiting' }
-      : connection.data ? { label: 'Connected to Cornerstone Payroll', tone: 'approved' } : null
+      : connection.data
+        // Same rule as the connection card: enabled, but nothing published, received or linked yet.
+        ? connection.data.last_publication || connection.data.last_delivery || connection.data.account_link
+          ? { label: 'Connected to Cornerstone Payroll', tone: 'approved' }
+          : { label: 'Not connected yet', tone: 'off' }
+        : null
   const control = cutoff.data?.lock_control && period && cutoff.data.lock_control.period.start_date === period.start_date
     ? cutoff.data.lock_control
     : null
@@ -165,8 +173,8 @@ function PayPeriodPage({ requestedStart }: { requestedStart: string | null }) {
   // A failed lock retries on its own; a refused change leaves the old lock time in place (#170's words).
   const lockProblem = period && !locked && isCurrent
     ? period.status === 'failed'
-      ? `AIRE couldn’t lock the ${label} hours. It tries again on its own.`
-      : period.lock_change && period.lock_change.state !== 'pending' ? `${lockChangeHeadline(period.lock_change)} The lock time below is still in effect.` : null
+      ? `AIRE couldn’t lock the ${label} hours. ${paused ? 'It tries again once the payroll connection is resumed.' : 'It tries again on its own.'}`
+      : period.lock_change && period.lock_change.state !== 'pending' ? `${sentence(lockChangeHeadline(period.lock_change))} The lock time below is still in effect.` : null
     : null
 
   const goToPeriod = (next: PayPeriod) => navigate(next.start === currentStart ? ADMIN_PATHS.payroll : periodHref(next.start))
