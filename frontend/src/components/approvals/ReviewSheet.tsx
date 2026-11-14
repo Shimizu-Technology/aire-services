@@ -7,6 +7,7 @@ import {
   type ReviewItem,
 } from '../../lib/api/approvals'
 import { addDateDays, businessWeekStart, formatWorkDate } from '../../lib/dateUtils'
+import { formatApprovalDate } from '../../lib/approvalsDates'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { Button, ErrorState, Field, Sheet, StatusPill, Textarea } from '../ui'
 import type { ApprovalResult } from './useReviewBatch'
@@ -144,7 +145,12 @@ export default function ReviewSheet({
       }
       onDirty(false)
       await onReload()
-      onClose(true)
+      const subject = denying === 'time' ? 'shift' : 'overtime'
+      const pronoun = "They'll"
+      onClose(
+        true,
+        `Denied ${entry.user.full_name}'s ${formatApprovalDate(entry.work_date)} ${subject}. ${pronoun} see your note.`,
+      )
     } finally {
       lock.current = false
       setSaving(false)

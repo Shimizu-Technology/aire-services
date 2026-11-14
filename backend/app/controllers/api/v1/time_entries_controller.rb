@@ -1431,6 +1431,7 @@ module Api
         entries = TimeEntry
           .preload({ user: [ :user_approval_groups, :assigned_time_categories ] }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
           .where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
+          .where.not(approval_status: "denied")
 
         approval_group = params[:approval_group].to_s
         return entries if approval_group.blank?

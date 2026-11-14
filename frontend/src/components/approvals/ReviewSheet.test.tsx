@@ -211,3 +211,22 @@ it('closes a conflicted approval so it must reopen with fresh review fields', as
     ),
   )
 })
+
+it('reloads the queue and announces the denied shift and visible note', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  vi.mocked(api.denyTimeEntry).mockResolvedValue({
+    data: { time_entry: reviewEntry(7, 1, { approval_status: 'denied' }) },
+  })
+  const config = props()
+  render(<ReviewSheet {...config} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Deny…' }))
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Please correct this shift.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Deny shift' }))
+  await waitFor(() =>
+    expect(config.onClose).toHaveBeenCalledWith(
+      true,
+      expect.stringMatching(/Denied Marcus Quinata's Tue, Nov 10.*shift\. They'll see your note\./),
+    ),
+  )
+  expect(config.onReload).toHaveBeenCalledOnce()
+})
