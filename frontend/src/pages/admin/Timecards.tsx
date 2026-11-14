@@ -208,8 +208,11 @@ export default function Timecards() {
     refresh()
   }
 
+  // Everyone shows a week, so the header names the pay period that week falls in.
+  const headerPeriod = showEveryone ? payPeriodContaining(weekDate) : period
   const lock = lockAt && lockAt.start === period.start ? lockAt.at : null
-  const description = `${formatPayPeriod(period)}${lock ? ` · locks ${LOCK_FORMAT.format(new Date(lock))}` : ''}`
+  const headerLock = lockAt && lockAt.start === headerPeriod.start ? lockAt.at : null
+  const description = `${formatPayPeriod(headerPeriod)}${headerLock ? ` · locks ${LOCK_FORMAT.format(new Date(headerLock))}` : ''}`
 
   const menuItems: MenuItem[] = person ? [
     ...(capabilities.manage_users ? [{ id: 'person', label: 'Open person page', onSelect: () => navigate(employeeWorkspaceHref(person.id, { tab: 'hours', period: period.start, returnTo: `${location.pathname}${location.search}` })) }] : []),

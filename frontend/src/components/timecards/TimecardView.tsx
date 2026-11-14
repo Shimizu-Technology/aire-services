@@ -74,7 +74,9 @@ export function TimecardView({
   const scrolledTo = useRef<number | null>(null)
   const { start: periodStart, end: periodEnd } = period
   const requestKey = `${person.id}:${periodStart}:${refreshKey}:${revision}`
-  const loaded = state.key === requestKey
+  // A refresh of the same person and period keeps the days on screen, so the
+  // row the viewer was on (and its focus) stays put while the new data loads.
+  const loaded = state.key === requestKey || (state.entries !== null && state.key.startsWith(`${person.id}:${periodStart}:`))
 
   useEffect(() => {
     let cancelled = false

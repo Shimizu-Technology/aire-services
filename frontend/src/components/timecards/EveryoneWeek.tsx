@@ -3,7 +3,8 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { TimeEntry } from '../../lib/api'
 import { timecardsApi } from '../../lib/api/timecards'
 import { addDateDays, businessDateISO, businessWeekStart, formatDateOnly } from '../../lib/dateUtils'
-import { formatHours, personName } from '../../lib/timecards'
+import { useAuthContext } from '../../contexts/AuthContext'
+import { formatHours } from '../../lib/timecards'
 import EditTimeEntryModal from '../time-tracking/EditTimeEntryModal'
 import WeekGrid from '../time-tracking/WeekGrid'
 import { Button, ErrorState, IconButton } from '../ui'
@@ -26,6 +27,11 @@ export interface EveryoneWeekProps {
 /** Everyone's week on the existing grid, with the week stepper above it. */
 export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, onChanged, onOpenPerson, onAddEntry, addDisabled = false }: EveryoneWeekProps) {
   const weekStart = businessWeekStart(date)
+  const { currentUser } = useAuthContext()
+  // The same names the old Timecards grid showed: "You", then the display name.
+  const ownerLabel = (entry: TimeEntry) => currentUser?.id === entry.user.id
+    ? 'You'
+    : entry.user.display_name || entry.user.full_name || entry.user.email?.split('@')[0] || 'Team member'
   const [revision, setRevision] = useState(0)
   const [state, setState] = useState<{ key: string; entries: TimeEntry[] | null; error: string | null }>({ key: '', entries: null, error: null })
   const [editing, setEditing] = useState<TimeEntry | null>(null)
@@ -74,7 +80,7 @@ export function EveryoneWeek({ date, onDateChange, categories, refreshKey = 0, o
           weekDates={weekDates}
           entriesByDate={entriesByDate}
           hoursPerDay={hoursPerDay}
-          ownerLabel={(entry) => personName(entry.user)}
+          ownerLabel={ownerLabel}
           openEditEntry={setEditing}
           setPersonDayModal={({ entries: dayEntries, date: day }) => onOpenPerson(dayEntries[0].user.id, day)}
           openNewEntry={onAddEntry}

@@ -93,7 +93,7 @@ export function PeoplePicker({ people, selectedId, onSelect, filter, onFilterCha
                 key={person.id}
                 leading={<Avatar name={person.name} />}
                 title={person.name}
-                meta={[person.groups.join(', '), hours].filter(Boolean).join(' · ') || undefined}
+                meta={[hours, person.groups.join(', ')].filter(Boolean).join(' · ') || undefined}
                 trailing={pill ? <StatusPill tone={pill.tone}>{pill.label}</StatusPill> : undefined}
                 selected={person.id === selectedId}
                 onOpen={() => onSelect(person)}
