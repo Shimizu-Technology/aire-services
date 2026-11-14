@@ -109,11 +109,11 @@ afterEach(() => {
 })
 
 describe('Timecards on a phone', () => {
-  it('opens on "Needs a look" with the lock date, and a search looks through everyone', async () => {
+  it('opens on "People to check" with the lock date, and a search looks through everyone', async () => {
     openAt('/admin/timecards')
     expect(await screen.findByRole('heading', { level: 1, name: 'Timecards' })).toBeInTheDocument()
     expect(await screen.findByText('Nov 1–15 · locks Wed, Nov 18')).toBeInTheDocument()
-    const needs = await screen.findByRole('button', { name: /Needs a look/ })
+    const needs = await screen.findByRole('button', { name: /People to check/ })
     expect(needs).toHaveAttribute('aria-pressed', 'true')
     expect(needs).toHaveTextContent('1')
     const people = await screen.findByRole('list', { name: 'People' })
@@ -233,8 +233,8 @@ describe('Timecards on a phone', () => {
     expect(await screen.findByText("Couldn't load who needs a look.")).toBeInTheDocument()
     expect(screen.queryByText('Nobody needs a look.')).not.toBeInTheDocument()
     expect(screen.queryByText(/nothing waiting/i)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Needs a look/ })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: /Needs a look/ })).not.toHaveTextContent(/\d/)
+    expect(screen.getByRole('button', { name: /People to check/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /People to check/ })).not.toHaveTextContent(/\d/)
     fireEvent.click(within(screen.getByText("Couldn't load who needs a look.").closest('[role=alert]') as HTMLElement).getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(screen.queryByText("Couldn't load who needs a look.")).not.toBeInTheDocument())
     expect(await screen.findByText('Still clocked in')).toBeInTheDocument()

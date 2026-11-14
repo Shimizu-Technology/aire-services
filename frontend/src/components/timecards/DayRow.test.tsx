@@ -29,8 +29,8 @@ describe('DayRow', () => {
     const time = screen.getByText('7:00a–6:30p')
     expect(time).toHaveClass('whitespace-nowrap')
     expect(time.className).not.toMatch(/truncate/)
-    const pills = screen.getByText('OT waiting').closest('[class*="grid-area:pills"]')!
-    expect(pills).toHaveTextContent('OT waitingApproved')
+    const pills = screen.getByText('Overtime waiting').closest('[class*="grid-area:pills"]')!
+    expect(pills).toHaveTextContent('Overtime waitingApproved')
     // Phones: time and hours, then the detail, then the pills, each on its own line.
     expect(time.closest('[data-shift-layout]')!.className).toContain("[grid-template-areas:'time_hours'_'detail_detail'_'pills_pills']")
   })
