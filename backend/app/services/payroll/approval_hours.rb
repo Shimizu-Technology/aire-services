@@ -87,6 +87,5 @@ module Payroll
     def time_waiting?(entry)
       entry.status == "completed" && (entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?))
     end
-
   end
 end

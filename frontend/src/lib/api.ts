@@ -1124,6 +1124,7 @@ export interface HoursReportWeek {
 }
 
 export interface HoursReportEmployee {
+  worked_hours?: number;
   payroll_hours?: PayrollApprovalHours;
   approval_complete?: boolean;
   id: number;
@@ -1193,6 +1194,7 @@ export interface HoursReportResponse {
   quality: HoursReportQuality;
   filters: HoursReportFilters;
   summary: {
+    worked_hours?: number;
     payroll_hours?: PayrollApprovalHours;
     employee_count: number;
     total_hours: number;
