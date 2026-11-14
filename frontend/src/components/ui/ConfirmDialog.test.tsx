@@ -11,30 +11,15 @@ function renderDialog(props: Partial<Parameters<typeof ConfirmDialog>[0]> = {}) 
   const onConfirm = vi.fn()
   const onCancel = vi.fn()
   const view = render(
-    <ConfirmDialog
-      open
-      title="Delete this shift?"
-      description="It's removed from the schedule."
-      confirmLabel="Delete shift"
-      onConfirm={onConfirm}
-      onCancel={onCancel}
-      {...props}
-    />,
+    <ConfirmDialog open title="Delete this shift?" description="It's removed from the schedule." confirmLabel="Delete shift"
+      onConfirm={onConfirm} onCancel={onCancel} {...props} />,
   )
   return { ...view, onConfirm, onCancel }
 }
 
 describe('ConfirmDialog', () => {
   it('renders nothing while closed', () => {
-    render(
-      <ConfirmDialog
-        open={false}
-        title="Hidden"
-        confirmLabel="Go"
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    )
+    render(<ConfirmDialog open={false} title="Hidden" confirmLabel="Go" onConfirm={vi.fn()} onCancel={vi.fn()} />)
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
@@ -42,9 +27,7 @@ describe('ConfirmDialog', () => {
     renderDialog({ details: <p>Shift: Tue 7:00 AM</p> })
     const dialog = screen.getByRole('alertdialog', { name: 'Delete this shift?' })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
-    expect(dialog).toHaveAccessibleDescription(
-      /It's removed from the schedule\.\s*Shift: Tue 7:00 AM/,
-    )
+    expect(dialog).toHaveAccessibleDescription(/It's removed from the schedule\.\s*Shift: Tue 7:00 AM/)
     expect(dialog.parentElement?.parentElement).toBe(document.body)
   })
 
@@ -76,23 +59,11 @@ describe('ConfirmDialog', () => {
     fireEvent.click(screen.getByRole('alertdialog'))
     expect(onCancel).toHaveBeenCalledTimes(2)
 
-    rerender(
-      <ConfirmDialog
-        open
-        busy
-        title="Delete this shift?"
-        confirmLabel="Delete shift"
-        onConfirm={onConfirm}
-        onCancel={onCancel}
-      />,
-    )
+    rerender(<ConfirmDialog open busy title="Delete this shift?" confirmLabel="Delete shift" onConfirm={onConfirm} onCancel={onCancel} />)
     await user.keyboard('{Escape}')
     fireEvent.click(screen.getByRole('alertdialog').parentElement!)
     expect(onCancel).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('button', { name: 'Delete shift' })).toHaveAttribute(
-      'aria-busy',
-      'true',
-    )
+    expect(screen.getByRole('button', { name: 'Delete shift' })).toHaveAttribute('aria-busy', 'true')
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
   })
 
@@ -102,9 +73,7 @@ describe('ConfirmDialog', () => {
     renderDialog()
     const cancel = screen.getByRole('button', { name: 'Cancel' })
     const action = screen.getByRole('button', { name: 'Delete shift' })
-    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([
-      new DOMRect(0, 0, 100, 44),
-    ] as unknown as DOMRectList)
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 100, 44)] as unknown as DOMRectList)
     try {
       expect(action).toHaveFocus()
       await user.tab()
@@ -113,9 +82,7 @@ describe('ConfirmDialog', () => {
       expect(action).toHaveFocus()
       await user.tab({ shift: true })
       expect(cancel).toHaveFocus()
-    } finally {
-      vi.restoreAllMocks()
-    }
+    } finally { vi.restoreAllMocks() }
   })
 
   it('returns focus to the control that opened it', async () => {
@@ -124,19 +91,8 @@ describe('ConfirmDialog', () => {
       const [open, setOpen] = useState(false)
       return (
         <>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-          >
-            Delete
-          </button>
-          <ConfirmDialog
-            open={open}
-            title="Delete?"
-            confirmLabel="Delete"
-            onConfirm={() => setOpen(false)}
-            onCancel={() => setOpen(false)}
-          />
+          <button type="button" onClick={() => setOpen(true)}>Delete</button>
+          <ConfirmDialog open={open} title="Delete?" confirmLabel="Delete" onConfirm={() => setOpen(false)} onCancel={() => setOpen(false)} />
         </>
       )
     }
@@ -166,15 +122,8 @@ describe('ConfirmDialog', () => {
 
   it('lays out as a bottom-anchored card with full-width buttons on phones', () => {
     renderDialog()
-    expect(screen.getByRole('alertdialog').parentElement).toHaveClass(
-      'items-end',
-      'sm:items-center',
-    )
-    expect(screen.getByRole('button', { name: 'Delete shift' })).toHaveClass(
-      'w-full',
-      'sm:w-auto',
-      'min-h-11',
-    )
+    expect(screen.getByRole('alertdialog').parentElement).toHaveClass('items-end', 'sm:items-center')
+    expect(screen.getByRole('button', { name: 'Delete shift' })).toHaveClass('w-full', 'sm:w-auto', 'min-h-11')
   })
 
   it('handles Escape only for the top dialog when opened over another dialog', async () => {
@@ -185,33 +134,15 @@ describe('ConfirmDialog', () => {
       const [confirming, setConfirming] = useState(false)
       useDialogFocus(true, ref, onModalClose)
       return (
-        <div
-          ref={ref}
-          role="dialog"
-          aria-label="Edit shift"
-        >
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-          >
-            Delete
-          </button>
-          <ConfirmDialog
-            open={confirming}
-            tone="danger"
-            title="Delete?"
-            confirmLabel="Delete shift"
-            onConfirm={vi.fn()}
-            onCancel={() => setConfirming(false)}
-          />
+        <div ref={ref} role="dialog" aria-label="Edit shift">
+          <button type="button" onClick={() => setConfirming(true)}>Delete</button>
+          <ConfirmDialog open={confirming} tone="danger" title="Delete?" confirmLabel="Delete shift" onConfirm={vi.fn()} onCancel={() => setConfirming(false)} />
         </div>
       )
     }
     render(<Modal />)
     await user.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(
-      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }),
-    ).toHaveFocus()
+    expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' })).toHaveFocus()
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(onModalClose).not.toHaveBeenCalled()
@@ -222,22 +153,11 @@ describe('ConfirmDialog', () => {
 })
 
 describe('useConfirm', () => {
-  function Harness({
-    options,
-    onResult,
-  }: {
-    options: ConfirmOptions
-    onResult: (value: boolean) => void
-  }) {
+  function Harness({ options, onResult }: { options: ConfirmOptions; onResult: (value: boolean) => void }) {
     const [confirm, dialog] = useConfirm()
     return (
       <>
-        <button
-          type="button"
-          onClick={async () => onResult(await confirm(options))}
-        >
-          Ask
-        </button>
+        <button type="button" onClick={async () => onResult(await confirm(options))}>Ask</button>
         {dialog}
       </>
     )
@@ -246,12 +166,7 @@ describe('useConfirm', () => {
   it('resolves true on confirm and false on cancel or Escape', async () => {
     const user = userEvent.setup()
     const onResult = vi.fn()
-    render(
-      <Harness
-        options={{ title: 'Approve 3 entries?', confirmLabel: 'Approve 3 entries' }}
-        onResult={onResult}
-      />,
-    )
+    render(<Harness options={{ title: 'Approve 3 entries?', confirmLabel: 'Approve 3 entries' }} onResult={onResult} />)
 
     await user.click(screen.getByRole('button', { name: 'Ask' }))
     await user.click(screen.getByRole('button', { name: 'Approve 3 entries' }))
@@ -270,12 +185,7 @@ describe('useConfirm', () => {
 
   it('defaults the action label and resolves false if the page unmounts mid-question', async () => {
     const onResult = vi.fn()
-    const view = render(
-      <Harness
-        options={{ title: 'Continue?' }}
-        onResult={onResult}
-      />,
-    )
+    const view = render(<Harness options={{ title: 'Continue?' }} onResult={onResult} />)
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
     expect(await screen.findByRole('button', { name: 'Confirm' })).toBeInTheDocument()
     view.unmount()
@@ -285,10 +195,7 @@ describe('useConfirm', () => {
 })
 
 it('disables an offline confirmation while keeping Cancel usable', () => {
-  const { onConfirm, onCancel } = renderDialog({
-    confirmDisabled: true,
-    confirmDisabledReason: 'Reconnect to approve',
-  })
+  const { onConfirm, onCancel } = renderDialog({ confirmDisabled: true, confirmDisabledReason: 'Reconnect to approve' })
   const save = screen.getByRole('button', { name: 'Delete shift' })
   expect(save).toBeDisabled()
   expect(save).toHaveAttribute('title', 'Reconnect to approve')
