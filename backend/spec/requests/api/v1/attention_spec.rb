@@ -208,7 +208,7 @@ RSpec.describe "Attention", type: :request do
       expect(period.fetch("waiting_count")).to eq(report[:summary][:approval_waiting_count])
       expect(period.fetch("waiting_hours")).to eq(hours[:time_waiting_hours] + hours[:overtime_waiting_hours])
       expect(period.fetch("approved_hours")).to eq(hours[:approved_hours])
-      expect(period.fetch("approved_hours")).to eq(8.0) # Caleb's approved Nov 9 shift; denied time is neither
+      expect(period.fetch("approved_hours")).to eq(16.0) # Approved REG counts even when the OT flag is pending.
       expect(period.fetch("people")).to eq(4)
     end
 

@@ -63,6 +63,25 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     expect(capture.reload.checksum).to eq(checksum)
   end
 
+  it "keeps frozen export bytes, payload and checksum unchanged when live reports are generated" do
+    post "/api/v1/admin/payroll_batches", params: range, headers: headers
+    expect(response).to have_http_status(:created)
+    id = response.parsed_body.fetch("id")
+    batch = PayrollBatch.find_by!(public_id: id)
+    original = batch.attributes.deep_dup
+    get "/api/v1/admin/payroll_batches/#{id}/export", headers: headers
+    frozen_csv = response.body.dup
+    expect(CSV.parse(frozen_csv).first).to eq([
+      "Batch ID", "Period start", "Period end", "Cutoff at", "Employee", "Email",
+      "Source entry", "Type", "Original work date", "Category", "Regular hours", "Overtime hours", "Total hours"
+    ])
+    get "/api/v1/admin/hours_report/summary_csv", params: range, headers: headers
+    expect(response).to have_http_status(:ok)
+    get "/api/v1/admin/payroll_batches/#{id}/export", headers: headers
+    expect(response.body).to eq(frozen_csv)
+    expect(batch.reload.attributes).to eq(original)
+  end
+
   it "requires a valid allocation approval, and Complete requires all waiting time to be resolved" do
     @overtime.update_columns(overtime_status: "approved", overtime_allocation_signature: [])
     expect(Payroll::HoursReportBuilder.new(range).call.dig(:summary, :payroll_hours, :approved_overtime_hours)).to eq(0.0)
@@ -75,4 +94,10 @@ RSpec.describe "Shared live payroll approval numbers", type: :request do
     TimeEntry.where(user: worker, approval_status: "pending").update_all(approval_status: "denied")
     expect(Payroll::HoursReportBuilder.new(range).call[:employees].first[:approval_complete]).to be(true)
   end
+  it "counts denied overtime as neither payroll approved nor waiting" do
+    @overtime.update_columns(overtime_status: "denied")
+    hours = Payroll::HoursReportBuilder.new(range).call.dig(:summary, :payroll_hours)
+    expect(hours).to include(approved_hours: 40.0, approved_overtime_hours: 0.0, overtime_waiting_hours: 0.0, time_waiting_hours: 2.0)
+  end
+
 end

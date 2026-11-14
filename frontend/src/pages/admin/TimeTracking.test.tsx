@@ -53,6 +53,8 @@ function TimeRouteHarness() {
   )
 }
 
+const approvedHours = (hours: number) => ({ approved_regular_hours: hours, approved_overtime_hours: 0, approved_hours: hours, time_waiting_hours: 0, overtime_waiting_hours: 0 })
+
 function makeHoursReport(startDate: string, endDate: string, totalHours: number): HoursReportResponse {
   return {
     start_date: startDate,
@@ -65,6 +67,7 @@ function makeHoursReport(startDate: string, endDate: string, totalHours: number)
     filters: {},
     summary: {
       employee_count: 0,
+      payroll_hours: approvedHours(totalHours),
       total_hours: totalHours,
       regular_hours: totalHours,
       overtime_hours: 0,
@@ -97,6 +100,7 @@ function prepareLinkedReport() {
   const entry = linkedFixture()
   const report = makeHoursReport('2026-08-16', '2026-08-31', 4)
   report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
     id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee', full_name: 'Casey Employee',
     role: 'employee', is_intern: false, status: 'active', terminated_at: null, termination_effective_on: null,
     total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0, entries_count: 1, days_worked: 1,
@@ -345,6 +349,7 @@ describe('TimeTracking routed report periods', () => {
       overtime_status: 'none', time_category: { id: 3, name: 'Operations' }, breaks: [], quality_flags: [],
     }
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
       full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
       termination_effective_on: null, total_hours: 0, regular_hours: 0, overtime_hours: 0, break_hours: 0,
@@ -683,6 +688,7 @@ describe('TimeTracking routed report periods', () => {
     const pending: HoursReportEntry = { ...first, id: 91, start_time: '14:00', end_time: '16:00', formatted_start_time: '2:00 PM', formatted_end_time: '4:00 PM', total_hours: 2, regular_hours: 0, break_minutes: 0, description: 'Pending additional work', entry_method: 'manual', clock_source: 'admin', approval_status: 'pending', overtime_status: 'pending', breaks: [], payroll_lifecycle: { status: 'awaiting_approval', label: 'Awaiting approval', payment_method: null, payment_reference: null, settlements: [] } }
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1, pending_count: 1 }
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
       full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
       termination_effective_on: null, total_hours: 4, regular_hours: 4, overtime_hours: 0, break_hours: 0.25,
@@ -737,6 +743,7 @@ describe('TimeTracking routed report periods', () => {
     const report = makeHoursReport('2026-08-01', '2026-08-15', 9)
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 7, email: 'casey@example.test', first_name: 'Casey', last_name: 'Employee', display_name: 'Casey Employee',
       full_name: 'Casey Employee', role: 'employee', is_intern: false, status: 'active', terminated_at: null,
       termination_effective_on: null, total_hours: 9, regular_hours: 9, overtime_hours: 0, break_hours: 0,
@@ -769,6 +776,7 @@ describe('TimeTracking routed report periods', () => {
     const report = makeHoursReport('2026-05-01', '2026-05-15', 6.1)
     report.summary = { ...report.summary, employee_count: 1, entries_count: 1 }
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 5,
       email: 'kami@example.com',
       first_name: 'Kami',
@@ -819,7 +827,7 @@ describe('TimeTracking routed report periods', () => {
       </MemoryRouter>,
     )
 
-    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Total.*6\.10h.*Ready/i })
+    const employeeCard = await screen.findByRole('button', { name: /Kami Lifecycle.*Partially paid.*Regular.*6\.10h.*Approved for payroll.*6\.10h.*Ready/i })
     expect(employeeCard).toBeInTheDocument()
     expect(employeeCard).toHaveTextContent('Maintenance · Staff')
     fireEvent.click(employeeCard)
@@ -846,6 +854,7 @@ describe('TimeTracking routed report periods', () => {
     report.breakdowns.by_category = [{ id: null, key: null, name: 'Uncategorized', total_hours: 3, regular_hours: 3, overtime_hours: 0, break_hours: 0, entries_count: 1 }]
     report.breakdowns.by_source = [{ source: 'legacy', total_hours: 3, regular_hours: 3, overtime_hours: 0, break_hours: 0, entries_count: 1 }]
     report.employees = [{
+      payroll_hours: report.summary.payroll_hours, approval_complete: true,
       id: 2,
       email: 'legacy@example.com',
       first_name: 'Legacy',
