@@ -56,13 +56,13 @@ RSpec.describe "Api::V1::Admin::Settings", type: :request do
       patch "/api/v1/admin/settings", params: { settings: { schedules_enabled: "true", schedule_required_for_clock_in: "true" } }, headers: auth_headers_for[admin]
       expect(response).to have_http_status(:ok)
       audit = AuditLog.find_by!(action: "setting.schedule_required_for_clock_in_updated")
-      expect(audit.changes_made).to include("schedule_required_for_clock_in" => [false, true])
+      expect(audit.changes_made).to include("schedule_required_for_clock_in" => [ false, true ])
     end
 
     it "normalizes, validates, clears and audits reminder recipients" do
-      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "ops@example.com; ops@example.com, owner@example.com" } }, headers: auth_headers_for[admin]
+      patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "ops@example.com; Ops@Example.com, owner@example.com" } }, headers: auth_headers_for[admin]
       expect(response).to have_http_status(:ok)
-      expect(Setting.payroll_cutoff_reminder_emails).to eq(["ops@example.com", "owner@example.com"])
+      expect(Setting.payroll_cutoff_reminder_emails).to eq([ "ops@example.com", "owner@example.com" ])
       audit = AuditLog.find_by!(action: "setting.payroll_cutoff_reminder_emails_updated")
       expect(audit.changes_made).to include("payroll_cutoff_reminder_emails" => [ "", "ops@example.com, owner@example.com" ])
       patch "/api/v1/admin/settings", params: { settings: { payroll_cutoff_reminder_emails: "invalid" } }, headers: auth_headers_for[admin]

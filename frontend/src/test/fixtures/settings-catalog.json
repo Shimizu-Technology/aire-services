@@ -416,9 +416,7 @@
     "section_label": "Time categories",
     "page": "Settings",
     "path": "/admin/settings/departments",
-    "setting_keys": [
-
-    ],
+    "setting_keys": [],
     "stored_in": "time_categories",
     "on_page": true,
     "capability": "manage_settings",
@@ -560,9 +558,7 @@
     "section_label": "My Pay",
     "page": "Team",
     "path": "/admin/users",
-    "setting_keys": [
-
-    ],
+    "setting_keys": [],
     "stored_in": "users.my_pay_enabled",
     "on_page": true,
     "capability": "manage_my_pay_access",

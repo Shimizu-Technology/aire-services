@@ -12,12 +12,13 @@ export default function EmailChips({
   onChange: (value: string) => void
 }) {
   const emails = [
-    ...new Set(
+    ...new Map(
       value
         .split(/[\n,;]+/)
         .map((email) => email.trim())
-        .filter(Boolean),
-    ),
+        .filter(Boolean)
+        .map((email) => [email.toLowerCase(), email]),
+    ).values(),
   ]
   return (
     <div className="space-y-2">

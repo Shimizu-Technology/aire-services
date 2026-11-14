@@ -24,6 +24,18 @@ const switches = new Set([
   'schedule_required_for_clock_in',
 ])
 
+const emailKeys = ['payroll_cutoff_reminder_emails', 'pay_stub_request_notification_emails']
+
+// Same rules as the server: split on commas, semicolons and new lines, drop repeats ignoring case.
+const normalizeEmails = (value: string) => [
+  ...new Set(
+    value
+      .split(/[\n,;]+/)
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  ),
+]
+
 export default function SettingsPage({ page }: { page: SettingsPageId }) {
   const { title, keys } = settingsPages[page]
   const [data, setData] = useState<AdminAppSettingsResponse | null>(null)
@@ -63,17 +75,26 @@ export default function SettingsPage({ page }: { page: SettingsPageId }) {
   }
   useEffect(load, [page])
   useEffect(() => {
+    if (dirty) setMessage('')
+  }, [dirty])
+  useEffect(() => {
     document.title = `${title} | AIRE Ops`
   }, [title])
 
   const save = async (override?: Record<string, string>) => {
-    const payload = override ?? changes
+    const payload = { ...(override ?? changes) }
     setError('')
-    const emails = (payload.payroll_cutoff_reminder_emails ?? '')
-      .split(/[\n,;]+/)
-      .map((value) => value.trim())
-      .filter(Boolean)
-    if (emails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+    setMessage('')
+    for (const key of emailKeys) {
+      if (payload[key] === undefined) continue
+      payload[key] = normalizeEmails(payload[key]).join(', ')
+      if (payload[key] === baseline[key]) delete payload[key]
+    }
+    if (
+      normalizeEmails(payload.payroll_cutoff_reminder_emails ?? '').some(
+        (email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
+      )
+    ) {
       setError('Enter valid reminder email addresses')
       return
     }
@@ -91,11 +112,25 @@ export default function SettingsPage({ page }: { page: SettingsPageId }) {
       }
     }
     setSaving(true)
+    let recipientsSaved = false
+    let currentRecipients = savedEmails
+    const fail = (reason: string) =>
+      setError(
+        recipientsSaved
+          ? `The heads-up email list was saved, but your other changes were not: ${reason}`
+          : reason,
+      )
     try {
       const { pay_stub_request_notification_emails: recipients, ...settings } = payload
       if (recipients !== undefined) {
         const saved = await payStubsApi.updateNotificationEmails(recipients)
-        setSavedEmails(saved.emails.join(', '))
+        currentRecipients = saved.emails.join(', ')
+        recipientsSaved = true
+        setSavedEmails(currentRecipients)
+        setDraft((previous) => ({
+          ...previous,
+          pay_stub_request_notification_emails: currentRecipients,
+        }))
       }
       const result = Object.keys(settings).length
         ? await settingsApi.save(settings)
@@ -104,12 +139,12 @@ export default function SettingsPage({ page }: { page: SettingsPageId }) {
         setData(result.data)
         setDraft({
           ...result.data.settings,
-          pay_stub_request_notification_emails: recipients ?? savedEmails,
+          pay_stub_request_notification_emails: currentRecipients,
         } as Record<string, string>)
         setMessage('Changes saved')
-      } else setError(result.error || 'Could not save changes')
+      } else fail(result.error || 'Could not save changes')
     } catch {
-      setError('Could not save changes')
+      fail('Could not save changes')
     } finally {
       setSaving(false)
     }

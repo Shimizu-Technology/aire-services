@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type AdminTimeCategory, type ApprovalGroupOption } from '../../../lib/api'
 import type { SettingsCatalogEntry } from '../../../lib/api'
@@ -18,8 +18,10 @@ export default function DepartmentsWork() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const alertRef = useRef<HTMLParagraphElement>(null)
   const snapshot = JSON.stringify({ groups, work })
-  const load = async () => {
+  // keepDraft refreshes what is saved on the server and leaves the admin's edits on screen.
+  const load = async (keepDraft = false) => {
     const [settings, categories] = await Promise.all([
       api.getAdminAppSettings(),
       api.getAdminTimeCategories(),
@@ -36,17 +38,23 @@ export default function DepartmentsWork() {
         is_active,
       }),
     )
-    setGroups(nextGroups)
-    setWork(nextWork)
+    if (!keepDraft) {
+      setGroups(nextGroups)
+      setWork(nextWork)
+    }
     setSavedWork(categories.data.time_categories)
     setBaseline(JSON.stringify({ groups: nextGroups, work: nextWork }))
   }
+  useEffect(() => {
+    alertRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [error])
   useEffect(() => {
     void load().catch((reason) => setError(String(reason)))
   }, [])
   const save = async () => {
     setSaving(true)
     setError('')
+    setMessage('')
     try {
       const old = JSON.parse(baseline) as { groups: ApprovalGroupOption[]; work: WorkDraft[] }
       if (JSON.stringify(groups) !== JSON.stringify(old.groups)) {
@@ -75,7 +83,17 @@ export default function DepartmentsWork() {
       await load()
       setMessage('Changes saved')
     } catch (reason) {
-      setError(`${String(reason)}. Some changes may have saved; check the list before retrying.`)
+      const problem = reason instanceof Error ? reason.message : String(reason)
+      // Changes before the failed request are already saved; show the server's truth as the baseline.
+      const refreshed = await load(true).then(
+        () => true,
+        () => false,
+      )
+      setError(
+        refreshed
+          ? `${problem}. Changes made before this problem are saved. Anything else you edited is still on screen and was not saved: fix the problem and save again.`
+          : `${problem}. Some changes may have saved. Reload the page to see what is saved before you try again.`,
+      )
     } finally {
       setSaving(false)
     }
@@ -97,7 +115,11 @@ export default function DepartmentsWork() {
         Settings
       </Link>
       <PageHeader title="Departments and work" />
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p ref={alertRef} role="alert">
+          {error}
+        </p>
+      )}
       {message && <p role="status">{message}</p>}
       <SettingsCatalogContext.Provider value={catalog}>
         <fieldset
@@ -111,6 +133,7 @@ export default function DepartmentsWork() {
             <div key={index} className="flex gap-3">
               <input
                 aria-label={`Department ${index + 1}`}
+                placeholder="Department name"
                 value={group.label}
                 onChange={(event) =>
                   setGroups((previous) =>
@@ -149,6 +172,7 @@ export default function DepartmentsWork() {
             <div key={index} className="space-y-3 border-b border-line pb-4">
               <input
                 aria-label={`Work name ${index + 1}`}
+                placeholder="Name of the work"
                 value={item.name}
                 onChange={(event) =>
                   setWork((previous) =>
@@ -161,6 +185,7 @@ export default function DepartmentsWork() {
               />
               <input
                 aria-label={`Work description ${index + 1}`}
+                placeholder="Description (optional)"
                 value={item.description}
                 onChange={(event) =>
                   setWork((previous) =>

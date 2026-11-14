@@ -121,3 +121,41 @@ it('rejects malformed reminder recipients', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Enter valid reminder email addresses')
   expect(mocks.save).not.toHaveBeenCalled()
 })
+it('lowercases and de-duplicates reminder recipients before saving', async () => {
+  const user = userEvent.setup()
+  mount('approvals')
+  await user.type(
+    await screen.findByLabelText('Cutoff reminder recipients'),
+    'Ops@Example.com, ops@example.com',
+  )
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  await waitFor(() => expect(mocks.save).toHaveBeenCalled())
+  expect(mocks.save.mock.calls[0][0]).toEqual({ payroll_cutoff_reminder_emails: 'ops@example.com' })
+})
+it('says the recipient list was saved when the settings request fails, then clears the bar on retry', async () => {
+  const user = userEvent.setup()
+  mocks.save.mockResolvedValueOnce({ error: 'Server said no' })
+  mount('pay-stubs')
+  await user.click(await screen.findByRole('switch', { name: 'Pay stub requests at the kiosk' }))
+  await user.type(
+    screen.getByLabelText('Heads-up emails for kiosk requests'),
+    'Ops@Example.com',
+  )
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'The heads-up email list was saved, but your other changes were not: Server said no',
+  )
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByText('Changes saved')).toBeInTheDocument()
+  expect(screen.queryByText('You have unsaved changes')).toBeNull()
+})
+it('drops the saved message as soon as the admin edits again', async () => {
+  const user = userEvent.setup()
+  mount('approvals')
+  const own = await screen.findByRole('switch', { name: 'Managers can approve their own time' })
+  await user.click(own)
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(await screen.findByText('Changes saved')).toBeInTheDocument()
+  await user.click(own)
+  expect(screen.queryByText('Changes saved')).toBeNull()
+})

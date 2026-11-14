@@ -131,7 +131,7 @@ describe('Roles & access', () => {
     const note = document.getElementById('setting-managers_can_approve_own_time')!
     expect(note).toHaveTextContent('Managers can approve their own timeOn')
     expect(note).toHaveTextContent('Managers approve their own time.')
-    expect(within(note).getByRole('link', { name: 'Settings → Time approvals' })).toHaveAttribute('href', '/admin/settings#time-approvals')
+    expect(within(note).getByRole('link', { name: 'Settings → Time approvals' })).toHaveAttribute('href', '/admin/settings/approvals')
   })
 
   it('covers My Pay and the pay stub switches', async () => {

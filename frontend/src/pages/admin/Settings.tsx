@@ -1462,7 +1462,12 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       />
                     </div>
                   </div>
-                  <details className="mt-2 text-sm text-slate-500"><summary className="min-h-11 cursor-pointer">Advanced</summary><p>Search engines use this address and the primary phone number.</p></details>
+                  <details className="mt-2 text-sm text-slate-500">
+                    <summary className="flex min-h-11 cursor-pointer items-center">Advanced</summary>
+                    <p className="pb-2">
+                      Search engines read this address and the phone number marked &quot;Use for call buttons&quot; to show your business details in search results.
+                    </p>
+                  </details>
                   <p className="mt-2 text-xs text-slate-500">
                     Address and email appear across the public website. Choose the primary website phone from the directory below.
                   </p>
@@ -1472,7 +1477,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       <div>
                         <h4 className="text-sm font-semibold text-slate-900">Public phone directory</h4>
                         <p className="mt-1 text-xs leading-5 text-slate-500">
-                          These are shown on the contact page and footer. The selected primary line powers homepage/footer call buttons and search-engine schema.
+                          These are shown on the contact page and footer. The call buttons on the homepage and footer dial the line marked &quot;Use for call buttons&quot;.
                         </p>
                       </div>
                       <button
@@ -1540,7 +1545,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                                 onChange={() => setPrimaryPhoneDraftId(contact.draft_id)}
                                 className="h-4 w-4 border-slate-300 text-cyan-600 focus:ring-cyan-500"
                               />
-                              Button label
+                              Use for call buttons
                             </label>
                           </div>
                           <div className="flex items-end">
@@ -1557,7 +1562,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                       ))}
                     </div>
                     <p className="mt-3 text-xs text-slate-500">
-                      Include the country code, for example +1 671 477 4243. WhatsApp rows open a WhatsApp chat link in the directory; the primary row still supplies the website telephone CTA and business schema number.
+                      Include the country code, for example +1 671 477 4243. WhatsApp lines open a WhatsApp chat. Only one line can be used for the website&apos;s call buttons.
                     </p>
                   </div>
                 </div>

@@ -79,7 +79,7 @@ module Api
         def update
           payload = settings_update_params
           if payload&.key?("payroll_cutoff_reminder_emails")
-            payload["payroll_cutoff_reminder_emails"] = Setting.normalize_emails(payload["payroll_cutoff_reminder_emails"]).join(", ")
+            payload["payroll_cutoff_reminder_emails"] = Setting.normalize_emails(payload["payroll_cutoff_reminder_emails"]).map(&:downcase).uniq.join(", ")
           end
           approval_groups_payload = approval_groups_update_params
           settings_present = !payload.nil?
