@@ -35,7 +35,7 @@ module Payroll
       @payroll_lifecycles = EntryLifecycleResolver.new(entries: control_entries, overtime_allocations: allocations).call
       @allocation_holds = allocations.select { |_id, allocation| allocation[:hold_reason] }.keys.to_set
       @allocation_holds.each { |id| (@entry_quality_flags[id] ||= []) << "overnight_allocation_review" }
-      control_entries = PayableSegmentView.expand(control_entries, allocations)
+      control_entries = @approval_hours.expand(control_entries)
       report_entries = filter_report_entries(control_entries)
       # Approval-status filters narrow the worked ledger, not the approval
       # control totals: the default approved-only view must still show waiting

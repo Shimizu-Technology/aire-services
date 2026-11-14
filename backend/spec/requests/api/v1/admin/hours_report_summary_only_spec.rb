@@ -121,19 +121,26 @@ RSpec.describe "GET /api/v1/admin/hours_report?summary_only=1", type: :request d
       expect(summary_row[:waiting_hours]).to eq(13.0)
     end
 
-    it "waits an overnight shift across the period edge in its own work date's period, like the full report" do
+    it "splits a waiting overnight shift across the period edge, like the full report" do
       create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 10, 31),
         start_time: guam.local(2026, 10, 31, 22), end_time: guam.local(2026, 11, 1, 6), hours: 8,
         clock_in_at: guam.local(2026, 10, 31, 22), clock_out_at: guam.local(2026, 11, 1, 6),
         status: "completed", entry_method: "clock", clock_source: "kiosk", approval_status: "pending", overtime_status: "none")
 
-      expect(summary_row[:waiting_hours]).to eq(9.0)
-      expect(summary_row(start_date: "2026-10-16", end_date: "2026-10-31")[:waiting_hours]).to eq(8.0)
+      expect(summary_row[:waiting_hours]).to eq(15.0)
+      expect(summary_row(start_date: "2026-10-16", end_date: "2026-10-31")[:waiting_hours]).to eq(2.0)
 
       get "/api/v1/admin/hours_report", params: params, headers: headers_for(manager)
       full_row = json[:employees].find { |item| item[:id] == employee.id }
       waiting_in_full = full_row[:excluded_entries].select { |entry| entry[:approval_status] == "pending" }.sum { |entry| entry[:total_hours] }
-      expect(waiting_in_full).to eq(9.0)
+      expect(waiting_in_full).to eq(15.0)
+      expect(full_row.dig(:payroll_hours, :time_waiting_hours)).to eq(15.0)
+      expect(Payroll::PeriodHandoffState.live_hours(Date.new(2026, 11, 1), Date.new(2026, 11, 15))[:time_waiting_hours]).to eq(15.0)
+      evidence = Payroll::EmployeePeriodEvidence.new(user: employee, params: { start_date: "2026-11-01", end_date: "2026-11-15" }).call
+      expect(evidence.dig(:totals, :pending_hours)).to eq(15.0)
+      calculator = Payroll::ApprovalHours.for_entries(employee.time_entries.to_a)
+      overnight = employee.time_entries.find_by!(work_date: Date.new(2026, 10, 31))
+      expect(calculator.segments_for(overnight).map { |part| part[:time_waiting_hours] }).to eq([ 2.0, 6.0 ])
     end
 
     it "is in the full report row too, with the same value" do

@@ -149,7 +149,7 @@ module Payroll
         .where(source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).order(:id))
       events_by_line = events.group_by { |event| [ event.payroll_batch_id, event.source_time_entry_id ] }
       allocations = current_allocations(entries)
-      entries = PayableSegmentView.expand(entries, allocations).select do |entry|
+      entries = (@approval_hours ? @approval_hours.expand(entries) : entries).select do |entry|
         (!start_date || entry.work_date >= start_date) && (!end_date || entry.work_date <= end_date)
       end
       line_counts = PayrollBatchEntry.effective.where(payroll_batch_id: frozen.map(&:payroll_batch_id).uniq, source_time_entry_id: frozen.map(&:source_time_entry_id).uniq).group(:payroll_batch_id, :source_time_entry_id).count

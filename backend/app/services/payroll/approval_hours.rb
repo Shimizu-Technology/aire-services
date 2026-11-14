@@ -33,10 +33,30 @@ module Payroll
         legacy_allocations: AffectedOvertimeReview.allocations(context, legacy: true))
     end
 
-    def segments_for(entry)
-      PayableSegmentView.expand([ entry ], @allocations).map do |segment|
-        { work_date: segment.work_date.iso8601, **self.for(segment) }
+    def expand(entries)
+      entries.flat_map do |entry|
+        if time_waiting?(entry)
+          segments = PayableIntervals.segments(entry)
+          # Unplaceable breaks/intervals still need review on the source date.
+          next [ entry ] if segments.size <= 1 || segments.any? { |segment| segment[:hold_reason] }
+
+          elapsed = 0.to_d
+          previous = 0.to_d
+          segments.map do |segment|
+            elapsed += segment[:seconds]
+            cumulative = (elapsed / 3600).round(2)
+            part = { work_date: segment[:work_date], total_hours: (cumulative - previous).to_f, regular_hours: 0.0, overtime_hours: 0.0 }
+            previous = cumulative
+            PayableSegmentView.new(entry, part)
+          end
+        else
+          PayableSegmentView.expand([ entry ], @allocations)
+        end
       end
+    end
+
+    def segments_for(entry)
+      expand([ entry ]).map { |segment| { work_date: segment.work_date.iso8601, **self.for(segment) } }
     end
 
     def initialize(allocations:, legacy_allocations:)
@@ -49,7 +69,7 @@ module Payroll
       allocation = @allocations.fetch(entry.id, {})
       part = PayableSegmentView.allocation(entry, @allocations)
       result = KEYS.index_with { 0.0 }
-      if allocation[:hold_reason] || (entry.status == "completed" && (entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?)))
+      if allocation[:hold_reason] || time_waiting?(entry)
         result[:time_waiting_hours] = entry.hours.to_f
       elsif self.class.base_approved?(entry)
         reason = self.class.overtime_reason(source, allocation, legacy_allocation: @legacy_allocations[entry.id])
@@ -60,5 +80,11 @@ module Payroll
       end
       result
     end
+    private
+
+    def time_waiting?(entry)
+      entry.status == "completed" && (entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?))
+    end
+
   end
 end
