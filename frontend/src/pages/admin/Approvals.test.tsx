@@ -34,7 +34,7 @@ describe('Approvals inbox', () => {
     await waitFor(() => expect(approvalsApi.review).toHaveBeenCalledOnce())
     expect(vi.mocked(approvalsApi.review).mock.calls[0][0]).toEqual([{ id: 1, version: 11, approve_time: true, approve_overtime: false }, { id: 2, version: 12, approve_time: true, approve_overtime: false }])
     expect(screen.getByText('Needs another approver')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve 1 shifts for Grace Torres' })).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve 1 shift for Grace Torres' })).toHaveFocus())
   })
   it('confirms all using the same snapshot, naming exclusions', async () => {
     renderInbox(); fireEvent.click(await screen.findByRole('button', { name: 'Approve all 3' }))

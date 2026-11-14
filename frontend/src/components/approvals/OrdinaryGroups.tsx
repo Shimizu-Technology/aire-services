@@ -13,7 +13,7 @@ export default function OrdinaryGroups({ rows, groupBy, selected, onSelect, onAp
   rows.forEach(row => { const key = groupBy === 'person' ? String(row.user.id) : row.work_date; groups.set(key, [...(groups.get(key) ?? []), row]) })
   const approveGroup = async (entries: ReviewEntry[], title: string) => {
     const buttons = [...(root.current?.querySelectorAll<HTMLButtonElement>('button[aria-label^="Approve "]') ?? [])]
-    const index = buttons.findIndex(button => button.getAttribute('aria-label') === `Approve ${entries.length} shifts for ${title}`)
+    const index = buttons.findIndex(button => button.getAttribute('aria-label') === `Approve ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} for ${title}`)
     const next = buttons[index + 1] ?? buttons[index - 1]
     await onApprove(entries, title)
     window.requestAnimationFrame(() => { if (next?.isConnected && !next.disabled) next.focus() })
@@ -25,9 +25,9 @@ export default function OrdinaryGroups({ rows, groupBy, selected, onSelect, onAp
       const dates = entries.map(row => row.work_date).sort()
       return <ListRow key={`${groupBy}-${key}`} title={title}
         leading={groupBy === 'person' ? <span className="hidden sm:inline-flex"><Avatar name={title} size="sm" /></span> : undefined}
-        meta={`${entries.length} shifts · ${groupBy === 'person' ? `${dates[0].slice(5)}–${dates.at(-1)!.slice(5)} · ` : ''}${entries.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h`}
+        meta={`${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} · ${groupBy === 'person' ? `${dates[0].slice(5)}–${dates.at(-1)!.slice(5)} · ` : ''}${entries.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h`}
         checkbox={{ checked: count === 0 ? false : count === entries.length ? true : 'mixed', label: `Select ${title}`, onChange: checked => onSelect(entries, checked), disabled }}
-        action={{ label: `Approve ${entries.length}`, ariaLabel: `Approve ${entries.length} shifts for ${title}`, onClick: () => { void approveGroup(entries, title) }, disabled, title: disabledReason }}
+        action={{ label: `Approve ${entries.length}`, ariaLabel: `Approve ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} for ${title}`, onClick: () => { void approveGroup(entries, title) }, disabled, title: disabledReason }}
         expanded={expanded.has(key)} onExpandedChange={open => setExpanded(current => { const next = new Set(current); if (open) next.add(key); else next.delete(key); return next })}
         expandLabel={`Show shifts for ${title}`}>
         {entries.map(entry => <ListRow key={entry.id} title={groupBy === 'day' ? entry.user.full_name : formatWorkDate(entry.work_date)}

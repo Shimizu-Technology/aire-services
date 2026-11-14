@@ -101,7 +101,7 @@ function ApprovalsInbox() {
   const updateQuery = (key: string, value: string) => { const next = new URLSearchParams(query); next.set(key, value); void changeQuery(next) }
   const approveSnapshot = async (snapshot: ApprovalSelection) => {
     const complete = await batches.approve(snapshot.items, inbox.data?.review_summary.batch_limit ?? 0,
-      `Approved ${snapshot.rows.length} shifts${snapshot.people.length === 1 ? ` for ${snapshot.people[0].name}` : ''}`)
+      `Approved ${snapshot.rows.length} ${snapshot.rows.length === 1 ? 'shift' : 'shifts'}${snapshot.people.length === 1 ? ` for ${snapshot.people[0].name}` : ''}`)
     setSelected(new Set()); setConfirmation(null)
     return complete
   }
