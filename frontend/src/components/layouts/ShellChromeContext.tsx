@@ -7,6 +7,7 @@ import { ShellChromeContext } from './shellChrome'
  * sits under the thumb and switching tabs can't drop the selection.
  */
 export function ShellChromeProvider({ children }: { children: ReactNode }) {
+  const [approvalCount, setApprovalCount] = useState<number | null>(null)
   const [selectionBars, setSelectionBars] = useState(0)
 
   const registerSelectionBar = useCallback(() => {
@@ -19,6 +20,6 @@ export function ShellChromeProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(() => ({ selectionBarActive: selectionBars > 0, registerSelectionBar }), [selectionBars, registerSelectionBar])
+  const value = useMemo(() => ({ selectionBarActive: selectionBars > 0, registerSelectionBar, approvalCount, setApprovalCount }), [selectionBars, registerSelectionBar, approvalCount])
   return <ShellChromeContext.Provider value={value}>{children}</ShellChromeContext.Provider>
 }

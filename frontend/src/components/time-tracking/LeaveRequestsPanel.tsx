@@ -113,11 +113,9 @@ interface LeaveRequestsPanelProps {
   canRequestLeave?: boolean
   /** The signed-in person; approvers can't review their own requests. */
   currentUserId?: number | null
-  /** Optional scoped read source; writes still use the existing authenticated API. */
-  requestSource?: typeof api.getLeaveRequests
 }
 
-export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = true, currentUserId = null, requestSource }: LeaveRequestsPanelProps) {
+export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = true, currentUserId = null }: LeaveRequestsPanelProps) {
   // Approvers come here to approve; their own request form stays folded away.
   // Follows canApproveLeave (which can arrive after mount) until the user toggles.
   const [requestFormOverride, setRequestFormOverride] = useState<boolean | null>(null)
@@ -169,7 +167,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
       return true
     }
 
-    const result = await (requestSource ?? api.getLeaveRequests)(undefined, targetPage)
+    const result = await api.getLeaveRequests(undefined, targetPage)
     if (requestId !== latestLoadRequestId.current) return false
 
     if (result.error || !result.data) {
@@ -186,7 +184,7 @@ export default function LeaveRequestsPanel({ canApproveLeave, canRequestLeave = 
     setReviewedPagination(null)
     setLoading(false)
     return true
-  }, [canApproveLeave, requestSource])
+  }, [canApproveLeave])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {

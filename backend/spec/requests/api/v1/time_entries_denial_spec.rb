@@ -56,3 +56,21 @@ RSpec.describe "Denying a shift in the Approvals inbox", type: :request do
     expect(AuditLog.where(auditable: entry)).to be_empty
   end
 end
+
+RSpec.describe "Approvals ordinary shift limit", type: :request do
+  it "returns the actual configured rule limit to the inbox" do
+    manager = create(:user, :manager)
+    Setting.set("auto_approve_max_shift_hours", "10")
+    get "/api/v1/time_entries/pending_approvals", headers: { "Authorization" => "Bearer test_token_#{manager.id}" }
+    expect(response.parsed_body.dig("review_summary", "ordinary_max_shift_hours")).to eq(10)
+  end
+end
+
+RSpec.describe "Legacy pending overtime in the inbox", type: :request do
+  it "retains overtime waiting on a legacy entry with no explicit time approval status" do
+    manager = create(:user, :manager)
+    entry = create(:time_entry, approval_status: nil, overtime_status: "pending")
+    get "/api/v1/time_entries/pending_approvals", headers: { "Authorization" => "Bearer test_token_#{manager.id}" }
+    expect(response.parsed_body.fetch("pending_entries").pluck("id")).to include(entry.id)
+  end
+end

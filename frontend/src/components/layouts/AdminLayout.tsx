@@ -10,6 +10,7 @@ import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 import { ToastProvider } from '../ui'
 import AdminTabBar from './AdminTabBar'
 import { AccountButton } from './Header'
+import { useShellChrome } from './shellChrome'
 import { ShellChromeProvider } from './ShellChromeContext'
 import { approvalBadgeText, isNavItemActive, navItemLabel, navigationGroups, tabBarLayout, type NavigationOptions } from './adminNavigation'
 
@@ -75,7 +76,9 @@ function AdminShell() {
   }), [capabilities, currentUser, isClerkEnabled])
   const groups = useMemo(() => navigationGroups(navigationOptions), [navigationOptions])
   const tabBar = useMemo(() => tabBarLayout(navigationOptions), [navigationOptions])
-  const approvalCount = usePendingApprovalCount(capabilities.approve_time)
+  const backgroundApprovalCount = usePendingApprovalCount(capabilities.approve_time)
+  const { approvalCount: scopedApprovalCount } = useShellChrome()
+  const approvalCount = scopedApprovalCount ?? backgroundApprovalCount
   const needsKioskPinSetup = Boolean(isClerkEnabled && currentUser?.needs_kiosk_pin_setup)
   const sidebarRef = useRef<HTMLElement>(null)
   // After the phone "More" sheet closes on a resize to desktop, continue from the current page's sidebar link.
@@ -91,6 +94,7 @@ function AdminShell() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.08),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#f3f4f6_100%)]">
+      <a href="#admin-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-(--z-dialog) focus:rounded-control focus:bg-surface focus:p-3 focus:text-primary">Skip to content</a>
       <div className="border-b border-slate-200/90 bg-white/95 pt-safe backdrop-blur supports-[backdrop-filter]:bg-white/85">
         <div className="mx-auto flex h-16 w-full max-w-[104rem] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -179,7 +183,7 @@ function AdminShell() {
         </div>
 
         {/* Room for the phone tab bar and the home indicator below the last row. */}
-        <main className="min-w-0 flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-6 sm:px-6 lg:px-8 lg:pb-8 xl:py-8">
+        <main id="admin-content" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-6 sm:px-6 lg:px-8 lg:pb-8 xl:py-8">
           <Outlet />
         </main>
       </div>

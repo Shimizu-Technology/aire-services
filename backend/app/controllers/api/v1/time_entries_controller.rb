@@ -657,6 +657,7 @@ module Api
           ordinary_hours: by_kind.fetch(::Approvals::ReviewClassifier::ORDINARY, []).sum { |entry| entry.hours.to_f }.round(2),
           needs_look_count: by_kind.fetch(::Approvals::ReviewClassifier::NEEDS_LOOK, []).size,
           batch_limit: ::Approvals::ApproveReviewBatch::MAX_ITEMS,
+          ordinary_max_shift_hours: Setting.auto_approve_max_shift_hours,
           by_person: entries.group_by(&:user_id).map do |_user_id, rows|
             user = rows.first.user
             ordinary = rows.select { |entry| @review_kinds.dig(entry.id, :review_kind) == ::Approvals::ReviewClassifier::ORDINARY }
@@ -1431,7 +1432,7 @@ module Api
         entries = TimeEntry
           .preload({ user: [ :user_approval_groups, :assigned_time_categories ] }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
           .where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
-          .where.not(approval_status: "denied")
+          .where("time_entries.approval_status IS DISTINCT FROM ?", "denied")
 
         approval_group = params[:approval_group].to_s
         return entries if approval_group.blank?

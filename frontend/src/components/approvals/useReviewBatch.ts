@@ -95,7 +95,7 @@ export function useReviewBatch(reload: () => Promise<void>, onCommitted?: (ids: 
           )
         }
       }
-      const message = [count ? `Moved ${count} shifts back to waiting.` : '', ...errors]
+      const message = [count ? `Moved ${count} ${count === 1 ? 'shift' : 'shifts'} back to waiting.` : '', ...errors]
         .filter(Boolean)
         .join(' ')
       setNotice(message)

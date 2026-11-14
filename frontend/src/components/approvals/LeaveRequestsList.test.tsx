@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import type { LeaveRequest } from '../../lib/api'
 import { approvalsApi } from '../../lib/api/approvals'
@@ -30,10 +30,7 @@ it('bounds every approved-leave page to the displayed pending date range', async
   })
   render(
     <ToastProvider>
-      <LeaveRequestsList
-        requests={rows}
-        onChanged={vi.fn()}
-      />
+      <LeaveRequestsList requests={rows} onChanged={vi.fn()} />
     </ToastProvider>,
   )
   await waitFor(() => expect(approvalsApi.approvedLeave).toHaveBeenCalledTimes(2))
@@ -60,20 +57,14 @@ it('does not refetch approved leave for equivalent request arrays, but refreshes
   } as LeaveRequest
   const view = render(
     <ToastProvider>
-      <LeaveRequestsList
-        requests={[row]}
-        onChanged={vi.fn()}
-      />
+      <LeaveRequestsList requests={[row]} onChanged={vi.fn()} />
     </ToastProvider>,
   )
   await waitFor(() => expect(approvalsApi.approvedLeave).toHaveBeenCalledOnce())
   await act(async () =>
     view.rerender(
       <ToastProvider>
-        <LeaveRequestsList
-          requests={[{ ...row }]}
-          onChanged={vi.fn()}
-        />
+        <LeaveRequestsList requests={[{ ...row }]} onChanged={vi.fn()} />
       </ToastProvider>,
     ),
   )
@@ -88,4 +79,33 @@ it('does not refetch approved leave for equivalent request arrays, but refreshes
   )
   await waitFor(() => expect(approvalsApi.approvedLeave).toHaveBeenCalledTimes(2))
   expect(approvalsApi.approvedLeave).toHaveBeenLastCalledWith('2026-11-10', '2026-11-12', 1)
+})
+
+it('uses human leave dates and singular days, including overlapping people', async () => {
+  const request = {
+    id: 5,
+    user: { id: 5, full_name: 'Ethan Cruz' },
+    leave_type: 'paid_time_off',
+    start_date: '2026-11-21',
+    end_date: '2026-11-21',
+    total_days: 1,
+  } as LeaveRequest
+  vi.mocked(approvalsApi.approvedLeave).mockResolvedValue({
+    data: {
+      leave_requests: [
+        { ...request, id: 6, user: { ...request.user, id: 6, full_name: 'Grace Torres' } },
+      ],
+      pagination: { current_page: 1, per_page: 100, total_pages: 1, total_count: 1 },
+    },
+  })
+  render(
+    <ToastProvider>
+      <LeaveRequestsList requests={[request]} onChanged={vi.fn()} />
+    </ToastProvider>,
+  )
+  expect(
+    await screen.findByText(/Also off: Grace Torres \(Sat, Nov 21\)/),
+  ).toBeInTheDocument()
+  expect(screen.getByText(/Paid time off · Sat, Nov 21 · 1 day/)).toBeInTheDocument()
+  expect(screen.queryByText(/1 days|2026–/)).not.toBeInTheDocument()
 })

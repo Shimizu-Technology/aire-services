@@ -89,3 +89,9 @@ it('separates Sunday weeks and splits only a group exceeding the API limit', () 
     ).map(chunk => chunk.length),
   ).toEqual([2, 1])
 })
+
+it('keeps a sub-minute shift out of every ordinary snapshot', () => {
+  const tiny = reviewEntry(1, 1, { clock_out_at: '2026-11-09T22:00:30Z', hours: 0.01 })
+  expect(isOrdinary(tiny)).toBe(false)
+  expect(() => approvalSelection([tiny])).toThrow('Choose ordinary shifts')
+})

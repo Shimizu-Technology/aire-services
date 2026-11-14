@@ -45,12 +45,14 @@ describe('versioned batch review', () => {
     await act(async () => {
       await result.current.approve(items(230), 100, 'Approved shifts')
     })
-    expect(vi.mocked(approvalsApi.review).mock.calls.map(call => call[0])).toEqual([
+    expect(vi.mocked(approvalsApi.review).mock.calls.map((call) => call[0])).toEqual([
       items(230).slice(0, 100),
       items(230).slice(100, 200),
       items(230).slice(200),
     ])
-    expect(new Set(vi.mocked(approvalsApi.review).mock.calls.map(call => call[1])).size).toBe(3)
+    expect(
+      new Set(vi.mocked(approvalsApi.review).mock.calls.map((call) => call[1])).size,
+    ).toBe(3)
     expect(result.current.notice).toContain(
       "Approved 200 of 230 shifts. The other 30 weren't approved.",
     )
@@ -70,19 +72,21 @@ describe('versioned batch review', () => {
     await act(async () => {
       await result.current.approve(items(5), 2, 'Approved')
     })
-    expect(vi.mocked(approvalsApi.review).mock.calls.map(call => call[0].length)).toEqual([2, 2, 1])
+    expect(vi.mocked(approvalsApi.review).mock.calls.map((call) => call[0].length)).toEqual([
+      2, 2, 1,
+    ])
     expect(
       vi
         .mocked(approvalsApi.review)
-        .mock.calls.flatMap(call => call[0])
-        .every(item => item.approve_overtime === false && !('overtime_hours' in item)),
+        .mock.calls.flatMap((call) => call[0])
+        .every((item) => item.approve_overtime === false && !('overtime_hours' in item)),
     ).toBe(true)
   })
   it('blocks synchronous double taps and retains the idempotency key after an uncertain response', async () => {
     let resolve!: (value: Awaited<ReturnType<typeof approvalsApi.review>>) => void
     vi.mocked(approvalsApi.review).mockImplementationOnce(
       () =>
-        new Promise(done => {
+        new Promise((done) => {
           resolve = done
         }),
     )
@@ -105,7 +109,9 @@ describe('versioned batch review', () => {
     expect(vi.mocked(approvalsApi.review).mock.calls[1][1]).toBe(firstKey)
   })
   it('shows server Undo refusal and continues undoing the other batches', async () => {
-    vi.mocked(approvalsApi.review).mockResolvedValueOnce(ok('one')).mockResolvedValueOnce(ok('two'))
+    vi.mocked(approvalsApi.review)
+      .mockResolvedValueOnce(ok('one'))
+      .mockResolvedValueOnce(ok('two'))
     const { result } = renderHook(() => useReviewBatch(vi.fn()), { wrapper })
     await act(async () => {
       await result.current.approve(items(2), 1, 'Approved')
@@ -121,7 +127,7 @@ describe('versioned batch review', () => {
       await result.current.undo(result.current.undoBatches)
     })
     expect(result.current.notice).toContain("Can't undo: already locked for payroll.")
-    expect(result.current.undoBatches.map(batch => batch.id)).toEqual(['two'])
+    expect(result.current.undoBatches.map((batch) => batch.id)).toEqual(['two'])
     expect(approvalsApi.undo).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(result.current.busy).toBe(false))
   })
@@ -129,7 +135,7 @@ describe('versioned batch review', () => {
 
 it.each([undefined, 502, 503, 504])(
   'keeps the key and reports unknown for status %s',
-  async status => {
+  async (status) => {
     vi.mocked(approvalsApi.review).mockResolvedValueOnce({ status, error: 'Unavailable' })
     const reload = vi.fn()
     const { result } = renderHook(() => useReviewBatch(reload), { wrapper })
@@ -181,12 +187,12 @@ it('keeps previous batches when a later chunk or Undo returns 503', async () => 
   await act(async () => {
     await result.current.approve(items(2), 1, 'Approved')
   })
-  expect(result.current.undoBatches.map(row => row.id)).toEqual(['first'])
+  expect(result.current.undoBatches.map((row) => row.id)).toEqual(['first'])
   vi.mocked(approvalsApi.undo).mockResolvedValueOnce({ status: 503 })
   await act(async () => {
     await result.current.undo(result.current.undoBatches)
   })
-  expect(result.current.undoBatches.map(row => row.id)).toEqual(['first'])
+  expect(result.current.undoBatches.map((row) => row.id)).toEqual(['first'])
   expect(result.current.notice).toContain("couldn't confirm whether Undo saved")
 })
 
@@ -216,7 +222,9 @@ it('toast Undo undoes only the latest action while older batches remain availabl
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
   await waitFor(() => expect(approvalsApi.undo).toHaveBeenCalledWith('latest'))
   expect(approvalsApi.undo).toHaveBeenCalledOnce()
-  await waitFor(() => expect(result.current.undoBatches.map(batch => batch.id)).toEqual(['older']))
+  await waitFor(() =>
+    expect(result.current.undoBatches.map((batch) => batch.id)).toEqual(['older']),
+  )
 })
 
 it('resolves unchanged pending outcomes as Not saved and keeps their retry key', async () => {
@@ -233,7 +241,9 @@ it('resolves unchanged pending outcomes as Not saved and keeps their retry key',
   await act(async () => {
     await result.current.refresh()
   })
-  expect(result.current.notice).toBe('Not saved. The list is up to date; you can approve again.')
+  expect(result.current.notice).toBe(
+    'Not saved. The list is up to date; you can approve again.',
+  )
   expect(approvalsApi.review).toHaveBeenCalledOnce()
   vi.mocked(approvalsApi.review).mockResolvedValueOnce(ok('retried'))
   await act(async () => {
@@ -266,7 +276,7 @@ it.each([
     approved_count: 1,
     time_entries: [null],
   },
-])('retains the key for a 2xx invalid or empty body: %s', async data => {
+])('retains the key for a 2xx invalid or empty body: %s', async (data) => {
   vi.mocked(approvalsApi.review).mockResolvedValueOnce({
     status: 201,
     data: data as unknown as ReviewBatch,
@@ -294,7 +304,18 @@ it('does not create an empty toast for an Undo with nothing new', async () => {
   expect(screen.getByRole('status').childElementCount).toBe(0)
   vi.mocked(approvalsApi.undo).mockResolvedValueOnce({ code: 'already_undone', status: 409 })
   await act(async () => {
-    await result.current.undo([{ id: 'already', count: 1, expiresAt: '2026-11-14T22:00:00Z' }])
+    await result.current.undo([
+      { id: 'already', count: 1, expiresAt: '2026-11-14T22:00:00Z' },
+    ])
   })
   expect(screen.getByRole('status').childElementCount).toBe(0)
+})
+
+it('uses singular shift copy when Undo restores one shift', async () => {
+  vi.mocked(approvalsApi.undo).mockResolvedValue({ data: { undone_count: 1 } })
+  const { result } = renderHook(() => useReviewBatch(vi.fn()), { wrapper })
+  await act(async () => {
+    await result.current.undo([{ id: 'one', count: 1, expiresAt: '2099-01-01T00:00:00Z' }])
+  })
+  expect(result.current.notice).toBe('Moved 1 shift back to waiting.')
 })

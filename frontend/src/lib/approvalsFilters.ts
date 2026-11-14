@@ -34,11 +34,11 @@ export function pendingParams(query: URLSearchParams, department: string): Pendi
   if (department !== 'all') params.approval_group = department
   return params as PendingApprovalsParams
 }
-export function rememberedDepartment(userId: number | undefined) {
+export function rememberedDepartment(userId: number | undefined, fallback = 'all') {
   try {
-    return localStorage.getItem(`aire.approvals.department.${userId ?? 'viewer'}`) || 'all'
+    return localStorage.getItem(`aire.approvals.department.${userId ?? 'viewer'}`) || fallback
   } catch {
-    return 'all'
+    return fallback
   }
 }
 export function rememberDepartment(userId: number | undefined, value: string) {
@@ -50,6 +50,7 @@ export function rememberDepartment(userId: number | undefined, value: string) {
 }
 export function isOrdinary(entry: ReviewEntry) {
   return (
+    !isTinyShift(entry) &&
     entry.review_kind === 'ordinary' &&
     entry.exceptions.length === 0 &&
     entry.approval_status === 'pending' &&
@@ -141,4 +142,13 @@ export function approvalChunks(
   }
   if (current.length) chunks.push(current)
   return chunks
+}
+
+export function isTinyShift(entry: ReviewEntry) {
+  if (entry.status !== 'completed') return false
+  if (entry.clock_in_at && entry.clock_out_at) {
+    const duration = Date.parse(entry.clock_out_at) - Date.parse(entry.clock_in_at)
+    return Number.isFinite(duration) && duration >= 0 && duration < 60_000
+  }
+  return entry.hours >= 0 && entry.hours < 1 / 60
 }

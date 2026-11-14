@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { expect, it, vi } from 'vitest'
 import { api, type LeaveRequest } from '../../lib/api'
-import LeaveRequestsPanel from '../time-tracking/LeaveRequestsPanel'
+import { myTimeApi } from '../../lib/api/myTime'
 import { SupervisorLeaveRedirect } from '../../pages/admin/AdminRedirects'
 
 vi.mock('../../contexts/AuthContext', () => ({
@@ -13,7 +13,11 @@ vi.mock('../../contexts/AuthContext', () => ({
   }),
 }))
 vi.mock('../../lib/api', () => ({
-  api: { getLeaveRequests: vi.fn(), createLeaveRequest: vi.fn(), cancelLeaveRequest: vi.fn() },
+  api: {
+    getLeaveRequests: vi.fn(),
+    createLeaveRequest: vi.fn(),
+    cancelLeaveRequest: vi.fn(),
+  },
 }))
 
 export const leaveFixture: LeaveRequest = {
@@ -52,39 +56,46 @@ it('lets a supervisor submit and cancel their own request at mine=1', async () =
       },
     },
   }))
-  vi.mocked(api.createLeaveRequest).mockImplementation(async () => {
+  vi.spyOn(myTimeApi, 'requestLeave').mockImplementation(async () => {
     current = leaveFixture
     return { data: { leave_request: current } }
   })
-  vi.mocked(api.cancelLeaveRequest).mockImplementation(async () => {
+  vi.spyOn(myTimeApi, 'cancelLeave').mockImplementation(async () => {
     current = { ...leaveFixture, status: 'cancelled' }
     return { data: { leave_request: current } }
   })
   render(
     <MemoryRouter initialEntries={['/admin/leave?mine=1']}>
       <SupervisorLeaveRedirect>
-        <LeaveRequestsPanel
-          canApproveLeave
-          currentUserId={3}
-        />
+        <p>Team leave</p>
       </SupervisorLeaveRedirect>
     </MemoryRouter>,
   )
-  await screen.findByRole('heading', { name: 'My requests' })
+  await screen.findByRole('button', { name: 'Request time off' })
+  expect(screen.getByRole('heading', { name: 'Leave', level: 1 })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Back to Approvals' })).toHaveAttribute(
+    'href',
+    '/admin/approvals?kind=leave',
+  )
+  expect(document.title).toBe('Leave | AIRE Ops')
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Request time off' })).toBeEnabled(),
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Request time off' }))
   expect(screen.queryByText('Team pending request')).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Decline' })).not.toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-12-01' } })
-  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-12-02' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Submit request' }))
+  fireEvent.change(screen.getByLabelText(/^Start date/), { target: { value: '2026-12-01' } })
+  fireEvent.change(screen.getByLabelText(/^End date/), { target: { value: '2026-12-02' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
   expect(await screen.findByRole('button', { name: 'Cancel request' })).toBeEnabled()
   expect(api.getLeaveRequests).toHaveBeenCalledWith(undefined, 2, 100)
   expect(screen.queryByText('Team pending request')).not.toBeInTheDocument()
-  expect(api.createLeaveRequest).toHaveBeenCalledWith(
+  expect(myTimeApi.requestLeave).toHaveBeenCalledWith(
     expect.objectContaining({ start_date: '2026-12-01', end_date: '2026-12-02' }),
   )
   fireEvent.click(screen.getByRole('button', { name: 'Cancel request' }))
-  await waitFor(() => expect(api.cancelLeaveRequest).toHaveBeenCalledWith(41))
+  await waitFor(() => expect(myTimeApi.cancelLeave).toHaveBeenCalledWith(41))
   await waitFor(() =>
     expect(screen.queryByRole('button', { name: 'Cancel request' })).not.toBeInTheDocument(),
   )

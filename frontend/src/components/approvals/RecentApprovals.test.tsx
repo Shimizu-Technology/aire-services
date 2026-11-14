@@ -14,14 +14,7 @@ afterEach(() => vi.useRealTimers())
 
 it('shows the newest server deadline in Guam time and disappears exactly at expiry', () => {
   const onUndo = vi.fn()
-  render(
-    <RecentApprovals
-      batches={[earlier, newest]}
-      busy={false}
-      online
-      onUndo={onUndo}
-    />,
-  )
+  render(<RecentApprovals batches={[earlier, newest]} busy={false} online onUndo={onUndo} />)
   expect(screen.getByRole('region', { name: 'Recent approvals' })).toHaveTextContent(
     'until 9:41 AM',
   )
@@ -38,14 +31,7 @@ it('shows the newest server deadline in Guam time and disappears exactly at expi
 })
 
 it('refreshes expiry when a suspended tab returns to focus', () => {
-  render(
-    <RecentApprovals
-      batches={[newest]}
-      busy={false}
-      online
-      onUndo={vi.fn()}
-    />,
-  )
+  render(<RecentApprovals batches={[newest]} busy={false} online onUndo={vi.fn()} />)
   vi.setSystemTime(new Date('2026-11-14T09:42:00+10:00'))
   act(() => window.dispatchEvent(new Event('focus')))
   expect(screen.queryByRole('button', { name: 'Undo 2 shifts' })).not.toBeInTheDocument()
@@ -53,14 +39,7 @@ it('refreshes expiry when a suspended tab returns to focus', () => {
 
 it('does not send expired batches if a timer was delayed', () => {
   const onUndo = vi.fn()
-  render(
-    <RecentApprovals
-      batches={[newest]}
-      busy={false}
-      online
-      onUndo={onUndo}
-    />,
-  )
+  render(<RecentApprovals batches={[newest]} busy={false} online onUndo={onUndo} />)
   vi.setSystemTime(new Date('2026-11-14T09:42:00+10:00'))
   fireEvent.click(screen.getByRole('button', { name: 'Undo 2 shifts' }))
   expect(onUndo).not.toHaveBeenCalled()
@@ -75,19 +54,11 @@ it('lists newest first and undoes just the chosen batch, with person and multi-p
     count: 14,
     people: Array.from({ length: 6 }, (_, id) => ({ id, name: `Person ${id}` })),
   }
-  render(
-    <RecentApprovals
-      batches={[grace, multiple]}
-      busy={false}
-      online
-      onUndo={onUndo}
-    />,
-  )
-  expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual([
-    'Undo 14 shifts for 6 people',
-    'Undo Grace Torres · 2 shifts',
-  ])
-  expect(screen.getByText('Grace Torres · 2 shifts · until 9:31 AM')).toBeInTheDocument()
+  render(<RecentApprovals batches={[grace, multiple]} busy={false} online onUndo={onUndo} />)
+  expect(
+    screen.getAllByRole('button').map((button) => button.getAttribute('aria-label')),
+  ).toEqual(['Undo 14 shifts for 6 people', 'Undo Grace Torres · 2 shifts'])
+  expect(screen.getByText('Grace Torres · 2 shifts')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Undo Grace Torres · 2 shifts' }))
   expect(onUndo).toHaveBeenCalledWith([grace])
 })

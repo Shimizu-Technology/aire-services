@@ -7,6 +7,7 @@ import {
   type ReviewItem,
 } from '../../lib/api/approvals'
 import { addDateDays, businessWeekStart, formatWorkDate } from '../../lib/dateUtils'
+import { isTinyShift, personNote, reasonChips, reviewStatus } from './reviewPresentation'
 import { formatApprovalDate } from '../../lib/approvalsDates'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { Button, ErrorState, Field, Sheet, StatusPill, Textarea } from '../ui'
@@ -27,8 +28,12 @@ export default function ReviewSheet({
   busy,
   categories,
   onDirty,
+  weekEntries = [],
+  onSelectEntry,
 }: {
   entry: ReviewEntry
+  weekEntries?: ReviewEntry[]
+  onSelectEntry?: (entry: ReviewEntry) => void
   onClose: (saved?: boolean, message?: string) => void
   onApprove: (items: ReviewItem[], label: string) => Promise<ApprovalResult>
   onReload: () => Promise<void>
@@ -49,15 +54,21 @@ export default function ReviewSheet({
   const [unknown, setUnknown] = useState(false)
   const [editing, setEditing] = useState(false)
   const attemptedDecision = useRef<ReviewItem | null>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
   const lock = useRef(false)
   const overtime = entry.overtime_status === 'pending'
+  useEffect(() => {
+    if (!denying) return
+    noteRef.current?.focus({ preventScroll: true })
+    noteRef.current?.scrollIntoView?.({ block: 'center' })
+  }, [denying])
   useEffect(() => {
     onDirty(Boolean(note.trim()))
     return () => onDirty(false)
   }, [note, onDirty])
   useEffect(() => {
     let active = true
-    approvalsApi.history(entry.id).then(response => {
+    approvalsApi.history(entry.id).then((response) => {
       if (active) {
         setHistory(response.data?.changes ?? null)
         setHistoryError(!response.data)
@@ -77,7 +88,7 @@ export default function ReviewSheet({
         end_date: addDateDays(start, 6),
         per_page: 500,
       })
-      .then(response => {
+      .then((response) => {
         if (!active) return
         if (response.data) setWeek(response.data.time_entries)
         else setWeekError(response.error || "Couldn't load this week's shifts.")
@@ -200,7 +211,11 @@ export default function ReviewSheet({
       <Sheet
         open={!editing}
         title={`Review ${entry.user.full_name}`}
-        description={formatWorkDate(entry.work_date)}
+        description={
+          weekEntries.length > 1
+            ? `Week of ${formatApprovalDate(businessWeekStart(entry.work_date))}`
+            : formatApprovalDate(entry.work_date)
+        }
         onClose={() => {
           if (!busy && !saving) onClose()
         }}
@@ -226,6 +241,11 @@ export default function ReviewSheet({
                 >
                   Deny {denying === 'overtime' ? 'overtime' : 'shift'}
                 </Button>
+                {!note.trim() && (
+                  <p className="w-full text-body-sm text-ink-muted">
+                    Write a short note for {entry.user.full_name.split(' ')[0]} to deny.
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -249,7 +269,9 @@ export default function ReviewSheet({
                     title={!online ? 'Reconnect to approve' : undefined}
                   >
                     Approve {entry.approval_status === 'pending' ? 'time + ' : ''}
-                    {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime
+                    {(entry.pending_overtime_hours ?? 0) > 0
+                      ? `${entry.pending_overtime_hours!.toFixed(1)}h overtime`
+                      : 'overtime'}
                   </Button>
                 )}
                 <Button
@@ -275,12 +297,33 @@ export default function ReviewSheet({
         }
       >
         <div className="space-y-4">
+          {weekEntries.length > 1 && (
+            <section className="space-y-2" aria-label="Shifts to review this week">
+              <p className="text-body-sm text-ink-muted">
+                Choose a shift below. Each decision applies to that shift only.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {weekEntries.map((row) => (
+                  <Button
+                    key={row.id}
+                    variant={entry.id === row.id ? 'primary' : 'secondary'}
+                    aria-pressed={entry.id === row.id}
+                    disabled={busy || saving || unknown}
+                    onClick={() => onSelectEntry?.(row)}
+                  >
+                    {formatApprovalDate(row.work_date)} · {row.hours.toFixed(1)}h
+                  </Button>
+                ))}
+              </div>
+            </section>
+          )}
+          {isTinyShift(entry) && (
+            <p className="font-medium text-amber-800">Under 1 minute, probably a mis-tap</p>
+          )}
+          <p className="text-body-sm font-semibold">{formatApprovalDate(entry.work_date)}</p>
           <div className="flex flex-wrap gap-1">
-            {entry.exceptions.map(reason => (
-              <StatusPill
-                key={reason.key}
-                tone="waiting"
-              >
+            {reasonChips([entry]).map((reason) => (
+              <StatusPill key={reason.key} tone="waiting">
                 {reason.label}
               </StatusPill>
             ))}
@@ -290,11 +333,12 @@ export default function ReviewSheet({
               <dt className="inline font-semibold">Time: </dt>
               <dd className="inline">
                 {entry.formatted_start_time || entry.start_time || '—'}–
-                {entry.formatted_end_time || entry.end_time || '—'} · {entry.hours.toFixed(1)}h
+                {entry.formatted_end_time || entry.end_time || '—'} · {entry.hours.toFixed(1)}
+                h
               </dd>
             </div>
             <div>
-              <dt className="inline font-semibold">Category: </dt>
+              <dt className="inline font-semibold">Work: </dt>
               <dd className="inline">{entry.time_category?.name || 'No work category'}</dd>
             </div>
             <div>
@@ -303,12 +347,12 @@ export default function ReviewSheet({
             </div>
             <div>
               <dt className="inline font-semibold">Time approval: </dt>
-              <dd className="inline">{entry.approval_status || 'Standard'}</dd>
+              <dd className="inline">{reviewStatus(entry.approval_status)}</dd>
             </div>
           </dl>
           {entry.description && <p className="text-body-sm">{entry.description}</p>}
-          {entry.approval_note && (
-            <p className="text-body-sm text-ink-muted">{entry.approval_note}</p>
+          {personNote(entry.approval_note) && (
+            <p className="text-body-sm text-ink-muted">{personNote(entry.approval_note)}</p>
           )}
           <Button
             variant="ghost"
@@ -330,16 +374,15 @@ export default function ReviewSheet({
                 <>
                   <p className="text-body-sm">
                     {week.reduce((sum, row) => sum + row.hours, 0).toFixed(1)}h this week ·{' '}
-                    {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime waiting on this shift
+                    {(entry.pending_overtime_hours ?? 0) > 0
+                      ? `${entry.pending_overtime_hours!.toFixed(1)}h overtime waiting on this shift`
+                      : 'Overtime to review'}
                   </p>
                   <ul className="divide-y divide-line text-body-sm">
-                    {week.map(row => (
-                      <li
-                        key={row.id}
-                        className="py-2"
-                      >
+                    {week.map((row) => (
+                      <li key={row.id} className="py-2">
                         {formatWorkDate(row.work_date)} · {row.hours.toFixed(1)}h ·{' '}
-                        {row.approval_status || 'standard'}
+                        {reviewStatus(row.approval_status).toLowerCase()}
                         {row.id === entry.id ? ' · Shift being reviewed' : ''}
                       </li>
                     ))}
@@ -355,7 +398,7 @@ export default function ReviewSheet({
             {historyError ? (
               <ErrorState
                 title="Couldn't load the change history."
-                onRetry={() => setHistoryAttempt(value => value + 1)}
+                onRetry={() => setHistoryAttempt((value) => value + 1)}
               />
             ) : history === null ? (
               <p className="text-body-sm">Loading change history…</p>
@@ -372,11 +415,8 @@ export default function ReviewSheet({
                     <p className="text-ink-muted">
                       {change.actor?.full_name || 'System'} · {when(change.at)}
                     </p>
-                    {change.fields.map(field => (
-                      <p
-                        key={field.field}
-                        className="break-words"
-                      >
+                    {change.fields.map((field) => (
+                      <p key={field.field} className="break-words">
                         {field.label}:{' '}
                         {field.before === null ? 'Not recorded' : String(field.before)} →{' '}
                         {field.after === null ? 'Not recorded' : String(field.after)}
@@ -394,8 +434,9 @@ export default function ReviewSheet({
               required
             >
               <Textarea
+                ref={noteRef}
                 value={note}
-                onChange={event => setNote(event.target.value)}
+                onChange={(event) => setNote(event.target.value)}
                 maxLength={2000}
               />
             </Field>
@@ -412,10 +453,7 @@ export default function ReviewSheet({
             </Button>
           )}
           {error && (
-            <p
-              role="alert"
-              className="text-body-sm text-danger"
-            >
+            <p role="alert" className="text-body-sm text-danger">
               {error}
             </p>
           )}
@@ -434,7 +472,7 @@ export default function ReviewSheet({
           void onReload()
           onClose()
         }}
-        onError={message => setError(message || '')}
+        onError={(message) => setError(message || '')}
       />
     </>
   )

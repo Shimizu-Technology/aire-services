@@ -32,6 +32,7 @@ import type { ReviewEntry, ReviewItem } from '../../lib/api/approvals'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { useCapabilities } from '../../lib/useCapabilities'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
+import { businessWeekStart } from '../../lib/dateUtils'
 import { approvalLockCopy } from '../../components/approvals/approvalLockCopy'
 import {
   Button,
@@ -43,7 +44,10 @@ import {
 } from '../../components/ui'
 import { useApprovalsQuery } from '../../components/approvals/useApprovalsQuery'
 import { useReviewBatch } from '../../components/approvals/useReviewBatch'
-import ApprovalsHeader, { type ApprovalKind } from '../../components/approvals/ApprovalsHeader'
+import { useShellChrome } from '../../components/layouts/shellChrome'
+import ApprovalsHeader, {
+  type ApprovalKind,
+} from '../../components/approvals/ApprovalsHeader'
 import ApprovalsAttention from '../../components/approvals/ApprovalsAttention'
 import ApprovalsTimePanel from '../../components/approvals/ApprovalsTimePanel'
 import RecentApprovals from '../../components/approvals/RecentApprovals'
@@ -100,9 +104,18 @@ export default function Approvals() {
 function ApprovalsInbox() {
   const { currentUser } = useAuthContext()
   const capabilities = useCapabilities()
+  const { setApprovalCount } = useShellChrome()
+  useEffect(() => {
+    document.title = 'Approvals | AIRE Ops'
+  }, [])
   const online = useOnlineStatus()
   const [query, setQuery] = useSearchParams()
-  const requestedDepartment = query.get('dept') || rememberedDepartment(currentUser?.id)
+  const requestedDepartment =
+    query.get('dept') ||
+    rememberedDepartment(
+      currentUser?.id,
+      capabilities.manage_settings ? 'all' : currentUser?.approval_group || 'all',
+    )
   const groupBy = query.get('group') === 'day' ? 'day' : 'person'
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [review, setReview] = useState<ReviewEntry | null>(null)
@@ -120,7 +133,7 @@ function ApprovalsInbox() {
     !peopleLoading &&
     !peopleError &&
     requestedDepartment !== 'all' &&
-    !groups.some(group => group.key === requestedDepartment)
+    !groups.some((group) => group.key === requestedDepartment)
       ? 'all'
       : requestedDepartment
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -135,28 +148,55 @@ function ApprovalsInbox() {
   const changing = useRef(false)
   const params = useMemo(() => pendingParams(query, department), [query, department])
   const pruneSelection = useCallback((rows: ReviewEntry[]) => {
-    const ordinaryIds = new Set(rows.filter(isOrdinary).map(row => row.id))
-    setSelected(current => {
-      const retained = new Set([...current].filter(id => ordinaryIds.has(id)))
+    const ordinaryIds = new Set(rows.filter(isOrdinary).map((row) => row.id))
+    setSelected((current) => {
+      const retained = new Set([...current].filter((id) => ordinaryIds.has(id)))
       return retained.size === current.size ? current : retained
     })
   }, [])
   const inbox = useApprovalsQuery(
     params,
-    rows => {
-      const selectedRows = rows.filter(isOrdinary).filter(row => selected.has(row.id))
+    (rows) => {
+      const selectedRows = rows.filter(isOrdinary).filter((row) => selected.has(row.id))
       return Boolean(selectedRows.length || review || confirmation)
     },
     pruneSelection,
   )
   const removeApprovedSelection = useCallback((ids: number[]) => {
-    setSelected(current => new Set([...current].filter(id => !ids.includes(id))))
+    setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))))
   }, [])
   const batches = useReviewBatch(inbox.reload, removeApprovedSelection)
+  useEffect(() => {
+    setApprovalCount(inbox.data?.count ?? null)
+    return () => setApprovalCount(null)
+  }, [inbox.data?.count, setApprovalCount])
   const entries = inbox.data?.pending_entries ?? EMPTY
   const ordinary = entries.filter(isOrdinary)
-  const needsLook = entries.filter(entry => !isOrdinary(entry))
-  const selectedRows = ordinary.filter(entry => selected.has(entry.id))
+  const needsLook = entries.filter((entry) => !isOrdinary(entry))
+  const selectedRows = ordinary.filter((entry) => selected.has(entry.id))
+  const reviewWeek = review
+    ? needsLook.filter(
+        (row) =>
+          row.user.id === review.user.id &&
+          businessWeekStart(row.work_date) === businessWeekStart(review.work_date),
+      )
+    : []
+  const selectReviewEntry = async (entry: ReviewEntry) => {
+    if (entry.id === review?.id) return
+    if (
+      reviewDirty &&
+      !(await confirm({
+        title: 'Discard this note?',
+        description: 'The note has not been sent.',
+        confirmLabel: 'Discard and continue',
+        cancelLabel: 'Keep writing',
+      }))
+    )
+      return
+    setReviewDirty(false)
+    setReview(entry)
+  }
+
   const selection = selectedRows.length ? approvalSelection(selectedRows) : null
 
   const clearSelection = () => setSelected(new Set())
@@ -215,11 +255,13 @@ function ApprovalsInbox() {
     void loadExtras()
     void loadPeople()
     let active = true
-    void Promise.all([api.getTimeCategories(), api.getPayrollCutoff()]).then(([cats, period]) => {
-      if (!active) return
-      if (cats.data) setCategories(cats.data.time_categories)
-      if (period.data) setCutoff(period.data)
-    })
+    void Promise.all([api.getTimeCategories(), api.getPayrollCutoff()]).then(
+      ([cats, period]) => {
+        if (!active) return
+        if (cats.data) setCategories(cats.data.time_categories)
+        if (period.data) setCutoff(period.data)
+      },
+    )
     return () => {
       active = false
     }
@@ -236,7 +278,8 @@ function ApprovalsInbox() {
       if (selectedRows.length || reviewDirty) {
         const clear = await confirm({
           title: 'Clear your selection?',
-          description: 'Changing this view clears the selected shifts and unsaved review note.',
+          description:
+            'Changing this view clears the selected shifts and unsaved review note.',
           confirmLabel: 'Clear and continue',
           cancelLabel: 'Keep reviewing',
         })
@@ -300,9 +343,9 @@ function ApprovalsInbox() {
   }
   const approveSelection = () => requestSelection()
   const toggleSelected = (rows: ReviewEntry[], checked: boolean) => {
-    setSelected(current => {
+    setSelected((current) => {
       const next = new Set(current)
-      rows.forEach(row => {
+      rows.forEach((row) => {
         if (checked) next.add(row.id)
         else next.delete(row.id)
       })
@@ -335,7 +378,7 @@ function ApprovalsInbox() {
   const reloadExtras = () => {
     void loadExtras()
   }
-  const undoRecent: Parameters<typeof RecentApprovals>[0]['onUndo'] = available => {
+  const undoRecent: Parameters<typeof RecentApprovals>[0]['onUndo'] = (available) => {
     void batches.undo(available)
   }
 
@@ -368,31 +411,24 @@ function ApprovalsInbox() {
     }
   }
 
-  const viewerGroups =
-    people.find(person => person.id === currentUser?.id)?.approval_group_keys ??
-    (currentUser?.approval_group ? [currentUser.approval_group] : [])
-  const attention = workers.filter(worker => {
+  const attention = workers.filter((worker) => {
     if (!worker.open_since_work_date || !worker.open_entry_id) return false
-    return (
-      !viewerGroups.length ||
-      people.some(person => {
-        return (
-          person.id === worker.user.id &&
-          person.approval_group_keys?.some(key => viewerGroups.includes(key))
-        )
-      })
-    )
+    if (department === 'all') return true
+    const person = people.find((person) => person.id === worker.user.id)
+    const keys =
+      person?.approval_group_keys ?? (person?.approval_group ? [person.approval_group] : [])
+    return department === 'unassigned' ? keys.length === 0 : keys.includes(department)
   })
   const matchesPerson = (id: number) => {
     if (query.get('user_id') && String(id) !== query.get('user_id')) return false
     if (department === 'all') return true
-    const person = people.find(person => person.id === id)
+    const person = people.find((person) => person.id === id)
     const keys =
       person?.approval_group_keys ?? (person?.approval_group ? [person.approval_group] : [])
     return department === 'unassigned' ? keys.length === 0 : keys.includes(department)
   }
-  const visibleLeave = leave.filter(request => matchesPerson(request.user.id))
-  const visibleStubs = stubs.filter(request => matchesPerson(request.worker.id))
+  const visibleLeave = leave.filter((request) => matchesPerson(request.user.id))
+  const visibleStubs = stubs.filter((request) => matchesPerson(request.worker.id))
   const showStubs = capabilities.send_pay_statements && visibleStubs.length > 0
   const kind: ApprovalKind =
     query.get('kind') === 'leave'
@@ -403,22 +439,19 @@ function ApprovalsInbox() {
         : 'time'
   const lock = approvalLockCopy(cutoff)
   const departmentOptions = groups.length
-    ? groups.map(group => ({ value: group.key, label: group.label }))
+    ? groups.map((group) => ({ value: group.key, label: group.label }))
     : [
         { value: 'cfi', label: 'CFI' },
         { value: 'ops', label: 'Ops/Maint' },
       ]
   const headerDescription = `${inbox.data?.count ?? '…'} waiting${lock.description}`
-  const filterCount = FILTER_KEYS.filter(key => query.has(key)).length
+  const filterCount = FILTER_KEYS.filter((key) => query.has(key)).length
   const selectionSummary = selection
     ? `${selection.people.length} people · ${selection.hours.toFixed(1)}h`
     : undefined
 
   return (
-    <div
-      className="space-y-3 pb-6"
-      onKeyDown={handleKeyDown}
-    >
+    <div className="space-y-3 pb-6" onKeyDown={handleKeyDown}>
       <ApprovalsHeader
         description={headerDescription}
         count={inbox.data?.count}
@@ -436,10 +469,7 @@ function ApprovalsInbox() {
       />
       <ApprovalsAttention workers={attention} />
       {extrasError.workers && (
-        <ErrorState
-          title={extrasError.workers}
-          onRetry={reloadExtras}
-        />
+        <ErrorState title={extrasError.workers} onRetry={reloadExtras} />
       )}
       {batches.notice && (
         <p
@@ -466,19 +496,18 @@ function ApprovalsInbox() {
         online={online}
         onUndo={undoRecent}
       />
-      <div
-        id="approvals-panel"
-        role="tabpanel"
-        className="space-y-4"
-      >
+      <div id="approvals-panel" role="tabpanel" className="space-y-4">
         {kind === 'time' && (
           <ApprovalsTimePanel
             inbox={inbox}
             ordinary={ordinary}
             needsLook={needsLook}
+            maxShiftHours={inbox.data?.review_summary.ordinary_max_shift_hours}
             viewerId={currentUser?.id}
             department={department}
-            departmentLabel={departmentOptions.find(item => item.value === department)?.label}
+            departmentLabel={
+              departmentOptions.find((item) => item.value === department)?.label
+            }
             groupBy={groupBy}
             selected={selected}
             disabled={disabled}
@@ -513,10 +542,7 @@ function ApprovalsInbox() {
           ) : peopleLoading ? (
             <p>Loading departments and people…</p>
           ) : extrasError.leave ? (
-            <ErrorState
-              title="Couldn't load leave requests."
-              onRetry={reloadExtras}
-            />
+            <ErrorState title="Couldn't load leave requests." onRetry={reloadExtras} />
           ) : extrasLoading ? (
             <p>Loading leave requests…</p>
           ) : (
@@ -537,10 +563,7 @@ function ApprovalsInbox() {
           ) : peopleLoading || extrasLoading ? (
             <p>Loading departments and people…</p>
           ) : extrasError.stubs ? (
-            <ErrorState
-              title={extrasError.stubs}
-              onRetry={reloadExtras}
-            />
+            <ErrorState title={extrasError.stubs} onRetry={reloadExtras} />
           ) : (
             <StubRequestsList
               requests={visibleStubs}
@@ -560,11 +583,7 @@ function ApprovalsInbox() {
         summary={selectionSummary}
         onClear={clearSelection}
         actions={
-          <Button
-            disabled={disabled}
-            title={disabledReason}
-            onClick={approveSelection}
-          >
+          <Button disabled={disabled} title={disabledReason} onClick={approveSelection}>
             Approve {selectedRows.length}
           </Button>
         }
@@ -575,6 +594,7 @@ function ApprovalsInbox() {
         selection={confirmation?.snapshot ?? null}
         ordinary={confirmation?.all}
         exclusions={exclusionCopy(needsLook)}
+        excludedPeople={new Set(needsLook.map((row) => row.user.id)).size}
         lockCopy={lock.confirmation}
         busy={batches.busy}
         onCancel={cancelApproval}
@@ -584,7 +604,7 @@ function ApprovalsInbox() {
         <FiltersSheet
           query={query}
           categories={categories}
-          people={people.map(person => ({ id: person.id, name: person.full_name }))}
+          people={people.map((person) => ({ id: person.id, name: person.full_name }))}
           onClose={closeFilters}
           onApply={applyFilters}
         />
@@ -593,6 +613,10 @@ function ApprovalsInbox() {
         <ReviewSheet
           key={review.id}
           entry={review}
+          weekEntries={reviewWeek}
+          onSelectEntry={(entry) => {
+            void selectReviewEntry(entry)
+          }}
           categories={categories}
           busy={batches.busy}
           onDirty={setReviewDirty}

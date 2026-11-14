@@ -4,8 +4,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AdminLayout from './AdminLayout'
+import { useShellChrome } from './shellChrome'
 import { Button, SelectionBar, useToast } from '../ui'
 
 type Role = 'owner' | 'admin' | 'manager' | 'employee'
@@ -112,7 +113,7 @@ describe('AdminLayout sidebar by role', () => {
       const view = renderLayout()
       expect(groupNames('Workspace')).toEqual(['Today', 'Approvals', 'Timecards', 'Payroll', 'Team', 'Reports', 'Pay stubs'])
       expect(groupNames('Admin')).toEqual(['Settings', 'Website', 'Activity'])
-      expect(groupNames('Me')).toEqual(['My Time', 'My Pay', 'Unlock kiosk'])
+      expect(groupNames('Me')).toEqual(['My Time', 'My leave', 'My Pay', 'Unlock kiosk'])
       view.unmount()
     }
   })
@@ -121,7 +122,7 @@ describe('AdminLayout sidebar by role', () => {
     signIn('manager')
     renderLayout()
     expect(groupNames('Workspace')).toEqual(['Approvals', 'Timecards', 'Reports', 'Pay stubs'])
-    expect(groupNames('Me')).toEqual(['My Time', 'My Pay', 'Unlock kiosk', 'What can I do?'])
+    expect(groupNames('Me')).toEqual(['My Time', 'My leave', 'My Pay', 'Unlock kiosk', 'What can I do?'])
     expect(within(sidebar()).queryByRole('group', { name: 'Admin' })).not.toBeInTheDocument()
     expect(screen.getByText('Manager workspace', { selector: 'div' })).toBeInTheDocument()
   })
@@ -201,7 +202,7 @@ describe('"Use schedules"', () => {
 
   it.each([
     ['admin', 'Workspace', ['Today', 'Approvals', 'Timecards', 'Schedule', 'Payroll', 'Team', 'Reports', 'Pay stubs']],
-    ['manager', 'Me', ['My Time', 'My Pay', 'Schedule', 'Unlock kiosk', 'What can I do?']],
+    ['manager', 'Me', ['My Time', 'My leave', 'My Pay', 'Schedule', 'Unlock kiosk', 'What can I do?']],
     ['employee', 'Workspace', ['Clock', 'My Hours', 'Leave', 'My Pay', 'Schedule']],
   ] as const)('shows Schedule to a %s when it is on', (role, group, expected) => {
     signIn(role, { schedules_enabled: true })
@@ -224,7 +225,7 @@ describe('AdminLayout phone tab bar', () => {
 
     fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
     const sheet = screen.getByRole('dialog', { name: 'More' })
-    expect(names(sheet)).toEqual(['Pay stubs', 'My Pay', 'Unlock kiosk', 'What can I do?'])
+    expect(names(sheet)).toEqual(['Pay stubs', 'My leave', 'My Pay', 'Unlock kiosk', 'What can I do?'])
     fireEvent.click(within(sheet).getByRole('link', { name: 'Pay stubs' }))
     expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
     expect(screen.getByText('Page /admin/pay-stubs')).toBeInTheDocument()
@@ -275,7 +276,7 @@ describe('AdminLayout phone tab bar', () => {
     const sheet = screen.getByRole('dialog', { name: 'More' })
     expect(names(within(sheet).getByRole('region', { name: 'Pages' }))).toEqual(['Team', 'Reports', 'Pay stubs'])
     expect(names(within(sheet).getByRole('region', { name: 'Admin' }))).toEqual(['Settings', 'Website', 'Activity'])
-    expect(names(within(sheet).getByRole('region', { name: 'Me' }))).toEqual(['My Time', 'My Pay', 'Unlock kiosk'])
+    expect(names(within(sheet).getByRole('region', { name: 'Me' }))).toEqual(['My Time', 'My leave', 'My Pay', 'Unlock kiosk'])
     expect(within(sheet).getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page')
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument()
@@ -523,3 +524,24 @@ describe('AdminLayout selection bar and toasts', () => {
   })
 })
 
+
+function ScopedBadge() {
+  const { setApprovalCount } = useShellChrome()
+  useEffect(() => {
+    setApprovalCount(7)
+    return () => setApprovalCount(null)
+  }, [setApprovalCount])
+  return <p>7 waiting</p>
+}
+it('uses the inbox scoped count for both shell badges and provides a skip target', async () => {
+  signIn('manager')
+  apiMock.getPendingApprovals.mockResolvedValue({ data: { summary: { entry_count: 99 } } })
+  render(<MemoryRouter initialEntries={['/admin/approvals']}><Routes>
+    <Route element={<AdminLayout />}><Route path="/admin/approvals" element={<ScopedBadge />} /></Route>
+  </Routes></MemoryRouter>)
+  await screen.findByText('7 waiting')
+  expect(within(sidebar()).getByRole('link', { name: /Approvals/ })).toHaveTextContent('7')
+  expect(within(tabBar()).getByRole('link', { name: /Approvals/ })).toHaveTextContent('7')
+  expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveAttribute('href', '#admin-content')
+  expect(document.getElementById('admin-content')).toHaveAttribute('tabindex', '-1')
+})

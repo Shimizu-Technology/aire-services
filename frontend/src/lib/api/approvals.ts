@@ -18,6 +18,7 @@ export interface ReviewSummary {
   ordinary_hours: number
   needs_look_count: number
   batch_limit: number
+  ordinary_max_shift_hours?: number
   by_person: {
     user_id: number
     full_name: string

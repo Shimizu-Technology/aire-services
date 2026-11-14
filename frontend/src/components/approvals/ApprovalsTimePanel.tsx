@@ -8,6 +8,7 @@ interface ApprovalsTimePanelProps {
   inbox: ReturnType<typeof useApprovalsQuery>
   ordinary: ReviewEntry[]
   needsLook: ReviewEntry[]
+  maxShiftHours?: number
   viewerId?: number
   department: string
   departmentLabel?: string
@@ -44,6 +45,7 @@ export default function ApprovalsTimePanel({
   inbox,
   ordinary,
   needsLook,
+  maxShiftHours,
   viewerId,
   department,
   departmentLabel,
@@ -115,7 +117,8 @@ export default function ApprovalsTimePanel({
                 onChange={onGroupChange}
               />
               <p className="text-body-sm text-ink-muted">
-                Phone or kiosk clock-ins, no edits, no overtime, under the shift limit
+                Phone or kiosk clock-ins, no edits, no overtime,{' '}
+                {maxShiftHours ? `under ${maxShiftHours} hours` : 'under the shift limit'}
               </p>
               <OrdinaryGroups
                 rows={ordinary}
