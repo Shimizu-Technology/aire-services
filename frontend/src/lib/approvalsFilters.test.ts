@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { approvalSelection, isOrdinary, pendingParams } from './approvalsFilters'
+import { approvalSelection, exclusionCopy, isOrdinary, pendingParams } from './approvalsFilters'
 import { reviewEntry } from '../test/approvalFixtures'
 const entry = (id: number, overrides = {}) => reviewEntry(id, id, { version: id + 7, ...overrides })
 describe('approval snapshots', () => {
@@ -21,4 +21,9 @@ describe('approval snapshots', () => {
   it('keeps reminder filters and expands a period query', () => {
     expect(pendingParams(new URLSearchParams('period=2026-11-01&user_id=4&through_date=2026-11-10'), 'cfi')).toMatchObject({ start_date: '2026-11-01', end_date: '2026-11-15', through_date: '2026-11-10', user_id: '4', approval_group: 'cfi' })
   })
+})
+
+it('names excluded shift counts and overtime hours in the confirmation', () => {
+  const overtime = entry(2, { review_kind: 'needs_look', overtime_status: 'pending', pending_overtime_hours: 6, exceptions: [{ key: 'overtime', label: 'Overtime' }] })
+  expect(exclusionCopy([overtime])).toContain('1 shift · Overtime · 6.0h overtime waiting')
 })

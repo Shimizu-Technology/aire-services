@@ -43,11 +43,11 @@ export function approvalSelection(rows: readonly ReviewEntry[]): ApprovalSelecti
     people: [...people.values()], hours: rows.reduce((sum, row) => sum + row.hours, 0), dates: rows.map(row => row.work_date).sort() }
 }
 export function exclusionCopy(rows: ReviewEntry[]) {
-  const people = new Map<string, string[]>()
-  for (const row of rows) {
-    const reasons = people.get(row.user.full_name) ?? []
-    row.exceptions.forEach(reason => { if (!reasons.includes(reason.label)) reasons.push(reason.label) })
-    people.set(row.user.full_name, reasons)
-  }
-  return [...people].map(([name, reasons]) => `${name}: ${reasons.join(', ')}`).join('; ')
+  const people = new Map<string, ReviewEntry[]>()
+  for (const row of rows) people.set(row.user.full_name, [...(people.get(row.user.full_name) ?? []), row])
+  return [...people].map(([name, entries]) => {
+    const reasons = [...new Set(entries.flatMap(entry => entry.exceptions.map(reason => reason.label)))]
+    const overtime = entries.filter(entry => entry.overtime_status === 'pending').reduce((sum, entry) => sum + (entry.pending_overtime_hours ?? 0), 0)
+    return `${name}: ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} · ${reasons.join(', ')}${overtime > 0 ? ` · ${overtime.toFixed(1)}h overtime waiting` : ''}`
+  }).join('; ')
 }
