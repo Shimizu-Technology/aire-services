@@ -30,6 +30,8 @@ module Payroll
       @entry_quality_flags = build_entry_quality_flags(control_entries)
       @overtime_allocations_by_user = control_entries.group_by(&:user_id).transform_values { |rows| allocate_weekly_overtime(rows) }
       allocations = @overtime_allocations_by_user.values.each_with_object({}) { |rows, result| result.merge!(rows) }
+      @approval_hours = ApprovalHours.new(allocations: allocations,
+        legacy_allocations: AffectedOvertimeReview.allocations(control_entries, legacy: true))
       @payroll_lifecycles = EntryLifecycleResolver.new(entries: control_entries, overtime_allocations: allocations).call
       @allocation_holds = allocations.select { |_id, allocation| allocation[:hold_reason] }.keys.to_set
       @allocation_holds.each { |id| (@entry_quality_flags[id] ||= []) << "overnight_allocation_review" }
@@ -200,6 +202,7 @@ module Payroll
         approval_group_keys: user.approval_group_keys,
         approval_group_labels: user.approval_group_labels,
         approval_groups: user.approval_group_keys.map { |key| { key: key, label: Setting.approval_group_label_for(key) } },
+        payroll_hours: payroll_hours_for(lifecycle_period_entries),
         total_hours: total_hours,
         regular_hours: regular_hours,
         overtime_hours: overtime_hours,
@@ -210,6 +213,7 @@ module Payroll
         first_work_date: days.first&.fetch(:work_date),
         last_work_date: days.last&.fetch(:work_date),
         ready: report_ready?(issues),
+        approval_complete: issues[:open_clock_count].zero? && payroll_hours_for(control_period_entries).values_at(:time_waiting_hours, :overtime_waiting_hours).all?(&:zero?),
         issues: issues,
         quality: quality_for(control_period_entries),
         payroll_statuses: EntryLifecycleResolver.summary(lifecycle_period_entries.filter_map { |entry| payroll_lifecycle_for(entry) }),
@@ -224,6 +228,10 @@ module Payroll
     # completed shift waiting for approval (or an added shift nobody reviewed),
     # and a shift held for an overtime review, which waits in the period of its
     # own work date only. Total + waiting is every hour worked in the period.
+    def payroll_hours_for(entries)
+      ApprovalHours.sum(entries.map { |entry| @approval_hours.for(entry) })
+    end
+
     def waiting_hours_for(entry)
       if @allocation_holds&.include?(entry.id)
         entry.work_date.between?(start_date, end_date) ? entry.hours.to_f : 0
@@ -244,6 +252,7 @@ module Payroll
         regular = day_entries.sum { |entry| PayableSegmentView.allocation(entry, allocations)[:regular_hours].to_f }
         overtime = day_entries.sum { |entry| PayableSegmentView.allocation(entry, allocations)[:overtime_hours].to_f }
         {
+          payroll_hours: payroll_hours_for(day_entries),
           work_date: date.iso8601,
           total_hours: round_hours(day_entries.sum { |entry| entry.hours.to_f }),
           regular_hours: round_hours(regular),
@@ -281,6 +290,7 @@ module Payroll
 
         context_hours = round_hours(context_entries_for_week.sum { |entry| entry.hours.to_f })
         {
+          payroll_hours: payroll_hours_for(period_entries),
           week_start: week_start.iso8601,
           week_end: week_end.iso8601,
           weekly_total_hours: round_hours(countable.sum { |entry| entry.hours.to_f }),
@@ -295,6 +305,7 @@ module Payroll
 
     def serialize_entry(entry, allocation)
       {
+        payroll_hours: @approval_hours.for(entry),
         id: entry.id,
         version: entry.lock_version,
         work_date: entry.work_date.iso8601,
@@ -431,6 +442,7 @@ module Payroll
 
     def summary(employees, period_entries)
       {
+        payroll_hours: ApprovalHours.sum(employees.map { |employee| employee[:payroll_hours] }),
         employee_count: employees.size,
         total_hours: sum(employees, :total_hours),
         regular_hours: sum(employees, :regular_hours),

@@ -74,22 +74,19 @@ module Payroll
         .merge(live_hours(start_date, end_date))
     end
 
-    # Approved and waiting hours from the live entries. An entry with overtime
-    # waiting counts as waiting in full, so the two never overlap, and the
-    # waiting numbers equal the pending_approvals summary for these dates.
+    # Use the report's shared approval gate and full weekly/overnight context.
     def self.live_hours(start_date, end_date)
-      range = start_date..end_date
-      waiting_hours, waiting_count = AttentionQuery.waiting_scope.where(work_date: range)
-        .pick(Arel.sql("COALESCE(SUM(time_entries.hours), 0)"), Arel.sql("COUNT(time_entries.id)"))
-      approved = TimeEntry.countable.where(work_date: range).where("time_entries.overtime_status IS DISTINCT FROM 'pending'")
-      approved_hours = approved.sum(:hours)
-      people = TimeEntry.where(id: approved.select(:id)).or(TimeEntry.where(id: AttentionQuery.waiting_scope.where(work_date: range).select(:id)))
-        .distinct.count(:user_id)
+      report = HoursReportBuilder.new(start_date: start_date.to_s, end_date: end_date.to_s, summary_only: true).call
+      hours = report.fetch(:summary).fetch(:payroll_hours)
       {
-        people: people,
-        approved_hours: approved_hours.to_f.round(2),
-        waiting_hours: waiting_hours.to_f.round(2),
-        waiting_count: waiting_count.to_i,
+        people: report[:employees].count { |employee| employee[:entries_count].positive? || employee[:payroll_hours].values.any?(&:positive?) },
+        approved_hours: hours[:approved_hours],
+        approved_regular_hours: hours[:approved_regular_hours],
+        approved_overtime_hours: hours[:approved_overtime_hours],
+        time_waiting_hours: hours[:time_waiting_hours],
+        overtime_waiting_hours: hours[:overtime_waiting_hours],
+        waiting_hours: (hours[:time_waiting_hours].to_d + hours[:overtime_waiting_hours].to_d).round(2).to_f,
+        waiting_count: report[:employees].sum { |employee| employee[:issues][:pending_count] + employee[:issues][:pending_overtime_count] },
         hours_source: "live"
       }
     end
