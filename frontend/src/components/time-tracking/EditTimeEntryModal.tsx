@@ -7,6 +7,7 @@ import { useCapabilities } from '../../lib/useCapabilities'
 import { shiftHistoryHref } from '../../lib/shiftHistory'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { UnsavedChangesGuard } from '../ui/UnsavedChangesBar'
+import type { ShouldBlock } from '../ui/unsavedChangesBlocking'
 import { useConfirm } from '../ui/useConfirm'
 
 interface TimeCategoryOption {
@@ -99,6 +100,12 @@ function timeInputValue(value: string | null | undefined) {
 
   return hour && minute ? `${hour}:${minute}` : ''
 }
+
+// While the sheet has edits, any move (another page, a changed query like ?user_id, or a hash)
+// asks first. The page behind keeps its URL in the query, so browser Back is often query-only.
+// The deliberate move to history is a full page load, so it never reaches the router.
+const blockAnyLocationChange: ShouldBlock = (current, next) =>
+  current.pathname !== next.pathname || current.search !== next.search || current.hash !== next.hash
 
 function formFromEntry(entry: EditableTimeEntry) {
   return {
@@ -748,7 +755,15 @@ export default function EditTimeEntryModal({
             onConfirm={() => { setDiscardGuard(false); onClose() }}
             onCancel={() => setDiscardGuard(false)}
           />
-          {dataRouter && <UnsavedChangesGuard dirty={guarded} what="this shift" title="Discard your changes?" />}
+          {dataRouter && (
+            <UnsavedChangesGuard
+              dirty={guarded}
+              what="this shift"
+              title="Discard your changes?"
+              shouldBlock={blockAnyLocationChange}
+              onDiscard={onClose}
+            />
+          )}
         </div>,
     document.body,
   )

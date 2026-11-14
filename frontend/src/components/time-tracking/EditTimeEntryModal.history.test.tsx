@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -276,5 +276,44 @@ describe('Edit shift: every way out asks first while edits are unsaved (M2)', ()
     fireEvent.click(screen.getByText('Away'))
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     expect(screen.getByText('Away page')).toBeInTheDocument()
+  })
+
+  it('asks before a query-only change such as browser Back from ?user_id (Timecards), and Discard closes the sheet', async () => {
+    const onClose = vi.fn()
+    function Sheet() {
+      return <EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'CFI' }]} canDelete canManageTeamTime onClose={onClose} onSaved={vi.fn()} onDeleted={vi.fn()} />
+    }
+    const router = createMemoryRouter(
+      [{ path: '/admin/timecards', element: <><Link to="/admin/timecards?user_id=9">Other person</Link><Sheet /></> }],
+      { initialEntries: ['/admin/timecards', '/admin/timecards?user_id=7'], initialIndex: 1 },
+    )
+    render(<RouterProvider router={router} />)
+    edit()
+    await act(async () => { await router.navigate(-1) })
+    const prompt = screen.getByRole('alertdialog', { name: 'Discard your changes?' })
+    expect(router.state.location.search).toBe('?user_id=7')
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Keep editing' }))
+    expect(router.state.location.search).toBe('?user_id=7')
+    expect(screen.getByLabelText(/End Time/)).toHaveValue('15:00')
+    // A changed query (selecting someone else) asks too.
+    fireEvent.click(screen.getByText('Other person'))
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument()
+    expect(router.state.location.search).toBe('?user_id=7')
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await act(async () => { await router.navigate('/admin/timecards?user_id=7#top') })
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    await waitFor(() => expect(router.state.location.hash).toBe('#top'))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('does not ask on a query-only change while the sheet is clean', async () => {
+    const router = createMemoryRouter(
+      [{ path: '/admin/timecards', element: <><Link to="/admin/timecards?user_id=9">Other person</Link><EditTimeEntryModal isOpen entry={entry} categories={[{ id: 1, name: 'CFI' }]} canDelete canManageTeamTime onClose={vi.fn()} onSaved={vi.fn()} onDeleted={vi.fn()} /></> }],
+      { initialEntries: ['/admin/timecards?user_id=7'] },
+    )
+    render(<RouterProvider router={router} />)
+    fireEvent.click(screen.getByText('Other person'))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(router.state.location.search).toBe('?user_id=9')
   })
 })
