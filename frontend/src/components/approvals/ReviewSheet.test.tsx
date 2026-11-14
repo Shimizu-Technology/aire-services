@@ -13,7 +13,17 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 vi.mock('../../lib/api/approvals', () => ({ approvalsApi: { history: vi.fn() } }))
-vi.mock('../time-tracking/EditTimeEntryModal', () => ({ default: () => null }))
+vi.mock('../time-tracking/EditTimeEntryModal', () => ({
+  default: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? (
+      <div
+        role="dialog"
+        aria-label="Edit shift"
+      >
+        <button onClick={onClose}>Back to review</button>
+      </div>
+    ) : null,
+}))
 const props = () => ({
   entry: reviewEntry(7, 1, {
     review_kind: 'needs_look',
@@ -140,4 +150,15 @@ it('names time as well as overtime when both decisions are pending', async () =>
       expect.any(String),
     ),
   )
+})
+
+it('hands the active dialog to the editor and restores review when editing closes', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  render(<ReviewSheet {...props()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Edit…' }))
+  expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  expect(screen.getByRole('dialog', { name: 'Edit shift' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Back to review' }))
+  expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  expect(screen.getByRole('dialog', { name: 'Review Marcus Quinata' })).toBeInTheDocument()
 })

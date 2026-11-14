@@ -172,7 +172,7 @@ export default function ReviewSheet({
   return (
     <>
       <Sheet
-        open
+        open={!editing}
         title={`Review ${entry.user.full_name}`}
         description={formatWorkDate(entry.work_date)}
         onClose={() => {

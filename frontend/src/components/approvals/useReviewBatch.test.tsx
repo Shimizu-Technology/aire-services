@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, fireEvent, renderHook, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reviewEntry } from '../../test/approvalFixtures'
 import { approvalsApi } from '../../lib/api/approvals'
@@ -199,4 +199,22 @@ it.each([
   await act(async () =>
     expect(await result.current.approve(items(1), 100, 'Approved')).toBe(outcome),
   )
+})
+
+it('toast Undo undoes only the latest action while older batches remain available', async () => {
+  vi.mocked(approvalsApi.review)
+    .mockResolvedValueOnce(ok('older'))
+    .mockResolvedValueOnce(ok('latest'))
+  vi.mocked(approvalsApi.undo).mockResolvedValue({ data: { undone_count: 1 } })
+  const { result } = renderHook(() => useReviewBatch(vi.fn()), { wrapper })
+  await act(async () => {
+    await result.current.approve(items(1), 100, 'First')
+  })
+  await act(async () => {
+    await result.current.approve([{ ...items(1)[0], id: 2 }], 100, 'Second')
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+  await waitFor(() => expect(approvalsApi.undo).toHaveBeenCalledWith('latest'))
+  expect(approvalsApi.undo).toHaveBeenCalledOnce()
+  await waitFor(() => expect(result.current.undoBatches.map(batch => batch.id)).toEqual(['older']))
 })
