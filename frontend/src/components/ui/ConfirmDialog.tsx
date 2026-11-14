@@ -52,14 +52,27 @@ function OpenConfirmDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   const [typed, setTyped] = useState('')
   const danger = tone === 'danger'
-  const initialFocus = requireText ? '[data-confirm-input]' : danger ? '[data-confirm-cancel]' : '[data-confirm-action]'
-  useDialogFocus(true, dialogRef, () => { if (!busy) onCancel() }, initialFocus)
+  const initialFocus = requireText
+    ? '[data-confirm-input]'
+    : danger
+      ? '[data-confirm-cancel]'
+      : '[data-confirm-action]'
+  useDialogFocus(
+    true,
+    dialogRef,
+    () => {
+      if (!busy) onCancel()
+    },
+    initialFocus,
+  )
   const blocked = Boolean(requireText) && typed.trim() !== requireText
 
   return createPortal(
     <div
       className="fixed inset-0 z-(--z-dialog) flex items-end justify-center bg-slate-950/50 p-3 pb-safe-3 transition-opacity duration-200 ease-out starting:opacity-0 sm:items-center sm:p-6"
-      onClick={(event) => { if (event.target === event.currentTarget && !busy) onCancel() }}
+      onClick={event => {
+        if (event.target === event.currentTarget && !busy) onCancel()
+      }}
     >
       <div
         ref={dialogRef}
@@ -72,14 +85,25 @@ function OpenConfirmDialog({
       >
         <div className="flex gap-3">
           {danger && (
-            <span aria-hidden="true" className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
+            <span
+              aria-hidden="true"
+              className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger"
+            >
               <AlertTriangle className="size-5" />
             </span>
           )}
           <div className="min-w-0 flex-1">
-            <h2 id={`${ids}-title`} className="text-title font-semibold text-ink">{title}</h2>
+            <h2
+              id={`${ids}-title`}
+              className="text-title font-semibold text-ink"
+            >
+              {title}
+            </h2>
             {(description || details) && (
-              <div id={`${ids}-body`} className="mt-2 space-y-3 text-body-sm text-ink-muted">
+              <div
+                id={`${ids}-body`}
+                className="mt-2 space-y-3 text-body-sm text-ink-muted"
+              >
                 {description && <p>{description}</p>}
                 {details}
               </div>
@@ -88,14 +112,17 @@ function OpenConfirmDialog({
         </div>
         {requireText && (
           <div className="mt-4">
-            <label htmlFor={`${ids}-typed`} className="block text-sm font-medium text-ink">
+            <label
+              htmlFor={`${ids}-typed`}
+              className="block text-sm font-medium text-ink"
+            >
               Type <span className="font-semibold">{requireText}</span> to confirm
             </label>
             <input
               id={`${ids}-typed`}
               data-confirm-input
               value={typed}
-              onChange={(event) => setTyped(event.target.value)}
+              onChange={event => setTyped(event.target.value)}
               autoComplete="off"
               autoCapitalize="none"
               autoCorrect="off"
@@ -105,7 +132,13 @@ function OpenConfirmDialog({
           </div>
         )}
         <div className={cx('mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end')}>
-          <Button data-confirm-cancel variant="secondary" onClick={onCancel} disabled={busy} className="w-full sm:w-auto">
+          <Button
+            data-confirm-cancel
+            variant="secondary"
+            onClick={onCancel}
+            disabled={busy}
+            className="w-full sm:w-auto"
+          >
             {cancelLabel}
           </Button>
           <Button

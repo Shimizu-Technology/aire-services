@@ -21,6 +21,8 @@ export interface ListRowProps {
   title: ReactNode
   /** One secondary line: "2 shifts · Nov 10–11". */
   meta?: ReactNode
+  /** Allow important secondary facts to wrap instead of being ellipsized. */
+  metaWrap?: boolean
   /** Avatar or icon tile. */
   leading?: ReactNode
   /**
@@ -29,7 +31,12 @@ export interface ListRowProps {
    * stops automatically; give any other focusable widget LIST_CONTROL_ATTRIBUTE.
    */
   trailing?: ReactNode
-  checkbox?: { checked: CheckedState; onChange: (checked: boolean) => void; label: string; disabled?: boolean }
+  checkbox?: {
+    checked: CheckedState
+    onChange: (checked: boolean) => void
+    label: string
+    disabled?: boolean
+  }
   /** The row's one button, e.g. Approve 2 or Review. */
   action?: ListRowAction
   /** Enter on the row, or a click on its empty space. Shows a chevron. */
@@ -55,6 +62,7 @@ const INTERACTIVE = 'a, button, input, select, textarea, label, [role="button"],
 export function ListRow({
   title,
   meta,
+  metaWrap = false,
   leading,
   trailing,
   checkbox,
@@ -75,16 +83,25 @@ export function ListRow({
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Only when the row itself has focus; its buttons handle their own keys.
-    if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey)
+      return
     if (event.key === ' ' && checkbox && !checkbox.disabled) {
       event.preventDefault()
       checkbox.onChange(checkbox.checked !== true)
     } else if (event.key === 'Enter') {
-      if (onOpen) { event.preventDefault(); onOpen() } else if (expandable) { event.preventDefault(); toggleExpanded() }
+      if (onOpen) {
+        event.preventDefault()
+        onOpen()
+      } else if (expandable) {
+        event.preventDefault()
+        toggleExpanded()
+      }
     } else if (expandable && event.key === 'ArrowRight' && !expanded) {
-      event.preventDefault(); toggleExpanded()
+      event.preventDefault()
+      toggleExpanded()
     } else if (expandable && event.key === 'ArrowLeft' && expanded) {
-      event.preventDefault(); toggleExpanded()
+      event.preventDefault()
+      toggleExpanded()
     }
   }
 
@@ -95,7 +112,10 @@ export function ListRow({
   }
 
   return (
-    <div role="listitem" className={className}>
+    <div
+      role="listitem"
+      className={className}
+    >
       <div
         data-list-row={id}
         role="group"
@@ -122,10 +142,29 @@ export function ListRow({
         )}
         {leading}
         <div className="min-w-0 flex-1">
-          <p id={`${id}-title`} className="truncate text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
-          {meta && <p id={`${id}-meta`} className="mt-0.5 truncate text-body-sm text-ink-muted">{meta}</p>}
+          <p
+            id={`${id}-title`}
+            className="truncate text-body font-semibold text-ink pointer-fine:text-body-sm"
+          >
+            {title}
+          </p>
+          {meta && (
+            <p
+              id={`${id}-meta`}
+              className={cx(
+                'mt-0.5 text-body-sm text-ink-muted',
+                metaWrap ? 'whitespace-normal' : 'truncate',
+              )}
+            >
+              {meta}
+            </p>
+          )}
         </div>
-        {trailing && <div className="flex shrink-0 items-center gap-2 text-right text-body-sm text-ink">{trailing}</div>}
+        {trailing && (
+          <div className="flex shrink-0 items-center gap-2 text-right text-body-sm text-ink">
+            {trailing}
+          </div>
+        )}
         {action && (
           <Button
             data-list-control
@@ -151,14 +190,28 @@ export function ListRow({
             onClick={toggleExpanded}
             className="-mr-2 inline-flex size-11 shrink-0 items-center justify-center rounded-control text-ink-subtle hover:bg-surface-muted hover:text-ink pointer-fine:size-9"
           >
-            <ChevronDown aria-hidden="true" className={cx('size-5', !expanded && '-rotate-90')} />
+            <ChevronDown
+              aria-hidden="true"
+              className={cx('size-5', !expanded && '-rotate-90')}
+            />
           </button>
-        ) : onOpen && (
-          <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-ink-subtle" />
+        ) : (
+          onOpen && (
+            <ChevronRight
+              aria-hidden="true"
+              className="size-5 shrink-0 text-ink-subtle"
+            />
+          )
         )}
       </div>
       {nested && (
-        <div id={`${id}-rows`} role="list" aria-labelledby={`${id}-title`} hidden={expandable && !expanded} className="divide-y divide-line border-t border-line bg-slate-50/60 [&_[data-list-row]]:pl-12 pointer-fine:[&_[data-list-row]]:pl-[3.25rem]">
+        <div
+          id={`${id}-rows`}
+          role="list"
+          aria-labelledby={`${id}-title`}
+          hidden={expandable && !expanded}
+          className="divide-y divide-line border-t border-line bg-slate-50/60 [&_[data-list-row]]:pl-12 pointer-fine:[&_[data-list-row]]:pl-[3.25rem]"
+        >
           {(!expandable || expanded) && children}
         </div>
       )}

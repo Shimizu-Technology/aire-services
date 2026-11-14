@@ -9,7 +9,13 @@ export function AdminLanding({ children }: { children: ReactNode }) {
   const location = useLocation()
   const landing = landingPathFor(capabilities)
   if (landing === '/admin') return <>{children}</>
-  return <Navigate replace to={`${landing}${location.search}${location.hash}`} state={location.state} />
+  return (
+    <Navigate
+      replace
+      to={`${landing}${location.search}${location.hash}`}
+      state={location.state}
+    />
+  )
 }
 
 /**
@@ -20,13 +26,25 @@ export function AdminLanding({ children }: { children: ReactNode }) {
 export function LegacyTimeRedirect() {
   const capabilities = useCapabilities()
   const location = useLocation()
-  return <Navigate replace to={legacyTimeRedirect(location.search, location.hash, capabilities)} state={location.state} />
+  return (
+    <Navigate
+      replace
+      to={legacyTimeRedirect(location.search, location.hash, capabilities)}
+      state={location.state}
+    />
+  )
 }
 
 /** A moved page: same query and hash, new path. */
 export function MovedPage({ to }: { to: string }) {
   const location = useLocation()
-  return <Navigate replace to={`${to}${location.search}${location.hash}`} state={location.state} />
+  return (
+    <Navigate
+      replace
+      to={`${to}${location.search}${location.hash}`}
+      state={location.state}
+    />
+  )
 }
 
 /** Supervisors review leave in the inbox; employees keep their Leave page. */
@@ -36,5 +54,11 @@ export function SupervisorLeaveRedirect({ children }: { children: ReactNode }) {
   if (!capabilities.approve_leave) return <>{children}</>
   const query = new URLSearchParams(location.search)
   query.set('kind', 'leave')
-  return <Navigate replace to={`/admin/approvals?${query}${location.hash}`} state={location.state} />
+  return (
+    <Navigate
+      replace
+      to={`/admin/approvals?${query}${location.hash}`}
+      state={location.state}
+    />
+  )
 }
