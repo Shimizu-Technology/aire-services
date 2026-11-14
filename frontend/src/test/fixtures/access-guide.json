@@ -618,7 +618,7 @@
         "approve_own_time"
       ],
       "change_in": "Settings → Time approvals",
-      "path": "/admin/settings#time-approvals",
+      "path": "/admin/settings/approvals",
       "who": "Owners and admins"
     },
     {
@@ -630,7 +630,7 @@
         "get_own_stubs"
       ],
       "change_in": "Settings → Pay stubs",
-      "path": "/admin/settings#pay-stubs",
+      "path": "/admin/settings/pay-stubs",
       "who": "Owners and admins"
     },
     {
@@ -642,7 +642,7 @@
         "get_own_stubs"
       ],
       "change_in": "Settings → Pay stubs",
-      "path": "/admin/settings#pay-stubs",
+      "path": "/admin/settings/pay-stubs",
       "who": "Owners and admins"
     },
     {

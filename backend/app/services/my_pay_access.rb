@@ -4,18 +4,22 @@
 # with the actor and before/after values. Both switches live on the Team page.
 class MyPayAccess
   class NotPermitted < StandardError; end
+  class InactivePerson < StandardError; end
 
   class << self
-    def set_for_user!(user:, enabled:, actor:)
+    def set_for_user!(user:, enabled:, actor:, expected_version: :unchecked)
       authorize!(actor)
 
       User.transaction do
         user.lock_employee!
+        AdminPersonEdit.check!(user, expected_version) unless expected_version == :unchecked
+        raise InactivePerson, "Reactivate this person before turning on My Pay." if enabled && (!user.is_active? || user.terminated?)
+
         before = user.my_pay_enabled?
         next if before == enabled
 
         # Only this switch changes, so unrelated profile validations must not block it.
-        user.update_columns(my_pay_enabled: enabled, updated_at: Time.current)
+        user.update_columns(my_pay_enabled: enabled, admin_edit_version: user.admin_edit_version + 1, updated_at: Time.current)
         AuditLog.record!(
           action: "user.my_pay_access_changed",
           auditable: user,

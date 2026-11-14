@@ -87,6 +87,58 @@ RSpec.describe "GET /api/v1/admin/hours_report?summary_only=1", type: :request d
     expect(rows.flatten.join(" ")).to include("2026-11-02", "2026-11-03")
   end
 
+  describe "waiting_hours" do
+    def summary_row(range = params)
+      get "/api/v1/admin/hours_report", params: range.merge(summary_only: "1"), headers: headers_for(manager)
+      expect(response).to have_http_status(:ok)
+      json[:employees].find { |item| item[:id] == employee.id }
+    end
+
+    it "adds the completed shifts still waiting, so total + waiting is every hour worked" do
+      row = summary_row
+
+      # 8 + 8.5 approved; the 9h shift waits; the open clock isn't a completed shift yet.
+      expect(row[:total_hours]).to eq(16.5)
+      expect(row[:waiting_hours]).to eq(9.0)
+    end
+
+    it "leaves denied shifts out of both" do
+      create_entry(date: Date.new(2026, 11, 4), hours: 6, approval_status: "denied")
+
+      row = summary_row
+      expect(row[:total_hours]).to eq(16.5)
+      expect(row[:waiting_hours]).to eq(9.0)
+    end
+
+    it "counts an added shift nobody reviewed as waiting" do
+      create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 11, 5),
+        start_time: guam.local(2026, 11, 5, 8), end_time: guam.local(2026, 11, 5, 12), hours: 4,
+        status: "completed", entry_method: "manual", approval_status: nil, overtime_status: "none")
+
+      expect(summary_row[:waiting_hours]).to eq(13.0)
+    end
+
+    it "waits an overnight shift across the period edge in its own work date's period, like the full report" do
+      create(:time_entry, user: employee, time_category: category, work_date: Date.new(2026, 10, 31),
+        start_time: guam.local(2026, 10, 31, 22), end_time: guam.local(2026, 11, 1, 6), hours: 8,
+        clock_in_at: guam.local(2026, 10, 31, 22), clock_out_at: guam.local(2026, 11, 1, 6),
+        status: "completed", entry_method: "clock", clock_source: "kiosk", approval_status: "pending", overtime_status: "none")
+
+      expect(summary_row[:waiting_hours]).to eq(9.0)
+      expect(summary_row(start_date: "2026-10-16", end_date: "2026-10-31")[:waiting_hours]).to eq(8.0)
+
+      get "/api/v1/admin/hours_report", params: params, headers: headers_for(manager)
+      full_row = json[:employees].find { |item| item[:id] == employee.id }
+      waiting_in_full = full_row[:excluded_entries].select { |entry| entry[:approval_status] == "pending" }.sum { |entry| entry[:total_hours] }
+      expect(waiting_in_full).to eq(9.0)
+    end
+
+    it "is in the full report row too, with the same value" do
+      get "/api/v1/admin/hours_report", params: params, headers: headers_for(admin)
+      expect(json[:employees].find { |item| item[:id] == employee.id }[:waiting_hours]).to eq(summary_row[:waiting_hours])
+    end
+  end
+
   {
     owner: :ok,
     admin: :ok,

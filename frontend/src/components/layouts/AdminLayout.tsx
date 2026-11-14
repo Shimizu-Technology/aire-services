@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { SignedIn, UserButton } from '@clerk/clerk-react'
+import { SignedIn } from '@clerk/clerk-react'
 import { PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { api } from '../../lib/api'
@@ -9,6 +9,7 @@ import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
 import KioskPinSetupModal from '../auth/KioskPinSetupModal'
 import { ToastProvider } from '../ui'
 import AdminTabBar from './AdminTabBar'
+import { AccountButton } from './Header'
 import { ShellChromeProvider } from './ShellChromeContext'
 import { approvalBadgeText, isNavItemActive, navItemLabel, navigationGroups, tabBarLayout, type NavigationOptions } from './adminNavigation'
 
@@ -113,7 +114,7 @@ function AdminShell() {
             <Link to="/" className="inline-flex min-h-11 items-center text-sm text-slate-500 hover:text-slate-900">View site</Link>
             {isClerkEnabled && (
               <SignedIn>
-                <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
+                <AccountButton />
               </SignedIn>
             )}
           </div>

@@ -203,6 +203,7 @@ Rails.application.routes.draw do
           member do
             post :resend_invite
             post :reset_kiosk_pin
+            get :termination_preview
             post :terminate
             post :reactivate
             post :public_team_photo

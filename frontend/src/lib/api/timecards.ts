@@ -9,6 +9,12 @@ import type { PayPeriod } from '../payPeriods'
 /** A person's hours report row without its per-entry rows (`summary_only=1`). */
 export type TimecardSummaryEmployee = Omit<HoursReportEmployee, 'days' | 'excluded_entries'> & {
   days: Array<Omit<HoursReportDay, 'entries'>>
+  /**
+   * Hours left out of total_hours that are still waiting (for approval, or
+   * held for an overtime review). total_hours + waiting_hours is every hour
+   * worked in the period. Absent from an API older than this field.
+   */
+  waiting_hours?: number
 }
 
 export type TimecardSummaryResponse = Omit<HoursReportResponse, 'employees'> & {
@@ -74,8 +80,13 @@ export const timecardsApi = {
   /** Hours and flags per person for the people list. */
   peopleSummary: (period: PayPeriod) => summaryReport(period),
 
-  /** One person's approved and overtime hours for the period. */
-  personSummary: (userId: number, period: PayPeriod) => summaryReport(period, userId),
+  /**
+   * One person's full report row for the period: each shift with its
+   * allocated overtime, and the shifts left out of the totals (waiting,
+   * denied, held for an overtime review). `payPeriodHours` reads it.
+   */
+  personReport: (userId: number, period: PayPeriod) =>
+    api.getHoursReport({ start_date: period.start, end_date: period.end, include_empty: true, user_id: userId }),
 
   /**
    * Ends an open clock at the time they actually left. The API's end_clock

@@ -23,6 +23,10 @@ const Approvals = lazy(() => import('./pages/admin/Approvals'))
 const TimeTracking = lazy(() => import('./pages/admin/TimeTracking'))
 const Timecards = lazy(() => import('./pages/admin/Timecards'))
 const Schedule = lazy(() => import('./pages/admin/Schedule'))
+const DepartmentsWork = lazy(() => import('./pages/admin/settings/DepartmentsWork'))
+const SettingsHome = lazy(() => import('./pages/admin/settings/SettingsHome'))
+const SettingsPage = lazy(() => import('./pages/admin/settings/SettingsPage'))
+const PayrollConnectionSettings = lazy(() => import('./pages/admin/settings/PayrollConnectionSettings'))
 const Settings = lazy(() => import('./pages/admin/Settings'))
 const RolesAccess = lazy(() => import('./pages/admin/RolesAccess'))
 const Media = lazy(() => import('./pages/admin/Media'))
@@ -34,7 +38,9 @@ const MyPayStatement = lazy(() => import('./pages/admin/MyPayStatement'))
 const MyPayPreview = lazy(() => import('./pages/admin/MyPayPreview'))
 const PayStubs = lazy(() => import('./pages/admin/PayStubs'))
 const PayStubLink = lazy(() => import('./pages/aire/PayStubLink'))
-const MyTimeHome = lazy(() => import('./pages/admin/Dashboard').then((module) => ({ default: module.MyTimeHome })))
+const MyTimeHome = lazy(() => import('./pages/admin/EmployeeClockRoute'))
+const MyHours = lazy(() => import('./pages/admin/MyHours'))
+const EmployeeLeaveRoute = lazy(() => import('./pages/admin/EmployeeLeaveRoute'))
 const WebsiteLayout = lazy(() => import('./pages/admin/Website'))
 const WebsiteHome = lazy(() => import('./pages/admin/Website').then((module) => ({ default: module.WebsiteHome })))
 
@@ -112,8 +118,8 @@ const routes = createRoutesFromElements(
           <Route path="approvals" element={<ProtectedRoute requiredCapability="approve_time"><Suspense fallback={<AdminLoadingFallback />}><Approvals /></Suspense></ProtectedRoute>} />
           <Route path="timecards" element={<ProtectedRoute requiredCapability="manage_team_time"><Suspense fallback={<AdminLoadingFallback />}><Timecards /></Suspense></ProtectedRoute>} />
           <Route path="reports" element={<ProtectedRoute requiredCapability="export_hours_reports"><Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="reports" section="reports" /></Suspense></ProtectedRoute>} />
-          <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><SupervisorLeaveRedirect><TimeTracking key="leave" section="leave" /></SupervisorLeaveRedirect></Suspense>} />
-          <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><TimeTracking key="my-hours" section="entries" /></Suspense>} />
+          <Route path="leave" element={<Suspense fallback={<AdminLoadingFallback />}><SupervisorLeaveRedirect><EmployeeLeaveRoute /></SupervisorLeaveRedirect></Suspense>} />
+          <Route path="my-hours" element={<Suspense fallback={<AdminLoadingFallback />}><MyHours /></Suspense>} />
           <Route path="my-time" element={<Suspense fallback={<AdminLoadingFallback />}><MyTimeHome /></Suspense>} />
           <Route path="time" element={<LegacyTimeRedirect />} />
           {/* Hidden unless "Use schedules" is on in Settings. */}
@@ -166,12 +172,19 @@ const routes = createRoutesFromElements(
             }
           />
           {/* Owners and admins get the full page; everyone else a read-only "What can I do?" view. */}
+          <Route path="settings/time-clock" element={<ProtectedRoute requiredCapability="manage_settings"><Suspense fallback={<AdminLoadingFallback />}><SettingsPage page="time-clock" /></Suspense></ProtectedRoute>} />
+          <Route path="settings/approvals" element={<ProtectedRoute requiredCapability="manage_settings"><Suspense fallback={<AdminLoadingFallback />}><SettingsPage page="approvals" /></Suspense></ProtectedRoute>} />
+          <Route path="settings/pay-stubs" element={<ProtectedRoute requiredCapability="manage_settings"><Suspense fallback={<AdminLoadingFallback />}><SettingsPage page="pay-stubs" /></Suspense></ProtectedRoute>} />
+          <Route path="settings/kiosk" element={<ProtectedRoute requiredCapability="manage_settings"><Suspense fallback={<AdminLoadingFallback />}><SettingsPage page="kiosk" /></Suspense></ProtectedRoute>} />
+          <Route path="settings/schedules" element={<ProtectedRoute requiredCapability="manage_settings"><Suspense fallback={<AdminLoadingFallback />}><SettingsPage page="schedules" /></Suspense></ProtectedRoute>} />
+          <Route path="settings/payroll-connection" element={<ProtectedRoute requiredCapability="manage_settings"><Suspense fallback={<AdminLoadingFallback />}><PayrollConnectionSettings /></Suspense></ProtectedRoute>} />
+          <Route path="settings/departments" element={<ProtectedRoute requiredCapability="manage_settings"><Suspense fallback={<AdminLoadingFallback />}><DepartmentsWork /></Suspense></ProtectedRoute>} />
           <Route path="settings/roles" element={<ProtectedRoute requiredRole="staff"><Suspense fallback={<AdminLoadingFallback />}><RolesAccess /></Suspense></ProtectedRoute>} />
           <Route
             path="settings"
             element={
               <ProtectedRoute requiredCapability="manage_settings">
-                <Suspense fallback={<AdminLoadingFallback />}><Settings /></Suspense>
+                <Suspense fallback={<AdminLoadingFallback />}><SettingsHome /></Suspense>
               </ProtectedRoute>
             }
           />

@@ -203,6 +203,7 @@ module Payroll
         total_hours: total_hours,
         regular_hours: regular_hours,
         overtime_hours: overtime_hours,
+        waiting_hours: round_hours(excluded_period_entries.sum { |entry| waiting_hours_for(entry) }),
         break_hours: break_hours,
         entries_count: countable_period_entries.size,
         days_worked: days.size,
@@ -217,6 +218,20 @@ module Payroll
         categories: categories,
         weeks: weeks
       }
+    end
+
+    # Hours left out of total_hours that payroll still counts as waiting: a
+    # completed shift waiting for approval (or an added shift nobody reviewed),
+    # and a shift held for an overtime review, which waits in the period of its
+    # own work date only. Total + waiting is every hour worked in the period.
+    def waiting_hours_for(entry)
+      if @allocation_holds&.include?(entry.id)
+        entry.work_date.between?(start_date, end_date) ? entry.hours.to_f : 0
+      elsif entry.status == "completed" && (entry.approval_status == "pending" || (entry.manual_entry? && entry.approval_status.nil?))
+        entry.hours.to_f
+      else
+        0
+      end
     end
 
     def allocate_weekly_overtime(entries)

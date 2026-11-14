@@ -1,0 +1,236 @@
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { CalendarDays, ChevronRight } from 'lucide-react'
+import type { AdminUser, HoursReportEmployee, LeaveRequest, TimeEntry } from '../../lib/api'
+import { peopleApi } from '../../lib/api/people'
+import { timecardsApi } from '../../lib/api/timecards'
+import { ADMIN_PATHS } from '../../lib/adminRoutes'
+import { employeeEvidenceApi } from '../../lib/employeeEvidenceApi'
+import { formatPayPeriod, type PayPeriod } from '../../lib/payPeriods'
+import { PERSON_TOTAL_LABELS } from '../../lib/payrollTerms'
+import { formatHours, guamDate, isApprovedTime, isOpenClock, payPeriodHours, timecardDays } from '../../lib/timecards'
+import { dayLabel, monthDay, timeLabel } from '../today/format'
+import { Button, EmptyState, ErrorState, type MenuItem } from '../ui'
+import { Skeleton } from '../ui/Skeleton'
+import { dataOrThrow, useLoadable } from './useLoadable'
+
+const RECENT_ACTIVITY = 5
+const LEAVE_KINDS: Record<LeaveRequest['leave_type'], string> = {
+  paid_time_off: 'Paid time off',
+  sick: 'Sick leave',
+  unpaid: 'Unpaid leave',
+  bereavement: 'Bereavement leave',
+  other: 'Leave',
+}
+
+interface OverviewTabProps {
+  user: AdminUser
+  period: PayPeriod
+  today: string
+  /** The Time tab for this pay period. */
+  timecardHref: string
+  /** Activity filtered to this person. */
+  activityHref: string
+  /** Scroll Recent activity into view once it loads (an old ?tab=activity link). */
+  focusActivity?: boolean
+  /** The desktop Quick actions column. */
+  quickActions: MenuItem[]
+}
+
+interface PeriodNumbers {
+  /** Approved for pay; null when the hours report didn't load and overtime is waiting. */
+  approved: number | null
+  waiting: number
+  /** Null when the hours report didn't load and overtime is waiting: unknown, not zero. */
+  overtimeWaiting: number | null
+  last: TimeEntry | null
+}
+
+// The same numbers as the Time tab's timecard and the Pay tab: approved means approved for pay.
+function periodNumbers(entries: TimeEntry[], report: HoursReportEmployee | null, period: PayPeriod): PeriodNumbers {
+  const items = [...timecardDays(entries, period).values()].flat()
+  const hours = report ? payPeriodHours(report, period) : null
+  const overtimeWaits = entries.some(entry => entry.overtime_status === 'pending')
+  const waiting = hours ? hours.waiting : items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
+  const approved = hours ? hours.approved : overtimeWaits ? null : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
+  const order = (entry: TimeEntry) => entry.clock_in_at ?? `${entry.work_date}T${entry.start_time ?? '00:00'}`
+  const last = items.map(item => item.entry).sort((a, b) => order(b).localeCompare(order(a)))[0] ?? null
+  return { approved, waiting, overtimeWaiting: hours ? hours.overtimeWaiting : overtimeWaits ? null : 0, last }
+}
+
+function lastClockLabel(entry: TimeEntry, today: string) {
+  const day = entry.work_date === today ? 'Today' : dayLabel(entry.work_date)
+  const start = entry.clock_in_at ? timeLabel(entry.clock_in_at) : entry.formatted_start_time
+  if (isOpenClock(entry)) return `${day}, on the clock since ${start ?? 'an unknown time'}`
+  const end = entry.clock_out_at ? timeLabel(entry.clock_out_at) : entry.formatted_end_time
+  return start && end ? `${day} ${start} – ${end}` : `${day} · ${formatHours(entry.hours)}`
+}
+
+function leaveDates(request: LeaveRequest) {
+  if (request.start_date === request.end_date) return dayLabel(request.start_date)
+  return `${dayLabel(request.start_date)} – ${monthDay(request.end_date)}`
+}
+
+function Section({ title, action, id, children }: { title: string; action?: ReactNode; id?: string; children: ReactNode }) {
+  return (
+    <section
+      id={id}
+      aria-labelledby={id ? `${id}-title` : undefined}
+      className="scroll-mt-20"
+    >
+      <div className="mb-2 flex min-h-11 items-center justify-between gap-3">
+        <h2 id={id ? `${id}-title` : undefined} className="text-body font-semibold text-ink">{title}</h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+const textLink = 'inline-flex min-h-11 items-center text-body-sm font-semibold text-primary hover:underline'
+const card = 'rounded-card border border-line bg-surface'
+
+/** This pay period, what's coming up and what changed lately, for one person. */
+export function OverviewTab({ user, period, today, timecardHref, activityHref, focusActivity = false, quickActions }: OverviewTabProps) {
+  const [retry, setRetry] = useState({ numbers: 0, leave: 0, activity: 0 })
+
+  const numbers = useLoadable(`${user.id}:${period.start}:${retry.numbers}`, async () => {
+    const [entries, report] = await Promise.all([timecardsApi.personEntries(user.id, period), timecardsApi.personReport(user.id, period)])
+    const row = report.data?.employees.find(employee => employee.id === user.id) ?? null
+    return periodNumbers(dataOrThrow(entries, "Couldn't load the shifts."), row, period)
+  }, "Couldn't load the shifts.")
+  const leave = useLoadable(
+    `${user.id}:${today}:${retry.leave}`,
+    async () => dataOrThrow(await peopleApi.upcomingLeave(user.id, today), "Couldn't load leave."),
+    "Couldn't load leave.",
+  )
+  const activity = useLoadable(
+    `${user.id}:${retry.activity}`,
+    async (signal) => (await employeeEvidenceApi.activity(String(user.id), 1, signal)).audit_logs.slice(0, RECENT_ACTIVITY),
+    "Couldn't load activity.",
+  )
+
+  // An old Activity link lands here; bring Recent activity into view once it's drawn.
+  const activityReady = activity.status !== 'loading'
+  useEffect(() => {
+    if (!focusActivity || !activityReady) return
+    requestAnimationFrame(() => document.getElementById('activity')?.scrollIntoView?.({ block: 'start' }))
+  }, [focusActivity, activityReady])
+
+  const again = (key: keyof typeof retry) => setRetry(value => ({ ...value, [key]: value[key] + 1 }))
+  const periodName = useMemo(() => formatPayPeriod(period), [period])
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="min-w-0 space-y-6">
+        <Section
+          title={`This pay period · ${periodName}`}
+          action={<Link to={timecardHref} className={textLink}>Timecard</Link>}
+        >
+          {numbers.status === 'loading' ? (
+            <div aria-busy="true" aria-label="Loading this pay period" className={`${card} space-y-2 p-4`}>
+              {Array.from({ length: 4 }, (_, index) => <Skeleton key={index} height={20} className="w-full" />)}
+            </div>
+          ) : numbers.status === 'error' ? (
+            <ErrorState title="Couldn't load this pay period." description={numbers.message} onRetry={() => again('numbers')} />
+          ) : (
+            <dl className={`${card} divide-y divide-line text-body-sm`}>
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <dt className="text-ink-muted">{PERSON_TOTAL_LABELS.approved}</dt>
+                <dd className="font-semibold tabular-nums text-ink">{numbers.value.approved === null ? "Didn't load" : formatHours(numbers.value.approved)}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <dt className="text-ink-muted">{PERSON_TOTAL_LABELS.waiting}</dt>
+                <dd className={`font-semibold tabular-nums ${numbers.value.waiting > 0 ? 'text-amber-900' : 'text-ink'}`}>{formatHours(numbers.value.waiting)}</dd>
+              </div>
+              {numbers.value.overtimeWaiting !== 0 && (
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <dt className="text-ink-muted">{PERSON_TOTAL_LABELS.overtimeWaiting}</dt>
+                  <dd className="font-semibold tabular-nums text-amber-900">{numbers.value.overtimeWaiting === null ? "Didn't load" : formatHours(numbers.value.overtimeWaiting)}</dd>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <dt className="shrink-0 text-ink-muted">Last clock</dt>
+                <dd className="text-right font-semibold text-ink">{numbers.value.last ? lastClockLabel(numbers.value.last, today) : `None in ${periodName}`}</dd>
+              </div>
+            </dl>
+          )}
+        </Section>
+
+        <Section title="Coming up">
+          {leave.status === 'loading' ? (
+            <Skeleton height={56} className="w-full" />
+          ) : leave.status === 'error' ? (
+            <ErrorState title="Couldn't load leave." description={leave.message} onRetry={() => again('leave')} />
+          ) : leave.value.length === 0 ? (
+            <p className={`${card} px-4 py-3 text-body-sm text-ink-muted`}>No leave requested or approved from today on.</p>
+          ) : (
+            <ul className={`${card} divide-y divide-line`}>
+              {leave.value.map(request => (
+                <li key={request.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <CalendarDays aria-hidden="true" className="size-5 shrink-0 text-ink-subtle" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-body-sm font-semibold text-ink">{LEAVE_KINDS[request.leave_type] ?? 'Leave'} · {leaveDates(request)}</p>
+                    <p className="mt-0.5 text-body-sm text-ink-muted [overflow-wrap:anywhere]">
+                      {request.status === 'pending' ? 'Waiting for approval' : 'Approved'}
+                      {request.reason ? ` · ${request.reason}` : ''}
+                    </p>
+                  </div>
+                  {request.status === 'pending' && (
+                    <Link to={ADMIN_PATHS.leave} className={textLink}>Review</Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+
+        <Section
+          id="activity"
+          title="Recent activity"
+          action={<Link to={activityHref} className={textLink}>All activity</Link>}
+        >
+          {activity.status === 'loading' ? (
+            <Skeleton height={120} className="w-full" />
+          ) : activity.status === 'error' ? (
+            <ErrorState title="Couldn't load activity." description={activity.message} onRetry={() => again('activity')} />
+          ) : activity.value.length === 0 ? (
+            <EmptyState title="Nothing recorded yet." description="Changes to this person's access and profile show here." />
+          ) : (
+            <ul className={`${card} divide-y divide-line text-body-sm`}>
+              {activity.value.map(event => (
+                <li key={event.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+                  <span className="min-w-0 text-ink [overflow-wrap:anywhere]">{event.summary}</span>
+                  <span className="shrink-0 text-ink-subtle">{guamDate(event.occurred_at) === today ? timeLabel(event.occurred_at) : monthDay(guamDate(event.occurred_at))}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      </div>
+
+      {quickActions.length > 0 && (
+        <aside aria-labelledby="quick-actions-title" className="hidden lg:block">
+          <h2 id="quick-actions-title" className="mb-2 flex min-h-11 items-center text-body font-semibold text-ink">Quick actions</h2>
+          <ul className={`${card} divide-y divide-line`}>
+            {quickActions.map(item => (
+              <li key={item.id}>
+                <Button
+                  variant="ghost"
+                  fullWidth
+                  icon={item.icon}
+                  onClick={item.onSelect}
+                  disabled={item.disabled}
+                  className="justify-start rounded-none px-4 text-ink"
+                >
+                  <span className="flex-1 text-left">{item.label}</span>
+                  <ChevronRight aria-hidden="true" className="size-4 text-ink-subtle" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )}
+    </div>
+  )
+}

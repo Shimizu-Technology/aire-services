@@ -41,3 +41,15 @@ export function SupervisorLeaveRedirect({ children }: { children: ReactNode }) {
   query.set('kind', 'leave')
   return <Navigate replace to={`/admin/approvals?${query}${location.hash}`} state={location.state} />
 }
+
+// Anchor map is shared with SettingsHome.
+// eslint-disable-next-line react-refresh/only-export-components
+export const settingsAnchorPaths: Record<string, string> = {
+  '#time-clock-rules': '/admin/settings/time-clock',
+  '#time-approvals': '/admin/settings/approvals',
+  '#departments': '/admin/settings/departments',
+  '#time-categories': '/admin/settings/departments',
+  '#use-schedules': '/admin/settings/schedules',
+  '#pay-stubs': '/admin/settings/pay-stubs',
+  '#contact-settings': '/admin/website/contact',
+}

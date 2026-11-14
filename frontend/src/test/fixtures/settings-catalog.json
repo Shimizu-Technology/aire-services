@@ -1,11 +1,34 @@
 [
   {
+    "id": "payroll_cutoff_reminder_emails",
+    "label": "Cutoff reminder recipients",
+    "section": "time_approvals",
+    "section_label": "Time approvals",
+    "page": "Settings",
+    "path": "/admin/settings/approvals",
+    "setting_keys": [
+      "payroll_cutoff_reminder_emails"
+    ],
+    "stored_in": null,
+    "on_page": true,
+    "capability": "manage_settings",
+    "who_roles": [
+      "owner",
+      "admin"
+    ],
+    "who": "Owners and admins",
+    "what": "We email these people 3 days and 1 day before the lock if shifts are still waiting.",
+    "default": "Nobody",
+    "example": "Add ops@example.com to send them reminders before each lock.",
+    "access_effect": null
+  },
+  {
     "id": "overtime_daily_threshold_hours",
     "label": "Daily hours review alert",
     "section": "time_clock_rules",
     "section_label": "Time clock rules",
     "page": "Settings",
-    "path": "/admin/settings#time-clock-rules",
+    "path": "/admin/settings/time-clock",
     "setting_keys": [
       "overtime_daily_threshold_hours"
     ],
@@ -28,7 +51,7 @@
     "section": "time_clock_rules",
     "section_label": "Time clock rules",
     "page": "Settings",
-    "path": "/admin/settings#time-clock-rules",
+    "path": "/admin/settings/time-clock",
     "setting_keys": [
       "overtime_weekly_threshold_hours"
     ],
@@ -51,7 +74,7 @@
     "section": "time_clock_rules",
     "section_label": "Time clock rules",
     "page": "Settings",
-    "path": "/admin/settings#time-clock-rules",
+    "path": "/admin/settings/time-clock",
     "setting_keys": [
       "early_clock_in_buffer_minutes"
     ],
@@ -71,22 +94,22 @@
   {
     "id": "schedule_required_for_clock_in",
     "label": "Require a scheduled shift to clock in",
-    "section": "time_clock_rules",
-    "section_label": "Time clock rules",
+    "section": "schedules",
+    "section_label": "Schedules",
     "page": "Settings",
-    "path": "/admin/settings#time-clock-rules",
+    "path": "/admin/settings/schedules",
     "setting_keys": [
       "schedule_required_for_clock_in"
     ],
     "stored_in": null,
-    "on_page": false,
+    "on_page": true,
     "capability": "manage_settings",
     "who_roles": [
       "owner",
       "admin"
     ],
     "who": "Owners and admins",
-    "what": "When on, people can't clock in on a day with no shift on the schedule. An owner, admin or manager can still clock them in. Shifts are added on the Schedule page, which shows only while \"Use schedules\" is on. There's no switch for this on the Settings page yet.",
+    "what": "When on, people can't clock in on a day with no shift on the schedule. An owner, admin or manager can still clock them in. Shifts are added on the Schedule page, which shows only while \"Use schedules\" is on.",
     "default": "Off",
     "example": "When on, someone with no shift on Saturday is told to contact their manager if they try to clock in.",
     "access_effect": null
@@ -97,7 +120,7 @@
     "section": "time_clock_rules",
     "section_label": "Time clock rules",
     "page": "Settings",
-    "path": "/admin/settings#time-clock-rules",
+    "path": "/admin/settings/time-clock",
     "setting_keys": [
       "clock_in_location_enforced"
     ],
@@ -120,7 +143,7 @@
     "section": "time_clock_rules",
     "section_label": "Time clock rules",
     "page": "Settings",
-    "path": "/admin/settings#time-clock-rules",
+    "path": "/admin/settings/time-clock",
     "setting_keys": [
       "clock_in_location_name"
     ],
@@ -143,7 +166,7 @@
     "section": "time_clock_rules",
     "section_label": "Time clock rules",
     "page": "Settings",
-    "path": "/admin/settings#time-clock-rules",
+    "path": "/admin/settings/time-clock",
     "setting_keys": [
       "clock_in_location_latitude",
       "clock_in_location_longitude"
@@ -167,7 +190,7 @@
     "section": "time_clock_rules",
     "section_label": "Time clock rules",
     "page": "Settings",
-    "path": "/admin/settings#time-clock-rules",
+    "path": "/admin/settings/time-clock",
     "setting_keys": [
       "clock_in_location_radius_meters"
     ],
@@ -190,7 +213,7 @@
     "section": "time_approvals",
     "section_label": "Time approvals",
     "page": "Settings",
-    "path": "/admin/settings#time-approvals",
+    "path": "/admin/settings/approvals",
     "setting_keys": [
       "managers_can_approve_own_time"
     ],
@@ -219,7 +242,7 @@
     "section": "time_approvals",
     "section_label": "Time approvals",
     "page": "Settings",
-    "path": "/admin/settings#time-approvals",
+    "path": "/admin/settings/approvals",
     "setting_keys": [
       "auto_approve_ordinary_shifts"
     ],
@@ -242,7 +265,7 @@
     "section": "time_approvals",
     "section_label": "Time approvals",
     "page": "Settings",
-    "path": "/admin/settings#time-approvals",
+    "path": "/admin/settings/approvals",
     "setting_keys": [
       "auto_approve_max_shift_hours"
     ],
@@ -265,7 +288,7 @@
     "section": "pay_stubs",
     "section_label": "Pay stubs",
     "page": "Settings",
-    "path": "/admin/settings#pay-stubs",
+    "path": "/admin/settings/pay-stubs",
     "setting_keys": [
       "pay_stub_kiosk_requests_enabled"
     ],
@@ -294,7 +317,7 @@
     "section": "pay_stubs",
     "section_label": "Pay stubs",
     "page": "Settings",
-    "path": "/admin/settings#pay-stubs",
+    "path": "/admin/settings/pay-stubs",
     "setting_keys": [
       "pay_stub_self_email_enabled"
     ],
@@ -323,7 +346,7 @@
     "section": "pay_stubs",
     "section_label": "Pay stubs",
     "page": "Settings",
-    "path": "/admin/settings#pay-stubs",
+    "path": "/admin/settings/pay-stubs",
     "setting_keys": [
       "pay_stub_request_notification_emails"
     ],
@@ -346,7 +369,7 @@
     "section": "schedules",
     "section_label": "Schedules",
     "page": "Settings",
-    "path": "/admin/settings#use-schedules",
+    "path": "/admin/settings/schedules",
     "setting_keys": [
       "schedules_enabled"
     ],
@@ -358,7 +381,7 @@
       "admin"
     ],
     "who": "Owners and admins",
-    "what": "Only shows or hides the Schedule pages in everyone's menu. It doesn't change any clock-in rule: shifts already entered still set the early clock-in window and the attendance badge either way, and it doesn't turn off \"Require a scheduled shift to clock in\". If that rule is on while this is off, people still need a shift to clock in but nobody can see or add one, so turn this on to add shifts.",
+    "what": "Shows or hides the Schedule pages in everyone's menu. Turning it off also turns off \"Require a scheduled shift to clock in\", so nobody is stopped from clocking in over a schedule they can't see. Shifts already entered still set the early clock-in window and the attendance badge either way.",
     "default": "Off",
     "example": "Turn it on when you start entering next week's shifts. Schedule appears in the menu, and clocking in works the same as before.",
     "access_effect": null
@@ -369,7 +392,7 @@
     "section": "departments",
     "section_label": "Departments",
     "page": "Settings",
-    "path": "/admin/settings#departments",
+    "path": "/admin/settings/departments",
     "setting_keys": [
       "approval_groups"
     ],
@@ -392,7 +415,7 @@
     "section": "time_categories",
     "section_label": "Time categories",
     "page": "Settings",
-    "path": "/admin/settings#time-categories",
+    "path": "/admin/settings/departments",
     "setting_keys": [],
     "stored_in": "time_categories",
     "on_page": true,

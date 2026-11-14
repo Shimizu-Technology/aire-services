@@ -6,6 +6,14 @@ module Api
       # The Team page's My Pay switches: "On for everyone" and each person's
       # "My Pay on". Owners and admins only; every change is audited.
       class MyPayAccessController < BaseController
+        rescue_from AdminPersonEdit::Conflict do |error|
+          render json: { error: error.message }, status: :conflict
+        end
+
+        rescue_from MyPayAccess::InactivePerson do |error|
+          render json: { error: error.message }, status: :unprocessable_entity
+        end
+
         before_action :authenticate_user!
         before_action -> { require_capability!(:manage_my_pay_access) }
 
@@ -27,8 +35,8 @@ module Api
           user = User.staff.find_by(id: params[:user_id])
           return render json: { error: "User not found" }, status: :not_found unless user
 
-          MyPayAccess.set_for_user!(user: user, enabled: cast(params[:enabled]), actor: current_user)
-          render json: { user_id: user.id, my_pay_enabled: user.my_pay_enabled?, my_pay_active: Setting.my_pay_enabled_for?(user) }
+          MyPayAccess.set_for_user!(user: user, enabled: cast(params[:enabled]), actor: current_user, expected_version: params.fetch(:admin_edit_version, :unchecked))
+          render json: { user_id: user.id, my_pay_enabled: user.my_pay_enabled?, my_pay_active: Setting.my_pay_enabled_for?(user), admin_edit_version: user.admin_edit_version }
         end
 
         private

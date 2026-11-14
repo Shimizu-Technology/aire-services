@@ -68,7 +68,7 @@ function OpenConfirmDialog({
         aria-labelledby={`${ids}-title`}
         aria-describedby={description || details ? `${ids}-body` : undefined}
         tabIndex={-1}
-        className="w-full max-w-md rounded-card bg-surface p-5 shadow-2xl transition duration-200 ease-out-strong starting:translate-y-2 starting:scale-[0.98] starting:opacity-0 motion-reduce:transform-none sm:p-6"
+        className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-card bg-surface p-5 shadow-2xl transition duration-200 ease-out-strong starting:translate-y-2 starting:scale-[0.98] starting:opacity-0 motion-reduce:transform-none sm:p-6"
       >
         <div className="flex gap-3">
           {danger && (

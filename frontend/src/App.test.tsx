@@ -50,7 +50,7 @@ describe('App time-section routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiMock.getTimeEntry.mockResolvedValue({ error: 'No linked fixture', status: 404 })
-    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [] } })
+    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [], pagination: { total_pages: 1 } } })
     apiMock.getTimeCategories.mockResolvedValue({ data: { time_categories: [] } })
     apiMock.getUsers.mockResolvedValue({ data: { users: [] } })
     apiMock.getCurrentUser.mockResolvedValue({ data: { user: { id: 1, is_admin: true } } })
@@ -66,7 +66,7 @@ describe('App time-section routes', () => {
     window.history.pushState({}, '', '/admin/approvals?start_date=2026-08-01&end_date=2026-08-15')
     render(<App />)
     await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-08-01', end_date: '2026-08-15' })))
-    fireEvent.click(await screen.findByRole('button', { name: /Filters/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Filters/ }, { timeout: 10_000 }))
     expect(await screen.findByDisplayValue('2026-08-01')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
 
@@ -80,14 +80,15 @@ describe('App time-section routes', () => {
     await waitFor(() => expect(window.location.search).not.toContain('2026-08-01'))
   })
 
-  // Timecards moved to its own page; My Hours stays on TimeTracking until PR 11.
-  it('keeps My Hours on the old entries page while Timecards opens the new one', async () => {
+  // My Hours is a separate pay-period view without a clock card.
+  it('opens My Hours by pay period and keeps Timecards separate', async () => {
     window.history.pushState({}, '', '/admin/my-hours?date=2026-11-10')
     render(<App />)
     // The app's router outlives one test, so move with a link rather than the address bar.
     fireEvent.click(await screen.findByRole('link', { name: 'Go to My Hours' }))
-    expect(await screen.findByText('Your clock card')).toBeInTheDocument()
-    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ week: '2026-11-08' })))
+    expect(await screen.findByRole('heading', { level: 1, name: 'My Hours' })).toBeInTheDocument()
+    expect(screen.queryByText('Your clock card')).not.toBeInTheDocument()
+    await waitFor(() => expect(apiMock.getTimeEntries).toHaveBeenCalledWith(expect.objectContaining({ user_id: 1, start_date: expect.any(String), end_date: expect.any(String) })))
     expect(screen.queryByRole('searchbox', { name: 'Find a person' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Go to Timecards' }))

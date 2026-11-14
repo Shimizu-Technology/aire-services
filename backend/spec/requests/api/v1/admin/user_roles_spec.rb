@@ -18,7 +18,7 @@ RSpec.describe "Assigning roles on the Team page", type: :request do
   end
 
   def change_role(actor, target, role)
-    patch "/api/v1/admin/users/#{target.id}", params: { role: role }, headers: headers_for(actor)
+    patch "/api/v1/admin/users/#{target.id}", params: { admin_edit_version: target.reload.admin_edit_version, role: role }, headers: headers_for(actor)
   end
 
   describe "as an owner" do
@@ -102,7 +102,7 @@ RSpec.describe "Assigning roles on the Team page", type: :request do
       [ owner, other_admin ].each do |target|
         post "/api/v1/admin/users/#{target.id}/terminate", headers: headers_for(admin)
         expect(response).to have_http_status(:forbidden)
-        patch "/api/v1/admin/users/#{target.id}", params: { personal_access_enabled: false }, headers: headers_for(admin)
+        patch "/api/v1/admin/users/#{target.id}", params: { admin_edit_version: target.reload.admin_edit_version, personal_access_enabled: false }, headers: headers_for(admin)
         expect(response).to have_http_status(:forbidden)
         post "/api/v1/admin/users/#{target.id}/reactivate", headers: headers_for(admin)
         expect(response).to have_http_status(:forbidden)
@@ -125,7 +125,7 @@ RSpec.describe "Assigning roles on the Team page", type: :request do
           { time_tracking_enabled: !target.time_tracking_enabled? },
           { send_invitation: true }
         ].each do |attributes|
-          patch "/api/v1/admin/users/#{target.id}", params: attributes, headers: headers_for(admin)
+          patch "/api/v1/admin/users/#{target.id}", params: attributes.merge(admin_edit_version: target.reload.admin_edit_version), headers: headers_for(admin)
           expect(response).to have_http_status(:forbidden), "expected #{attributes.keys} to be refused"
         end
         post "/api/v1/admin/users/#{target.id}/resend_invite", headers: headers_for(admin)
@@ -138,7 +138,7 @@ RSpec.describe "Assigning roles on the Team page", type: :request do
 
     it "saves an owner's unchanged sign-in details along with other edits" do
       patch "/api/v1/admin/users/#{owner.id}",
-            params: { email: owner.email.upcase, personal_access_enabled: true, kiosk_enabled: owner.kiosk_enabled?,
+            params: { admin_edit_version: owner.reload.admin_edit_version, email: owner.email.upcase, personal_access_enabled: true, kiosk_enabled: owner.kiosk_enabled?,
                       time_tracking_enabled: owner.time_tracking_enabled?, is_active: true, staff_title: "Owner" },
             headers: headers_for(admin)
       expect(response).to have_http_status(:ok)
@@ -153,7 +153,7 @@ RSpec.describe "Assigning roles on the Team page", type: :request do
     end
 
     it "still edits an admin's other details" do
-      patch "/api/v1/admin/users/#{other_admin.id}", params: { staff_title: "Office manager" }, headers: headers_for(admin)
+      patch "/api/v1/admin/users/#{other_admin.id}", params: { admin_edit_version: other_admin.reload.admin_edit_version, staff_title: "Office manager" }, headers: headers_for(admin)
       expect(response).to have_http_status(:ok)
       expect(other_admin.reload.staff_title).to eq("Office manager")
     end
@@ -171,7 +171,7 @@ RSpec.describe "Assigning roles on the Team page", type: :request do
 
   it "requires managers to sign in personally" do
     kiosk_only = create(:user, :employee, :kiosk_only)
-    patch "/api/v1/admin/users/#{kiosk_only.id}", params: { role: "manager" }, headers: headers_for(owner)
+    patch "/api/v1/admin/users/#{kiosk_only.id}", params: { admin_edit_version: kiosk_only.reload.admin_edit_version, role: "manager" }, headers: headers_for(owner)
     expect(response).to have_http_status(:unprocessable_entity)
     expect(json["error"]).to eq("Managers must keep personal sign-in enabled")
   end

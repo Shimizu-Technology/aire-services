@@ -27,8 +27,14 @@ const USERS = [
   user(11, 'Kai Blas'),
   user(12, 'Old Timer', { employment_status: 'terminated', termination_effective_on: '2026-11-03' }),
 ]
-const summaryRow = (id: number, hours: number, issues: Record<string, number> = {}) => ({
-  id, total_hours: hours, overtime_hours: 0, entries_count: hours > 0 ? 2 : 0, days: [],
+// A report shift: the person's own report row lists each counted shift and the ones left out.
+const reportShift = (id: number, hours: number, overrides: Record<string, unknown> = {}) => ({
+  id, work_date: '2026-11-02', total_hours: hours, overtime_hours: 0, overtime_status: 'none', approval_status: 'approved', entry_method: 'clock', quality_flags: [], ...overrides,
+})
+const summaryRow = (id: number, hours: number, issues: Record<string, number> = {}, excluded: ReturnType<typeof reportShift>[] = []) => ({
+  id, total_hours: hours, overtime_hours: 0, entries_count: hours > 0 ? 2 : 0,
+  days: hours > 0 ? [{ work_date: '2026-11-02', entries: [reportShift(900 + id, hours)] }] : [],
+  excluded_entries: excluded,
   issues: { pending_count: 0, denied_count: 0, pending_overtime_count: 0, denied_overtime_count: 0, open_clock_count: 0, uncategorized_count: 0, ...issues },
 })
 
@@ -88,7 +94,7 @@ beforeEach(() => {
   apiMock.getHoursReport.mockImplementation(async (params: { user_id?: number }) => ({
     data: {
       summary_only: true,
-      employees: [summaryRow(2, 0), summaryRow(7, 43.2, { open_clock_count: 1, pending_count: 1 }), summaryRow(9, 0), summaryRow(11, 66.5), summaryRow(12, 0)]
+      employees: [summaryRow(2, 0), summaryRow(7, 43.2, { open_clock_count: 1, pending_count: 1 }, [reportShift(42, 9.12, { work_date: '2026-11-09', approval_status: 'pending' })]), summaryRow(9, 0), summaryRow(11, 66.5), summaryRow(12, 0)]
         .filter(row => !params.user_id || row.id === params.user_id),
     },
   }))
@@ -117,7 +123,7 @@ describe('Timecards on a phone', () => {
 
     fireEvent.change(screen.getByRole('searchbox', { name: 'Find a person' }), { target: { value: 'kai' } })
     expect(within(screen.getByRole('list', { name: 'People' })).getByText('Kai Blas')).toBeInTheDocument()
-    expect(within(screen.getByRole('list', { name: 'People' })).getByText(/66\.5h approved/)).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'People' })).getByText(/66\.5h this period/)).toBeInTheDocument()
   })
 
   it('shows every day of the period, the forgotten clock, and the days still to come', async () => {
@@ -136,7 +142,7 @@ describe('Timecards on a phone', () => {
     const summary = screen.getByText('Approved', { selector: 'dt' }).closest('dl')!
     expect(summary).toHaveTextContent('Approved43.2h')
     expect(summary).toHaveTextContent('Waiting9.1h')
-    expect(summary).toHaveTextContent('Overtime—')
+    expect(summary).toHaveTextContent('Overtime waiting—')
 
     fireEvent.click(screen.getByRole('link', { name: 'Timecards' }))
     expect(search().get('user_id')).toBeNull()
@@ -168,7 +174,8 @@ describe('Timecards on a phone', () => {
     // Focus moves in an effect after the form mounts; a slow runner can see the form first.
     await waitFor(() => expect(within(fix).getByLabelText(/Clocked out/)).toHaveFocus())
     expect(screen.getByRole('heading', { level: 2, name: 'Caleb Perez' })).toBeInTheDocument()
-    expect(search().get('period')).toBe('2026-11-01')
+    // The linked-entry read canonicalizes the URL independently of form focus.
+    await waitFor(() => expect(search().get('period')).toBe('2026-11-01'))
   })
 
   it('finds the person and period from the shift when a link only names the shift', async () => {
@@ -295,6 +302,26 @@ describe('Timecards on a phone', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Log missed time' })
     expect(within(sheet).getByLabelText(/^Day/)).toHaveValue('2026-11-11')
     expect(within(sheet).getByLabelText(/^Start/)).toHaveValue('06:00')
+  })
+
+  it('shows Approved as approved for pay, with overtime still waiting on its own, as the person page does', async () => {
+    const days = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-06', '2026-11-09']
+    apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number }) => ({
+      data: { time_entries: params.user_id === 9 ? [
+        ...days.map((date, index) => entry({ id: 80 + index, work_date: date, hours: 11.5, overtime_status: date === '2026-11-06' ? 'pending' : 'none', user: { ...OPEN.user, id: 9 } })),
+        entry({ id: 90, work_date: '2026-11-11', hours: 11.5, approval_status: 'pending', user: { ...OPEN.user, id: 9 } }),
+      ] : [], pagination: { total_pages: 1 } },
+    }))
+    apiMock.getHoursReport.mockImplementation(async () => ({ data: { employees: [{
+      ...summaryRow(9, 0), total_hours: 57.5, overtime_hours: 6,
+      days: days.map((date, index) => ({ work_date: date, entries: [reportShift(80 + index, 11.5, { work_date: date, ...(date === '2026-11-06' ? { overtime_hours: 6, overtime_status: 'pending' } : {}) })] })),
+      excluded_entries: [reportShift(90, 11.5, { work_date: '2026-11-11', approval_status: 'pending' })],
+    }] } }))
+    openAt('/admin/timecards?user_id=9&period=2026-11-01')
+    const summary = (await screen.findByText('Approved', { selector: 'dt' })).closest('dl')!
+    await waitFor(() => expect(summary).toHaveTextContent('Approved51.5h'))
+    expect(summary).toHaveTextContent('Waiting11.5h')
+    expect(summary).toHaveTextContent('Overtime waiting6.0h')
   })
 
   it('shows an overnight shift from Oct 31 on Nov 1 with only November’s hours, matching the summary', async () => {
@@ -435,6 +462,38 @@ describe('Timecards on a phone', () => {
 
 describe('Timecards on a desktop', () => {
   beforeEach(() => { restoreMedia(); restoreMedia = mockMatchMedia({ width: 1280 }) })
+
+  it("shows each person's hours worked on the list, equal to their timecard's Approved + Waiting + Overtime waiting", async () => {
+    // Ethan, Nov 1–15: five approved 11.5h shifts, 6.0h of one's overtime still
+    // waiting, and one 11.5h shift waiting. The summary row counts 57.5h and 11.5h waiting.
+    const days = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-06', '2026-11-09']
+    apiMock.getTimeEntries.mockImplementation(async (params: { user_id?: number }) => ({
+      data: { time_entries: params.user_id === 9 ? [
+        ...days.map((date, index) => entry({ id: 80 + index, work_date: date, hours: 11.5, overtime_status: date === '2026-11-06' ? 'pending' : 'none', user: { ...OPEN.user, id: 9 } })),
+        entry({ id: 90, work_date: '2026-11-11', hours: 11.5, approval_status: 'pending', user: { ...OPEN.user, id: 9 } }),
+      ] : [], pagination: { total_pages: 1 } },
+    }))
+    apiMock.getHoursReport.mockImplementation(async (params: { user_id?: number; summary_only?: number }) => {
+      if (params.summary_only) {
+        return { data: { summary_only: true, employees: [{ ...summaryRow(9, 0, { pending_count: 1, pending_overtime_count: 1 }), total_hours: 57.5, overtime_hours: 6, waiting_hours: 11.5, entries_count: 6 }] } }
+      }
+      return { data: { employees: [{
+        ...summaryRow(9, 0), total_hours: 57.5, overtime_hours: 6,
+        days: days.map((date, index) => ({ work_date: date, entries: [reportShift(80 + index, 11.5, { work_date: date, ...(date === '2026-11-06' ? { overtime_hours: 6, overtime_status: 'pending' } : {}) })] })),
+        excluded_entries: [reportShift(90, 11.5, { work_date: '2026-11-11', approval_status: 'pending' })],
+      }] } }
+    })
+    openAt('/admin/timecards?user_id=9&period=2026-11-01')
+    const summary = (await screen.findByText('Approved', { selector: 'dt' })).closest('dl')!
+    await waitFor(() => expect(summary).toHaveTextContent('Approved51.5h'))
+    expect(summary).toHaveTextContent('Waiting11.5h')
+    expect(summary).toHaveTextContent('Overtime waiting6.0h')
+
+    const row = within(screen.getByRole('list', { name: 'People' })).getByText('Ethan Cruz').closest('[role="listitem"]') as HTMLElement
+    // 51.5 + 11.5 + 6.0 = 69.0, with no "approved" figure to disagree with the timecard.
+    expect(row).toHaveTextContent('69.0h this period')
+    expect(row).not.toHaveTextContent(/approved/i)
+  })
 
   it('shows the people beside the timecard, and Everyone shows the week grid', async () => {
     openAt('/admin/timecards')
