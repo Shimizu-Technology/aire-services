@@ -252,22 +252,6 @@ describe('person page', () => {
     expect(screen.getByRole('menuitem', { name: /Open in Timecards/ })).toBeInTheDocument()
   })
 
-  it("sums this pay period on Overview, with overtime from the hours report and the shifts it's waiting on", async () => {
-    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [
-      makeEntry(),
-      makeEntry({ id: 21, work_date: '2026-11-06', overtime_status: 'pending' }),
-      makeEntry({ id: 22, work_date: '2026-11-11', approval_status: 'pending', clock_in_at: '2026-11-10T22:00:00Z', clock_out_at: '2026-11-11T09:30:00Z', hours: 11.5 }),
-    ], pagination: { total_pages: 1 } } })
-    apiMock.getHoursReport.mockResolvedValue({ data: { employees: [{ id: 7, total_hours: 22, overtime_hours: 6 }] } })
-    open('/admin/users/7')
-    const period = await screen.findByRole('heading', { name: 'This pay period · Nov 1–15' })
-    const card = period.parentElement!.parentElement!
-    await waitFor(() => expect(card).toHaveTextContent('Approved22.0h'))
-    expect(card).toHaveTextContent('Waiting for approval11.5h')
-    expect(card).toHaveTextContent('Overtime6.0h · 1 shift waiting')
-    expect(card).toHaveTextContent('Last clockWed, Nov 11 8:00 AM – 7:30 PM')
-  })
-
   it('leaves Preview their My Pay out for admins off the preview allowlist', async () => {
     auth.value = { isClerkEnabled: true, userRole: 'admin', currentUser: { id: 99, my_pay_preview_enabled: false } }
     open('/admin/users/7')
@@ -445,5 +429,64 @@ describe('managers', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     // App mounts the person page and Team behind the same capability.
     expect(appSource).toMatch(/path="users\/:id" element={<ProtectedRoute requiredCapability="manage_users">/)
+  })
+})
+
+describe('one meaning of Approved: approved for pay', () => {
+  // Ethan's Nov 1–15: five approved 11.5h shifts, one of them with 6.0h of
+  // overtime still waiting, and one 11.5h shift waiting. Worked: 69.0h.
+  const days = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-06', '2026-11-09']
+  const reportShift = (id: number, work_date: string, overrides: Record<string, unknown> = {}) => ({
+    id, work_date, total_hours: 11.5, overtime_hours: 0, overtime_status: 'none', approval_status: 'approved', entry_method: 'clock', quality_flags: [], ...overrides,
+  })
+
+  beforeEach(() => {
+    apiMock.getTimeEntries.mockResolvedValue({ data: { time_entries: [
+      ...days.map((date, index) => makeEntry({
+        id: 30 + index, work_date: date, hours: 11.5, clock_in_at: `${date}T07:00:00+10:00`, clock_out_at: `${date}T18:30:00+10:00`,
+        overtime_status: date === '2026-11-06' ? 'pending' : 'none',
+      })),
+      makeEntry({ id: 40, work_date: '2026-11-11', hours: 11.5, approval_status: 'pending', clock_in_at: '2026-11-11T08:00:00+10:00', clock_out_at: '2026-11-11T19:30:00+10:00' }),
+    ], pagination: { total_pages: 1 } } })
+    apiMock.getHoursReport.mockResolvedValue({ data: { employees: [{
+      id: 7, total_hours: 57.5, overtime_hours: 6,
+      days: days.map((date, index) => ({ work_date: date, entries: [reportShift(30 + index, date, date === '2026-11-06' ? { overtime_hours: 6, overtime_status: 'pending' } : {})] })),
+      excluded_entries: [reportShift(40, '2026-11-11', { approval_status: 'pending' })],
+    }] } })
+    evidenceMock.periods.mockResolvedValue({
+      employee: { id: '7', payroll_integration_id: 'employee-uuid' }, integration: { source_instance_id: 'installation-uuid' },
+      as_of: '2026-11-14T02:00:00Z', totals, evidence_note: '', pagination: { per_page: 12, total_count: 1, next_cursor: null },
+      periods: [{ ...openPeriod, summary: { ...openPeriod.summary, worked_hours: 69, eligible_hours: 51.5, pending_hours: 17.5 } }],
+    })
+  })
+
+  it('agrees on Overview, Time and Pay for a period with overtime waiting', async () => {
+    open('/admin/users/7')
+    const overview = (await screen.findByRole('heading', { name: 'This pay period · Nov 1–15' })).parentElement!.parentElement!
+    await waitFor(() => expect(overview).toHaveTextContent('Approved51.5h'))
+    expect(overview).toHaveTextContent('Waiting for approval11.5h')
+    expect(overview).toHaveTextContent('Overtime waiting6.0h')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Time' }))
+    const time = (await screen.findByText('Approved', { selector: 'dt' })).closest('dl')!
+    await waitFor(() => expect(time).toHaveTextContent('Approved51.5h'))
+    expect(time).toHaveTextContent('Waiting11.5h')
+    expect(time).toHaveTextContent('Overtime waiting6.0h')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Pay' }))
+    const periods = await screen.findByRole('region', { name: 'Pay periods' })
+    // The payroll evidence's waiting is time and overtime together: 11.5h + 6.0h.
+    await waitFor(() => expect(periods).toHaveTextContent('Open · 51.5h approved · 17.5h waiting'))
+    // Approved + waiting + overtime waiting = worked.
+    expect(51.5 + 11.5 + 6).toBe(69)
+  })
+
+  it("says Approved didn't load rather than counting waiting overtime when the report fails", async () => {
+    apiMock.getHoursReport.mockResolvedValue({ error: 'Something went wrong', status: 500 })
+    open('/admin/users/7')
+    const overview = (await screen.findByRole('heading', { name: 'This pay period · Nov 1–15' })).parentElement!.parentElement!
+    await waitFor(() => expect(overview).toHaveTextContent("ApprovedDidn't load"))
+    expect(overview).toHaveTextContent("Overtime waitingDidn't load")
+    expect(overview).toHaveTextContent('Waiting for approval11.5h')
   })
 })

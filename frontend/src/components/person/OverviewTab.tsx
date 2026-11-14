@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, ChevronRight } from 'lucide-react'
-import type { AdminUser, LeaveRequest, TimeEntry } from '../../lib/api'
+import type { AdminUser, HoursReportEmployee, LeaveRequest, TimeEntry } from '../../lib/api'
 import { peopleApi } from '../../lib/api/people'
-import { timecardsApi, type TimecardSummaryEmployee } from '../../lib/api/timecards'
+import { timecardsApi } from '../../lib/api/timecards'
 import { ADMIN_PATHS } from '../../lib/adminRoutes'
 import { employeeEvidenceApi } from '../../lib/employeeEvidenceApi'
 import { formatPayPeriod, type PayPeriod } from '../../lib/payPeriods'
 import { PERSON_TOTAL_LABELS } from '../../lib/payrollTerms'
-import { formatHours, guamDate, isApprovedTime, isOpenClock, timecardDays } from '../../lib/timecards'
+import { formatHours, guamDate, isApprovedTime, isOpenClock, payPeriodHours, timecardDays } from '../../lib/timecards'
 import { dayLabel, monthDay, timeLabel } from '../today/format'
 import { Button, EmptyState, ErrorState, type MenuItem } from '../ui'
 import { Skeleton } from '../ui/Skeleton'
@@ -38,23 +38,24 @@ interface OverviewTabProps {
 }
 
 interface PeriodNumbers {
-  approved: number
+  /** Approved for pay; null when the hours report didn't load and overtime is waiting. */
+  approved: number | null
   waiting: number
-  /** Null when the hours report didn't load: unknown, not zero. */
-  overtime: number | null
-  overtimeWaitingShifts: number
+  /** Null when the hours report didn't load and overtime is waiting: unknown, not zero. */
+  overtimeWaiting: number | null
   last: TimeEntry | null
 }
 
-function periodNumbers(entries: TimeEntry[], summary: TimecardSummaryEmployee | null, period: PayPeriod): PeriodNumbers {
-  // The same in-period hours the Time tab shows.
+// The same numbers as the Time tab's timecard and the Pay tab: approved means approved for pay.
+function periodNumbers(entries: TimeEntry[], report: HoursReportEmployee | null, period: PayPeriod): PeriodNumbers {
   const items = [...timecardDays(entries, period).values()].flat()
-  const waiting = items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
-  const approved = summary ? summary.total_hours : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
-  const overtimeWaitingShifts = new Set(items.filter(({ entry }) => entry.overtime_status === 'pending').map(({ entry }) => entry.id)).size
+  const hours = report ? payPeriodHours(report, period) : null
+  const overtimeWaits = entries.some(entry => entry.overtime_status === 'pending')
+  const waiting = hours ? hours.waiting : items.filter(({ entry }) => entry.status === 'completed' && entry.approval_status === 'pending').reduce((sum, item) => sum + item.hours, 0)
+  const approved = hours ? hours.approved : overtimeWaits ? null : items.filter(({ entry }) => isApprovedTime(entry)).reduce((sum, item) => sum + item.hours, 0)
   const order = (entry: TimeEntry) => entry.clock_in_at ?? `${entry.work_date}T${entry.start_time ?? '00:00'}`
   const last = items.map(item => item.entry).sort((a, b) => order(b).localeCompare(order(a)))[0] ?? null
-  return { approved, waiting, overtime: summary ? summary.overtime_hours : null, overtimeWaitingShifts, last }
+  return { approved, waiting, overtimeWaiting: hours ? hours.overtimeWaiting : overtimeWaits ? null : 0, last }
 }
 
 function lastClockLabel(entry: TimeEntry, today: string) {
@@ -94,8 +95,8 @@ export function OverviewTab({ user, period, today, timecardHref, activityHref, f
   const [retry, setRetry] = useState({ numbers: 0, leave: 0, activity: 0 })
 
   const numbers = useLoadable(`${user.id}:${period.start}:${retry.numbers}`, async () => {
-    const [entries, summary] = await Promise.all([timecardsApi.personEntries(user.id, period), timecardsApi.personSummary(user.id, period)])
-    const row = summary.data?.employees.find(employee => employee.id === user.id) ?? null
+    const [entries, report] = await Promise.all([timecardsApi.personEntries(user.id, period), timecardsApi.personReport(user.id, period)])
+    const row = report.data?.employees.find(employee => employee.id === user.id) ?? null
     return periodNumbers(dataOrThrow(entries, "Couldn't load the shifts."), row, period)
   }, "Couldn't load the shifts.")
   const leave = useLoadable(
@@ -136,21 +137,16 @@ export function OverviewTab({ user, period, today, timecardHref, activityHref, f
             <dl className={`${card} divide-y divide-line text-body-sm`}>
               <div className="flex items-center justify-between gap-3 px-4 py-2.5">
                 <dt className="text-ink-muted">{PERSON_TOTAL_LABELS.approved}</dt>
-                <dd className="font-semibold tabular-nums text-ink">{formatHours(numbers.value.approved)}</dd>
+                <dd className="font-semibold tabular-nums text-ink">{numbers.value.approved === null ? "Didn't load" : formatHours(numbers.value.approved)}</dd>
               </div>
               <div className="flex items-center justify-between gap-3 px-4 py-2.5">
                 <dt className="text-ink-muted">{PERSON_TOTAL_LABELS.waiting}</dt>
                 <dd className={`font-semibold tabular-nums ${numbers.value.waiting > 0 ? 'text-amber-900' : 'text-ink'}`}>{formatHours(numbers.value.waiting)}</dd>
               </div>
-              {(numbers.value.overtimeWaitingShifts > 0 || (numbers.value.overtime ?? 0) > 0) && (
+              {numbers.value.overtimeWaiting !== 0 && (
                 <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-                  <dt className="text-ink-muted">Overtime</dt>
-                  <dd className="text-right font-semibold tabular-nums text-ink">
-                    {numbers.value.overtime === null ? "Didn't load" : formatHours(numbers.value.overtime)}
-                    {numbers.value.overtimeWaitingShifts > 0 && (
-                      <span className="text-amber-900"> · {numbers.value.overtimeWaitingShifts} {numbers.value.overtimeWaitingShifts === 1 ? 'shift' : 'shifts'} waiting</span>
-                    )}
-                  </dd>
+                  <dt className="text-ink-muted">{PERSON_TOTAL_LABELS.overtimeWaiting}</dt>
+                  <dd className="font-semibold tabular-nums text-amber-900">{numbers.value.overtimeWaiting === null ? "Didn't load" : formatHours(numbers.value.overtimeWaiting)}</dd>
                 </div>
               )}
               <div className="flex items-center justify-between gap-3 px-4 py-2.5">

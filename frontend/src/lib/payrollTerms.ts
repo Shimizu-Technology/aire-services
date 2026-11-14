@@ -29,6 +29,7 @@ export type PersonTotal =
   | 'worked'
   | 'approved'
   | 'waiting'
+  | 'overtimeWaiting'
   | 'denied'
   | 'paid'
   | 'inRun'
@@ -41,6 +42,7 @@ export const PERSON_TOTAL_LABELS: Record<PersonTotal, string> = {
   worked: 'Worked',
   approved: 'Approved',
   waiting: 'Waiting for approval',
+  overtimeWaiting: 'Overtime waiting',
   denied: "Denied, won't be paid",
   paid: 'Paid (confirmed by Payroll)',
   inRun: 'In a payroll run, not paid yet',
@@ -52,6 +54,7 @@ export const PERSON_TOTAL_LABELS: Record<PersonTotal, string> = {
 
 export const PERSON_TOTAL_HELP: Partial<Record<PersonTotal, string>> = {
   worked: 'All clocked and added time.',
+  approved: 'Approved for pay. Overtime that still waits for approval is counted separately.',
   paid: 'Hours Payroll says were paid.',
   onHold: 'Held back from payroll until someone resolves it.',
   notMatched: "Approved hours we can't yet match to a paycheck. Before payday this is normal and hidden.",

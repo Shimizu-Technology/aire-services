@@ -74,8 +74,13 @@ export const timecardsApi = {
   /** Hours and flags per person for the people list. */
   peopleSummary: (period: PayPeriod) => summaryReport(period),
 
-  /** One person's approved and overtime hours for the period. */
-  personSummary: (userId: number, period: PayPeriod) => summaryReport(period, userId),
+  /**
+   * One person's full report row for the period: each shift with its
+   * allocated overtime, and the shifts left out of the totals (waiting,
+   * denied, held for an overtime review). `payPeriodHours` reads it.
+   */
+  personReport: (userId: number, period: PayPeriod) =>
+    api.getHoursReport({ start_date: period.start, end_date: period.end, include_empty: true, user_id: userId }),
 
   /**
    * Ends an open clock at the time they actually left. The API's end_clock
