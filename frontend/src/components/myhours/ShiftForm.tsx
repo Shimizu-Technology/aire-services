@@ -13,8 +13,18 @@ function minutesBetween(start: string, end: string) {
   return (minutes(end) - minutes(start) + 1440) % 1440
 }
 
+function editableBreaks(entry?: TimeEntry) {
+  return (entry?.breaks ?? [])
+    .filter((row) => row.end_time)
+    .map((row) => ({
+      id: row.id,
+      start_time: guamClock(row.start_time),
+      end_time: guamClock(row.end_time!),
+    }))
+}
+
 export function ShiftForm({
-  entry,
+  entry: initialEntry,
   categories,
   categoriesError,
   categoriesLoading = false,
@@ -31,19 +41,12 @@ export function ShiftForm({
   onSaved: () => void
 }) {
   const online = useOnlineStatus()
+  const [entry, setEntry] = useState(initialEntry)
   const [date, setDate] = useState(entry?.work_date ?? todayInGuam())
   const [start, setStart] = useState(entry?.start_time ?? '08:00')
   const [end, setEnd] = useState(entry?.end_time ?? '17:00')
   const [breakMinutes, setBreakMinutes] = useState(entry?.break_minutes ?? 0)
-  const [breaks, setBreaks] = useState(
-    (entry?.breaks ?? [])
-      .filter((row) => row.end_time)
-      .map((row) => ({
-        id: row.id,
-        start_time: guamClock(row.start_time),
-        end_time: guamClock(row.end_time!),
-      })),
-  )
+  const [breaks, setBreaks] = useState(() => editableBreaks(entry))
   const detailedBreaks = !!entry?.breaks.length
   const breaksChanged =
     detailedBreaks &&
@@ -102,6 +105,30 @@ export function ShiftForm({
     }
     setSaving(true)
     setError(null)
+    if (entry) {
+      const latest = await myTimeApi.entry(entry.id)
+      if (!latest.data) {
+        setSaving(false)
+        setError("Couldn't check this shift. Nothing was sent. Try again.")
+        return
+      }
+      const fresh = latest.data.time_entry
+      if (fresh.version !== entry.version) {
+        setEntry(fresh)
+        setDate(fresh.work_date)
+        setStart(fresh.start_time ?? '08:00')
+        setEnd(fresh.end_time ?? '17:00')
+        setBreakMinutes(fresh.break_minutes ?? 0)
+        setBreaks(editableBreaks(fresh))
+        setCategory(fresh.time_category?.id ?? 0)
+        setNote('')
+        setSaving(false)
+        setError(
+          "This shift changed since you opened it. Nothing was sent. Here's the latest.",
+        )
+        return
+      }
+    }
     const change = {
       start_time: start,
       end_time: end,

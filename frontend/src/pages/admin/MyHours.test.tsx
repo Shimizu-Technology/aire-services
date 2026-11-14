@@ -16,6 +16,9 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-14T12:00:00+10:00'))
   vi.restoreAllMocks()
   vi.spyOn(myTimeApi, 'entries').mockResolvedValue({ data: [shift()] })
+  vi.spyOn(myTimeApi, 'entry').mockResolvedValue({
+    data: { time_entry: shift() },
+  })
   vi.spyOn(myTimeApi, 'categories').mockResolvedValue({
     data: { time_categories: categories },
     status: 200,
@@ -110,6 +113,77 @@ it('Ask for a fix sends the existing employee edit and its reason', async () => 
     ),
   )
   expect(await screen.findByText(/Your time was saved/)).toBeInTheDocument()
+  expect(myTimeApi.entry).toHaveBeenCalledWith(41)
+  expect(vi.mocked(myTimeApi.entry).mock.invocationCallOrder[0]).toBeLessThan(
+    update.mock.invocationCallOrder[0],
+  )
+})
+
+it('reloads a stale correction sheet without writing, then saves against the fresh version', async () => {
+  const fresh = shift({
+    version: 3,
+    end_time: '12:00',
+    hours: 4,
+    description: 'Manager corrected note',
+  })
+  vi.mocked(myTimeApi.entry).mockResolvedValue({ data: { time_entry: fresh } })
+  const update = vi
+    .spyOn(api, 'updateTimeEntry')
+    .mockResolvedValue({ data: { time_entry: fresh } })
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Ask for a fix' }))
+  fireEvent.change(screen.getByLabelText(/Clock out/), {
+    target: { value: '11:30' },
+  })
+  fireEvent.change(screen.getByLabelText(/What happened/), {
+    target: { value: 'Old correction.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    "This shift changed since you opened it. Nothing was sent. Here's the latest.",
+  )
+  expect(update).not.toHaveBeenCalled()
+  expect(screen.getByLabelText(/Clock out/)).toHaveValue('12:00')
+  expect(screen.getByLabelText(/What happened/)).toHaveValue('')
+  fireEvent.change(screen.getByLabelText(/Clock out/), {
+    target: { value: '12:30' },
+  })
+  fireEvent.change(screen.getByLabelText(/What happened/), {
+    target: { value: 'Fresh correction.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  await waitFor(() =>
+    expect(update).toHaveBeenCalledWith(
+      41,
+      { end_time: '12:30' },
+      'Fresh correction.',
+    ),
+  )
+  expect(myTimeApi.entry).toHaveBeenCalledTimes(2)
+})
+
+it('sends no correction when the fresh-version check fails', async () => {
+  vi.mocked(myTimeApi.entry).mockResolvedValue({ error: 'Unavailable' })
+  const update = vi.spyOn(api, 'updateTimeEntry')
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /8:00 AM/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Ask for a fix' }))
+  fireEvent.change(screen.getByLabelText(/Clock out/), {
+    target: { value: '11:30' },
+  })
+  fireEvent.change(screen.getByLabelText(/What happened/), {
+    target: { value: 'Phone died.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Send fix for approval' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    "Couldn't check this shift. Nothing was sent.",
+  )
+  expect(update).not.toHaveBeenCalled()
+  expect(screen.getByLabelText(/Clock out/)).toHaveValue('11:30')
+  expect(
+    screen.getByRole('button', { name: 'Send fix for approval' }),
+  ).toBeEnabled()
 })
 
 it('can correct a one-minute shift without rewriting its original punch times', async () => {
