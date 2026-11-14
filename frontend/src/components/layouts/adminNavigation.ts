@@ -68,6 +68,7 @@ const item = {
   settings: { id: 'settings', name: 'Settings', href: ADMIN_PATHS.settings, icon: Settings },
   website: { id: 'website', name: 'Website', href: ADMIN_PATHS.website, icon: Globe },
   activity: { id: 'activity', name: 'Activity', href: ADMIN_PATHS.activity, icon: History },
+  myLeave: { id: 'my-leave', name: 'My leave', href: '/admin/leave?mine=1', icon: CalendarPlus, moreOnly: true },
   myTime: { id: 'my-time', name: 'My Time', href: ADMIN_PATHS.myTime, icon: Clock3 },
   clock: { id: 'my-time', name: 'Clock', href: ADMIN_PATHS.myTime, icon: Clock3 },
   myHours: { id: 'my-hours', name: 'My Hours', shortName: 'Hours', href: ADMIN_PATHS.myHours, icon: Timer },
@@ -118,7 +119,7 @@ export function navigationGroups({ capabilities, myPayEnabled, schedulesEnabled,
     groups.push({
       id: 'me',
       label: 'Me',
-      items: [...when(tracksTime, item.myTime), ...when(myPayEnabled, item.myPay), ...when(capabilities.unlock_kiosk, item.kiosk)],
+      items: [...when(tracksTime, item.myTime), ...when(tracksTime, item.myLeave), ...when(myPayEnabled, item.myPay), ...when(capabilities.unlock_kiosk, item.kiosk)],
     })
   } else if (supervises) {
     groups.push({
@@ -135,6 +136,7 @@ export function navigationGroups({ capabilities, myPayEnabled, schedulesEnabled,
       label: 'Me',
       items: [
         ...when(tracksTime, item.myTime),
+        ...when(tracksTime, item.myLeave),
         ...when(myPayEnabled, item.myPay),
         ...when(schedulesEnabled, item.schedule),
         ...when(capabilities.unlock_kiosk, item.kiosk),
@@ -197,8 +199,11 @@ export function tabBarLayout(options: NavigationOptions): TabBarLayout {
 }
 
 /** True when the current path belongs to this nav item. Today matches only /admin itself. */
-export function isNavItemActive(navItem: NavItem, pathname: string) {
+export function isNavItemActive(navItem: NavItem, pathname: string, search = '') {
   if (navItem.external) return false
+  const ownLeave = isWithinRoute(pathname, ADMIN_PATHS.leave) && new URLSearchParams(search).get('mine') === '1'
+  if (navItem.id === 'my-leave') return ownLeave
+  if (navItem.id === 'approvals' && ownLeave) return false
   if (navItem.href === ADMIN_PATHS.today) return pathname === ADMIN_PATHS.today || pathname === `${ADMIN_PATHS.today}/`
   return [navItem.href, ...(navItem.alsoActiveOn ?? [])].some((href) => isWithinRoute(pathname, href))
 }

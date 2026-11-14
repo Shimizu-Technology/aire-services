@@ -24,7 +24,8 @@ module Approvals
     # overtime reset is the week's recalculation after another shift's review,
     # so these rows aren't edits either.
     REVIEW_AUDIT_ACTIONS = %w[
-      time_entry.approved time_entry.overtime_approved time_entry.approval_undone time_entry.overtime_reset
+      time_entry.approved time_entry.denied time_entry.overtime_approved time_entry.overtime_denied
+      time_entry.approval_undone time_entry.overtime_reset
     ].freeze
     NOT_EDITS = (ORDINARY_SHIFT_AUDIT_ACTIONS + REVIEW_AUDIT_ACTIONS).freeze
     # In-memory shift chaining looks this far around the loaded entries. A

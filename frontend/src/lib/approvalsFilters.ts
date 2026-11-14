@@ -1,0 +1,183 @@
+import type { PendingApprovalsParams } from './api'
+import type { ReviewEntry, ReviewItem } from './api/approvals'
+import { businessWeekStart } from './dateUtils'
+import { parsePayPeriodStart } from './payPeriods'
+
+export function pendingParams(
+  query: URLSearchParams,
+  department: string,
+): PendingApprovalsParams {
+  const params: Record<string, string | number> = {
+    per_page: 500,
+    sort: 'work_date',
+    direction: 'asc',
+  }
+  const period = parsePayPeriodStart(query.get('period'))
+  if (period) {
+    params.start_date = period.start
+    params.end_date = period.end
+  }
+  for (const key of [
+    'date',
+    'start_date',
+    'end_date',
+    'through_date',
+    'since_date',
+    'user_id',
+    'time_category_id',
+    'approval_type',
+    'entry_method',
+    'clock_source',
+    'sort',
+    'direction',
+  ]) {
+    const value = query.get(key)
+    if (value) params[key] = value
+  }
+  if (department !== 'all') params.approval_group = department
+  return params as PendingApprovalsParams
+}
+export function rememberedDepartment(userId: number | undefined, fallback = 'all') {
+  try {
+    return localStorage.getItem(`aire.approvals.department.${userId ?? 'viewer'}`) || fallback
+  } catch {
+    return fallback
+  }
+}
+export function rememberDepartment(userId: number | undefined, value: string) {
+  try {
+    localStorage.setItem(`aire.approvals.department.${userId ?? 'viewer'}`, value)
+  } catch {
+    /* Storage may be unavailable in private browsing. */
+  }
+}
+export function isOrdinary(entry: ReviewEntry) {
+  return (
+    !isTinyShift(entry) &&
+    entry.review_kind === 'ordinary' &&
+    entry.exceptions.length === 0 &&
+    entry.approval_status === 'pending' &&
+    (entry.overtime_status === 'none' || entry.overtime_status === null) &&
+    !entry.needs_another_approver &&
+    Number.isInteger(entry.version)
+  )
+}
+export interface ApprovalSelection {
+  rows: readonly ReviewEntry[]
+  items: readonly ReviewItem[]
+  people: { id: number; name: string; count: number }[]
+  hours: number
+  dates: string[]
+}
+/** One immutable snapshot is used for both the confirmation and the request. */
+export function approvalSelection(rows: readonly ReviewEntry[]): ApprovalSelection {
+  if (
+    !rows.length ||
+    !rows.every(isOrdinary) ||
+    new Set(rows.map((row) => row.id)).size !== rows.length
+  )
+    throw new Error('Choose ordinary shifts from the current list.')
+  const people = new Map<number, { id: number; name: string; count: number }>()
+  for (const row of rows) {
+    const person = people.get(row.user.id) ?? {
+      id: row.user.id,
+      name: row.user.full_name,
+      count: 0,
+    }
+    person.count++
+    people.set(person.id, person)
+  }
+  return {
+    rows: [...rows],
+    items: rows.map((row) => ({
+      id: row.id,
+      version: row.version,
+      approve_time: true,
+      approve_overtime: false,
+    })),
+    people: [...people.values()],
+    hours: rows.reduce((sum, row) => sum + row.hours, 0),
+    dates: rows.map((row) => row.work_date).sort(),
+  }
+}
+export function exclusionCopy(rows: ReviewEntry[]) {
+  const people = new Map<string, ReviewEntry[]>()
+  for (const row of rows)
+    people.set(row.user.full_name, [...(people.get(row.user.full_name) ?? []), row])
+  return [...people]
+    .map(([name, entries]) => {
+      const reasons = [
+        ...new Set(
+          entries.flatMap((entry) => entry.exceptions.map((reason) => reason.label)),
+        ),
+      ]
+      const overtime = entries
+        .filter((entry) => entry.overtime_status === 'pending')
+        .reduce((sum, entry) => sum + (entry.pending_overtime_hours ?? 0), 0)
+      return `${name}: ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} · ${reasons.join(', ')}${overtime > 0 ? ` · ${overtime.toFixed(1)}h overtime waiting` : ''}`
+    })
+    .join('; ')
+}
+
+/** Keep a person's Sun–Sat overtime week together, preserving first-seen order. */
+export function approvalChunks(
+  items: readonly ReviewItem[],
+  limit: number,
+  rows: readonly ReviewEntry[] = [],
+): ReviewItem[][] {
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  const groups = new Map<string, ReviewItem[]>()
+  for (const item of items) {
+    const row = byId.get(item.id)
+    const key = row
+      ? `${row.user.id}/${businessWeekStart(row.work_date)}`
+      : `entry/${item.id}`
+    groups.set(key, [...(groups.get(key) ?? []), item])
+  }
+  const chunks: ReviewItem[][] = []
+  let current: ReviewItem[] = []
+  for (const group of groups.values()) {
+    if (current.length && current.length + group.length > limit) {
+      chunks.push(current)
+      current = []
+    }
+    if (group.length > limit) {
+      for (let offset = 0; offset < group.length; offset += limit) {
+        chunks.push(group.slice(offset, offset + limit))
+      }
+    } else current.push(...group)
+  }
+  if (current.length) chunks.push(current)
+  return chunks
+}
+
+export function isTinyShift(entry: ReviewEntry) {
+  if (entry.status !== 'completed') return false
+  if (entry.clock_in_at && entry.clock_out_at) {
+    const duration = Date.parse(entry.clock_out_at) - Date.parse(entry.clock_in_at)
+    return Number.isFinite(duration) && duration >= 0 && duration < 60_000
+  }
+  return entry.hours >= 0 && entry.hours < 1 / 60
+}
+
+/** Apply the inbox's date modes to a leave interval, including both edges. */
+export function leaveMatchesDates(
+  request: { start_date: string; end_date: string },
+  query: URLSearchParams,
+) {
+  const dates = pendingParams(query, 'all')
+  const lower = [dates.date, dates.since_date, dates.start_date]
+    .filter(Boolean)
+    .map(String)
+    .sort()
+    .at(-1)
+  const upper = [dates.date, dates.through_date, dates.end_date]
+    .filter(Boolean)
+    .map(String)
+    .sort()[0]
+  return (
+    (!lower || !upper || lower <= upper) &&
+    (!lower || request.end_date >= lower) &&
+    (!upper || request.start_date <= upper)
+  )
+}

@@ -1,0 +1,139 @@
+import { useRef, useState } from 'react'
+import type { ReviewEntry } from '../../lib/api/approvals'
+import { formatApprovalDate, formatApprovalDateRange } from '../../lib/approvalsDates'
+import { Avatar, ListGroup, ListRow } from '../ui'
+
+export default function OrdinaryGroups({
+  rows,
+  groupBy,
+  selected,
+  onSelect,
+  onApprove,
+  disabled,
+  disabledReason,
+}: {
+  rows: ReviewEntry[]
+  groupBy: 'person' | 'day'
+  selected: Set<number>
+  onSelect: (rows: ReviewEntry[], checked: boolean) => void
+  onApprove: (rows: ReviewEntry[], name: string) => Promise<void>
+  disabled: boolean
+  disabledReason?: string
+}) {
+  const root = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const groups = new Map<string, ReviewEntry[]>()
+  rows.forEach(row => {
+    const key = groupBy === 'person' ? String(row.user.id) : row.work_date
+    groups.set(key, [...(groups.get(key) ?? []), row])
+  })
+  const approveGroup = async (entries: ReviewEntry[], title: string) => {
+    const buttons = [
+      ...(root.current?.querySelectorAll<HTMLButtonElement>('button[aria-label^="Approve "]') ??
+        []),
+    ]
+    const index = buttons.findIndex(
+      button =>
+        button.getAttribute('aria-label') ===
+        `Approve ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} for ${title}`,
+    )
+    const next = buttons[index + 1] ?? buttons[index - 1]
+    await onApprove(entries, title)
+    window.requestAnimationFrame(() => {
+      if (next?.isConnected && !next.disabled) next.focus()
+    })
+  }
+  return (
+    <div ref={root}>
+      <ListGroup
+        label={`Ordinary shifts by ${groupBy}`}
+        className="overscroll-contain"
+      >
+        {[...groups].map(([key, entries]) => {
+          const title = groupBy === 'person' ? entries[0].user.full_name : formatApprovalDate(key)
+          const count = entries.filter(entry => selected.has(entry.id)).length
+          const dates = entries.map(row => row.work_date).sort()
+          const noun = entries.length === 1 ? 'shift' : 'shifts'
+          const hours = entries.reduce((sum, row) => sum + row.hours, 0).toFixed(1)
+          const meta = [
+            `${entries.length} ${noun}`,
+            groupBy === 'person' ? formatApprovalDateRange(dates) : null,
+            `${hours}h`,
+          ]
+            .filter(Boolean)
+            .join(' · ')
+          return (
+            <ListRow
+              key={`${groupBy}-${key}`}
+              title={title}
+              leading={
+                groupBy === 'person' ? (
+                  <span className="hidden sm:inline-flex">
+                    <Avatar
+                      name={title}
+                      size="sm"
+                    />
+                  </span>
+                ) : undefined
+              }
+              metaWrap
+              meta={meta}
+              checkbox={{
+                checked: count === 0 ? false : count === entries.length ? true : 'mixed',
+                label: `Select ${title}`,
+                onChange: checked => onSelect(entries, checked),
+                disabled,
+              }}
+              action={{
+                label: `Approve ${entries.length}`,
+                ariaLabel: `Approve ${entries.length} ${entries.length === 1 ? 'shift' : 'shifts'} for ${title}`,
+                onClick: () => {
+                  void approveGroup(entries, title)
+                },
+                disabled,
+                title: disabledReason,
+              }}
+              expanded={expanded.has(key)}
+              onExpandedChange={open =>
+                setExpanded(current => {
+                  const next = new Set(current)
+                  if (open) next.add(key)
+                  else next.delete(key)
+                  return next
+                })
+              }
+              expandLabel={`Show shifts for ${title}`}
+            >
+              {entries.map(entry => {
+                const start = entry.formatted_start_time || entry.start_time || '—'
+                const end = entry.formatted_end_time || entry.end_time || '—'
+                const detail = [
+                  `${start}–${end}`,
+                  entry.time_category?.name || 'No work category',
+                  `${entry.hours.toFixed(1)}h`,
+                ].join(' · ')
+
+                return (
+                  <ListRow
+                    key={entry.id}
+                    title={
+                      groupBy === 'day' ? entry.user.full_name : formatApprovalDate(entry.work_date)
+                    }
+                    metaWrap
+                    meta={detail}
+                    checkbox={{
+                      checked: selected.has(entry.id),
+                      label: `Select ${entry.user.full_name}, ${entry.work_date}`,
+                      onChange: checked => onSelect([entry], checked),
+                      disabled,
+                    }}
+                  />
+                )
+              })}
+            </ListRow>
+          )
+        })}
+      </ListGroup>
+    </div>
+  )
+}

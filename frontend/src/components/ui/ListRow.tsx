@@ -21,6 +21,8 @@ export interface ListRowProps {
   title: ReactNode
   /** One secondary line: "2 shifts · Nov 10–11". */
   meta?: ReactNode
+  /** Allow important secondary facts to wrap instead of being ellipsized. */
+  metaWrap?: boolean
   /** Avatar or icon tile. */
   leading?: ReactNode
   /**
@@ -55,6 +57,7 @@ const INTERACTIVE = 'a, button, input, select, textarea, label, [role="button"],
 export function ListRow({
   title,
   meta,
+  metaWrap = false,
   leading,
   trailing,
   checkbox,
@@ -123,7 +126,14 @@ export function ListRow({
         {leading}
         <div className="min-w-0 flex-1">
           <p id={`${id}-title`} className="truncate text-body font-semibold text-ink pointer-fine:text-body-sm">{title}</p>
-          {meta && <p id={`${id}-meta`} className="mt-0.5 truncate text-body-sm text-ink-muted">{meta}</p>}
+          {meta && (
+            <p
+              id={`${id}-meta`}
+              className={cx('mt-0.5 text-body-sm text-ink-muted', metaWrap ? 'whitespace-normal' : 'truncate')}
+            >
+              {meta}
+            </p>
+          )}
         </div>
         {trailing && <div className="flex shrink-0 items-center gap-2 text-right text-body-sm text-ink">{trailing}</div>}
         {action && (

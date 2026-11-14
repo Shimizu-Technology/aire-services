@@ -380,14 +380,31 @@ class TimeClockService
       entry.with_lock do
         raise ClockError, "Entry is not pending approval" unless entry.pending_approval?
 
-        entry.update!(
+        close_overtime = entry.overtime_status == "pending"
+        attrs = {
           approval_status: "denied",
           approved_by: denied_by,
           approved_at: Time.current,
           approval_note: note
-        )
+        }
+        # The TimeEntry save callback reconciles this employee's affected weeks.
+        entry.update!(attrs)
+        # Apply the explicit overtime decision after reconciliation, which may
+        # otherwise clear its review fields. Both saves share the entry lock.
+        if close_overtime
+          entry.update!(
+            overtime_status: "denied",
+            overtime_approved_by: denied_by,
+            overtime_approved_at: Time.current,
+            overtime_note: note
+          )
+        end
         record_review_event!("time_entry.denied", entry, denied_by, note, outcome: "denied")
         record_payroll_case_approval_event!(entry, denied_by, "denied", note)
+        if close_overtime
+          record_review_event!("time_entry.overtime_denied", entry, denied_by, note, outcome: "denied")
+          record_payroll_case_approval_event!(entry, denied_by, "denied", note, approval_kind: "overtime")
+        end
       end
       entry
     end

@@ -193,3 +193,14 @@ describe('useConfirm', () => {
     expect(onResult).toHaveBeenCalledWith(false)
   })
 })
+
+it('disables an offline confirmation while keeping Cancel usable', () => {
+  const { onConfirm, onCancel } = renderDialog({ confirmDisabled: true, confirmDisabledReason: 'Reconnect to approve' })
+  const save = screen.getByRole('button', { name: 'Delete shift' })
+  expect(save).toBeDisabled()
+  expect(save).toHaveAttribute('title', 'Reconnect to approve')
+  fireEvent.click(save)
+  expect(onConfirm).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(onCancel).toHaveBeenCalledOnce()
+})

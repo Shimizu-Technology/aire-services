@@ -1,11 +1,13 @@
 import '@testing-library/jest-dom'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { capabilitiesFor, type UserRole } from '../../lib/roles'
 import { legacyTimeRedirect, landingPathFor } from '../../lib/adminRoutes'
-import { AdminLanding, LegacyTimeRedirect, MovedPage } from './AdminRedirects'
+import { AdminLanding, LegacyTimeRedirect, MovedPage, SupervisorLeaveRedirect } from './AdminRedirects'
+
+vi.mock('../../components/approvals/OwnLeavePage', () => ({ default: () => <Probe name="Own leave" /> }))
 
 const auth = vi.hoisted(() => ({ role: 'manager' as UserRole }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuthContext: () => ({ isClerkEnabled: true, userRole: auth.role }) }))
@@ -153,4 +155,27 @@ describe('legacyTimeRedirect', () => {
   it('drops only the tab parameter', () => {
     expect(legacyTimeRedirect('?tab=approvals&approval_group=cfi&role=manager', '', capabilitiesFor('admin'))).toBe('/admin/approvals?approval_group=cfi&role=manager')
   })
+})
+
+// Exercise the new leave route without changing the historical #175 probe matrix.
+describe('supervisor leave inbox', () => {
+  it.each(['owner', 'admin', 'manager'] as const)('redirects %s leave with context', role => {
+    auth.role = role
+    render(<MemoryRouter initialEntries={['/admin/leave?user_id=7#request']}><Routes><Route path="/admin/leave" element={<SupervisorLeaveRedirect><Probe name="Leave" /></SupervisorLeaveRedirect>} /><Route path="/admin/approvals" element={<Probe name="Approvals" />} /></Routes></MemoryRouter>)
+    expect(page()).toBe('Approvals')
+    expect(url()).toBe('/admin/approvals?user_id=7&kind=leave#request')
+  })
+  it('retains the employee Leave page', () => {
+    auth.role = 'employee'
+    render(<MemoryRouter initialEntries={['/admin/leave']}><SupervisorLeaveRedirect><Probe name="Leave" /></SupervisorLeaveRedirect></MemoryRouter>)
+    expect(page()).toBe('Leave')
+  })
+})
+
+
+it.each(['owner', 'admin', 'manager'] as const)('keeps %s own leave at mine=1 without redirecting', async role => {
+  auth.role = role
+  render(<MemoryRouter initialEntries={['/admin/leave?mine=1']}><SupervisorLeaveRedirect><Probe name="Own leave" /></SupervisorLeaveRedirect></MemoryRouter>)
+  await waitFor(() => expect(page()).toBe('Own leave'))
+  expect(url()).toBe('/admin/leave?mine=1')
 })

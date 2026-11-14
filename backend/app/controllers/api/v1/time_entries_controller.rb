@@ -12,7 +12,7 @@ module Api
       before_action :authenticate_user!
       before_action :require_staff!
       before_action :set_time_entry, only: [ :show, :update, :destroy, :approve, :deny, :approve_overtime, :deny_overtime ]
-      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval ]
+      before_action -> { require_capability!(:approve_time) }, only: [ :approve, :deny, :approve_overtime, :deny_overtime, :bulk_approve, :review_batch, :undo_review_batch, :undo_approval, :review_history ]
 
       # GET /api/v1/time_entries
       def index
@@ -83,6 +83,14 @@ module Api
         render json: { time_entry: serialize_time_entry(@time_entry) }
       end
 
+      # GET /api/v1/time_entries/:id/review_history
+      def review_history
+        entry = TimeEntry.find(params[:id])
+        return render json: { error: "Time entry not found" }, status: :not_found unless current_user.can_review_time_of?(entry.user_id)
+
+        render json: { entry_id: entry.id, changes: ::Approvals::ReviewHistory.new(entry).call }
+      end
+
       # POST /api/v1/time_entries
       def create
         entry_owner = resolve_entry_owner
@@ -146,6 +154,7 @@ module Api
 
         return unless require_correction_reason_for_payroll_entry!
 
+        was_denied = @time_entry.approval_status == "denied"
         old_values = {
           hours: @time_entry.hours.to_f,
           work_date: @time_entry.work_date.iso8601,
@@ -209,7 +218,8 @@ module Api
             raise ActiveRecord::Rollback unless saved
 
             if @time_entry.status == "completed" &&
-               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601)
+               (old_values[:hours] != @time_entry.hours.to_f || old_values[:work_date] != @time_entry.work_date.iso8601 ||
+                (was_denied && @time_entry.approval_status == "pending"))
               new_overtime = TimeClockService.check_overtime_status(@time_entry.user, @time_entry)
               overtime_attrs = { overtime_status: new_overtime }
 
@@ -674,6 +684,7 @@ module Api
           ordinary_hours: by_kind.fetch(::Approvals::ReviewClassifier::ORDINARY, []).sum { |entry| entry.hours.to_f }.round(2),
           needs_look_count: by_kind.fetch(::Approvals::ReviewClassifier::NEEDS_LOOK, []).size,
           batch_limit: ::Approvals::ApproveReviewBatch::MAX_ITEMS,
+          ordinary_max_shift_hours: Setting.auto_approve_max_shift_hours,
           by_person: entries.group_by(&:user_id).map do |_user_id, rows|
             user = rows.first.user
             ordinary = rows.select { |entry| @review_kinds.dig(entry.id, :review_kind) == ::Approvals::ReviewClassifier::ORDINARY }
@@ -1468,6 +1479,7 @@ module Api
         entries = TimeEntry
           .preload({ user: [ :user_approval_groups, :assigned_time_categories ] }, :schedule, :approved_by, :overtime_approved_by, :time_entry_breaks, :time_category)
           .where("time_entries.approval_status = ? OR time_entries.overtime_status = ?", "pending", "pending")
+          .where("time_entries.approval_status IS DISTINCT FROM ?", "denied")
 
         approval_group = params[:approval_group].to_s
         return entries if approval_group.blank?
