@@ -118,7 +118,7 @@ function AdminShell() {
                 )}
                 <ul className="space-y-1">
                   {group.items.map((navItem) => {
-                    const active = isNavItemActive(navItem, location.pathname)
+                    const active = isNavItemActive(navItem, location.pathname, location.search)
                     const showBadge = navItem.badge === 'approvals' && approvalCount > 0
                     return (
                       <li key={navItem.id}>

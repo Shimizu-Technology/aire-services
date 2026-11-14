@@ -598,3 +598,19 @@ it('applies the leave date range to visible requests and the Leave count', async
     'true',
   )
 })
+
+
+it.each(['cfi', 'ops'])('accepts displayed fallback department %s when group metadata is empty', async (department) => {
+  vi.mocked(api.getUsers).mockResolvedValue({ data: { users: [], approval_groups: [] } })
+  renderInbox('/admin/approvals?dept=all')
+  const chip = await screen.findByRole('tab', {
+    name: department === 'cfi' ? 'CFI' : 'Ops/Maint',
+  })
+  await waitFor(() => expect(screen.queryByText('Loading departments and people…')).not.toBeInTheDocument())
+  fireEvent.click(chip)
+  await waitFor(() => expect(chip).toHaveAttribute('aria-selected', 'true'))
+  await waitFor(() => expect(approvalsApi.pending).toHaveBeenLastCalledWith(
+    expect.objectContaining({ approval_group: department }),
+    expect.any(AbortSignal),
+  ))
+})

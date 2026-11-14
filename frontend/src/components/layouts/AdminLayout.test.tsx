@@ -173,6 +173,8 @@ describe('AdminLayout sidebar by role', () => {
     ['/admin', 'Today'],
     ['/admin/approvals', 'Approvals'],
     ['/admin/leave', 'Approvals'],
+    ['/admin/leave?mine=1', 'My leave'],
+    ['/admin/leave?mine=0', 'Approvals'],
     ['/admin/timecards', 'Timecards'],
     ['/admin/payroll', 'Payroll'],
     ['/admin/pay', 'My Pay'],
@@ -550,4 +552,15 @@ it('uses membership before legacy/saved departments for the badge after opening 
   await waitFor(() => expect(apiMock.getPendingApprovals).toHaveBeenCalledWith({
     page: 1, per_page: 1, approval_group: 'cfi',
   }))
+})
+
+
+it('marks My leave current in More without highlighting Approvals for mine=1', () => {
+  signIn('manager')
+  setViewportWidth(390)
+  renderLayout('/admin/leave?mine=1')
+  expect(within(tabBar()).getByRole('link', { name: 'Approvals' })).not.toHaveAttribute('aria-current')
+  expect(within(tabBar()).getByRole('button', { name: 'More' })).toHaveClass('text-primary')
+  fireEvent.click(within(tabBar()).getByRole('button', { name: 'More' }))
+  expect(within(screen.getByRole('dialog', { name: 'More' })).getByRole('link', { name: 'My leave' })).toHaveAttribute('aria-current', 'page')
 })

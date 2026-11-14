@@ -49,7 +49,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
   const [wasSuspended, setWasSuspended] = useState(suspended)
   const dismissedForDesktop = useRef(false)
   const moreItems = layout.more.flatMap((group) => group.items)
-  const moreActive = moreItems.some((navItem) => isNavItemActive(navItem, location.pathname))
+  const moreActive = moreItems.some((navItem) => isNavItemActive(navItem, location.pathname, location.search))
 
   // Required PIN setup closes More; it doesn't reopen once the PIN is saved.
   if (suspended !== wasSuspended) {
@@ -79,7 +79,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
   }, [moreOpen, onDesktopDismiss])
 
   const renderTab = (navItem: NavItem) => {
-    const active = isNavItemActive(navItem, location.pathname)
+    const active = isNavItemActive(navItem, location.pathname, location.search)
     const badge = navItem.badge === 'approvals' && approvalCount > 0 ? approvalBadgeText(approvalCount) : undefined
     return (
       <li key={navItem.id} className="flex min-w-0 flex-1">
@@ -128,7 +128,7 @@ export default function AdminTabBar({ layout, approvalCount, suspended = false, 
               {group.label && <h3 className="mb-1 px-1 text-caption font-semibold uppercase tracking-[0.08em] text-ink-muted">{group.label}</h3>}
               <ul className="space-y-1">
                 {group.items.map((navItem) => {
-                  const active = isNavItemActive(navItem, location.pathname)
+                  const active = isNavItemActive(navItem, location.pathname, location.search)
                   const Icon = navItem.icon
                   return (
                     <li key={navItem.id}>

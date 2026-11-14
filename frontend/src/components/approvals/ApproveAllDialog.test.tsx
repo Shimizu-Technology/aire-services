@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react'
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { approvalSelection } from '../../lib/approvalsFilters'
 import { reviewEntry } from '../../test/approvalFixtures'
 import ApproveAllDialog from './ApproveAllDialog'
+afterEach(() => vi.useRealTimers())
 it.each([
   'Wait for approvals to finish loading',
   'Reload approvals before saving',
@@ -28,6 +29,8 @@ it.each([
 })
 
 it('summarizes exclusions with a Show who disclosure, one date and a short undo note', () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-06T12:00:00Z'))
   render(
     <ApproveAllDialog
       selection={approvalSelection([reviewEntry(1)])}

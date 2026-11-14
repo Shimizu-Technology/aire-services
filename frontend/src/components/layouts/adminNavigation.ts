@@ -199,8 +199,11 @@ export function tabBarLayout(options: NavigationOptions): TabBarLayout {
 }
 
 /** True when the current path belongs to this nav item. Today matches only /admin itself. */
-export function isNavItemActive(navItem: NavItem, pathname: string) {
+export function isNavItemActive(navItem: NavItem, pathname: string, search = '') {
   if (navItem.external) return false
+  const ownLeave = isWithinRoute(pathname, ADMIN_PATHS.leave) && new URLSearchParams(search).get('mine') === '1'
+  if (navItem.id === 'my-leave') return ownLeave
+  if (navItem.id === 'approvals' && ownLeave) return false
   if (navItem.href === ADMIN_PATHS.today) return pathname === ADMIN_PATHS.today || pathname === `${ADMIN_PATHS.today}/`
   return [navItem.href, ...(navItem.alsoActiveOn ?? [])].some((href) => isWithinRoute(pathname, href))
 }

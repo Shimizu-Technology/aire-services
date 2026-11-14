@@ -123,6 +123,15 @@ function ApprovalsInbox() {
   } | null>(null)
   const [people, setPeople] = useState<UserSummary[]>([])
   const [groups, setGroups] = useState<ApprovalGroupOption[]>([])
+  const departmentOptions = groups.length
+    ? groups
+        .filter((group) => group.key !== 'unassigned')
+        .map((group) => ({ value: group.key, label: group.label }))
+    : [
+        { value: 'cfi', label: 'CFI' },
+        { value: 'ops', label: 'Ops/Maint' },
+      ]
+  departmentOptions.push({ value: 'unassigned', label: 'Unassigned' })
   const [peopleLoading, setPeopleLoading] = useState(true)
   const [peopleError, setPeopleError] = useState('')
   const defaultDepartment = approvalDepartment(
@@ -136,7 +145,7 @@ function ApprovalsInbox() {
     !peopleError &&
     requestedDepartment !== 'all' &&
     requestedDepartment !== 'unassigned' &&
-    !groups.some((group) => group.key === requestedDepartment)
+    !departmentOptions.some((option) => option.value === requestedDepartment)
       ? 'all'
       : requestedDepartment
   const [categories, setCategories] = useState<TimeCategory[]>([])
@@ -445,15 +454,6 @@ function ApprovalsInbox() {
         ? 'stubs'
         : 'time'
   const lock = approvalLockCopy(cutoff)
-  const departmentOptions = groups.length
-    ? groups
-        .filter((group) => group.key !== 'unassigned')
-        .map((group) => ({ value: group.key, label: group.label }))
-    : [
-        { value: 'cfi', label: 'CFI' },
-        { value: 'ops', label: 'Ops/Maint' },
-      ]
-  departmentOptions.push({ value: 'unassigned', label: 'Unassigned' })
   const defaultLabel =
     departmentOptions.find((option) => option.value === defaultDepartment)?.label ||
     'your department'

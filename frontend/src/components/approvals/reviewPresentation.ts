@@ -14,11 +14,14 @@ export const reviewStatus = (status: string | null | undefined) =>
 /** Remove known machine annotations; keep a person's note, including denial reasons. */
 export function personNote(note: string | null | undefined) {
   return (note ?? '')
-    .replace(/Clocked in without a schedule/gi, '')
-    .replace(/Employee edited (?:time )?entry(?:\s*[—–-]\s*awaiting admin review)?/gi, '')
-    .split('|')
+    .split(/ \| |\r?\n\s*\r?\n/)
     .map((part) => part.trim())
-    .filter(Boolean)
+    .filter(
+      (part) =>
+        part &&
+        !/^Clocked in without a schedule$/i.test(part) &&
+        !/^Employee edited (?:time )?entry(?:\s*[—–-]\s*awaiting admin review)?$/i.test(part),
+    )
     .join(' · ')
 }
 

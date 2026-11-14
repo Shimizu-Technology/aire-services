@@ -327,3 +327,16 @@ it('does not report Saved when another approver changed and approved uncertain o
   )
   expect(config.onClose).not.toHaveBeenCalledWith(true, 'Saved')
 })
+
+
+it('preserves annotation-like words inside personal reasons and removes only complete annotations', async () => {
+  vi.mocked(approvalsApi.history).mockResolvedValue({ data: { entry_id: 7, changes: [] } })
+  const config = props()
+  config.entry.approval_note =
+    'Denied: Employee edited time entry after cutoff | Clocked in without a schedule by mistake\n\nEmployee edited time entry — awaiting admin review'
+  render(<ReviewSheet {...config} />)
+  expect(await screen.findByText(
+    'Denied: Employee edited time entry after cutoff · Clocked in without a schedule by mistake',
+  )).toBeInTheDocument()
+  expect(screen.queryByText(/awaiting admin review/)).not.toBeInTheDocument()
+})
