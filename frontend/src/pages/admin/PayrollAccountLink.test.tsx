@@ -72,6 +72,10 @@ describe('PayrollAccountLink', () => {
       'Return to Cornerstone and start again',
     )
     expect(apiMock.getPayrollAccountLinkSession).not.toHaveBeenCalled()
+    expect(screen.getByRole('link', { name: 'Back to connection settings' })).toHaveAttribute(
+      'href',
+      '/admin/settings/payroll-connection',
+    )
   })
 
   it('keeps the consent screen available when authorization fails', async () => {

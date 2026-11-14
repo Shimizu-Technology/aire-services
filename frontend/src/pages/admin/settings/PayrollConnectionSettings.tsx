@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { PageHeader } from '../../../components/ui'
+import { PageHeader, buttonClasses } from '../../../components/ui'
+import { cornerstoneConnectionUrl } from '../../../lib/cornerstonePayroll'
 import { settingsApi, type PayrollConnection } from '../../../lib/api/settings'
 
 export default function PayrollConnectionSettings() {
   const [connection, setConnection] = useState<PayrollConnection | null>(null)
   const [error, setError] = useState('')
+  const reconnectUrl = cornerstoneConnectionUrl()
   useEffect(() => {
     void settingsApi
       .connection()
@@ -54,12 +57,25 @@ export default function PayrollConnectionSettings() {
               {new Date(connection.account_link.linked_at).toLocaleString()}
             </p>
           )}
-          <Link
-            to="/admin/payroll-link"
-            className="inline-flex min-h-11 items-center text-primary underline"
-          >
-            Reconnect
-          </Link>
+          <div className="space-y-2 border-t border-line pt-4">
+            <p className="text-sm text-ink-muted">
+              The connection is started from Cornerstone Payroll, not from here. In Cornerstone Payroll, open{' '}
+              <strong>Time tracking account</strong> in its settings and choose{' '}
+              <strong>Connect my time tracking account</strong>. It brings you back to AIRE to confirm.
+            </p>
+            {reconnectUrl && (
+              <a
+                href={reconnectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonClasses({ variant: 'secondary' })}
+              >
+                Open Cornerstone Payroll to reconnect
+                <ExternalLink className="size-4" aria-hidden="true" />
+                <span className="sr-only">(opens in a new tab)</span>
+              </a>
+            )}
+          </div>
         </div>
       )}
     </div>
