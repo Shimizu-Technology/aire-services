@@ -32,7 +32,9 @@ export default function PayrollConnectionSettings() {
               Cornerstone Payroll admins can resume it.
             </p>
           )}
-          <p>{connection.state.replaceAll('_', ' ')}</p>
+          <p className="font-semibold">
+            {connection.state.charAt(0).toUpperCase() + connection.state.replaceAll('_', ' ').slice(1)}
+          </p>
           <p>
             Last heard from:{' '}
             {connection.last_publication

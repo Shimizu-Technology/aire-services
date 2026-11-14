@@ -46,7 +46,7 @@ export default function DepartmentsWork() {
     setBaseline(JSON.stringify({ groups: nextGroups, work: nextWork }))
   }
   useEffect(() => {
-    alertRef.current?.scrollIntoView?.({ block: 'nearest' })
+    alertRef.current?.scrollIntoView?.({ block: 'center' })
   }, [error])
   useEffect(() => {
     void load().catch((reason) => setError(String(reason)))
@@ -55,11 +55,13 @@ export default function DepartmentsWork() {
     setSaving(true)
     setError('')
     setMessage('')
+    let wrote = false
     try {
       const old = JSON.parse(baseline) as { groups: ApprovalGroupOption[]; work: WorkDraft[] }
       if (JSON.stringify(groups) !== JSON.stringify(old.groups)) {
         const result = await api.updateAdminAppSettings({ approval_groups: groups })
         if (!result.data) throw new Error(result.error || 'Could not save departments')
+        wrote = true
       }
       for (const item of work) {
         if (
@@ -73,12 +75,14 @@ export default function DepartmentsWork() {
         if (!result.data) throw new Error(result.error || 'Could not save work')
         // Retain new IDs if a later write fails, so retry never creates duplicates.
         item.id = result.data.time_category.id
+        wrote = true
       }
       for (const item of savedWork.filter(
         (item) => !work.some((current) => current.id === item.id),
       )) {
         const result = await api.deleteTimeCategory(item.id)
         if (result.error) throw new Error(result.error)
+        wrote = true
       }
       await load()
       setMessage('Changes saved')
@@ -91,7 +95,9 @@ export default function DepartmentsWork() {
       )
       setError(
         refreshed
-          ? `${problem}. Changes made before this problem are saved. Anything else you edited is still on screen and was not saved: fix the problem and save again.`
+          ? wrote
+            ? `${problem}. Changes made before this problem are saved. Anything else you edited is still on screen and was not saved: fix the problem and save again.`
+            : `${problem}. Nothing was saved. Your edits are still on screen: fix the problem and save again.`
           : `${problem}. Some changes may have saved. Reload the page to see what is saved before you try again.`,
       )
     } finally {
@@ -116,7 +122,11 @@ export default function DepartmentsWork() {
       </Link>
       <PageHeader title="Departments and work" />
       {error && (
-        <p ref={alertRef} role="alert">
+        <p
+          ref={alertRef}
+          role="alert"
+          className="rounded-card border border-red-300 bg-red-50 p-4 text-red-800"
+        >
           {error}
         </p>
       )}

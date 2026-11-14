@@ -5,6 +5,9 @@ import { ListGroup, ListRow, PageHeader } from '../../../components/ui'
 import { settingsApi } from '../../../lib/api/settings'
 import { settingsAnchorPaths } from '../AdminRedirects'
 
+const sentence = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+
 export default function SettingsHome() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -26,13 +29,16 @@ export default function SettingsHome() {
       .catch(() => {})
     void settingsApi
       .connection()
-      .then((result) => setConnection(result.data?.state.replaceAll('_', ' ') ?? 'Unavailable'))
+      .then((result) => setConnection(sentence(result.data?.state.replaceAll('_', ' ') ?? 'unavailable')))
       .catch(() => setConnection('Unavailable'))
   }, [])
   const redirect = settingsAnchorPaths[location.hash]
   if (redirect) return <Navigate replace to={redirect} />
   const settings = (data?.settings ?? {}) as Record<string, string>
   const on = (key: string) => (settings[key] === 'true' ? 'on' : 'off')
+  const reminderCount = (settings.payroll_cutoff_reminder_emails || '')
+    .split(/[\n,;]+/)
+    .filter((value) => value.trim()).length
   const rows = [
     [
       'time-clock',
@@ -42,12 +48,12 @@ export default function SettingsHome() {
     [
       'approvals',
       'Approvals',
-      `Auto-approve ${on('auto_approve_ordinary_shifts')} · managers ${settings.managers_can_approve_own_time === 'true' ? 'can' : "can't"} approve their own time · reminders to ${(settings.payroll_cutoff_reminder_emails || '').split(/[\n,;]+/).filter((value) => value.trim()).length} people`,
+      `Auto-approve ${on('auto_approve_ordinary_shifts')} · managers ${settings.managers_can_approve_own_time === 'true' ? 'can' : "can't"} approve their own time · ${reminderCount ? `reminders to ${plural(reminderCount, 'person', 'people')}` : 'no reminders'}`,
     ],
     [
       'departments',
       'Departments and work',
-      `${data?.approval_groups.length ?? 0} departments · ${categoryCount ?? '—'} kinds of work`,
+      `${plural(data?.approval_groups.length ?? 0, 'department', 'departments')} · ${categoryCount === null ? '—' : plural(categoryCount, 'kind of work', 'kinds of work')}`,
     ],
     [
       'pay-stubs',
@@ -56,7 +62,7 @@ export default function SettingsHome() {
     ],
     ['kiosk', 'Kiosk', `Pay stub requests ${on('pay_stub_kiosk_requests_enabled')}`],
     ['payroll-connection', 'Payroll connection', connection],
-    ['schedules', 'Schedules', on('schedules_enabled')],
+    ['schedules', 'Schedules', sentence(on('schedules_enabled'))],
     ['roles', 'Roles & access', 'View permissions by role'],
   ]
   return (

@@ -73,3 +73,16 @@ it('labels the name and description fields for sighted users', async () => {
   expect(screen.getByPlaceholderText('Description (optional)')).toBeInTheDocument()
   expect(screen.getByPlaceholderText('Department name')).toBeInTheDocument()
 })
+
+it('says nothing was saved when the first request is refused', async () => {
+  const user = userEvent.setup()
+  render(<RouterProvider router={createMemoryRouter([{ path: '/', element: <DepartmentsWork /> }])} />)
+  await user.click(await screen.findByRole('button', { name: 'Remove' }))
+  mocks.updateSettings.mockResolvedValue({ error: 'Reassign users before removing departments currently in use: CFI' })
+
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('currently in use: CFI. Nothing was saved.')
+  expect(alert).not.toHaveTextContent('before this problem are saved')
+})

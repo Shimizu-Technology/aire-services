@@ -33,3 +33,16 @@ for (const [hash, path] of Object.entries(settingsAnchorPaths)) {
     expect(await screen.findByText(path)).toBeInTheDocument()
   })
 }
+it('reads the current state in plain words', async () => {
+  render(
+    <RouterProvider
+      router={createMemoryRouter([{ path: '/admin/settings', element: <SettingsHome /> }], {
+        initialEntries: ['/admin/settings'],
+      })}
+    />,
+  )
+  expect(await screen.findByText('Connected')).toBeInTheDocument()
+  expect(screen.getByText('Off')).toBeInTheDocument()
+  expect(screen.getByText(/no reminders/)).toBeInTheDocument()
+  expect(screen.getByText('0 departments · 0 kinds of work')).toBeInTheDocument()
+})

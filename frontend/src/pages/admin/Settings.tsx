@@ -1491,7 +1491,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
 
                     <div className="mt-4 space-y-3">
                       {publicContactDraft.phone_contacts.map((contact, index) => (
-                        <div key={contact.draft_id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.7fr_0.65fr_auto]">
+                        <div key={contact.draft_id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 lg:grid-cols-[1.3fr_1fr_1fr_0.8fr_0.8fr_auto]">
                           <div>
                             <label htmlFor={`public-phone-contact-label-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Purpose label</label>
                             <input
@@ -1537,7 +1537,7 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                           </div>
                           <div>
                             <span className="mb-2 block text-sm font-medium text-slate-700">Primary</span>
-                            <label className="flex min-h-[50px] items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">
+                            <label className="flex min-h-[50px] items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold leading-4 text-slate-700">
                               <input
                                 type="radio"
                                 name="primary-public-phone-contact"

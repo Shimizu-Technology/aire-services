@@ -167,9 +167,12 @@ export default function SettingsPage({ page }: { page: SettingsPageId }) {
       </Link>
       <PageHeader title={title} />
       {error && (
-        <div role="alert">
-          {error}
-          <button type="button" onClick={load}>
+        <div
+          role="alert"
+          className="rounded-card border border-red-300 bg-red-50 p-4 text-red-800"
+        >
+          <p>{error}</p>
+          <button type="button" onClick={load} className="min-h-11 underline">
             Reload settings
           </button>
         </div>
