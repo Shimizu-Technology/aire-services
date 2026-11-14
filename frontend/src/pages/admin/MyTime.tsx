@@ -50,13 +50,20 @@ export default function MyTime() {
   const inFlight = useRef(false)
   const statusGeneration = useRef(0)
   const unconfirmed = useRef(false)
+  const hasConfirmedStatus = useRef(false)
   const storageKey = `aire-last-work-${viewerId}`
   const period = currentPayPeriod()
 
   const readStatus = useCallback(async () => {
     const generation = ++statusGeneration.current
     const result = await myTimeApi.status()
-    if (generation !== statusGeneration.current || !result.data) return null
+    if (generation !== statusGeneration.current) return null
+    if (!result.data) {
+      if (!hasConfirmedStatus.current)
+        setStatusError("Couldn't check your clock. Try again.")
+      return null
+    }
+    hasConfirmedStatus.current = true
     setStatus(result.data)
     if (result.data.clocked_in && result.data.time_category) {
       setChoice(result.data.time_category.id)
@@ -73,14 +80,13 @@ export default function MyTime() {
   }, [])
 
   const load = useCallback(async () => {
-    const [result, categoryResult, shifts] = await Promise.all([
+    const [, categoryResult, shifts] = await Promise.all([
       readStatus(),
       myTimeApi.categories(),
       viewerId
         ? myTimeApi.entries(viewerId, currentPayPeriod())
         : Promise.resolve(null),
     ])
-    if (!result) setStatusError("Couldn't check your clock. Try again.")
     if (categoryResult.data) {
       const available = categoryResult.data.time_categories
       setCategories(available)

@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -308,4 +309,21 @@ it('does not keep clock actions busy while an optional summary refresh is frozen
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Clock out' })).toBeEnabled(),
   )
+})
+
+it('does not show an initial error from a superseded Strict Mode status read', async () => {
+  render(
+    <StrictMode>
+      <MemoryRouter>
+        <MyTime />
+      </MemoryRouter>
+    </StrictMode>,
+  )
+  await screen.findByText('Off the clock')
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Clock in' })).toBeEnabled(),
+  )
+  expect(
+    screen.queryByText("Couldn't check your clock. Try again."),
+  ).not.toBeInTheDocument()
 })
