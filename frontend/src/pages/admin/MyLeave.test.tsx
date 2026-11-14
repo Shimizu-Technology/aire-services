@@ -35,7 +35,7 @@ const open = () =>
     </MemoryRouter>,
   )
 
-it('sends a leave request, preserving the half-day instruction', async () => {
+it('sends a date range and the note without a half-day control or generated prefix', async () => {
   const create = vi
     .spyOn(api, 'createLeaveRequest')
     .mockResolvedValue({ data: { leave_request: request }, status: 201 })
@@ -47,7 +47,11 @@ it('sends a leave request, preserving the half-day instruction', async () => {
   fireEvent.change(screen.getByLabelText(/Start date/), {
     target: { value: '2026-12-04' },
   })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Half day' }))
+  expect(screen.queryByRole('checkbox', { name: 'Half day' })).not.toBeInTheDocument()
+  expect(screen.getByPlaceholderText("Say if it's a half day")).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText(/End date/), {
+    target: { value: '2026-12-05' },
+  })
   fireEvent.change(screen.getByLabelText('Note'), {
     target: { value: 'Morning appointment' },
   })
@@ -56,8 +60,8 @@ it('sends a leave request, preserving the half-day instruction', async () => {
     expect(create).toHaveBeenCalledWith({
       leave_type: 'paid_time_off',
       start_date: '2026-12-04',
-      end_date: '2026-12-04',
-      reason: 'Half day requested.\nMorning appointment',
+      end_date: '2026-12-05',
+      reason: 'Morning appointment',
     }),
   )
   expect(

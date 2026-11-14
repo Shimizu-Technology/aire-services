@@ -1,7 +1,7 @@
 import type { TimeEntry } from '../../lib/api'
 import { periodPaidDate, periodTotals } from '../../lib/myTime'
 import type { PayPeriod } from '../../lib/payPeriods'
-import { formatDateOnly } from '../../lib/dateUtils'
+import { employeeDate } from '../../lib/employeePresentation'
 import { ProgressSplit, StatusPill } from '../ui'
 
 export function HoursSummary({
@@ -27,7 +27,7 @@ export function HoursSummary({
         {paidDate && (
           <StatusPill tone="approved">
             Paid{' '}
-            {formatDateOnly(paidDate, {
+            {employeeDate(paidDate, {
               weekday: 'short',
               month: 'short',
               day: 'numeric',

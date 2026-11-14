@@ -45,6 +45,7 @@ vi.mock('@clerk/clerk-react', () => ({
     if (!authMock.value.isClerkEnabled) throw new Error('SignedIn rendered without ClerkProvider')
     return <>{children}</>
   },
+  useClerk: () => ({ openUserProfile: vi.fn(), signOut: vi.fn() }),
   UserButton: Object.assign(
     ({ children }: { children: ReactNode }) => <div>User menu{children}</div>,
     {
@@ -248,7 +249,9 @@ describe('AdminLayout phone tab bar', () => {
     renderLayout('/admin/my-time')
     expect(names(tabBar())).toEqual(['Clock', 'Hours', 'Leave', 'My Pay'])
     expect(within(tabBar()).queryByRole('button', { name: 'More' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'What can I do?' }))
+    const account = screen.getByRole('button', { name: 'Account menu' })
+    fireEvent.click(account)
+    fireEvent.click(screen.getByRole(account.getAttribute('aria-haspopup') === 'menu' ? 'menuitem' : 'button', { name: 'What can I do?' }))
     expect(screen.getByText('Page /admin/settings/roles')).toBeInTheDocument()
     expect(apiMock.getPendingApprovals).not.toHaveBeenCalled()
   })

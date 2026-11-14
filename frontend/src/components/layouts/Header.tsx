@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { CircleHelp } from 'lucide-react'
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react'
+import { CircleHelp, LogOut, UserRound } from 'lucide-react'
+import { SignedIn, SignedOut, SignInButton, UserButton, useClerk } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor } from '../../lib/roles'
 import { cx } from '../../lib/cx'
+import { Avatar, Menu } from '../ui'
 
 const navigation = [
   { name: 'Home', href: '/' },
@@ -17,22 +18,46 @@ const navigation = [
 /** Employee help belongs in the account menu, leaving all five tabs for work. */
 export function AccountButton() {
   const { userRole } = useAuthContext()
-  const navigate = useNavigate()
+  if (userRole === 'employee') return <EmployeeAccountMenu />
   return (
     <UserButton
       afterSignOutUrl="/"
       appearance={{ elements: { avatarBox: 'w-9 h-9' } }}
-    >
-      {userRole === 'employee' && (
-        <UserButton.MenuItems>
-          <UserButton.Action
-            label="What can I do?"
-            labelIcon={<CircleHelp className="size-4" />}
-            onClick={() => navigate('/admin/settings/roles')}
-          />
-        </UserButton.MenuItems>
-      )}
-    </UserButton>
+    />
+  )
+}
+
+function EmployeeAccountMenu() {
+  const { currentUser } = useAuthContext()
+  const { openUserProfile, signOut } = useClerk()
+  const navigate = useNavigate()
+  return (
+    <Menu
+      label="Account menu"
+      title={currentUser?.full_name ?? 'Account'}
+      icon={<Avatar name={currentUser?.full_name ?? 'Account'} />}
+      className="size-11 rounded-full"
+      items={[
+        {
+          id: 'help',
+          label: 'What can I do?',
+          icon: <CircleHelp />,
+          onSelect: () => navigate('/admin/settings/roles'),
+        },
+        {
+          id: 'account',
+          label: 'Manage account',
+          icon: <UserRound />,
+          onSelect: () => openUserProfile(),
+        },
+        {
+          id: 'sign-out',
+          label: 'Sign out',
+          icon: <LogOut />,
+          onSelect: () => { void signOut({ redirectUrl: '/' }) },
+        },
+      ]}
+    />
   )
 }
 

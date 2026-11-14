@@ -4,6 +4,7 @@ import type { LeaveRequest } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
 import { outcomeUnknown } from '../../lib/api/timecards'
 import { formatDateOnly } from '../../lib/dateUtils'
+import { employeeDateRange } from '../../lib/employeePresentation'
 import { payPeriodContaining, todayInGuam } from '../../lib/payPeriods'
 import { useOnlineStatus } from '../../lib/useOnlineStatus'
 import { startVisibilityAwarePolling } from '../../lib/visibilityPolling'
@@ -117,13 +118,7 @@ export default function MyLeave() {
                 {TYPES[request.leave_type]}
               </p>
               <p className="text-body-sm text-ink-muted">
-                {formatDateOnly(request.start_date, {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-                {request.end_date !== request.start_date &&
-                  `–${formatDateOnly(request.end_date, { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                {employeeDateRange(request.start_date, request.end_date)}
               </p>
               <StatusPill
                 tone={
@@ -205,7 +200,6 @@ function LeaveForm({
   const [type, setType] = useState<LeaveRequest['leave_type']>('paid_time_off')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
-  const [halfDay, setHalfDay] = useState(false)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [uncertain, setUncertain] = useState(false)
@@ -217,13 +211,8 @@ function LeaveForm({
     const response = await myTimeApi.requestLeave({
       leave_type: type,
       start_date: start,
-      end_date: halfDay ? start : end,
-      // The existing API stores whole date ranges. Preserve a half-day
-      // request as an explicit instruction for its human reviewer.
-      reason:
-        [halfDay ? 'Half day requested.' : '', note.trim()]
-          .filter(Boolean)
-          .join('\n') || undefined,
+      end_date: end,
+      reason: note.trim() || undefined,
     })
     setSaving(false)
     if (!response.data) {
@@ -287,28 +276,16 @@ function LeaveForm({
           <Input
             type="date"
             min={start}
-            value={halfDay ? start : end}
-            disabled={halfDay}
+            value={end}
             onChange={(event) => setEnd(event.target.value)}
           />
         </Field>
-        <label className="flex min-h-11 items-center gap-3 text-body">
-          <input
-            type="checkbox"
-            checked={halfDay}
-            onChange={(event) => setHalfDay(event.target.checked)}
-            className="size-5 accent-primary"
-          />
-          Half day
-        </label>
-        {halfDay && (
-          <p className="text-body-sm text-ink-muted">
-            We'll include “Half day requested” in your note for your manager. Say which
-            hours you need off.
-          </p>
-        )}
         <Field label="Note">
-          <Textarea value={note} onChange={(event) => setNote(event.target.value)} />
+          <Textarea
+            placeholder="Say if it's a half day"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
         </Field>
         {error && (
           <p role="alert" className="text-body-sm text-danger">

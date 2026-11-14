@@ -27,6 +27,29 @@ const open = () =>
     </MemoryRouter>,
   )
 
+it('shows one approval pill for unknown payroll, keeping overtime on the shift', async () => {
+  vi.mocked(myTimeApi.entries).mockResolvedValue({
+    data: [
+      shift({
+        overtime_status: 'pending',
+        pending_overtime_hours: 6,
+        payroll_status: {
+          status: 'payment_history_unavailable',
+          label: 'Payment status not tracked yet',
+          paid_hours: 0,
+          held_hours: 0,
+        },
+      }),
+    ],
+  })
+  open()
+  const row = await screen.findByRole('button', { name: /8:00 AM/ })
+  expect(row.querySelectorAll('[data-tone]')).toHaveLength(1)
+  expect(row).toHaveTextContent('Waiting for approval')
+  expect(row).not.toHaveTextContent(/not tracked/i)
+  expect(row).toHaveTextContent('6.0h overtime waiting')
+})
+
 it('shows paid status only when the payload confirms it', () => {
   const period = { start: '2026-11-01', end: '2026-11-15' }
   const view = render(

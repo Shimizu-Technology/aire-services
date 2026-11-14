@@ -1,6 +1,6 @@
 import type { TimeEntry } from '../../lib/api'
 import { clockTime } from '../../lib/myTime'
-import { formatDateOnly } from '../../lib/dateUtils'
+import { employeeDate, employeeShiftStatus } from '../../lib/employeePresentation'
 import { Button, Sheet } from '../ui'
 
 export function ShiftSheet({
@@ -35,7 +35,7 @@ export function ShiftSheet({
     <Sheet
       open
       onClose={onClose}
-      title={formatDateOnly(entry.work_date, {
+      title={employeeDate(entry.work_date, {
         weekday: 'long',
         month: 'short',
         day: 'numeric',
@@ -90,7 +90,7 @@ export function ShiftSheet({
               ? `Approved by ${entry.approved_by.full_name}`
               : entry.auto_approved
                 ? 'Automatically approved'
-                : (entry.payroll_status?.label ?? 'Waiting for approval')}
+                : employeeShiftStatus(entry).label}
           </dd>
         </div>
         <div>

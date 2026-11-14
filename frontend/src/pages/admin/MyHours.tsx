@@ -3,12 +3,13 @@ import { useSearchParams } from 'react-router-dom'
 import { useAuthContext } from '../../contexts/AuthContext'
 import type { TimeCategory, TimeEntry, UserSummary } from '../../lib/api'
 import { myTimeApi } from '../../lib/api/myTime'
-import { addDateDays, formatDateOnly } from '../../lib/dateUtils'
+import { addDateDays } from '../../lib/dateUtils'
 import {
   currentPayPeriod,
   payPeriodContaining,
   todayInGuam,
 } from '../../lib/payPeriods'
+import { employeeDate, employeeShiftStatus } from '../../lib/employeePresentation'
 import { timecardDays } from '../../lib/timecards'
 import { isIsoDate } from '../../lib/payrollPeriods'
 import { weeksAround, withOvertimeHours } from '../../lib/myTime'
@@ -163,7 +164,7 @@ export default function MyHours() {
                 .map(([day, items]) => (
                   <li key={day}>
                     <h2 className="bg-surface-muted px-4 py-2 text-body-sm font-semibold text-ink">
-                      {formatDateOnly(day, {
+                      {employeeDate(day, {
                         weekday: 'short',
                         month: 'short',
                         day: 'numeric',
@@ -195,33 +196,12 @@ export default function MyHours() {
                           {entry.time_category?.name ?? 'No work type'}
                           {partial ? ' · hours in this period' : ''}
                           {continuesFrom
-                            ? ` · from ${formatDateOnly(continuesFrom, { month: 'short', day: 'numeric' })}`
+                            ? ` · from ${employeeDate(continuesFrom, { month: 'short', day: 'numeric' })}`
                             : ''}
                         </p>
-                        <StatusPill
-                          tone={
-                            entry.approval_status === 'denied'
-                              ? 'needs-fix'
-                              : entry.approval_status === 'approved'
-                                ? 'approved'
-                                : 'waiting'
-                          }
-                        >
-                          {entry.payroll_status?.label ??
-                            (entry.status !== 'completed'
-                              ? 'Shift in progress'
-                              : entry.approval_status === 'approved'
-                                ? 'Approved — not paid yet'
-                                : entry.approval_status === 'denied'
-                                  ? 'Declined'
-                                  : 'Waiting for approval')}
+                        <StatusPill tone={employeeShiftStatus(entry).tone}>
+                          {employeeShiftStatus(entry).label}
                         </StatusPill>
-                        {entry.approval_status === 'pending' &&
-                          entry.payroll_status?.label !== 'Waiting for approval' && (
-                            <p className="text-body-sm text-amber-900">
-                              Waiting for approval
-                            </p>
-                          )}
                         {entry.overtime_status === 'pending' && (
                           <p className="text-body-sm text-amber-900">
                             {(entry.pending_overtime_hours ?? 0).toFixed(1)}h overtime
