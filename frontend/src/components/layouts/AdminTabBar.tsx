@@ -20,7 +20,7 @@ function TabIcon({ icon: Icon, badge }: { icon: LucideIcon; badge?: string }) {
 }
 
 const tabClass = (active: boolean) => cx(
-  'flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-control px-1 pb-1 pt-2 text-[13px] leading-4 font-semibold transition-colors duration-150',
+  'flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-control px-0 pb-1 pt-2 text-[13px] leading-4 font-semibold tracking-[-0.01em] transition-colors duration-150',
   'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary',
   active ? 'text-primary' : 'text-ink-muted hover:text-ink',
 )
