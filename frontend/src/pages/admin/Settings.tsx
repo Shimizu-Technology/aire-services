@@ -7,6 +7,7 @@ import { useConfirm } from '../../components/ui/useConfirm'
 import { Link, useLocation } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import SettingHelp from '../../components/settings/SettingHelp'
+import PhoneLinkInput from './settings/PhoneLinkInput'
 import { SettingsCatalogContext } from '../../components/settings/settingsCatalogContext'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { StatusPill } from '../../components/ui/StatusPill'
@@ -1514,12 +1515,10 @@ export default function Settings({ view = 'settings' }: { view?: 'settings' | 'w
                           </div>
                           <div>
                             <label htmlFor={`public-phone-contact-e164-${index}`} className="mb-2 block text-sm font-medium text-slate-700">Link number</label>
-                            <input
+                            <PhoneLinkInput
                               id={`public-phone-contact-e164-${index}`}
-                              value={contact.phone_e164.replace(/^\+1(\d{3})(\d{3})(\d{0,4})$/, '+1 $1 $2 $3')}
-                              onChange={(e) => updatePublicPhoneContactDraft(index, 'phone_e164', e.target.value.replace(/[^+\d]/g, ''))}
-                              placeholder="+1 671 477 4243"
-                              type="tel"
+                              value={contact.phone_e164}
+                              onChange={(value) => updatePublicPhoneContactDraft(index, 'phone_e164', value)}
                               className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                             />
                           </div>

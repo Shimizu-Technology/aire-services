@@ -6,8 +6,28 @@ import SettingHelp from '../../../components/settings/SettingHelp'
 import { SettingsCatalogContext } from '../../../components/settings/settingsCatalogContext'
 import { PageHeader, UnsavedChangesBar, Switch } from '../../../components/ui'
 import { useUnsavedChanges } from '../../../components/ui/useUnsavedChanges'
+import { useConfirm } from '../../../components/ui/useConfirm'
 
 type WorkDraft = { id?: number; name: string; description: string; is_active: boolean }
+
+// One key order for every copy of a row, so a created row equals the server's copy.
+const shape = ({ id, name, description, is_active }: WorkDraft): WorkDraft => ({
+  id,
+  name,
+  description,
+  is_active,
+})
+
+// A refusal from the server, or a request that never got an answer (no HTTP status).
+class SaveProblem extends Error {
+  readonly unconfirmed: boolean
+  constructor(message: string, unconfirmed: boolean) {
+    super(message)
+    this.unconfirmed = unconfirmed
+  }
+}
+const problem = (result: { error?: string; status?: number }, fallback: string) =>
+  new SaveProblem(result.error || fallback, result.status === undefined)
 
 export default function DepartmentsWork() {
   const [catalog, setCatalog] = useState<SettingsCatalogEntry[]>([])
@@ -18,8 +38,9 @@ export default function DepartmentsWork() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [confirm, dialog] = useConfirm()
   const alertRef = useRef<HTMLParagraphElement>(null)
-  const snapshot = JSON.stringify({ groups, work })
+  const snapshot = JSON.stringify({ groups, work: work.map(shape) })
   // keepDraft refreshes what is saved on the server and leaves the admin's edits on screen.
   const load = async (keepDraft = false) => {
     const [settings, categories] = await Promise.all([
@@ -43,7 +64,7 @@ export default function DepartmentsWork() {
       setWork(nextWork)
     }
     setSavedWork(categories.data.time_categories)
-    setBaseline(JSON.stringify({ groups: nextGroups, work: nextWork }))
+    setBaseline(JSON.stringify({ groups: nextGroups, work: nextWork.map(shape) }))
   }
   useEffect(() => {
     alertRef.current?.scrollIntoView?.({ block: 'center' })
@@ -52,53 +73,67 @@ export default function DepartmentsWork() {
     void load().catch((reason) => setError(String(reason)))
   }, [])
   const save = async () => {
+    const old = JSON.parse(baseline) as { groups: ApprovalGroupOption[]; work: WorkDraft[] }
+    const removed = savedWork.filter((item) => !work.some((current) => current.id === item.id))
+    for (const item of removed) {
+      if (
+        !(await confirm({
+          title: `Permanently delete ${item.name}?`,
+          description: "This can't be undone.",
+          tone: 'danger',
+          confirmLabel: 'Delete',
+        }))
+      )
+        return
+    }
     setSaving(true)
     setError('')
     setMessage('')
     let wrote = false
     try {
-      const old = JSON.parse(baseline) as { groups: ApprovalGroupOption[]; work: WorkDraft[] }
       if (JSON.stringify(groups) !== JSON.stringify(old.groups)) {
         const result = await api.updateAdminAppSettings({ approval_groups: groups })
-        if (!result.data) throw new Error(result.error || 'Could not save departments')
+        if (!result.data) throw problem(result, 'Could not save departments')
         wrote = true
       }
       for (const item of work) {
-        if (
-          JSON.stringify(item) ===
-          JSON.stringify(old.work.find((previous) => previous.id === item.id))
-        )
-          continue
+        const previous = item.id ? old.work.find((row) => row.id === item.id) : undefined
+        if (previous && JSON.stringify(shape(item)) === JSON.stringify(shape(previous))) continue
         const result = item.id
           ? await api.updateTimeCategory(item.id, item)
           : await api.createTimeCategory(item)
-        if (!result.data) throw new Error(result.error || 'Could not save work')
-        // Retain new IDs if a later write fails, so retry never creates duplicates.
-        item.id = result.data.time_category.id
+        if (!result.data) throw problem(result, 'Could not save work')
+        // Keep the new row's id and server copy if a later write fails, so retry never
+        // creates duplicates and the row does not stay "unsaved".
+        const saved = result.data.time_category
+        Object.assign(item, shape({ ...saved, description: saved.description ?? '' }))
         wrote = true
       }
-      for (const item of savedWork.filter(
-        (item) => !work.some((current) => current.id === item.id),
-      )) {
+      for (const item of removed) {
         const result = await api.deleteTimeCategory(item.id)
-        if (result.error) throw new Error(result.error)
+        if (result.error) throw problem(result, 'Could not delete work')
         wrote = true
       }
       await load()
       setMessage('Changes saved')
     } catch (reason) {
-      const problem = reason instanceof Error ? reason.message : String(reason)
+      const unconfirmed = !(reason instanceof SaveProblem) || reason.unconfirmed
+      const text = reason instanceof Error ? reason.message : String(reason)
       // Changes before the failed request are already saved; show the server's truth as the baseline.
       const refreshed = await load(true).then(
         () => true,
         () => false,
       )
       setError(
-        refreshed
-          ? wrote
-            ? `${problem}. Changes made before this problem are saved. Anything else you edited is still on screen and was not saved: fix the problem and save again.`
-            : `${problem}. Nothing was saved. Your edits are still on screen: fix the problem and save again.`
-          : `${problem}. Some changes may have saved. Reload the page to see what is saved before you try again.`,
+        unconfirmed
+          ? refreshed
+            ? "We couldn't confirm what was saved. We reloaded what is saved. Anything you edited is still on screen: check it and save again if something is missing."
+            : "We couldn't confirm what was saved. Reload the page to see what is saved before you try again."
+          : refreshed
+            ? wrote
+              ? `${text}. Changes made before this problem are saved. Anything else you edited is still on screen and was not saved: fix the problem and save again.`
+              : `${text}. Nothing was saved. Your edits are still on screen: fix the problem and save again.`
+            : `${text}. Some changes may have saved. Reload the page to see what is saved before you try again.`,
       )
     } finally {
       setSaving(false)
@@ -241,6 +276,7 @@ export default function DepartmentsWork() {
       </SettingsCatalogContext.Provider>
       <UnsavedChangesBar {...unsaved.barProps} />
       {unsaved.guard}
+      {dialog}
     </div>
   )
 }
