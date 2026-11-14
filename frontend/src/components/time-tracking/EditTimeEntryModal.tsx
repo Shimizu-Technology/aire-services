@@ -165,8 +165,11 @@ export default function EditTimeEntryModal({
   const [discardGuard, setDiscardGuard] = useState(false)
   // Set just before a deliberate full-page move, so the tab-close warning stays quiet.
   const leaving = useRef(false)
+  const errorRef = useRef<HTMLDivElement>(null)
   const dataRouter = useContext(UNSAFE_DataRouterContext)
   const [categoryError, setCategoryError] = useState<string | null>(null)
+  const [reasonError, setReasonError] = useState<string | null>(null)
+  const [timeError, setTimeError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const [confirm, confirmDialog] = useConfirm()
@@ -180,6 +183,8 @@ export default function EditTimeEntryModal({
     setDiscardGuard(false)
     leaving.current = false
     setCategoryError(null)
+    setReasonError(null)
+    setTimeError(null)
     setReviewAction(null)
     setStopDate(entry.work_date)
     setError(null)
@@ -215,6 +220,8 @@ export default function EditTimeEntryModal({
   }, [breakRows, correctionReason, entry, formData, reviewAction])
 
   const guarded = isOpen && !!entry && dirty
+  // A message that lands below the fold is as good as no message, so bring it into view once.
+  useEffect(() => { if (error) errorRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [error])
 
   // Every way out of the sheet (Cancel, Escape, the backdrop, route changes, closing the tab)
   // asks first while there is something to lose. A clean sheet just closes.
@@ -243,10 +250,39 @@ export default function EditTimeEntryModal({
     onError?.(message)
   }
 
+  // A refused save has to be seen where it can be fixed: scroll to the field, focus it, and say
+  // what is wrong right beside it, instead of leaving a message below the fold.
+  const focusSoon = (id: string) => window.setTimeout(() => {
+    const element = document.getElementById(id)
+    element?.scrollIntoView?.({ block: 'center' })
+    element?.focus({ preventScroll: true })
+  }, 0)
+  const REASON_ID = 'time-entry-correction-reason'
+  const refuse = (response: { error?: string; code?: string; export_references?: string[] }) => {
+    const message = response.error ?? 'Failed to save time entry'
+    if (response.code === 'correction_reason_required') {
+      setCorrectionReasonRequired(true)
+      setExportReferences(response.export_references || [])
+      setError(null)
+      setReasonError(message)
+      onError?.(message)
+      focusSoon(REASON_ID)
+    } else if (response.code === 'overlapping_shift') {
+      setError(null)
+      setTimeError(message)
+      onError?.(message)
+      focusSoon(`${titleId}-start`)
+    } else {
+      setLocalError(message)
+    }
+  }
+
   // Saves the edit. True when it saved (or there was nothing to change).
   const save = async (): Promise<boolean> => {
     if (!entry) return false
     setCategoryError(null)
+    setReasonError(null)
+    setTimeError(null)
     if ((!isActiveClockEntry || reviewAction === 'end_clock') && !formData.time_category_id) {
       const message = 'Choose the kind of work before saving this shift.'
       setError(null)
@@ -255,8 +291,12 @@ export default function EditTimeEntryModal({
       window.setTimeout(() => document.getElementById(`${titleId}-category`)?.focus(), 0)
       return false
     }
-    if (reviewAction && !correctionReason.trim()) {
-      setLocalError('Explain why this entry should be submitted for review')
+    if ((reviewAction || correctionReasonRequired) && !correctionReason.trim()) {
+      const message = reviewAction ? 'Explain why this entry should be submitted for review.' : 'Explain what changed and why. This shift is covered by an export, so a reason is required.'
+      setError(null)
+      setReasonError(message)
+      onError?.(message)
+      focusSoon(REASON_ID)
       return false
     }
     if (reviewAction && (entry.version == null || !Number.isInteger(entry.version) || entry.version < 0)) {
@@ -312,11 +352,7 @@ export default function EditTimeEntryModal({
       const response = await api.updateTimeEntry(entry.id, payload, correctionReason || undefined)
 
       if (response.error) {
-        if (response.code === 'correction_reason_required') {
-          setCorrectionReasonRequired(true)
-          setExportReferences(response.export_references || [])
-        }
-        setLocalError(response.error)
+        refuse(response)
         return false
       }
 
@@ -365,11 +401,7 @@ export default function EditTimeEntryModal({
     try {
       const response = await api.deleteTimeEntry(entry.id, correctionReason || undefined)
       if (response.error) {
-        if (response.code === 'correction_reason_required') {
-          setCorrectionReasonRequired(true)
-          setExportReferences(response.export_references || [])
-        }
-        setLocalError(response.error)
+        refuse(response)
         return
       }
 
@@ -501,7 +533,9 @@ export default function EditTimeEntryModal({
                       type="time"
                       disabled={!!reviewAction}
                       value={formData.start_time}
-                      onChange={(event) => setFormData({ ...formData, start_time: event.target.value })}
+                      aria-invalid={timeError ? true : undefined}
+                      aria-describedby={timeError ? `${titleId}-time-error` : undefined}
+                      onChange={(event) => { setTimeError(null); setFormData({ ...formData, start_time: event.target.value }) }}
                       className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                       required
                     />
@@ -514,13 +548,16 @@ export default function EditTimeEntryModal({
                         type="time"
                         disabled={reviewAction === 'resubmit_denied'}
                         value={formData.end_time}
-                        onChange={(event) => setFormData({ ...formData, end_time: event.target.value })}
+                        aria-invalid={timeError ? true : undefined}
+                        aria-describedby={timeError ? `${titleId}-time-error` : undefined}
+                        onChange={(event) => { setTimeError(null); setFormData({ ...formData, end_time: event.target.value }) }}
                         className="w-full rounded-lg border border-neutral-warm px-3 py-2 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                         required
                       />
                     </div>
                   )}
                 </div>
+                {timeError && <p id={`${titleId}-time-error`} className="-mt-2 text-sm font-semibold text-red-700">Start and end time: {timeError}</p>}
 
                 {isActiveClockEntry ? (
                   <div className="rounded-lg bg-neutral-warm/30 p-3 text-sm text-primary-dark">
@@ -675,25 +712,30 @@ export default function EditTimeEntryModal({
                     <label className="mb-1 block text-sm font-semibold text-amber-900" htmlFor="time-entry-correction-reason">
                       Correction reason *
                     </label>
-                    <p className="mb-2 text-xs leading-relaxed text-amber-800">
+                    <p id={`${titleId}-reason-hint`} className="mb-2 text-xs leading-relaxed text-amber-800">
                       Explain what changed and why. Prior payroll evidence stays unchanged; affected exports are marked stale{exportReferences.length > 0 ? ` (${exportReferences.join(', ')})` : ''} and this action is recorded in the activity history.
                     </p>
                     <textarea
                       id="time-entry-correction-reason"
                       value={correctionReason}
-                      onChange={(event) => setCorrectionReason(event.target.value)}
+                      onChange={(event) => { setReasonError(null); setCorrectionReason(event.target.value) }}
                       rows={3}
-                      required
+                      aria-required="true"
+                      aria-invalid={reasonError ? true : undefined}
+                      aria-describedby={`${titleId}-reason-hint${reasonError ? ` ${titleId}-reason-error` : ''}`}
                       autoFocus
-                      className="w-full resize-none rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      className={`w-full resize-none rounded-lg border bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-500 ${reasonError ? 'border-red-500' : 'border-amber-300'}`}
                       placeholder="What changed and why?"
                     />
+                    {reasonError && (
+                      <p id={`${titleId}-reason-error`} className="mt-1.5 text-sm font-semibold text-red-700">Correction reason: {reasonError}</p>
+                    )}
                   </div>
                 )}
                 </fieldset>
 
                 {error && (
-                  <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                  <div role="alert" ref={errorRef} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
                     {error}
                   </div>
                 )}

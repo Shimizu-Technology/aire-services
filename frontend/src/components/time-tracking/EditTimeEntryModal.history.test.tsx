@@ -317,3 +317,97 @@ describe('Edit shift: every way out asks first while edits are unsaved (M2)', ()
     expect(router.state.location.search).toBe('?user_id=9')
   })
 })
+
+describe('Edit shift: a refused save is shown where it can be fixed (item 5)', () => {
+  const scrollIntoView = vi.fn()
+  const refusal = { error: 'This shift is in an exported period. Add a correction reason.', code: 'correction_reason_required', export_references: ['AIRE-PAY-1'] }
+  beforeEach(() => {
+    apiMock.updateTimeEntry.mockReset()
+    apiMock.deleteTimeEntry.mockReset()
+    scrollIntoView.mockClear()
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+    Object.defineProperty(window, 'location', { configurable: true, value: { pathname: '/admin/timecards', search: '', assign: vi.fn() } })
+  })
+  afterEach(() => {
+    cleanup()
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+  })
+  const edit = () => fireEvent.change(screen.getByLabelText(/End Time/), { target: { value: '15:00' } })
+  const reason = () => document.getElementById('time-entry-correction-reason') as HTMLTextAreaElement
+
+  it('scrolls to the reason, focuses it and puts the error beside it', async () => {
+    apiMock.updateTimeEntry.mockResolvedValue(refusal)
+    show()
+    edit()
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    await waitFor(() => expect(reason()).toBeInTheDocument())
+    await waitFor(() => expect(reason()).toHaveFocus())
+    expect(scrollIntoView.mock.contexts.some((node) => node === reason())).toBe(true)
+    expect(reason()).toHaveAttribute('aria-invalid', 'true')
+    expect(reason()).toHaveAccessibleDescription(/Correction reason: This shift is in an exported period\. Add a correction reason\./)
+    expect(screen.getByText(/Correction reason: This shift is in an exported period/)).toBeVisible()
+    expect(screen.getByText(/AIRE-PAY-1/)).toBeInTheDocument()
+  })
+
+  it('does the same from Save and view history, and does not leave the page', async () => {
+    apiMock.updateTimeEntry.mockResolvedValue(refusal)
+    show()
+    edit()
+    fireEvent.click(historyLink())
+    fireEvent.click(screen.getByRole('button', { name: 'Save and view history' }))
+    await waitFor(() => expect(reason()).toHaveFocus())
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(window.location.assign).not.toHaveBeenCalled()
+    expect(reason()).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('asks again without sending anything while the reason is still empty, then saves with it', async () => {
+    apiMock.updateTimeEntry.mockResolvedValueOnce(refusal).mockResolvedValueOnce({ data: { time_entry: {} } })
+    const { onSaved } = show()
+    edit()
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    await waitFor(() => expect(reason()).toHaveFocus())
+    apiMock.updateTimeEntry.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    expect(apiMock.updateTimeEntry).not.toHaveBeenCalled()
+    expect(reason()).toHaveAccessibleDescription(/Explain what changed and why/)
+    fireEvent.change(reason(), { target: { value: 'Paper timesheet shows 3:00 PM' } })
+    expect(reason()).not.toHaveAttribute('aria-invalid')
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(apiMock.updateTimeEntry).toHaveBeenCalledWith(44, { end_time: '15:00' }, 'Paper timesheet shows 3:00 PM')
+  })
+
+  it('shows an overlapping-shift refusal beside the start and end times and focuses them', async () => {
+    apiMock.updateTimeEntry.mockResolvedValue({ error: 'This overlaps Daniel Cruz\'s 7:00 AM shift.', code: 'overlapping_shift' })
+    show()
+    edit()
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    const start = screen.getByLabelText(/Start Time/)
+    await waitFor(() => expect(start).toHaveFocus())
+    expect(start).toHaveAttribute('aria-invalid', 'true')
+    expect(start).toHaveAccessibleDescription(/Start and end time: This overlaps Daniel Cruz's 7:00 AM shift\./)
+    expect(screen.getByLabelText(/End Time/)).toHaveAttribute('aria-invalid', 'true')
+    fireEvent.change(start, { target: { value: '08:00' } })
+    expect(start).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('does the same when a delete is refused for want of a reason', async () => {
+    apiMock.deleteTimeEntry.mockResolvedValue(refusal)
+    show()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete entry' }))
+    await waitFor(() => expect(reason()).toHaveFocus())
+    expect(reason()).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('brings any other refusal into view in the sheet', async () => {
+    apiMock.updateTimeEntry.mockResolvedValue({ error: 'The pay period is locked' })
+    show()
+    edit()
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('The pay period is locked')
+    expect(scrollIntoView.mock.contexts).toContain(alert)
+  })
+})
