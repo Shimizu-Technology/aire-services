@@ -44,6 +44,29 @@ function clockRequest<T>(endpoint: string, body?: object) {
 export const myTimeApi = {
   status: () => clockRequest<ClockStatus>('current_status'),
   categories: () => api.getTimeCategories(),
+  // A supervisor's category list is everyone's work; their own Clock offers
+  // only the work assigned to them, as an employee's does.
+  ownCategories: async (viewerId: number) => {
+    const [categories, people] = await Promise.all([
+      api.getTimeCategories(),
+      api.getUsers(),
+    ])
+    if (!categories.data || !people.data)
+      return {
+        error:
+          categories.error || people.error || "Couldn't load your work types.",
+      }
+    const mine =
+      people.data.users.find((person) => person.id === viewerId)
+        ?.time_category_ids ?? []
+    return {
+      data: {
+        time_categories: categories.data.time_categories.filter((category) =>
+          mine.includes(category.id),
+        ),
+      },
+    }
+  },
   people: () => api.getUsers(),
   entries: (viewerId: number, period: PayPeriod) =>
     timecardsApi.personEntries(viewerId, period),
@@ -53,10 +76,16 @@ export const myTimeApi = {
       { method: 'GET', cache: 'no-store' },
       'The shift check timed out. Nothing was sent. Try again.',
     ),
-  clockIn: (categoryId: number, location?: Parameters<typeof api.clockIn>[3]) =>
+  clockIn: (
+    categoryId: number,
+    location?: Parameters<typeof api.clockIn>[3],
+    override = false,
+  ) =>
     clockRequest<{ time_entry: TimeEntry }>('clock_in', {
       time_category_id: categoryId,
       ...(location ? { location } : {}),
+      // Supervisors only; the API refuses it for anyone else.
+      ...(override ? { admin_override: true } : {}),
     }),
   clockOut: () => clockRequest<{ time_entry: TimeEntry }>('clock_out'),
   startBreak: () => clockRequest<{ time_entry: TimeEntry }>('start_break'),
@@ -127,6 +156,13 @@ export const myTimeApi = {
       description,
     })
   },
+  // Only for time the viewer added that is still waiting; the API checks too.
+  removeShift: (id: number) =>
+    boundedRequest<null>(
+      `/api/v1/time_entries/${id}`,
+      { method: 'DELETE' },
+      "The removal timed out. Check My Hours before trying again.",
+    ),
   leave: async (viewerId: number) => {
     const requests: LeaveRequest[] = []
     for (let page = 1; page <= 20; page += 1) {

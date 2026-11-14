@@ -11,11 +11,11 @@ describe('StatusPill', () => {
     ['needs-fix', 'bg-red-50'],
     ['info', 'bg-sky-50'],
     ['off', 'bg-slate-100'],
-  ])('renders the %s tone with readable 12px text', (tone, background) => {
+  ])('renders the %s tone with 14px text, readable for older eyes', (tone, background) => {
     render(<StatusPill tone={tone}>Waiting on approval</StatusPill>)
     const pill = screen.getByText('Waiting on approval').parentElement!
     expect(pill).toHaveAttribute('data-tone', tone)
-    expect(pill).toHaveClass(background, 'text-caption')
+    expect(pill).toHaveClass(background, 'text-body-sm')
   })
 
   it('keeps the dot or icon decorative so only the label is read', () => {

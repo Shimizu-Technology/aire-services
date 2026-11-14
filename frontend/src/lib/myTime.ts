@@ -3,8 +3,9 @@ import type {
   ClockStatus,
   TimeCategory,
   TimeEntry,
+  UserSummary,
 } from './api'
-import { entrySegments, timecardDays } from './timecards'
+import { entrySegments, guamDate, timecardDays } from './timecards'
 import { addDateDays, businessWeekStart } from './dateUtils'
 import type { PayPeriod } from './payPeriods'
 
@@ -14,6 +15,56 @@ export const OFFLINE_CLOCK =
   "No connection. Your clock-in wasn't sent. Check your signal and tap Clock in again. Nothing is saved until you see 'On the clock'."
 export const OFFLINE_IDLE =
   'No connection. Clock actions are paused; this is your last saved status.'
+export const LOCATION_BLOCKED =
+  'Your phone is blocking location for AIRE. iPhone: Settings → Safari → Location → Allow. Android: Chrome → Site settings → Location. Still stuck? Use the office kiosk, or ask your manager to add your time.'
+
+/** The API's out-of-range refusal, said with a next step. */
+export function clockInRefusal(error: string, place?: string | null) {
+  return /only allowed while you are at/i.test(error)
+    ? `You need to be at ${place || 'AIRE Services Guam'} to clock in. If you're there, step outside for a better signal and try again.`
+    : error
+}
+
+/** Where the clock stands, for the notice after a lost reply. */
+export function clockStatusLine(status: ClockStatus) {
+  if (!status.clocked_in) return "You're off the clock."
+  if (status.active_break && status.active_break_started_at)
+    return `You're on break since ${clockTime(status.active_break_started_at)}.`
+  const since = status.session?.original_clock_in_at ?? status.clock_in_at
+  return since
+    ? `You're on the clock since ${clockTime(since)}.`
+    : "You're on the clock."
+}
+
+/**
+ * When someone who forgot to clock out says they stopped at `time` (HH:MM):
+ * that time on the clock-in's Guam day, or the next morning if it's not after
+ * the clock-in. Null unless it falls between the clock-in and now.
+ */
+export function stoppedAt(clockInAt: string, time: string, now = Date.now()) {
+  if (!/^\d{2}:\d{2}$/.test(time)) return null
+  const start = Date.parse(clockInAt)
+  const day = guamDate(clockInAt)
+  // Guam has no daylight saving: always UTC+10.
+  let stop = Date.parse(`${day}T${time}:00+10:00`)
+  if (stop <= start) stop += 86_400_000
+  return stop > start && stop < now ? new Date(stop) : null
+}
+
+/** First names of the active managers who share the viewer's departments. */
+export function approverNamesFor(people: UserSummary[], viewerId?: number) {
+  const groups =
+    people.find((person) => person.id === viewerId)?.approval_group_keys ?? []
+  return people
+    .filter(
+      (person) =>
+        person.role === 'manager' &&
+        person.is_active &&
+        person.id !== viewerId &&
+        person.approval_group_keys?.some((group) => groups.includes(group)),
+    )
+    .map((person) => person.first_name || person.full_name)
+}
 
 /** Read whole Sunday–Saturday weeks so a period edge never resets overtime. */
 export function weeksAround(period: PayPeriod) {
@@ -218,9 +269,7 @@ export function requestLocation(): Promise<ClockLocationPayload> {
       },
       (error) =>
         fail(
-          error.code === 1
-            ? 'Location access is required to clock in. Allow location in your browser settings and try again.'
-            : LOCATION_TIMEOUT,
+          error.code === 1 ? LOCATION_BLOCKED : LOCATION_TIMEOUT,
         ),
       {
         enableHighAccuracy: true,
