@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { CircleHelp, LogOut, UserRound } from 'lucide-react'
+import { SignedIn, SignedOut, SignInButton, UserButton, useClerk } from '@clerk/clerk-react'
 import { useAuthContext } from '../../contexts/AuthContext'
 import { capabilitiesFor } from '../../lib/roles'
 import { cx } from '../../lib/cx'
+import { Avatar, Menu } from '../ui'
 
 const navigation = [
   { name: 'Home', href: '/' },
@@ -12,6 +14,52 @@ const navigation = [
   { name: 'Careers', href: '/careers' },
   { name: 'Contact', href: '/contact' },
 ]
+
+/** Employee help belongs in the account menu, leaving all five tabs for work. */
+export function AccountButton() {
+  const { userRole } = useAuthContext()
+  if (userRole === 'employee') return <EmployeeAccountMenu />
+  return (
+    <UserButton
+      afterSignOutUrl="/"
+      appearance={{ elements: { avatarBox: 'w-9 h-9' } }}
+    />
+  )
+}
+
+function EmployeeAccountMenu() {
+  const { currentUser } = useAuthContext()
+  const { openUserProfile, signOut } = useClerk()
+  const navigate = useNavigate()
+  return (
+    <Menu
+      label="Account menu"
+      title={currentUser?.full_name ?? 'Account'}
+      icon={<Avatar name={currentUser?.full_name ?? 'Account'} />}
+      className="size-11 rounded-full"
+      items={[
+        {
+          id: 'help',
+          label: 'What can I do?',
+          icon: <CircleHelp />,
+          onSelect: () => navigate('/admin/settings/roles'),
+        },
+        {
+          id: 'account',
+          label: 'Manage account',
+          icon: <UserRound />,
+          onSelect: () => openUserProfile(),
+        },
+        {
+          id: 'sign-out',
+          label: 'Sign out',
+          icon: <LogOut />,
+          onSelect: () => { void signOut({ redirectUrl: '/' }) },
+        },
+      ]}
+    />
+  )
+}
 
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -71,7 +119,7 @@ export default function Header() {
                     </Link>
                   </>
                 )}
-                <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
+                <AccountButton />
               </SignedIn>
             </div>
           )}
@@ -137,7 +185,7 @@ export default function Header() {
                   )}
                   <div className={cx('flex min-h-12 items-center justify-between rounded-2xl border border-slate-200 px-4', !isLoading && isStaff && 'mt-2')}>
                     <span className="text-sm font-medium text-slate-600">Account</span>
-                    <UserButton afterSignOutUrl="/" appearance={{ elements: { avatarBox: 'w-9 h-9' } }} />
+                    <AccountButton />
                   </div>
                 </SignedIn>
               </div>

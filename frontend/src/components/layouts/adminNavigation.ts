@@ -144,7 +144,7 @@ export function navigationGroups({ capabilities, myPayEnabled, schedulesEnabled,
   } else {
     groups.push({
       id: 'main',
-      items: [item.clock, item.myHours, item.leave, ...when(myPayEnabled, item.myPay), ...when(schedulesEnabled, item.schedule), item.whatCanIDo],
+      items: [item.clock, item.myHours, item.leave, ...when(myPayEnabled, item.myPay), ...when(schedulesEnabled, item.schedule)],
     })
   }
 
