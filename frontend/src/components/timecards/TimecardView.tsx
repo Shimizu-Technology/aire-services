@@ -35,6 +35,10 @@ export interface TimecardViewProps {
   refreshKey?: number
   /** After this view saves or deletes a shift. */
   onChanged?: () => void
+  /** A shift to open in Edit shift once work categories are ready (coming back from its history). */
+  reopenEntry?: TimeEntry | null
+  /** Called once reopenEntry has been opened. */
+  onReopened?: () => void
   /** Shows "Log missed time for …" under the days. */
   onLogMissedTime?: () => void
   /** Why Log missed time can't open yet (e.g. a scheduled shift is loading). */
@@ -71,7 +75,7 @@ function futureLine(days: string[]) {
  */
 export function TimecardView({
   person, period, onPeriodChange, categories, focusEntryId = null, lockAt, refreshKey = 0,
-  onChanged, onLogMissedTime, logMissedTimeBlockedReason = null, blockedReason = null, pauseRefresh = false, actions, backLink, hidePerson = false, today: todayProp,
+  onChanged, reopenEntry = null, onReopened, onLogMissedTime, logMissedTimeBlockedReason = null, blockedReason = null, pauseRefresh = false, actions, backLink, hidePerson = false, today: todayProp,
 }: TimecardViewProps) {
   const today = todayProp ?? todayInGuam()
   const readOnly = person.employmentStatus === 'terminated'
@@ -85,6 +89,11 @@ export function TimecardView({
   // The fix the viewer opened or closed for this link; until then a linked forgotten clock shows its fix.
   const [fixChoice, setFixChoice] = useState<{ focus: number | null; id: number | null } | null>(null)
   const scrolledTo = useRef<number | null>(null)
+  useEffect(() => {
+    if (!reopenEntry || blockedReason || categories.length === 0) return
+    setEditing(reopenEntry) // eslint-disable-line react-hooks/set-state-in-effect -- opens the sheet the page asked for
+    onReopened?.()
+  }, [reopenEntry, blockedReason, categories.length, onReopened])
   const { start: periodStart, end: periodEnd } = period
   const requestKey = `${person.id}:${periodStart}:${refreshKey}:${revision}:${tick}`
   // A refresh of the same person and period keeps the days on screen, so the

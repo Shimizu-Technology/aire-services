@@ -104,7 +104,7 @@ describe('Edit shift: viewing history with unsaved changes (M2)', () => {
     expect(href.pathname).toBe('/admin/activity')
     expect(href.searchParams.get('subject_id')).toBe('44')
     expect(href.searchParams.get('shift_person')).toBe('Daniel Cruz')
-    expect(href.searchParams.get('return_to')).toBe('/admin/timecards?user_id=7&period=2026-11-01&entry_id=44')
+    expect(href.searchParams.get('return_to')).toBe('/admin/timecards?user_id=7&period=2026-11-01&entry_id=44&return=edit')
   })
 
   it('asks before leaving, and Keep editing keeps every edit', () => {

@@ -11,6 +11,8 @@ import { Skeleton } from '../../components/ui/Skeleton'
 import type { TimeCategory, UserSummary, WorkerStatus } from '../../lib/api'
 import { timecardsApi, type TimecardSummaryResponse } from '../../lib/api/timecards'
 import { employeeWorkspaceHref, isWithinRoute, safeAdminReturn } from '../../lib/employeeWorkspace'
+import { businessWeekStart } from '../../lib/dateUtils'
+import { SHIFT_GONE_MESSAGE, useShiftReturn } from '../../lib/useShiftReturn'
 import { currentPayPeriod, formatPayPeriod, parsePayPeriodStart, payPeriodContaining, payPeriodIncludes, todayInGuam, type PayPeriod } from '../../lib/payPeriods'
 import { isIsoDate } from '../../lib/payrollPeriods'
 import { buildPeopleRows, formatHours, personName } from '../../lib/timecards'
@@ -56,7 +58,26 @@ export default function Timecards() {
   const view: View = rawView === 'everyone' || (rawView === 'week' && !userId && !entryId) ? 'everyone' : 'person'
   const showEveryone = desktop && view === 'everyone'
   const weekDate = isIsoDate(date) ? date : payPeriodIncludes(period, today) ? today : period.start
+  const returnRequested = searchParams.get('return') === 'edit'
   const returnTo = searchParams.has('return_to') ? safeAdminReturn(searchParams.get('return_to')) : null
+
+  // Back from a shift's history: follow the shift to where it is now (person, pay period or
+  // week), then reopen Edit shift on it. A shift that's gone gets a plain message instead.
+  const shiftReturn = useShiftReturn('entry_id')
+  const returning = shiftReturn.state.status === 'ready' ? shiftReturn.state.entry : null
+  useEffect(() => {
+    if (!returning) return
+    const next = new URLSearchParams(searchParams)
+    next.set('period', payPeriodContaining(returning.work_date).start)
+    if (showEveryone) next.set('date', returning.work_date)
+    else next.set('user_id', String(returning.user.id))
+    // Only move when something differs, so this never races the request being cleared.
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+  }, [returning, showEveryone, searchParams, setSearchParams])
+  const arrived = returning && (showEveryone
+    ? businessWeekStart(weekDate) === businessWeekStart(returning.work_date)
+    : userId === returning.user.id && period.start === payPeriodContaining(returning.work_date).start)
+  const reopenEntry = arrived ? returning : null
 
   const [revision, setRevision] = useState(0)
   const refresh = useCallback(() => setRevision(value => value + 1), [])
@@ -134,7 +155,8 @@ export default function Timecards() {
   // A link to one shift (Who's Working, Today, the person page) opens that
   // person's timecard on the shift's pay period.
   useEffect(() => {
-    if (!entryId) return
+    // Coming back from history has its own, stricter handling above.
+    if (!entryId || returnRequested) return
     let cancelled = false
     void timecardsApi.entry(entryId).then((response) => {
       if (cancelled) return
@@ -152,7 +174,7 @@ export default function Timecards() {
       setLink({ entryId, error: userId && String(userId) !== owner ? "The linked shift isn't on this person's timecard." : null })
     })
     return () => { cancelled = true }
-  }, [entryId, setSearchParams, userId])
+  }, [entryId, returnRequested, setSearchParams, userId])
 
   const update = useCallback((change: (next: URLSearchParams) => void, replace = false) => {
     const next = new URLSearchParams(searchParams)
@@ -282,6 +304,8 @@ export default function Timecards() {
       lockAt={lock}
       refreshKey={revision}
       onChanged={refresh}
+      reopenEntry={showEveryone ? null : reopenEntry}
+      onReopened={shiftReturn.finish}
       onLogMissedTime={desktop ? undefined : () => openLog()}
       actions={menuItems.length > 0 ? <Menu label={`More for ${person.name}`} items={menuItems} /> : undefined}
       backLink={backLink}
@@ -304,6 +328,12 @@ export default function Timecards() {
     <div className="space-y-5">
       <PayrollCutoffNotice />
       <OfflineBanner />
+      {shiftReturn.state.status === 'gone' && (
+        <p role="status" className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface-muted px-4 py-3 text-body-sm text-ink">
+          {SHIFT_GONE_MESSAGE}
+          <Button variant="secondary" size="sm" onClick={shiftReturn.finish}>Dismiss</Button>
+        </p>
+      )}
       {returnTo && (
         <Link to={returnTo} className="inline-flex min-h-11 items-center text-body-sm font-semibold text-primary">
           {isWithinRoute(returnTo, '/admin/pay') ? 'Back to paycheck' : 'Back to employee review'}
@@ -342,6 +372,8 @@ export default function Timecards() {
           onAddEntry={(day) => openLog({ personId: null, workDate: day })}
           addDisabled={!users.list || !!logBlocked}
           blockedReason={categoriesBlocked}
+          reopenEntry={showEveryone ? reopenEntry : null}
+          onReopened={shiftReturn.finish}
         />
       ) : desktop ? (
         <div className="grid grid-cols-[320px_minmax(0,1fr)] items-start gap-6">

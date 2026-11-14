@@ -25,6 +25,9 @@ interface ApprovalQueueProps {
     | { mode: 'through'; throughDate: string }
   onUpdate?: () => void
   canDeleteEntry?: (entry: TimeEntry) => boolean
+  /** A shift to open in Edit shift (coming back from its history), whatever this list is filtered to. */
+  reopenEntry?: TimeEntry | null
+  onReopened?: () => void
 }
 
 type DateMode = 'all' | 'exact' | 'range' | 'through' | 'since'
@@ -267,7 +270,7 @@ function approveLabel(entry: TimeEntry) {
   return entry.approval_status === 'pending' ? `Approve time + ${hours.toFixed(2)} OT` : `Approve ${hours.toFixed(2)} OT`
 }
 
-export default function ApprovalQueue({ canManageTeamTime = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry }: ApprovalQueueProps) {
+export default function ApprovalQueue({ canManageTeamTime = false, approvalGroups, approvalGroupsLoaded, initialDateFilter, onUpdate, canDeleteEntry, reopenEntry = null, onReopened }: ApprovalQueueProps) {
   const [confirm, confirmDialog] = useConfirm()
   const { currentUser } = useAuthContext()
   const [allEntries, setAllEntries] = useState<TimeEntry[]>([])
@@ -307,6 +310,11 @@ export default function ApprovalQueue({ canManageTeamTime = false, approvalGroup
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set())
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('aire_pending_approvals_collapsed') === 'true')
+  useEffect(() => {
+    if (!reopenEntry || categories.length === 0) return
+    setEditingEntry(reopenEntry)
+    onReopened?.()
+  }, [reopenEntry, categories.length, onReopened])
   const fetchGenerationRef = useRef(0)
   const routedDateMode = initialDateFilter?.mode
   const routedStartDate = initialDateFilter?.mode === 'range' ? initialDateFilter.startDate : undefined
